@@ -131,6 +131,7 @@ Web UI 支持：
   - 支持输入 `/` 查看 Skills 提示
   - 支持 `/技能名 任务描述` 指定优先使用的 Skill
   - 支持通过 `ASSISTANT_ANTHROPIC_BASE_URL` 自定义 Claude API Base URL
+  - 当使用自定义 Base URL 时，需同时配置 `ASSISTANT_ANTHROPIC_AUTH_TOKEN`
 
 ## 项目结构
 

@@ -81,6 +81,9 @@ class AssistantService:
             ),
         ).strip()
         self.sdk_base_url = os.environ.get("ASSISTANT_ANTHROPIC_BASE_URL", "").strip()
+        self.sdk_auth_token = os.environ.get(
+            "ASSISTANT_ANTHROPIC_AUTH_TOKEN", ""
+        ).strip()
         self.stream_registry = StreamRequestRegistry()
         self.stream_heartbeat_seconds = self._parse_int_env(
             "ASSISTANT_STREAM_HEARTBEAT_SECONDS", default=20
@@ -525,6 +528,12 @@ class AssistantService:
     def _apply_sdk_network_env(self) -> None:
         if self.sdk_base_url:
             os.environ["ANTHROPIC_BASE_URL"] = self.sdk_base_url
+            if not self.sdk_auth_token:
+                raise RuntimeError(
+                    "已设置 ASSISTANT_ANTHROPIC_BASE_URL，但缺少 "
+                    "ASSISTANT_ANTHROPIC_AUTH_TOKEN。"
+                )
+            os.environ["ANTHROPIC_AUTH_TOKEN"] = self.sdk_auth_token
 
     def _build_sdk_prompt(self, session: AgentSession, user_text: str) -> str:
         project = self.pm.load_project(session.project_name)
