@@ -2,7 +2,7 @@
 视频项目管理 WebUI - FastAPI 主应用
 
 启动方式:
-    cd cc-novel2video
+    cd cc-novel2video-v2
     uv run uvicorn webui.server.app:app --reload --port 8080
 """
 
@@ -16,7 +16,7 @@ sys.path.insert(0, str(project_root))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from webui.server.routers import (
     assistant,
@@ -55,16 +55,33 @@ app.include_router(versions.router, prefix="/api/v1", tags=["版本管理"])
 app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
 app.include_router(assistant.router, prefix="/api/v1", tags=["助手会话"])
 
-# 静态文件服务 - 前端页面
-webui_dir = Path(__file__).parent.parent
-app.mount("/js", StaticFiles(directory=webui_dir / "js"), name="js")
-app.mount("/css", StaticFiles(directory=webui_dir / "css"), name="css")
+# 前端构建产物目录（Vite）
+frontend_dir = project_root / "frontend"
+frontend_dist_dir = frontend_dir / "dist"
+frontend_assets_dir = frontend_dist_dir / "assets"
+frontend_index_file = frontend_dist_dir / "index.html"
+
+if frontend_assets_dir.exists():
+    app.mount("/assets", StaticFiles(directory=frontend_assets_dir), name="frontend-assets")
+
+
+def _serve_frontend_index():
+    if frontend_index_file.exists():
+        return FileResponse(frontend_index_file)
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": (
+                "Frontend build not found. Run: cd frontend && npm install && npm run build"
+            )
+        },
+    )
 
 
 @app.get("/", include_in_schema=False)
 async def serve_root():
     """服务 React 前端入口"""
-    return FileResponse(webui_dir / "app.html")
+    return _serve_frontend_index()
 
 
 @app.get("/app", include_in_schema=False)
@@ -72,7 +89,7 @@ async def serve_root():
 @app.get("/app/{subpath:path}", include_in_schema=False)
 async def serve_dashboard(subpath: str = ""):
     """服务 React 前端入口"""
-    return FileResponse(webui_dir / "app.html")
+    return _serve_frontend_index()
 
 
 @app.get("/health")

@@ -287,10 +287,16 @@ Web UI 提供可视化界面，方便管理项目和预览素材。
 **启动 Web UI：**
 
 ```bash
-python -m uvicorn webui.server.app:app --reload --port 8080
+# 终端 1：启动后端
+uv run uvicorn webui.server.app:app --reload --port 8080
+
+# 终端 2：启动前端
+cd frontend
+npm install
+npm run dev
 ```
 
-在浏览器中打开 http://localhost:8080
+在浏览器中打开 http://localhost:5173
 
 **Web UI 功能：**
 

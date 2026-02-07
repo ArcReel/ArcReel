@@ -47,6 +47,11 @@ service-account.json
 # Local Codex runtime metadata
 .codex/
 
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
 # Git backup
 .git.backup
 

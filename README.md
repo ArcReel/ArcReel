@@ -43,6 +43,7 @@
 
 - **Python 3.10+** - 运行脚本所需（[下载地址](https://www.python.org/downloads/)）
 - **uv** - Python 包与环境管理工具（[安装文档](https://docs.astral.sh/uv/)）
+- **Node.js 18+** - 运行 React 前端开发服务（[下载地址](https://nodejs.org/)）
 - **Claude Code** - 命令行 AI 助手（[使用指南](https://docs.anthropic.com/claude-code)）
 - **Anthropic API 密钥** - 用于 Claude Agent SDK（设置 `ANTHROPIC_API_KEY`）
 - **ffmpeg** - 视频处理工具（[下载地址](https://ffmpeg.org/download.html)）
@@ -61,7 +62,12 @@ cd cc-novel2video
 # 2. 安装依赖（uv 会自动创建和管理虚拟环境）
 uv sync
 
-# 3. 配置 API 密钥
+# 3. 安装前端依赖
+cd frontend
+npm install
+cd ..
+
+# 4. 配置 API 密钥
 cp .env.example .env
 # 编辑 .env 文件，填入你的 GEMINI_API_KEY 和 ANTHROPIC_API_KEY
 ```
@@ -95,11 +101,25 @@ AI 会引导你完成以下步骤：
 ### 方式二：Web UI（项目管理与进阶操作）
 
 ```bash
-# 启动 Web 服务
+# 终端 1：启动后端 API
 uv run uvicorn webui.server.app:app --reload --port 8080
 
+# 终端 2：启动前端开发服务
+cd frontend
+npm run dev
+
 # 在浏览器中打开
-# http://localhost:8080
+# http://localhost:5173
+```
+
+如果要让后端直接托管前端静态文件：
+
+```bash
+cd frontend
+npm run build
+cd ..
+uv run uvicorn webui.server.app:app --reload --port 8080
+# 然后访问 http://localhost:8080
 ```
 
 Web UI 支持：
@@ -129,10 +149,12 @@ cc-novel2video/
 │       └── manga-workflow/        # 主流程编排
 ├── lib/                  # Python 共享库
 ├── projects/             # 你的视频项目存放处
-├── webui/                # Web UI 界面
-│   ├── server/           # 后端 API 服务
-│   ├── app.html          # React SPA 入口
-│   └── js/react/         # React 前端代码
+├── webui/
+│   └── server/           # FastAPI 后端 API 服务
+├── frontend/             # React + Vite 前端工程
+│   ├── src/              # 前端源码
+│   ├── package.json      # 前端依赖与脚本
+│   └── dist/             # 前端构建产物（可由后端托管）
 ├── .env.example          # 环境变量模板
 ├── CLAUDE.md             # Claude 系统配置
 ├── pyproject.toml        # Python 依赖（uv 主配置）
