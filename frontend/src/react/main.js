@@ -191,6 +191,7 @@ function App() {
             setUsagePage=${setUsagePage}
             usagePageSize=${usagePageSize}
             usageLoading=${usageLoading}
+            pushToast=${pushToast}
         />
     `;
 

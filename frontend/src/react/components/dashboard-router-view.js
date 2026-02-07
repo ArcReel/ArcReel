@@ -46,6 +46,7 @@ export function DashboardRouterView({
     setUsagePage,
     usagePageSize,
     usageLoading,
+    pushToast,
 }) {
     if (route.kind === ROUTE_KIND.PROJECTS) {
         return html`
@@ -80,6 +81,7 @@ export function DashboardRouterView({
                 onDeleteProject=${handleDeleteProject}
                 projectDetailLoading=${projectDetailLoading}
                 currentScripts=${currentScripts}
+                pushToast=${pushToast}
             />
         `;
     }

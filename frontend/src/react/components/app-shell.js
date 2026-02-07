@@ -1,7 +1,7 @@
 import React from "react";
 import htm from "htm";
 
-import { ROUTE_KIND, VIEW_META } from "../constants.js";
+import { PROJECT_TABS, ROUTE_KIND, VIEW_META } from "../constants.js";
 import { cn } from "../utils.js";
 import { IconAssistant, IconProject, IconSpark, IconUsage } from "./icons.js";
 
@@ -20,6 +20,9 @@ export function AppShell({
 }) {
     const fixedViewportLayout =
         route.kind === ROUTE_KIND.ASSISTANT || route.kind === ROUTE_KIND.WORKSPACE;
+    const currentWorkspaceTabLabel =
+        PROJECT_TABS.find((item) => item.key === route.tab)?.label || PROJECT_TABS[0].label;
+    const workspaceTitle = selectedProjectItem?.title || route.projectName || "未选择项目";
 
     return html`
         <div className="app-frame flex">
@@ -88,22 +91,33 @@ export function AppShell({
                 </div>
             </aside>
 
-            <main className="flex-1 h-screen min-h-0 p-4 md:p-7 flex flex-col gap-5 overflow-hidden">
-                <header className="app-panel rounded-2xl px-4 py-4 md:px-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3 shrink-0">
-                    <div>
-                        <h1 className="text-xl md:text-2xl font-semibold app-title">${VIEW_META[dashboardKind].label}</h1>
-                        <p className="mt-1 text-sm text-slate-400">${VIEW_META[dashboardKind].description}</p>
+            <main className="flex-1 h-screen min-h-0 p-3 md:p-4 flex flex-col gap-2 overflow-hidden">
+                <header className="app-panel rounded-xl px-3 py-2 md:px-4 md:py-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2 shrink-0">
+                    <div className="min-w-0">
+                        ${route.kind === ROUTE_KIND.WORKSPACE
+                            ? html`
+                                  <nav className="flex items-center gap-1.5 text-[11px] text-slate-400 overflow-hidden whitespace-nowrap">
+                                      <span className="shrink-0">漫剧项目</span>
+                                      <span className="text-slate-600">/</span>
+                                      <span className="truncate text-slate-200">${workspaceTitle}</span>
+                                      <span className="text-slate-600">/</span>
+                                      <span className="shrink-0 text-neon-300">${currentWorkspaceTabLabel}</span>
+                                  </nav>
+                              `
+                            : html`
+                                  <p className="text-sm font-semibold app-title text-slate-100">${VIEW_META[dashboardKind].label}</p>
+                              `}
                     </div>
 
-                    <div className="md:hidden grid grid-cols-3 gap-2">
-                        <button onClick=${() => onNavigate({ kind: ROUTE_KIND.PROJECTS })} className=${cn("h-9 rounded-lg text-xs", route.kind === ROUTE_KIND.PROJECTS || route.kind === ROUTE_KIND.WORKSPACE ? "bg-neon-500/20 text-neon-300" : "bg-white/5 text-slate-300")}>项目</button>
-                        <button onClick=${() => onNavigate({ kind: ROUTE_KIND.ASSISTANT })} className=${cn("h-9 rounded-lg text-xs", route.kind === ROUTE_KIND.ASSISTANT ? "bg-neon-500/20 text-neon-300" : "bg-white/5 text-slate-300")}>对话</button>
-                        <button onClick=${() => onNavigate({ kind: ROUTE_KIND.USAGE })} className=${cn("h-9 rounded-lg text-xs", route.kind === ROUTE_KIND.USAGE ? "bg-neon-500/20 text-neon-300" : "bg-white/5 text-slate-300")}>费用</button>
+                    <div className="md:hidden grid grid-cols-3 gap-1.5">
+                        <button onClick=${() => onNavigate({ kind: ROUTE_KIND.PROJECTS })} className=${cn("h-8 rounded-lg text-[11px]", route.kind === ROUTE_KIND.PROJECTS || route.kind === ROUTE_KIND.WORKSPACE ? "bg-neon-500/20 text-neon-300" : "bg-white/5 text-slate-300")}>项目</button>
+                        <button onClick=${() => onNavigate({ kind: ROUTE_KIND.ASSISTANT })} className=${cn("h-8 rounded-lg text-[11px]", route.kind === ROUTE_KIND.ASSISTANT ? "bg-neon-500/20 text-neon-300" : "bg-white/5 text-slate-300")}>对话</button>
+                        <button onClick=${() => onNavigate({ kind: ROUTE_KIND.USAGE })} className=${cn("h-8 rounded-lg text-[11px]", route.kind === ROUTE_KIND.USAGE ? "bg-neon-500/20 text-neon-300" : "bg-white/5 text-slate-300")}>费用</button>
                     </div>
 
                     <div className="hidden md:flex items-center gap-2">
                         ${headerActions}
-                        <span className="px-2 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-slate-400">${selectedProjectItem ? `当前：${selectedProjectItem.title || selectedProjectItem.name}` : "未选择项目"}</span>
+                        <span className="px-2 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] text-slate-400">${selectedProjectItem ? `当前：${selectedProjectItem.title || selectedProjectItem.name}` : "未选择项目"}</span>
                     </div>
                 </header>
 

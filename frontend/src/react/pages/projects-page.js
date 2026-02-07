@@ -72,9 +72,9 @@ export function ProjectsPage({
     onShowCreate,
 }) {
     return html`
-        <div className="space-y-5">
-            <${Card} className="app-grid-bg overflow-hidden">
-                <div className="relative z-10 flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-3">
+            <${Card} className="app-grid-bg overflow-hidden p-3">
+                <div className="relative z-10 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                         <${Button} variant="outline" onClick=${onRefreshProjects}>刷新<//>
                         <${Button} onClick=${onShowCreate}>新建漫剧项目<//>
@@ -84,7 +84,7 @@ export function ProjectsPage({
                               <select
                                   value=${selectedProject || projects[0].name}
                                   onChange=${(event) => onSelectProject(event.target.value)}
-                                  className="h-10 rounded-xl border border-white/15 bg-ink-900/70 px-3 text-sm"
+                                  className="h-8 rounded-lg border border-white/15 bg-ink-900/70 px-2 text-xs"
                               >
                                   ${projects.map(
                                       (project) => html`<option key=${project.name} value=${project.name}>${project.title || project.name}</option>`

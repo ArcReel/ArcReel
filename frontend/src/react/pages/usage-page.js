@@ -21,8 +21,8 @@ export function UsagePage({
     const totalPages = Math.max(1, Math.ceil(usageTotal / usagePageSize));
 
     return html`
-        <div className="space-y-5">
-            <${Card}>
+        <div className="space-y-3">
+            <${Card} className="p-3">
                 <div className="grid lg:grid-cols-5 md:grid-cols-3 gap-3">
                     <label className="text-sm text-slate-300 flex flex-col gap-2">
                         项目
@@ -32,7 +32,7 @@ export function UsagePage({
                                 setUsagePage(1);
                                 setUsageFilters((previous) => ({ ...previous, projectName: event.target.value }));
                             }}
-                            className="h-10 rounded-xl border border-white/15 bg-ink-900/70 px-3"
+                            className="h-8 rounded-lg border border-white/15 bg-ink-900/70 px-2 text-xs"
                         >
                             <option value="">全部项目</option>
                             ${usageProjects.map((projectName) => html`
@@ -49,7 +49,7 @@ export function UsagePage({
                                 setUsagePage(1);
                                 setUsageFilters((previous) => ({ ...previous, callType: event.target.value }));
                             }}
-                            className="h-10 rounded-xl border border-white/15 bg-ink-900/70 px-3"
+                            className="h-8 rounded-lg border border-white/15 bg-ink-900/70 px-2 text-xs"
                         >
                             <option value="">全部</option>
                             <option value="image">图片</option>
@@ -65,7 +65,7 @@ export function UsagePage({
                                 setUsagePage(1);
                                 setUsageFilters((previous) => ({ ...previous, status: event.target.value }));
                             }}
-                            className="h-10 rounded-xl border border-white/15 bg-ink-900/70 px-3"
+                            className="h-8 rounded-lg border border-white/15 bg-ink-900/70 px-2 text-xs"
                         >
                             <option value="">全部</option>
                             <option value="success">成功</option>
@@ -82,7 +82,7 @@ export function UsagePage({
                                 setUsagePage(1);
                                 setUsageFilters((previous) => ({ ...previous, startDate: event.target.value }));
                             }}
-                            className="h-10 rounded-xl border border-white/15 bg-ink-900/70 px-3"
+                            className="h-8 rounded-lg border border-white/15 bg-ink-900/70 px-2 text-xs"
                         />
                     </label>
 
@@ -95,7 +95,7 @@ export function UsagePage({
                                 setUsagePage(1);
                                 setUsageFilters((previous) => ({ ...previous, endDate: event.target.value }));
                             }}
-                            className="h-10 rounded-xl border border-white/15 bg-ink-900/70 px-3"
+                            className="h-8 rounded-lg border border-white/15 bg-ink-900/70 px-2 text-xs"
                         />
                     </label>
                 </div>

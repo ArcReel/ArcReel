@@ -84,6 +84,7 @@ class AssistantService:
         self.sdk_auth_token = os.environ.get(
             "ASSISTANT_ANTHROPIC_AUTH_TOKEN", ""
         ).strip()
+        self.sdk_cli_path = os.environ.get("ASSISTANT_CLAUDE_CLI_PATH", "").strip()
         self.stream_registry = StreamRequestRegistry()
         self.stream_heartbeat_seconds = self._parse_int_env(
             "ASSISTANT_STREAM_HEARTBEAT_SECONDS", default=20
@@ -294,9 +295,10 @@ class AssistantService:
                     on_delta=lambda chunk: stream_request.emit("delta", {"text": chunk}),
                 )
             except Exception as exc:
+                error_detail = self._format_sdk_error(exc)
                 fallback_text = (
                     "Claude Agent SDK 调用失败，已切换到基础回复。\n"
-                    f"失败原因：{exc}"
+                    f"失败原因：{error_detail}"
                 )
                 await self._emit_delta_chunks(stream_request, fallback_text)
                 return AssistantReply(
@@ -304,7 +306,7 @@ class AssistantService:
                     action={
                         "mode": "claude_agent_sdk",
                         "success": False,
-                        "error": str(exc),
+                        "error": error_detail,
                     },
                 )
 
@@ -401,16 +403,17 @@ class AssistantService:
             try:
                 return await self._reply_with_claude_sdk(session, text)
             except Exception as exc:
+                error_detail = self._format_sdk_error(exc)
                 fallback_text = (
                     "Claude Agent SDK 调用失败，已切换到基础回复。\n"
-                    f"失败原因：{exc}"
+                    f"失败原因：{error_detail}"
                 )
                 return AssistantReply(
                     text=fallback_text,
                     action={
                         "mode": "claude_agent_sdk",
                         "success": False,
-                        "error": str(exc),
+                        "error": error_detail,
                     },
                 )
 
@@ -518,12 +521,20 @@ class AssistantService:
 
         return ClaudeAgentOptions(
             cwd=str(self.project_root),
+            cli_path=self.sdk_cli_path or None,
             setting_sources=self.sdk_setting_sources,
             allowed_tools=self.sdk_allowed_tools,
             max_turns=self.sdk_max_turns,
             system_prompt=self.sdk_system_prompt,
             include_partial_messages=True,
         )
+
+    @staticmethod
+    def _format_sdk_error(exc: Exception) -> str:
+        message = str(exc).strip()
+        if message:
+            return message
+        return f"{type(exc).__name__}: {repr(exc)}"
 
     def _apply_sdk_network_env(self) -> None:
         if self.sdk_base_url:

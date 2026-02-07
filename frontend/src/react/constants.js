@@ -10,7 +10,7 @@ export const DEFAULT_TAB = "overview";
 
 export const PROJECT_TABS = [
     { key: "overview", label: "概览" },
-    { key: "tasks", label: "任务" },
+    { key: "tasks", label: "人物" },
     { key: "clues", label: "线索" },
     { key: "episodes", label: "剧集/场景" },
 ];

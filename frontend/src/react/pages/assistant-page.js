@@ -181,8 +181,8 @@ export function AssistantPage({
     messageArea,
 }) {
     return html`
-        <div className="h-full min-h-0 grid grid-cols-1 grid-rows-[260px_minmax(0,1fr)] lg:grid-rows-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-4 overflow-hidden">
-            <${Card} className="min-h-0 flex flex-col gap-3 overflow-hidden">
+        <div className="h-full min-h-0 grid grid-cols-1 grid-rows-[220px_minmax(0,1fr)] lg:grid-rows-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-3 overflow-hidden">
+            <${Card} className="min-h-0 flex flex-col gap-2 overflow-hidden p-3">
                 <div className="flex items-center justify-between">
                     <h3 className="font-semibold">会话列表</h3>
                     <${Button} size="sm" onClick=${onCreateSession}>新建<//>
@@ -193,7 +193,7 @@ export function AssistantPage({
                     <select
                         value=${currentAssistantProject}
                         onChange=${(event) => onAssistantScopeChange(event.target.value)}
-                        className="mt-1 w-full h-10 rounded-xl border border-white/15 bg-ink-900/70 px-3 text-slate-100"
+                        className="mt-1 w-full h-8 rounded-lg border border-white/15 bg-ink-900/70 px-2 text-xs text-slate-100"
                     >
                         <option value="">全部项目</option>
                         ${projects.map((project) => html`
