@@ -131,8 +131,7 @@ async def stream_tasks(
             "generated_at": _utc_now_iso(),
         }
         yield _format_sse("snapshot", snapshot)
-        if not resume_requested:
-            cursor = snapshot_last_event_id
+        cursor = snapshot_last_event_id
 
         last_heartbeat = time.monotonic()
         while True:
