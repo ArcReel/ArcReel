@@ -31,6 +31,12 @@ from typing import List, Tuple, Optional, Callable, TypeVar, Any
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from lib.generation_queue_client import (
+    TaskFailedError,
+    WorkerOfflineError,
+    enqueue_and_wait,
+    is_worker_online,
+)
 from lib.gemini_client import GeminiClient, RateLimiter
 from lib.media_generator import MediaGenerator
 from lib.project_manager import ProjectManager
@@ -377,6 +383,27 @@ def build_direct_scene_prompt(
     return f"{style_prefix}{image_prompt} 竖屏构图。"
 
 
+def _generate_storyboard_direct_image(
+    *,
+    project_dir: Path,
+    rate_limiter: Optional[Any],
+    prompt: str,
+    resource_id: str,
+    reference_images: Optional[List[Path]],
+    aspect_ratio: str,
+) -> Path:
+    """回退直连生成分镜图。"""
+    generator = MediaGenerator(project_dir, rate_limiter=rate_limiter)
+    output_path, _ = generator.generate_image(
+        prompt=prompt,
+        resource_type="storyboards",
+        resource_id=resource_id,
+        reference_images=reference_images if reference_images else None,
+        aspect_ratio=aspect_ratio
+    )
+    return output_path
+
+
 def generate_individual_scenes(
     project_name: str,
     script_filename: str,
@@ -408,6 +435,7 @@ def generate_individual_scenes(
     pm = ProjectManager()
     project_dir = pm.get_project_path(project_name)
     total_in_grid = len(scenes)
+    queue_worker_online = is_worker_online()
 
     # 获取字段配置
     _, id_field, char_field, clue_field = get_items_from_script(script)
@@ -439,6 +467,10 @@ def generate_individual_scenes(
         return existing_results, []
 
     print(f"📷 并行生成 {len(scenes_to_generate)} 个场景图...")
+    if queue_worker_online:
+        print("🧵 任务模式: 队列入队并等待")
+    else:
+        print("🧵 任务模式: 直连生成（worker 离线）")
 
     # 使用锁保护剧本更新操作（线程安全）
     script_update_lock = threading.Lock()
@@ -446,9 +478,6 @@ def generate_individual_scenes(
     def generate_single_scene(task_data: Tuple[int, dict]) -> Path:
         idx, scene = task_data
         scene_id = scene[id_field]
-
-        # 每个线程创建独立的 generator，共享 rate_limiter
-        generator = MediaGenerator(project_dir, rate_limiter=rate_limiter)
 
         # 收集参考图：多宫格图 + 该场景的人物设计图 + 线索设计图
         reference_images = [grid_image_path]
@@ -474,22 +503,56 @@ def generate_individual_scenes(
         # 构建 prompt（包含宫格位置信息、线索信息和项目风格）
         prompt = build_scene_prompt(scene, characters, idx, total_in_grid, clues, style, id_field, char_field, clue_field)
 
-        # 调用 MediaGenerator（带自动版本管理）
-        output_path, _ = generator.generate_image(
-            prompt=prompt,
-            resource_type="storyboards",
-            resource_id=scene_id,
-            reference_images=reference_images,
-            aspect_ratio=storyboard_aspect_ratio
-        )
-
-        # 更新剧本（线程安全）
-        relative_path = f"storyboards/scene_{scene_id}.png"
-        with script_update_lock:
-            pm.update_scene_asset(
-                project_name, script_filename,
-                scene_id, 'storyboard_image', relative_path
+        if queue_worker_online:
+            try:
+                queued = enqueue_and_wait(
+                    project_name=project_name,
+                    task_type="storyboard",
+                    media_type="image",
+                    resource_id=str(scene_id),
+                    payload={
+                        "prompt": prompt,
+                        "script_file": script_filename,
+                        "extra_reference_images": [str(grid_image_path)],
+                    },
+                    script_file=script_filename,
+                    source="skill",
+                )
+                result = queued.get("result") or {}
+                relative_path = result.get("file_path") or f"storyboards/scene_{scene_id}.png"
+                output_path = project_dir / relative_path
+            except WorkerOfflineError:
+                output_path = _generate_storyboard_direct_image(
+                    project_dir=project_dir,
+                    rate_limiter=rate_limiter,
+                    prompt=prompt,
+                    resource_id=str(scene_id),
+                    reference_images=reference_images,
+                    aspect_ratio=storyboard_aspect_ratio,
+                )
+                relative_path = f"storyboards/scene_{scene_id}.png"
+                with script_update_lock:
+                    pm.update_scene_asset(
+                        project_name, script_filename,
+                        scene_id, 'storyboard_image', relative_path
+                    )
+            except TaskFailedError as exc:
+                raise RuntimeError(f"队列任务失败: {exc}") from exc
+        else:
+            output_path = _generate_storyboard_direct_image(
+                project_dir=project_dir,
+                rate_limiter=rate_limiter,
+                prompt=prompt,
+                resource_id=str(scene_id),
+                reference_images=reference_images,
+                aspect_ratio=storyboard_aspect_ratio,
             )
+            relative_path = f"storyboards/scene_{scene_id}.png"
+            with script_update_lock:
+                pm.update_scene_asset(
+                    project_name, script_filename,
+                    scene_id, 'storyboard_image', relative_path
+                )
 
         return output_path
 
@@ -591,36 +654,71 @@ def generate_storyboard_grid(
     # 构建 prompt（包含线索信息和项目风格）
     prompt = build_grid_prompt(scenes, characters, clues, style, id_field, char_field, clue_field)
 
-    # 生成图片
-    client = GeminiClient(rate_limiter=rate_limiter)
+    queue_worker_online = is_worker_online()
     output_path = project_dir / 'storyboards' / f"grid_{batch_id:03d}.png"
 
     scene_ids = [s[id_field] for s in scenes]
     print(f"🎬 正在生成多宫格分镜图: 批次 {batch_id}")
     print(f"   包含场景: {', '.join(scene_ids)}")
+    print("   任务模式: 队列入队并等待" if queue_worker_online else "   任务模式: 直连生成（worker 离线）")
     if all_characters:
         print(f"   参考人物: {', '.join(all_characters)}")
     if all_clues:
         print(f"   参考线索: {', '.join(all_clues)}")
     print(f"\n📝 Prompt:\n{prompt}\n")
 
-    client.generate_image(
-        prompt=prompt,
-        reference_images=reference_images if reference_images else None,
-        aspect_ratio="16:9",  # 多宫格分镜图使用横屏
-        output_path=output_path
-    )
+    if queue_worker_online:
+        try:
+            queued = enqueue_and_wait(
+                project_name=project_name,
+                task_type="storyboard_grid",
+                media_type="image",
+                resource_id=f"batch_{batch_id}",
+                payload={
+                    "script_file": script_filename,
+                    "batch_id": int(batch_id),
+                    "scene_ids": [str(scene_id) for scene_id in scene_ids],
+                },
+                script_file=script_filename,
+                source="skill",
+            )
+            result = queued.get("result") or {}
+            relative_path = result.get("file_path") or f"storyboards/grid_{batch_id:03d}.png"
+            output_path = project_dir / relative_path
+        except WorkerOfflineError:
+            client = GeminiClient(rate_limiter=rate_limiter)
+            client.generate_image(
+                prompt=prompt,
+                reference_images=reference_images if reference_images else None,
+                aspect_ratio="16:9",  # 多宫格分镜图使用横屏
+                output_path=output_path
+            )
+            relative_path = f"storyboards/grid_{batch_id:03d}.png"
+            for scene in scenes:
+                pm.update_scene_asset(
+                    project_name, script_filename,
+                    scene[id_field], 'storyboard_grid', relative_path
+                )
+            print("✅ 剧本已更新 (storyboard_grid)")
+        except TaskFailedError as exc:
+            raise RuntimeError(f"队列任务失败: {exc}") from exc
+    else:
+        client = GeminiClient(rate_limiter=rate_limiter)
+        client.generate_image(
+            prompt=prompt,
+            reference_images=reference_images if reference_images else None,
+            aspect_ratio="16:9",  # 多宫格分镜图使用横屏
+            output_path=output_path
+        )
+        relative_path = f"storyboards/grid_{batch_id:03d}.png"
+        for scene in scenes:
+            pm.update_scene_asset(
+                project_name, script_filename,
+                scene[id_field], 'storyboard_grid', relative_path
+            )
+        print("✅ 剧本已更新 (storyboard_grid)")
 
     print(f"✅ 多宫格分镜图已保存: {output_path}")
-
-    # 更新剧本中每个场景的 storyboard_grid 路径
-    relative_path = f"storyboards/grid_{batch_id:03d}.png"
-    for scene in scenes:
-        pm.update_scene_asset(
-            project_name, script_filename,
-            scene[id_field], 'storyboard_grid', relative_path
-        )
-    print("✅ 剧本已更新 (storyboard_grid)")
 
     # 这一步现在不生成单独场景图
     return output_path, [], []
@@ -924,8 +1022,10 @@ def generate_storyboard_direct(
     style = project_data.get('style', '') if project_data else ''
     style_description = project_data.get('style_description', '') if project_data else ''
     storyboard_aspect_ratio = get_aspect_ratio(project_data, 'storyboard')  # 9:16
+    queue_worker_online = is_worker_online()
 
     print(f"📷 直接生成 {len(segments_to_process)} 个分镜图（无多宫格）...")
+    print("🧵 任务模式: 队列入队并等待" if queue_worker_online else "🧵 任务模式: 直连生成（worker 离线）")
 
     # 使用锁保护剧本更新操作
     script_update_lock = threading.Lock()
@@ -935,9 +1035,6 @@ def generate_storyboard_direct(
 
     def generate_single(segment: dict) -> Path:
         segment_id = segment[id_field]
-
-        # 每个线程创建独立的 generator，共享 rate_limiter
-        generator = MediaGenerator(project_dir, rate_limiter=rate_limiter)
 
         # 收集参考图：仅 character_sheet 和 clue_sheet
         reference_images = []
@@ -964,22 +1061,55 @@ def generate_storyboard_direct(
             id_field, char_field, clue_field
         )
 
-        # 调用 MediaGenerator（带自动版本管理）
-        output_path, _ = generator.generate_image(
-            prompt=prompt,
-            resource_type="storyboards",
-            resource_id=segment_id,
-            reference_images=reference_images if reference_images else None,
-            aspect_ratio=storyboard_aspect_ratio
-        )
-
-        # 更新剧本
-        relative_path = f"storyboards/scene_{segment_id}.png"
-        with script_update_lock:
-            pm.update_scene_asset(
-                project_name, script_filename,
-                segment_id, 'storyboard_image', relative_path
+        if queue_worker_online:
+            try:
+                queued = enqueue_and_wait(
+                    project_name=project_name,
+                    task_type="storyboard",
+                    media_type="image",
+                    resource_id=str(segment_id),
+                    payload={
+                        "prompt": prompt,
+                        "script_file": script_filename,
+                    },
+                    script_file=script_filename,
+                    source="skill",
+                )
+                result = queued.get("result") or {}
+                relative_path = result.get("file_path") or f"storyboards/scene_{segment_id}.png"
+                output_path = project_dir / relative_path
+            except WorkerOfflineError:
+                output_path = _generate_storyboard_direct_image(
+                    project_dir=project_dir,
+                    rate_limiter=rate_limiter,
+                    prompt=prompt,
+                    resource_id=str(segment_id),
+                    reference_images=reference_images,
+                    aspect_ratio=storyboard_aspect_ratio,
+                )
+                relative_path = f"storyboards/scene_{segment_id}.png"
+                with script_update_lock:
+                    pm.update_scene_asset(
+                        project_name, script_filename,
+                        segment_id, 'storyboard_image', relative_path
+                    )
+            except TaskFailedError as exc:
+                raise RuntimeError(f"队列任务失败: {exc}") from exc
+        else:
+            output_path = _generate_storyboard_direct_image(
+                project_dir=project_dir,
+                rate_limiter=rate_limiter,
+                prompt=prompt,
+                resource_id=str(segment_id),
+                reference_images=reference_images,
+                aspect_ratio=storyboard_aspect_ratio,
             )
+            relative_path = f"storyboards/scene_{segment_id}.png"
+            with script_update_lock:
+                pm.update_scene_asset(
+                    project_name, script_filename,
+                    segment_id, 'storyboard_image', relative_path
+                )
 
         return output_path
 

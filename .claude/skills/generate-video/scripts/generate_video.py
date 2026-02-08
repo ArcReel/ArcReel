@@ -30,6 +30,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from lib.generation_queue_client import (
+    TaskFailedError,
+    WorkerOfflineError,
+    enqueue_and_wait,
+    is_worker_online,
+)
 from lib.gemini_client import get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
 from lib.project_manager import ProjectManager
@@ -241,6 +247,29 @@ def run_collect_tasks(tasks: list, task_fn, max_workers: int):
     return successes, failures
 
 
+def _generate_video_direct(
+    *,
+    project_dir: Path,
+    rate_limiter,
+    prompt: str,
+    resource_id: str,
+    storyboard_path: Path,
+    aspect_ratio: str,
+    duration_seconds: str,
+) -> Path:
+    """回退直连生成视频。"""
+    generator = MediaGenerator(project_dir, rate_limiter=rate_limiter)
+    output_path, _, _, _ = generator.generate_video(
+        prompt=prompt,
+        resource_type="videos",
+        resource_id=resource_id,
+        start_image=storyboard_path,
+        aspect_ratio=aspect_ratio,
+        duration_seconds=duration_seconds,
+    )
+    return output_path
+
+
 # ============================================================================
 # Checkpoint 管理
 # ============================================================================
@@ -367,6 +396,7 @@ def generate_episode_video(
     pm = ProjectManager()
     project_dir = pm.get_project_path(project_name)
     rate_limiter = get_shared_rate_limiter()
+    queue_worker_online = is_worker_online()
 
     # 加载剧本和项目配置
     script = pm.load_script(project_name, script_filename)
@@ -396,6 +426,7 @@ def generate_episode_video(
     item_type = "片段" if content_mode == 'narration' else "场景"
     print(f"📋 第 {episode} 集共 {len(episode_items)} 个{item_type}")
     print(f"📐 视频画面比例: {video_aspect_ratio}")
+    print("🧵 任务模式: 队列入队并等待" if queue_worker_online else "🧵 任务模式: 直连生成（worker 离线）")
 
     # 加载或初始化 checkpoint
     completed_scenes = []
@@ -470,25 +501,60 @@ def generate_episode_video(
         prompt = task["prompt"]
         duration_str = task["duration_str"]
 
-        generator = MediaGenerator(project_dir, rate_limiter=rate_limiter)
-
         print(f"    🎥 生成视频（{duration_str}秒）... {item_id}")
-        video_output, _, _, _ = generator.generate_video(
-            prompt=prompt,
-            resource_type="videos",
-            resource_id=item_id,
-            start_image=storyboard_path,
-            aspect_ratio=video_aspect_ratio,
-            duration_seconds=duration_str
-        )
 
-        # 更新剧本（线程安全）
-        relative_path = f"videos/scene_{item_id}.mp4"
-        with script_update_lock:
-            pm.update_scene_asset(
-                project_name, script_filename,
-                item_id, 'video_clip', relative_path
+        if queue_worker_online:
+            try:
+                queued = enqueue_and_wait(
+                    project_name=project_name,
+                    task_type="video",
+                    media_type="video",
+                    resource_id=item_id,
+                    payload={
+                        "prompt": prompt,
+                        "script_file": script_filename,
+                        "duration_seconds": int(duration_str),
+                    },
+                    script_file=script_filename,
+                    source="skill",
+                )
+                result = queued.get("result") or {}
+                relative_path = result.get("file_path") or f"videos/scene_{item_id}.mp4"
+                video_output = project_dir / relative_path
+            except WorkerOfflineError:
+                video_output = _generate_video_direct(
+                    project_dir=project_dir,
+                    rate_limiter=rate_limiter,
+                    prompt=prompt,
+                    resource_id=item_id,
+                    storyboard_path=storyboard_path,
+                    aspect_ratio=video_aspect_ratio,
+                    duration_seconds=duration_str,
+                )
+                relative_path = f"videos/scene_{item_id}.mp4"
+                with script_update_lock:
+                    pm.update_scene_asset(
+                        project_name, script_filename,
+                        item_id, 'video_clip', relative_path
+                    )
+            except TaskFailedError as exc:
+                raise RuntimeError(f"队列任务失败: {exc}") from exc
+        else:
+            video_output = _generate_video_direct(
+                project_dir=project_dir,
+                rate_limiter=rate_limiter,
+                prompt=prompt,
+                resource_id=item_id,
+                storyboard_path=storyboard_path,
+                aspect_ratio=video_aspect_ratio,
+                duration_seconds=duration_str,
             )
+            relative_path = f"videos/scene_{item_id}.mp4"
+            with script_update_lock:
+                pm.update_scene_asset(
+                    project_name, script_filename,
+                    item_id, 'video_clip', relative_path
+                )
 
         # 保存 checkpoint（线程安全）
         with checkpoint_lock:
@@ -597,28 +663,63 @@ def generate_scene_video(
     duration = item.get('duration_seconds', default_duration)
     duration_str = validate_duration(duration)
 
-    # 生成视频（带自动版本管理）
-    generator = MediaGenerator(project_dir, rate_limiter=get_shared_rate_limiter())
+    queue_worker_online = is_worker_online()
+    rate_limiter = get_shared_rate_limiter()
 
     print(f"🎬 正在生成视频: 场景/片段 {scene_id}")
     print(f"   画面比例: {video_aspect_ratio}")
     print("   预计等待时间: 1-6 分钟")
+    print("   任务模式: 队列入队并等待" if queue_worker_online else "   任务模式: 直连生成（worker 离线）")
 
-    output_path, _, _, _ = generator.generate_video(
-        prompt=prompt,
-        resource_type="videos",
-        resource_id=scene_id,
-        start_image=storyboard_path,
-        aspect_ratio=video_aspect_ratio,
-        duration_seconds=duration_str
-    )
+    if queue_worker_online:
+        try:
+            queued = enqueue_and_wait(
+                project_name=project_name,
+                task_type="video",
+                media_type="video",
+                resource_id=scene_id,
+                payload={
+                    "prompt": prompt,
+                    "script_file": script_filename,
+                    "duration_seconds": int(duration_str),
+                },
+                script_file=script_filename,
+                source="skill",
+            )
+            result = queued.get("result") or {}
+            relative_path = result.get("file_path") or f"videos/scene_{scene_id}.mp4"
+            output_path = project_dir / relative_path
+        except WorkerOfflineError:
+            output_path = _generate_video_direct(
+                project_dir=project_dir,
+                rate_limiter=rate_limiter,
+                prompt=prompt,
+                resource_id=scene_id,
+                storyboard_path=storyboard_path,
+                aspect_ratio=video_aspect_ratio,
+                duration_seconds=duration_str,
+            )
+            relative_path = f"videos/scene_{scene_id}.mp4"
+            pm.update_scene_asset(project_name, script_filename, scene_id, 'video_clip', relative_path)
+        except TaskFailedError as exc:
+            raise RuntimeError(f"队列任务失败: {exc}") from exc
+    else:
+        output_path = _generate_video_direct(
+            project_dir=project_dir,
+            rate_limiter=rate_limiter,
+            prompt=prompt,
+            resource_id=scene_id,
+            storyboard_path=storyboard_path,
+            aspect_ratio=video_aspect_ratio,
+            duration_seconds=duration_str,
+        )
+        relative_path = f"videos/scene_{scene_id}.mp4"
+        pm.update_scene_asset(project_name, script_filename, scene_id, 'video_clip', relative_path)
 
     print(f"✅ 视频已保存: {output_path}")
 
-    # 更新剧本
-    relative_path = f"videos/scene_{scene_id}.mp4"
-    pm.update_scene_asset(project_name, script_filename, scene_id, 'video_clip', relative_path)
-    print(f"✅ 剧本已更新")
+    if not queue_worker_online:
+        print(f"✅ 剧本已更新")
 
     return output_path
 
@@ -633,6 +734,7 @@ def generate_all_videos(project_name: str, script_filename: str, max_workers: in
     pm = ProjectManager()
     project_dir = pm.get_project_path(project_name)
     rate_limiter = get_shared_rate_limiter()
+    queue_worker_online = is_worker_online()
 
     # 加载剧本和项目配置
     script = pm.load_script(project_name, script_filename)
@@ -660,6 +762,7 @@ def generate_all_videos(project_name: str, script_filename: str, max_workers: in
     print(f"📋 共 {len(pending_items)} 个{item_type}待生成视频")
     print("⚠️  每个视频可能需要 1-6 分钟，请耐心等待")
     print("💡 推荐使用 --episode N 模式生成并自动拼接")
+    print("🧵 任务模式: 队列入队并等待" if queue_worker_online else "🧵 任务模式: 直连生成（worker 离线）")
 
     # 默认时长：说书模式 4 秒，剧集动画模式 8 秒
     default_duration = 4 if content_mode == 'narration' else 8
@@ -705,20 +808,53 @@ def generate_all_videos(project_name: str, script_filename: str, max_workers: in
         prompt = task["prompt"]
         duration_str = task["duration_str"]
 
-        generator = MediaGenerator(project_dir, rate_limiter=rate_limiter)
         print(f"🎥 生成视频（{duration_str}秒）... {item_id}")
-        output_path, _, _, _ = generator.generate_video(
-            prompt=prompt,
-            resource_type="videos",
-            resource_id=item_id,
-            start_image=storyboard_path,
-            aspect_ratio=video_aspect_ratio,
-            duration_seconds=duration_str
-        )
-
-        relative_path = f"videos/scene_{item_id}.mp4"
-        with script_update_lock:
-            pm.update_scene_asset(project_name, script_filename, item_id, 'video_clip', relative_path)
+        if queue_worker_online:
+            try:
+                queued = enqueue_and_wait(
+                    project_name=project_name,
+                    task_type="video",
+                    media_type="video",
+                    resource_id=item_id,
+                    payload={
+                        "prompt": prompt,
+                        "script_file": script_filename,
+                        "duration_seconds": int(duration_str),
+                    },
+                    script_file=script_filename,
+                    source="skill",
+                )
+                result = queued.get("result") or {}
+                relative_path = result.get("file_path") or f"videos/scene_{item_id}.mp4"
+                output_path = project_dir / relative_path
+            except WorkerOfflineError:
+                output_path = _generate_video_direct(
+                    project_dir=project_dir,
+                    rate_limiter=rate_limiter,
+                    prompt=prompt,
+                    resource_id=item_id,
+                    storyboard_path=storyboard_path,
+                    aspect_ratio=video_aspect_ratio,
+                    duration_seconds=duration_str,
+                )
+                relative_path = f"videos/scene_{item_id}.mp4"
+                with script_update_lock:
+                    pm.update_scene_asset(project_name, script_filename, item_id, 'video_clip', relative_path)
+            except TaskFailedError as exc:
+                raise RuntimeError(f"队列任务失败: {exc}") from exc
+        else:
+            output_path = _generate_video_direct(
+                project_dir=project_dir,
+                rate_limiter=rate_limiter,
+                prompt=prompt,
+                resource_id=item_id,
+                storyboard_path=storyboard_path,
+                aspect_ratio=video_aspect_ratio,
+                duration_seconds=duration_str,
+            )
+            relative_path = f"videos/scene_{item_id}.mp4"
+            with script_update_lock:
+                pm.update_scene_asset(project_name, script_filename, item_id, 'video_clip', relative_path)
 
         print(f"✅ 完成: {output_path.name}")
         return output_path
@@ -759,6 +895,7 @@ def generate_selected_videos(
     pm = ProjectManager()
     project_dir = pm.get_project_path(project_name)
     rate_limiter = get_shared_rate_limiter()
+    queue_worker_online = is_worker_online()
 
     # 加载剧本和项目配置
     script = pm.load_script(project_name, script_filename)
@@ -792,6 +929,7 @@ def generate_selected_videos(
     item_type = "片段" if content_mode == 'narration' else "场景"
     print(f"📋 共选择 {len(selected_items)} 个{item_type}")
     print(f"📐 视频画面比例: {video_aspect_ratio}")
+    print("🧵 任务模式: 队列入队并等待" if queue_worker_online else "🧵 任务模式: 直连生成（worker 离线）")
 
     # Checkpoint 管理（使用场景列表的 hash 作为标识）
     scenes_hash = hashlib.md5(','.join(scene_ids).encode()).hexdigest()[:8]
@@ -874,23 +1012,59 @@ def generate_selected_videos(
         prompt = task["prompt"]
         duration_str = task["duration_str"]
 
-        generator = MediaGenerator(project_dir, rate_limiter=rate_limiter)
         print(f"    🎥 生成视频（{duration_str}秒）... {item_id}")
-        video_output, _, _, _ = generator.generate_video(
-            prompt=prompt,
-            resource_type="videos",
-            resource_id=item_id,
-            start_image=storyboard_path,
-            aspect_ratio=video_aspect_ratio,
-            duration_seconds=duration_str
-        )
-
-        relative_path = f"videos/scene_{item_id}.mp4"
-        with script_update_lock:
-            pm.update_scene_asset(
-                project_name, script_filename,
-                item_id, 'video_clip', relative_path
+        if queue_worker_online:
+            try:
+                queued = enqueue_and_wait(
+                    project_name=project_name,
+                    task_type="video",
+                    media_type="video",
+                    resource_id=item_id,
+                    payload={
+                        "prompt": prompt,
+                        "script_file": script_filename,
+                        "duration_seconds": int(duration_str),
+                    },
+                    script_file=script_filename,
+                    source="skill",
+                )
+                result = queued.get("result") or {}
+                relative_path = result.get("file_path") or f"videos/scene_{item_id}.mp4"
+                video_output = project_dir / relative_path
+            except WorkerOfflineError:
+                video_output = _generate_video_direct(
+                    project_dir=project_dir,
+                    rate_limiter=rate_limiter,
+                    prompt=prompt,
+                    resource_id=item_id,
+                    storyboard_path=storyboard_path,
+                    aspect_ratio=video_aspect_ratio,
+                    duration_seconds=duration_str,
+                )
+                relative_path = f"videos/scene_{item_id}.mp4"
+                with script_update_lock:
+                    pm.update_scene_asset(
+                        project_name, script_filename,
+                        item_id, 'video_clip', relative_path
+                    )
+            except TaskFailedError as exc:
+                raise RuntimeError(f"队列任务失败: {exc}") from exc
+        else:
+            video_output = _generate_video_direct(
+                project_dir=project_dir,
+                rate_limiter=rate_limiter,
+                prompt=prompt,
+                resource_id=item_id,
+                storyboard_path=storyboard_path,
+                aspect_ratio=video_aspect_ratio,
+                duration_seconds=duration_str,
             )
+            relative_path = f"videos/scene_{item_id}.mp4"
+            with script_update_lock:
+                pm.update_scene_asset(
+                    project_name, script_filename,
+                    item_id, 'video_clip', relative_path
+                )
 
         with checkpoint_lock:
             completed_scenes.append(item_id)

@@ -328,6 +328,93 @@ class API {
         });
     }
 
+    // ==================== 任务队列 API ====================
+
+    static async getTask(taskId) {
+        return this.request(`/tasks/${encodeURIComponent(taskId)}`);
+    }
+
+    static async listTasks(filters = {}) {
+        const params = new URLSearchParams();
+        if (filters.projectName) params.append('project_name', filters.projectName);
+        if (filters.status) params.append('status', filters.status);
+        if (filters.taskType) params.append('task_type', filters.taskType);
+        if (filters.source) params.append('source', filters.source);
+        if (filters.page) params.append('page', String(filters.page));
+        if (filters.pageSize) params.append('page_size', String(filters.pageSize));
+        const query = params.toString();
+        return this.request(`/tasks${query ? '?' + query : ''}`);
+    }
+
+    static async listProjectTasks(projectName, filters = {}) {
+        const params = new URLSearchParams();
+        if (filters.status) params.append('status', filters.status);
+        if (filters.taskType) params.append('task_type', filters.taskType);
+        if (filters.source) params.append('source', filters.source);
+        if (filters.page) params.append('page', String(filters.page));
+        if (filters.pageSize) params.append('page_size', String(filters.pageSize));
+        const query = params.toString();
+        return this.request(`/projects/${encodeURIComponent(projectName)}/tasks${query ? '?' + query : ''}`);
+    }
+
+    static async getTaskStats(projectName = null) {
+        const params = new URLSearchParams();
+        if (projectName) params.append('project_name', projectName);
+        const query = params.toString();
+        return this.request(`/tasks/stats${query ? '?' + query : ''}`);
+    }
+
+    static openTaskStream(options = {}) {
+        const params = new URLSearchParams();
+        if (options.projectName) params.append('project_name', options.projectName);
+        const parsedLastEventId = Number(options.lastEventId);
+        if (Number.isFinite(parsedLastEventId) && parsedLastEventId > 0) {
+            params.append('last_event_id', String(parsedLastEventId));
+        }
+
+        const query = params.toString();
+        const url = `${API_BASE}/tasks/stream${query ? '?' + query : ''}`;
+        const source = new EventSource(url);
+
+        const parsePayload = (event) => {
+            try {
+                return JSON.parse(event.data || '{}');
+            } catch (err) {
+                console.error('解析 SSE 数据失败:', err, event.data);
+                return null;
+            }
+        };
+
+        source.addEventListener('snapshot', (event) => {
+            const payload = parsePayload(event);
+            if (payload && typeof options.onSnapshot === 'function') {
+                options.onSnapshot(payload, event);
+            }
+        });
+
+        source.addEventListener('task', (event) => {
+            const payload = parsePayload(event);
+            if (payload && typeof options.onTask === 'function') {
+                options.onTask(payload, event);
+            }
+        });
+
+        source.addEventListener('heartbeat', (event) => {
+            const payload = parsePayload(event);
+            if (payload && typeof options.onHeartbeat === 'function') {
+                options.onHeartbeat(payload, event);
+            }
+        });
+
+        source.onerror = (event) => {
+            if (typeof options.onError === 'function') {
+                options.onError(event);
+            }
+        };
+
+        return source;
+    }
+
     // ==================== 版本管理 API ====================
 
     /**

@@ -17,6 +17,12 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+from lib.generation_queue_client import (
+    TaskFailedError,
+    WorkerOfflineError,
+    enqueue_and_wait,
+    is_worker_online,
+)
 from lib.media_generator import MediaGenerator
 from lib.project_manager import ProjectManager
 from lib.prompt_builders import build_character_prompt
@@ -69,12 +75,34 @@ def generate_character(
         character_name, description, style, style_description
     )
 
-    # 生成图片（带自动版本管理）
-    generator = MediaGenerator(project_dir)
-
     print(f"🎨 正在生成人物设计图: {character_name}")
     print(f"   描述: {description[:50]}...")
 
+    # 优先走队列（worker 在线）
+    if is_worker_online():
+        try:
+            queued = enqueue_and_wait(
+                project_name=project_name,
+                task_type="character",
+                media_type="image",
+                resource_id=character_name,
+                payload={"prompt": description},
+                source="skill",
+            )
+            result = queued.get("result") or {}
+            relative_path = result.get("file_path") or f"characters/{character_name}.png"
+            output_path = project_dir / relative_path
+            version = result.get("version")
+            version_text = f" (版本 v{version})" if version is not None else ""
+            print(f"✅ 人物设计图已保存: {output_path}{version_text}")
+            return output_path
+        except WorkerOfflineError:
+            print("ℹ️  未检测到队列 worker，回退直连生成")
+        except TaskFailedError as exc:
+            raise RuntimeError(f"队列任务执行失败: {exc}") from exc
+
+    # 回退直连（保留原有重试与限流链路）
+    generator = MediaGenerator(project_dir)
     output_path, version = generator.generate_image(
         prompt=prompt,
         resource_type="characters",
