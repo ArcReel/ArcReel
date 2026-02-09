@@ -16,9 +16,23 @@ function isToolResultMessage(blocks) {
 }
 
 /**
+ * Check if this is a Skill content message (SKILL.md content injected as user message)
+ */
+function isSkillContentMessage(blocks) {
+    if (!Array.isArray(blocks) || blocks.length === 0) return false;
+    const firstBlock = blocks[0];
+    if (firstBlock.type !== "text" || !firstBlock.text) return false;
+    const text = firstBlock.text.trim();
+    return text.startsWith("Base directory for this skill:") ||
+           text.startsWith("Skill content:") ||
+           (text.includes(".claude/skills/") && text.includes("SKILL.md"));
+}
+
+/**
  * Get the effective message type for display purposes.
  * - Regular user messages (text from user) -> "user"
  * - Tool results (type=user but contains tool_result blocks) -> "tool_result"
+ * - Skill content (type=user but contains skill markdown) -> "skill_content"
  * - Assistant messages -> "assistant"
  * - Result messages -> "result"
  */
@@ -29,6 +43,12 @@ function getEffectiveMessageType(message, blocks) {
     // treat it as a tool_result message for display purposes
     if (rawType === "user" && isToolResultMessage(blocks)) {
         return "tool_result";
+    }
+
+    // If this is a "user" message but contains Skill content,
+    // treat it as skill_content for display purposes
+    if (rawType === "user" && isSkillContentMessage(blocks)) {
+        return "skill_content";
     }
 
     return rawType;
@@ -68,22 +88,34 @@ function normalizeContent(message) {
 }
 
 export function ChatMessage({ message }) {
-    const blocks = normalizeContent(message);
+    let blocks = normalizeContent(message);
     const messageType = getEffectiveMessageType(message, blocks);
 
     // Tool result messages should be rendered differently - not as user messages
     const isUser = messageType === "user";
     const isToolResult = messageType === "tool_result";
+    const isSkillContent = messageType === "skill_content";
 
-    // Skip rendering empty tool_result messages or render them compactly
+    // Skip rendering empty tool_result messages
     if (isToolResult && blocks.length === 0) {
         return null;
     }
 
+    // For skill_content messages, convert text blocks to skill_content blocks
+    // so they render with the collapsible SkillContentBlock component
+    if (isSkillContent) {
+        blocks = blocks.map(block => {
+            if (block.type === "text") {
+                return { ...block, type: "skill_content" };
+            }
+            return block;
+        });
+    }
+
     const containerClass = isUser
         ? "ml-8 bg-neon-500/15 border-neon-400/25"
-        : isToolResult
-            ? "mr-3 bg-slate-800/30 border-slate-600/20"  // Subtle style for tool results
+        : isToolResult || isSkillContent
+            ? "mr-3 bg-slate-800/30 border-slate-600/20"  // Subtle style for tool/skill results
             : "mr-3 bg-white/5 border-white/10";
 
     return html`
