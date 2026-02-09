@@ -13,6 +13,10 @@ from webui.server.agent_runtime.models import SessionMeta, SessionStatus
 from webui.server.agent_runtime.session_manager import SessionManager, SDK_AVAILABLE
 from webui.server.agent_runtime.session_store import SessionMetaStore
 from webui.server.agent_runtime.transcript_reader import TranscriptReader
+from webui.server.agent_runtime.turn_grouper import (
+    build_turn_patch,
+    group_messages_into_turns,
+)
 
 
 class AssistantService:
@@ -80,6 +84,7 @@ class AssistantService:
         # Disconnect if active
         if session_id in self.session_manager.sessions:
             managed = self.session_manager.sessions[session_id]
+            managed.cancel_pending_questions("session deleted")
             if managed.consumer_task and not managed.consumer_task.done():
                 managed.consumer_task.cancel()
             try:
@@ -112,6 +117,19 @@ class AssistantService:
         await self.session_manager.send_message(session_id, text)
         return {"status": "accepted", "session_id": session_id}
 
+    async def answer_user_question(
+        self,
+        session_id: str,
+        question_id: str,
+        answers: dict[str, str],
+    ) -> dict[str, Any]:
+        """Submit answers for a pending AskUserQuestion."""
+        meta = self.meta_store.get(session_id)
+        if meta is None:
+            raise FileNotFoundError(f"session not found: {session_id}")
+        await self.session_manager.answer_user_question(session_id, question_id, answers)
+        return {"status": "accepted", "session_id": session_id, "question_id": question_id}
+
     # ==================== Streaming ====================
 
     async def stream_events(self, session_id: str) -> AsyncIterator[str]:
@@ -120,14 +138,27 @@ class AssistantService:
         if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
 
-        # Check if session is completed - return empty stream
+        # Completed sessions only emit final snapshot + status.
         status = self.session_manager.get_status(session_id)
         if status in ("completed", "error"):
+            turns = self.transcript_reader.read_messages(session_id, meta.sdk_session_id)
+            yield self._sse_event("turn_snapshot", {"turns": turns})
             yield self._sse_event("status", {"status": status})
             return
 
-        # Subscribe to live messages
-        queue = await self.session_manager.subscribe(session_id)
+        raw_messages = self._merge_raw_messages(
+            self.transcript_reader.read_raw_messages(session_id, meta.sdk_session_id),
+            await self.session_manager.get_message_buffer_snapshot(session_id),
+        )
+        current_turns = group_messages_into_turns(raw_messages)
+        yield self._sse_event("turn_snapshot", {"turns": current_turns})
+        pending_questions = await self.session_manager.get_pending_questions_snapshot(session_id)
+        for pending in pending_questions:
+            if isinstance(pending, dict):
+                yield self._sse_event("message", pending)
+
+        # Snapshot already includes buffer; new subscriber only needs future messages.
+        queue = await self.session_manager.subscribe(session_id, replay_buffer=False)
         try:
             while True:
                 try:
@@ -135,11 +166,24 @@ class AssistantService:
                         queue.get(),
                         timeout=self.stream_heartbeat_seconds
                     )
+
+                    # Backward compatibility for old clients.
                     yield self._sse_event("message", message)
 
-                    # Check for completion
+                    if self._is_groupable_message(message):
+                        raw_messages.append(message)
+                        next_turns = group_messages_into_turns(raw_messages)
+                        patch = build_turn_patch(current_turns, next_turns)
+                        if patch:
+                            yield self._sse_event("turn_patch", patch)
+                        current_turns = next_turns
+
                     msg_type = message.get("type", "")
                     if msg_type == "result":
+                        final_status = (
+                            "completed" if message.get("subtype") == "success" else "error"
+                        )
+                        yield self._sse_event("status", {"status": final_status})
                         break
                 except asyncio.TimeoutError:
                     yield self._sse_event("ping", {"ts": asyncio.get_event_loop().time()})
@@ -153,6 +197,39 @@ class AssistantService:
         """Format SSE event."""
         json_data = json.dumps(data, ensure_ascii=False)
         return f"event: {event}\ndata: {json_data}\n\n"
+
+    @staticmethod
+    def _is_groupable_message(message: dict[str, Any]) -> bool:
+        """Only user/assistant/result messages are grouped into turns."""
+        if not isinstance(message, dict):
+            return False
+        return message.get("type", "") in {"user", "assistant", "result"}
+
+    @staticmethod
+    def _message_key(message: dict[str, Any]) -> str:
+        """Build dedupe key for raw messages merged from transcript and memory buffer."""
+        uuid = message.get("uuid")
+        if uuid:
+            return f"uuid:{uuid}"
+        return json.dumps(message, sort_keys=True, ensure_ascii=False)
+
+    def _merge_raw_messages(
+        self,
+        history_raw: list[dict[str, Any]],
+        buffered_raw: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Merge transcript raw messages with in-memory buffer, preserving order."""
+        merged = list(history_raw or [])
+        seen_keys = {self._message_key(msg) for msg in merged if isinstance(msg, dict)}
+        for msg in buffered_raw or []:
+            if not isinstance(msg, dict):
+                continue
+            key = self._message_key(msg)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            merged.append(msg)
+        return merged
 
     # ==================== Lifecycle ====================
 

@@ -26,6 +26,10 @@ class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1)
 
 
+class AnswerQuestionRequest(BaseModel):
+    answers: dict[str, str] = Field(default_factory=dict)
+
+
 class UpdateSessionRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
 
@@ -113,6 +117,25 @@ async def list_messages(session_id: str):
 async def send_message(session_id: str, req: SendMessageRequest):
     try:
         result = await assistant_service.send_message(session_id, req.content)
+        return result
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/sessions/{session_id}/questions/{question_id}/answer")
+async def answer_question(session_id: str, question_id: str, req: AnswerQuestionRequest):
+    if not req.answers:
+        raise HTTPException(status_code=400, detail="answers 不能为空")
+    try:
+        result = await assistant_service.answer_user_question(
+            session_id=session_id,
+            question_id=question_id,
+            answers=req.answers,
+        )
         return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")

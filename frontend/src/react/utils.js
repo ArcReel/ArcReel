@@ -58,5 +58,8 @@ export function getRoleLabel(role) {
     if (role === "tool_result") return "工具结果";
     if (role === "skill_content") return "Skill";
     if (role === "result") return "完成";
+    if (role === "system") return "系统";
+    if (role === "stream_event") return "流式更新";
+    if (role === "unknown") return "消息";
     return role || "消息";
 }

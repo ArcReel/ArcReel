@@ -522,6 +522,16 @@ class API {
         });
     }
 
+    static async answerAssistantQuestion(sessionId, questionId, answers) {
+        return this.request(
+            `/assistant/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(questionId)}/answer`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ answers }),
+            }
+        );
+    }
+
     static getAssistantStreamUrl(sessionId) {
         return `${API_BASE}/assistant/sessions/${encodeURIComponent(sessionId)}/stream`;
     }

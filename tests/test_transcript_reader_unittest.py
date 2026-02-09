@@ -185,6 +185,69 @@ class TestTranscriptReader(unittest.TestCase):
             self.assertEqual(tool_use["name"], "Read")
             self.assertEqual(tool_use["result"], "File contents here")
 
+    def test_tool_use_result_without_type_pairing(self):
+        """Test tool_use_result payloads without explicit type are paired correctly."""
+        with TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            project_root = tmppath / "project"
+            project_root.mkdir()
+
+            encoded_path = str(project_root).replace("/", "-")
+            claude_dir = tmppath / ".claude" / "projects" / encoded_path
+            claude_dir.mkdir(parents=True)
+
+            sdk_session_id = "tool-result-plain-session"
+            transcript_file = claude_dir / f"{sdk_session_id}.jsonl"
+
+            entries = [
+                {
+                    "type": "user",
+                    "message": {"content": "Run Read tool"},
+                    "uuid": "user-plain-1",
+                },
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "tool-plain-123",
+                                "name": "Read",
+                                "input": {"file_path": "/tmp/plain.txt"},
+                            }
+                        ],
+                    },
+                    "uuid": "assistant-plain-1",
+                },
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {
+                                "tool_use_id": "tool-plain-123",
+                                "content": "plain result text",
+                                "is_error": False,
+                            }
+                        ],
+                    },
+                    "uuid": "tool-result-plain-1",
+                },
+            ]
+
+            with open(transcript_file, "w", encoding="utf-8") as f:
+                for entry in entries:
+                    f.write(json.dumps(entry) + "\n")
+
+            reader = TranscriptReader(tmppath, project_root=project_root)
+            reader._claude_projects_dir = tmppath / ".claude" / "projects"
+
+            turns = reader.read_messages("internal-id", sdk_session_id)
+            self.assertEqual(len(turns), 2)
+            self.assertEqual(turns[1]["type"], "assistant")
+            tool_use = turns[1]["content"][0]
+            self.assertEqual(tool_use["type"], "tool_use")
+            self.assertEqual(tool_use["result"], "plain result text")
+
     def test_skill_content_attached(self):
         """Test that Skill content is attached to Skill tool_use."""
         with TemporaryDirectory() as tmpdir:

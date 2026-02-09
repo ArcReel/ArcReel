@@ -1,6 +1,46 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ROUTE_KIND } from "../constants.js";
+
+function parseSsePayload(event) {
+    if (!event || typeof event.data !== "string" || !event.data) {
+        return {};
+    }
+    try {
+        return JSON.parse(event.data);
+    } catch {
+        return {};
+    }
+}
+
+function applyTurnPatch(previousTurns, patch) {
+    const current = Array.isArray(previousTurns) ? previousTurns : [];
+    if (!patch || typeof patch !== "object") {
+        return current;
+    }
+
+    const op = patch.op;
+    if (op === "reset") {
+        return Array.isArray(patch.turns) ? patch.turns : [];
+    }
+    if (op === "append") {
+        if (!patch.turn || typeof patch.turn !== "object") {
+            return current;
+        }
+        return [...current, patch.turn];
+    }
+    if (op === "replace_last") {
+        if (!patch.turn || typeof patch.turn !== "object") {
+            return current;
+        }
+        if (current.length === 0) {
+            return [patch.turn];
+        }
+        return [...current.slice(0, -1), patch.turn];
+    }
+
+    return current;
+}
 
 export function useAssistantState({
     initialProjectName,
@@ -18,8 +58,9 @@ export function useAssistantState({
     const [assistantMessagesLoading, setAssistantMessagesLoading] = useState(false);
     const [assistantInput, setAssistantInput] = useState("");
     const [assistantSending, setAssistantSending] = useState(false);
-    const [assistantStreamingMessage, setAssistantStreamingMessage] = useState(null);
     const [assistantError, setAssistantError] = useState("");
+    const [assistantPendingQuestion, setAssistantPendingQuestion] = useState(null);
+    const [assistantAnsweringQuestion, setAssistantAnsweringQuestion] = useState(false);
     const [assistantSkills, setAssistantSkills] = useState([]);
     const [assistantSkillsLoading, setAssistantSkillsLoading] = useState(false);
     const [assistantRefreshToken, setAssistantRefreshToken] = useState(0);
@@ -37,18 +78,15 @@ export function useAssistantState({
     const assistantStreamRef = useRef(null);
     const assistantChatScrollRef = useRef(null);
     const reconnectTimeoutRef = useRef(null);
+    const sessionStatusRef = useRef("idle");
 
     const assistantActive = assistantPanelOpen || routeKind === ROUTE_KIND.ASSISTANT;
     const currentAssistantProject = assistantScopeProject || currentProjectName || "";
+    const assistantComposedMessages = assistantMessages;
 
-    // Composed messages: historical + streaming
-    const assistantComposedMessages = useMemo(() => {
-        const base = Array.isArray(assistantMessages) ? [...assistantMessages] : [];
-        if (assistantStreamingMessage) {
-            base.push(assistantStreamingMessage);
-        }
-        return base;
-    }, [assistantMessages, assistantStreamingMessage]);
+    useEffect(() => {
+        sessionStatusRef.current = sessionStatus;
+    }, [sessionStatus]);
 
     // Project scope handling
     useEffect(() => {
@@ -71,7 +109,6 @@ export function useAssistantState({
         }
     }, [assistantPanelOpen, routeKind]);
 
-    // Close stream helper
     const closeActiveStream = useCallback(() => {
         if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);
@@ -85,7 +122,6 @@ export function useAssistantState({
 
     useEffect(() => () => closeActiveStream(), [closeActiveStream]);
 
-    // Load sessions
     const loadAssistantSessions = useCallback(async () => {
         if (!assistantActive) return;
         setAssistantLoadingSessions(true);
@@ -108,7 +144,6 @@ export function useAssistantState({
         void loadAssistantSessions();
     }, [loadAssistantSessions, assistantRefreshToken]);
 
-    // Load skills
     const loadAssistantSkills = useCallback(async () => {
         if (!assistantActive) return;
         setAssistantSkillsLoading(true);
@@ -127,7 +162,6 @@ export function useAssistantState({
         void loadAssistantSkills();
     }, [loadAssistantSkills]);
 
-    // Connect to SSE stream
     const connectStream = useCallback((sessionId) => {
         closeActiveStream();
 
@@ -135,94 +169,116 @@ export function useAssistantState({
         const source = new EventSource(streamUrl);
         assistantStreamRef.current = source;
 
-        source.addEventListener("message", (event) => {
-            try {
-                const message = JSON.parse(event.data);
-                setAssistantMessages((prev) => [...prev, message]);
+        source.addEventListener("turn_snapshot", (event) => {
+            const data = parseSsePayload(event);
+            setAssistantMessages(Array.isArray(data.turns) ? data.turns : []);
+        });
 
-                // Check for result message
-                if (message.type === "result") {
-                    setSessionStatus(message.subtype === "success" ? "completed" : "error");
-                    setAssistantStreamingMessage(null);
-                    setAssistantSending(false);
-                    closeActiveStream();
+        source.addEventListener("turn_patch", (event) => {
+            const patch = parseSsePayload(event);
+            setAssistantMessages((previous) => applyTurnPatch(previous, patch));
+        });
+
+        // Backward compatibility: raw SSE messages are ignored for rendering.
+        source.addEventListener("message", (event) => {
+            const message = parseSsePayload(event);
+            if (message.type === "ask_user_question") {
+                const questions = Array.isArray(message.questions) ? message.questions : [];
+                if (message.question_id && questions.length > 0) {
+                    setAssistantPendingQuestion({
+                        id: message.question_id,
+                        questions,
+                    });
+                    setAssistantAnsweringQuestion(false);
                 }
-            } catch (err) {
-                console.error("Failed to parse SSE message:", err);
+                return;
+            }
+            if (message.type === "result") {
+                const isSuccess = message.subtype === "success";
+                const status = isSuccess ? "completed" : "error";
+                sessionStatusRef.current = status;
+                setSessionStatus(status);
+                setAssistantSending(false);
+                setAssistantPendingQuestion(null);
+                setAssistantAnsweringQuestion(false);
+                closeActiveStream();
             }
         });
 
         source.addEventListener("status", (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                setSessionStatus(data.status);
-                if (data.status === "completed" || data.status === "error") {
-                    closeActiveStream();
-                }
-            } catch (err) {
-                console.error("Failed to parse status event:", err);
+            const data = parseSsePayload(event);
+            const status = data.status;
+            if (!status) return;
+            sessionStatusRef.current = status;
+            setSessionStatus(status);
+            if (status === "completed" || status === "error") {
+                setAssistantSending(false);
+                setAssistantPendingQuestion(null);
+                setAssistantAnsweringQuestion(false);
+                closeActiveStream();
             }
         });
 
         source.addEventListener("ping", () => {
-            // Heartbeat, no action needed
+            // Heartbeat only.
         });
 
         source.onerror = () => {
-            // Reconnect after 3 seconds if session is running
-            if (sessionStatus === "running") {
+            if (sessionStatusRef.current === "running") {
                 reconnectTimeoutRef.current = setTimeout(() => {
                     connectStream(sessionId);
                 }, 3000);
             }
         };
-    }, [closeActiveStream, sessionStatus]);
+    }, [closeActiveStream]);
 
-    // Load messages or connect stream based on status
     const loadOrConnectSession = useCallback(async (sessionId) => {
+        closeActiveStream();
+
         if (!sessionId) {
             setAssistantMessages([]);
             setSessionStatus("idle");
+            sessionStatusRef.current = "idle";
+            setAssistantPendingQuestion(null);
+            setAssistantAnsweringQuestion(false);
             return;
         }
 
         setAssistantMessagesLoading(true);
-        setAssistantStreamingMessage(null);
+        setAssistantMessages([]);
         setAssistantError("");
 
         try {
-            // Get session status
             const session = await window.API.getAssistantSession(sessionId);
             setSessionStatus(session.status);
+            sessionStatusRef.current = session.status;
 
             if (session.status === "running") {
-                // Connect to stream for live updates
                 connectStream(sessionId);
             } else {
-                // Load history from transcript
                 const data = await window.API.listAssistantMessages(sessionId);
-                setAssistantMessages(data.messages || []);
+                setAssistantMessages(Array.isArray(data.messages) ? data.messages : []);
+                setAssistantPendingQuestion(null);
+                setAssistantAnsweringQuestion(false);
             }
         } catch (error) {
             pushToast(`加载消息失败：${error.message}`, "error");
         } finally {
             setAssistantMessagesLoading(false);
         }
-    }, [connectStream, pushToast]);
+    }, [closeActiveStream, connectStream, pushToast]);
 
     useEffect(() => {
         if (!assistantActive) return;
         void loadOrConnectSession(assistantCurrentSessionId);
     }, [assistantActive, assistantCurrentSessionId, loadOrConnectSession]);
 
-    // Auto scroll
     useEffect(() => {
         if (assistantChatScrollRef.current) {
             assistantChatScrollRef.current.scrollTop = assistantChatScrollRef.current.scrollHeight;
         }
     }, [assistantComposedMessages, assistantCurrentSessionId, assistantMessagesLoading]);
 
-    // Ensure session exists
     const ensureAssistantSession = useCallback(async () => {
         if (assistantCurrentSessionId) return assistantCurrentSessionId;
 
@@ -235,36 +291,47 @@ export function useAssistantState({
         return data.id;
     }, [assistantCurrentSessionId, currentAssistantProject, projects]);
 
-    // Send message
     const handleSendAssistantMessage = useCallback(async (event) => {
         event.preventDefault();
 
         const content = assistantInput.trim();
-        if (!content || assistantSending) return;
+        if (!content || assistantSending || assistantPendingQuestion) return;
 
         setAssistantSending(true);
         setAssistantError("");
         setAssistantInput("");
-        setAssistantStreamingMessage(null);
 
         try {
             const sessionId = await ensureAssistantSession();
-
-            // Add optimistic user message
-            setAssistantMessages((prev) => [
-                ...prev,
-                { type: "user", content, id: `tmp-${Date.now()}` },
-            ]);
-
-            // Send and connect to stream
             await window.API.sendAssistantMessage(sessionId, content);
+
+            sessionStatusRef.current = "running";
             setSessionStatus("running");
             connectStream(sessionId);
         } catch (error) {
             setAssistantError(error.message || "发送失败");
             setAssistantSending(false);
         }
-    }, [assistantInput, assistantSending, connectStream, ensureAssistantSession]);
+    }, [assistantInput, assistantPendingQuestion, assistantSending, connectStream, ensureAssistantSession]);
+
+    const handleAnswerAssistantQuestion = useCallback(async (questionId, answers) => {
+        if (!assistantCurrentSessionId || !questionId) return;
+        if (!answers || typeof answers !== "object" || Object.keys(answers).length === 0) {
+            setAssistantError("请选择答案后再提交");
+            return;
+        }
+
+        setAssistantAnsweringQuestion(true);
+        setAssistantError("");
+        try {
+            await window.API.answerAssistantQuestion(assistantCurrentSessionId, questionId, answers);
+            setAssistantPendingQuestion(null);
+        } catch (error) {
+            setAssistantError(error.message || "提交答案失败");
+        } finally {
+            setAssistantAnsweringQuestion(false);
+        }
+    }, [assistantCurrentSessionId]);
 
     // Session dialog handlers
     const handleCreateSession = useCallback(() => {
@@ -365,6 +432,8 @@ export function useAssistantState({
             if (assistantCurrentSessionId === deleteDialogSessionId) {
                 setAssistantCurrentSessionId("");
                 setAssistantMessages([]);
+                setSessionStatus("idle");
+                sessionStatusRef.current = "idle";
             }
             setAssistantRefreshToken((prev) => prev + 1);
             pushToast("会话已删除", "success");
@@ -406,6 +475,8 @@ export function useAssistantState({
         assistantSkills,
         assistantSkillsLoading,
         assistantComposedMessages,
+        assistantPendingQuestion,
+        assistantAnsweringQuestion,
         currentAssistantProject,
         sessionStatus,
         sessionDialogOpen,
@@ -425,6 +496,7 @@ export function useAssistantState({
         closeDeleteDialog,
         confirmDeleteSession,
         handleAssistantScopeChange,
+        handleAnswerAssistantQuestion,
         toggleAssistantPanel,
         assistantChatScrollRef,
     };

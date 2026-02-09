@@ -116,6 +116,8 @@ function App() {
         assistantSkills,
         assistantSkillsLoading,
         assistantComposedMessages,
+        assistantPendingQuestion,
+        assistantAnsweringQuestion,
         currentAssistantProject,
         sessionDialogOpen,
         sessionDialogMode,
@@ -134,6 +136,7 @@ function App() {
         closeDeleteDialog,
         confirmDeleteSession,
         handleAssistantScopeChange,
+        handleAnswerAssistantQuestion,
         toggleAssistantPanel,
         assistantChatScrollRef,
     } = useAssistantState({
@@ -161,7 +164,10 @@ function App() {
             assistantInput=${assistantInput}
             setAssistantInput=${setAssistantInput}
             assistantSending=${assistantSending}
+            assistantPendingQuestion=${assistantPendingQuestion}
+            assistantAnsweringQuestion=${assistantAnsweringQuestion}
             handleSendAssistantMessage=${handleSendAssistantMessage}
+            handleAnswerAssistantQuestion=${handleAnswerAssistantQuestion}
             assistantChatScrollRef=${assistantChatScrollRef}
         />
     `;

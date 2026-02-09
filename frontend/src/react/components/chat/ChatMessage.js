@@ -19,10 +19,32 @@ const html = htm.bind(React.createElement);
  * - Attaching tool_result to corresponding tool_use blocks
  * - Attaching skill_content to Skill tool blocks
  */
+
+/**
+ * Infer message type from message structure.
+ * Primary: use explicit type/role field.
+ * Fallback: infer from message structure.
+ */
+function inferMessageType(message) {
+    // Explicit type/role fields
+    if (message.type) return message.type;
+    if (message.role) return message.role;
+
+    // Fallback: infer from structure
+    if (message.subtype !== undefined && (message.duration_ms !== undefined || message.session_id !== undefined)) {
+        return "result";
+    }
+    if (message.model && Array.isArray(message.content)) {
+        return "assistant";
+    }
+
+    return "unknown";
+}
+
 export function ChatMessage({ message }) {
     if (!message) return null;
 
-    const messageType = message.type || message.role || "unknown";
+    const messageType = inferMessageType(message);
     const content = message.content;
 
     // Normalize content to array

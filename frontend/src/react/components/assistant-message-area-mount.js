@@ -16,7 +16,10 @@ export function AssistantMessageAreaMount({
     assistantInput,
     setAssistantInput,
     assistantSending,
+    assistantPendingQuestion,
+    assistantAnsweringQuestion,
     handleSendAssistantMessage,
+    handleAnswerAssistantQuestion,
     assistantChatScrollRef,
 }) {
     return html`
@@ -31,7 +34,10 @@ export function AssistantMessageAreaMount({
             assistantInput=${assistantInput}
             setAssistantInput=${setAssistantInput}
             assistantSending=${assistantSending}
+            assistantPendingQuestion=${assistantPendingQuestion}
+            assistantAnsweringQuestion=${assistantAnsweringQuestion}
             onSendAssistantMessage=${handleSendAssistantMessage}
+            onAnswerAssistantQuestion=${handleAnswerAssistantQuestion}
             assistantChatScrollRef=${assistantChatScrollRef}
         />
     `;

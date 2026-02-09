@@ -17,6 +17,69 @@ const SKILL_PATTERNS = [
     /\.claude\/skills\/.*SKILL\.md/,
 ];
 
+function inferBlockType(block) {
+    if (!block || typeof block !== "object") return "";
+
+    if (typeof block.type === "string" && block.type) {
+        return block.type;
+    }
+
+    if (block.tool_use_id && ("content" in block || "is_error" in block)) {
+        return "tool_result";
+    }
+
+    if (block.id && block.name && ("input" in block)) {
+        return "tool_use";
+    }
+
+    if ("text" in block) {
+        return "text";
+    }
+
+    return "";
+}
+
+function normalizeBlock(block) {
+    if (!block || typeof block !== "object") return block;
+
+    const normalized = cloneSerializable(block);
+    const blockType = inferBlockType(normalized);
+    if (blockType && !normalized.type) {
+        normalized.type = blockType;
+    }
+    return normalized;
+}
+
+/**
+ * Check if a block is a tool result payload.
+ * Compatible with SDK payloads that omit explicit `type`.
+ */
+function isToolResultBlock(block) {
+    if (!block || typeof block !== "object") return false;
+    return inferBlockType(block) === "tool_result";
+}
+
+function normalizeToolResultBlock(block) {
+    return {
+        type: "tool_result",
+        tool_use_id: block.tool_use_id,
+        content: block.content || "",
+        is_error: block.is_error || false,
+    };
+}
+
+function cloneSerializable(value) {
+    if (value === null || value === undefined) return value;
+    try {
+        if (typeof structuredClone === "function") {
+            return structuredClone(value);
+        }
+    } catch {
+        // Fallback below.
+    }
+    return JSON.parse(JSON.stringify(value));
+}
+
 /**
  * Check if text content is system-injected skill content.
  */
@@ -39,8 +102,9 @@ function isSystemInjectedUserMessage(content) {
         for (const block of content) {
             if (!block || typeof block !== "object") continue;
 
-            const blockType = block.type || "";
-            if (blockType === "tool_result") continue;
+            if (isToolResultBlock(block)) continue;
+
+            const blockType = inferBlockType(block);
             if (blockType === "text") {
                 if (isSkillContentText(block.text)) continue;
                 return false; // Real user text
@@ -63,7 +127,14 @@ function normalizeContent(content) {
         return [{ type: "text", text: content }];
     }
     if (Array.isArray(content)) {
-        return [...content];
+        const normalized = [];
+        for (const block of content) {
+            const normalizedBlock = normalizeBlock(block);
+            if (normalizedBlock && typeof normalizedBlock === "object") {
+                normalized.push(normalizedBlock);
+            }
+        }
+        return normalized;
     }
     return [];
 }
@@ -72,11 +143,12 @@ function normalizeContent(content) {
  * Attach tool_result to its corresponding tool_use block.
  */
 function attachToolResult(block, turnContent, toolUseMap) {
-    const toolUseId = block.tool_use_id;
+    const normalized = normalizeToolResultBlock(block);
+    const toolUseId = normalized.tool_use_id;
     if (toolUseId && toolUseMap.has(toolUseId)) {
         const toolUseBlock = toolUseMap.get(toolUseId);
-        toolUseBlock.result = block.content || "";
-        toolUseBlock.is_error = block.is_error || false;
+        toolUseBlock.result = normalized.content;
+        toolUseBlock.is_error = normalized.is_error;
         return true;
     }
     return false;
@@ -161,11 +233,11 @@ export function groupMessagesIntoTurns(rawMessages, initialState = null) {
                     for (const block of blocks) {
                         if (!block || typeof block !== "object") continue;
 
-                        if (block.type === "tool_result") {
+                        if (isToolResultBlock(block)) {
                             if (!attachToolResult(block, currentTurn.content, toolUseMap)) {
-                                currentTurn.content.push(block);
+                                currentTurn.content.push(normalizeToolResultBlock(block));
                             }
-                        } else if (block.type === "text" && isSkillContentText(block.text)) {
+                        } else if (inferBlockType(block) === "text" && isSkillContentText(block.text)) {
                             if (!attachSkillContent(block.text, currentTurn.content)) {
                                 currentTurn.content.push({ type: "skill_content", text: block.text });
                             }
@@ -192,7 +264,7 @@ export function groupMessagesIntoTurns(rawMessages, initialState = null) {
 
             // Track tool_use blocks for pairing
             for (const block of newBlocks) {
-                if (block && block.type === "tool_use" && block.id) {
+                if (block && inferBlockType(block) === "tool_use" && block.id) {
                     toolUseMap.set(block.id, block);
                 }
             }
@@ -208,7 +280,7 @@ export function groupMessagesIntoTurns(rawMessages, initialState = null) {
                 currentTurn = createTurn("assistant", newBlocks, msg.uuid, msg.timestamp);
                 // Re-register tool blocks in new turn
                 for (const block of currentTurn.content) {
-                    if (block && block.type === "tool_use" && block.id) {
+                    if (block && inferBlockType(block) === "tool_use" && block.id) {
                         toolUseMap.set(block.id, block);
                     }
                 }
