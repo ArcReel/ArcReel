@@ -263,6 +263,7 @@ export function useAssistantState({
                             tool_use_id: data.tool_use_id || "",
                             content: data.content || "",
                             is_error: data.is_error || false,
+                            tool_name: data.tool_name || "",
                         },
                     ]);
                 });
