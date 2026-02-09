@@ -888,3 +888,32 @@ class AssistantService:
                 continue
             return text
         return ""
+
+    @staticmethod
+    def _clean_tool_output(content: str, max_length: int = 2000) -> str:
+        """Clean tool output by removing line numbers and truncating if too long."""
+        if not content:
+            return ""
+
+        import re
+        # Remove line number prefixes like "    1→", "   12→", "  123→"
+        lines = content.split("\n")
+        cleaned_lines = []
+        for line in lines:
+            # Match pattern: optional spaces + digits + arrow (→)
+            cleaned = re.sub(r"^\s*\d+→", "", line)
+            cleaned_lines.append(cleaned)
+
+        result = "\n".join(cleaned_lines)
+
+        # Truncate if too long, keeping head and tail
+        if len(result) > max_length:
+            head_size = max_length // 2 - 50
+            tail_size = max_length // 2 - 50
+            result = (
+                result[:head_size]
+                + "\n\n... [内容已截断] ...\n\n"
+                + result[-tail_size:]
+            )
+
+        return result.strip()
