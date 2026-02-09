@@ -25,7 +25,7 @@ class AssistantService:
 
         self.pm = ProjectManager(self.projects_root)
         self.meta_store = SessionMetaStore(self.data_dir / "sessions.db")
-        self.transcript_reader = TranscriptReader(self.data_dir)
+        self.transcript_reader = TranscriptReader(self.data_dir, project_root=self.project_root)
         self.session_manager = SessionManager(
             project_root=self.project_root,
             data_dir=self.data_dir,
@@ -94,9 +94,10 @@ class AssistantService:
 
     def list_messages(self, session_id: str) -> list[dict[str, Any]]:
         """List messages from transcript."""
-        if self.meta_store.get(session_id) is None:
+        meta = self.meta_store.get(session_id)
+        if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
-        return self.transcript_reader.read_messages(session_id)
+        return self.transcript_reader.read_messages(session_id, meta.sdk_session_id)
 
     async def send_message(self, session_id: str, content: str) -> dict[str, Any]:
         """Send a message to the session."""

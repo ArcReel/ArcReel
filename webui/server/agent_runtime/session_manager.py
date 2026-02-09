@@ -68,7 +68,7 @@ class SessionManager:
         self.project_root = Path(project_root)
         self.data_dir = Path(data_dir)
         self.meta_store = meta_store
-        self.transcript_reader = TranscriptReader(data_dir)
+        self.transcript_reader = TranscriptReader(data_dir, project_root=project_root)
         self.sessions: dict[str, ManagedSession] = {}
         self._load_config()
 
