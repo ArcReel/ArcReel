@@ -507,15 +507,12 @@ class API {
         return this.request(`/assistant/sessions${query ? '?' + query : ''}`);
     }
 
-    static async listAssistantMessages(sessionId, limit = 200) {
-        return this.request(`/assistant/sessions/${encodeURIComponent(sessionId)}/messages?limit=${limit}`);
+    static async getAssistantSession(sessionId) {
+        return this.request(`/assistant/sessions/${encodeURIComponent(sessionId)}`);
     }
 
-    static async listAssistantSkills(projectName = null) {
-        const params = new URLSearchParams();
-        if (projectName) params.append('project_name', projectName);
-        const query = params.toString();
-        return this.request(`/assistant/skills${query ? '?' + query : ''}`);
+    static async listAssistantMessages(sessionId) {
+        return this.request(`/assistant/sessions/${encodeURIComponent(sessionId)}/messages`);
     }
 
     static async sendAssistantMessage(sessionId, content) {
@@ -525,21 +522,15 @@ class API {
         });
     }
 
-    static async startAssistantMessageStream(sessionId, content, clientMessageId = null) {
-        const payload = { content, stream: true };
-        if (clientMessageId) {
-            payload.client_message_id = clientMessageId;
-        }
-        return this.request(`/assistant/sessions/${encodeURIComponent(sessionId)}/messages`, {
-            method: 'POST',
-            body: JSON.stringify(payload),
-        });
+    static getAssistantStreamUrl(sessionId) {
+        return `${API_BASE}/assistant/sessions/${encodeURIComponent(sessionId)}/stream`;
     }
 
-    static async archiveAssistantSession(sessionId) {
-        return this.request(`/assistant/sessions/${encodeURIComponent(sessionId)}/archive`, {
-            method: 'POST',
-        });
+    static async listAssistantSkills(projectName = null) {
+        const params = new URLSearchParams();
+        if (projectName) params.append('project_name', projectName);
+        const query = params.toString();
+        return this.request(`/assistant/skills${query ? '?' + query : ''}`);
     }
 
     static async updateAssistantSession(sessionId, updates) {

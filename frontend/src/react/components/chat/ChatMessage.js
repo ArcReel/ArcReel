@@ -5,8 +5,24 @@ import { ContentBlockRenderer } from "./ContentBlockRenderer.js";
 
 const html = htm.bind(React.createElement);
 
-function normalizeContent(content) {
-    // If content is already an array of blocks, return as-is
+/**
+ * Get message type from SDK message format or legacy format
+ */
+function getMessageType(message) {
+    // SDK messages use 'type' field (user, assistant, result, etc.)
+    if (message.type) return message.type;
+    // Legacy format uses 'role' field
+    if (message.role) return message.role;
+    return "unknown";
+}
+
+/**
+ * Normalize content to an array of content blocks
+ */
+function normalizeContent(message) {
+    const content = message.content;
+
+    // SDK AssistantMessage content is already an array of blocks
     if (Array.isArray(content)) {
         return content;
     }
@@ -34,10 +50,10 @@ function normalizeContent(content) {
 }
 
 export function ChatMessage({ message }) {
-    const role = message.role || "assistant";
-    const isUser = role === "user";
+    const messageType = getMessageType(message);
+    const isUser = messageType === "user";
 
-    const blocks = normalizeContent(message.content);
+    const blocks = normalizeContent(message);
 
     const containerClass = isUser
         ? "ml-8 bg-neon-500/15 border-neon-400/25"
@@ -46,7 +62,7 @@ export function ChatMessage({ message }) {
     return html`
         <article className=${cn("rounded-xl px-3 py-2 border", containerClass)}>
             <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">
-                ${getRoleLabel(role)}
+                ${getRoleLabel(messageType)}
             </div>
             <div className="text-sm text-slate-100 leading-6">
                 ${blocks.map((block, index) => html`
