@@ -6,25 +6,16 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-SessionStatus = Literal["active", "archived", "error"]
-MessageRole = Literal["user", "assistant", "system", "tool"]
-MessageEventType = Literal["message", "chunk", "tool_call", "tool_result"]
+SessionStatus = Literal["idle", "running", "completed", "error", "interrupted"]
 
 
-class AgentSession(BaseModel):
+class SessionMeta(BaseModel):
+    """Session metadata stored in SQLite."""
     id: str
+    sdk_session_id: Optional[str] = None
     project_name: str
     title: str = ""
-    status: SessionStatus = "active"
+    status: SessionStatus = "idle"
+    transcript_path: Optional[str] = None
     created_at: str
     updated_at: str
-
-
-class AgentMessage(BaseModel):
-    id: int
-    session_id: str
-    role: MessageRole
-    content: str
-    event_type: Optional[MessageEventType] = "message"
-    created_at: str
-
