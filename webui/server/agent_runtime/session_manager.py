@@ -156,9 +156,10 @@ class SessionManager:
 
         transcripts_dir = self.data_dir / "transcripts"
         transcripts_dir.mkdir(parents=True, exist_ok=True)
+        project_cwd = self._resolve_project_cwd(project_name)
 
         return ClaudeAgentOptions(
-            cwd=str(self.project_root),
+            cwd=str(project_cwd),
             cli_path=self.cli_path,
             setting_sources=self.DEFAULT_SETTING_SOURCES,
             allowed_tools=self.DEFAULT_ALLOWED_TOOLS,
@@ -168,6 +169,18 @@ class SessionManager:
             resume=resume_id,
             can_use_tool=can_use_tool,
         )
+
+    def _resolve_project_cwd(self, project_name: str) -> Path:
+        """Resolve and validate per-session project working directory."""
+        projects_root = (self.project_root / "projects").resolve()
+        project_cwd = (projects_root / project_name).resolve()
+        try:
+            project_cwd.relative_to(projects_root)
+        except ValueError as exc:
+            raise ValueError("invalid project name") from exc
+        if not project_cwd.exists() or not project_cwd.is_dir():
+            raise FileNotFoundError(f"project not found: {project_name}")
+        return project_cwd
 
     async def create_session(self, project_name: str, title: str = "") -> SessionMeta:
         """Create a new session."""

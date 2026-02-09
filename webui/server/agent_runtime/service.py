@@ -5,6 +5,7 @@ Assistant service orchestration using ClaudeSDKClient.
 import asyncio
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 
@@ -102,7 +103,11 @@ class AssistantService:
         meta = self.meta_store.get(session_id)
         if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
-        return self.transcript_reader.read_messages(session_id, meta.sdk_session_id)
+        return self.transcript_reader.read_messages(
+            session_id,
+            meta.sdk_session_id,
+            project_name=meta.project_name,
+        )
 
     async def send_message(self, session_id: str, content: str) -> dict[str, Any]:
         """Send a message to the session."""
@@ -141,25 +146,57 @@ class AssistantService:
         # Completed sessions only emit final snapshot + status.
         status = self.session_manager.get_status(session_id)
         if status in ("completed", "error"):
-            turns = self.transcript_reader.read_messages(session_id, meta.sdk_session_id)
+            turns = self.transcript_reader.read_messages(
+                session_id,
+                meta.sdk_session_id,
+                project_name=meta.project_name,
+            )
             yield self._sse_event("turn_snapshot", {"turns": turns})
             yield self._sse_event("status", {"status": status})
             return
 
-        raw_messages = self._merge_raw_messages(
-            self.transcript_reader.read_raw_messages(session_id, meta.sdk_session_id),
-            await self.session_manager.get_message_buffer_snapshot(session_id),
-        )
-        current_turns = group_messages_into_turns(raw_messages)
-        yield self._sse_event("turn_snapshot", {"turns": current_turns})
-        pending_questions = await self.session_manager.get_pending_questions_snapshot(session_id)
-        for pending in pending_questions:
-            if isinstance(pending, dict):
+        # Subscribe first to avoid missing messages between snapshot generation and queue attach.
+        queue = await self.session_manager.subscribe(session_id, replay_buffer=True)
+        try:
+            replayed_messages: list[dict[str, Any]] = []
+            while True:
+                try:
+                    replayed = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if isinstance(replayed, dict):
+                    replayed_messages.append(replayed)
+
+            raw_messages = self._merge_raw_messages(
+                self.transcript_reader.read_raw_messages(
+                    session_id,
+                    meta.sdk_session_id,
+                    project_name=meta.project_name,
+                ),
+                replayed_messages,
+            )
+            current_turns = group_messages_into_turns(raw_messages)
+            yield self._sse_event("turn_snapshot", {"turns": current_turns})
+
+            emitted_question_ids: set[str] = set()
+            for msg in replayed_messages:
+                question_id = (
+                    msg.get("question_id")
+                    if msg.get("type") == "ask_user_question"
+                    else None
+                )
+                if question_id:
+                    emitted_question_ids.add(str(question_id))
+
+            pending_questions = await self.session_manager.get_pending_questions_snapshot(session_id)
+            for pending in pending_questions:
+                if not isinstance(pending, dict):
+                    continue
+                question_id = pending.get("question_id")
+                if question_id and str(question_id) in emitted_question_ids:
+                    continue
                 yield self._sse_event("message", pending)
 
-        # Snapshot already includes buffer; new subscriber only needs future messages.
-        queue = await self.session_manager.subscribe(session_id, replay_buffer=False)
-        try:
             while True:
                 try:
                     message = await asyncio.wait_for(
@@ -224,12 +261,83 @@ class AssistantService:
         for msg in buffered_raw or []:
             if not isinstance(msg, dict):
                 continue
+            if self._should_skip_local_echo(msg, merged):
+                continue
             key = self._message_key(msg)
             if key in seen_keys:
                 continue
             seen_keys.add(key)
             merged.append(msg)
         return merged
+
+    @staticmethod
+    def _extract_plain_user_content(message: dict[str, Any]) -> Optional[str]:
+        """Extract plain text from a user message payload."""
+        if message.get("type") != "user":
+            return None
+        content = message.get("content")
+        if isinstance(content, str):
+            text = content.strip()
+            return text or None
+        if (
+            isinstance(content, list)
+            and len(content) == 1
+            and isinstance(content[0], dict)
+        ):
+            block = content[0]
+            block_type = block.get("type")
+            if block_type in {"text", None}:
+                text = block.get("text")
+                if isinstance(text, str):
+                    text = text.strip()
+                    return text or None
+        return None
+
+    @staticmethod
+    def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        normalized = value.strip()
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    def _should_skip_local_echo(
+        self,
+        message: dict[str, Any],
+        merged_messages: list[dict[str, Any]],
+    ) -> bool:
+        """Drop local echo once a matching real transcript user message is present."""
+        if not message.get("local_echo"):
+            return False
+
+        echo_text = self._extract_plain_user_content(message)
+        if not echo_text:
+            return False
+
+        echo_ts = self._parse_iso_datetime(message.get("timestamp"))
+        for existing in reversed(merged_messages):
+            if not isinstance(existing, dict):
+                continue
+            if existing.get("type") != "user" or existing.get("local_echo"):
+                continue
+            if self._extract_plain_user_content(existing) != echo_text:
+                continue
+            if echo_ts is None:
+                return True
+            existing_ts = self._parse_iso_datetime(existing.get("timestamp"))
+            if existing_ts is None:
+                return True
+            if existing_ts >= (echo_ts - timedelta(seconds=5)):
+                return True
+
+        return False
 
     # ==================== Lifecycle ====================
 

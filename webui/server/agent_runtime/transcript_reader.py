@@ -24,20 +24,38 @@ class TranscriptReader:
         self.project_root = Path(project_root) if project_root else None
         self._claude_projects_dir = Path.home() / ".claude" / "projects"
 
-    def _get_sdk_transcript_path(self, sdk_session_id: str) -> Optional[Path]:
+    def _resolve_project_root(self, project_name: Optional[str] = None) -> Optional[Path]:
+        """Resolve the project root used by Claude SDK transcript encoding."""
+        if project_name and self.project_root:
+            return self.project_root / "projects" / project_name
+        return self.project_root
+
+    def _get_sdk_transcript_path(
+        self,
+        sdk_session_id: str,
+        project_name: Optional[str] = None,
+    ) -> Optional[Path]:
         """Get the path to an SDK transcript file."""
-        if not self.project_root:
+        session_project_root = self._resolve_project_root(project_name)
+        if not session_project_root:
             return None
-        encoded_path = str(self.project_root).replace("/", "-").replace(".", "-")
+        encoded_path = str(session_project_root).replace("/", "-").replace(".", "-")
         project_dir = self._claude_projects_dir / encoded_path
         transcript_path = project_dir / f"{sdk_session_id}.jsonl"
         return transcript_path if transcript_path.exists() else None
 
     def read_messages(
-        self, session_id: str, sdk_session_id: Optional[str] = None
+        self,
+        session_id: str,
+        sdk_session_id: Optional[str] = None,
+        project_name: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         """Read transcript and return grouped conversation turns."""
-        raw_messages = self.read_raw_messages(session_id, sdk_session_id)
+        raw_messages = self.read_raw_messages(
+            session_id,
+            sdk_session_id,
+            project_name=project_name,
+        )
         if raw_messages:
             return group_messages_into_turns(raw_messages)
 
@@ -49,7 +67,10 @@ class TranscriptReader:
         return []
 
     def read_raw_messages(
-        self, session_id: str, sdk_session_id: Optional[str] = None
+        self,
+        session_id: str,
+        sdk_session_id: Optional[str] = None,
+        project_name: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         """
         Read raw transcript messages (user/assistant/result) without grouping.
@@ -58,7 +79,10 @@ class TranscriptReader:
         history grouping logic.
         """
         if sdk_session_id:
-            transcript_path = self._get_sdk_transcript_path(sdk_session_id)
+            transcript_path = self._get_sdk_transcript_path(
+                sdk_session_id,
+                project_name=project_name,
+            )
             if transcript_path:
                 return self._read_jsonl_transcript_raw(transcript_path)
         # Legacy JSON transcript files are display-ready and not raw streams.
@@ -130,10 +154,18 @@ class TranscriptReader:
         """Get the full path to a transcript file (legacy)."""
         return self.data_dir / "transcripts" / f"{session_id}.json"
 
-    def exists(self, session_id: str, sdk_session_id: Optional[str] = None) -> bool:
+    def exists(
+        self,
+        session_id: str,
+        sdk_session_id: Optional[str] = None,
+        project_name: Optional[str] = None,
+    ) -> bool:
         """Check if transcript exists."""
         if sdk_session_id:
-            sdk_path = self._get_sdk_transcript_path(sdk_session_id)
+            sdk_path = self._get_sdk_transcript_path(
+                sdk_session_id,
+                project_name=project_name,
+            )
             if sdk_path and sdk_path.exists():
                 return True
         return self.get_transcript_path(session_id).exists()
