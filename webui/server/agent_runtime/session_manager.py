@@ -180,11 +180,34 @@ class SessionManager:
 
     def _message_to_dict(self, message: Any) -> dict[str, Any]:
         """Convert SDK message to dict for JSON serialization."""
-        if hasattr(message, "model_dump"):
-            return message.model_dump()
-        if hasattr(message, "__dict__"):
-            return {k: v for k, v in message.__dict__.items() if not k.startswith("_")}
-        return {"raw": str(message)}
+        return self._serialize_value(message)
+
+    def _serialize_value(self, value: Any) -> Any:
+        """Recursively serialize a value to JSON-safe types."""
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+
+        if isinstance(value, dict):
+            return {k: self._serialize_value(v) for k, v in value.items()}
+
+        if isinstance(value, (list, tuple)):
+            return [self._serialize_value(item) for item in value]
+
+        # Pydantic models
+        if hasattr(value, "model_dump"):
+            dumped = value.model_dump()
+            return self._serialize_value(dumped)
+
+        # Dataclasses or objects with __dict__
+        if hasattr(value, "__dict__"):
+            return {
+                k: self._serialize_value(v)
+                for k, v in value.__dict__.items()
+                if not k.startswith("_")
+            }
+
+        # Fallback: convert to string
+        return str(value)
 
     async def subscribe(self, session_id: str) -> asyncio.Queue:
         """Subscribe to session messages. Returns queue for SSE."""
