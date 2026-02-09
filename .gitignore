@@ -37,6 +37,14 @@ docs/storycraft/
 
 # Keep project structure but ignore generated content
 !projects/.gitkeep
+!projects/.agent_data/
+!projects/.agent_data/.gitkeep
+!projects/.agent_data/transcripts/
+!projects/.agent_data/transcripts/.gitkeep
+
+# Agent data (transcripts are large, only keep structure)
+projects/.agent_data/transcripts/*.json
+projects/.agent_data/sessions.db
 
 # Environment
 .env
