@@ -3,6 +3,7 @@ Assistant service orchestration.
 """
 
 import asyncio
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,7 @@ except ImportError:
 class AssistantReply:
     text: str
     action: Optional[dict[str, Any]] = None
+    content_blocks: Optional[list[dict[str, Any]]] = None
 
 
 class AssistantService:
@@ -245,11 +247,18 @@ class AssistantService:
                 },
             )
             reply = await self._build_stream_reply(session=session, text=text, stream_request=stream_request)
-            reply_text = reply.text.strip() or "任务已完成，但未生成可显示内容。"
+
+            # If we have structured content blocks, serialize them as JSON
+            # Otherwise, fall back to plain text
+            if reply.content_blocks:
+                message_content = json.dumps(reply.content_blocks, ensure_ascii=False)
+            else:
+                message_content = reply.text.strip() or "任务已完成，但未生成可显示内容。"
+
             assistant_message = self.store.add_message(
                 session_id=session.id,
                 role="assistant",
-                content=reply_text,
+                content=message_content,
                 event_type="message",
             )
             await stream_request.emit(
@@ -479,13 +488,25 @@ class AssistantService:
         stream_messages: list[Any] = []
         merged_text = ""
         emitted_delta = False
+        all_content_blocks: list[dict[str, Any]] = []
+        tool_use_map: dict[str, str] = {}  # tool_use_id -> tool_name
 
         async for message in query(prompt=prompt, options=options):
             stream_messages.append(message)
 
             # Extract and emit content blocks
             blocks = self._extract_content_blocks(message)
+
             for block in blocks:
+                # Track tool_use_id to name mapping
+                if block["type"] == "tool_use":
+                    tool_use_map[block.get("id", "")] = block.get("name", "")
+                # Enrich tool_result with tool_name
+                elif block["type"] == "tool_result":
+                    tool_use_id = block.get("tool_use_id", "")
+                    block["tool_name"] = tool_use_map.get(tool_use_id, "")
+
+                all_content_blocks.append(block)
                 if block["type"] == "text":
                     text = block["text"]
                     if text and on_delta:
@@ -525,8 +546,12 @@ class AssistantService:
             for chunk in self._split_text_chunks(reply_text):
                 await on_delta(chunk)
 
+        # Merge consecutive text blocks for cleaner storage
+        merged_blocks = self._merge_consecutive_text_blocks(all_content_blocks)
+
         return AssistantReply(
             text=reply_text,
+            content_blocks=merged_blocks if merged_blocks else None,
             action={
                 "mode": "claude_agent_sdk",
                 "success": True,
@@ -722,6 +747,24 @@ class AssistantService:
         if not value:
             return []
         return [value[index : index + chunk_size] for index in range(0, len(value), chunk_size)]
+
+    @staticmethod
+    def _merge_consecutive_text_blocks(
+        blocks: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Merge consecutive text blocks into single blocks for cleaner storage."""
+        if not blocks:
+            return []
+
+        merged: list[dict[str, Any]] = []
+        for block in blocks:
+            block_type = block.get("type")
+            # Only merge consecutive text blocks (not skill_content or other types)
+            if block_type == "text" and merged and merged[-1].get("type") == "text":
+                merged[-1]["text"] = merged[-1].get("text", "") + block.get("text", "")
+            else:
+                merged.append(block.copy())
+        return merged
 
     def _try_legacy_bridge(
         self, session: AgentSession, text: str
@@ -949,6 +992,17 @@ class AssistantService:
         if not isinstance(content, list):
             return blocks
 
+        # Check message role to detect skill content injection
+        # SDK uses class name to distinguish message types
+        msg_type_name = type(message).__name__
+        message_role = getattr(message, "role", None)
+        is_user_message = message_role == "user" or msg_type_name == "UserMessage"
+
+        # For UserMessage, check if it has tool_use_result (tool result) or not (skill content)
+        # Skill content is injected as UserMessage with TextBlock but NO tool_use_result
+        tool_use_result = getattr(message, "tool_use_result", None)
+        is_skill_content_message = is_user_message and tool_use_result is None
+
         def _get_attr(obj: Any, name: str, default: Any = None) -> Any:
             """Safely get attribute from object or dict."""
             if isinstance(obj, dict):
@@ -962,7 +1016,11 @@ class AssistantService:
             if block_type == "text" or hasattr(block, "text"):
                 text = _get_attr(block, "text", "")
                 if text:
-                    blocks.append({"type": "text", "text": text})
+                    # Skill content is a UserMessage with TextBlock but NO tool_use_result
+                    if is_skill_content_message:
+                        blocks.append({"type": "skill_content", "text": text})
+                    else:
+                        blocks.append({"type": "text", "text": text})
 
             elif block_type == "tool_use" or (not is_dict and hasattr(block, "name")):
                 blocks.append({

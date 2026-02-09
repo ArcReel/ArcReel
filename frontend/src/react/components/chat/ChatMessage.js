@@ -11,21 +11,22 @@ function normalizeContent(content) {
         return content;
     }
 
-    // If content is a string, wrap in TextBlock
+    // If content is a string, try to parse as JSON first
     if (typeof content === "string") {
-        return [{ type: "text", text: content }];
-    }
-
-    // Try to parse JSON string
-    if (typeof content === "string" && content.startsWith("[")) {
-        try {
-            const parsed = JSON.parse(content);
-            if (Array.isArray(parsed)) {
-                return parsed;
+        // Check if it looks like a JSON array
+        const trimmed = content.trim();
+        if (trimmed.startsWith("[")) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) {
+                    return parsed;
+                }
+            } catch {
+                // Not valid JSON, fall through to text handling
             }
-        } catch {
-            // Not valid JSON, treat as text
         }
+        // Plain text - wrap in TextBlock
+        return [{ type: "text", text: content }];
     }
 
     // Fallback: empty array
