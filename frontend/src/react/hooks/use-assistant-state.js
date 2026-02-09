@@ -19,8 +19,7 @@ export function useAssistantState({
     const [assistantMessagesLoading, setAssistantMessagesLoading] = useState(false);
     const [assistantInput, setAssistantInput] = useState("");
     const [assistantSending, setAssistantSending] = useState(false);
-    const [assistantStreamText, setAssistantStreamText] = useState("");
-    const [assistantStreamStatus, setAssistantStreamStatus] = useState([]);
+    const [assistantStreamingBlocks, setAssistantStreamingBlocks] = useState([]);
     const [assistantError, setAssistantError] = useState("");
     const [assistantSkills, setAssistantSkills] = useState([]);
     const [assistantSkillsLoading, setAssistantSkillsLoading] = useState(false);
@@ -43,16 +42,15 @@ export function useAssistantState({
 
     const assistantComposedMessages = useMemo(() => {
         const base = Array.isArray(assistantMessages) ? [...assistantMessages] : [];
-        if (assistantStreamText || assistantStreamStatus.length > 0) {
+        if (assistantStreamingBlocks.length > 0) {
             base.push({
                 id: "streaming-assistant",
                 role: "assistant",
-                content: assistantStreamText,
-                streamStatus: assistantStreamStatus,
+                content: assistantStreamingBlocks,
             });
         }
         return base;
-    }, [assistantMessages, assistantStreamText, assistantStreamStatus]);
+    }, [assistantMessages, assistantStreamingBlocks]);
 
     useEffect(() => {
         if (projects.length === 0) {
@@ -160,8 +158,7 @@ export function useAssistantState({
             return;
         }
 
-        setAssistantStreamText("");
-        setAssistantStreamStatus([]);
+        setAssistantStreamingBlocks([]);
         setAssistantError("");
         void loadAssistantMessages(assistantCurrentSessionId);
     }, [assistantActive, assistantCurrentSessionId, loadAssistantMessages]);
@@ -220,7 +217,7 @@ export function useAssistantState({
                 };
 
                 source.addEventListener("ack", () => {
-                    setAssistantStreamStatus((previous) => [...previous, "连接已建立"]);
+                    // Connection established, no action needed
                 });
 
                 source.addEventListener("delta", (event) => {
@@ -230,19 +227,44 @@ export function useAssistantState({
                         return;
                     }
 
-                    setAssistantStreamText((previous) => previous + chunk);
+                    setAssistantStreamingBlocks((previous) => {
+                        // Find the last text block and append to it
+                        const lastBlock = previous[previous.length - 1];
+                        if (lastBlock && lastBlock.type === "text") {
+                            return [
+                                ...previous.slice(0, -1),
+                                { ...lastBlock, text: lastBlock.text + chunk },
+                            ];
+                        }
+                        // Create a new text block
+                        return [...previous, { type: "text", text: chunk }];
+                    });
                 });
 
-                source.addEventListener("tool_call", (event) => {
+                source.addEventListener("tool_use", (event) => {
                     const data = parseStreamData(event);
-                    const detail = data.detail || data.name || "调用工具";
-                    setAssistantStreamStatus((previous) => [...previous, `工具调用：${detail}`]);
+                    setAssistantStreamingBlocks((previous) => [
+                        ...previous,
+                        {
+                            type: "tool_use",
+                            id: data.id || "",
+                            name: data.name || "",
+                            input: data.input || {},
+                        },
+                    ]);
                 });
 
                 source.addEventListener("tool_result", (event) => {
                     const data = parseStreamData(event);
-                    const detail = data.summary || (data.ok ? "工具执行成功" : "工具执行结束");
-                    setAssistantStreamStatus((previous) => [...previous, `工具结果：${detail}`]);
+                    setAssistantStreamingBlocks((previous) => [
+                        ...previous,
+                        {
+                            type: "tool_result",
+                            tool_use_id: data.tool_use_id || "",
+                            content: data.content || "",
+                            is_error: data.is_error || false,
+                        },
+                    ]);
                 });
 
                 source.addEventListener("done", () => {
@@ -271,8 +293,7 @@ export function useAssistantState({
             setAssistantSending(true);
             setAssistantError("");
             setAssistantInput("");
-            setAssistantStreamText("");
-            setAssistantStreamStatus(["正在生成..."]);
+            setAssistantStreamingBlocks([]);
 
             try {
                 const sessionId = await ensureAssistantSession();
@@ -285,11 +306,13 @@ export function useAssistantState({
                 await consumeAssistantStream(start.stream_url);
                 setAssistantRefreshToken((previous) => previous + 1);
                 await loadAssistantMessages(sessionId);
-                setAssistantStreamText("");
-                setAssistantStreamStatus([]);
+                setAssistantStreamingBlocks([]);
             } catch (error) {
                 setAssistantError(error.message || "发送失败");
-                setAssistantStreamStatus((previous) => [...previous, `错误：${error.message || "发送失败"}`]);
+                setAssistantStreamingBlocks((previous) => [
+                    ...previous,
+                    { type: "text", text: `\n\n错误：${error.message || "发送失败"}` },
+                ]);
             } finally {
                 setAssistantSending(false);
             }

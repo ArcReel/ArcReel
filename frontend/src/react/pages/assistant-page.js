@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import htm from "htm";
 
 import { cn } from "../utils.js";
-import { MessageBubble } from "../components/message-bubble.js";
+import { ChatMessage } from "../components/chat/index.js";
 import { Badge, Button, Card } from "../components/primitives.js";
 
 const html = htm.bind(React.createElement);
@@ -107,7 +107,7 @@ export function AssistantMessageArea({
                     : assistantComposedMessages.length === 0
                         ? html`<p className="text-sm text-slate-400">还没有消息，先发送一条吧。</p>`
                         : assistantComposedMessages.map((message, index) => html`
-                              <${MessageBubble} key=${message.id || `${message.role}-${index}`} message=${message} />
+                              <${ChatMessage} key=${message.id || `${message.role}-${index}`} message=${message} />
                           `)}
             </div>
             ${assistantError
