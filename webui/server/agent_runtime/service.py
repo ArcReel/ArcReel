@@ -467,6 +467,8 @@ class AssistantService:
         session: AgentSession,
         user_text: str,
         on_delta: Optional[Callable[[str], Awaitable[Any]]],
+        on_tool_use: Optional[Callable[[dict[str, Any]], Awaitable[Any]]] = None,
+        on_tool_result: Optional[Callable[[dict[str, Any]], Awaitable[Any]]] = None,
     ) -> AssistantReply:
         self._apply_sdk_network_env()
         prompt = self._build_sdk_prompt(session, user_text)
@@ -475,23 +477,41 @@ class AssistantService:
         stream_messages: list[Any] = []
         merged_text = ""
         emitted_delta = False
+
         async for message in query(prompt=prompt, options=options):
             stream_messages.append(message)
-            partial_delta = self._extract_partial_delta(message)
-            if partial_delta:
-                merged_text += partial_delta
-                emitted_delta = True
-                if on_delta:
-                    await on_delta(partial_delta)
-                continue
 
-            candidate = self._extract_text_candidate(message)
-            if not candidate:
-                continue
-            merged_text, delta = self._accumulate_stream_candidate(merged_text, candidate)
-            if on_delta and delta:
-                emitted_delta = True
-                await on_delta(delta)
+            # Extract and emit content blocks
+            blocks = self._extract_content_blocks(message)
+            for block in blocks:
+                if block["type"] == "text":
+                    text = block["text"]
+                    if text and on_delta:
+                        merged_text += text
+                        emitted_delta = True
+                        await on_delta(text)
+                elif block["type"] == "tool_use" and on_tool_use:
+                    await on_tool_use(block)
+                elif block["type"] == "tool_result" and on_tool_result:
+                    await on_tool_result(block)
+
+            # Fallback: extract partial delta from stream events
+            if not blocks:
+                partial_delta = self._extract_partial_delta(message)
+                if partial_delta:
+                    merged_text += partial_delta
+                    emitted_delta = True
+                    if on_delta:
+                        await on_delta(partial_delta)
+                    continue
+
+                candidate = self._extract_text_candidate(message)
+                if not candidate:
+                    continue
+                merged_text, delta = self._accumulate_stream_candidate(merged_text, candidate)
+                if on_delta and delta:
+                    emitted_delta = True
+                    await on_delta(delta)
 
         reply_text = merged_text.strip() or self._extract_reply_text(stream_messages)
         if not reply_text:
