@@ -1,27 +1,22 @@
 import React from "react";
 import htm from "htm";
 import { TextBlock } from "./TextBlock.js";
-import { ToolUseBlock } from "./ToolUseBlock.js";
-import { ToolResultBlock } from "./ToolResultBlock.js";
+import { ToolCallWithResult } from "./ToolCallWithResult.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
-import { SkillBlock } from "./SkillBlock.js";
-import { SkillResultBlock } from "./SkillResultBlock.js";
 import { SkillContentBlock } from "./SkillContentBlock.js";
 
 const html = htm.bind(React.createElement);
 
 /**
- * Check if a tool_result content looks like a Skill result.
- * Skill results typically start with "Launching skill:" or contain skill-related content.
+ * ContentBlockRenderer - Renders a single content block within a turn.
+ *
+ * Block types:
+ * - text: Plain text or markdown
+ * - tool_use: Tool call (with optional result, skill_content attached by grouper)
+ * - tool_result: Standalone tool result (rarely used, usually attached to tool_use)
+ * - thinking: Claude's thinking block
+ * - skill_content: Standalone skill content (rarely used, usually attached to tool_use)
  */
-function isSkillResultContent(content) {
-    if (!content || typeof content !== "string") return false;
-    const trimmed = content.trim();
-    return trimmed.startsWith("Launching skill:") ||
-           trimmed.includes("Skill 内容") ||
-           trimmed.includes(".claude/skills/");
-}
-
 export function ContentBlockRenderer({ block, index }) {
     if (!block || typeof block !== "object") {
         return null;
@@ -34,54 +29,29 @@ export function ContentBlockRenderer({ block, index }) {
         case "text":
             return html`<${TextBlock} key=${key} text=${block.text} />`;
 
-        case "skill_content":
-            return html`<${SkillContentBlock} key=${key} text=${block.text} />`;
-
         case "tool_use":
-            // Check if this is a Skill tool call - render with SkillBlock
-            if (block.name === "Skill") {
-                return html`
-                    <${SkillBlock}
-                        key=${key}
-                        id=${block.id}
-                        name=${block.name}
-                        input=${block.input}
-                    />
-                `;
-            }
+            // Use unified ToolCallWithResult for all tool calls
+            // This handles both regular tools and Skill tools
+            // Result and skill_content are attached by the backend grouper
+            return html`<${ToolCallWithResult} key=${key} block=${block} />`;
+
+        case "tool_result":
+            // Standalone tool_result (should be rare - usually attached to tool_use)
+            // Render as a simple result block
             return html`
-                <${ToolUseBlock}
-                    key=${key}
-                    id=${block.id}
-                    name=${block.name}
-                    input=${block.input}
-                />
+                <div key=${key} className="my-1.5 rounded-lg border border-white/10 bg-ink-800/30 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+                        ${block.is_error ? "执行失败" : "工具结果"}
+                    </div>
+                    <pre className="text-xs text-slate-300 overflow-x-auto whitespace-pre-wrap">
+                        ${block.content || ""}
+                    </pre>
+                </div>
             `;
 
-        case "tool_result": {
-            // Check if this is a Skill result - by tool_name or by content pattern
-            const isSkillResult = block.tool_name === "Skill" ||
-                                  isSkillResultContent(block.content);
-            if (isSkillResult) {
-                return html`
-                    <${SkillResultBlock}
-                        key=${key}
-                        tool_use_id=${block.tool_use_id}
-                        tool_name=${block.tool_name || "Skill"}
-                        content=${block.content}
-                        is_error=${block.is_error}
-                    />
-                `;
-            }
-            return html`
-                <${ToolResultBlock}
-                    key=${key}
-                    tool_use_id=${block.tool_use_id}
-                    content=${block.content}
-                    is_error=${block.is_error}
-                />
-            `;
-        }
+        case "skill_content":
+            // Standalone skill content (should be rare - usually attached to tool_use)
+            return html`<${SkillContentBlock} key=${key} text=${block.text} />`;
 
         case "thinking":
             return html`<${ThinkingBlock} key=${key} thinking=${block.thinking} />`;

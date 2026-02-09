@@ -6,116 +6,61 @@ import { ContentBlockRenderer } from "./ContentBlockRenderer.js";
 const html = htm.bind(React.createElement);
 
 /**
- * Check if content blocks contain only tool_result blocks
- * In Claude API, tool_result messages are sent as "user" type,
- * but they should be displayed as system/tool messages, not user messages.
+ * ChatMessage - Renders a conversation turn.
+ *
+ * A turn represents a complete interaction unit from the backend grouper:
+ * - User turn: user's input message
+ * - Assistant turn: all assistant content blocks with tool results attached
+ * - Result turn: session completion marker
+ * - System turn: system-injected content (rare)
+ *
+ * The backend (transcript_reader.py) handles:
+ * - Merging consecutive assistant messages into one turn
+ * - Attaching tool_result to corresponding tool_use blocks
+ * - Attaching skill_content to Skill tool blocks
  */
-function isToolResultMessage(blocks) {
-    if (!Array.isArray(blocks) || blocks.length === 0) return false;
-    return blocks.every(block => block.type === "tool_result");
-}
+export function ChatMessage({ message }) {
+    if (!message) return null;
 
-/**
- * Check if this is a Skill content message (SKILL.md content injected as user message)
- */
-function isSkillContentMessage(blocks) {
-    if (!Array.isArray(blocks) || blocks.length === 0) return false;
-    const firstBlock = blocks[0];
-    if (firstBlock.type !== "text" || !firstBlock.text) return false;
-    const text = firstBlock.text.trim();
-    return text.startsWith("Base directory for this skill:") ||
-           text.startsWith("Skill content:") ||
-           (text.includes(".claude/skills/") && text.includes("SKILL.md"));
-}
-
-/**
- * Get the effective message type for display purposes.
- * - Regular user messages (text from user) -> "user"
- * - Tool results (type=user but contains tool_result blocks) -> "tool_result"
- * - Skill content (type=user but contains skill markdown) -> "skill_content"
- * - Assistant messages -> "assistant"
- * - Result messages -> "result"
- */
-function getEffectiveMessageType(message, blocks) {
-    const rawType = message.type || message.role || "unknown";
-
-    // If this is a "user" message but contains only tool_result blocks,
-    // treat it as a tool_result message for display purposes
-    if (rawType === "user" && isToolResultMessage(blocks)) {
-        return "tool_result";
-    }
-
-    // If this is a "user" message but contains Skill content,
-    // treat it as skill_content for display purposes
-    if (rawType === "user" && isSkillContentMessage(blocks)) {
-        return "skill_content";
-    }
-
-    return rawType;
-}
-
-/**
- * Normalize content to an array of content blocks
- */
-function normalizeContent(message) {
+    const messageType = message.type || message.role || "unknown";
     const content = message.content;
 
-    // SDK AssistantMessage content is already an array of blocks
-    if (Array.isArray(content)) {
-        return content;
-    }
+    // Normalize content to array
+    const blocks = normalizeContent(content);
 
-    // If content is a string, try to parse as JSON first
-    if (typeof content === "string") {
-        // Check if it looks like a JSON array
-        const trimmed = content.trim();
-        if (trimmed.startsWith("[")) {
-            try {
-                const parsed = JSON.parse(trimmed);
-                if (Array.isArray(parsed)) {
-                    return parsed;
-                }
-            } catch {
-                // Not valid JSON, fall through to text handling
-            }
-        }
-        // Plain text - wrap in TextBlock
-        return [{ type: "text", text: content }];
-    }
-
-    // Fallback: empty array
-    return [];
-}
-
-export function ChatMessage({ message }) {
-    let blocks = normalizeContent(message);
-    const messageType = getEffectiveMessageType(message, blocks);
-
-    // Tool result messages should be rendered differently - not as user messages
-    const isUser = messageType === "user";
-    const isToolResult = messageType === "tool_result";
-    const isSkillContent = messageType === "skill_content";
-
-    // Skip rendering empty tool_result messages
-    if (isToolResult && blocks.length === 0) {
+    // Skip empty messages (except result which has no content)
+    if (blocks.length === 0 && messageType !== "result") {
         return null;
     }
 
-    // For skill_content messages, convert text blocks to skill_content blocks
-    // so they render with the collapsible SkillContentBlock component
-    if (isSkillContent) {
-        blocks = blocks.map(block => {
-            if (block.type === "text") {
-                return { ...block, type: "skill_content" };
-            }
-            return block;
-        });
+    // Result message (session completion)
+    if (messageType === "result") {
+        const isSuccess = message.subtype === "success";
+        return html`
+            <article className=${cn(
+                "rounded-xl px-3 py-2 border text-center",
+                isSuccess
+                    ? "border-emerald-400/30 bg-emerald-500/10"
+                    : "border-red-400/30 bg-red-500/10"
+            )}>
+                <span className=${cn(
+                    "text-xs font-medium",
+                    isSuccess ? "text-emerald-400" : "text-red-400"
+                )}>
+                    ${isSuccess ? "会话完成" : "会话出错"}
+                </span>
+            </article>
+        `;
     }
+
+    // Determine styling based on message type
+    const isUser = messageType === "user";
+    const isSystem = messageType === "system";
 
     const containerClass = isUser
         ? "ml-8 bg-neon-500/15 border-neon-400/25"
-        : isToolResult || isSkillContent
-            ? "mr-3 bg-slate-800/30 border-slate-600/20"  // Subtle style for tool/skill results
+        : isSystem
+            ? "mr-3 bg-slate-800/30 border-slate-600/20"
             : "mr-3 bg-white/5 border-white/10";
 
     return html`
@@ -130,4 +75,36 @@ export function ChatMessage({ message }) {
             </div>
         </article>
     `;
+}
+
+/**
+ * Normalize content to an array of content blocks.
+ */
+function normalizeContent(content) {
+    // Already an array
+    if (Array.isArray(content)) {
+        return content;
+    }
+
+    // String content - wrap in text block
+    if (typeof content === "string") {
+        const trimmed = content.trim();
+        if (!trimmed) return [];
+
+        // Try to parse as JSON array
+        if (trimmed.startsWith("[")) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) {
+                    return parsed;
+                }
+            } catch {
+                // Not valid JSON, treat as plain text
+            }
+        }
+
+        return [{ type: "text", text: content }];
+    }
+
+    return [];
 }
