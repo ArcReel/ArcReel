@@ -55,5 +55,7 @@ export function getRoleLabel(role) {
     if (role === "assistant") return "助手";
     if (role === "user") return "你";
     if (role === "tool") return "工具";
+    if (role === "tool_result") return "工具结果";
+    if (role === "result") return "完成";
     return role || "消息";
 }

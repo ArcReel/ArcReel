@@ -10,6 +10,18 @@ import { SkillContentBlock } from "./SkillContentBlock.js";
 
 const html = htm.bind(React.createElement);
 
+/**
+ * Check if a tool_result content looks like a Skill result.
+ * Skill results typically start with "Launching skill:" or contain skill-related content.
+ */
+function isSkillResultContent(content) {
+    if (!content || typeof content !== "string") return false;
+    const trimmed = content.trim();
+    return trimmed.startsWith("Launching skill:") ||
+           trimmed.includes("Skill 内容") ||
+           trimmed.includes(".claude/skills/");
+}
+
 export function ContentBlockRenderer({ block, index }) {
     if (!block || typeof block !== "object") {
         return null;
@@ -46,14 +58,16 @@ export function ContentBlockRenderer({ block, index }) {
                 />
             `;
 
-        case "tool_result":
-            // Check if this is a Skill result - render with SkillResultBlock
-            if (block.tool_name === "Skill") {
+        case "tool_result": {
+            // Check if this is a Skill result - by tool_name or by content pattern
+            const isSkillResult = block.tool_name === "Skill" ||
+                                  isSkillResultContent(block.content);
+            if (isSkillResult) {
                 return html`
                     <${SkillResultBlock}
                         key=${key}
                         tool_use_id=${block.tool_use_id}
-                        tool_name=${block.tool_name}
+                        tool_name=${block.tool_name || "Skill"}
                         content=${block.content}
                         is_error=${block.is_error}
                     />
@@ -67,6 +81,7 @@ export function ContentBlockRenderer({ block, index }) {
                     is_error=${block.is_error}
                 />
             `;
+        }
 
         case "thinking":
             return html`<${ThinkingBlock} key=${key} thinking=${block.thinking} />`;

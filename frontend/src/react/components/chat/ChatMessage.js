@@ -6,14 +6,32 @@ import { ContentBlockRenderer } from "./ContentBlockRenderer.js";
 const html = htm.bind(React.createElement);
 
 /**
- * Get message type from SDK message format or legacy format
+ * Check if content blocks contain only tool_result blocks
+ * In Claude API, tool_result messages are sent as "user" type,
+ * but they should be displayed as system/tool messages, not user messages.
  */
-function getMessageType(message) {
-    // SDK messages use 'type' field (user, assistant, result, etc.)
-    if (message.type) return message.type;
-    // Legacy format uses 'role' field
-    if (message.role) return message.role;
-    return "unknown";
+function isToolResultMessage(blocks) {
+    if (!Array.isArray(blocks) || blocks.length === 0) return false;
+    return blocks.every(block => block.type === "tool_result");
+}
+
+/**
+ * Get the effective message type for display purposes.
+ * - Regular user messages (text from user) -> "user"
+ * - Tool results (type=user but contains tool_result blocks) -> "tool_result"
+ * - Assistant messages -> "assistant"
+ * - Result messages -> "result"
+ */
+function getEffectiveMessageType(message, blocks) {
+    const rawType = message.type || message.role || "unknown";
+
+    // If this is a "user" message but contains only tool_result blocks,
+    // treat it as a tool_result message for display purposes
+    if (rawType === "user" && isToolResultMessage(blocks)) {
+        return "tool_result";
+    }
+
+    return rawType;
 }
 
 /**
@@ -50,14 +68,23 @@ function normalizeContent(message) {
 }
 
 export function ChatMessage({ message }) {
-    const messageType = getMessageType(message);
-    const isUser = messageType === "user";
-
     const blocks = normalizeContent(message);
+    const messageType = getEffectiveMessageType(message, blocks);
+
+    // Tool result messages should be rendered differently - not as user messages
+    const isUser = messageType === "user";
+    const isToolResult = messageType === "tool_result";
+
+    // Skip rendering empty tool_result messages or render them compactly
+    if (isToolResult && blocks.length === 0) {
+        return null;
+    }
 
     const containerClass = isUser
         ? "ml-8 bg-neon-500/15 border-neon-400/25"
-        : "mr-3 bg-white/5 border-white/10";
+        : isToolResult
+            ? "mr-3 bg-slate-800/30 border-slate-600/20"  // Subtle style for tool results
+            : "mr-3 bg-white/5 border-white/10";
 
     return html`
         <article className=${cn("rounded-xl px-3 py-2 border", containerClass)}>
