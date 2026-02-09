@@ -917,3 +917,60 @@ class AssistantService:
             )
 
         return result.strip()
+
+    def _extract_content_blocks(self, message: Any) -> list[dict[str, Any]]:
+        """Extract ContentBlock list from SDK message."""
+        blocks: list[dict[str, Any]] = []
+
+        # Check for AssistantMessage with content list
+        content = getattr(message, "content", None)
+        if not isinstance(content, list):
+            return blocks
+
+        for block in content:
+            block_type = getattr(block, "type", None) or (
+                block.get("type") if isinstance(block, dict) else None
+            )
+
+            if block_type == "text" or hasattr(block, "text"):
+                text = getattr(block, "text", None) or (
+                    block.get("text") if isinstance(block, dict) else ""
+                )
+                if text:
+                    blocks.append({"type": "text", "text": text})
+
+            elif block_type == "tool_use" or hasattr(block, "name"):
+                blocks.append({
+                    "type": "tool_use",
+                    "id": getattr(block, "id", "") or block.get("id", ""),
+                    "name": getattr(block, "name", "") or block.get("name", ""),
+                    "input": getattr(block, "input", {}) or block.get("input", {}),
+                })
+
+            elif block_type == "tool_result" or hasattr(block, "tool_use_id"):
+                raw_content = getattr(block, "content", "") or block.get("content", "")
+                if isinstance(raw_content, list):
+                    # Extract text from content list
+                    text_parts = []
+                    for item in raw_content:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            text_parts.append(item.get("text", ""))
+                    raw_content = "\n".join(text_parts)
+
+                blocks.append({
+                    "type": "tool_result",
+                    "tool_use_id": getattr(block, "tool_use_id", "") or block.get("tool_use_id", ""),
+                    "content": self._clean_tool_output(str(raw_content)),
+                    "is_error": getattr(block, "is_error", False) or block.get("is_error", False),
+                })
+
+            elif block_type == "thinking" or hasattr(block, "thinking"):
+                thinking = getattr(block, "thinking", "") or block.get("thinking", "")
+                if thinking:
+                    blocks.append({
+                        "type": "thinking",
+                        "thinking": thinking,
+                        "signature": getattr(block, "signature", "") or block.get("signature", ""),
+                    })
+
+        return blocks
