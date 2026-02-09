@@ -292,7 +292,9 @@ class AssistantService:
                 return await self._reply_with_claude_sdk_stream(
                     session=session,
                     user_text=text,
-                    on_delta=lambda chunk: stream_request.emit("delta", {"text": chunk}),
+                    on_delta=lambda chunk: stream_request.emit("delta", {"type": "text_delta", "text": chunk}),
+                    on_tool_use=lambda block: stream_request.emit("tool_use", block),
+                    on_tool_result=lambda block: stream_request.emit("tool_result", block),
                 )
             except Exception as exc:
                 error_detail = self._format_sdk_error(exc)
