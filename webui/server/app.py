@@ -55,7 +55,7 @@ app.include_router(files.router, prefix="/api/v1", tags=["文件管理"])
 app.include_router(generate.router, prefix="/api/v1", tags=["生成"])
 app.include_router(versions.router, prefix="/api/v1", tags=["版本管理"])
 app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
-app.include_router(assistant.router, prefix="/api/v1", tags=["助手会话"])
+app.include_router(assistant.router, prefix="/api/v1/assistant", tags=["助手会话"])
 app.include_router(tasks.router, prefix="/api/v1", tags=["任务队列"])
 
 # 前端构建产物目录（Vite）
