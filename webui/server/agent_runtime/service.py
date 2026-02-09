@@ -949,50 +949,55 @@ class AssistantService:
         if not isinstance(content, list):
             return blocks
 
+        def _get_attr(obj: Any, name: str, default: Any = None) -> Any:
+            """Safely get attribute from object or dict."""
+            if isinstance(obj, dict):
+                return obj.get(name, default)
+            return getattr(obj, name, default)
+
         for block in content:
-            block_type = getattr(block, "type", None) or (
-                block.get("type") if isinstance(block, dict) else None
-            )
+            is_dict = isinstance(block, dict)
+            block_type = _get_attr(block, "type")
 
             if block_type == "text" or hasattr(block, "text"):
-                text = getattr(block, "text", None) or (
-                    block.get("text") if isinstance(block, dict) else ""
-                )
+                text = _get_attr(block, "text", "")
                 if text:
                     blocks.append({"type": "text", "text": text})
 
-            elif block_type == "tool_use" or hasattr(block, "name"):
+            elif block_type == "tool_use" or (not is_dict and hasattr(block, "name")):
                 blocks.append({
                     "type": "tool_use",
-                    "id": getattr(block, "id", "") or block.get("id", ""),
-                    "name": getattr(block, "name", "") or block.get("name", ""),
-                    "input": getattr(block, "input", {}) or block.get("input", {}),
+                    "id": _get_attr(block, "id", ""),
+                    "name": _get_attr(block, "name", ""),
+                    "input": _get_attr(block, "input", {}),
                 })
 
-            elif block_type == "tool_result" or hasattr(block, "tool_use_id"):
-                raw_content = getattr(block, "content", "") or block.get("content", "")
+            elif block_type == "tool_result" or (not is_dict and hasattr(block, "tool_use_id")):
+                raw_content = _get_attr(block, "content", "")
                 if isinstance(raw_content, list):
                     # Extract text from content list
                     text_parts = []
                     for item in raw_content:
                         if isinstance(item, dict) and item.get("type") == "text":
                             text_parts.append(item.get("text", ""))
+                        elif hasattr(item, "text"):
+                            text_parts.append(getattr(item, "text", ""))
                     raw_content = "\n".join(text_parts)
 
                 blocks.append({
                     "type": "tool_result",
-                    "tool_use_id": getattr(block, "tool_use_id", "") or block.get("tool_use_id", ""),
-                    "content": self._clean_tool_output(str(raw_content)),
-                    "is_error": getattr(block, "is_error", False) or block.get("is_error", False),
+                    "tool_use_id": _get_attr(block, "tool_use_id", ""),
+                    "content": self._clean_tool_output(str(raw_content) if raw_content else ""),
+                    "is_error": _get_attr(block, "is_error", False) or False,
                 })
 
-            elif block_type == "thinking" or hasattr(block, "thinking"):
-                thinking = getattr(block, "thinking", "") or block.get("thinking", "")
+            elif block_type == "thinking" or (not is_dict and hasattr(block, "thinking")):
+                thinking = _get_attr(block, "thinking", "")
                 if thinking:
                     blocks.append({
                         "type": "thinking",
                         "thinking": thinking,
-                        "signature": getattr(block, "signature", "") or block.get("signature", ""),
+                        "signature": _get_attr(block, "signature", ""),
                     })
 
         return blocks
