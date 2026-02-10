@@ -48,6 +48,10 @@ function PlayIcon() {
     `;
 }
 
+export function getNextContactCardOpenOnClick(currentOpen) {
+    return !currentOpen;
+}
+
 export function LandingPage({
     onEnter,
     contactQrSrc = "",
@@ -149,9 +153,7 @@ export function LandingPage({
                                 aria-haspopup="dialog"
                                 aria-expanded=${contactCardOpen}
                                 onClick=${() => {
-                                    if (!hoverSupported) {
-                                        setContactCardOpen((value) => !value);
-                                    }
+                                    setContactCardOpen((value) => getNextContactCardOpenOnClick(value));
                                 }}
                                 className="h-9 px-3 rounded-xl border border-white/20 bg-white/5 text-slate-100 hover:border-neon-400/60 hover:text-neon-300 transition-colors inline-flex items-center gap-2"
                             >

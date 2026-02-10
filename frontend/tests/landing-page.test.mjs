@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { LandingPage } from "../src/react/components/landing-page.js";
+import {
+    LandingPage,
+    getNextContactCardOpenOnClick,
+} from "../src/react/components/landing-page.js";
 
 function renderLanding(extraProps = {}) {
     return renderToStaticMarkup(
@@ -53,4 +56,9 @@ test("landing grid should not block pointer events", () => {
     const html = renderLanding();
 
     assert.ok(html.includes("landing-grid pointer-events-none"));
+});
+
+test("contact button click toggle should work regardless of hover capability", () => {
+    assert.equal(getNextContactCardOpenOnClick(false), true);
+    assert.equal(getNextContactCardOpenOnClick(true), false);
 });
