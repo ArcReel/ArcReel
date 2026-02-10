@@ -130,7 +130,7 @@ export function UsagePage({
                                 : usageCalls.length === 0
                                     ? html`<tr><td colSpan="8" className="px-4 py-10 text-center text-slate-400">暂无调用记录</td></tr>`
                                     : usageCalls.map((call) => html`
-                                          <tr className="hover:bg-white/5">
+                                          <tr key=${call.id || `${call.project_name || "project"}-${call.started_at || call.created_at || "unknown"}`} className="hover:bg-white/5">
                                               <td className="px-4 py-3 text-slate-300">${formatDateTime(call.started_at || call.created_at)}</td>
                                               <td className="px-4 py-3">${call.project_name || "-"}</td>
                                               <td className="px-4 py-3">

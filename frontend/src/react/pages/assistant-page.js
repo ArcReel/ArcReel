@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import htm from "htm";
 
-import { cn } from "../utils.js";
+import { cn, mapWithUniqueKeys } from "../utils.js";
 import { ChatMessage } from "../components/chat/index.js";
 import { Badge, Button, Card } from "../components/primitives.js";
 import {
@@ -130,6 +130,19 @@ export function AssistantMessageArea({
             })
             .slice(0, 8);
     }, [assistantSkills, slashQuery]);
+
+    const renderMessages = useMemo(
+        () => mapWithUniqueKeys(assistantComposedMessages, (message) => message?.uuid, "turn"),
+        [assistantComposedMessages]
+    );
+    const renderSkills = useMemo(
+        () => mapWithUniqueKeys(
+            filteredSkills,
+            (skill) => (skill?.name ? `${skill.scope || "project"}:${skill.name}` : ""),
+            "skill"
+        ),
+        [filteredSkills]
+    );
 
     useEffect(() => {
         setActiveSkillIndex(0);
@@ -345,10 +358,10 @@ export function AssistantMessageArea({
             <div ref=${assistantChatScrollRef} className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
                 ${assistantMessagesLoading
                     ? html`<p className="text-sm text-slate-400">消息加载中...</p>`
-                    : assistantComposedMessages.length === 0
+                    : renderMessages.length === 0
                         ? html`<p className="text-sm text-slate-400">还没有消息，先发送一条吧。</p>`
-                        : assistantComposedMessages.map((message, index) => html`
-                              <${ChatMessage} key=${message.uuid || `turn-${index}`} message=${message} />
+                        : renderMessages.map(({ item: message, key }) => html`
+                              <${ChatMessage} key=${key} message=${message} />
                           `)}
             </div>
             ${hasPendingQuestion
@@ -497,10 +510,11 @@ export function AssistantMessageArea({
                                   <div className="max-h-56 overflow-y-auto">
                                       ${assistantSkillsLoading
                                           ? html`<p className="px-3 py-3 text-sm text-slate-400">技能加载中...</p>`
-                                          : filteredSkills.length === 0
+                                          : renderSkills.length === 0
                                               ? html`<p className="px-3 py-3 text-sm text-slate-400">没有匹配到技能</p>`
-                                              : filteredSkills.map((skill, index) => html`
+                                              : renderSkills.map(({ item: skill, key, index }) => html`
                                                     <button
+                                                        key=${key}
                                                         type="button"
                                                         onMouseDown=${(event) => {
                                                             event.preventDefault();

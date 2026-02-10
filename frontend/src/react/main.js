@@ -252,6 +252,7 @@ function App() {
 
     return html`
         <${AppShell}
+            key="app-shell"
             route=${route}
             dashboardKind=${dashboardKind}
             selectedProjectItem=${selectedProjectItem}
@@ -265,6 +266,7 @@ function App() {
         <//>
 
             <${AssistantFloatingMount}
+                key="assistant-floating-mount"
                 open=${assistantPanelOpen}
                 onClose=${() => setAssistantPanelOpen(false)}
                 onNavigate=${navigate}
@@ -279,6 +281,7 @@ function App() {
             />
 
             <${CreateProjectModal}
+                key="create-project-modal"
                 open=${showCreateModal}
                 createForm=${createForm}
                 setCreateForm=${setCreateForm}
@@ -288,6 +291,7 @@ function App() {
             />
 
             <${AssistantSessionDialog}
+                key="assistant-session-dialog"
                 open=${sessionDialogOpen}
                 mode=${sessionDialogMode}
                 title=${sessionDialogTitle}
@@ -298,6 +302,7 @@ function App() {
             />
 
             <${AssistantDeleteSessionDialog}
+                key="assistant-delete-session-dialog"
                 open=${deleteDialogOpen}
                 sessionTitle=${deleteDialogSessionTitle}
                 submitting=${deleteDialogSubmitting}
@@ -305,7 +310,7 @@ function App() {
                 onConfirm=${confirmDeleteSession}
             />
 
-            <${AppToast} toast=${toast} />
+            <${AppToast} key="app-toast" toast=${toast} />
     `;
 }
 
