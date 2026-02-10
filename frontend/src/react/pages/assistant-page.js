@@ -92,10 +92,12 @@ export function AssistantMessageArea({
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [visitedQuestionIndexes, setVisitedQuestionIndexes] = useState([]);
 
-    const pendingQuestions = useMemo(
-        () => (Array.isArray(assistantPendingQuestion?.questions) ? assistantPendingQuestion.questions : []),
-        [assistantPendingQuestion]
-    );
+    const pendingQuestions = useMemo(() => {
+        const rawQuestions = Array.isArray(assistantPendingQuestion?.questions)
+            ? assistantPendingQuestion.questions
+            : [];
+        return rawQuestions.filter((question) => question && typeof question === "object");
+    }, [assistantPendingQuestion]);
 
     const slashQuery = useMemo(() => {
         const raw = assistantInput || "";

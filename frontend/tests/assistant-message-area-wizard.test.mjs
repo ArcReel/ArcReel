@@ -67,3 +67,24 @@ test("pending question area should be height-limited to keep chat visible", () =
     assert.ok(markup.includes("px-2.5 py-2"));
     assert.ok(markup.includes("text-[11px]"));
 });
+
+test("pending question area should ignore falsy question entries", () => {
+    const markup = renderArea({
+        assistantPendingQuestion: {
+            id: "q-1",
+            questions: [
+                null,
+                {
+                    header: "视频内容",
+                    question: "问题B：选内容",
+                    multiSelect: false,
+                    options: [{ label: "使用已有素材" }, { label: "我来描述内容" }],
+                },
+            ],
+        },
+    });
+
+    assert.ok(markup.includes("问题 1/1"));
+    assert.ok(markup.includes("问题B：选内容"));
+    assert.ok(!markup.includes("问题 1/2"));
+});
