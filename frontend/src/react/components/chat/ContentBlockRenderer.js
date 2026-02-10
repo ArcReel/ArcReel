@@ -7,6 +7,40 @@ import { SkillContentBlock } from "./SkillContentBlock.js";
 
 const html = htm.bind(React.createElement);
 
+function stringifySafely(value) {
+    try {
+        return JSON.stringify(value, null, 2);
+    } catch {
+        return String(value);
+    }
+}
+
+function normalizeToolResultContent(content) {
+    if (typeof content === "string") {
+        return content;
+    }
+
+    if (content === null || content === undefined) {
+        return "";
+    }
+
+    if (Array.isArray(content)) {
+        const textParts = content
+            .map((item) => normalizeToolResultContent(item))
+            .filter((item) => typeof item === "string" && item.trim().length > 0);
+        return textParts.length > 0 ? textParts.join("\n") : stringifySafely(content);
+    }
+
+    if (typeof content === "object") {
+        if (typeof content.text === "string") {
+            return content.text;
+        }
+        return stringifySafely(content);
+    }
+
+    return String(content);
+}
+
 /**
  * ContentBlockRenderer - Renders a single content block within a turn.
  *
@@ -38,13 +72,14 @@ export function ContentBlockRenderer({ block, index }) {
         case "tool_result":
             // Standalone tool_result (should be rare - usually attached to tool_use)
             // Render as a simple result block
+            const normalizedResultText = normalizeToolResultContent(block.content);
             return html`
                 <div key=${key} className="my-1.5 rounded-lg border border-white/10 bg-ink-800/30 px-3 py-2">
                     <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
                         ${block.is_error ? "执行失败" : "工具结果"}
                     </div>
                     <pre className="text-xs text-slate-300 overflow-x-auto whitespace-pre-wrap">
-                        ${block.content || ""}
+                        ${normalizedResultText}
                     </pre>
                 </div>
             `;

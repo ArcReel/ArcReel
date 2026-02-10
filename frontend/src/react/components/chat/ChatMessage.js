@@ -1,6 +1,6 @@
 import React from "react";
 import htm from "htm";
-import { cn, getRoleLabel } from "../../utils.js";
+import { cn, getRoleLabel, mapWithUniqueKeys } from "../../utils.js";
 import { ContentBlockRenderer } from "./ContentBlockRenderer.js";
 
 const html = htm.bind(React.createElement);
@@ -22,6 +22,7 @@ export function ChatMessage({ message }) {
 
     // Normalize content to array
     const blocks = normalizeContent(content);
+    const renderBlocks = mapWithUniqueKeys(blocks, (block) => block?.id, "block");
 
     // Skip empty messages
     if (blocks.length === 0) {
@@ -44,8 +45,8 @@ export function ChatMessage({ message }) {
                 ${getRoleLabel(messageType)}
             </div>
             <div className="text-sm text-slate-100 leading-6">
-                ${blocks.map((block, index) => html`
-                    <${ContentBlockRenderer} key=${block.id || index} block=${block} index=${index} />
+                ${renderBlocks.map(({ item: block, key, index }) => html`
+                    <${ContentBlockRenderer} key=${key} block=${block} index=${index} />
                 `)}
             </div>
         </article>

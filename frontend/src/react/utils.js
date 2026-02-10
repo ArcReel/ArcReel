@@ -63,3 +63,25 @@ export function getRoleLabel(role) {
     if (role === "unknown") return "消息";
     return role || "消息";
 }
+
+export function mapWithUniqueKeys(items, getBaseKey, fallbackPrefix = "item") {
+    const list = Array.isArray(items) ? items : [];
+    const seen = new Map();
+
+    return list.map((item, index) => {
+        const rawBase = getBaseKey ? getBaseKey(item, index) : "";
+        const normalizedRaw = rawBase === null || rawBase === undefined
+            ? ""
+            : String(rawBase).trim();
+        const base = normalizedRaw || `${fallbackPrefix}-${index}`;
+        const count = seen.get(base) || 0;
+        seen.set(base, count + 1);
+        const key = count === 0 ? base : `${base}-${count}`;
+
+        return {
+            item,
+            index,
+            key,
+        };
+    });
+}
