@@ -427,13 +427,24 @@ class SessionManager:
 
     @staticmethod
     def _prune_transient_buffer(managed: ManagedSession) -> None:
-        """Drop transient runtime events that should not leak into next round snapshots."""
+        """Drop stale messages that should not leak into next round snapshots.
+
+        Removes:
+        - stream_event / runtime_status: transient streaming artifacts
+        - user / assistant / result: already persisted in SDK transcript;
+          keeping them causes duplicate turns because buffer messages lack
+          the uuid that transcript messages carry, so _merge_raw_messages
+          cannot deduplicate them.
+        """
         if not managed.message_buffer:
             return
         managed.message_buffer = [
             message
             for message in managed.message_buffer
-            if message.get("type") not in {"stream_event", "runtime_status"}
+            if message.get("type") not in {
+                "stream_event", "runtime_status",
+                "user", "assistant", "result",
+            }
         ]
 
     @staticmethod

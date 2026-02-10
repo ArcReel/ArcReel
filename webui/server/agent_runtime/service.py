@@ -348,6 +348,14 @@ class AssistantService:
             message
             for message in (runtime_buffer or [])
             if self._is_groupable_message(message)
+            # Skip buffer assistant/result messages that lack uuid — these are
+            # SDK-serialized duplicates of transcript entries.  The CLI writes
+            # messages to the JSONL transcript with a uuid wrapper; SDK objects
+            # (AssistantMessage, ResultMessage) don't carry uuid, so they can
+            # never be reliably deduplicated against transcript entries.
+            # Only user messages (local_echo with uuid) may be the sole source
+            # for a round that the CLI hasn't persisted yet.
+            and (message.get("type") == "user" or message.get("uuid"))
         ]
         return self._merge_raw_messages(history_messages, groupable_runtime)
 
@@ -404,6 +412,44 @@ class AssistantService:
             return f"uuid:{uuid}"
         return json.dumps(message, sort_keys=True, ensure_ascii=False)
 
+    @staticmethod
+    def _content_key(message: dict[str, Any]) -> Optional[str]:
+        """Build a content-based key for cross-source dedup.
+
+        Transcript messages carry a uuid assigned by the CLI wrapper while
+        buffer messages converted from SDK objects often lack one.  When the
+        same logical message appears in both sources, _message_key produces
+        different keys (uuid vs json.dumps) and dedup fails.
+
+        This helper normalises on (type, content) so that a buffer message
+        without uuid can still be recognised as a duplicate of a transcript
+        entry that has one.
+
+        Returns None for message types where content-based matching is unsafe
+        (e.g. user messages – the user may legitimately send the same text
+        twice).
+        """
+        msg_type = message.get("type")
+        if msg_type == "assistant":
+            content = message.get("content", [])
+            # Normalise content blocks: SDK dataclass serialization omits
+            # the ``type`` field that the CLI transcript includes.  Extract
+            # only the fields both sources share so the key matches.
+            parts: list[str] = []
+            for block in content if isinstance(content, list) else []:
+                if not isinstance(block, dict):
+                    continue
+                text = block.get("text")
+                tool_id = block.get("id")
+                if text is not None:
+                    parts.append(f"t:{text}")
+                elif tool_id is not None:
+                    parts.append(f"u:{tool_id}")
+            return f"content:assistant:{'/'.join(parts)}" if parts else None
+        if msg_type == "result":
+            return f"content:result:{message.get('subtype', '')}:{message.get('is_error', False)}"
+        return None
+
     def _merge_raw_messages(
         self,
         history_raw: list[dict[str, Any]],
@@ -411,18 +457,50 @@ class AssistantService:
     ) -> list[dict[str, Any]]:
         """Merge transcript raw messages with in-memory buffer, preserving order."""
         merged = list(history_raw or [])
-        seen_keys = {self._message_key(msg) for msg in merged if isinstance(msg, dict)}
+        seen_keys, seen_content_keys = self._build_seen_sets(merged)
+
         for msg in buffered_raw or []:
             if not isinstance(msg, dict):
                 continue
             if self._should_skip_local_echo(msg, merged):
                 continue
-            key = self._message_key(msg)
-            if key in seen_keys:
+            if self._is_duplicate(msg, seen_keys, seen_content_keys):
                 continue
-            seen_keys.add(key)
+            seen_keys.add(self._message_key(msg))
             merged.append(msg)
         return merged
+
+    def _build_seen_sets(
+        self, messages: list[dict[str, Any]]
+    ) -> tuple[set[str], set[str]]:
+        """Build uuid-based and content-based seen sets from existing messages."""
+        seen_keys: set[str] = set()
+        seen_content_keys: set[str] = set()
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            seen_keys.add(self._message_key(msg))
+            ck = self._content_key(msg)
+            if ck:
+                seen_content_keys.add(ck)
+        return seen_keys, seen_content_keys
+
+    def _is_duplicate(
+        self,
+        msg: dict[str, Any],
+        seen_keys: set[str],
+        seen_content_keys: set[str],
+    ) -> bool:
+        """Check whether *msg* duplicates an already-seen message."""
+        key = self._message_key(msg)
+        if key in seen_keys:
+            return True
+        # For messages without uuid, fall back to content-based dedup
+        if not msg.get("uuid"):
+            ck = self._content_key(msg)
+            if ck and ck in seen_content_keys:
+                return True
+        return False
 
     @staticmethod
     def _extract_plain_user_content(message: dict[str, Any]) -> Optional[str]:

@@ -472,6 +472,346 @@ class TestAssistantServiceStreaming(unittest.TestCase):
             self.assertEqual(len(merged), 2)
             self.assertEqual(merged[-1]["uuid"], "local-user-new")
 
+    def test_prune_transient_buffer_removes_groupable_messages(self):
+        """Verify _prune_transient_buffer clears user/assistant/result messages
+        in addition to stream_event and runtime_status."""
+        from webui.server.agent_runtime.session_manager import (
+            ManagedSession,
+            SessionManager,
+        )
+
+        buffer = [
+            {"type": "user", "content": "Q1", "uuid": "u1", "local_echo": True},
+            {"type": "stream_event", "event": {"type": "text_delta"}},
+            {"type": "assistant", "content": [{"type": "text", "text": "A1"}]},
+            {"type": "result", "subtype": "success"},
+            {"type": "runtime_status", "status": "completed"},
+            {"type": "ask_user_question", "question_id": "aq-1", "questions": []},
+        ]
+        managed = ManagedSession.__new__(ManagedSession)
+        managed.message_buffer = list(buffer)
+
+        SessionManager._prune_transient_buffer(managed)
+
+        remaining_types = [m.get("type") for m in managed.message_buffer]
+        self.assertEqual(remaining_types, ["ask_user_question"])
+
+    def test_get_snapshot_no_duplicate_during_streaming(self):
+        """During streaming, buffer contains assistant messages without uuid while
+        transcript already has the same messages with uuid.  get_snapshot must
+        not produce duplicate turns."""
+        with TemporaryDirectory() as tmpdir:
+            service = AssistantService(project_root=Path(tmpdir))
+            meta = SessionMeta(
+                id="session-1",
+                sdk_session_id="sdk-1",
+                project_name="demo",
+                title="demo",
+                status="running",
+                transcript_path=None,
+                created_at="2026-02-09T08:00:00Z",
+                updated_at="2026-02-09T08:00:00Z",
+            )
+
+            call_log: list[tuple] = []
+            # Transcript already has current round's user + assistant (CLI wrote them)
+            history = [
+                {
+                    "type": "user",
+                    "content": "Q1",
+                    "uuid": "user-1",
+                    "timestamp": "2026-02-09T08:00:01Z",
+                },
+                {
+                    "type": "assistant",
+                    "content": [{"type": "text", "text": "A1 - first answer"}],
+                    "uuid": "assistant-1",
+                    "timestamp": "2026-02-09T08:00:02Z",
+                },
+            ]
+            # Buffer also has the same messages but without uuid (SDK objects).
+            # SDK content blocks lack the "type" field that the CLI adds.
+            stale_buffer = [
+                {
+                    "type": "user",
+                    "content": "Q1",
+                    "uuid": "local-user-abc",
+                    "local_echo": True,
+                    "timestamp": "2026-02-09T08:00:00Z",
+                },
+                {
+                    "type": "assistant",
+                    "content": [{"text": "A1 - first answer"}],
+                    # No uuid — SDK AssistantMessage doesn't have one
+                    # No "type" in content block — SDK dataclass omits it
+                },
+                {
+                    "type": "stream_event",
+                    "event": {"type": "content_block_delta"},
+                },
+            ]
+            service.meta_store = _FakeMetaStore(meta)
+            service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=history)
+            service.session_manager = _FakeSessionManager(
+                call_log,
+                status="running",
+                replay_messages=stale_buffer,
+            )
+
+            async def _run():
+                return await service.get_snapshot("session-1")
+
+            payload = asyncio.run(_run())
+            turns = payload.get("turns", [])
+            turn_types = [t.get("type") for t in turns]
+            # Should be exactly 2 turns: user + assistant, no duplicates
+            self.assertEqual(turn_types, ["user", "assistant"])
+            assistant_turn = turns[-1]
+            self.assertEqual(len(assistant_turn.get("content", [])), 1)
+
+    def test_get_snapshot_no_duplicate_with_tool_use_during_streaming(self):
+        """Buffer assistant content blocks lack the 'type' field that the CLI
+        transcript includes.  content_key must normalise across both formats."""
+        with TemporaryDirectory() as tmpdir:
+            service = AssistantService(project_root=Path(tmpdir))
+            meta = SessionMeta(
+                id="session-1",
+                sdk_session_id="sdk-1",
+                project_name="demo",
+                title="demo",
+                status="running",
+                transcript_path=None,
+                created_at="2026-02-09T08:00:00Z",
+                updated_at="2026-02-09T08:00:00Z",
+            )
+
+            call_log: list[tuple] = []
+            # Transcript content blocks include "type"
+            history = [
+                {
+                    "type": "user",
+                    "content": "run ls",
+                    "uuid": "user-1",
+                    "timestamp": "2026-02-09T08:00:01Z",
+                },
+                {
+                    "type": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Let me run that."},
+                        {"type": "tool_use", "id": "tool-1", "name": "Bash",
+                         "input": {"command": "ls"}},
+                    ],
+                    "uuid": "assistant-1",
+                    "timestamp": "2026-02-09T08:00:02Z",
+                },
+            ]
+            # Buffer content blocks omit "type" (SDK dataclass serialization)
+            stale_buffer = [
+                {
+                    "type": "assistant",
+                    "content": [
+                        {"text": "Let me run that."},
+                        {"id": "tool-1", "name": "Bash",
+                         "input": {"command": "ls"}},
+                    ],
+                },
+            ]
+            service.meta_store = _FakeMetaStore(meta)
+            service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=history)
+            service.session_manager = _FakeSessionManager(
+                call_log,
+                status="running",
+                replay_messages=stale_buffer,
+            )
+
+            async def _run():
+                return await service.get_snapshot("session-1")
+
+            payload = asyncio.run(_run())
+            turns = payload.get("turns", [])
+            turn_types = [t.get("type") for t in turns]
+            self.assertEqual(turn_types, ["user", "assistant"])
+            assistant_turn = turns[-1]
+            # Should have exactly 2 content blocks, not 4
+            self.assertEqual(len(assistant_turn.get("content", [])), 2)
+
+    def test_get_snapshot_preserves_user_between_rounds_during_streaming(self):
+        """When streaming round 3, buffer has local_echo user-Q3 and assistant-A3
+        without uuid.  Transcript has rounds 1-2 complete + user-Q3.  The snapshot
+        must keep user-Q3 between assistant-A2 and assistant-A3 so the turns are
+        not merged."""
+        with TemporaryDirectory() as tmpdir:
+            service = AssistantService(project_root=Path(tmpdir))
+            meta = SessionMeta(
+                id="session-1",
+                sdk_session_id="sdk-1",
+                project_name="demo",
+                title="demo",
+                status="running",
+                transcript_path=None,
+                created_at="2026-02-09T08:00:00Z",
+                updated_at="2026-02-09T08:00:00Z",
+            )
+
+            call_log: list[tuple] = []
+            # Transcript: rounds 1+2 complete, round 3 user written
+            history = [
+                {"type": "user", "content": "Q1", "uuid": "u1",
+                 "timestamp": "2026-02-09T08:00:01Z"},
+                {"type": "assistant",
+                 "content": [{"type": "text", "text": "A1"}],
+                 "uuid": "a1", "timestamp": "2026-02-09T08:00:02Z"},
+                {"type": "result", "subtype": "success", "uuid": "r1",
+                 "timestamp": "2026-02-09T08:00:03Z"},
+                {"type": "user", "content": "Q2", "uuid": "u2",
+                 "timestamp": "2026-02-09T08:00:10Z"},
+                {"type": "assistant",
+                 "content": [{"type": "text", "text": "A2"}],
+                 "uuid": "a2", "timestamp": "2026-02-09T08:00:11Z"},
+                {"type": "result", "subtype": "success", "uuid": "r2",
+                 "timestamp": "2026-02-09T08:00:12Z"},
+                {"type": "user", "content": "Q3", "uuid": "u3",
+                 "timestamp": "2026-02-09T08:00:20Z"},
+            ]
+            # Buffer after prune: local_echo user-Q3 + assistant-A3 (no uuid)
+            buffer = [
+                {"type": "user", "content": "Q3",
+                 "uuid": "local-user-q3", "local_echo": True,
+                 "timestamp": "2026-02-09T08:00:19Z"},
+                {"type": "assistant",
+                 "content": [{"text": "A3 - new answer"}]},
+                {"type": "stream_event",
+                 "event": {"type": "content_block_delta"}},
+            ]
+            service.meta_store = _FakeMetaStore(meta)
+            service.transcript_reader = _FakeTranscriptReader(
+                call_log, history_raw=history)
+            service.session_manager = _FakeSessionManager(
+                call_log, status="running", replay_messages=buffer)
+
+            async def _run():
+                return await service.get_snapshot("session-1")
+
+            payload = asyncio.run(_run())
+            turns = payload.get("turns", [])
+            turn_types = [t.get("type") for t in turns]
+            # Transcript provides all 3 users and 2 assistants + 2 results.
+            # Buffer assistant-A3 (no uuid) is correctly excluded.
+            # user-Q3 must be present after result-R2 so A2 and A3 are not merged.
+            self.assertEqual(
+                turn_types,
+                ["user", "assistant", "result", "user", "assistant", "result", "user"],
+                f"unexpected turns={turn_types}",
+            )
+
+    def test_stream_new_session_first_round_preserves_user(self):
+        """First round of a brand new session: transcript is empty, buffer has
+        only local_echo user.  The stream snapshot must include the user turn."""
+        with TemporaryDirectory() as tmpdir:
+            service = AssistantService(project_root=Path(tmpdir))
+            meta = SessionMeta(
+                id="session-new",
+                sdk_session_id=None,  # SDK hasn't assigned one yet
+                project_name="demo",
+                title="new chat",
+                status="running",
+                transcript_path=None,
+                created_at="2026-02-10T08:00:00Z",
+                updated_at="2026-02-10T08:00:00Z",
+            )
+
+            call_log: list[tuple] = []
+            # Buffer: only local_echo user (SDK hasn't returned anything yet)
+            buffer = [
+                {"type": "user", "content": "Hello",
+                 "uuid": "local-user-first", "local_echo": True,
+                 "timestamp": "2026-02-10T08:00:01Z"},
+            ]
+            service.meta_store = _FakeMetaStore(meta)
+            service.transcript_reader = _FakeTranscriptReader(
+                call_log, history_raw=[])
+            service.session_manager = _FakeSessionManager(
+                call_log, status="running", replay_messages=buffer)
+
+            async def _run():
+                stream = service.stream_events("session-new")
+                first_event = await anext(stream)
+                event_name, payload = _parse_sse_event(first_event)
+                self.assertEqual(event_name, "snapshot")
+                turns = payload.get("turns", [])
+                self.assertGreaterEqual(len(turns), 1,
+                                        f"expected at least 1 turn, got {turns}")
+                self.assertEqual(turns[0]["type"], "user")
+                await stream.aclose()
+
+            asyncio.run(_run())
+
+    def test_get_snapshot_no_duplicate_turns_across_rounds(self):
+        """After _prune_transient_buffer clears groupable messages, get_snapshot
+        should produce clean turns from transcript alone, with no duplicates."""
+        with TemporaryDirectory() as tmpdir:
+            service = AssistantService(project_root=Path(tmpdir))
+            meta = SessionMeta(
+                id="session-1",
+                sdk_session_id="sdk-1",
+                project_name="demo",
+                title="demo",
+                status="completed",
+                transcript_path=None,
+                created_at="2026-02-09T08:00:00Z",
+                updated_at="2026-02-09T08:00:00Z",
+            )
+
+            call_log: list[tuple] = []
+            # Transcript has two complete rounds
+            history = [
+                {
+                    "type": "user",
+                    "content": "Q1",
+                    "uuid": "user-1",
+                    "timestamp": "2026-02-09T08:00:01Z",
+                },
+                {
+                    "type": "assistant",
+                    "content": [{"type": "text", "text": "A1 - skills list"}],
+                    "uuid": "assistant-1",
+                    "timestamp": "2026-02-09T08:00:02Z",
+                },
+                {
+                    "type": "user",
+                    "content": "Q2",
+                    "uuid": "user-2",
+                    "timestamp": "2026-02-09T08:00:03Z",
+                },
+                {
+                    "type": "assistant",
+                    "content": [{"type": "text", "text": "A2 - cwd answer"}],
+                    "uuid": "assistant-2",
+                    "timestamp": "2026-02-09T08:00:04Z",
+                },
+            ]
+            # Buffer is empty after prune (groupable messages cleared).
+            # Only non-groupable messages like ask_user_question would remain.
+            service.meta_store = _FakeMetaStore(meta)
+            service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=history)
+            service.session_manager = _FakeSessionManager(
+                call_log,
+                status="completed",
+                replay_messages=[],  # buffer pruned
+            )
+
+            async def _run():
+                return await service.get_snapshot("session-1")
+
+            payload = asyncio.run(_run())
+            turns = payload.get("turns", [])
+            turn_types = [t.get("type") for t in turns]
+            self.assertEqual(turn_types, ["user", "assistant", "user", "assistant"])
+            last_assistant = turns[-1]
+            self.assertEqual(last_assistant.get("uuid"), "assistant-2")
+            self.assertEqual(len(last_assistant.get("content", [])), 1)
+            self.assertEqual(last_assistant["content"][0].get("text"), "A2 - cwd answer")
+
 
 if __name__ == "__main__":
     unittest.main()
