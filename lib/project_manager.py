@@ -234,15 +234,18 @@ class ProjectManager:
         content_mode = script.get("content_mode", "narration")
         if content_mode == "narration" and segments:
             items = segments
+            items_type = "segments"
         elif scenes:
             items = scenes
+            items_type = "scenes"
         else:
             items = segments
+            items_type = "segments"
 
         metadata["total_scenes"] = len(items)
 
-        # 计算总时长（narration 模式缺失时长默认 4 秒，保持与读时计算一致）
-        default_duration = 4 if content_mode == "narration" else 6
+        # 计算总时长：按当前选中的数据结构决定回退值，避免 content_mode 缺失时误判
+        default_duration = 4 if items_type == "segments" else 8
         total_duration = sum(item.get("duration_seconds", default_duration) for item in items)
         metadata["estimated_duration_seconds"] = total_duration
 

@@ -49,6 +49,18 @@ class TestProjectManagerCompatibility(unittest.TestCase):
         self.assertEqual(saved["metadata"]["total_scenes"], 1)
         self.assertEqual(saved["metadata"]["estimated_duration_seconds"], 4)
 
+    def test_save_script_uses_scene_default_duration_when_content_mode_missing(self):
+        script = {
+            "title": "Episode 1",
+            "scenes": [{"scene_id": "001"}],
+        }
+
+        self.pm.save_script(self.project_name, script, "episode_1.json")
+        saved = self.pm.load_script(self.project_name, "episode_1.json")
+
+        self.assertEqual(saved["metadata"]["total_scenes"], 1)
+        self.assertEqual(saved["metadata"]["estimated_duration_seconds"], 8)
+
     def test_update_scene_asset_backfills_generated_assets_when_missing(self):
         raw_script = {
             "title": "Episode 1",
