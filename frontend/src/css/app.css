@@ -97,9 +97,9 @@ body {
 
 .landing-shell {
     background:
-        radial-gradient(circle at 10% 10%, rgba(17, 211, 172, 0.18), transparent 30%),
-        radial-gradient(circle at 90% 20%, rgba(240, 169, 62, 0.15), transparent 25%),
-        linear-gradient(160deg, #05080d, #0b1320);
+        radial-gradient(circle at 14% 11%, rgba(17, 211, 172, 0.14), transparent 34%),
+        radial-gradient(circle at 88% 16%, rgba(236, 95, 193, 0.12), transparent 32%),
+        linear-gradient(180deg, #07090f, #0b1220);
 }
 
 .landing-grid {
@@ -108,9 +108,31 @@ body {
     background-image:
         linear-gradient(to right, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
         linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
-    background-size: 42px 42px;
-    mask-image: radial-gradient(circle at center, #000 35%, transparent 85%);
-    opacity: 0.35;
+    background-size: 50px 50px;
+    mask-image: radial-gradient(circle at 50% 42%, #000 26%, transparent 86%);
+    opacity: 0.22;
+}
+
+.landing-curve {
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+    background-size: 96px 96px;
+    transform: perspective(1000px) rotateX(42deg) translateY(42%);
+    transform-origin: center bottom;
+    opacity: 0.16;
+    mask-image: radial-gradient(circle at center, #000 44%, transparent 86%);
+}
+
+.landing-slogan {
+    letter-spacing: 0.01em;
+    text-wrap: balance;
+    color: #f8fafc;
+    text-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.08),
+        0 14px 32px rgba(0, 0, 0, 0.5);
 }
 
 .landing-orb {

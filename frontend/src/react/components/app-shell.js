@@ -20,6 +20,7 @@ export function AppShell({
 }) {
     const fixedViewportLayout =
         route.kind === ROUTE_KIND.ASSISTANT || route.kind === ROUTE_KIND.WORKSPACE || route.kind === ROUTE_KIND.TASKS;
+    const showAssistantTrigger = route.kind !== ROUTE_KIND.ASSISTANT;
     const currentWorkspaceTabLabel =
         PROJECT_TABS.find((item) => item.key === route.tab)?.label || PROJECT_TABS[0].label;
     const workspaceTitle = selectedProjectItem?.title || route.projectName || "未选择项目";
@@ -144,13 +145,17 @@ export function AppShell({
                 </section>
             </main>
 
-            <button
-                onClick=${onToggleAssistantPanel}
-                className="fixed right-5 bottom-5 z-50 w-14 h-14 rounded-full bg-neon-500 text-ink-950 shadow-glow hover:bg-neon-400 transition-colors flex items-center justify-center"
-                title="助手工作台"
-            >
-                <${IconSpark} />
-            </button>
+            ${showAssistantTrigger
+                ? html`
+                      <button
+                          onClick=${onToggleAssistantPanel}
+                          className="fixed right-5 bottom-5 z-50 w-14 h-14 rounded-full bg-neon-500 text-ink-950 shadow-glow hover:bg-neon-400 transition-colors flex items-center justify-center"
+                          title="助手工作台"
+                      >
+                          <${IconSpark} />
+                      </button>
+                  `
+                : null}
         </div>
     `;
 }
