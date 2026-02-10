@@ -102,10 +102,13 @@ class AssistantService:
             raise FileNotFoundError(f"session not found: {session_id}")
 
         status = self.session_manager.get_status(session_id) or meta.status
-        raw_messages = self._build_initial_raw_messages(meta, session_id)
+        # Read buffer once to avoid inconsistency from concurrent mutations.
+        buffered_messages = self.session_manager.get_buffered_messages(session_id)
+        raw_messages = self._build_initial_raw_messages(
+            meta, session_id, buffered_messages=buffered_messages
+        )
         projector = AssistantStreamProjector(initial_messages=raw_messages)
 
-        buffered_messages = self.session_manager.get_buffered_messages(session_id)
         for message in buffered_messages:
             if self._is_groupable_message(message):
                 continue
@@ -447,7 +450,11 @@ class AssistantService:
                     parts.append(f"u:{tool_id}")
             return f"content:assistant:{'/'.join(parts)}" if parts else None
         if msg_type == "result":
-            return f"content:result:{message.get('subtype', '')}:{message.get('is_error', False)}"
+            # Include session_id and timestamp to avoid cross-round collisions
+            # when multiple results share the same subtype/is_error.
+            sid = message.get("session_id", "")
+            ts = message.get("timestamp", "")
+            return f"content:result:{message.get('subtype', '')}:{message.get('is_error', False)}:{sid}:{ts}"
         return None
 
     def _merge_raw_messages(

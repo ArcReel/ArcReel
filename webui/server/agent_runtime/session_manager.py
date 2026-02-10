@@ -60,16 +60,93 @@ class ManagedSession:
     pending_user_echoes: list[str] = field(default_factory=list)
     interrupt_requested: bool = False
 
+    # Message types that must never be silently dropped from subscriber queues.
+    _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "user", "assistant"}
+    # Transient types that are evicted first when buffer is full.
+    _TRANSIENT_BUFFER_TYPES = {"stream_event"}
+
     def add_message(self, message: dict[str, Any]) -> None:
         """Add message to buffer and notify subscribers."""
         self.message_buffer.append(message)
         if len(self.message_buffer) > self.buffer_max_size:
-            self.message_buffer.pop(0)
+            self._evict_oldest_buffer_entry()
+        self._broadcast_to_subscribers(message)
+
+    def _evict_oldest_buffer_entry(self) -> None:
+        """Evict one entry from buffer, preferring transient stream_events."""
+        for i, m in enumerate(self.message_buffer[:-1]):
+            if m.get("type") in self._TRANSIENT_BUFFER_TYPES:
+                self.message_buffer.pop(i)
+                return
+        self.message_buffer.pop(0)
+
+    def _broadcast_to_subscribers(self, message: dict[str, Any]) -> None:
+        """Push message to all subscriber queues, evicting non-critical on overflow."""
+        is_critical = message.get("type") in self._CRITICAL_MESSAGE_TYPES
+        stale_queues: list[asyncio.Queue] = []
         for queue in self.subscribers:
+            if not self._try_enqueue(queue, message, is_critical):
+                stale_queues.append(queue)
+        for q in stale_queues:
+            # Drain the hopelessly full queue and inject a reconnect signal so
+            # the SSE consumer loop terminates instead of blocking forever.
+            self._drain_and_signal_reconnect(q)
+            self.subscribers.discard(q)
+
+    def _drain_and_signal_reconnect(self, queue: asyncio.Queue) -> None:
+        """Empty *queue* and push a reconnect signal so the SSE loop exits."""
+        while not queue.empty():
             try:
-                queue.put_nowait(message)
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        try:
+            queue.put_nowait({
+                "type": "runtime_status",
+                "status": "error",
+                "subtype": "queue_overflow",
+                "is_error": True,
+                "session_id": self.session_id,
+            })
+        except asyncio.QueueFull:
+            pass  # should never happen after drain
+
+    def _try_enqueue(self, queue: asyncio.Queue, message: dict[str, Any], is_critical: bool) -> bool:
+        """Try to put *message* into *queue*. Returns False if the queue should be discarded."""
+        try:
+            queue.put_nowait(message)
+            return True
+        except asyncio.QueueFull:
+            if not is_critical:
+                return True  # non-critical drop is acceptable
+        # Critical message on a full queue — evict one non-critical to make room.
+        self._evict_non_critical(queue)
+        try:
+            queue.put_nowait(message)
+            return True
+        except asyncio.QueueFull:
+            return False
+
+    @staticmethod
+    def _evict_non_critical(queue: asyncio.Queue) -> bool:
+        """Try to remove one non-critical message from *queue* to make room."""
+        temp: list[dict[str, Any]] = []
+        evicted = False
+        while not queue.empty():
+            try:
+                msg = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if not evicted and msg.get("type") not in ManagedSession._CRITICAL_MESSAGE_TYPES:
+                evicted = True  # drop this one
+                continue
+            temp.append(msg)
+        for msg in temp:
+            try:
+                queue.put_nowait(msg)
             except asyncio.QueueFull:
-                pass
+                break
+        return evicted
 
     def clear_buffer(self) -> None:
         """Clear message buffer after session completes."""
@@ -140,6 +217,7 @@ class SessionManager:
         self.meta_store = meta_store
         self.transcript_reader = TranscriptReader(data_dir, project_root=project_root)
         self.sessions: dict[str, ManagedSession] = {}
+        self._connect_locks: dict[str, asyncio.Lock] = {}
         self._load_config()
 
     def _load_config(self) -> None:
@@ -215,33 +293,49 @@ class SessionManager:
         if session_id in self.sessions:
             return self.sessions[session_id]
 
-        meta = self.meta_store.get(session_id)
-        if meta is None:
-            raise FileNotFoundError(f"session not found: {session_id}")
+        # Per-session lock prevents concurrent connect() for the same session_id.
+        if session_id not in self._connect_locks:
+            self._connect_locks[session_id] = asyncio.Lock()
+        lock = self._connect_locks[session_id]
 
-        if not SDK_AVAILABLE or ClaudeSDKClient is None:
-            raise RuntimeError("claude_agent_sdk is not installed")
+        async with lock:
+            # Re-check after acquiring lock
+            if session_id in self.sessions:
+                return self.sessions[session_id]
 
-        options = self._build_options(
-            meta.project_name,
-            meta.sdk_session_id,
-            can_use_tool=self._build_can_use_tool_callback(session_id),
-        )
-        client = ClaudeSDKClient(options=options)
-        await client.connect()
+            meta = self.meta_store.get(session_id)
+            if meta is None:
+                raise FileNotFoundError(f"session not found: {session_id}")
 
-        managed = ManagedSession(
-            session_id=session_id,
-            client=client,
-            sdk_session_id=meta.sdk_session_id,
-            status=meta.status if meta.status != "idle" else "idle",
-        )
-        self.sessions[session_id] = managed
-        return managed
+            if not SDK_AVAILABLE or ClaudeSDKClient is None:
+                raise RuntimeError("claude_agent_sdk is not installed")
+
+            options = self._build_options(
+                meta.project_name,
+                meta.sdk_session_id,
+                can_use_tool=self._build_can_use_tool_callback(session_id),
+            )
+            client = ClaudeSDKClient(options=options)
+            await client.connect()
+
+            managed = ManagedSession(
+                session_id=session_id,
+                client=client,
+                sdk_session_id=meta.sdk_session_id,
+                status=meta.status if meta.status != "idle" else "idle",
+            )
+            self.sessions[session_id] = managed
+            return managed
 
     async def send_message(self, session_id: str, content: str) -> None:
         """Send a message and start background consumer."""
         managed = await self.get_or_connect(session_id)
+
+        if managed.status == "running":
+            raise ValueError(
+                "会话正在处理中，请等待当前回复完成后再发送新消息"
+            )
+
         self._prune_transient_buffer(managed)
 
         # Update status to running
@@ -255,8 +349,15 @@ class SessionManager:
             managed.pending_user_echoes.pop(0)
         managed.add_message(self._build_user_echo_message(content))
 
-        # Send the query
-        await managed.client.query(content)
+        # Send the query — restore status on failure so the session is not
+        # permanently stuck in "running" without an active consumer.
+        try:
+            await managed.client.query(content)
+        except Exception:
+            managed.pending_user_echoes.clear()
+            managed.status = "error"
+            self.meta_store.update_status(session_id, "error")
+            raise
 
         # Start consumer task if not running
         if managed.consumer_task is None or managed.consumer_task.done():

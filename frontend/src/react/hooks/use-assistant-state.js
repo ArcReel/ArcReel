@@ -159,6 +159,7 @@ export function useAssistantState({
     const assistantChatScrollRef = useRef(null);
     const reconnectTimeoutRef = useRef(null);
     const sessionStatusRef = useRef("idle");
+    const isUserScrolledUpRef = useRef(false);
 
     const assistantActive = assistantPanelOpen || routeKind === ROUTE_KIND.ASSISTANT;
     const currentAssistantProject = assistantScopeProject || currentProjectName || "";
@@ -413,8 +414,46 @@ export function useAssistantState({
         void loadOrConnectSession(assistantCurrentSessionId);
     }, [assistantActive, assistantCurrentSessionId, loadOrConnectSession]);
 
+    // Smart auto-scroll: pause when user scrolls up, resume when user scrolls back to bottom.
+    // Uses wheel/touchmove to detect intentional user scrolling, avoiding false positives
+    // from programmatic scrollTop assignments that also fire the scroll event.
     useEffect(() => {
-        if (assistantChatScrollRef.current) {
+        const el = assistantChatScrollRef.current;
+        if (!el) return;
+        isUserScrolledUpRef.current = false; // reset on session change
+        const THRESHOLD = 50;
+
+        const checkIfAtBottom = () => {
+            const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+            if (distanceFromBottom <= THRESHOLD) {
+                isUserScrolledUpRef.current = false;
+            }
+        };
+
+        // Mark as scrolled-up only on intentional user interaction
+        const handleUserScroll = () => {
+            const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+            if (distanceFromBottom > THRESHOLD) {
+                isUserScrolledUpRef.current = true;
+            }
+        };
+
+        // After user interaction ends, also check if they scrolled to bottom
+        const handleScrollEnd = () => { checkIfAtBottom(); };
+
+        el.addEventListener("wheel", handleUserScroll, { passive: true });
+        el.addEventListener("touchmove", handleUserScroll, { passive: true });
+        el.addEventListener("scrollend", handleScrollEnd, { passive: true });
+
+        return () => {
+            el.removeEventListener("wheel", handleUserScroll);
+            el.removeEventListener("touchmove", handleUserScroll);
+            el.removeEventListener("scrollend", handleScrollEnd);
+        };
+    }, [assistantCurrentSessionId]);
+
+    useEffect(() => {
+        if (assistantChatScrollRef.current && !isUserScrolledUpRef.current) {
             assistantChatScrollRef.current.scrollTop = assistantChatScrollRef.current.scrollHeight;
         }
     }, [assistantComposedMessages, assistantCurrentSessionId, assistantMessagesLoading]);
