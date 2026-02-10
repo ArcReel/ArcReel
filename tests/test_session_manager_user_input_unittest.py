@@ -29,6 +29,16 @@ class FakeClient:
             yield None
 
 
+class FakeStreamingClient(FakeClient):
+    def __init__(self, messages):
+        super().__init__()
+        self._messages = list(messages)
+
+    async def receive_response(self):
+        for message in self._messages:
+            yield message
+
+
 class TestSessionManagerUserInput(unittest.TestCase):
     def setUp(self):
         self.tmpdir = TemporaryDirectory()
@@ -65,6 +75,91 @@ class TestSessionManagerUserInput(unittest.TestCase):
 
             if managed.consumer_task:
                 await managed.consumer_task
+
+        asyncio.run(_run())
+
+    def test_send_message_prunes_previous_stream_events(self):
+        meta = self.meta_store.create("demo", "demo title")
+        client = FakeClient()
+        managed = ManagedSession(
+            session_id=meta.id,
+            client=client,
+            status="idle",
+            message_buffer=[
+                {
+                    "type": "assistant",
+                    "content": [{"type": "text", "text": "上一轮回复"}],
+                    "uuid": "assistant-old-1",
+                },
+                {
+                    "type": "stream_event",
+                    "event": {
+                        "type": "content_block_delta",
+                        "delta": {"type": "text_delta", "text": "旧增量"},
+                    },
+                    "uuid": "stream-old-1",
+                },
+                {
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": False,
+                    "uuid": "result-old-1",
+                },
+            ],
+        )
+        self.manager.sessions[meta.id] = managed
+
+        async def _run():
+            await self.manager.send_message(meta.id, "新问题")
+            if managed.consumer_task:
+                await managed.consumer_task
+
+            self.assertFalse(any(msg.get("type") == "stream_event" for msg in managed.message_buffer))
+            self.assertTrue(any(msg.get("type") == "assistant" for msg in managed.message_buffer))
+            self.assertTrue(any(msg.get("type") == "result" for msg in managed.message_buffer))
+            self.assertTrue(any(msg.get("local_echo") for msg in managed.message_buffer))
+
+        asyncio.run(_run())
+
+    def test_consume_result_prunes_stream_events_after_completion(self):
+        meta = self.meta_store.create("demo", "demo title")
+        client = FakeStreamingClient(
+            messages=[
+                {
+                    "type": "stream_event",
+                    "event": {
+                        "type": "content_block_delta",
+                        "delta": {"type": "text_delta", "text": "Hello"},
+                    },
+                    "uuid": "stream-1",
+                },
+                {
+                    "type": "assistant",
+                    "content": [{"type": "text", "text": "Hello"}],
+                    "uuid": "assistant-1",
+                },
+                {
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": False,
+                    "uuid": "result-1",
+                },
+            ]
+        )
+        managed = ManagedSession(
+            session_id=meta.id,
+            client=client,
+            status="running",
+        )
+        self.manager.sessions[meta.id] = managed
+        self.meta_store.update_status(meta.id, "running")
+
+        async def _run():
+            await self.manager._consume_messages(managed)
+            self.assertEqual(managed.status, "completed")
+            self.assertFalse(any(msg.get("type") == "stream_event" for msg in managed.message_buffer))
+            self.assertTrue(any(msg.get("type") == "assistant" for msg in managed.message_buffer))
+            self.assertTrue(any(msg.get("type") == "result" for msg in managed.message_buffer))
 
         asyncio.run(_run())
 

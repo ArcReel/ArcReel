@@ -439,6 +439,16 @@ class GeminiClient:
         self.IMAGE_MODEL = "gemini-3-pro-image-preview"
         self.VIDEO_MODEL = "veo-3.1-generate-preview"
 
+    @staticmethod
+    def _load_image_detached(image_path: Union[str, Path]) -> Image.Image:
+        """
+        从路径加载图片并与底层文件句柄解绑。
+
+        返回的 Image 对象驻留内存，不再持有打开的文件描述符。
+        """
+        with Image.open(image_path) as img:
+            return img.copy()
+
     def _extract_name_from_path(
         self, image: Union[str, Path, Image.Image]
     ) -> Optional[str]:
@@ -503,7 +513,7 @@ class GeminiClient:
 
                 # 加载图片
                 if isinstance(img, (str, Path)):
-                    loaded_img = Image.open(img)
+                    loaded_img = self._load_image_detached(img)
                 else:
                     loaded_img = img
                 contents.append(loaded_img)
@@ -1181,9 +1191,12 @@ class GeminiClient:
         Returns:
             风格描述文字（逗号分隔的描述词列表）
         """
+        close_after_use = False
+
         # 准备图片
         if isinstance(image, (str, Path)):
-            img = Image.open(image)
+            img = self._load_image_detached(image)
+            close_after_use = True
         else:
             img = image
 
@@ -1197,12 +1210,15 @@ class GeminiClient:
             "suitable for an image generation prompt."
         )
 
-        # 调用 API
-        response = self.client.models.generate_content(
-            model=model, contents=[img, prompt]
-        )
-
-        return response.text.strip()
+        try:
+            # 调用 API
+            response = self.client.models.generate_content(
+                model=model, contents=[img, prompt]
+            )
+            return response.text.strip()
+        finally:
+            if close_after_use:
+                img.close()
 
     def _download_video(self, video_ref, output_path: Path) -> None:
         """

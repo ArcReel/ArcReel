@@ -242,6 +242,7 @@ class SessionManager:
     async def send_message(self, session_id: str, content: str) -> None:
         """Send a message and start background consumer."""
         managed = await self.get_or_connect(session_id)
+        self._prune_transient_buffer(managed)
 
         # Update status to running
         managed.status = "running"
@@ -319,6 +320,7 @@ class SessionManager:
                 managed.status = final_status
                 self.meta_store.update_status(managed.session_id, final_status)
                 managed.interrupt_requested = False
+                self._prune_transient_buffer(managed)
 
         except asyncio.CancelledError:
             managed.pending_user_echoes.clear()
@@ -326,6 +328,7 @@ class SessionManager:
             managed.status = "interrupted"
             self.meta_store.update_status(managed.session_id, "interrupted")
             managed.interrupt_requested = False
+            self._prune_transient_buffer(managed)
             raise
         except Exception:
             managed.pending_user_echoes.clear()
@@ -333,6 +336,7 @@ class SessionManager:
             managed.status = "error"
             self.meta_store.update_status(managed.session_id, "error")
             managed.interrupt_requested = False
+            self._prune_transient_buffer(managed)
             raise
 
     @staticmethod
@@ -420,6 +424,17 @@ class SessionManager:
             "timestamp": _utc_now_iso(),
             "local_echo": True,
         }
+
+    @staticmethod
+    def _prune_transient_buffer(managed: ManagedSession) -> None:
+        """Drop transient runtime events that should not leak into next round snapshots."""
+        if not managed.message_buffer:
+            return
+        managed.message_buffer = [
+            message
+            for message in managed.message_buffer
+            if message.get("type") not in {"stream_event", "runtime_status"}
+        ]
 
     @staticmethod
     def _build_runtime_status_message(
