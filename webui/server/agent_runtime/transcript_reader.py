@@ -18,6 +18,19 @@ class TranscriptReader:
     """Read messages from Claude SDK transcript files."""
 
     MESSAGE_TYPES = {"user", "assistant", "result"}
+    _USER_METADATA_KEYS = (
+        "parent_tool_use_id",
+        "parentToolUseID",
+        "parentToolUseId",
+        "sourceToolAssistantUUID",
+        "source_tool_assistant_uuid",
+        "toolUseResult",
+        "tool_use_result",
+        "agentId",
+        "agent_id",
+        "isSidechain",
+        "is_sidechain",
+    )
 
     def __init__(self, data_dir: Path, project_root: Optional[Path] = None):
         self.data_dir = Path(data_dir)
@@ -108,12 +121,14 @@ class TranscriptReader:
 
         if msg_type == "user":
             message = entry.get("message", {})
-            return {
+            parsed = {
                 "type": "user",
                 "content": message.get("content", ""),
                 "uuid": entry.get("uuid"),
                 "timestamp": entry.get("timestamp"),
             }
+            parsed.update(self._extract_user_metadata(entry, message))
+            return parsed
         if msg_type == "assistant":
             message = entry.get("message", {})
             return {
@@ -133,6 +148,24 @@ class TranscriptReader:
                 "timestamp": entry.get("timestamp"),
             }
         return None
+
+    def _extract_user_metadata(
+        self,
+        entry: dict[str, Any],
+        message: Any,
+    ) -> dict[str, Any]:
+        """Preserve subagent/system metadata used by turn filtering logic."""
+        metadata: dict[str, Any] = {}
+        message_dict = message if isinstance(message, dict) else {}
+
+        for key in self._USER_METADATA_KEYS:
+            if key in entry and entry.get(key) is not None:
+                metadata[key] = entry.get(key)
+                continue
+            if key in message_dict and message_dict.get(key) is not None:
+                metadata[key] = message_dict.get(key)
+
+        return metadata
 
     def exists(
         self,
