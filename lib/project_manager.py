@@ -241,8 +241,9 @@ class ProjectManager:
 
         metadata["total_scenes"] = len(items)
 
-        # 计算总时长
-        total_duration = sum(item.get("duration_seconds", 6) for item in items)
+        # 计算总时长（narration 模式缺失时长默认 4 秒，保持与读时计算一致）
+        default_duration = 4 if content_mode == "narration" else 6
+        total_duration = sum(item.get("duration_seconds", default_duration) for item in items)
         metadata["estimated_duration_seconds"] = total_duration
 
         # 保存文件

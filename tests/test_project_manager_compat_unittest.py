@@ -36,6 +36,19 @@ class TestProjectManagerCompatibility(unittest.TestCase):
         self.assertIn("created_at", saved["metadata"])
         self.assertIn("updated_at", saved["metadata"])
 
+    def test_save_script_uses_narration_default_duration_when_missing(self):
+        script = {
+            "title": "Episode 1",
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01"}],
+        }
+
+        self.pm.save_script(self.project_name, script, "episode_1.json")
+        saved = self.pm.load_script(self.project_name, "episode_1.json")
+
+        self.assertEqual(saved["metadata"]["total_scenes"], 1)
+        self.assertEqual(saved["metadata"]["estimated_duration_seconds"], 4)
+
     def test_update_scene_asset_backfills_generated_assets_when_missing(self):
         raw_script = {
             "title": "Episode 1",
