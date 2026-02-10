@@ -128,6 +128,40 @@ class TestAssistantServiceStreaming(unittest.TestCase):
             )
             self.assertLess(subscribe_idx, read_raw_idx)
 
+    def test_stream_replay_overflow_closes_stream_immediately(self):
+        with TemporaryDirectory() as tmpdir:
+            service = AssistantService(project_root=Path(tmpdir))
+            meta = SessionMeta(
+                id="session-1",
+                sdk_session_id="sdk-1",
+                project_name="demo",
+                title="demo",
+                status="running",
+                transcript_path=None,
+                created_at="2026-02-09T08:00:00Z",
+                updated_at="2026-02-09T08:00:00Z",
+            )
+
+            call_log: list[tuple] = []
+            service.meta_store = _FakeMetaStore(meta)
+            service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=[])
+            service.session_manager = _FakeSessionManager(
+                call_log,
+                status="running",
+                replay_messages=[{"type": "_queue_overflow", "session_id": "sdk-1"}],
+            )
+
+            async def _run():
+                stream = service.stream_events("session-1")
+                with self.assertRaises(StopAsyncIteration):
+                    await anext(stream)
+                await stream.aclose()
+
+            asyncio.run(_run())
+            self.assertIn(("subscribe", "session-1", True), call_log)
+            self.assertIn(("unsubscribe", "session-1"), call_log)
+            self.assertNotIn(("read_raw_messages", "session-1", "sdk-1", "demo"), call_log)
+
     def test_stream_emits_delta_patch_question_and_status_events(self):
         with TemporaryDirectory() as tmpdir:
             service = AssistantService(project_root=Path(tmpdir))

@@ -312,6 +312,15 @@ export function useAssistantState({
             setAssistantAnsweringQuestion(false);
         });
 
+        source.addEventListener("compact", () => {
+            // Compact boundary means server-side history was rewritten; reconnect
+            // to re-bootstrap from a fresh snapshot and avoid stale local state.
+            if (assistantStreamRef.current !== source) {
+                return;
+            }
+            connectStream(sessionId);
+        });
+
         source.addEventListener("status", (event) => {
             const data = parseSsePayload(event);
             if (!data || typeof data !== "object") {

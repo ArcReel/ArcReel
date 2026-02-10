@@ -94,7 +94,12 @@ class ManagedSession:
             self.subscribers.discard(q)
 
     def _drain_and_signal_reconnect(self, queue: asyncio.Queue) -> None:
-        """Empty *queue* and push a reconnect signal so the SSE loop exits."""
+        """Empty *queue* and push a reconnect signal so the SSE loop exits.
+
+        Uses a connection-level ``_queue_overflow`` type rather than
+        ``runtime_status`` so the SSE consumer can close the stream without
+        misrepresenting the session's actual status to the client.
+        """
         while not queue.empty():
             try:
                 queue.get_nowait()
@@ -102,10 +107,7 @@ class ManagedSession:
                 break
         try:
             queue.put_nowait({
-                "type": "runtime_status",
-                "status": "error",
-                "subtype": "queue_overflow",
-                "is_error": True,
+                "type": "_queue_overflow",
                 "session_id": self.session_id,
             })
         except asyncio.QueueFull:
@@ -392,7 +394,6 @@ class SessionManager:
         """Consume messages from client and distribute to subscribers."""
         try:
             async for message in managed.client.receive_response():
-                # Serialize message to dict
                 msg_dict = self._message_to_dict(message)
                 if not isinstance(msg_dict, dict):
                     continue
@@ -401,44 +402,68 @@ class SessionManager:
                     self._maybe_update_sdk_session_id(managed, message, msg_dict)
                     continue
 
-                if msg_dict.get("type") == "result":
-                    msg_dict["session_status"] = self._resolve_result_status(
-                        msg_dict,
-                        interrupt_requested=managed.interrupt_requested,
-                    )
+                self._handle_special_message(managed, msg_dict)
                 managed.add_message(msg_dict)
                 self._maybe_update_sdk_session_id(managed, message, msg_dict)
 
                 if msg_dict.get("type") != "result":
                     continue
 
-                managed.pending_user_echoes.clear()
-                managed.cancel_pending_questions("session completed")
-                final_status = str(msg_dict.get("session_status") or "").strip() or self._resolve_result_status(
-                    msg_dict,
-                    interrupt_requested=managed.interrupt_requested,
-                )
-                managed.status = final_status
-                self.meta_store.update_status(managed.session_id, final_status)
-                managed.interrupt_requested = False
-                self._prune_transient_buffer(managed)
+                self._finalize_turn(managed, msg_dict)
 
         except asyncio.CancelledError:
-            managed.pending_user_echoes.clear()
-            managed.cancel_pending_questions("session interrupted")
-            managed.status = "interrupted"
-            self.meta_store.update_status(managed.session_id, "interrupted")
-            managed.interrupt_requested = False
-            self._prune_transient_buffer(managed)
+            self._mark_session_terminal(managed, "interrupted", "session interrupted")
             raise
         except Exception:
-            managed.pending_user_echoes.clear()
-            managed.cancel_pending_questions("session error")
-            managed.status = "error"
-            self.meta_store.update_status(managed.session_id, "error")
-            managed.interrupt_requested = False
-            self._prune_transient_buffer(managed)
+            self._mark_session_terminal(managed, "error", "session error")
             raise
+
+    def _handle_special_message(
+        self, managed: ManagedSession, msg_dict: dict[str, Any]
+    ) -> None:
+        """Handle compact_boundary and result messages before broadcast."""
+        if (
+            msg_dict.get("type") == "system"
+            and msg_dict.get("subtype") == "compact_boundary"
+        ):
+            self._prune_transient_buffer(managed)
+
+        if msg_dict.get("type") == "result":
+            msg_dict["session_status"] = self._resolve_result_status(
+                msg_dict,
+                interrupt_requested=managed.interrupt_requested,
+            )
+
+    def _finalize_turn(
+        self, managed: ManagedSession, result_msg: dict[str, Any]
+    ) -> None:
+        """Settle session state after a result message completes a turn."""
+        managed.pending_user_echoes.clear()
+        managed.cancel_pending_questions("session completed")
+        explicit = str(result_msg.get("session_status") or "").strip()
+        final_status: SessionStatus = (
+            explicit  # type: ignore[assignment]
+            if explicit in {"idle", "running", "completed", "error", "interrupted"}
+            else self._resolve_result_status(
+                result_msg,
+                interrupt_requested=managed.interrupt_requested,
+            )
+        )
+        managed.status = final_status
+        self.meta_store.update_status(managed.session_id, final_status)
+        managed.interrupt_requested = False
+        self._prune_transient_buffer(managed)
+
+    def _mark_session_terminal(
+        self, managed: ManagedSession, status: SessionStatus, reason: str
+    ) -> None:
+        """Set terminal status on abnormal consumer exit."""
+        managed.pending_user_echoes.clear()
+        managed.cancel_pending_questions(reason)
+        managed.status = status
+        self.meta_store.update_status(managed.session_id, status)
+        managed.interrupt_requested = False
+        self._prune_transient_buffer(managed)
 
     @staticmethod
     def _resolve_result_status(
