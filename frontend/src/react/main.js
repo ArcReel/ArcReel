@@ -21,6 +21,7 @@ import { useUsageState } from "./hooks/use-usage-state.js";
 import { useAssistantState } from "./hooks/use-assistant-state.js";
 
 const html = htm.bind(React.createElement);
+const LANDING_CONTACT_QR_SRC = "/wechat-qr.jpg";
 
 function App() {
     const {
@@ -225,8 +226,7 @@ function App() {
         return html`
             <${LandingPage}
                 onEnter=${() => navigate({ kind: ROUTE_KIND.PROJECTS })}
-                onAssistant=${() => navigate({ kind: ROUTE_KIND.ASSISTANT })}
-                onUsage=${() => navigate({ kind: ROUTE_KIND.USAGE })}
+                contactQrSrc=${LANDING_CONTACT_QR_SRC}
             />
         `;
     }
