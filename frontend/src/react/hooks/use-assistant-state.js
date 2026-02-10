@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ROUTE_KIND } from "../constants.js";
+
+const VALID_SESSION_STATUSES = new Set(["idle", "running", "completed", "error", "interrupted"]);
+const TERMINAL_SESSION_STATUSES = new Set(["completed", "error", "interrupted"]);
 
 function parseSsePayload(event) {
     if (!event || typeof event.data !== "string" || !event.data) {
@@ -42,6 +45,78 @@ function applyTurnPatch(previousTurns, patch) {
     return current;
 }
 
+function normalizeTurn(turn) {
+    if (!turn || typeof turn !== "object") {
+        return null;
+    }
+    const type = typeof turn.type === "string" ? turn.type : "";
+    if (!type) {
+        return null;
+    }
+    const content = Array.isArray(turn.content) ? turn.content : [];
+    return {
+        ...turn,
+        type,
+        content,
+    };
+}
+
+function composeAssistantTurnsWithDraft(committedTurns, draftTurn) {
+    const turns = Array.isArray(committedTurns) ? committedTurns : [];
+    const draft = normalizeTurn(draftTurn);
+    if (!draft) {
+        return turns;
+    }
+
+    const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
+    if (
+        lastTurn &&
+        typeof lastTurn === "object" &&
+        lastTurn.type === "assistant" &&
+        Array.isArray(lastTurn.content)
+    ) {
+        return [
+            ...turns.slice(0, -1),
+            {
+                ...lastTurn,
+                content: [...lastTurn.content, ...draft.content],
+            },
+        ];
+    }
+
+    return [...turns, draft];
+}
+
+function normalizeSessionStatusDetail(payload, fallbackStatus = "idle") {
+    const rawStatus = typeof payload?.status === "string" ? payload.status.trim() : "";
+    const fallback = typeof fallbackStatus === "string" ? fallbackStatus.trim() : "idle";
+    const status = VALID_SESSION_STATUSES.has(rawStatus)
+        ? rawStatus
+        : VALID_SESSION_STATUSES.has(fallback)
+            ? fallback
+            : "idle";
+    const subtype = typeof payload?.subtype === "string" && payload.subtype.trim()
+        ? payload.subtype.trim()
+        : null;
+    const stopReason = typeof payload?.stop_reason === "string" && payload.stop_reason.trim()
+        ? payload.stop_reason.trim()
+        : null;
+    const sessionId = typeof payload?.session_id === "string" && payload.session_id.trim()
+        ? payload.session_id.trim()
+        : "";
+    const isError = typeof payload?.is_error === "boolean"
+        ? payload.is_error
+        : status === "error";
+
+    return {
+        status,
+        subtype,
+        stopReason,
+        isError,
+        sessionId,
+    };
+}
+
 export function useAssistantState({
     initialProjectName,
     routeKind,
@@ -55,9 +130,11 @@ export function useAssistantState({
     const [assistantLoadingSessions, setAssistantLoadingSessions] = useState(false);
     const [assistantCurrentSessionId, setAssistantCurrentSessionId] = useState("");
     const [assistantMessages, setAssistantMessages] = useState([]);
+    const [assistantDraftTurn, setAssistantDraftTurn] = useState(null);
     const [assistantMessagesLoading, setAssistantMessagesLoading] = useState(false);
     const [assistantInput, setAssistantInput] = useState("");
     const [assistantSending, setAssistantSending] = useState(false);
+    const [assistantInterrupting, setAssistantInterrupting] = useState(false);
     const [assistantError, setAssistantError] = useState("");
     const [assistantPendingQuestion, setAssistantPendingQuestion] = useState(null);
     const [assistantAnsweringQuestion, setAssistantAnsweringQuestion] = useState(false);
@@ -65,6 +142,9 @@ export function useAssistantState({
     const [assistantSkillsLoading, setAssistantSkillsLoading] = useState(false);
     const [assistantRefreshToken, setAssistantRefreshToken] = useState(0);
     const [sessionStatus, setSessionStatus] = useState("idle");
+    const [sessionStatusDetail, setSessionStatusDetail] = useState(() => (
+        normalizeSessionStatusDetail({ status: "idle" })
+    ));
     const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
     const [sessionDialogMode, setSessionDialogMode] = useState("create");
     const [sessionDialogTitle, setSessionDialogTitle] = useState("");
@@ -82,7 +162,10 @@ export function useAssistantState({
 
     const assistantActive = assistantPanelOpen || routeKind === ROUTE_KIND.ASSISTANT;
     const currentAssistantProject = assistantScopeProject || currentProjectName || "";
-    const assistantComposedMessages = assistantMessages;
+    const assistantComposedMessages = useMemo(
+        () => composeAssistantTurnsWithDraft(assistantMessages, assistantDraftTurn),
+        [assistantMessages, assistantDraftTurn]
+    );
 
     useEffect(() => {
         sessionStatusRef.current = sessionStatus;
@@ -169,58 +252,85 @@ export function useAssistantState({
         const source = new EventSource(streamUrl);
         assistantStreamRef.current = source;
 
-        source.addEventListener("turn_snapshot", (event) => {
+        source.addEventListener("snapshot", (event) => {
             const data = parseSsePayload(event);
             setAssistantMessages(Array.isArray(data.turns) ? data.turns : []);
-        });
+            setAssistantDraftTurn(normalizeTurn(data.draft_turn));
 
-        source.addEventListener("turn_patch", (event) => {
-            const patch = parseSsePayload(event);
-            setAssistantMessages((previous) => applyTurnPatch(previous, patch));
-        });
+            const questions = Array.isArray(data.pending_questions) ? data.pending_questions : [];
+            const pending = questions.find(
+                (item) => item && item.question_id && Array.isArray(item.questions) && item.questions.length > 0
+            );
+            if (pending) {
+                setAssistantPendingQuestion({
+                    id: pending.question_id,
+                    questions: pending.questions,
+                });
+            } else {
+                setAssistantPendingQuestion(null);
+            }
+            setAssistantAnsweringQuestion(false);
 
-        // Backward compatibility: raw SSE messages are ignored for rendering.
-        source.addEventListener("message", (event) => {
-            const message = parseSsePayload(event);
-            if (message.type === "ask_user_question") {
-                const questions = Array.isArray(message.questions) ? message.questions : [];
-                if (message.question_id && questions.length > 0) {
-                    setAssistantPendingQuestion({
-                        id: message.question_id,
-                        questions,
-                    });
-                    setAssistantAnsweringQuestion(false);
+            if (typeof data.status === "string" && data.status) {
+                const detail = normalizeSessionStatusDetail(data, data.status);
+                setSessionStatus(detail.status);
+                sessionStatusRef.current = detail.status;
+                setSessionStatusDetail(detail);
+                if (detail.status !== "running") {
+                    setAssistantInterrupting(false);
                 }
+            }
+        });
+
+        source.addEventListener("patch", (event) => {
+            const payload = parseSsePayload(event);
+            const patch = payload.patch || payload;
+            setAssistantMessages((previous) => applyTurnPatch(previous, patch));
+            if (Object.prototype.hasOwnProperty.call(payload, "draft_turn")) {
+                setAssistantDraftTurn(normalizeTurn(payload.draft_turn));
+            }
+        });
+
+        source.addEventListener("delta", (event) => {
+            const payload = parseSsePayload(event);
+            if (Object.prototype.hasOwnProperty.call(payload, "draft_turn")) {
+                setAssistantDraftTurn(normalizeTurn(payload.draft_turn));
+            }
+        });
+
+        source.addEventListener("question", (event) => {
+            const payload = parseSsePayload(event);
+            const questions = Array.isArray(payload.questions) ? payload.questions : [];
+            if (!payload.question_id || questions.length === 0) {
                 return;
             }
-            if (message.type === "result") {
-                const isSuccess = message.subtype === "success";
-                const status = isSuccess ? "completed" : "error";
-                sessionStatusRef.current = status;
-                setSessionStatus(status);
-                setAssistantSending(false);
-                setAssistantPendingQuestion(null);
-                setAssistantAnsweringQuestion(false);
-                closeActiveStream();
-            }
+            setAssistantPendingQuestion({
+                id: payload.question_id,
+                questions,
+            });
+            setAssistantAnsweringQuestion(false);
         });
 
         source.addEventListener("status", (event) => {
             const data = parseSsePayload(event);
-            const status = data.status;
-            if (!status) return;
-            sessionStatusRef.current = status;
-            setSessionStatus(status);
-            if (status === "completed" || status === "error") {
+            if (!data || typeof data !== "object") {
+                return;
+            }
+            const detail = normalizeSessionStatusDetail(data, sessionStatusRef.current);
+            sessionStatusRef.current = detail.status;
+            setSessionStatus(detail.status);
+            setSessionStatusDetail(detail);
+            if (TERMINAL_SESSION_STATUSES.has(detail.status)) {
                 setAssistantSending(false);
+                setAssistantInterrupting(false);
                 setAssistantPendingQuestion(null);
                 setAssistantAnsweringQuestion(false);
+                if (detail.status !== "interrupted") {
+                    setAssistantDraftTurn(null);
+                }
                 closeActiveStream();
+                setAssistantRefreshToken((prev) => prev + 1);
             }
-        });
-
-        source.addEventListener("ping", () => {
-            // Heartbeat only.
         });
 
         source.onerror = () => {
@@ -237,8 +347,12 @@ export function useAssistantState({
 
         if (!sessionId) {
             setAssistantMessages([]);
+            setAssistantDraftTurn(null);
             setSessionStatus("idle");
             sessionStatusRef.current = "idle";
+            setSessionStatusDetail(normalizeSessionStatusDetail({ status: "idle" }));
+            setAssistantSending(false);
+            setAssistantInterrupting(false);
             setAssistantPendingQuestion(null);
             setAssistantAnsweringQuestion(false);
             return;
@@ -246,19 +360,45 @@ export function useAssistantState({
 
         setAssistantMessagesLoading(true);
         setAssistantMessages([]);
+        setAssistantDraftTurn(null);
+        setAssistantInterrupting(false);
         setAssistantError("");
 
         try {
             const session = await window.API.getAssistantSession(sessionId);
-            setSessionStatus(session.status);
-            sessionStatusRef.current = session.status;
+            const sessionDetail = normalizeSessionStatusDetail({ status: session.status });
+            setSessionStatus(sessionDetail.status);
+            sessionStatusRef.current = sessionDetail.status;
+            setSessionStatusDetail(sessionDetail);
+            if (sessionDetail.status !== "running") {
+                setAssistantSending(false);
+            }
 
-            if (session.status === "running") {
+            if (sessionDetail.status === "running") {
                 connectStream(sessionId);
             } else {
-                const data = await window.API.listAssistantMessages(sessionId);
-                setAssistantMessages(Array.isArray(data.messages) ? data.messages : []);
-                setAssistantPendingQuestion(null);
+                const snapshot = await window.API.getAssistantSnapshot(sessionId);
+                const snapshotDetail = normalizeSessionStatusDetail(snapshot, sessionStatusRef.current);
+                setSessionStatus(snapshotDetail.status);
+                sessionStatusRef.current = snapshotDetail.status;
+                setSessionStatusDetail(snapshotDetail);
+                setAssistantSending(false);
+                setAssistantMessages(Array.isArray(snapshot.turns) ? snapshot.turns : []);
+                setAssistantDraftTurn(normalizeTurn(snapshot.draft_turn));
+                const questions = Array.isArray(snapshot.pending_questions)
+                    ? snapshot.pending_questions
+                    : [];
+                const pending = questions.find(
+                    (item) => item && item.question_id && Array.isArray(item.questions) && item.questions.length > 0
+                );
+                if (pending) {
+                    setAssistantPendingQuestion({
+                        id: pending.question_id,
+                        questions: pending.questions,
+                    });
+                } else {
+                    setAssistantPendingQuestion(null);
+                }
                 setAssistantAnsweringQuestion(false);
             }
         } catch (error) {
@@ -295,7 +435,14 @@ export function useAssistantState({
         event.preventDefault();
 
         const content = assistantInput.trim();
-        if (!content || assistantSending || assistantPendingQuestion) return;
+        if (
+            !content
+            || assistantSending
+            || assistantPendingQuestion
+            || sessionStatusRef.current === "running"
+        ) {
+            return;
+        }
 
         setAssistantSending(true);
         setAssistantError("");
@@ -307,12 +454,34 @@ export function useAssistantState({
 
             sessionStatusRef.current = "running";
             setSessionStatus("running");
+            setSessionStatusDetail(normalizeSessionStatusDetail({ status: "running" }));
             connectStream(sessionId);
         } catch (error) {
             setAssistantError(error.message || "发送失败");
             setAssistantSending(false);
         }
     }, [assistantInput, assistantPendingQuestion, assistantSending, connectStream, ensureAssistantSession]);
+
+    const handleInterruptAssistantSession = useCallback(async () => {
+        if (!assistantCurrentSessionId) {
+            return;
+        }
+        if (sessionStatusRef.current !== "running" || assistantInterrupting) {
+            return;
+        }
+
+        setAssistantInterrupting(true);
+        setAssistantError("");
+        try {
+            await window.API.interruptAssistantSession(assistantCurrentSessionId);
+            if (!assistantStreamRef.current && sessionStatusRef.current === "running") {
+                connectStream(assistantCurrentSessionId);
+            }
+        } catch (error) {
+            setAssistantError(error.message || "中断失败");
+            setAssistantInterrupting(false);
+        }
+    }, [assistantCurrentSessionId, assistantInterrupting, connectStream]);
 
     const handleAnswerAssistantQuestion = useCallback(async (questionId, answers) => {
         if (!assistantCurrentSessionId || !questionId) return;
@@ -432,8 +601,10 @@ export function useAssistantState({
             if (assistantCurrentSessionId === deleteDialogSessionId) {
                 setAssistantCurrentSessionId("");
                 setAssistantMessages([]);
+                setAssistantDraftTurn(null);
                 setSessionStatus("idle");
                 sessionStatusRef.current = "idle";
+                setSessionStatusDetail(normalizeSessionStatusDetail({ status: "idle" }));
             }
             setAssistantRefreshToken((prev) => prev + 1);
             pushToast("会话已删除", "success");
@@ -471,6 +642,7 @@ export function useAssistantState({
         assistantInput,
         setAssistantInput,
         assistantSending,
+        assistantInterrupting,
         assistantError,
         assistantSkills,
         assistantSkillsLoading,
@@ -479,6 +651,7 @@ export function useAssistantState({
         assistantAnsweringQuestion,
         currentAssistantProject,
         sessionStatus,
+        sessionStatusDetail,
         sessionDialogOpen,
         sessionDialogMode,
         sessionDialogTitle,
@@ -488,6 +661,7 @@ export function useAssistantState({
         deleteDialogSessionTitle,
         deleteDialogSubmitting,
         handleSendAssistantMessage,
+        handleInterruptAssistantSession,
         handleCreateSession,
         handleRenameSession,
         handleDeleteSession,

@@ -13,6 +13,22 @@ _SKILL_CONTENT_PREFIX = "Skill content:"
 _SKILL_PATH_MARKER = ".claude/skills/"
 _SKILL_FILE_MARKER = "SKILL.md"
 
+# Metadata keys that indicate a user payload is system/subagent injected.
+_SUBAGENT_PARENT_KEYS = (
+    "parent_tool_use_id",
+    "parentToolUseID",
+    "parentToolUseId",
+)
+_SUBAGENT_CONTEXT_KEYS = (
+    "sourceToolAssistantUUID",
+    "source_tool_assistant_uuid",
+    "toolUseResult",
+    "tool_use_result",
+    "agentId",
+    "agent_id",
+)
+_SUBAGENT_BOOLEAN_KEYS = ("isSidechain", "is_sidechain")
+
 
 def _is_skill_content_text(text: str) -> bool:
     """Check if text is system-injected skill content."""
@@ -119,6 +135,28 @@ def _is_system_injected_user_message(content: Any) -> bool:
     return False
 
 
+def _has_subagent_user_metadata(message: dict[str, Any]) -> bool:
+    """Check whether a user message carries subagent/system metadata."""
+    for key in _SUBAGENT_PARENT_KEYS:
+        value = message.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+
+    for key in _SUBAGENT_BOOLEAN_KEYS:
+        if bool(message.get(key)):
+            return True
+
+    for key in _SUBAGENT_CONTEXT_KEYS:
+        if key not in message:
+            continue
+        value = message.get(key)
+        if value in (None, "", [], {}):
+            continue
+        return True
+
+    return False
+
+
 def _attach_tool_result(
     block: dict[str, Any],
     turn_content: list[dict[str, Any]],
@@ -158,13 +196,48 @@ def _attach_text_block(block: dict[str, Any], turn_content: list[dict[str, Any]]
     turn_content.append(block)
 
 
+def _filter_system_blocks(
+    content: Any,
+    suppress_plain_text: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Normalize/filter system-injected blocks before attachment.
+
+    For subagent-injected payloads we suppress plain text blocks, because they
+    often contain internal subagent prompts/telemetry and should not be rendered.
+    """
+    blocks = _normalize_content(content)
+    filtered: list[dict[str, Any]] = []
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+
+        if _is_tool_result_block(block):
+            filtered.append(block)
+            continue
+
+        block_type = block.get("type", "")
+        if block_type == "text":
+            text = block.get("text", "").strip()
+            if not text:
+                continue
+            if suppress_plain_text and not _is_skill_content_text(text):
+                continue
+            filtered.append(block)
+            continue
+
+        filtered.append(block)
+
+    return filtered
+
+
 def _attach_system_content_to_turn(
     turn: dict[str, Any],
-    content: Any,
+    blocks: list[dict[str, Any]],
     tool_use_map: dict[str, bool],
 ) -> None:
     """Attach system-injected user content to current assistant turn."""
-    blocks = _normalize_content(content)
     turn_content = turn.get("content", [])
 
     for block in blocks:
@@ -227,13 +300,29 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
 
         if msg_type == "user":
             content = msg.get("content", "")
-            if _is_system_injected_user_message(content):
+            has_subagent_metadata = _has_subagent_user_metadata(msg)
+            is_system_injected = (
+                _is_system_injected_user_message(content)
+                or has_subagent_metadata
+            )
+            if is_system_injected:
+                filtered_blocks = _filter_system_blocks(
+                    content,
+                    suppress_plain_text=has_subagent_metadata,
+                )
+                if not filtered_blocks:
+                    continue
+
                 if current_turn and current_turn.get("type") == "assistant":
-                    _attach_system_content_to_turn(current_turn, content, tool_use_map)
-                elif not current_turn:
+                    _attach_system_content_to_turn(
+                        current_turn, filtered_blocks, tool_use_map
+                    )
+                else:
+                    if current_turn:
+                        turns.append(current_turn)
                     current_turn = {
                         "type": "system",
-                        "content": _normalize_content(content),
+                        "content": filtered_blocks,
                         "uuid": msg.get("uuid"),
                         "timestamp": msg.get("timestamp"),
                     }

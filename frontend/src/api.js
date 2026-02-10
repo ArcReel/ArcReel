@@ -511,14 +511,20 @@ class API {
         return this.request(`/assistant/sessions/${encodeURIComponent(sessionId)}`);
     }
 
-    static async listAssistantMessages(sessionId) {
-        return this.request(`/assistant/sessions/${encodeURIComponent(sessionId)}/messages`);
+    static async getAssistantSnapshot(sessionId) {
+        return this.request(`/assistant/sessions/${encodeURIComponent(sessionId)}/snapshot`);
     }
 
     static async sendAssistantMessage(sessionId, content) {
         return this.request(`/assistant/sessions/${encodeURIComponent(sessionId)}/messages`, {
             method: 'POST',
             body: JSON.stringify({ content }),
+        });
+    }
+
+    static async interruptAssistantSession(sessionId) {
+        return this.request(`/assistant/sessions/${encodeURIComponent(sessionId)}/interrupt`, {
+            method: 'POST',
         });
     }
 

@@ -57,6 +57,8 @@ class TestTranscriptReader(unittest.TestCase):
                     "type": "result",
                     "subtype": "success",
                     "sessionId": sdk_session_id,
+                    "stop_reason": "end_turn",
+                    "is_error": False,
                     "uuid": "result-789",
                     "timestamp": "2026-02-09T08:00:04Z",
                 },
@@ -333,8 +335,8 @@ class TestTranscriptReader(unittest.TestCase):
             self.assertIn("skill_content", skill_block)
             self.assertIn("Base directory for this skill:", skill_block["skill_content"])
 
-    def test_read_legacy_json_transcript(self):
-        """Test reading legacy JSON transcript file."""
+    def test_read_legacy_json_transcript_returns_empty(self):
+        """Legacy JSON transcripts are no longer used for history rendering."""
         with TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
             transcripts_dir = tmppath / "transcripts"
@@ -356,10 +358,75 @@ class TestTranscriptReader(unittest.TestCase):
             reader = TranscriptReader(tmppath)
             messages = reader.read_messages(session_id)
 
-            # Legacy format is returned as-is (no grouping)
-            self.assertEqual(len(messages), 2)
-            self.assertEqual(messages[0]["content"], "Hello")
-            self.assertEqual(messages[1]["content"], "Hi there!")
+            self.assertEqual(messages, [])
+
+    def test_subagent_user_metadata_is_preserved_and_filtered_in_history(self):
+        """Subagent metadata from transcript must be preserved for turn filtering."""
+        with TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            project_root = tmppath / "project"
+            project_root.mkdir()
+
+            encoded_path = str(project_root).replace("/", "-")
+            claude_dir = tmppath / ".claude" / "projects" / encoded_path
+            claude_dir.mkdir(parents=True)
+
+            sdk_session_id = "subagent-meta-session"
+            transcript_file = claude_dir / f"{sdk_session_id}.jsonl"
+
+            entries = [
+                {
+                    "type": "user",
+                    "message": {"content": "继续任务"},
+                    "uuid": "user-root",
+                },
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "task-1",
+                                "name": "Task",
+                                "input": {"description": "检查项目状态"},
+                            }
+                        ],
+                    },
+                    "uuid": "assistant-task-1",
+                },
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": "subagent telemetry that should be hidden"}
+                        ]
+                    },
+                    "parent_tool_use_id": "task-1",
+                    "sourceToolAssistantUUID": "assistant-task-1",
+                    "isSidechain": True,
+                    "uuid": "user-subagent-telemetry-1",
+                },
+            ]
+
+            with open(transcript_file, "w", encoding="utf-8") as f:
+                for entry in entries:
+                    f.write(json.dumps(entry) + "\n")
+
+            reader = TranscriptReader(tmppath, project_root=project_root)
+            reader._claude_projects_dir = tmppath / ".claude" / "projects"
+
+            raw_messages = reader.read_raw_messages("internal-id", sdk_session_id)
+            self.assertEqual(len(raw_messages), 3)
+            telemetry = raw_messages[2]
+            self.assertEqual(telemetry["type"], "user")
+            self.assertEqual(telemetry.get("parent_tool_use_id"), "task-1")
+            self.assertEqual(telemetry.get("sourceToolAssistantUUID"), "assistant-task-1")
+            self.assertEqual(telemetry.get("isSidechain"), True)
+
+            turns = reader.read_messages("internal-id", sdk_session_id)
+            self.assertEqual([turn["type"] for turn in turns], ["user", "assistant"])
+            self.assertEqual(len(turns[1]["content"]), 1)
+            self.assertEqual(turns[1]["content"][0]["type"], "tool_use")
 
     def test_read_empty_returns_empty_list(self):
         """Test that reading non-existent transcript returns empty list."""

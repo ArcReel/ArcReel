@@ -11,13 +11,10 @@ from typing import Any, AsyncIterator, Optional
 
 from lib.project_manager import ProjectManager
 from webui.server.agent_runtime.models import SessionMeta, SessionStatus
-from webui.server.agent_runtime.session_manager import SessionManager, SDK_AVAILABLE
+from webui.server.agent_runtime.session_manager import SessionManager
 from webui.server.agent_runtime.session_store import SessionMetaStore
+from webui.server.agent_runtime.stream_projector import AssistantStreamProjector
 from webui.server.agent_runtime.transcript_reader import TranscriptReader
-from webui.server.agent_runtime.turn_grouper import (
-    build_turn_patch,
-    group_messages_into_turns,
-)
 
 
 class AssistantService:
@@ -98,15 +95,31 @@ class AssistantService:
 
     # ==================== Messages ====================
 
-    def list_messages(self, session_id: str) -> list[dict[str, Any]]:
-        """List messages from transcript."""
+    async def get_snapshot(self, session_id: str) -> dict[str, Any]:
+        """Build a normalized v2 snapshot for history and reconnect."""
         meta = self.meta_store.get(session_id)
         if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
-        return self.transcript_reader.read_messages(
-            session_id,
-            meta.sdk_session_id,
-            project_name=meta.project_name,
+
+        status = self.session_manager.get_status(session_id) or meta.status
+        raw_messages = self._build_initial_raw_messages(meta, session_id)
+        projector = AssistantStreamProjector(initial_messages=raw_messages)
+
+        buffered_messages = self.session_manager.get_buffered_messages(session_id)
+        for message in buffered_messages:
+            if self._is_groupable_message(message):
+                continue
+            projector.apply_message(message)
+
+        pending_questions = []
+        if status == "running":
+            pending_questions = await self.session_manager.get_pending_questions_snapshot(
+                session_id
+            )
+        return projector.build_snapshot(
+            session_id=session_id,
+            status=status,
+            pending_questions=pending_questions,
         )
 
     async def send_message(self, session_id: str, content: str) -> dict[str, Any]:
@@ -135,6 +148,18 @@ class AssistantService:
         await self.session_manager.answer_user_question(session_id, question_id, answers)
         return {"status": "accepted", "session_id": session_id, "question_id": question_id}
 
+    async def interrupt_session(self, session_id: str) -> dict[str, Any]:
+        """Interrupt a running session."""
+        meta = self.meta_store.get(session_id)
+        if meta is None:
+            raise FileNotFoundError(f"session not found: {session_id}")
+        session_status = await self.session_manager.interrupt_session(session_id)
+        return {
+            "status": "accepted",
+            "session_id": session_id,
+            "session_status": session_status,
+        }
+
     # ==================== Streaming ====================
 
     async def stream_events(self, session_id: str) -> AsyncIterator[str]:
@@ -143,16 +168,25 @@ class AssistantService:
         if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
 
-        # Completed sessions only emit final snapshot + status.
-        status = self.session_manager.get_status(session_id)
-        if status in ("completed", "error"):
-            turns = self.transcript_reader.read_messages(
-                session_id,
-                meta.sdk_session_id,
-                project_name=meta.project_name,
+        initial_status = self.session_manager.get_status(session_id) or meta.status
+        if initial_status != "running":
+            projector = self._build_projector(meta, session_id)
+            yield self._sse_event(
+                "snapshot",
+                projector.build_snapshot(
+                    session_id=session_id,
+                    status=initial_status,
+                    pending_questions=[],
+                ),
             )
-            yield self._sse_event("turn_snapshot", {"turns": turns})
-            yield self._sse_event("status", {"status": status})
+            yield self._sse_event(
+                "status",
+                self._build_status_event_payload(
+                    status=initial_status,
+                    session_id=session_id,
+                    result_message=projector.last_result,
+                ),
+            )
             return
 
         # Subscribe first to avoid missing messages between snapshot generation and queue attach.
@@ -167,35 +201,33 @@ class AssistantService:
                 if isinstance(replayed, dict):
                     replayed_messages.append(replayed)
 
-            raw_messages = self._merge_raw_messages(
-                self.transcript_reader.read_raw_messages(
-                    session_id,
-                    meta.sdk_session_id,
-                    project_name=meta.project_name,
-                ),
-                replayed_messages,
-            )
-            current_turns = group_messages_into_turns(raw_messages)
-            yield self._sse_event("turn_snapshot", {"turns": current_turns})
-
-            emitted_question_ids: set[str] = set()
-            for msg in replayed_messages:
-                question_id = (
-                    msg.get("question_id")
-                    if msg.get("type") == "ask_user_question"
-                    else None
+            status = self.session_manager.get_status(session_id) or initial_status
+            projector = self._build_projector(meta, session_id, replayed_messages)
+            pending_questions = []
+            if status == "running":
+                pending_questions = await self.session_manager.get_pending_questions_snapshot(
+                    session_id
                 )
-                if question_id:
-                    emitted_question_ids.add(str(question_id))
 
-            pending_questions = await self.session_manager.get_pending_questions_snapshot(session_id)
-            for pending in pending_questions:
-                if not isinstance(pending, dict):
-                    continue
-                question_id = pending.get("question_id")
-                if question_id and str(question_id) in emitted_question_ids:
-                    continue
-                yield self._sse_event("message", pending)
+            yield self._sse_event(
+                "snapshot",
+                projector.build_snapshot(
+                    session_id=session_id,
+                    status=status,
+                    pending_questions=pending_questions,
+                ),
+            )
+
+            if status != "running":
+                yield self._sse_event(
+                    "status",
+                    self._build_status_event_payload(
+                        status=status,
+                        session_id=session_id,
+                        result_message=projector.last_result,
+                    ),
+                )
+                return
 
             while True:
                 try:
@@ -204,26 +236,63 @@ class AssistantService:
                         timeout=self.stream_heartbeat_seconds
                     )
 
-                    # Backward compatibility for old clients.
-                    yield self._sse_event("message", message)
+                    update = projector.apply_message(message)
+                    patch_payload = update.get("patch")
+                    if isinstance(patch_payload, dict):
+                        yield self._sse_event("patch", patch_payload)
 
-                    if self._is_groupable_message(message):
-                        raw_messages.append(message)
-                        next_turns = group_messages_into_turns(raw_messages)
-                        patch = build_turn_patch(current_turns, next_turns)
-                        if patch:
-                            yield self._sse_event("turn_patch", patch)
-                        current_turns = next_turns
+                    delta_payload = update.get("delta")
+                    if isinstance(delta_payload, dict):
+                        yield self._sse_event("delta", delta_payload)
+
+                    question_payload = update.get("question")
+                    if isinstance(question_payload, dict):
+                        yield self._sse_event("question", question_payload)
 
                     msg_type = message.get("type", "")
+                    if msg_type == "runtime_status":
+                        runtime_status = str(message.get("status") or "").strip()
+                        if runtime_status in {
+                            "idle",
+                            "running",
+                            "completed",
+                            "error",
+                            "interrupted",
+                        }:
+                            yield self._sse_event(
+                                "status",
+                                self._build_status_event_payload(
+                                    status=runtime_status,
+                                    session_id=session_id,
+                                    result_message=message,
+                                ),
+                            )
+                            break
+
                     if msg_type == "result":
-                        final_status = (
-                            "completed" if message.get("subtype") == "success" else "error"
+                        final_status = self._resolve_result_status(message)
+                        yield self._sse_event(
+                            "status",
+                            self._build_status_event_payload(
+                                status=final_status,
+                                session_id=session_id,
+                                result_message=message,
+                            ),
                         )
-                        yield self._sse_event("status", {"status": final_status})
                         break
                 except asyncio.TimeoutError:
-                    yield self._sse_event("ping", {"ts": asyncio.get_event_loop().time()})
+                    live_status = self.session_manager.get_status(session_id) or status
+                    if live_status != "running":
+                        yield self._sse_event(
+                            "status",
+                            self._build_status_event_payload(
+                                status=live_status,
+                                session_id=session_id,
+                                result_message=projector.last_result,
+                            ),
+                        )
+                        break
+                    yield self._sse_keepalive_comment()
         except asyncio.CancelledError:
             raise
         finally:
@@ -234,6 +303,91 @@ class AssistantService:
         """Format SSE event."""
         json_data = json.dumps(data, ensure_ascii=False)
         return f"event: {event}\ndata: {json_data}\n\n"
+
+    @staticmethod
+    def _sse_keepalive_comment() -> str:
+        """Format SSE comment heartbeat without introducing extra event types."""
+        return ": keepalive\n\n"
+
+    def _build_projector(
+        self,
+        meta: SessionMeta,
+        session_id: str,
+        replayed_messages: Optional[list[dict[str, Any]]] = None,
+    ) -> AssistantStreamProjector:
+        """Build projector state from transcript history + in-memory buffer."""
+        raw_messages = self._build_initial_raw_messages(
+            meta=meta,
+            session_id=session_id,
+            buffered_messages=replayed_messages,
+        )
+        projector = AssistantStreamProjector(initial_messages=raw_messages)
+        for message in replayed_messages or []:
+            if self._is_groupable_message(message):
+                continue
+            projector.apply_message(message)
+        return projector
+
+    def _build_initial_raw_messages(
+        self,
+        meta: SessionMeta,
+        session_id: str,
+        buffered_messages: Optional[list[dict[str, Any]]] = None,
+    ) -> list[dict[str, Any]]:
+        """Build deduped raw conversation history used by turn grouping."""
+        history_messages = self.transcript_reader.read_raw_messages(
+            session_id,
+            meta.sdk_session_id,
+            project_name=meta.project_name,
+        )
+        runtime_buffer = buffered_messages
+        if runtime_buffer is None:
+            runtime_buffer = self.session_manager.get_buffered_messages(session_id)
+
+        groupable_runtime = [
+            message
+            for message in (runtime_buffer or [])
+            if self._is_groupable_message(message)
+        ]
+        return self._merge_raw_messages(history_messages, groupable_runtime)
+
+    @staticmethod
+    def _resolve_result_status(result_message: dict[str, Any]) -> SessionStatus:
+        """Map SDK result subtype/is_error to runtime session status."""
+        explicit_status = str(result_message.get("session_status") or "").strip()
+        if explicit_status in {"idle", "running", "completed", "error", "interrupted"}:
+            return explicit_status  # type: ignore[return-value]
+        subtype = str(result_message.get("subtype") or "").strip().lower()
+        is_error = bool(result_message.get("is_error"))
+        if is_error or subtype.startswith("error"):
+            return "error"
+        return "completed"
+
+    @staticmethod
+    def _build_status_event_payload(
+        status: SessionStatus,
+        session_id: str,
+        result_message: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Build normalized status event payload."""
+        message = result_message if isinstance(result_message, dict) else {}
+        subtype = message.get("subtype")
+        stop_reason = message.get("stop_reason")
+        is_error = bool(message.get("is_error"))
+        normalized_session_id = message.get("session_id") or session_id
+
+        if status == "error" and subtype is None:
+            subtype = "error"
+        if status == "error":
+            is_error = True
+
+        return {
+            "status": status,
+            "subtype": subtype,
+            "stop_reason": stop_reason,
+            "is_error": is_error,
+            "session_id": normalized_session_id,
+        }
 
     @staticmethod
     def _is_groupable_message(message: dict[str, Any]) -> bool:

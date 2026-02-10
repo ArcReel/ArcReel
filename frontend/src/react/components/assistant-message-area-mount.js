@@ -16,9 +16,13 @@ export function AssistantMessageAreaMount({
     assistantInput,
     setAssistantInput,
     assistantSending,
+    assistantInterrupting,
     assistantPendingQuestion,
     assistantAnsweringQuestion,
+    sessionStatus,
+    sessionStatusDetail,
     handleSendAssistantMessage,
+    handleInterruptAssistantSession,
     handleAnswerAssistantQuestion,
     assistantChatScrollRef,
 }) {
@@ -34,9 +38,13 @@ export function AssistantMessageAreaMount({
             assistantInput=${assistantInput}
             setAssistantInput=${setAssistantInput}
             assistantSending=${assistantSending}
+            assistantInterrupting=${assistantInterrupting}
             assistantPendingQuestion=${assistantPendingQuestion}
             assistantAnsweringQuestion=${assistantAnsweringQuestion}
+            sessionStatus=${sessionStatus}
+            sessionStatusDetail=${sessionStatusDetail}
             onSendAssistantMessage=${handleSendAssistantMessage}
+            onInterruptAssistantSession=${handleInterruptAssistantSession}
             onAnswerAssistantQuestion=${handleAnswerAssistantQuestion}
             assistantChatScrollRef=${assistantChatScrollRef}
         />

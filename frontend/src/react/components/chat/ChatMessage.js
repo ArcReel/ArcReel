@@ -8,71 +8,24 @@ const html = htm.bind(React.createElement);
 /**
  * ChatMessage - Renders a conversation turn.
  *
- * A turn represents a complete interaction unit from the backend grouper:
- * - User turn: user's input message
- * - Assistant turn: all assistant content blocks with tool results attached
- * - Result turn: session completion marker
- * - System turn: system-injected content (rare)
- *
- * The backend (transcript_reader.py) handles:
- * - Merging consecutive assistant messages into one turn
- * - Attaching tool_result to corresponding tool_use blocks
- * - Attaching skill_content to Skill tool blocks
+ * Turns are normalized by the backend and consumed as strict TurnV2 payloads.
  */
-
-/**
- * Infer message type from message structure.
- * Primary: use explicit type/role field.
- * Fallback: infer from message structure.
- */
-function inferMessageType(message) {
-    // Explicit type/role fields
-    if (message.type) return message.type;
-    if (message.role) return message.role;
-
-    // Fallback: infer from structure
-    if (message.subtype !== undefined && (message.duration_ms !== undefined || message.session_id !== undefined)) {
-        return "result";
-    }
-    if (message.model && Array.isArray(message.content)) {
-        return "assistant";
-    }
-
-    return "unknown";
-}
 
 export function ChatMessage({ message }) {
     if (!message) return null;
 
-    const messageType = inferMessageType(message);
+    const messageType = typeof message.type === "string" ? message.type : "";
+    if (!["user", "assistant", "system"].includes(messageType)) {
+        return null;
+    }
     const content = message.content;
 
     // Normalize content to array
     const blocks = normalizeContent(content);
 
-    // Skip empty messages (except result which has no content)
-    if (blocks.length === 0 && messageType !== "result") {
+    // Skip empty messages
+    if (blocks.length === 0) {
         return null;
-    }
-
-    // Result message (session completion)
-    if (messageType === "result") {
-        const isSuccess = message.subtype === "success";
-        return html`
-            <article className=${cn(
-                "rounded-xl px-3 py-2 border text-center",
-                isSuccess
-                    ? "border-emerald-400/30 bg-emerald-500/10"
-                    : "border-red-400/30 bg-red-500/10"
-            )}>
-                <span className=${cn(
-                    "text-xs font-medium",
-                    isSuccess ? "text-emerald-400" : "text-red-400"
-                )}>
-                    ${isSuccess ? "会话完成" : "会话出错"}
-                </span>
-            </article>
-        `;
     }
 
     // Determine styling based on message type

@@ -16,11 +16,15 @@ from webui.server.agent_runtime.session_store import SessionMetaStore
 class FakeClient:
     def __init__(self):
         self.sent_queries: list[str] = []
+        self.interrupted = False
 
     async def query(self, content: str) -> None:
         self.sent_queries.append(content)
 
-    async def receive_messages(self):
+    async def interrupt(self) -> None:
+        self.interrupted = True
+
+    async def receive_response(self):
         if False:
             yield None
 
@@ -135,6 +139,44 @@ class TestSessionManagerUserInput(unittest.TestCase):
                 )
 
         asyncio.run(_run())
+
+    def test_interrupt_session_requests_interrupt_and_keeps_consumer_alive(self):
+        meta = self.meta_store.create("demo", "demo title")
+        client = FakeClient()
+        managed = ManagedSession(
+            session_id=meta.id,
+            client=client,
+            sdk_session_id="sdk-123",
+            status="running",
+        )
+        self.manager.sessions[meta.id] = managed
+        self.meta_store.update_status(meta.id, "running")
+
+        async def _run():
+            new_status = await self.manager.interrupt_session(meta.id)
+            self.assertEqual(new_status, "running")
+            self.assertTrue(client.interrupted)
+            self.assertEqual(managed.status, "running")
+            self.assertEqual(managed.interrupt_requested, True)
+            self.assertEqual(len(managed.message_buffer), 0)
+            stored = self.meta_store.get(meta.id)
+            self.assertIsNotNone(stored)
+            self.assertEqual(stored.status, "running")
+
+        asyncio.run(_run())
+
+    def test_resolve_result_status_returns_interrupted_when_interrupt_requested(self):
+        result = {
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": True,
+            "stop_reason": None,
+        }
+        resolved = self.manager._resolve_result_status(
+            result,
+            interrupt_requested=True,
+        )
+        self.assertEqual(resolved, "interrupted")
 
 
 if __name__ == "__main__":

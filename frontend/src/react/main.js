@@ -113,6 +113,7 @@ function App() {
         assistantInput,
         setAssistantInput,
         assistantSending,
+        assistantInterrupting,
         assistantError,
         assistantSkills,
         assistantSkillsLoading,
@@ -120,6 +121,8 @@ function App() {
         assistantPendingQuestion,
         assistantAnsweringQuestion,
         currentAssistantProject,
+        sessionStatus,
+        sessionStatusDetail,
         sessionDialogOpen,
         sessionDialogMode,
         sessionDialogTitle,
@@ -129,6 +132,7 @@ function App() {
         deleteDialogSessionTitle,
         deleteDialogSubmitting,
         handleSendAssistantMessage,
+        handleInterruptAssistantSession,
         handleCreateSession,
         handleRenameSession,
         handleDeleteSession,
@@ -165,9 +169,13 @@ function App() {
             assistantInput=${assistantInput}
             setAssistantInput=${setAssistantInput}
             assistantSending=${assistantSending}
+            assistantInterrupting=${assistantInterrupting}
             assistantPendingQuestion=${assistantPendingQuestion}
             assistantAnsweringQuestion=${assistantAnsweringQuestion}
+            sessionStatus=${sessionStatus}
+            sessionStatusDetail=${sessionStatusDetail}
             handleSendAssistantMessage=${handleSendAssistantMessage}
+            handleInterruptAssistantSession=${handleInterruptAssistantSession}
             handleAnswerAssistantQuestion=${handleAnswerAssistantQuestion}
             assistantChatScrollRef=${assistantChatScrollRef}
         />

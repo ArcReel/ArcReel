@@ -16,13 +16,19 @@ from webui.server.agent_runtime.transcript_reader import TranscriptReader
 
 try:
     from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
-    from claude_agent_sdk.types import PermissionResultAllow
+    from claude_agent_sdk.types import HookMatcher, PermissionResultAllow
+    try:
+        from claude_agent_sdk.types import PermissionResultDeny
+    except ImportError:
+        PermissionResultDeny = None
 
     SDK_AVAILABLE = True
 except ImportError:
     ClaudeSDKClient = None
     ClaudeAgentOptions = None
+    HookMatcher = None
     PermissionResultAllow = None
+    PermissionResultDeny = None
     SDK_AVAILABLE = False
 
 
@@ -52,6 +58,7 @@ class ManagedSession:
     buffer_max_size: int = 100
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
     pending_user_echoes: list[str] = field(default_factory=list)
+    interrupt_requested: bool = False
 
     def add_message(self, message: dict[str, Any]) -> None:
         """Add message to buffer and notify subscribers."""
@@ -109,7 +116,7 @@ class SessionManager:
 
     DEFAULT_ALLOWED_TOOLS = [
         "Skill", "Read", "Write", "Edit", "MultiEdit",
-        "Bash", "Grep", "Glob", "LS",
+        "Bash", "Grep", "Glob", "LS", "AskUserQuestion",
     ]
     DEFAULT_SETTING_SOURCES = ["user", "project"]
 
@@ -141,7 +148,8 @@ class SessionManager:
             "ASSISTANT_SYSTEM_PROMPT",
             "你是视频项目协作助手。优先复用项目中的 Skills 与现有文件结构，避免擅自改写数据格式。"
         ).strip()
-        self.max_turns = int(os.environ.get("ASSISTANT_MAX_TURNS", "8"))
+        max_turns_env = os.environ.get("ASSISTANT_MAX_TURNS", "").strip()
+        self.max_turns = int(max_turns_env) if max_turns_env else None
         self.cli_path = os.environ.get("ASSISTANT_CLAUDE_CLI_PATH", "").strip() or None
 
     def _build_options(
@@ -158,6 +166,15 @@ class SessionManager:
         transcripts_dir.mkdir(parents=True, exist_ok=True)
         project_cwd = self._resolve_project_cwd(project_name)
 
+        hooks = None
+        if can_use_tool is not None and HookMatcher is not None:
+            # Official Python SDK guidance: keep stream open when using can_use_tool.
+            hooks = {
+                "PreToolUse": [
+                    HookMatcher(matcher=None, hooks=[self._keep_stream_open_hook]),
+                ]
+            }
+
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
             cli_path=self.cli_path,
@@ -168,7 +185,13 @@ class SessionManager:
             include_partial_messages=True,
             resume=resume_id,
             can_use_tool=can_use_tool,
+            hooks=hooks,
         )
+
+    @staticmethod
+    async def _keep_stream_open_hook(_input_data: dict[str, Any], _tool_use_id: str | None, _context: Any) -> dict[str, bool]:
+        """Required keep-alive hook for Python can_use_tool callback."""
+        return {"continue_": True}
 
     def _resolve_project_cwd(self, project_name: str) -> Path:
         """Resolve and validate per-session project working directory."""
@@ -240,10 +263,33 @@ class SessionManager:
                 self._consume_messages(managed)
             )
 
+    async def interrupt_session(self, session_id: str) -> SessionStatus:
+        """Interrupt a running session."""
+        meta = self.meta_store.get(session_id)
+        if meta is None:
+            raise FileNotFoundError(f"session not found: {session_id}")
+
+        managed = self.sessions.get(session_id)
+        if managed is None:
+            if meta.status == "running":
+                self.meta_store.update_status(session_id, "interrupted")
+                return "interrupted"
+            return meta.status
+
+        if managed.status != "running":
+            return managed.status
+
+        managed.pending_user_echoes.clear()
+        managed.interrupt_requested = True
+        managed.cancel_pending_questions("session interrupted by user")
+
+        await managed.client.interrupt()
+        return managed.status
+
     async def _consume_messages(self, managed: ManagedSession) -> None:
         """Consume messages from client and distribute to subscribers."""
         try:
-            async for message in managed.client.receive_messages():
+            async for message in managed.client.receive_response():
                 # Serialize message to dict
                 msg_dict = self._message_to_dict(message)
                 if not isinstance(msg_dict, dict):
@@ -253,31 +299,58 @@ class SessionManager:
                     self._maybe_update_sdk_session_id(managed, message, msg_dict)
                     continue
 
+                if msg_dict.get("type") == "result":
+                    msg_dict["session_status"] = self._resolve_result_status(
+                        msg_dict,
+                        interrupt_requested=managed.interrupt_requested,
+                    )
                 managed.add_message(msg_dict)
                 self._maybe_update_sdk_session_id(managed, message, msg_dict)
 
-                # Check for result message
-                if hasattr(message, "subtype") or getattr(message, "type", None) == "result":
-                    subtype = getattr(message, "subtype", "")
-                    if subtype in ("success", "error"):
-                        managed.pending_user_echoes.clear()
-                        managed.cancel_pending_questions("session completed")
-                        managed.status = "completed" if subtype == "success" else "error"
-                        self.meta_store.update_status(managed.session_id, managed.status)
-                        break
+                if msg_dict.get("type") != "result":
+                    continue
+
+                managed.pending_user_echoes.clear()
+                managed.cancel_pending_questions("session completed")
+                final_status = str(msg_dict.get("session_status") or "").strip() or self._resolve_result_status(
+                    msg_dict,
+                    interrupt_requested=managed.interrupt_requested,
+                )
+                managed.status = final_status
+                self.meta_store.update_status(managed.session_id, final_status)
+                managed.interrupt_requested = False
 
         except asyncio.CancelledError:
             managed.pending_user_echoes.clear()
             managed.cancel_pending_questions("session interrupted")
             managed.status = "interrupted"
             self.meta_store.update_status(managed.session_id, "interrupted")
+            managed.interrupt_requested = False
             raise
         except Exception:
             managed.pending_user_echoes.clear()
             managed.cancel_pending_questions("session error")
             managed.status = "error"
             self.meta_store.update_status(managed.session_id, "error")
+            managed.interrupt_requested = False
             raise
+
+    @staticmethod
+    def _resolve_result_status(
+        result_message: dict[str, Any],
+        interrupt_requested: bool = False,
+    ) -> SessionStatus:
+        """Map SDK result subtype/is_error to runtime session status."""
+        subtype = str(result_message.get("subtype") or "").strip().lower()
+        is_error = bool(result_message.get("is_error"))
+        if interrupt_requested:
+            if subtype in {"interrupted", "interrupt"}:
+                return "interrupted"
+            if is_error or subtype.startswith("error"):
+                return "interrupted"
+        if is_error or subtype.startswith("error"):
+            return "error"
+        return "completed"
 
     def _build_can_use_tool_callback(self, session_id: str):
         """Create per-session can_use_tool callback for AskUserQuestion."""
@@ -310,7 +383,15 @@ class SessionManager:
             pending = managed.add_pending_question(payload)
             managed.add_message(payload)
 
-            answers = await pending.answer_future
+            try:
+                answers = await pending.answer_future
+            except Exception as exc:
+                if PermissionResultDeny is not None:
+                    return PermissionResultDeny(
+                        message=str(exc) or "session interrupted by user",
+                        interrupt=True,
+                    )
+                raise
             merged_input = dict(input_data or {})
             merged_input["answers"] = answers
             return PermissionResultAllow(updated_input=merged_input)
@@ -338,6 +419,23 @@ class SessionManager:
             "uuid": f"local-user-{uuid4().hex}",
             "timestamp": _utc_now_iso(),
             "local_echo": True,
+        }
+
+    @staticmethod
+    def _build_runtime_status_message(
+        status: SessionStatus,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Build runtime-only status message for SSE wake-up."""
+        return {
+            "type": "runtime_status",
+            "status": status,
+            "subtype": status,
+            "stop_reason": None,
+            "is_error": status == "error",
+            "session_id": session_id,
+            "uuid": f"runtime-status-{uuid4().hex}",
+            "timestamp": _utc_now_iso(),
         }
 
     @staticmethod
@@ -443,8 +541,17 @@ class SessionManager:
         return str(value)
 
     async def get_message_buffer_snapshot(self, session_id: str) -> list[dict[str, Any]]:
-        """Get a copy of current message buffer for snapshot generation."""
-        managed = await self.get_or_connect(session_id)
+        """Get current message buffer without creating a new SDK connection."""
+        managed = self.sessions.get(session_id)
+        if not managed:
+            return []
+        return list(managed.message_buffer)
+
+    def get_buffered_messages(self, session_id: str) -> list[dict[str, Any]]:
+        """Sync helper for consumers that only need in-memory buffer state."""
+        managed = self.sessions.get(session_id)
+        if not managed:
+            return []
         return list(managed.message_buffer)
 
     async def get_pending_questions_snapshot(self, session_id: str) -> list[dict[str, Any]]:
