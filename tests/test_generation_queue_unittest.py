@@ -1,5 +1,6 @@
 import time
 import unittest
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -7,6 +8,15 @@ from lib.generation_queue import GenerationQueue
 
 
 class TestGenerationQueue(unittest.TestCase):
+    @staticmethod
+    def _fd_count() -> int:
+        for fd_dir in ("/dev/fd", "/proc/self/fd"):
+            try:
+                return len(os.listdir(fd_dir))
+            except OSError:
+                continue
+        return -1
+
     def _create_queue(self) -> GenerationQueue:
         tmp = TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(tmp.cleanup)
@@ -147,6 +157,33 @@ class TestGenerationQueue(unittest.TestCase):
 
         events = queue.get_events_since(last_event_id=0)
         self.assertTrue(any(event["event_type"] == "requeued" for event in events))
+
+    def test_get_events_since_does_not_leak_sqlite_file_descriptors(self):
+        queue = self._create_queue()
+
+        # Ensure there is at least one event row.
+        queue.enqueue_task(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={"prompt": "test"},
+            script_file="episode_01.json",
+            source="webui",
+        )
+
+        baseline = self._fd_count()
+        for _ in range(120):
+            queue.get_events_since(last_event_id=0, limit=10)
+        after = self._fd_count()
+
+        if baseline >= 0 and after >= 0:
+            # Allow small runtime fluctuations, but prevent linear FD growth.
+            self.assertLessEqual(
+                after,
+                baseline + 10,
+                f"FD count grew unexpectedly: baseline={baseline}, after={after}",
+            )
 
 
 if __name__ == "__main__":
