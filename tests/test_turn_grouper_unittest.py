@@ -235,6 +235,82 @@ class TestTurnGrouper(unittest.TestCase):
         self.assertEqual(assistant_blocks[1]["result"], "Launching skill: manga-workflow")
         self.assertIn("skill_content", assistant_blocks[1])
 
+    def test_subagent_parent_user_text_is_filtered_from_assistant_turn(self):
+        raw_messages = [
+            {"type": "user", "content": "继续制作"},
+            {
+                "type": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "task-1",
+                        "name": "Task",
+                        "input": {"subagent_type": "Explore", "description": "检查项目状态"},
+                    }
+                ],
+            },
+            {
+                "type": "user",
+                "content": [
+                    {"type": "text", "text": "正在分析项目结构..."}
+                ],
+                "parent_tool_use_id": "task-1",
+            },
+        ]
+
+        turns = group_messages_into_turns(raw_messages)
+        self.assertEqual([turn["type"] for turn in turns], ["user", "assistant"])
+        self.assertEqual(turns[1]["content"][0]["type"], "tool_use")
+        self.assertEqual(turns[1]["content"][0]["name"], "Task")
+        self.assertEqual(len(turns[1]["content"]), 1)
+
+    def test_subagent_user_text_without_assistant_turn_is_dropped(self):
+        raw_messages = [
+            {"type": "user", "content": "请继续"},
+            {
+                "type": "user",
+                "content": [{"type": "text", "text": "subagent telemetry"}],
+                "parentToolUseID": "task-2",
+            },
+        ]
+
+        turns = group_messages_into_turns(raw_messages)
+        self.assertEqual([turn["type"] for turn in turns], ["user"])
+
+    def test_subagent_tool_result_still_attaches_to_task_tool_use(self):
+        raw_messages = [
+            {"type": "user", "content": "继续制作"},
+            {
+                "type": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "task-attach-1",
+                        "name": "Task",
+                        "input": {"subagent_type": "Explore", "description": "检查项目状态"},
+                    }
+                ],
+            },
+            {
+                "type": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "task-attach-1",
+                        "content": "subagent finished",
+                    }
+                ],
+                "parent_tool_use_id": "task-attach-1",
+            },
+        ]
+
+        turns = group_messages_into_turns(raw_messages)
+        self.assertEqual([turn["type"] for turn in turns], ["user", "assistant"])
+        task_block = turns[1]["content"][0]
+        self.assertEqual(task_block["type"], "tool_use")
+        self.assertEqual(task_block["name"], "Task")
+        self.assertEqual(task_block["result"], "subagent finished")
+
 
 if __name__ == "__main__":
     unittest.main()

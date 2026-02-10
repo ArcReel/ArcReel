@@ -81,30 +81,35 @@ export function TaskQueuePanel({
             <!-- 标签页 -->
             <div className="shrink-0 flex border-b border-white/10">
                 ${TABS.map(
-                    (tab) => html`
-                        <button
-                            key=${tab.key}
-                            onClick=${() => setActiveTab(tab.key)}
-                            className=${cn(
-                                "flex-1 px-3 py-2.5 text-xs font-medium transition-colors",
-                                activeTab === tab.key
-                                    ? "text-neon-300 border-b-2 border-neon-400"
-                                    : "text-slate-400 hover:text-slate-200"
-                            )}
-                        >
-                            ${tab.label}
-                            <span
+                    (tab) => {
+                        const tabCount = getTabCount(tab.key);
+                        const runningBadgeAnimated = tab.key === "running" && tabCount > 0;
+                        return html`
+                            <button
+                                key=${tab.key}
+                                onClick=${() => setActiveTab(tab.key)}
                                 className=${cn(
-                                    "ml-1.5 px-1.5 py-0.5 rounded-full text-[10px]",
+                                    "flex-1 px-3 py-2.5 text-xs font-medium transition-colors",
                                     activeTab === tab.key
-                                        ? "bg-neon-500/20 text-neon-300"
-                                        : "bg-white/10 text-slate-500"
+                                        ? "text-neon-300 border-b-2 border-neon-400"
+                                        : "text-slate-400 hover:text-slate-200"
                                 )}
                             >
-                                ${getTabCount(tab.key)}
-                            </span>
-                        </button>
-                    `
+                                ${tab.label}
+                                <span
+                                    className=${cn(
+                                        "ml-1.5 px-1.5 py-0.5 rounded-full text-[10px]",
+                                        activeTab === tab.key
+                                            ? "bg-neon-500/20 text-neon-300"
+                                            : "bg-white/10 text-slate-500",
+                                        runningBadgeAnimated ? "animate-pulse" : ""
+                                    )}
+                                >
+                                    ${tabCount}
+                                </span>
+                            </button>
+                        `;
+                    }
                 )}
             </div>
 

@@ -57,6 +57,8 @@ class TestTranscriptReader(unittest.TestCase):
                     "type": "result",
                     "subtype": "success",
                     "sessionId": sdk_session_id,
+                    "stop_reason": "end_turn",
+                    "is_error": False,
                     "uuid": "result-789",
                     "timestamp": "2026-02-09T08:00:04Z",
                 },
@@ -333,8 +335,8 @@ class TestTranscriptReader(unittest.TestCase):
             self.assertIn("skill_content", skill_block)
             self.assertIn("Base directory for this skill:", skill_block["skill_content"])
 
-    def test_read_legacy_json_transcript(self):
-        """Test reading legacy JSON transcript file."""
+    def test_read_legacy_json_transcript_returns_empty(self):
+        """Legacy JSON transcripts are no longer used for history rendering."""
         with TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
             transcripts_dir = tmppath / "transcripts"
@@ -356,10 +358,7 @@ class TestTranscriptReader(unittest.TestCase):
             reader = TranscriptReader(tmppath)
             messages = reader.read_messages(session_id)
 
-            # Legacy format is returned as-is (no grouping)
-            self.assertEqual(len(messages), 2)
-            self.assertEqual(messages[0]["content"], "Hello")
-            self.assertEqual(messages[1]["content"], "Hi there!")
+            self.assertEqual(messages, [])
 
     def test_read_empty_returns_empty_list(self):
         """Test that reading non-existent transcript returns empty list."""

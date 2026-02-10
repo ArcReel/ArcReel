@@ -56,15 +56,7 @@ class TranscriptReader:
             sdk_session_id,
             project_name=project_name,
         )
-        if raw_messages:
-            return group_messages_into_turns(raw_messages)
-
-        legacy_path = self.data_dir / "transcripts" / f"{session_id}.json"
-        if legacy_path.exists():
-            # Legacy files were already persisted in display-ready format.
-            return self._read_json_transcript(legacy_path)
-
-        return []
+        return group_messages_into_turns(raw_messages)
 
     def read_raw_messages(
         self,
@@ -85,7 +77,6 @@ class TranscriptReader:
             )
             if transcript_path:
                 return self._read_jsonl_transcript_raw(transcript_path)
-        # Legacy JSON transcript files are display-ready and not raw streams.
         return []
 
     def _read_jsonl_transcript_raw(self, path: Path) -> list[dict[str, Any]]:
@@ -135,24 +126,13 @@ class TranscriptReader:
             return {
                 "type": "result",
                 "subtype": entry.get("subtype", ""),
-                "session_id": entry.get("sessionId"),
+                "stop_reason": entry.get("stop_reason"),
+                "is_error": bool(entry.get("is_error")),
+                "session_id": entry.get("sessionId") or entry.get("session_id"),
                 "uuid": entry.get("uuid"),
                 "timestamp": entry.get("timestamp"),
             }
         return None
-
-    def _read_json_transcript(self, path: Path) -> list[dict[str, Any]]:
-        """Read legacy JSON transcript file."""
-        try:
-            with open(path, encoding="utf-8") as f:
-                data = json.load(f)
-            return data.get("messages", [])
-        except (json.JSONDecodeError, OSError):
-            return []
-
-    def get_transcript_path(self, session_id: str) -> Path:
-        """Get the full path to a transcript file (legacy)."""
-        return self.data_dir / "transcripts" / f"{session_id}.json"
 
     def exists(
         self,
@@ -168,4 +148,4 @@ class TranscriptReader:
             )
             if sdk_path and sdk_path.exists():
                 return True
-        return self.get_transcript_path(session_id).exists()
+        return False

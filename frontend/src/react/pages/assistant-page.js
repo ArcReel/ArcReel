@@ -7,6 +7,56 @@ import { Badge, Button, Card } from "../components/primitives.js";
 
 const html = htm.bind(React.createElement);
 
+const SESSION_STATUS_META = {
+    idle: {
+        label: "空闲",
+        className: "border-slate-500/30 bg-slate-500/10 text-slate-300",
+    },
+    running: {
+        label: "进行中",
+        className: "border-sky-400/35 bg-sky-500/15 text-sky-200 animate-pulse",
+    },
+    completed: {
+        label: "已完成",
+        className: "border-emerald-400/35 bg-emerald-500/15 text-emerald-200",
+    },
+    error: {
+        label: "异常",
+        className: "border-red-400/35 bg-red-500/15 text-red-200",
+    },
+    interrupted: {
+        label: "已中断",
+        className: "border-amber-400/35 bg-amber-500/15 text-amber-200",
+    },
+};
+
+function getSessionStatusMeta(status) {
+    if (typeof status !== "string") {
+        return SESSION_STATUS_META.idle;
+    }
+    return SESSION_STATUS_META[status] || SESSION_STATUS_META.idle;
+}
+
+function buildSessionStatusTooltip(statusDetail, fallbackStatus) {
+    const status = typeof statusDetail?.status === "string" && statusDetail.status
+        ? statusDetail.status
+        : fallbackStatus;
+    const lines = [`status: ${status}`];
+    if (statusDetail?.subtype) {
+        lines.push(`subtype: ${statusDetail.subtype}`);
+    }
+    if (statusDetail?.stopReason) {
+        lines.push(`stop_reason: ${statusDetail.stopReason}`);
+    }
+    if (typeof statusDetail?.isError === "boolean") {
+        lines.push(`is_error: ${statusDetail.isError ? "true" : "false"}`);
+    }
+    if (statusDetail?.sessionId) {
+        lines.push(`session_id: ${statusDetail.sessionId}`);
+    }
+    return lines.join("\n");
+}
+
 export function AssistantMessageArea({
     assistantCurrentSessionId,
     assistantSessions,
@@ -18,9 +68,13 @@ export function AssistantMessageArea({
     assistantInput,
     setAssistantInput,
     assistantSending,
+    assistantInterrupting,
     assistantPendingQuestion,
     assistantAnsweringQuestion,
+    sessionStatus,
+    sessionStatusDetail,
     onSendAssistantMessage,
+    onInterruptAssistantSession,
     onAnswerAssistantQuestion,
     assistantChatScrollRef,
 }) {
@@ -83,6 +137,7 @@ export function AssistantMessageArea({
 
     const showSkillPanel = slashQuery !== null;
     const hasPendingQuestion = !!assistantPendingQuestion;
+    const isSessionRunning = sessionStatus === "running";
 
     const applySkill = (skillName) => {
         setAssistantInput(`/${skillName} `);
@@ -209,11 +264,33 @@ export function AssistantMessageArea({
     const currentSessionTitle =
         assistantSessions.find((session) => session.id === assistantCurrentSessionId)?.title ||
         assistantCurrentSessionId;
+    const normalizedStatusDetail = sessionStatusDetail && typeof sessionStatusDetail === "object"
+        ? sessionStatusDetail
+        : {};
+    const statusValue = typeof normalizedStatusDetail.status === "string" && normalizedStatusDetail.status
+        ? normalizedStatusDetail.status
+        : sessionStatus;
+    const statusMeta = getSessionStatusMeta(statusValue);
+    const statusBadgeTitle = buildSessionStatusTooltip(normalizedStatusDetail, statusValue);
+    const statusBadgeClassName = cn(
+        "text-[11px] px-2 py-0.5 rounded-full border shrink-0",
+        statusMeta.className,
+        normalizedStatusDetail.isError && statusValue !== "error" ? "ring-1 ring-red-300/40" : ""
+    );
 
     return html`
         <div className="h-full min-h-0 flex flex-col rounded-xl border border-white/10 bg-ink-900/40 overflow-hidden">
-            <div className="px-3 py-2 border-b border-white/10 text-xs text-slate-400">
-                ${assistantCurrentSessionId ? `会话：${currentSessionTitle}` : "请选择或创建会话"}
+            <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between gap-2">
+                <div className="text-xs text-slate-400 truncate">
+                    ${assistantCurrentSessionId ? `会话：${currentSessionTitle}` : "请选择或创建会话"}
+                </div>
+                ${assistantCurrentSessionId
+                    ? html`
+                          <span className=${statusBadgeClassName} title=${statusBadgeTitle}>
+                              ${statusMeta.label}
+                          </span>
+                      `
+                    : null}
             </div>
             <div ref=${assistantChatScrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
                 ${assistantMessagesLoading
@@ -221,7 +298,7 @@ export function AssistantMessageArea({
                     : assistantComposedMessages.length === 0
                         ? html`<p className="text-sm text-slate-400">还没有消息，先发送一条吧。</p>`
                         : assistantComposedMessages.map((message, index) => html`
-                              <${ChatMessage} key=${message.id || `${message.role}-${index}`} message=${message} />
+                              <${ChatMessage} key=${message.uuid || `turn-${index}`} message=${message} />
                           `)}
             </div>
             ${hasPendingQuestion
@@ -346,14 +423,31 @@ export function AssistantMessageArea({
                         onChange=${(event) => setAssistantInput(event.target.value)}
                         onKeyDown=${handleInputKeyDown}
                         rows="2"
-                        placeholder=${hasPendingQuestion ? "请先回答上方问题" : "输入消息，使用 /技能名 可指定技能"}
+                        placeholder=${hasPendingQuestion
+                            ? "请先回答上方问题"
+                            : isSessionRunning
+                                ? "助手正在生成中，可点击停止中断"
+                                : "输入消息，使用 /技能名 可指定技能"}
                         className="w-full rounded-xl border border-white/15 bg-ink-900/70 px-3 py-2 text-sm resize-none"
-                        disabled=${assistantSending || hasPendingQuestion}
+                        disabled=${assistantSending || hasPendingQuestion || isSessionRunning}
                     ></textarea>
                 </div>
-                <${Button} type="submit" disabled=${assistantSending || hasPendingQuestion || !assistantInput.trim()}>
-                    ${assistantSending ? "发送中" : "发送"}
-                <//>
+                ${isSessionRunning
+                    ? html`
+                          <${Button}
+                              type="button"
+                              variant="danger"
+                              onClick=${onInterruptAssistantSession}
+                              disabled=${assistantInterrupting}
+                          >
+                              ${assistantInterrupting ? "停止中..." : "停止"}
+                          <//>
+                      `
+                    : html`
+                          <${Button} type="submit" disabled=${assistantSending || hasPendingQuestion || !assistantInput.trim()}>
+                              ${assistantSending ? "发送中" : "发送"}
+                          <//>
+                      `}
             </form>
         </div>
     `;

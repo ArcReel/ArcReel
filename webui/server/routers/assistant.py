@@ -104,9 +104,17 @@ async def delete_session(session_id: str):
 
 @router.get("/sessions/{session_id}/messages")
 async def list_messages(session_id: str):
+    raise HTTPException(
+        status_code=410,
+        detail="messages 接口已下线，请使用 /snapshot 与 SSE stream 协议。",
+    )
+
+
+@router.get("/sessions/{session_id}/snapshot")
+async def get_snapshot(session_id: str):
     try:
-        messages = assistant_service.list_messages(session_id)
-        return {"messages": messages}
+        snapshot = await assistant_service.get_snapshot(session_id)
+        return snapshot
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
     except Exception as exc:
@@ -117,6 +125,19 @@ async def list_messages(session_id: str):
 async def send_message(session_id: str, req: SendMessageRequest):
     try:
         result = await assistant_service.send_message(session_id, req.content)
+        return result
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/sessions/{session_id}/interrupt")
+async def interrupt_session(session_id: str):
+    try:
+        result = await assistant_service.interrupt_session(session_id)
         return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")

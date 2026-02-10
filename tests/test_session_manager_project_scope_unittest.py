@@ -14,6 +14,12 @@ class _FakeOptions:
         self.kwargs = kwargs
 
 
+class _FakeHookMatcher:
+    def __init__(self, matcher=None, hooks=None):
+        self.matcher = matcher
+        self.hooks = hooks or []
+
+
 class TestSessionManagerProjectScope(unittest.TestCase):
     def test_build_options_uses_project_directory_as_cwd(self):
         with TemporaryDirectory() as tmpdir:
@@ -54,6 +60,43 @@ class TestSessionManagerProjectScope(unittest.TestCase):
                 ):
                     with self.assertRaises(FileNotFoundError):
                         manager._build_options("missing-project")
+
+    def test_build_options_with_can_use_tool_adds_keep_alive_hook(self):
+        with TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            project_dir = tmppath / "projects" / "demo"
+            project_dir.mkdir(parents=True)
+            store = SessionMetaStore(tmppath / "sessions.db")
+            manager = SessionManager(
+                project_root=tmppath,
+                data_dir=tmppath,
+                meta_store=store,
+            )
+
+            async def _can_use_tool(_tool_name, _input_data, _context):
+                return None
+
+            with patch("webui.server.agent_runtime.session_manager.SDK_AVAILABLE", True):
+                with patch(
+                    "webui.server.agent_runtime.session_manager.ClaudeAgentOptions",
+                    _FakeOptions,
+                ):
+                    with patch(
+                        "webui.server.agent_runtime.session_manager.HookMatcher",
+                        _FakeHookMatcher,
+                    ):
+                        options = manager._build_options(
+                            "demo",
+                            can_use_tool=_can_use_tool,
+                        )
+
+            self.assertIn("AskUserQuestion", options.kwargs["allowed_tools"])
+            hooks = options.kwargs.get("hooks", {})
+            self.assertIn("PreToolUse", hooks)
+            matcher = hooks["PreToolUse"][0]
+            self.assertIsNone(matcher.matcher)
+            self.assertEqual(len(matcher.hooks), 1)
+            self.assertIs(matcher.hooks[0], manager._keep_stream_open_hook)
 
 
 if __name__ == "__main__":

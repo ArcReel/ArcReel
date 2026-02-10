@@ -35,7 +35,7 @@ class FakeClient:
     def __init__(self, messages):
         self._messages = messages
 
-    async def receive_messages(self):
+    async def receive_response(self):
         for message in self._messages:
             yield message
 
