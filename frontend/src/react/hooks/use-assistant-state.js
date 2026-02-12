@@ -168,6 +168,33 @@ function findTailPrefixOverlap(committedContent, draftContent) {
     return 0;
 }
 
+function overlapIncludesMatchingToolUse(committedContent, draftContent, overlap) {
+    if (!Array.isArray(committedContent) || !Array.isArray(draftContent) || overlap <= 0) {
+        return false;
+    }
+
+    for (let offset = 0; offset < overlap; offset += 1) {
+        const committedIndex = committedContent.length - overlap + offset;
+        const committedBlock = committedContent[committedIndex];
+        const draftBlock = draftContent[offset];
+        if (
+            committedBlock
+            && typeof committedBlock === "object"
+            && committedBlock.type === "tool_use"
+            && typeof committedBlock.id === "string"
+            && committedBlock.id
+            && draftBlock
+            && typeof draftBlock === "object"
+            && draftBlock.type === "tool_use"
+            && committedBlock.id === draftBlock.id
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function collectCommittedToolUseIds(turns) {
     const ids = new Set();
     if (!Array.isArray(turns) || turns.length === 0) {
@@ -214,9 +241,10 @@ function mergeAssistantContentWithDraft(committedContent, draftContent, committe
     });
 
     const overlap = findTailPrefixOverlap(merged, draftContent);
-    if (overlap > 0) {
-        for (let i = 0; i < overlap; i += 1) {
-            const committedIndex = merged.length - overlap + i;
+    const effectiveOverlap = overlapIncludesMatchingToolUse(merged, draftContent, overlap) ? overlap : 0;
+    if (effectiveOverlap > 0) {
+        for (let i = 0; i < effectiveOverlap; i += 1) {
+            const committedIndex = merged.length - effectiveOverlap + i;
             const committedBlock = merged[committedIndex];
             const draftBlock = draftContent[i];
             if (
@@ -234,7 +262,7 @@ function mergeAssistantContentWithDraft(committedContent, draftContent, committe
         }
     }
 
-    draftContent.slice(overlap).forEach((block) => {
+    draftContent.slice(effectiveOverlap).forEach((block) => {
         if (
             block
             && typeof block === "object"

@@ -131,3 +131,30 @@ test("composeAssistantTurnsWithDraft should drop duplicated text and tool_use wh
     assert.equal(toolBlocks.length, 1);
     assert.equal(toolBlocks[0].input.timeout, 600000);
 });
+
+test("composeAssistantTurnsWithDraft should keep repeated leading text when overlap has no tool_use", () => {
+    const turns = [
+        {
+            type: "assistant",
+            content: [
+                { type: "text", text: "OK" },
+            ],
+        },
+    ];
+
+    const draftTurn = {
+        type: "assistant",
+        content: [
+            { type: "text", text: "OK" },
+            { type: "text", text: "next" },
+        ],
+    };
+
+    const composed = composeAssistantTurnsWithDraft(turns, draftTurn);
+
+    assert.deepEqual(composed[0].content, [
+        { type: "text", text: "OK" },
+        { type: "text", text: "OK" },
+        { type: "text", text: "next" },
+    ]);
+});
