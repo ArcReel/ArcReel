@@ -61,12 +61,220 @@ function normalizeTurn(turn) {
     };
 }
 
-function composeAssistantTurnsWithDraft(committedTurns, draftTurn) {
+function isRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeToolUseBlocks(committedBlock, draftBlock) {
+    const committed = isRecord(committedBlock) ? committedBlock : {};
+    const draft = isRecord(draftBlock) ? draftBlock : {};
+    const merged = {
+        ...committed,
+        ...draft,
+    };
+
+    const committedHasInput = Object.prototype.hasOwnProperty.call(committed, "input");
+    const draftHasInput = Object.prototype.hasOwnProperty.call(draft, "input");
+    if (isRecord(committed.input) && isRecord(draft.input)) {
+        merged.input = { ...committed.input, ...draft.input };
+    } else if (!draftHasInput && committedHasInput) {
+        merged.input = committed.input;
+    }
+
+    if (
+        !Object.prototype.hasOwnProperty.call(draft, "result")
+        && Object.prototype.hasOwnProperty.call(committed, "result")
+    ) {
+        merged.result = committed.result;
+    }
+
+    if (
+        !Object.prototype.hasOwnProperty.call(draft, "is_error")
+        && Object.prototype.hasOwnProperty.call(committed, "is_error")
+    ) {
+        merged.is_error = committed.is_error;
+    }
+
+    if (
+        !Object.prototype.hasOwnProperty.call(draft, "skill_content")
+        && Object.prototype.hasOwnProperty.call(committed, "skill_content")
+    ) {
+        merged.skill_content = committed.skill_content;
+    }
+
+    return merged;
+}
+
+function areBlocksEquivalentForOverlap(committedBlock, draftBlock) {
+    if (!committedBlock || !draftBlock || typeof committedBlock !== "object" || typeof draftBlock !== "object") {
+        return false;
+    }
+
+    const committedType = committedBlock.type || "";
+    const draftType = draftBlock.type || "";
+    if (committedType !== draftType) {
+        return false;
+    }
+
+    if (committedType === "tool_use") {
+        return Boolean(committedBlock.id)
+            && Boolean(draftBlock.id)
+            && committedBlock.id === draftBlock.id;
+    }
+
+    if (committedType === "text") {
+        return (committedBlock.text || "") === (draftBlock.text || "");
+    }
+
+    if (committedType === "thinking") {
+        return (committedBlock.thinking || "") === (draftBlock.thinking || "");
+    }
+
+    if (committedType === "tool_result") {
+        return (
+            (committedBlock.tool_use_id || "") === (draftBlock.tool_use_id || "")
+            && (committedBlock.content || "") === (draftBlock.content || "")
+            && Boolean(committedBlock.is_error) === Boolean(draftBlock.is_error)
+        );
+    }
+
+    if (committedType === "skill_content") {
+        return (committedBlock.text || "") === (draftBlock.text || "");
+    }
+
+    return JSON.stringify(committedBlock) === JSON.stringify(draftBlock);
+}
+
+function findTailPrefixOverlap(committedContent, draftContent) {
+    if (!Array.isArray(committedContent) || !Array.isArray(draftContent)) {
+        return 0;
+    }
+
+    const maxOverlap = Math.min(committedContent.length, draftContent.length);
+    for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+        let matched = true;
+        for (let offset = 0; offset < overlap; offset += 1) {
+            const committedIndex = committedContent.length - overlap + offset;
+            if (!areBlocksEquivalentForOverlap(committedContent[committedIndex], draftContent[offset])) {
+                matched = false;
+                break;
+            }
+        }
+        if (matched) {
+            return overlap;
+        }
+    }
+
+    return 0;
+}
+
+function collectCommittedToolUseIds(turns) {
+    const ids = new Set();
+    if (!Array.isArray(turns) || turns.length === 0) {
+        return ids;
+    }
+
+    turns.forEach((turn) => {
+        if (!turn || typeof turn !== "object" || !Array.isArray(turn.content)) {
+            return;
+        }
+        turn.content.forEach((block) => {
+            if (
+                block
+                && typeof block === "object"
+                && block.type === "tool_use"
+                && typeof block.id === "string"
+                && block.id
+            ) {
+                ids.add(block.id);
+            }
+        });
+    });
+
+    return ids;
+}
+
+function mergeAssistantContentWithDraft(committedContent, draftContent, committedToolUseIds) {
+    const merged = Array.isArray(committedContent) ? [...committedContent] : [];
+    if (!Array.isArray(draftContent) || draftContent.length === 0) {
+        return merged;
+    }
+
+    const toolUseIndexById = new Map();
+    merged.forEach((block, index) => {
+        if (
+            block
+            && typeof block === "object"
+            && block.type === "tool_use"
+            && typeof block.id === "string"
+            && block.id
+        ) {
+            toolUseIndexById.set(block.id, index);
+        }
+    });
+
+    const overlap = findTailPrefixOverlap(merged, draftContent);
+    if (overlap > 0) {
+        for (let i = 0; i < overlap; i += 1) {
+            const committedIndex = merged.length - overlap + i;
+            const committedBlock = merged[committedIndex];
+            const draftBlock = draftContent[i];
+            if (
+                committedBlock
+                && typeof committedBlock === "object"
+                && committedBlock.type === "tool_use"
+                && draftBlock
+                && typeof draftBlock === "object"
+                && draftBlock.type === "tool_use"
+                && committedBlock.id
+                && committedBlock.id === draftBlock.id
+            ) {
+                merged[committedIndex] = mergeToolUseBlocks(committedBlock, draftBlock);
+            }
+        }
+    }
+
+    draftContent.slice(overlap).forEach((block) => {
+        if (
+            block
+            && typeof block === "object"
+            && block.type === "tool_use"
+            && typeof block.id === "string"
+            && block.id
+        ) {
+            const toolUseId = block.id;
+            const existingIndex = toolUseIndexById.get(toolUseId);
+            if (typeof existingIndex === "number") {
+                merged[existingIndex] = mergeToolUseBlocks(merged[existingIndex], block);
+                return;
+            }
+
+            if (committedToolUseIds.has(toolUseId)) {
+                return;
+            }
+
+            toolUseIndexById.set(toolUseId, merged.length);
+            committedToolUseIds.add(toolUseId);
+        }
+
+        merged.push(block);
+    });
+
+    return merged;
+}
+
+export function composeAssistantTurnsWithDraft(committedTurns, draftTurn) {
     const turns = Array.isArray(committedTurns) ? committedTurns : [];
     const draft = normalizeTurn(draftTurn);
     if (!draft) {
         return turns;
     }
+
+    if (draft.type !== "assistant") {
+        return [...turns, draft];
+    }
+
+    const committedToolUseIds = collectCommittedToolUseIds(turns);
 
     const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
     if (
@@ -75,16 +283,36 @@ function composeAssistantTurnsWithDraft(committedTurns, draftTurn) {
         lastTurn.type === "assistant" &&
         Array.isArray(lastTurn.content)
     ) {
+        const mergedContent = mergeAssistantContentWithDraft(
+            lastTurn.content,
+            draft.content,
+            committedToolUseIds
+        );
         return [
             ...turns.slice(0, -1),
             {
                 ...lastTurn,
-                content: [...lastTurn.content, ...draft.content],
+                content: mergedContent,
             },
         ];
     }
 
-    return [...turns, draft];
+    const deduplicatedDraftContent = mergeAssistantContentWithDraft(
+        [],
+        draft.content,
+        committedToolUseIds
+    );
+    if (deduplicatedDraftContent.length === 0) {
+        return turns;
+    }
+
+    return [
+        ...turns,
+        {
+            ...draft,
+            content: deduplicatedDraftContent,
+        },
+    ];
 }
 
 function normalizeSessionStatusDetail(payload, fallbackStatus = "idle") {
