@@ -5,12 +5,15 @@
 """
 
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 # ==================== 数据模型 ====================
 
@@ -298,7 +301,7 @@ class ProjectManager:
         episodes.sort(key=lambda x: x["episode"])
         self.save_project(project_name, project)
 
-        print(f"✅ 已同步剧集信息: Episode {episode_num} - {episode_title}")
+        logger.info("已同步剧集信息: Episode %d - %s", episode_num, episode_title)
         return project
 
     def load_script(self, project_name: str, filename: str) -> Dict:
@@ -589,14 +592,14 @@ class ProjectManager:
             and isinstance(script["characters"], dict)
             and script["characters"]
         ):
-            print("⚠️  检测到旧格式 characters 对象，自动同步到 project.json...")
+            logger.warning("检测到旧格式 characters 对象，自动同步到 project.json")
             self.sync_characters_from_script(project_name, script_filename)
             # sync_characters_from_script 会重新加载和保存 script，所以需要重新加载
             script = self.load_script(project_name, script_filename)
 
         # 处理旧格式：如果有 clues 对象，同步到 project.json
         if "clues" in script and isinstance(script["clues"], dict) and script["clues"]:
-            print("⚠️  检测到旧格式 clues 对象，自动同步到 project.json...")
+            logger.warning("检测到旧格式 clues 对象，自动同步到 project.json")
             self.sync_clues_from_script(project_name, script_filename)
             script = self.load_script(project_name, script_filename)
 
@@ -628,7 +631,7 @@ class ProjectManager:
 
         if save:
             self.save_script(project_name, script, script_filename)
-            print(f"✅ 剧本已规范化并保存: {script_filename}")
+            logger.info("剧本已规范化并保存: %s", script_filename)
 
         return script
 
@@ -1170,7 +1173,7 @@ class ProjectManager:
         project = self.load_project(project_name)
 
         if name in project.get("characters", {}):
-            print(f"ℹ️  角色 '{name}' 已存在于 project.json，跳过")
+            logger.debug("角色 '%s' 已存在于 project.json，跳过", name)
             return False
 
         if "characters" not in project:
@@ -1183,7 +1186,7 @@ class ProjectManager:
         }
 
         self.save_project(project_name, project)
-        print(f"✅ 添加角色: {name}")
+        logger.info("添加角色: %s", name)
         return True
 
     def add_clue(
@@ -1212,7 +1215,7 @@ class ProjectManager:
         project = self.load_project(project_name)
 
         if name in project.get("clues", {}):
-            print(f"ℹ️  线索 '{name}' 已存在于 project.json，跳过")
+            logger.debug("线索 '%s' 已存在于 project.json，跳过", name)
             return False
 
         if "clues" not in project:
@@ -1226,7 +1229,7 @@ class ProjectManager:
         }
 
         self.save_project(project_name, project)
-        print(f"✅ 添加线索: {name}")
+        logger.info("添加线索: %s", name)
         return True
 
     def add_characters_batch(
@@ -1256,9 +1259,9 @@ class ProjectManager:
                     "voice_style": data.get("voice_style", ""),
                 }
                 added += 1
-                print(f"✅ 添加角色: {name}")
+                logger.info("添加角色: %s", name)
             else:
-                print(f"ℹ️  角色 '{name}' 已存在，跳过")
+                logger.debug("角色 '%s' 已存在，跳过", name)
 
         if added > 0:
             self.save_project(project_name, project)
@@ -1291,9 +1294,9 @@ class ProjectManager:
                     "clue_sheet": data.get("clue_sheet", ""),
                 }
                 added += 1
-                print(f"✅ 添加线索: {name}")
+                logger.info("添加线索: %s", name)
             else:
-                print(f"ℹ️  线索 '{name}' 已存在，跳过")
+                logger.debug("线索 '%s' 已存在，跳过", name)
 
         if added > 0:
             self.save_project(project_name, project)
@@ -1373,7 +1376,7 @@ class ProjectManager:
                         contents.append(f"--- {file_path.name} ---\n{content}")
                         total_chars += len(content)
                 except Exception as e:
-                    print(f"⚠️  读取文件失败 {file_path.name}: {e}")
+                    logger.error("读取文件失败 %s: %s", file_path.name, e)
 
         return "\n\n".join(contents)
 
@@ -1417,5 +1420,5 @@ class ProjectManager:
         project["overview"] = overview_dict
         self.save_project(project_name, project)
 
-        print("✅ 项目概述已生成并保存")
+        logger.info("项目概述已生成并保存")
         return overview_dict

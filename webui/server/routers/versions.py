@@ -4,8 +4,11 @@
 处理版本查询和还原请求。
 """
 
+import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
+
+logger = logging.getLogger(__name__)
 
 from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
@@ -54,6 +57,7 @@ async def get_versions(
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -130,7 +134,8 @@ async def restore_version(
                         )
                     except KeyError:
                         continue
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("同步分镜元数据失败: %s", exc)
                         continue
 
         return {
@@ -144,4 +149,5 @@ async def restore_version(
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))

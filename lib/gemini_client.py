@@ -8,6 +8,7 @@ import asyncio
 import base64
 import functools
 import io
+import logging
 import os
 import random
 import threading
@@ -17,6 +18,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 # 可重试的错误类型
 RETRYABLE_ERRORS: Tuple[Type[Exception], ...] = (
@@ -251,11 +254,13 @@ def with_retry(
                         base_wait = backoff_seconds[backoff_idx]
                         jitter = random.uniform(0, 2)  # 0-2秒随机抖动
                         wait_time = base_wait + jitter
-                        print(
-                            f"⚠️  {context_str}捕获异常: {type(e).__name__} - {str(e)[:100]}..."
+                        logger.warning(
+                            "%sAPI 调用异常: %s - %s",
+                            context_str, type(e).__name__, str(e)[:200],
                         )
-                        print(
-                            f"⚠️  {context_str}重试 {attempt + 1}/{max_attempts - 1}，{wait_time:.1f}秒后..."
+                        logger.warning(
+                            "%s重试 %d/%d, %.1f 秒后...",
+                            context_str, attempt + 1, max_attempts - 1, wait_time,
                         )
                         time.sleep(wait_time)
             raise last_error
@@ -313,11 +318,13 @@ def with_retry_async(
                         base_wait = backoff_seconds[backoff_idx]
                         jitter = random.uniform(0, 2)  # 0-2秒随机抖动
                         wait_time = base_wait + jitter
-                        print(
-                            f"⚠️  {context_str}捕获异常: {type(e).__name__} - {str(e)[:100]}..."
+                        logger.warning(
+                            "%sAPI 调用异常: %s - %s",
+                            context_str, type(e).__name__, str(e)[:200],
                         )
-                        print(
-                            f"⚠️  {context_str}重试 {attempt + 1}/{max_attempts - 1}，{wait_time:.1f}秒后..."
+                        logger.warning(
+                            "%s重试 %d/%d, %.1f 秒后...",
+                            context_str, attempt + 1, max_attempts - 1, wait_time,
                         )
                         await asyncio.sleep(wait_time)
             raise last_error
@@ -422,7 +429,7 @@ class GeminiClient:
                 location="global",
                 credentials=self.credentials,
             )
-            print(f"✓ 使用 Vertex AI 后端（凭证: {credentials_file.name}）")
+            logger.info("使用 Vertex AI 后端（凭证: %s）", credentials_file.name)
         else:
             # AI Studio 模式（默认）
             self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
@@ -433,7 +440,7 @@ class GeminiClient:
                 )
 
             self.client = genai.Client(api_key=self.api_key)
-            print("✓ 使用 AI Studio 后端")
+            logger.info("使用 AI Studio 后端")
 
         # 模型配置（两种后端使用相同的模型名）
         self.IMAGE_MODEL = "gemini-3-pro-image-preview"
@@ -520,7 +527,7 @@ class GeminiClient:
 
             # 打印日志
             if labeled_refs:
-                print(f"📝 参考图片标签: {', '.join(labeled_refs)}")
+                logger.debug("参考图片标签: %s", ", ".join(labeled_refs))
 
         # prompt 放最后
         contents.append(prompt)
@@ -842,11 +849,11 @@ class GeminiClient:
             time.sleep(poll_interval)
             elapsed += poll_interval
             operation = self.client.operations.get(operation)
-            print(f"视频{mode_text}中... 已等待 {elapsed} 秒")
+            logger.info("视频%s中... 已等待 %d 秒", mode_text, elapsed)
 
         # 检查结果
         if not operation.response or not operation.response.generated_videos:
-            print(f"DEBUG: Operation details: {operation}")
+            logger.debug("Operation details: %s", operation)
             if hasattr(operation, "error") and operation.error:
                 raise RuntimeError(f"视频{mode_text}失败: {operation.error}")
             raise RuntimeError(f"视频{mode_text}失败: API 返回空结果")
@@ -878,7 +885,7 @@ class GeminiClient:
                 bucket = storage_client.bucket(bucket_name)
                 blob = bucket.blob(blob_name)
                 blob.download_to_filename(str(output_path))
-                print(f"✓ 已从 {actual_gcs_uri} 下载视频")
+                logger.info("已从 %s 下载视频", actual_gcs_uri)
             else:
                 # 下载视频文件
                 self._download_video(video_ref, output_path)
@@ -926,7 +933,7 @@ class GeminiClient:
 
         # 检查结果
         if not operation.response or not operation.response.generated_videos:
-            print(f"DEBUG: Operation details: {operation}")
+            logger.debug("Operation details: %s", operation)
             if hasattr(operation, "error") and operation.error:
                 raise RuntimeError(f"视频{mode_text}失败: {operation.error}")
             raise RuntimeError(f"视频{mode_text}失败: API 返回空结果")
@@ -958,7 +965,7 @@ class GeminiClient:
                 bucket = storage_client.bucket(bucket_name)
                 blob = bucket.blob(blob_name)
                 blob.download_to_filename(str(output_path))
-                print(f"✓ 已从 {actual_gcs_uri} 下载视频")
+                logger.info("已从 %s 下载视频", actual_gcs_uri)
             else:
                 # 下载视频文件
                 self._download_video(video_ref, output_path)
@@ -1102,7 +1109,7 @@ class GeminiClient:
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
             operation = await self.client.aio.operations.get(operation)
-            print(f"视频{mode_text}中... 已等待 {elapsed} 秒")
+            logger.info("视频%s中... 已等待 %d 秒", mode_text, elapsed)
 
         return self._process_video_result(
             operation, output_path, is_extend_mode, output_gcs_uri

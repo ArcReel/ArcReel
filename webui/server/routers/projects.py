@@ -4,11 +4,14 @@
 处理项目的 CRUD 操作，复用 lib/project_manager.py
 """
 
+import logging
 import shutil
 from typing import Optional, List
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator
@@ -78,6 +81,7 @@ async def list_projects():
                 })
         except Exception as e:
             # 出错时返回基本信息
+            logger.warning("加载项目 '%s' 元数据失败: %s", name, e)
             projects.append({
                 "name": name,
                 "title": name,
@@ -103,6 +107,7 @@ async def create_project(req: CreateProjectRequest):
     except FileExistsError:
         raise HTTPException(status_code=400, detail=f"项目 '{req.name}' 已存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -137,6 +142,7 @@ async def get_project(name: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -160,6 +166,7 @@ async def update_project(name: str, req: UpdateProjectRequest):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -173,6 +180,7 @@ async def delete_project(name: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -185,6 +193,7 @@ async def get_script(name: str, script_file: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"剧本 '{script_file}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -221,6 +230,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"剧本不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -276,6 +286,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"剧本不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -292,6 +303,7 @@ async def generate_overview(name: str):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -320,4 +332,5 @@ async def update_overview(name: str, req: UpdateOverviewRequest):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))

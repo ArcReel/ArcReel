@@ -5,6 +5,7 @@ script_generator.py - 剧本生成器
 """
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
@@ -20,6 +21,8 @@ from lib.script_models import (
     DramaEpisodeScript,
     NarrationEpisodeScript,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ScriptGenerator:
@@ -90,7 +93,7 @@ class ScriptGenerator:
             schema = DramaEpisodeScript.model_json_schema()
 
         # 4. 调用 Gemini API
-        print(f"📝 正在生成第 {episode} 集剧本...")
+        logger.info("正在生成第 %d 集剧本...", episode)
         response_text = self.client.generate_text(
             prompt=prompt,
             model=self.MODEL,
@@ -111,7 +114,7 @@ class ScriptGenerator:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(script_data, f, ensure_ascii=False, indent=2)
 
-        print(f"✓ 剧本已保存至 {output_path}")
+        logger.info("剧本已保存至 %s", output_path)
         return output_path
 
     def build_prompt(self, episode: int) -> str:
@@ -168,7 +171,7 @@ class ScriptGenerator:
 
         if not primary_path.exists():
             if fallback_path.exists():
-                print(f"⚠️ 未找到 Step 1 文件: {primary_path}，改用 {fallback_path}")
+                logger.warning("未找到 Step 1 文件: %s，改用 %s", primary_path, fallback_path)
                 primary_path = fallback_path
             else:
                 raise FileNotFoundError(f"未找到 Step 1 文件: {primary_path}")
@@ -211,7 +214,7 @@ class ScriptGenerator:
                 validated = DramaEpisodeScript.model_validate(data)
             return validated.model_dump()
         except ValidationError as e:
-            print(f"⚠️ 数据验证警告: {e}")
+            logger.warning("数据验证警告: %s", e)
             # 返回原始数据，允许部分不符合 schema
             return data
 

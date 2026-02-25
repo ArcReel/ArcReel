@@ -2,8 +2,11 @@
 线索管理路由
 """
 
+import logging
 from typing import Optional
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -47,6 +50,7 @@ async def add_clue(project_name: str, req: CreateClueRequest):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -78,6 +82,7 @@ async def update_clue(project_name: str, clue_name: str, req: UpdateClueRequest)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -96,4 +101,5 @@ async def delete_clue(project_name: str, clue_name: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))

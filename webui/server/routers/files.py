@@ -5,9 +5,12 @@
 """
 
 import json
+import logging
 import os
 import urllib.parse
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Body, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -174,6 +177,7 @@ async def upload_file(
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -210,6 +214,7 @@ async def list_project_files(project_name: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -237,6 +242,7 @@ async def get_source_file(project_name: str, filename: str):
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="文件编码错误，无法读取")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -263,6 +269,7 @@ async def update_source_file(
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -288,6 +295,7 @@ async def delete_source_file(project_name: str, filename: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -505,6 +513,7 @@ async def upload_style_image(project_name: str, file: UploadFile = File(...)):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -532,6 +541,7 @@ async def delete_style_image(project_name: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -552,4 +562,5 @@ async def update_style_description(
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))

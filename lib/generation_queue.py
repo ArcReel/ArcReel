@@ -5,6 +5,7 @@ SQLite-backed generation task queue shared by WebUI and skills.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -13,6 +14,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = ("queued", "running")
 TERMINAL_TASK_STATUSES = ("succeeded", "failed")
@@ -40,7 +43,8 @@ def _json_loads(value: Optional[str], default: Any) -> Any:
         return default
     try:
         return json.loads(value)
-    except Exception:
+    except Exception as e:
+        logger.warning("JSON 解析失败: %s", str(e)[:100])
         return default
 
 
@@ -240,6 +244,7 @@ class GenerationQueue:
                 conn.execute("COMMIT")
                 if not existing:
                     raise
+                logger.debug("任务去重 task_id=%s", task_id)
                 return {
                     "task_id": existing["task_id"],
                     "status": existing["status"],
@@ -261,6 +266,7 @@ class GenerationQueue:
             )
             conn.execute("COMMIT")
 
+        logger.info("任务入队 task_id=%s type=%s", task_id, task_type)
         return {
             "task_id": task_id,
             "status": "queued",
@@ -314,6 +320,7 @@ class GenerationQueue:
                 data=running_task,
             )
             conn.execute("COMMIT")
+            logger.debug("任务被领取 task_id=%s", task_id)
             return running_task
 
     def requeue_running_tasks(self, *, limit: int = 1000) -> int:
@@ -371,6 +378,8 @@ class GenerationQueue:
                 recovered += 1
 
             conn.execute("COMMIT")
+            if recovered > 0:
+                logger.warning("回收 %d 个 running 任务", recovered)
             return recovered
 
     def mark_task_succeeded(self, task_id: str, result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -411,6 +420,7 @@ class GenerationQueue:
                 data=done_task,
             )
             conn.execute("COMMIT")
+            logger.info("任务成功 task_id=%s", task_id)
             return done_task
 
     def mark_task_failed(self, task_id: str, error_message: str) -> Optional[Dict[str, Any]]:
@@ -450,6 +460,7 @@ class GenerationQueue:
                 data=failed_task,
             )
             conn.execute("COMMIT")
+            logger.warning("任务失败 task_id=%s error=%s", task_id, error_message[:200])
             return failed_task
 
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:

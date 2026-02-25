@@ -3,12 +3,15 @@ Manages ClaudeSDKClient instances with background execution and reconnection sup
 """
 
 import asyncio
+import logging
 import os
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from webui.server.agent_runtime.models import SessionMeta, SessionStatus
 from webui.server.agent_runtime.session_store import SessionMetaStore
@@ -356,6 +359,7 @@ class SessionManager:
         try:
             await managed.client.query(content)
         except Exception:
+            logger.exception("会话消息处理失败")
             managed.pending_user_echoes.clear()
             managed.status = "error"
             self.meta_store.update_status(session_id, "error")
@@ -415,6 +419,7 @@ class SessionManager:
             self._mark_session_terminal(managed, "interrupted", "session interrupted")
             raise
         except Exception:
+            logger.exception("会话消费循环异常")
             self._mark_session_terminal(managed, "error", "session error")
             raise
 
@@ -773,7 +778,7 @@ class SessionManager:
             # Disconnect client
             try:
                 await managed.client.disconnect()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("优雅关闭时断开连接异常: %s", exc)
 
         self.sessions.clear()

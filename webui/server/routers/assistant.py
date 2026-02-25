@@ -2,8 +2,11 @@
 Assistant session APIs.
 """
 
+import logging
 from pathlib import Path
 from typing import Literal, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -42,6 +45,7 @@ async def create_session(req: CreateSessionRequest):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{req.project_name}' 不存在")
     except Exception as exc:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -58,6 +62,7 @@ async def list_sessions(
         )
         return {"sessions": [s.model_dump() for s in sessions]}
     except Exception as exc:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -71,6 +76,7 @@ async def get_session(session_id: str):
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -86,6 +92,7 @@ async def update_session(session_id: str, req: UpdateSessionRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -99,6 +106,7 @@ async def delete_session(session_id: str):
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -118,6 +126,7 @@ async def get_snapshot(session_id: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
     except Exception as exc:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -131,6 +140,7 @@ async def send_message(session_id: str, req: SendMessageRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -144,6 +154,7 @@ async def interrupt_session(session_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -163,6 +174,7 @@ async def answer_question(session_id: str, question_id: str, req: AnswerQuestion
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -185,6 +197,7 @@ async def stream_events(session_id: str):
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -196,4 +209,5 @@ async def list_skills(project_name: Optional[str] = None):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as exc:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))

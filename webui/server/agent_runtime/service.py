@@ -4,10 +4,13 @@ Assistant service orchestration using ClaudeSDKClient.
 
 import asyncio
 import json
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional
+
+logger = logging.getLogger(__name__)
 
 from lib.project_manager import ProjectManager
 from webui.server.agent_runtime.models import SessionMeta, SessionStatus
@@ -43,7 +46,9 @@ class AssistantService:
         """Create a new session."""
         self.pm.get_project_path(project_name)  # Validate project exists
         normalized_title = title.strip() or f"{project_name} 会话"
-        return await self.session_manager.create_session(project_name, normalized_title)
+        session = await self.session_manager.create_session(project_name, normalized_title)
+        logger.info("创建会话 session_id=%s project=%s", session.id, project_name)
+        return session
 
     def list_sessions(
         self,
@@ -87,8 +92,8 @@ class AssistantService:
                 managed.consumer_task.cancel()
             try:
                 await managed.client.disconnect()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("会话断开清理异常: %s", exc)
             del self.session_manager.sessions[session_id]
 
         return self.meta_store.delete(session_id)
@@ -135,6 +140,7 @@ class AssistantService:
         if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
 
+        logger.info("发送消息到会话 session_id=%s", session_id)
         await self.session_manager.send_message(session_id, text)
         return {"status": "accepted", "session_id": session_id}
 

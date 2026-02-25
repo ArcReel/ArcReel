@@ -11,6 +11,7 @@ MediaGenerator 中间层
 - clues: 线索设计图 (玉佩.png)
 """
 
+import logging
 from pathlib import Path
 from typing import Optional, List, Union, Tuple
 from PIL import Image
@@ -18,6 +19,8 @@ from PIL import Image
 from lib.gemini_client import GeminiClient, RateLimiter
 from lib.version_manager import VersionManager
 from lib.usage_tracker import UsageTracker
+
+logger = logging.getLogger(__name__)
 
 
 class MediaGenerator:
@@ -152,6 +155,7 @@ class MediaGenerator:
             )
         except Exception as e:
             # 记录调用失败
+            logger.exception("生成失败 (%s)", "image")
             self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="failed",
@@ -238,6 +242,7 @@ class MediaGenerator:
             )
         except Exception as e:
             # 记录调用失败
+            logger.exception("生成失败 (%s)", "image")
             self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="failed",
@@ -337,6 +342,7 @@ class MediaGenerator:
             )
         except Exception as e:
             # 记录调用失败
+            logger.exception("生成失败 (%s)", "video")
             self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="failed",
@@ -436,6 +442,7 @@ class MediaGenerator:
             )
         except Exception as e:
             # 记录调用失败
+            logger.exception("生成失败 (%s)", "video")
             self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="failed",

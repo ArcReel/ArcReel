@@ -2,8 +2,11 @@
 人物管理路由
 """
 
+import logging
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -41,6 +44,7 @@ async def add_character(project_name: str, req: CreateCharacterRequest):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -70,6 +74,7 @@ async def update_character(
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -88,4 +93,5 @@ async def delete_character(project_name: str, char_name: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))

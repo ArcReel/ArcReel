@@ -5,9 +5,12 @@ Background worker that consumes generation tasks from SQLite queue.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import uuid
 from typing import Any, Dict
+
+logger = logging.getLogger(__name__)
 
 from lib.generation_queue import (
     GenerationQueue,
@@ -75,6 +78,11 @@ class GenerationWorker:
                     ttl_seconds=self.lease_ttl,
                 )
 
+                if self._owns_lease and not had_lease:
+                    logger.info("获得 worker lease (owner=%s)", self.owner_id)
+                if had_lease and not self._owns_lease:
+                    logger.warning("失去 worker lease (owner=%s)", self.owner_id)
+
                 await self._drain_finished_tasks()
 
                 # 仅在"新获得 lease 且本实例无在途任务"时回收 running 任务，
@@ -132,8 +140,7 @@ class GenerationWorker:
                 try:
                     await task
                 except Exception:
-                    # _process_task already persisted failure, swallow to keep loop alive.
-                    pass
+                    logger.debug("已处理的任务 %s 异常已在 _process_task 中记录", task_id)
 
     async def _wait_inflight_completion(self) -> None:
         pending_tasks = [*self._image_inflight.values(), *self._video_inflight.values()]
@@ -145,10 +152,14 @@ class GenerationWorker:
 
     async def _process_task(self, task: Dict[str, Any]) -> None:
         task_id = task["task_id"]
+        task_type = task.get("task_type", "unknown")
+        logger.info("开始处理任务 %s (type=%s)", task_id, task_type)
         try:
             from webui.server.services.generation_tasks import execute_generation_task
 
             result = await asyncio.to_thread(execute_generation_task, task)
             self.queue.mark_task_succeeded(task_id, result)
+            logger.info("任务完成 %s (type=%s)", task_id, task_type)
         except Exception as exc:
+            logger.exception("任务失败 %s (type=%s)", task_id, task_type)
             self.queue.mark_task_failed(task_id, str(exc))

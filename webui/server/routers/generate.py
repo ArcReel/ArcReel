@@ -6,10 +6,13 @@
 """
 
 import asyncio
+import logging
 import os
 import threading
 from pathlib import Path
 from typing import Any, Optional, Union
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
@@ -273,6 +276,7 @@ async def generate_storyboard(
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -387,6 +391,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         sem.release()
@@ -462,6 +467,7 @@ async def generate_character(
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -521,4 +527,5 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
