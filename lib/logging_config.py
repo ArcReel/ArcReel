@@ -33,3 +33,9 @@ def setup_logging(level: str | None = None) -> None:
     handler.setFormatter(formatter)
     setattr(handler, _HANDLER_ATTR, True)
     root.addHandler(handler)
+
+    # 统一 uvicorn 的日志格式，避免两种格式并存
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        uv_logger = logging.getLogger(name)
+        uv_logger.handlers.clear()
+        uv_logger.propagate = True
