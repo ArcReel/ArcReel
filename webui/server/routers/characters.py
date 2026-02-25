@@ -20,6 +20,10 @@ project_root = Path(__file__).parent.parent.parent.parent
 pm = ProjectManager(project_root / "projects")
 
 
+def get_project_manager() -> ProjectManager:
+    return pm
+
+
 class CreateCharacterRequest(BaseModel):
     name: str
     description: str
@@ -37,12 +41,14 @@ class UpdateCharacterRequest(BaseModel):
 async def add_character(project_name: str, req: CreateCharacterRequest):
     """添加人物"""
     try:
-        project = pm.add_project_character(
+        project = get_project_manager().add_project_character(
             project_name, req.name, req.description, req.voice_style
         )
         return {"success": True, "character": project["characters"][req.name]}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -54,7 +60,8 @@ async def update_character(
 ):
     """更新人物"""
     try:
-        project = pm.load_project(project_name)
+        manager = get_project_manager()
+        project = manager.load_project(project_name)
 
         if char_name not in project["characters"]:
             raise HTTPException(status_code=404, detail=f"人物 '{char_name}' 不存在")
@@ -69,10 +76,12 @@ async def update_character(
         if req.reference_image is not None:
             char["reference_image"] = req.reference_image
 
-        pm.save_project(project_name, project)
+        manager.save_project(project_name, project)
         return {"success": True, "character": char}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -82,16 +91,19 @@ async def update_character(
 async def delete_character(project_name: str, char_name: str):
     """删除人物"""
     try:
-        project = pm.load_project(project_name)
+        manager = get_project_manager()
+        project = manager.load_project(project_name)
 
         if char_name not in project["characters"]:
             raise HTTPException(status_code=404, detail=f"人物 '{char_name}' 不存在")
 
         del project["characters"][char_name]
-        pm.save_project(project_name, project)
+        manager.save_project(project_name, project)
         return {"success": True, "message": f"人物 '{char_name}' 已删除"}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))

@@ -23,6 +23,10 @@ from lib.generation_queue import (
 router = APIRouter()
 
 
+def get_task_queue():
+    return get_generation_queue()
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -55,7 +59,7 @@ def _format_sse(event: str, data: Any, event_id: Optional[int] = None) -> str:
 
 @router.get("/tasks/stats")
 async def get_task_stats(project_name: Optional[str] = None):
-    queue = get_generation_queue()
+    queue = get_task_queue()
     stats = queue.get_task_stats(project_name=project_name)
     return {"stats": stats}
 
@@ -69,7 +73,7 @@ async def list_tasks(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
 ):
-    queue = get_generation_queue()
+    queue = get_task_queue()
     return queue.list_tasks(
         project_name=project_name,
         status=status,
@@ -89,7 +93,7 @@ async def list_project_tasks(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
 ):
-    queue = get_generation_queue()
+    queue = get_task_queue()
     return queue.list_tasks(
         project_name=project_name,
         status=status,
@@ -107,7 +111,7 @@ async def stream_tasks(
     last_event_id: Optional[int] = Query(default=None, ge=0),
     last_event_header: Optional[str] = Header(default=None, alias="Last-Event-ID"),
 ):
-    queue = get_generation_queue()
+    queue = get_task_queue()
     heartbeat_sec = max(5.0, float(TASK_SSE_HEARTBEAT_SEC))
     poll_interval = read_queue_poll_interval()
 
@@ -173,7 +177,7 @@ async def stream_tasks(
 
 @router.get("/tasks/{task_id}")
 async def get_task(task_id: str):
-    queue = get_generation_queue()
+    queue = get_task_queue()
     task = queue.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail=f"任务 '{task_id}' 不存在")

@@ -24,8 +24,12 @@ pm = ProjectManager(project_root / "projects")
 rate_limiter = get_shared_rate_limiter()
 
 
+def get_project_manager() -> ProjectManager:
+    return pm
+
+
 def get_media_generator(project_name: str) -> MediaGenerator:
-    project_path = pm.get_project_path(project_name)
+    project_path = get_project_manager().get_project_path(project_name)
     return MediaGenerator(project_path, rate_limiter=rate_limiter)
 
 
@@ -215,9 +219,9 @@ def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[s
     if prompt is None:
         raise ValueError("prompt is required for storyboard task")
 
-    project = pm.load_project(project_name)
-    project_path = pm.get_project_path(project_name)
-    script = pm.load_script(project_name, script_file)
+    project = get_project_manager().load_project(project_name)
+    project_path = get_project_manager().get_project_path(project_name)
+    script = get_project_manager().load_script(project_name, script_file)
     items, id_field, char_field, clue_field = _get_items_from_script(script)
 
     target_item = None
@@ -251,7 +255,7 @@ def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[s
         image_size="2K",
     )
 
-    pm.update_scene_asset(
+    get_project_manager().update_scene_asset(
         project_name=project_name,
         script_filename=script_file,
         scene_id=resource_id,
@@ -281,8 +285,8 @@ def execute_video_task(project_name: str, resource_id: str, payload: Dict[str, A
     if prompt is None:
         raise ValueError("prompt is required for video task")
 
-    project = pm.load_project(project_name)
-    project_path = pm.get_project_path(project_name)
+    project = get_project_manager().load_project(project_name)
+    project_path = get_project_manager().get_project_path(project_name)
     generator = get_media_generator(project_name)
 
     storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
@@ -302,7 +306,7 @@ def execute_video_task(project_name: str, resource_id: str, payload: Dict[str, A
         duration_seconds=duration_seconds,
     )
 
-    pm.update_scene_asset(
+    get_project_manager().update_scene_asset(
         project_name=project_name,
         script_filename=script_file,
         scene_id=resource_id,
@@ -311,7 +315,7 @@ def execute_video_task(project_name: str, resource_id: str, payload: Dict[str, A
     )
 
     if video_uri:
-        pm.update_scene_asset(
+        get_project_manager().update_scene_asset(
             project_name=project_name,
             script_filename=script_file,
             scene_id=resource_id,
@@ -338,8 +342,8 @@ def execute_character_task(project_name: str, resource_id: str, payload: Dict[st
     if not prompt:
         raise ValueError("prompt is required for character task")
 
-    project = pm.load_project(project_name)
-    project_path = pm.get_project_path(project_name)
+    project = get_project_manager().load_project(project_name)
+    project_path = get_project_manager().get_project_path(project_name)
 
     if resource_id not in project.get("characters", {}):
         raise ValueError(f"character not found: {resource_id}")
@@ -369,7 +373,7 @@ def execute_character_task(project_name: str, resource_id: str, payload: Dict[st
     )
 
     project["characters"][resource_id]["character_sheet"] = f"characters/{resource_id}.png"
-    pm.save_project(project_name, project)
+    get_project_manager().save_project(project_name, project)
 
     created_at = generator.versions.get_versions("characters", resource_id)["versions"][-1][
         "created_at"
@@ -389,7 +393,7 @@ def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, An
     if not prompt:
         raise ValueError("prompt is required for clue task")
 
-    project = pm.load_project(project_name)
+    project = get_project_manager().load_project(project_name)
 
     if resource_id not in project.get("clues", {}):
         raise ValueError(f"clue not found: {resource_id}")
@@ -412,7 +416,7 @@ def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, An
     )
 
     project["clues"][resource_id]["clue_sheet"] = f"clues/{resource_id}.png"
-    pm.save_project(project_name, project)
+    get_project_manager().save_project(project_name, project)
 
     created_at = generator.versions.get_versions("clues", resource_id)["versions"][-1][
         "created_at"
@@ -439,9 +443,9 @@ def execute_storyboard_grid_task(project_name: str, payload: Dict[str, Any]) -> 
     if not isinstance(scene_ids, list) or not scene_ids:
         raise ValueError("scene_ids must be a non-empty list")
 
-    script = pm.load_script(project_name, script_file)
-    project = pm.load_project(project_name) if pm.project_exists(project_name) else {}
-    project_path = pm.get_project_path(project_name)
+    script = get_project_manager().load_script(project_name, script_file)
+    project = get_project_manager().load_project(project_name) if get_project_manager().project_exists(project_name) else {}
+    project_path = get_project_manager().get_project_path(project_name)
 
     items, id_field, char_field, clue_field = _get_items_from_script(script)
     scene_lookup = {str(item.get(id_field)): item for item in items}
@@ -495,7 +499,7 @@ def execute_storyboard_grid_task(project_name: str, payload: Dict[str, Any]) -> 
 
     relative_path = f"storyboards/grid_{batch_id:03d}.png"
     for scene in selected_scenes:
-        pm.update_scene_asset(
+        get_project_manager().update_scene_asset(
             project_name=project_name,
             script_filename=script_file,
             scene_id=str(scene.get(id_field)),

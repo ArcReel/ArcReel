@@ -24,6 +24,14 @@ pm = ProjectManager(project_root / "projects")
 calc = StatusCalculator(pm)
 
 
+def get_project_manager() -> ProjectManager:
+    return pm
+
+
+def get_status_calculator() -> StatusCalculator:
+    return calc
+
+
 class CreateProjectRequest(BaseModel):
     name: str
     title: str
@@ -41,14 +49,16 @@ class UpdateProjectRequest(BaseModel):
 @router.get("/projects")
 async def list_projects():
     """列出所有项目"""
+    manager = get_project_manager()
+    calculator = get_status_calculator()
     projects = []
-    for name in pm.list_projects():
+    for name in manager.list_projects():
         try:
             # 尝试加载项目元数据
-            if pm.project_exists(name):
-                project = pm.load_project(name)
+            if manager.project_exists(name):
+                project = manager.load_project(name)
                 # 获取缩略图（第一个分镜图）
-                project_dir = pm.get_project_path(name)
+                project_dir = manager.get_project_path(name)
                 storyboards_dir = project_dir / "storyboards"
                 thumbnail = None
                 if storyboards_dir.exists():
@@ -57,8 +67,8 @@ async def list_projects():
                         thumbnail = f"/api/v1/files/{name}/storyboards/{scene_images[0].name}"
 
                 # 使用 StatusCalculator 计算进度（读时计算）
-                progress = calc.calculate_project_progress(name)
-                current_phase = calc.calculate_current_phase(progress)
+                progress = calculator.calculate_project_progress(name)
+                current_phase = calculator.calculate_current_phase(progress)
 
                 projects.append({
                     "name": name,
@@ -70,7 +80,7 @@ async def list_projects():
                 })
             else:
                 # 没有 project.json 的项目
-                status = pm.get_project_status(name)
+                status = manager.get_project_status(name)
                 projects.append({
                     "name": name,
                     "title": name,
@@ -99,13 +109,16 @@ async def list_projects():
 async def create_project(req: CreateProjectRequest):
     """创建新项目"""
     try:
+        manager = get_project_manager()
         # 创建项目目录结构
-        pm.create_project(req.name)
+        manager.create_project(req.name)
         # 创建项目元数据
-        project = pm.create_project_metadata(req.name, req.title, req.style, req.content_mode)
+        project = manager.create_project_metadata(req.name, req.title, req.style, req.content_mode)
         return {"success": True, "project": project}
     except FileExistsError:
         raise HTTPException(status_code=400, detail=f"项目 '{req.name}' 已存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -115,13 +128,15 @@ async def create_project(req: CreateProjectRequest):
 async def get_project(name: str):
     """获取项目详情（含实时计算字段）"""
     try:
-        if not pm.project_exists(name):
+        manager = get_project_manager()
+        calculator = get_status_calculator()
+        if not manager.project_exists(name):
             raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在或未初始化")
 
-        project = pm.load_project(name)
+        project = manager.load_project(name)
 
         # 注入计算字段（不写入 JSON，仅用于 API 响应）
-        project = calc.enrich_project(name, project)
+        project = calculator.enrich_project(name, project)
 
         # 加载所有剧本并注入计算字段
         scripts = {}
@@ -129,8 +144,8 @@ async def get_project(name: str):
             script_file = ep.get("script_file", "").replace("scripts/", "")
             if script_file:
                 try:
-                    script = pm.load_script(name, script_file)
-                    script = calc.enrich_script(script)
+                    script = manager.load_script(name, script_file)
+                    script = calculator.enrich_script(script)
                     scripts[script_file] = script
                 except FileNotFoundError:
                     pass
@@ -141,6 +156,8 @@ async def get_project(name: str):
         }
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -150,7 +167,8 @@ async def get_project(name: str):
 async def update_project(name: str, req: UpdateProjectRequest):
     """更新项目元数据"""
     try:
-        project = pm.load_project(name)
+        manager = get_project_manager()
+        project = manager.load_project(name)
 
         if req.title is not None:
             project["title"] = req.title
@@ -161,10 +179,12 @@ async def update_project(name: str, req: UpdateProjectRequest):
         if req.aspect_ratio is not None:
             project["aspect_ratio"] = req.aspect_ratio
 
-        pm.save_project(name, project)
+        manager.save_project(name, project)
         return {"success": True, "project": project}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -174,11 +194,13 @@ async def update_project(name: str, req: UpdateProjectRequest):
 async def delete_project(name: str):
     """删除项目"""
     try:
-        project_dir = pm.get_project_path(name)
+        project_dir = get_project_manager().get_project_path(name)
         shutil.rmtree(project_dir)
         return {"success": True, "message": f"项目 '{name}' 已删除"}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -188,10 +210,12 @@ async def delete_project(name: str):
 async def get_script(name: str, script_file: str):
     """获取剧本内容"""
     try:
-        script = pm.load_script(name, script_file)
+        script = get_project_manager().load_script(name, script_file)
         return {"script": script}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"剧本 '{script_file}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -206,7 +230,8 @@ class UpdateSceneRequest(BaseModel):
 async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest):
     """更新场景"""
     try:
-        script = pm.load_script(name, req.script_file)
+        manager = get_project_manager()
+        script = manager.load_script(name, req.script_file)
 
         # 找到并更新场景
         scene_found = False
@@ -225,10 +250,12 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest):
         if not scene_found:
             raise HTTPException(status_code=404, detail=f"场景 '{scene_id}' 不存在")
 
-        pm.save_script(name, script, req.script_file)
+        manager.save_script(name, script, req.script_file)
         return {"success": True, "scene": scene}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"剧本不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -254,7 +281,8 @@ class UpdateOverviewRequest(BaseModel):
 async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest):
     """更新说书模式片段"""
     try:
-        script = pm.load_script(name, req.script_file)
+        manager = get_project_manager()
+        script = manager.load_script(name, req.script_file)
 
         # 检查是否为说书模式
         if script.get('content_mode') != 'narration' and 'segments' not in script:
@@ -281,10 +309,12 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest):
         if not segment_found:
             raise HTTPException(status_code=404, detail=f"片段 '{segment_id}' 不存在")
 
-        pm.save_script(name, script, req.script_file)
+        manager.save_script(name, script, req.script_file)
         return {"success": True, "segment": segment}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"剧本不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -296,12 +326,14 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest):
 async def generate_overview(name: str):
     """使用 AI 生成项目概述"""
     try:
-        overview = await pm.generate_overview(name)
+        overview = await get_project_manager().generate_overview(name)
         return {"success": True, "overview": overview}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -311,7 +343,8 @@ async def generate_overview(name: str):
 async def update_overview(name: str, req: UpdateOverviewRequest):
     """更新项目概述（手动编辑）"""
     try:
-        project = pm.load_project(name)
+        manager = get_project_manager()
+        project = manager.load_project(name)
 
         # 确保 overview 字段存在
         if "overview" not in project:
@@ -327,10 +360,12 @@ async def update_overview(name: str, req: UpdateOverviewRequest):
         if req.world_setting is not None:
             project["overview"]["world_setting"] = req.world_setting
 
-        pm.save_project(name, project)
+        manager.save_project(name, project)
         return {"success": True, "overview": project["overview"]}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))

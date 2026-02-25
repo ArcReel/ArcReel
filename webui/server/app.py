@@ -120,6 +120,10 @@ def _serve_frontend_index():
     )
 
 
+def create_generation_worker() -> GenerationWorker:
+    return GenerationWorker()
+
+
 @app.get("/", include_in_schema=False)
 async def serve_root():
     """服务 React 前端入口"""
@@ -144,7 +148,7 @@ async def health_check():
 async def startup_generation_worker():
     """启动任务 worker（单活由 lease 控制）。"""
     logger.info("启动 GenerationWorker...")
-    worker = GenerationWorker()
+    worker = create_generation_worker()
     app.state.generation_worker = worker
     await worker.start()
     logger.info("GenerationWorker 已启动")

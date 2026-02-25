@@ -25,6 +25,10 @@ router = APIRouter()
 project_root = Path(__file__).parent.parent.parent.parent
 pm = ProjectManager(project_root / "projects")
 
+
+def get_project_manager() -> ProjectManager:
+    return pm
+
 # 允许的文件类型
 ALLOWED_EXTENSIONS = {
     "source": [".txt", ".md", ".doc", ".docx"],
@@ -39,7 +43,7 @@ ALLOWED_EXTENSIONS = {
 async def serve_project_file(project_name: str, path: str):
     """服务项目内的静态文件（图片/视频）"""
     try:
-        project_dir = pm.get_project_path(project_name)
+        project_dir = get_project_manager().get_project_path(project_name)
         file_path = project_dir / path
 
         if not file_path.exists():
@@ -81,7 +85,7 @@ async def upload_file(
         )
 
     try:
-        project_dir = pm.get_project_path(project_name)
+        project_dir = get_project_manager().get_project_path(project_name)
 
         # 确定目标目录
         if upload_type == "source":
@@ -147,7 +151,7 @@ async def upload_file(
 
         if upload_type == "character" and name:
             try:
-                pm.update_project_character_sheet(
+                get_project_manager().update_project_character_sheet(
                     project_name, name, f"characters/{filename}"
                 )
             except KeyError:
@@ -155,7 +159,7 @@ async def upload_file(
 
         if upload_type == "character_ref" and name:
             try:
-                pm.update_character_reference_image(
+                get_project_manager().update_character_reference_image(
                     project_name, name, f"characters/refs/{filename}"
                 )
             except KeyError:
@@ -163,7 +167,7 @@ async def upload_file(
 
         if upload_type == "clue" and name:
             try:
-                pm.update_clue_sheet(project_name, name, f"clues/{filename}")
+                get_project_manager().update_clue_sheet(project_name, name, f"clues/{filename}")
             except KeyError:
                 pass  # 线索不存在，忽略
 
@@ -176,6 +180,8 @@ async def upload_file(
 
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -185,7 +191,7 @@ async def upload_file(
 async def list_project_files(project_name: str):
     """列出项目中的所有文件"""
     try:
-        project_dir = pm.get_project_path(project_name)
+        project_dir = get_project_manager().get_project_path(project_name)
 
         files = {
             "source": [],
@@ -213,6 +219,8 @@ async def list_project_files(project_name: str):
 
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -222,7 +230,7 @@ async def list_project_files(project_name: str):
 async def get_source_file(project_name: str, filename: str):
     """获取 source 文件的文本内容"""
     try:
-        project_dir = pm.get_project_path(project_name)
+        project_dir = get_project_manager().get_project_path(project_name)
         source_path = project_dir / "source" / filename
 
         if not source_path.exists():
@@ -241,6 +249,8 @@ async def get_source_file(project_name: str, filename: str):
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="文件编码错误，无法读取")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -252,7 +262,7 @@ async def update_source_file(
 ):
     """更新或创建 source 文件"""
     try:
-        project_dir = pm.get_project_path(project_name)
+        project_dir = get_project_manager().get_project_path(project_name)
         source_dir = project_dir / "source"
         source_dir.mkdir(parents=True, exist_ok=True)
         source_path = source_dir / filename
@@ -268,6 +278,8 @@ async def update_source_file(
 
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -277,7 +289,7 @@ async def update_source_file(
 async def delete_source_file(project_name: str, filename: str):
     """删除 source 文件"""
     try:
-        project_dir = pm.get_project_path(project_name)
+        project_dir = get_project_manager().get_project_path(project_name)
         source_path = project_dir / "source" / filename
 
         # 安全检查：确保路径在项目目录内
@@ -294,6 +306,8 @@ async def delete_source_file(project_name: str, filename: str):
 
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -306,7 +320,7 @@ async def delete_source_file(project_name: str, filename: str):
 async def list_drafts(project_name: str):
     """列出项目的所有草稿目录和文件"""
     try:
-        project_dir = pm.get_project_path(project_name)
+        project_dir = get_project_manager().get_project_path(project_name)
         drafts_dir = project_dir / "drafts"
 
         result = {}
@@ -385,7 +399,7 @@ def _get_content_mode(project_dir: Path) -> str:
 async def get_draft_content(project_name: str, episode: int, step_num: int):
     """获取特定步骤的草稿内容"""
     try:
-        project_dir = pm.get_project_path(project_name)
+        project_dir = get_project_manager().get_project_path(project_name)
         content_mode = _get_content_mode(project_dir)
         step_files = _get_step_files(content_mode)
 
@@ -415,7 +429,7 @@ async def update_draft_content(
 ):
     """更新草稿内容"""
     try:
-        project_dir = pm.get_project_path(project_name)
+        project_dir = get_project_manager().get_project_path(project_name)
         content_mode = _get_content_mode(project_dir)
         step_files = _get_step_files(content_mode)
 
@@ -438,7 +452,7 @@ async def update_draft_content(
 async def delete_draft(project_name: str, episode: int, step_num: int):
     """删除草稿文件"""
     try:
-        project_dir = pm.get_project_path(project_name)
+        project_dir = get_project_manager().get_project_path(project_name)
         content_mode = _get_content_mode(project_dir)
         step_files = _get_step_files(content_mode)
 
@@ -480,7 +494,7 @@ async def upload_style_image(project_name: str, file: UploadFile = File(...)):
         )
 
     try:
-        project_dir = pm.get_project_path(project_name)
+        project_dir = get_project_manager().get_project_path(project_name)
 
         # 保存图片（统一转换为 PNG）
         content = await file.read()
@@ -498,10 +512,10 @@ async def upload_style_image(project_name: str, file: UploadFile = File(...)):
         style_description = client.analyze_style_image(output_path)
 
         # 更新 project.json
-        project_data = pm.load_project(project_name)
+        project_data = get_project_manager().load_project(project_name)
         project_data["style_image"] = "style_reference.png"
         project_data["style_description"] = style_description
-        pm.save_project(project_name, project_data)
+        get_project_manager().save_project(project_name, project_data)
 
         return {
             "success": True,
@@ -512,6 +526,8 @@ async def upload_style_image(project_name: str, file: UploadFile = File(...)):
 
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -523,7 +539,7 @@ async def delete_style_image(project_name: str):
     删除风格参考图及相关字段
     """
     try:
-        project_dir = pm.get_project_path(project_name)
+        project_dir = get_project_manager().get_project_path(project_name)
 
         # 删除图片文件
         image_path = project_dir / "style_reference.png"
@@ -531,15 +547,17 @@ async def delete_style_image(project_name: str):
             image_path.unlink()
 
         # 清除 project.json 中的相关字段
-        project_data = pm.load_project(project_name)
+        project_data = get_project_manager().load_project(project_name)
         project_data.pop("style_image", None)
         project_data.pop("style_description", None)
-        pm.save_project(project_name, project_data)
+        get_project_manager().save_project(project_name, project_data)
 
         return {"success": True}
 
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -553,14 +571,16 @@ async def update_style_description(
     更新风格描述（手动编辑）
     """
     try:
-        project_data = pm.load_project(project_name)
+        project_data = get_project_manager().load_project(project_name)
         project_data["style_description"] = style_description
-        pm.save_project(project_name, project_data)
+        get_project_manager().save_project(project_name, project_data)
 
         return {"success": True, "style_description": style_description}
 
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))

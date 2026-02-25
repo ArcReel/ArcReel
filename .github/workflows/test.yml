@@ -23,7 +23,7 @@ jobs:
         run: uv sync
 
       - name: Run tests with coverage
-        run: uv run python -m pytest --cov --cov-report=term-missing
+        run: uv run python -m pytest --cov=lib --cov=webui/server --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 
   frontend-tests:
     runs-on: ubuntu-latest
@@ -46,4 +46,4 @@ jobs:
 
       - name: Run tests
         working-directory: frontend
-        run: node --test tests/*.test.mjs
+        run: node --test --experimental-test-coverage tests/*.test.mjs --test-coverage-lines=65 --test-coverage-include=src/react/components/landing-page.js --test-coverage-include=src/react/components/app-shell.js --test-coverage-include=src/react/pages/assistant-question-wizard.js --test-coverage-include=src/react/pages/projects-page.js --test-coverage-include=src/react/pages/workspace-review-helpers.js

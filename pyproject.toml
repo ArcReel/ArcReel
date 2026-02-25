@@ -28,9 +28,12 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-source = ["lib", "webui"]
-omit = [".claude/skills/*"]
+source = ["lib", "webui/server"]
 
 [tool.coverage.report]
 show_missing = true
 skip_empty = true
+exclude_lines = [
+    'if __name__ == "__main__":',
+    "if __name__ == '__main__':",
+]

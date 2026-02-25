@@ -20,9 +20,13 @@ project_root = Path(__file__).parent.parent.parent.parent
 pm = ProjectManager(project_root / "projects")
 
 
+def get_project_manager() -> ProjectManager:
+    return pm
+
+
 def get_version_manager(project_name: str) -> VersionManager:
     """获取项目的版本管理器"""
-    project_path = pm.get_project_path(project_name)
+    project_path = get_project_manager().get_project_path(project_name)
     return VersionManager(project_path)
 
 
@@ -83,7 +87,8 @@ async def restore_version(
     """
     try:
         vm = get_version_manager(project_name)
-        project_path = pm.get_project_path(project_name)
+        manager = get_project_manager()
+        project_path = manager.get_project_path(project_name)
 
         # 确定当前文件路径
         if resource_type == "storyboards":
@@ -112,12 +117,12 @@ async def restore_version(
         # 同步元数据，确保引用指向统一的 PNG（避免 jpg/png 不一致导致 UI 仍显示旧图）
         if resource_type == "characters":
             try:
-                pm.update_project_character_sheet(project_name, resource_id, file_path)
+                get_project_manager().update_project_character_sheet(project_name, resource_id, file_path)
             except KeyError:
                 pass
         elif resource_type == "clues":
             try:
-                pm.update_clue_sheet(project_name, resource_id, file_path)
+                get_project_manager().update_clue_sheet(project_name, resource_id, file_path)
             except KeyError:
                 pass
         elif resource_type == "storyboards":
@@ -125,7 +130,7 @@ async def restore_version(
             if scripts_dir.exists():
                 for script_file in scripts_dir.glob("*.json"):
                     try:
-                        pm.update_scene_asset(
+                        get_project_manager().update_scene_asset(
                             project_name=project_name,
                             script_filename=script_file.name,
                             scene_id=resource_id,
@@ -148,6 +153,8 @@ async def restore_version(
         raise HTTPException(status_code=400, detail=str(e))
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))

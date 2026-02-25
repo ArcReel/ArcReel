@@ -1,0 +1,232 @@
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from webui.server.routers import projects
+
+
+class _FakePM:
+    def __init__(self, base: Path):
+        self.base = base
+        self.project_data = {
+            "ready": {
+                "title": "Ready",
+                "style": "Anime",
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+                "overview": {"synopsis": "old"},
+            },
+            "broken": {
+                "title": "Broken",
+                "style": "",
+                "episodes": [],
+            },
+        }
+        self.scripts = {
+            ("ready", "episode_1.json"): {
+                "content_mode": "drama",
+                "scenes": [{"scene_id": "001", "duration_seconds": 8}],
+            },
+            ("ready", "narration.json"): {
+                "content_mode": "narration",
+                "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
+            },
+        }
+        self.created = set()
+        (self.base / "ready" / "storyboards").mkdir(parents=True, exist_ok=True)
+        (self.base / "ready" / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
+        (self.base / "empty").mkdir(parents=True, exist_ok=True)
+        (self.base / "remove-me").mkdir(parents=True, exist_ok=True)
+
+    def list_projects(self):
+        return ["ready", "empty", "broken"]
+
+    def project_exists(self, name):
+        return name in {"ready", "broken"}
+
+    def load_project(self, name):
+        if name == "broken":
+            raise RuntimeError("broken")
+        if name not in self.project_data:
+            raise FileNotFoundError(name)
+        return self.project_data[name]
+
+    def get_project_path(self, name):
+        path = self.base / name
+        if not path.exists():
+            raise FileNotFoundError(name)
+        return path
+
+    def get_project_status(self, name):
+        return {"current_stage": "source_ready"}
+
+    def create_project(self, name):
+        if name == "exists":
+            raise FileExistsError(name)
+        self.created.add(name)
+        (self.base / name).mkdir(parents=True, exist_ok=True)
+
+    def create_project_metadata(self, name, title, style, content_mode):
+        payload = {"title": title, "style": style or "", "content_mode": content_mode, "episodes": []}
+        self.project_data[name] = payload
+        return payload
+
+    def save_project(self, name, payload):
+        self.project_data[name] = payload
+
+    def load_script(self, name, script_file):
+        key = (name, script_file)
+        if key not in self.scripts:
+            raise FileNotFoundError(script_file)
+        return self.scripts[key]
+
+    def save_script(self, name, payload, script_file):
+        self.scripts[(name, script_file)] = payload
+
+    async def generate_overview(self, name):
+        if name == "ready":
+            return {"synopsis": "generated"}
+        raise ValueError("source missing")
+
+
+class _FakeCalc:
+    def calculate_project_progress(self, name):
+        return {
+            "characters": {"total": 1, "completed": 0},
+            "clues": {"total": 1, "completed": 0},
+            "storyboards": {"total": 2, "completed": 1},
+            "videos": {"total": 2, "completed": 0},
+        }
+
+    def calculate_current_phase(self, progress):
+        return "storyboard"
+
+    def enrich_project(self, name, project):
+        project = dict(project)
+        project["status"] = {"progress": self.calculate_project_progress(name), "current_phase": "storyboard"}
+        return project
+
+    def enrich_script(self, script):
+        script = dict(script)
+        script["metadata"] = {"total_scenes": 1, "estimated_duration_seconds": 8}
+        return script
+
+
+def _client(monkeypatch, fake_pm, fake_calc):
+    monkeypatch.setattr(projects, "get_project_manager", lambda: fake_pm)
+    monkeypatch.setattr(projects, "get_status_calculator", lambda: fake_calc)
+
+    app = FastAPI()
+    app.include_router(projects.router, prefix="/api/v1")
+    return TestClient(app)
+
+
+class TestProjectsRouter:
+    def test_list_and_create_and_delete(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            listed = client.get("/api/v1/projects")
+            assert listed.status_code == 200
+            names = [p["name"] for p in listed.json()["projects"]]
+            assert names == ["ready", "empty", "broken"]
+            broken = [p for p in listed.json()["projects"] if p["name"] == "broken"][0]
+            assert broken["current_phase"] == "error"
+
+            create_ok = client.post(
+                "/api/v1/projects",
+                json={"name": "new", "title": "New", "style": "Real", "content_mode": "narration"},
+            )
+            assert create_ok.status_code == 200
+
+            create_exists = client.post(
+                "/api/v1/projects",
+                json={"name": "exists", "title": "Dup", "style": "", "content_mode": "narration"},
+            )
+            assert create_exists.status_code == 400
+
+            delete_ok = client.delete("/api/v1/projects/remove-me")
+            assert delete_ok.status_code == 200
+
+    def test_project_details_and_updates(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            detail = client.get("/api/v1/projects/ready")
+            assert detail.status_code == 200
+            assert "status" in detail.json()["project"]
+            assert "episode_1.json" in detail.json()["scripts"]
+
+            missing = client.get("/api/v1/projects/missing")
+            assert missing.status_code == 404
+
+            update = client.patch(
+                "/api/v1/projects/ready",
+                json={"title": "Updated", "style": "Noir", "content_mode": "drama", "aspect_ratio": {"videos": "16:9"}},
+            )
+            assert update.status_code == 200
+            assert update.json()["project"]["title"] == "Updated"
+
+            get_script = client.get("/api/v1/projects/ready/scripts/episode_1.json")
+            assert get_script.status_code == 200
+
+            get_script_missing = client.get("/api/v1/projects/ready/scripts/missing.json")
+            assert get_script_missing.status_code == 404
+
+    def test_scene_segment_and_overview_endpoints(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "episode_1.json")] = {
+            "content_mode": "drama",
+            "scenes": [{"scene_id": "001", "duration_seconds": 8, "image_prompt": {}, "video_prompt": {}}],
+        }
+        fake_pm.scripts[("ready", "narration.json")] = {
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
+        }
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            patch_scene = client.patch(
+                "/api/v1/projects/ready/scenes/001",
+                json={"script_file": "episode_1.json", "updates": {"duration_seconds": 6, "segment_break": True}},
+            )
+            assert patch_scene.status_code == 200
+            assert patch_scene.json()["scene"]["duration_seconds"] == 6
+
+            patch_scene_missing = client.patch(
+                "/api/v1/projects/ready/scenes/404",
+                json={"script_file": "episode_1.json", "updates": {}},
+            )
+            assert patch_scene_missing.status_code == 404
+
+            patch_segment = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={"script_file": "narration.json", "duration_seconds": 8, "segment_break": True},
+            )
+            assert patch_segment.status_code == 200
+
+            not_narration = client.patch(
+                "/api/v1/projects/ready/segments/001",
+                json={"script_file": "episode_1.json", "duration_seconds": 8},
+            )
+            assert not_narration.status_code == 400
+
+            segment_missing = client.patch(
+                "/api/v1/projects/ready/segments/E9S99",
+                json={"script_file": "narration.json", "duration_seconds": 8},
+            )
+            assert segment_missing.status_code == 404
+
+            gen_overview_ok = client.post("/api/v1/projects/ready/generate-overview")
+            assert gen_overview_ok.status_code == 200
+
+            gen_overview_bad = client.post("/api/v1/projects/bad/generate-overview")
+            assert gen_overview_bad.status_code == 400
+
+            update_overview = client.patch(
+                "/api/v1/projects/ready/overview",
+                json={"synopsis": "new synopsis", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},
+            )
+            assert update_overview.status_code == 200
+            assert update_overview.json()["overview"]["synopsis"] == "new synopsis"

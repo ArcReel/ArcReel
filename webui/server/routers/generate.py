@@ -37,6 +37,10 @@ pm = ProjectManager(project_root / "projects")
 # 初始化限流器（共享给 MediaGenerator）
 rate_limiter = get_shared_rate_limiter()
 
+
+def get_project_manager() -> ProjectManager:
+    return pm
+
 _video_semaphore: Optional[asyncio.Semaphore] = None
 _video_semaphore_lock = threading.Lock()
 
@@ -75,7 +79,7 @@ def _get_video_semaphore() -> asyncio.Semaphore:
 
 def get_media_generator(project_name: str) -> MediaGenerator:
     """获取项目的媒体生成器（带自动版本管理）"""
-    project_path = pm.get_project_path(project_name)
+    project_path = get_project_manager().get_project_path(project_name)
     return MediaGenerator(project_path, rate_limiter=rate_limiter)
 
 
@@ -159,15 +163,15 @@ async def generate_storyboard(
     使用 MediaGenerator 自动处理版本管理。
     """
     try:
-        project = pm.load_project(project_name)
-        project_path = pm.get_project_path(project_name)
+        project = get_project_manager().load_project(project_name)
+        project_path = get_project_manager().get_project_path(project_name)
         generator = get_media_generator(project_name)
 
         # 获取画面比例
         aspect_ratio = get_aspect_ratio(project, "storyboards")
 
         # 加载剧本获取参考图
-        script = pm.load_script(project_name, req.script_file)
+        script = get_project_manager().load_script(project_name, req.script_file)
         content_mode = script.get(
             "content_mode", project.get("content_mode", "narration")
         )
@@ -256,7 +260,7 @@ async def generate_storyboard(
         )
 
         # 更新剧本中的 generated_assets
-        pm.update_scene_asset(
+        get_project_manager().update_scene_asset(
             project_name=project_name,
             script_filename=req.script_file,
             scene_id=segment_id,
@@ -275,6 +279,8 @@ async def generate_storyboard(
 
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -294,8 +300,8 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
     sem = _get_video_semaphore()
     await sem.acquire()
     try:
-        project = pm.load_project(project_name)
-        project_path = pm.get_project_path(project_name)
+        project = get_project_manager().load_project(project_name)
+        project_path = get_project_manager().get_project_path(project_name)
         generator = get_media_generator(project_name)
 
         # 获取画面比例
@@ -361,7 +367,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
         )
 
         # 更新剧本中的 generated_assets
-        pm.update_scene_asset(
+        get_project_manager().update_scene_asset(
             project_name=project_name,
             script_filename=req.script_file,
             scene_id=segment_id,
@@ -371,7 +377,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
 
         # 保存 video_uri 用于后续扩展
         if video_uri:
-            pm.update_scene_asset(
+            get_project_manager().update_scene_asset(
                 project_name=project_name,
                 script_filename=req.script_file,
                 scene_id=segment_id,
@@ -390,6 +396,8 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
 
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -411,8 +419,8 @@ async def generate_character(
     若人物有 reference_image，自动作为参考图传入。
     """
     try:
-        project = pm.load_project(project_name)
-        project_path = pm.get_project_path(project_name)
+        project = get_project_manager().load_project(project_name)
+        project_path = get_project_manager().get_project_path(project_name)
         generator = get_media_generator(project_name)
 
         # 检查人物是否存在
@@ -453,7 +461,7 @@ async def generate_character(
         project["characters"][char_name]["character_sheet"] = (
             f"characters/{char_name}.png"
         )
-        pm.save_project(project_name, project)
+        get_project_manager().save_project(project_name, project)
 
         return {
             "success": True,
@@ -466,6 +474,8 @@ async def generate_character(
 
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
@@ -482,7 +492,7 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
     使用 MediaGenerator 自动处理版本管理。
     """
     try:
-        project = pm.load_project(project_name)
+        project = get_project_manager().load_project(project_name)
         generator = get_media_generator(project_name)
 
         # 检查线索是否存在
@@ -513,7 +523,7 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
 
         # 更新 project.json 中的 clue_sheet
         project["clues"][clue_name]["clue_sheet"] = f"clues/{clue_name}.png"
-        pm.save_project(project_name, project)
+        get_project_manager().save_project(project_name, project)
 
         return {
             "success": True,
@@ -526,6 +536,8 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
 
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
