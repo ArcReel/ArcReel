@@ -35,7 +35,12 @@ def setup_logging(level: str | None = None) -> None:
     root.addHandler(handler)
 
     # 统一 uvicorn 的日志格式，避免两种格式并存
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    for name in ("uvicorn", "uvicorn.error"):
         uv_logger = logging.getLogger(name)
         uv_logger.handlers.clear()
         uv_logger.propagate = True
+
+    # 禁用 uvicorn.access：请求日志由 app.py 的 middleware 统一处理
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.handlers.clear()
+    access_logger.disabled = True

@@ -44,7 +44,7 @@ def _json_loads(value: Optional[str], default: Any) -> Any:
     try:
         return json.loads(value)
     except Exception as e:
-        logger.warning("JSON 解析失败: %s", str(e)[:100])
+        logger.warning("JSON 解析失败: %s", e)
         return default
 
 

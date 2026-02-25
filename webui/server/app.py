@@ -61,11 +61,22 @@ app.add_middleware(
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     start = time.perf_counter()
-    response: Response = await call_next(request)
-    elapsed_ms = (time.perf_counter() - start) * 1000
-    # 跳过静态资源和健康检查的日志
     path = request.url.path
-    if not path.startswith("/assets") and path != "/health":
+    _skip_log = path.startswith("/assets") or path == "/health"
+    try:
+        response: Response = await call_next(request)
+    except Exception:
+        if not _skip_log:
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            logger.exception(
+                "%s %s 500 %.0fms (unhandled)",
+                request.method,
+                path,
+                elapsed_ms,
+            )
+        raise
+    if not _skip_log:
+        elapsed_ms = (time.perf_counter() - start) * 1000
         logger.info(
             "%s %s %d %.0fms",
             request.method,
