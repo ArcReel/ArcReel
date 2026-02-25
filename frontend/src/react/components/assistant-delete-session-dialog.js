@@ -19,7 +19,7 @@ export function AssistantDeleteSessionDialog({
     const displayTitle = sessionTitle?.trim() || "未命名会话";
 
     return html`
-        <div className="fixed inset-0 z-[66] bg-black/50 backdrop-blur-sm flex items-center justify-center px-4">
+        <div className="fixed inset-0 z-[66] bg-black/50 backdrop-blur-xs flex items-center justify-center px-4">
             <form onSubmit=${onConfirm} className="w-full max-w-md rounded-2xl app-panel-strong p-5 space-y-4">
                 <div className="space-y-1">
                     <h2 className="text-lg font-semibold text-red-200">删除会话</h2>

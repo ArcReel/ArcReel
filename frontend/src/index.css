@@ -1,3 +1,17 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+    --color-ink-950: #060a0f;
+    --color-ink-900: #0b1320;
+    --color-ink-800: #132034;
+    --color-ink-700: #22344f;
+    --color-neon-500: #11d3ac;
+    --color-neon-400: #34e7c5;
+    --color-neon-300: #6af2d8;
+    --color-amberx-500: #f0a93e;
+    --color-amberx-400: #f6be67;
+    --color-amberx-300: #ffd892;
+    --shadow-glow: 0 0 0 1px rgba(17, 211, 172, 0.28), 0 18px 40px rgba(8, 15, 25, 0.45);
+}

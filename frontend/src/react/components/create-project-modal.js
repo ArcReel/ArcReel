@@ -18,7 +18,7 @@ export function CreateProjectModal({
     }
 
     return html`
-        <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center px-4">
+        <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-xs flex items-center justify-center px-4">
             <form onSubmit=${onSubmit} className="w-full max-w-lg rounded-2xl app-panel-strong p-5 space-y-4">
                 <div className="flex items-center justify-between">
                     <h2 className="text-lg font-semibold">新建漫剧项目</h2>
