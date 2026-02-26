@@ -1,7 +1,8 @@
 import { Sparkles, Loader2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 // ---------------------------------------------------------------------------
-// GenerateButton
+// GenerateButton — 带 framer-motion 平滑状态过渡的生成按钮
 // ---------------------------------------------------------------------------
 
 interface GenerateButtonProps {
@@ -10,6 +11,7 @@ interface GenerateButtonProps {
   label?: string;
   className?: string;
   disabled?: boolean;
+  layoutId?: string;
 }
 
 export function GenerateButton({
@@ -18,26 +20,57 @@ export function GenerateButton({
   label = "生成",
   className,
   disabled = false,
+  layoutId,
 }: GenerateButtonProps) {
   const isDisabled = disabled || loading;
 
   return (
-    <button
+    <motion.button
       type="button"
+      layout
+      layoutId={layoutId}
       onClick={onClick}
       disabled={isDisabled}
-      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-all ${
+      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-colors ${
         loading
-          ? "animate-pulse bg-gradient-to-r from-indigo-600 to-fuchsia-600"
+          ? "bg-gradient-to-r from-indigo-600 to-fuchsia-600"
           : "bg-gradient-to-r from-indigo-500 to-fuchsia-500 hover:from-indigo-400 hover:to-fuchsia-400"
       } ${isDisabled ? "cursor-not-allowed opacity-50" : ""} ${className ?? ""}`}
+      animate={
+        loading
+          ? { opacity: [0.7, 1, 0.7] }
+          : { opacity: isDisabled ? 0.5 : 1 }
+      }
+      transition={
+        loading
+          ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
+          : { duration: 0.3 }
+      }
     >
-      {loading ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : (
-        <Sparkles className="h-4 w-4" />
-      )}
+      <AnimatePresence mode="wait" initial={false}>
+        {loading ? (
+          <motion.span
+            key="loader"
+            initial={{ opacity: 0, rotate: -90 }}
+            animate={{ opacity: 1, rotate: 0 }}
+            exit={{ opacity: 0, rotate: 90 }}
+            transition={{ duration: 0.2 }}
+          >
+            <Loader2 className="h-4 w-4 animate-spin" />
+          </motion.span>
+        ) : (
+          <motion.span
+            key="sparkles"
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ duration: 0.2 }}
+          >
+            <Sparkles className="h-4 w-4" />
+          </motion.span>
+        )}
+      </AnimatePresence>
       <span>{loading ? "生成中..." : label}</span>
-    </button>
+    </motion.button>
   );
 }

@@ -5,6 +5,7 @@ import { AvatarStack } from "@/components/ui/AvatarStack";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
 import { DropdownPill } from "@/components/ui/DropdownPill";
+import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
 import type {
   NarrationSegment,
   DramaScene,
@@ -471,17 +472,18 @@ function MediaColumn({
       <AspectFrame ratio={normalizedRatio}>
         {videoUrl ? (
           <VideoPlayer src={videoUrl} />
-        ) : storyboardUrl ? (
-          <img
+        ) : (
+          <ImageFlipReveal
             src={storyboardUrl}
             alt={`${segmentId} storyboard`}
             className="h-full w-full object-cover"
+            fallback={
+              <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
+                <ImageIcon className="h-8 w-8" />
+                <span className="text-xs">暂无媒体</span>
+              </div>
+            }
           />
-        ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
-            <ImageIcon className="h-8 w-8" />
-            <span className="text-xs">暂无媒体</span>
-          </div>
         )}
       </AspectFrame>
 

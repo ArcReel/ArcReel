@@ -3,6 +3,7 @@ import { User } from "lucide-react";
 import { API } from "@/api";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
+import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
 import type { Character } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -123,19 +124,18 @@ export function CharacterCard({
         <div className="flex flex-col gap-3">
           {/* Character sheet (3:4) */}
           <AspectFrame ratio="3:4">
-            {sheetUrl && !imgError ? (
-              <img
-                src={sheetUrl}
-                alt={`${name} 设计图`}
-                className="h-full w-full object-cover"
-                onError={() => setImgError(true)}
-              />
-            ) : (
-              <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
-                <User className="h-10 w-10" />
-                <span className="text-xs">点击生成</span>
-              </div>
-            )}
+            <ImageFlipReveal
+              src={sheetUrl && !imgError ? sheetUrl : null}
+              alt={`${name} 设计图`}
+              className="h-full w-full object-cover"
+              onError={() => setImgError(true)}
+              fallback={
+                <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
+                  <User className="h-10 w-10" />
+                  <span className="text-xs">点击生成</span>
+                </div>
+              }
+            />
           </AspectFrame>
 
           {/* Reference image (smaller) */}
