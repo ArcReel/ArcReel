@@ -1,6 +1,4 @@
-// router.tsx — Route definitions for the new studio layout
-// This file coexists with the legacy router (src/react/router.js) during migration.
-// A new main.tsx entry point (Task 1.5) will mount <AppRoutes />.
+// router.tsx — Route definitions for the studio layout
 
 import { Route, Switch } from "wouter";
 import { StudioLayout } from "@/components/layout";

@@ -1,9 +1,8 @@
 /**
  * API 调用封装 (TypeScript)
  *
- * Pure TS migration of api.js — all business logic is identical.
- * New .tsx components should import from this file:
- *   import { API } from '@/api';
+ * Typed API layer for all backend endpoints.
+ * Import: import { API } from '@/api';
  */
 
 import type {
