@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback } from "react";
 import { Bot, Send, Square } from "lucide-react";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useProjectsStore } from "@/stores/projects-store";
+import { useAssistantSession } from "@/hooks/useAssistantSession";
 import { ContextBanner } from "./ContextBanner";
 import { SkillPills } from "./SkillPills";
 import { ChatMessage } from "./chat/ChatMessage";
@@ -11,14 +13,17 @@ export function AgentCopilot() {
     sending, sessionStatus,
   } = useAssistantStore();
 
+  const { currentProjectName } = useProjectsStore();
+  const { sendMessage, interrupt } = useAssistantSession(currentProjectName);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const [localInput, setLocalInput] = useState("");
 
   const handleSend = useCallback(() => {
     if (!localInput.trim()) return;
-    // Will be wired to actual API in store migration
+    sendMessage(localInput.trim());
     setLocalInput("");
-  }, [localInput]);
+  }, [localInput, sendMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -80,7 +85,7 @@ export function AgentCopilot() {
             className="flex-1 resize-none bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none"
           />
           {isRunning ? (
-            <button className="rounded p-1.5 text-red-400 hover:bg-gray-700">
+            <button onClick={interrupt} className="rounded p-1.5 text-red-400 hover:bg-gray-700">
               <Square className="h-4 w-4" />
             </button>
           ) : (

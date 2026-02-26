@@ -2,6 +2,8 @@ import { useLocation } from "wouter";
 import { GlobalHeader } from "./GlobalHeader";
 import { AssetSidebar } from "./AssetSidebar";
 import { AgentCopilot } from "@/components/copilot/AgentCopilot";
+import { useTasksSSE } from "@/hooks/useTasksSSE";
+import { useProjectsStore } from "@/stores/projects-store";
 
 // ---------------------------------------------------------------------------
 // StudioLayout — three-column studio workspace shell
@@ -13,6 +15,10 @@ interface StudioLayoutProps {
 
 export function StudioLayout({ children }: StudioLayoutProps) {
   const [, setLocation] = useLocation();
+  const currentProjectName = useProjectsStore((s) => s.currentProjectName);
+
+  // 进入工作区时连接任务 SSE 流
+  useTasksSSE(currentProjectName);
 
   return (
     <div className="flex h-screen flex-col bg-gray-950 text-gray-100">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   ChevronRight,
@@ -155,6 +155,33 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   const episodes = currentProjectData?.episodes ?? [];
   const projectName = currentProjectName ?? "";
 
+  // 源文件列表
+  const [sourceFiles, setSourceFiles] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!projectName) {
+      setSourceFiles([]);
+      return;
+    }
+    let cancelled = false;
+    API.listFiles(projectName)
+      .then((res) => {
+        if (cancelled) return;
+        // 后端返回 { files: { source: [...], ... } } 或 { files: string[] }
+        const raw = res.files as unknown;
+        if (Array.isArray(raw)) {
+          setSourceFiles(raw);
+        } else if (raw && typeof raw === "object") {
+          const grouped = raw as Record<string, Array<{ name: string }>>;
+          setSourceFiles((grouped.source ?? []).map((f) => f.name));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSourceFiles([]);
+      });
+    return () => { cancelled = true; };
+  }, [projectName]);
+
   const characterEntries = Object.entries(characters);
   const clueEntries = Object.entries(clues);
 
@@ -167,7 +194,20 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
     >
       {/* ---- Section 1: Source Files ---- */}
       <CollapsibleSection title="源文件" icon={FileText}>
-        <EmptyState text="暂无文件" />
+        {sourceFiles.length === 0 ? (
+          <EmptyState text="暂无文件" />
+        ) : (
+          <ul>
+            {sourceFiles.map((name) => (
+              <li key={name}>
+                <div className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-300">
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-gray-500" />
+                  <span className="truncate">{name}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </CollapsibleSection>
 
       {/* ---- Divider ---- */}
