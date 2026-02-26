@@ -10,7 +10,8 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
-    "noEmit": true
+    "noEmit": true,
+    "composite": true
   },
   "include": ["vite.config.ts"]
 }
