@@ -14,4 +14,15 @@
     --color-amberx-400: #f6be67;
     --color-amberx-300: #ffd892;
     --shadow-glow: 0 0 0 1px rgba(17, 211, 172, 0.28), 0 18px 40px rgba(8, 15, 25, 0.45);
+
+    /* Studio theme colors — 工作台主题色 */
+    --color-studio-bg: #030712;
+    --color-studio-panel: #111827;
+    --color-studio-border: #1f2937;
+    --color-accent-start: #6366f1;
+    --color-accent-end: #d946ef;
+
+    /* Font families — 字体定义 */
+    --font-sans: "Inter", "Noto Sans SC", system-ui, sans-serif;
+    --font-mono: "Fira Code", "Noto Sans Mono", monospace;
 }

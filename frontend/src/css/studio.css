@@ -1,0 +1,47 @@
+/* studio.css — 工作台专用样式 */
+@reference "../index.css";
+
+/* Prompt 编辑器 */
+.prompt-editor {
+  @apply font-mono text-sm bg-gray-800 rounded-lg p-3 text-gray-200;
+}
+
+/* 强调色渐变 */
+.accent-gradient {
+  @apply bg-gradient-to-r from-indigo-500 to-fuchsia-500;
+}
+
+/* 强调色渐变文字 */
+.accent-gradient-text {
+  @apply bg-gradient-to-r from-indigo-500 to-fuchsia-500 bg-clip-text text-transparent;
+}
+
+/* 片段卡片 */
+.segment-card {
+  @apply bg-gray-900 border border-gray-800 rounded-xl;
+}
+
+/* 面板底色 */
+.studio-panel {
+  @apply bg-gray-900 border-gray-800;
+}
+
+/* 呼吸灯动画 — 用于任务雷达 */
+@keyframes breathe {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+.animate-breathe {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+/* 脉冲进度条 */
+@keyframes progress-pulse {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+.animate-progress-pulse {
+  animation: progress-pulse 1.5s ease-in-out infinite;
+}

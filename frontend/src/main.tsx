@@ -8,6 +8,7 @@ import { AppRoutes } from "./router";
 import "./index.css";
 import "./css/styles.css";
 import "./css/app.css";
+import "./css/studio.css";
 
 const root = document.getElementById("app-root");
 if (root) {
