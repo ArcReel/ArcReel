@@ -4,6 +4,7 @@
 
 import { Route, Switch } from "wouter";
 import { StudioLayout } from "@/components/layout";
+import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 
 // ---------------------------------------------------------------------------
 // Placeholder components — will be replaced with real components in Phase 1+
@@ -28,21 +29,7 @@ function ProjectsPagePlaceholder() {
 function StudioWorkspace() {
   return (
     <StudioLayout>
-      <Switch>
-        <Route path="/">
-          <PlaceholderPage name="Overview Canvas" />
-        </Route>
-        <Route path="/lorebook">
-          <PlaceholderPage name="Lorebook Gallery" />
-        </Route>
-        <Route path="/episodes/:episodeId">
-          {(params) => (
-            <PlaceholderPage
-              name={`Timeline: Episode ${params.episodeId}`}
-            />
-          )}
-        </Route>
-      </Switch>
+      <StudioCanvasRouter />
     </StudioLayout>
   );
 }

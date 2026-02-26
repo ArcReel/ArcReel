@@ -7,6 +7,7 @@ export default defineConfig({
     plugins: [react(), tailwindcss()],
     resolve: {
         alias: { "@": path.resolve(__dirname, "src") },
+        extensions: [".mjs", ".mts", ".ts", ".tsx", ".js", ".jsx", ".json"],
     },
     server: {
         host: "0.0.0.0",

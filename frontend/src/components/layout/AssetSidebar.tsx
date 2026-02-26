@@ -11,8 +11,7 @@ import {
   User,
 } from "lucide-react";
 import { useProjectsStore } from "@/stores/projects-store";
-// @ts-expect-error -- api.js is untyped; default export works at runtime via esModuleInterop
-import API from "@/api";
+import { API } from "@/api";
 
 // ---------------------------------------------------------------------------
 // CollapsibleSection — reusable accordion primitive
