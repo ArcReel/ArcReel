@@ -16,7 +16,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
 
   return (
     <div className="flex h-screen flex-col bg-gray-950 text-gray-100">
-      <GlobalHeader onNavigateBack={() => setLocation("/app/projects")} />
+      <GlobalHeader onNavigateBack={() => setLocation("~/app/projects")} />
       <div className="flex flex-1 overflow-hidden">
         <AssetSidebar className="w-[15%] min-w-50 border-r border-gray-800" />
         <main className="flex-1 overflow-auto">

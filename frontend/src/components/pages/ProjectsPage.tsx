@@ -12,16 +12,19 @@ import type { ProjectSummary } from "@/types";
 function ProjectCard({ project }: { project: ProjectSummary }) {
   const [, navigate] = useLocation();
   const progress = project.progress;
-  const totalItems =
-    progress.characters.total +
-    progress.clues.total +
-    progress.storyboards.total +
-    progress.videos.total;
-  const completedItems =
-    progress.characters.completed +
-    progress.clues.completed +
-    progress.storyboards.completed +
-    progress.videos.completed;
+  const hasProgress = progress && "characters" in progress;
+  const totalItems = hasProgress
+    ? progress.characters.total +
+      progress.clues.total +
+      progress.storyboards.total +
+      progress.videos.total
+    : 0;
+  const completedItems = hasProgress
+    ? progress.characters.completed +
+      progress.clues.completed +
+      progress.storyboards.completed +
+      progress.videos.completed
+    : 0;
   const pct = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
 
   return (
@@ -34,7 +37,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       <div className="aspect-video w-full overflow-hidden rounded-lg bg-gray-800">
         {project.thumbnail ? (
           <img
-            src={API.getFileUrl(project.name, project.thumbnail)}
+            src={project.thumbnail}
             alt={project.title}
             className="h-full w-full object-cover"
           />
