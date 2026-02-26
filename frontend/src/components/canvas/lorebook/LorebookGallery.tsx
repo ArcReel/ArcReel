@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { User, Puzzle, Plus } from "lucide-react";
 import { CharacterCard } from "./CharacterCard";
 import { ClueCard } from "./ClueCard";
+import { useScrollTarget } from "@/hooks/useScrollTarget";
+import { useAppStore } from "@/stores/app-store";
 import type { Character, Clue } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -48,6 +50,21 @@ export function LorebookGallery({
 }: LorebookGalleryProps) {
   const [activeTab, setActiveTab] = useState<Tab>("characters");
 
+  // Respond to agent-triggered scroll targets
+  useScrollTarget("character");
+  useScrollTarget("clue");
+
+  // Auto-switch tab when scroll target points to the other tab
+  const scrollTarget = useAppStore((s) => s.scrollTarget);
+  useEffect(() => {
+    if (!scrollTarget) return;
+    if (scrollTarget.type === "character" && activeTab !== "characters") {
+      setActiveTab("characters");
+    } else if (scrollTarget.type === "clue" && activeTab !== "clues") {
+      setActiveTab("clues");
+    }
+  }, [scrollTarget, activeTab]);
+
   const charEntries = Object.entries(characters);
   const clueEntries = Object.entries(clues);
   const charCount = charEntries.length;
@@ -84,15 +101,16 @@ export function LorebookGallery({
           ) : (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               {charEntries.map(([charName, character]) => (
-                <CharacterCard
-                  key={charName}
-                  name={charName}
-                  character={character}
-                  projectName={projectName}
-                  onUpdate={onUpdateCharacter}
-                  onGenerate={onGenerateCharacter}
-                  generating={isGenerating(charName)}
-                />
+                <div id={`character-${charName}`} key={charName}>
+                  <CharacterCard
+                    name={charName}
+                    character={character}
+                    projectName={projectName}
+                    onUpdate={onUpdateCharacter}
+                    onGenerate={onGenerateCharacter}
+                    generating={isGenerating(charName)}
+                  />
+                </div>
               ))}
             </div>
           )}
@@ -114,15 +132,16 @@ export function LorebookGallery({
           ) : (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               {clueEntries.map(([clueName, clue]) => (
-                <ClueCard
-                  key={clueName}
-                  name={clueName}
-                  clue={clue}
-                  projectName={projectName}
-                  onUpdate={onUpdateClue}
-                  onGenerate={onGenerateClue}
-                  generating={isGenerating(clueName)}
-                />
+                <div id={`clue-${clueName}`} key={clueName}>
+                  <ClueCard
+                    name={clueName}
+                    clue={clue}
+                    projectName={projectName}
+                    onUpdate={onUpdateClue}
+                    onGenerate={onGenerateClue}
+                    generating={isGenerating(clueName)}
+                  />
+                </div>
               ))}
             </div>
           )}

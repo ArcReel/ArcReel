@@ -1,4 +1,5 @@
 import { SegmentCard } from "./SegmentCard";
+import { useScrollTarget } from "@/hooks/useScrollTarget";
 import type {
   EpisodeScript,
   NarrationEpisodeScript,
@@ -52,6 +53,9 @@ export function TimelineCanvas({
   onGenerateStoryboard,
   onGenerateVideo,
 }: TimelineCanvasProps) {
+  // Respond to agent-triggered scroll targets for segments
+  useScrollTarget("segment");
+
   // Empty state — no episode selected
   if (!episodeScript || !projectData) {
     return (
@@ -97,20 +101,24 @@ export function TimelineCanvas({
 
         {/* ---- Segment cards ---- */}
         <div className="space-y-4">
-          {segments.map((segment) => (
-            <SegmentCard
-              key={getSegmentId(segment, contentMode)}
-              segment={segment}
-              contentMode={contentMode}
-              aspectRatio={aspectRatio}
-              characters={projectData.characters}
-              clues={projectData.clues}
-              projectName={projectName}
-              onUpdatePrompt={onUpdatePrompt}
-              onGenerateStoryboard={onGenerateStoryboard}
-              onGenerateVideo={onGenerateVideo}
-            />
-          ))}
+          {segments.map((segment) => {
+            const segId = getSegmentId(segment, contentMode);
+            return (
+              <div id={`segment-${segId}`} key={segId}>
+                <SegmentCard
+                  segment={segment}
+                  contentMode={contentMode}
+                  aspectRatio={aspectRatio}
+                  characters={projectData.characters}
+                  clues={projectData.clues}
+                  projectName={projectName}
+                  onUpdatePrompt={onUpdatePrompt}
+                  onGenerateStoryboard={onGenerateStoryboard}
+                  onGenerateVideo={onGenerateVideo}
+                />
+              </div>
+            );
+          })}
         </div>
 
         {/* Bottom spacer for scroll comfort */}
