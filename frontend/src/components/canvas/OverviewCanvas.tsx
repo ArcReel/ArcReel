@@ -1,4 +1,5 @@
 import type { ProjectData } from "@/types";
+import { WelcomeCanvas } from "./WelcomeCanvas";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -13,13 +14,18 @@ interface OverviewCanvasProps {
 // OverviewCanvas — project overview page showing metadata and progress
 // ---------------------------------------------------------------------------
 
-export function OverviewCanvas({ projectName: _projectName, projectData }: OverviewCanvasProps) {
+export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps) {
   if (!projectData) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
         加载项目数据中...
       </div>
     );
+  }
+
+  // Show welcome page when project has no overview and no episodes yet
+  if (!projectData.overview && projectData.episodes.length === 0) {
+    return <WelcomeCanvas projectName={projectName} />;
   }
 
   const progress = projectData.status?.progress;
