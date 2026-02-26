@@ -4,44 +4,18 @@ import { API } from "@/api";
 import { AvatarStack } from "@/components/ui/AvatarStack";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
-import { DropdownPill } from "@/components/ui/DropdownPill";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
 import type {
   NarrationSegment,
   DramaScene,
   Character,
   Clue,
-  ShotType,
-  CameraMotion,
   TransitionType,
 } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const SHOT_TYPES: readonly ShotType[] = [
-  "Extreme Close-up",
-  "Close-up",
-  "Medium Close-up",
-  "Medium Shot",
-  "Medium Long Shot",
-  "Long Shot",
-  "Extreme Long Shot",
-  "Over-the-shoulder",
-  "Point-of-view",
-] as const;
-
-const CAMERA_MOTIONS: readonly CameraMotion[] = [
-  "Static",
-  "Pan Left",
-  "Pan Right",
-  "Tilt Up",
-  "Tilt Down",
-  "Zoom In",
-  "Zoom Out",
-  "Tracking Shot",
-] as const;
 
 const TRANSITION_LABELS: Record<TransitionType, string> = {
   cut: "Cut",
@@ -157,7 +131,10 @@ function TextColumn({
 
   // Drama mode — show dialogue list
   const s = segment as DramaScene;
-  const dialogue = s.video_prompt?.dialogue ?? [];
+  const vp = s.video_prompt;
+  const dialogue = (typeof vp === "object" && vp !== null && "dialogue" in vp)
+    ? (vp.dialogue ?? [])
+    : [];
   return (
     <div className="flex flex-col gap-1.5 p-3">
       <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
@@ -167,7 +144,7 @@ function TextColumn({
         <p className="text-sm text-gray-500 italic">（暂无对话）</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {dialogue.map((d, i) => (
+          {dialogue.map((d: { speaker: string; line: string }, i: number) => (
             <li key={i} className="text-sm text-gray-300">
               <span className="font-bold text-indigo-400">{d.speaker}</span>
               <span className="mx-1 text-gray-600">:</span>
@@ -236,26 +213,24 @@ function PromptColumn({
 }) {
   const { image_prompt, video_prompt } = segment;
 
-  // Local editable state
-  const [imgScene, setImgScene] = useState(image_prompt.scene);
-  const [imgLighting, setImgLighting] = useState(
-    image_prompt.composition.lighting
-  );
-  const [imgAmbiance, setImgAmbiance] = useState(
-    image_prompt.composition.ambiance
-  );
-  const [vidAction, setVidAction] = useState(video_prompt.action);
-  const [vidAmbianceAudio, setVidAmbianceAudio] = useState(
-    video_prompt.ambiance_audio
-  );
+  // Prompts can be plain strings or structured objects depending on the project.
+  const promptToStr = (p: unknown, key: string): string => {
+    if (typeof p === "string") return p;
+    if (typeof p === "object" && p !== null) {
+      const val = (p as Record<string, unknown>)[key];
+      if (typeof val === "string") return val;
+      return JSON.stringify(p);
+    }
+    return "";
+  };
+
+  const [imgText, setImgText] = useState(() => promptToStr(image_prompt, "scene"));
+  const [vidText, setVidText] = useState(() => promptToStr(video_prompt, "action"));
 
   // Sync from props
   useEffect(() => {
-    setImgScene(image_prompt.scene);
-    setImgLighting(image_prompt.composition.lighting);
-    setImgAmbiance(image_prompt.composition.ambiance);
-    setVidAction(video_prompt.action);
-    setVidAmbianceAudio(video_prompt.ambiance_audio);
+    setImgText(promptToStr(image_prompt, "scene"));
+    setVidText(promptToStr(video_prompt, "action"));
   }, [image_prompt, video_prompt]);
 
   const fire = (field: string, value: unknown) => {
@@ -278,51 +253,13 @@ function PromptColumn({
         </div>
 
         <AutoTextarea
-          value={imgScene}
+          value={imgText}
           onChange={(v) => {
-            setImgScene(v);
-            fire("image_prompt.scene", v);
+            setImgText(v);
+            fire("image_prompt", v);
           }}
-          placeholder="Scene description..."
+          placeholder="分镜图描述..."
         />
-
-        <div className="flex flex-wrap items-center gap-2">
-          <DropdownPill<ShotType>
-            value={image_prompt.composition.shot_type}
-            options={SHOT_TYPES}
-            onChange={(v) => fire("image_prompt.composition.shot_type", v)}
-            label="Shot"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[10px] text-gray-500">Lighting</label>
-            <input
-              type="text"
-              value={imgLighting}
-              onChange={(e) => {
-                setImgLighting(e.target.value);
-                fire("image_prompt.composition.lighting", e.target.value);
-              }}
-              className="mt-0.5 w-full rounded bg-gray-800 border border-gray-700 px-2 py-1 text-xs text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
-              placeholder="Lighting"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] text-gray-500">Ambiance</label>
-            <input
-              type="text"
-              value={imgAmbiance}
-              onChange={(e) => {
-                setImgAmbiance(e.target.value);
-                fire("image_prompt.composition.ambiance", e.target.value);
-              }}
-              className="mt-0.5 w-full rounded bg-gray-800 border border-gray-700 px-2 py-1 text-xs text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
-              placeholder="Ambiance"
-            />
-          </div>
-        </div>
       </div>
 
       {/* ---- Video Prompt ---- */}
@@ -335,50 +272,13 @@ function PromptColumn({
         </div>
 
         <AutoTextarea
-          value={vidAction}
+          value={vidText}
           onChange={(v) => {
-            setVidAction(v);
-            fire("video_prompt.action", v);
+            setVidText(v);
+            fire("video_prompt", v);
           }}
-          placeholder="Action description..."
+          placeholder="视频动作描述..."
         />
-
-        <div className="flex flex-wrap items-center gap-2">
-          <DropdownPill<CameraMotion>
-            value={video_prompt.camera_motion}
-            options={CAMERA_MOTIONS}
-            onChange={(v) => fire("video_prompt.camera_motion", v)}
-            label="Camera"
-          />
-        </div>
-
-        <div>
-          <label className="text-[10px] text-gray-500">Ambiance Audio</label>
-          <input
-            type="text"
-            value={vidAmbianceAudio}
-            onChange={(e) => {
-              setVidAmbianceAudio(e.target.value);
-              fire("video_prompt.ambiance_audio", e.target.value);
-            }}
-            className="mt-0.5 w-full rounded bg-gray-800 border border-gray-700 px-2 py-1 text-xs text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
-            placeholder="Ambiance audio"
-          />
-        </div>
-
-        {/* Dialogue (read-only mirror) */}
-        {video_prompt.dialogue.length > 0 && (
-          <div className="rounded-lg bg-gray-800/50 p-2">
-            <span className="text-[10px] text-gray-500">Dialogue</span>
-            <ul className="mt-1 flex flex-col gap-1">
-              {video_prompt.dialogue.map((d, i) => (
-                <li key={i} className="font-mono text-xs text-gray-400">
-                  <span className="text-indigo-400">{d.speaker}</span>: {d.line}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
     </div>
   );

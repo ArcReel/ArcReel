@@ -68,8 +68,8 @@ export interface NarrationSegment {
   novel_text: string;
   characters_in_segment: string[];
   clues_in_segment: string[];
-  image_prompt: ImagePrompt;
-  video_prompt: VideoPrompt;
+  image_prompt: ImagePrompt | string;
+  video_prompt: VideoPrompt | string;
   transition_to_next: TransitionType;
   generated_assets: GeneratedAssets;
 }
@@ -81,8 +81,8 @@ export interface DramaScene {
   scene_type: string;
   characters_in_scene: string[];
   clues_in_scene: string[];
-  image_prompt: ImagePrompt;
-  video_prompt: VideoPrompt;
+  image_prompt: ImagePrompt | string;
+  video_prompt: VideoPrompt | string;
   transition_to_next: TransitionType;
   generated_assets: GeneratedAssets;
 }
