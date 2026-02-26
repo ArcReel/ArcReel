@@ -3,6 +3,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageStore } from "@/stores/usage-store";
+import { TaskHud } from "@/components/task-hud/TaskHud";
 
 // ---------------------------------------------------------------------------
 // Phase definitions
@@ -147,28 +148,31 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           <span>{costText}</span>
         </button>
 
-        {/* Task radar */}
-        <button
-          type="button"
-          onClick={() => setTaskHudOpen(!taskHudOpen)}
-          className={`relative rounded-md p-1.5 transition-colors ${
-            taskHudOpen
-              ? "bg-indigo-500/20 text-indigo-400"
-              : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"
-          }`}
-          title={`任务状态: ${stats.running} 运行中, ${stats.queued} 排队中`}
-          aria-label="切换任务面板"
-        >
-          <Activity
-            className={`h-4 w-4 ${runningCount > 0 ? "animate-pulse" : ""}`}
-          />
-          {/* Running task count badge */}
-          {runningCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-500 px-1 text-[10px] font-bold text-white">
-              {runningCount}
-            </span>
-          )}
-        </button>
+        {/* Task radar + TaskHud popover */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setTaskHudOpen(!taskHudOpen)}
+            className={`relative rounded-md p-1.5 transition-colors ${
+              taskHudOpen
+                ? "bg-indigo-500/20 text-indigo-400"
+                : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            }`}
+            title={`任务状态: ${stats.running} 运行中, ${stats.queued} 排队中`}
+            aria-label="切换任务面板"
+          >
+            <Activity
+              className={`h-4 w-4 ${runningCount > 0 ? "animate-pulse" : ""}`}
+            />
+            {/* Running task count badge */}
+            {runningCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-500 px-1 text-[10px] font-bold text-white">
+                {runningCount}
+              </span>
+            )}
+          </button>
+          <TaskHud />
+        </div>
 
         {/* Settings (placeholder) */}
         <button
