@@ -16,7 +16,8 @@
     "pnpm": "^10.30.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "streamdown": "^2.3.0"
+    "streamdown": "^2.3.0",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
