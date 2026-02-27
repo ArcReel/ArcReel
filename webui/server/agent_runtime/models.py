@@ -14,7 +14,6 @@ class SessionMeta(BaseModel):
     project_name: str
     title: str = ""
     status: SessionStatus = "idle"
-    transcript_path: Optional[str] = None
     created_at: str
     updated_at: str
 

@@ -254,7 +254,6 @@ export function useAssistantSession(projectName: string | null) {
             const newSession: SessionMeta = {
               id: sessionId,
               sdk_session_id: null,
-              transcript_path: null,
               project_name: projectName,
               title,
               status: "idle" as const,

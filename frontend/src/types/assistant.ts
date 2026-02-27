@@ -15,7 +15,6 @@ export interface SessionMeta {
   project_name: string;
   title: string;
   status: SessionStatus;
-  transcript_path: string | null;
   created_at: string;
   updated_at: string;
 }

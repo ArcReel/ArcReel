@@ -16,7 +16,6 @@ def make_session_meta(**overrides) -> SessionMeta:
         project_name="demo",
         title="demo",
         status="running",
-        transcript_path=None,
         created_at="2026-02-09T08:00:00Z",
         updated_at="2026-02-09T08:00:00Z",
     )

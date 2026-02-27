@@ -16,6 +16,7 @@ import type {
   SkillInfo,
   ProjectOverview,
 } from "@/types";
+import { getToken, clearToken } from "@/utils/auth";
 
 // ==================== Helper types ====================
 
@@ -111,6 +112,23 @@ async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<vo
   }
 }
 
+/** 为 fetch options 注入 Authorization header */
+function withAuth(options: RequestInit = {}): RequestInit {
+  const token = getToken();
+  if (!token) return options;
+  const headers = new Headers(options.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  return { ...options, headers };
+}
+
+/** 为 URL 追加 token query param（用于 EventSource） */
+function withAuthQuery(url: string): string {
+  const token = getToken();
+  if (!token) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
+
 class API {
   /**
    * 通用请求方法
@@ -126,9 +144,14 @@ class API {
       },
     };
 
-    const response = await fetch(url, { ...defaultOptions, ...options });
+    const response = await fetch(url, withAuth({ ...defaultOptions, ...options }));
 
     if (!response.ok) {
+      if (response.status === 401) {
+        clearToken();
+        globalThis.location.href = "/login";
+        throw new Error("认证已过期，请重新登录");
+      }
       const error = await response
         .json()
         .catch(() => ({ detail: response.statusText }));
@@ -340,10 +363,10 @@ class API {
       url += `?name=${encodeURIComponent(name)}`;
     }
 
-    const response = await fetch(`${API_BASE}${url}`, {
+    const response = await fetch(`${API_BASE}${url}`, withAuth({
       method: "POST",
       body: formData,
-    });
+    }));
 
     await throwIfNotOk(response, "上传失败");
 
@@ -372,7 +395,8 @@ class API {
     filename: string
   ): Promise<string> {
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`
+      `${API_BASE}/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`,
+      withAuth()
     );
     await throwIfNotOk(response, "获取文件内容失败");
     return response.text();
@@ -388,11 +412,11 @@ class API {
   ): Promise<SuccessResponse> {
     const response = await fetch(
       `${API_BASE}/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`,
-      {
+      withAuth({
         method: "PUT",
         headers: { "Content-Type": "text/plain" },
         body: content,
-      }
+      })
     );
     await throwIfNotOk(response, "保存文件失败");
     return response.json();
@@ -407,9 +431,9 @@ class API {
   ): Promise<SuccessResponse> {
     const response = await fetch(
       `${API_BASE}/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`,
-      {
+      withAuth({
         method: "DELETE",
-      }
+      })
     );
     await throwIfNotOk(response, "删除文件失败");
     return response.json();
@@ -437,7 +461,8 @@ class API {
     stepNum: number
   ): Promise<string> {
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`
+      `${API_BASE}/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`,
+      withAuth()
     );
     await throwIfNotOk(response, "获取草稿内容失败");
     return response.text();
@@ -454,11 +479,11 @@ class API {
   ): Promise<SuccessResponse> {
     const response = await fetch(
       `${API_BASE}/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`,
-      {
+      withAuth({
         method: "PUT",
         headers: { "Content-Type": "text/plain" },
         body: content,
-      }
+      })
     );
     await throwIfNotOk(response, "保存草稿失败");
     return response.json();
@@ -657,7 +682,7 @@ class API {
     }
 
     const query = params.toString();
-    const url = `${API_BASE}/tasks/stream${query ? "?" + query : ""}`;
+    const url = withAuthQuery(`${API_BASE}/tasks/stream${query ? "?" + query : ""}`);
     const source = new EventSource(url);
 
     const parsePayload = (event: MessageEvent): unknown | null => {
@@ -774,10 +799,10 @@ class API {
 
     const response = await fetch(
       `${API_BASE}/projects/${encodeURIComponent(projectName)}/style-image`,
-      {
+      withAuth({
         method: "POST",
         body: formData,
-      }
+      })
     );
 
     await throwIfNotOk(response, "上传失败");
@@ -898,7 +923,7 @@ class API {
   }
 
   static getAssistantStreamUrl(sessionId: string): string {
-    return `${API_BASE}/assistant/sessions/${encodeURIComponent(sessionId)}/stream`;
+    return withAuthQuery(`${API_BASE}/assistant/sessions/${encodeURIComponent(sessionId)}/stream`);
   }
 
   static async listAssistantSkills(

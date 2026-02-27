@@ -5,9 +5,33 @@ import { Route, Switch, Redirect, useParams } from "wouter";
 import { StudioLayout } from "@/components/layout";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
+import { LoginPage } from "@/pages/LoginPage";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useAuthStore } from "@/stores/auth-store";
+
+// ---------------------------------------------------------------------------
+// AuthGuard — redirects to /login when not authenticated
+// ---------------------------------------------------------------------------
+
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuthStore();
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-950 text-gray-500">
+        加载中...
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Redirect to="/login" />;
+  }
+
+  return <>{children}</>;
+}
 
 // ---------------------------------------------------------------------------
 // StudioWorkspace — loads project data and renders three-column layout
@@ -68,6 +92,9 @@ function StudioWorkspace() {
 export function AppRoutes() {
   return (
     <Switch>
+      {/* Login page */}
+      <Route path="/login" component={LoginPage} />
+
       {/* Root redirects to projects list */}
       <Route path="/">
         <Redirect to="/app/projects" />
@@ -79,11 +106,17 @@ export function AppRoutes() {
       </Route>
 
       {/* Projects list */}
-      <Route path="/app/projects" component={ProjectsPage} />
+      <Route path="/app/projects">
+        <AuthGuard>
+          <ProjectsPage />
+        </AuthGuard>
+      </Route>
 
       {/* Studio workspace (three-column layout) */}
       <Route path="/app/projects/:projectName" nest>
-        <StudioWorkspace />
+        <AuthGuard>
+          <StudioWorkspace />
+        </AuthGuard>
       </Route>
 
       {/* 404 */}

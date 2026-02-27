@@ -9,6 +9,7 @@
 import logging
 import sys
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 # 添加项目根目录到 Python 路径
@@ -25,6 +26,7 @@ from starlette.responses import Response
 from lib.logging_config import setup_logging
 
 from lib.generation_worker import GenerationWorker
+from webui.server.auth import verify_token, ensure_auth_password
 from webui.server.routers import (
     assistant,
     projects,
@@ -36,16 +38,40 @@ from webui.server.routers import (
     usage,
     tasks,
 )
+from webui.server.routers import auth as auth_router
 
 # 初始化日志
 setup_logging()
 logger = logging.getLogger(__name__)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # Startup
+    ensure_auth_password()
+
+    logger.info("启动 GenerationWorker...")
+    worker = create_generation_worker()
+    app.state.generation_worker = worker
+    await worker.start()
+    logger.info("GenerationWorker 已启动")
+
+    yield
+
+    # Shutdown
+    worker = getattr(app.state, "generation_worker", None)
+    if worker:
+        logger.info("正在停止 GenerationWorker...")
+        await worker.stop()
+        logger.info("GenerationWorker 已停止")
+
+
 # 创建 FastAPI 应用
 app = FastAPI(
     title="视频项目管理 WebUI",
     description="AI 视频生成工作空间的 Web 管理界面",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS 配置
@@ -86,7 +112,50 @@ async def request_logging_middleware(request: Request, call_next):
         )
     return response
 
+
+# 不需要认证的路径前缀
+_AUTH_WHITELIST = (
+    "/health",
+    "/assets",
+    "/api/v1/auth/login",
+)
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """JWT 认证中间件。白名单路径、非 API 路径（前端页面）跳过认证。"""
+    path = request.url.path
+
+    # 白名单路径跳过
+    if any(path.startswith(prefix) for prefix in _AUTH_WHITELIST):
+        return await call_next(request)
+
+    # 非 API 路径（前端静态页面）跳过
+    if not path.startswith("/api/"):
+        return await call_next(request)
+
+    # 从 Authorization header 获取 token
+    token = None
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.removeprefix("Bearer ").strip()
+
+    # SSE 端点也接受 query param 中的 token
+    if token is None:
+        token = request.query_params.get("token")
+
+    if not token:
+        return JSONResponse(status_code=401, content={"detail": "缺少认证 token"})
+
+    payload = verify_token(token)
+    if payload is None:
+        return JSONResponse(status_code=401, content={"detail": "token 无效或已过期"})
+
+    return await call_next(request)
+
+
 # 注册 API 路由
+app.include_router(auth_router.router, prefix="/api/v1", tags=["认证"])
 app.include_router(projects.router, prefix="/api/v1", tags=["项目管理"])
 app.include_router(characters.router, prefix="/api/v1", tags=["人物管理"])
 app.include_router(clues.router, prefix="/api/v1", tags=["线索管理"])
@@ -142,26 +211,6 @@ async def serve_dashboard(subpath: str = ""):
 async def health_check():
     """健康检查"""
     return {"status": "ok", "message": "视频项目管理 WebUI 运行正常"}
-
-
-@app.on_event("startup")
-async def startup_generation_worker():
-    """启动任务 worker（单活由 lease 控制）。"""
-    logger.info("启动 GenerationWorker...")
-    worker = create_generation_worker()
-    app.state.generation_worker = worker
-    await worker.start()
-    logger.info("GenerationWorker 已启动")
-
-
-@app.on_event("shutdown")
-async def shutdown_generation_worker():
-    """停止任务 worker。"""
-    worker = getattr(app.state, "generation_worker", None)
-    if worker:
-        logger.info("正在停止 GenerationWorker...")
-        await worker.stop()
-        logger.info("GenerationWorker 已停止")
 
 
 if __name__ == "__main__":

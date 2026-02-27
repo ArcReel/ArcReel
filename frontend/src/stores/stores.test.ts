@@ -145,7 +145,6 @@ describe("stores", () => {
         project_name: "demo",
         title: "Session 1",
         status: "idle",
-        transcript_path: null,
         created_at: "2026-02-01T00:00:00Z",
         updated_at: "2026-02-01T00:00:00Z",
       },

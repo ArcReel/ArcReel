@@ -11,7 +11,6 @@ class TestSessionMetaStore:
         session = store.create(project_name="demo", title="Demo Session")
         assert session.project_name == "demo"
         assert session.status == "idle"
-        assert session.transcript_path is not None
 
         sessions = store.list(project_name="demo")
         assert len(sessions) == 1

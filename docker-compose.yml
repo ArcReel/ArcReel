@@ -1,0 +1,18 @@
+services:
+  arcreel:
+    image: ghcr.io/arcreel/arcreel:latest
+    # build: .  # 本地开发时取消注释，注释掉 image 行
+    ports:
+      - "8080:8080"
+    env_file: .env
+    volumes:
+      - ./projects:/app/projects
+      - ./.env:/app/.env
+      - ./vertex_keys:/app/vertex_keys
+      - ./claude_data:/root/.claude
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

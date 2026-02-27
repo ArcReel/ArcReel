@@ -31,13 +31,16 @@ class TestAppModule:
         assert created is worker
 
     @pytest.mark.asyncio
-    async def test_startup_and_shutdown_generation_worker(self, monkeypatch):
+    async def test_lifespan_starts_and_stops_worker(self, monkeypatch):
         worker = _FakeWorker()
         monkeypatch.setattr(app_module, "create_generation_worker", lambda: worker)
+        monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")
 
-        app_module.app.state = SimpleNamespace()
-        await app_module.startup_generation_worker()
-        assert worker.started
+        app = app_module.app
+        app.state = SimpleNamespace()
 
-        await app_module.shutdown_generation_worker()
+        async with app_module.lifespan(app):
+            assert worker.started
+            assert hasattr(app.state, "generation_worker")
+
         assert worker.stopped

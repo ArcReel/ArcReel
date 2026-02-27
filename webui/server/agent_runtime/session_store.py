@@ -40,7 +40,6 @@ class SessionMetaStore:
             project_name=row["project_name"],
             title=row["title"] or "",
             status=row["status"],
-            transcript_path=row["transcript_path"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -55,7 +54,6 @@ class SessionMetaStore:
                     project_name TEXT NOT NULL,
                     title TEXT DEFAULT '',
                     status TEXT DEFAULT 'idle',
-                    transcript_path TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
@@ -73,18 +71,24 @@ class SessionMetaStore:
                 ON sessions (status)
                 """
             )
+            # 迁移：删除废弃的 transcript_path 列
+            columns = [
+                row[1]
+                for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+            ]
+            if "transcript_path" in columns:
+                conn.execute("ALTER TABLE sessions DROP COLUMN transcript_path")
 
     def create(self, project_name: str, title: str = "") -> SessionMeta:
         session_id = uuid.uuid4().hex
         now = self._now()
-        transcript_path = f"transcripts/{session_id}.json"
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO sessions (id, project_name, title, status, transcript_path, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sessions (id, project_name, title, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (session_id, project_name, title, "idle", transcript_path, now, now),
+                (session_id, project_name, title, "idle", now, now),
             )
         session = self.get(session_id)
         if session is None:
@@ -95,7 +99,7 @@ class SessionMetaStore:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, sdk_session_id, project_name, title, status, transcript_path, created_at, updated_at
+                SELECT id, sdk_session_id, project_name, title, status, created_at, updated_at
                 FROM sessions
                 WHERE id = ?
                 """,
@@ -122,7 +126,7 @@ class SessionMetaStore:
             clauses.append("status = ?")
             params.append(status)
 
-        query = "SELECT id, sdk_session_id, project_name, title, status, transcript_path, created_at, updated_at FROM sessions"
+        query = "SELECT id, sdk_session_id, project_name, title, status, created_at, updated_at FROM sessions"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
