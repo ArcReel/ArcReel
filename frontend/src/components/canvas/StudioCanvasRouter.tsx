@@ -38,6 +38,58 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName]);
 
+  // ---- Timeline action callbacks ----
+  const handleUpdatePrompt = useCallback(async (segmentId: string, field: string, value: unknown) => {
+    if (!currentProjectName) return;
+    try {
+      await API.updateSegment(currentProjectName, segmentId, { [field]: value });
+      await refreshProject();
+    } catch (err) {
+      useAppStore.getState().pushToast(`更新 Prompt 失败: ${(err as Error).message}`, "error");
+    }
+  }, [currentProjectName, refreshProject]);
+
+  const handleGenerateStoryboard = useCallback(async (segmentId: string) => {
+    if (!currentProjectName || !currentScripts) return;
+    const scriptFile = Object.keys(currentScripts)[0];
+    if (!scriptFile) return;
+    const script = currentScripts[scriptFile];
+    const segments = ("segments" in script ? script.segments : undefined) ??
+                     ("scenes" in script ? script.scenes : undefined) ?? [];
+    const seg = segments.find((s) => {
+      const id = "segment_id" in s ? s.segment_id : (s as { scene_id?: string }).scene_id ?? "";
+      return id === segmentId;
+    });
+    const prompt = seg?.image_prompt ?? "";
+    try {
+      await API.generateStoryboard(currentProjectName, segmentId, prompt as string | Record<string, unknown>, scriptFile);
+      useAppStore.getState().pushToast(`已提交分镜 "${segmentId}" 生成任务`, "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(`生成分镜失败: ${(err as Error).message}`, "error");
+    }
+  }, [currentProjectName, currentScripts]);
+
+  const handleGenerateVideo = useCallback(async (segmentId: string) => {
+    if (!currentProjectName || !currentScripts) return;
+    const scriptFile = Object.keys(currentScripts)[0];
+    if (!scriptFile) return;
+    const script = currentScripts[scriptFile];
+    const segments = ("segments" in script ? script.segments : undefined) ??
+                     ("scenes" in script ? script.scenes : undefined) ?? [];
+    const seg = segments.find((s) => {
+      const id = "segment_id" in s ? s.segment_id : (s as { scene_id?: string }).scene_id ?? "";
+      return id === segmentId;
+    });
+    const prompt = seg?.video_prompt ?? "";
+    const duration = seg?.duration_seconds ?? 4;
+    try {
+      await API.generateVideo(currentProjectName, segmentId, prompt as string | Record<string, unknown>, scriptFile, duration);
+      useAppStore.getState().pushToast(`已提交视频 "${segmentId}" 生成任务`, "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(`生成视频失败: ${(err as Error).message}`, "error");
+    }
+  }, [currentProjectName, currentScripts]);
+
   // ---- Character CRUD callbacks ----
   const handleUpdateCharacter = useCallback(async (name: string, updates: Partial<Character>) => {
     if (!currentProjectName) return;
@@ -185,6 +237,9 @@ export function StudioCanvasRouter() {
               projectName={currentProjectName}
               episodeScript={script}
               projectData={currentProjectData}
+              onUpdatePrompt={handleUpdatePrompt}
+              onGenerateStoryboard={handleGenerateStoryboard}
+              onGenerateVideo={handleGenerateVideo}
             />
           );
         }}

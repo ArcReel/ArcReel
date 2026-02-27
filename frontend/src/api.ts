@@ -98,6 +98,19 @@ export interface DraftInfo {
 
 const API_BASE = "/api/v1";
 
+/**
+ * 检查 fetch 响应状态，抛出包含后端错误信息的 Error。
+ * 用于不经过 API.request() 的自定义 fetch 调用。
+ */
+async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<void> {
+  if (!response.ok) {
+    const error = await response
+      .json()
+      .catch(() => ({ detail: response.statusText }));
+    throw new Error(error.detail || fallbackMsg);
+  }
+}
+
 class API {
   /**
    * 通用请求方法
@@ -332,19 +345,14 @@ class API {
       body: formData,
     });
 
-    if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || "上传失败");
-    }
+    await throwIfNotOk(response, "上传失败");
 
     return response.json();
   }
 
   static async listFiles(
     projectName: string
-  ): Promise<{ files: string[] }> {
+  ): Promise<{ files: Record<string, { name: string; size: number; url: string }[]> }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/files`
     );
@@ -366,12 +374,7 @@ class API {
     const response = await fetch(
       `${API_BASE}/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`
     );
-    if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || "获取文件内容失败");
-    }
+    await throwIfNotOk(response, "获取文件内容失败");
     return response.text();
   }
 
@@ -391,12 +394,7 @@ class API {
         body: content,
       }
     );
-    if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || "保存文件失败");
-    }
+    await throwIfNotOk(response, "保存文件失败");
     return response.json();
   }
 
@@ -413,12 +411,7 @@ class API {
         method: "DELETE",
       }
     );
-    if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || "删除文件失败");
-    }
+    await throwIfNotOk(response, "删除文件失败");
     return response.json();
   }
 
@@ -446,12 +439,7 @@ class API {
     const response = await fetch(
       `${API_BASE}/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`
     );
-    if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || "获取草稿内容失败");
-    }
+    await throwIfNotOk(response, "获取草稿内容失败");
     return response.text();
   }
 
@@ -472,12 +460,7 @@ class API {
         body: content,
       }
     );
-    if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || "保存草稿失败");
-    }
+    await throwIfNotOk(response, "保存草稿失败");
     return response.json();
   }
 
@@ -797,12 +780,7 @@ class API {
       }
     );
 
-    if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || "上传失败");
-    }
+    await throwIfNotOk(response, "上传失败");
 
     return response.json();
   }

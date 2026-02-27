@@ -73,6 +73,11 @@ export function AppRoutes() {
         <Redirect to="/app/projects" />
       </Route>
 
+      {/* /app and /app/ also redirect to projects list */}
+      <Route path="/app">
+        <Redirect to="/app/projects" />
+      </Route>
+
       {/* Projects list */}
       <Route path="/app/projects" component={ProjectsPage} />
 

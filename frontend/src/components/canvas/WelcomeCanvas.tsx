@@ -38,7 +38,9 @@ export function WelcomeCanvas({ projectName, onUpload, onAnalyze }: WelcomeCanva
     (async () => {
       try {
         const res = await API.listFiles(projectName);
-        const sources = (res.files ?? []).filter((f: string) => f.startsWith("source/"));
+        // Backend returns grouped object: { files: { source: [{name, size, url}, ...], ... } }
+        const sourceGroup = res.files?.source ?? [];
+        const sources = sourceGroup.map((f) => `source/${f.name}`);
         if (!cancelled) {
           setSourceFiles(sources);
           // Only update phase if we're in a state that should react to file list changes
