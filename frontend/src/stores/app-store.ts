@@ -3,7 +3,7 @@ import { create } from "zustand";
 interface Toast {
   id: string;
   text: string;
-  tone: "info" | "success" | "error";
+  tone: "info" | "success" | "error" | "warning";
 }
 
 interface FocusedContext {

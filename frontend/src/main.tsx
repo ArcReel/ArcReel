@@ -20,7 +20,7 @@ import "./css/studio.css";
     "scroll",
     (e) => {
       const el = e.target;
-      if (!(el instanceof Element)) return;
+      if (!(el instanceof HTMLElement)) return;
 
       // 显示滚动条
       el.dataset.scrolling = "";
