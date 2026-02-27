@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from webui.server.agent_runtime.transcript_reader import TranscriptReader
+from server.agent_runtime.transcript_reader import TranscriptReader
 
 
 class TestTranscriptReader:

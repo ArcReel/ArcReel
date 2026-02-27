@@ -288,7 +288,7 @@ Web UI 提供可视化界面，方便管理项目和预览素材。
 
 ```bash
 # 终端 1：启动后端
-uv run uvicorn webui.server.app:app --reload --port 8080
+uv run uvicorn server.app:app --reload --port 8080
 
 # 终端 2：启动前端
 cd frontend

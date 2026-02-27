@@ -3,18 +3,12 @@
 
 启动方式:
     cd ArcReel
-    uv run uvicorn webui.server.app:app --reload --port 8080
+    uv run uvicorn server.app:app --reload --port 8080
 """
 
 import logging
-import sys
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
-
-# 添加项目根目录到 Python 路径
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,11 +17,13 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.requests import Request
 from starlette.responses import Response
 
+from lib import PROJECT_ROOT
+
 from lib.logging_config import setup_logging
 
 from lib.generation_worker import GenerationWorker
-from webui.server.auth import verify_token, ensure_auth_password
-from webui.server.routers import (
+from server.auth import verify_token, ensure_auth_password
+from server.routers import (
     assistant,
     projects,
     characters,
@@ -38,7 +34,7 @@ from webui.server.routers import (
     usage,
     tasks,
 )
-from webui.server.routers import auth as auth_router
+from server.routers import auth as auth_router
 
 # 初始化日志
 setup_logging()
@@ -172,7 +168,7 @@ app.include_router(assistant.router, prefix="/api/v1/assistant", tags=["助手�
 app.include_router(tasks.router, prefix="/api/v1", tags=["任务队列"])
 
 # 前端构建产物目录（Vite）
-frontend_dir = project_root / "frontend"
+frontend_dir = PROJECT_ROOT / "frontend"
 frontend_dist_dir = frontend_dir / "dist"
 frontend_assets_dir = frontend_dist_dir / "assets"
 frontend_index_file = frontend_dist_dir / "index.html"

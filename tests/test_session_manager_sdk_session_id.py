@@ -1,6 +1,6 @@
 """Unit tests for SessionManager SDK session id updates during streaming."""
 
-from webui.server.agent_runtime.session_manager import ManagedSession, SessionManager
+from server.agent_runtime.session_manager import ManagedSession, SessionManager
 
 
 class StreamEvent:

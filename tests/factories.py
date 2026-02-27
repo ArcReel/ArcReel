@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from webui.server.agent_runtime.models import SessionMeta
+from server.agent_runtime.models import SessionMeta
 
 
 def make_session_meta(**overrides) -> SessionMeta:

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from lib.project_manager import ProjectManager
-from webui.server.routers import files
+from server.routers import files
 
 
 class _FakeGeminiClient:

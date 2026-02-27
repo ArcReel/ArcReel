@@ -8,7 +8,7 @@ import copy
 import json
 from typing import Any, Optional
 
-from webui.server.agent_runtime.turn_grouper import build_turn_patch, group_messages_into_turns
+from server.agent_runtime.turn_grouper import build_turn_patch, group_messages_into_turns
 
 _GROUPABLE_TYPES = {"user", "assistant", "result"}
 

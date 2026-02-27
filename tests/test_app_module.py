@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import webui.server.app as app_module
+import server.app as app_module
 
 
 class _FakeWorker:

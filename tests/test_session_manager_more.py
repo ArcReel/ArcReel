@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import pytest
 
 from tests.fakes import FakeSDKClient
-from webui.server.agent_runtime import session_manager as sm_mod
-from webui.server.agent_runtime.session_manager import ManagedSession
+from server.agent_runtime import session_manager as sm_mod
+from server.agent_runtime.session_manager import ManagedSession
 
 
 class _FakeOptions:

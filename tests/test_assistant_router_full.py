@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tests.factories import make_session_meta
-from webui.server.routers import assistant
+from server.routers import assistant
 
 
 class _FakeService:

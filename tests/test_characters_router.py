@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from webui.server.routers import characters
+from server.routers import characters
 
 
 class _FakePM:

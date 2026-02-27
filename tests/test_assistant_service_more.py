@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from tests.factories import make_session_meta
-from webui.server.agent_runtime.service import AssistantService
-from webui.server.agent_runtime.stream_projector import AssistantStreamProjector
+from server.agent_runtime.service import AssistantService
+from server.agent_runtime.stream_projector import AssistantStreamProjector
 
 
 class _FakePM:

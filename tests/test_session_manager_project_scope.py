@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
-from webui.server.agent_runtime.session_manager import SessionManager
-from webui.server.agent_runtime.session_store import SessionMetaStore
+from server.agent_runtime.session_manager import SessionManager
+from server.agent_runtime.session_store import SessionMetaStore
 
 
 class _FakeOptions:
@@ -31,9 +31,9 @@ class TestSessionManagerProjectScope:
             meta_store=store,
         )
 
-        with patch("webui.server.agent_runtime.session_manager.SDK_AVAILABLE", True):
+        with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
             with patch(
-                "webui.server.agent_runtime.session_manager.ClaudeAgentOptions",
+                "server.agent_runtime.session_manager.ClaudeAgentOptions",
                 _FakeOptions,
             ):
                 options = manager._build_options("demo")
@@ -49,9 +49,9 @@ class TestSessionManagerProjectScope:
             meta_store=store,
         )
 
-        with patch("webui.server.agent_runtime.session_manager.SDK_AVAILABLE", True):
+        with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
             with patch(
-                "webui.server.agent_runtime.session_manager.ClaudeAgentOptions",
+                "server.agent_runtime.session_manager.ClaudeAgentOptions",
                 _FakeOptions,
             ):
                 with pytest.raises(FileNotFoundError):
@@ -70,13 +70,13 @@ class TestSessionManagerProjectScope:
         async def _can_use_tool(_tool_name, _input_data, _context):
             return None
 
-        with patch("webui.server.agent_runtime.session_manager.SDK_AVAILABLE", True):
+        with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
             with patch(
-                "webui.server.agent_runtime.session_manager.ClaudeAgentOptions",
+                "server.agent_runtime.session_manager.ClaudeAgentOptions",
                 _FakeOptions,
             ):
                 with patch(
-                    "webui.server.agent_runtime.session_manager.HookMatcher",
+                    "server.agent_runtime.session_manager.HookMatcher",
                     _FakeHookMatcher,
                 ):
                     options = manager._build_options(

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from webui.server.routers import assistant
+from server.routers import assistant
 
 
 def _build_client() -> TestClient:

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from webui.server.services import generation_tasks
+from server.services import generation_tasks
 
 
 class _FakePM:

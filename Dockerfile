@@ -46,7 +46,7 @@ RUN uv sync --no-dev --no-install-project
 
 # 复制应用代码
 COPY lib/ lib/
-COPY webui/ webui/
+COPY server/ server/
 COPY .claude/skills/ .claude/skills/
 COPY .claude/agents/ .claude/agents/
 
@@ -64,4 +64,4 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # 启动命令
-CMD ["uv", "run", "uvicorn", "webui.server.app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uv", "run", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8080"]

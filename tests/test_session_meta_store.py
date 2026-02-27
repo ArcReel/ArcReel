@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from webui.server.agent_runtime.session_store import SessionMetaStore
+from server.agent_runtime.session_store import SessionMetaStore
 
 
 class TestSessionMetaStore:

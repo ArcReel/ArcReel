@@ -10,7 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from webui.server.auth import check_credentials, create_token, verify_token
+from server.auth import check_credentials, create_token, verify_token
 
 logger = logging.getLogger(__name__)
 

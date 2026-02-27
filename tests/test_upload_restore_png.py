@@ -7,7 +7,7 @@ from lib.image_utils import convert_image_bytes_to_png
 from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
 
-import webui.server.routers.versions as versions_router
+import server.routers.versions as versions_router
 
 
 class TestUploadRestorePng:

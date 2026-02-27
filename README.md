@@ -103,7 +103,7 @@ AI 会引导你完成以下步骤：
 
 ```bash
 # 终端 1：启动后端 API
-uv run uvicorn webui.server.app:app --reload --port 8080
+uv run uvicorn server.app:app --reload --port 8080
 
 # 终端 2：启动前端开发服务
 cd frontend
@@ -119,7 +119,7 @@ pnpm dev
 cd frontend
 pnpm build
 cd ..
-uv run uvicorn webui.server.app:app --reload --port 8080
+uv run uvicorn server.app:app --reload --port 8080
 # 然后访问 http://localhost:8080
 ```
 
@@ -152,8 +152,7 @@ ArcReel/
 │       └── manga-workflow/        # 主流程编排
 ├── lib/                  # Python 共享库
 ├── projects/             # 你的视频项目存放处
-├── webui/
-│   └── server/           # FastAPI 后端 API 服务
+├── server/              # FastAPI 后端 API 服务
 ├── frontend/             # React + Vite 前端工程
 │   ├── src/              # 前端源码
 │   ├── package.json      # 前端依赖与脚本

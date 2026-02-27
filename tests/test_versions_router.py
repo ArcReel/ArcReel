@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from webui.server.routers import versions
+from server.routers import versions
 
 
 class _FakePM:

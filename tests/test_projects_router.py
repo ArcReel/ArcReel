@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from webui.server.routers import projects
+from server.routers import projects
 
 
 class _FakePM:

@@ -1,6 +1,6 @@
 """Unit tests for shared turn grouper."""
 
-from webui.server.agent_runtime.turn_grouper import (
+from server.agent_runtime.turn_grouper import (
     build_turn_patch,
     group_messages_into_turns,
 )

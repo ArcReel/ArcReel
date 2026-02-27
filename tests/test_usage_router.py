@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from webui.server.routers import usage
+from server.routers import usage
 
 
 class _FakeTracker:

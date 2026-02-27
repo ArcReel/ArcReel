@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from webui.server.routers import tasks as tasks_router
+from server.routers import tasks as tasks_router
 
 
 def _build_app():
@@ -50,7 +50,7 @@ class TestTaskRouterAndEvents:
 
     def test_sse_task_event_has_frontend_shape(self, generation_queue):
         """SSE task 事件应匹配前端 TaskStreamTaskPayload 结构。"""
-        from webui.server.routers.tasks import _transform_task_event
+        from server.routers.tasks import _transform_task_event
 
         queue = generation_queue
         task = queue.enqueue_task(

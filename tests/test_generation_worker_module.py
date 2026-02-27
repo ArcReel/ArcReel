@@ -49,7 +49,7 @@ class TestGenerationWorker:
         worker = GenerationWorker(queue=queue)
 
         monkeypatch.setattr(
-            "webui.server.services.generation_tasks.execute_generation_task",
+            "server.services.generation_tasks.execute_generation_task",
             lambda task: {"ok": task["task_id"]},
         )
         await worker._process_task({"task_id": "t1"})
@@ -58,7 +58,7 @@ class TestGenerationWorker:
         def _raise(_task):
             raise RuntimeError("boom")
 
-        monkeypatch.setattr("webui.server.services.generation_tasks.execute_generation_task", _raise)
+        monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _raise)
         await worker._process_task({"task_id": "t2"})
         assert queue.failed and queue.failed[0][0] == "t2"
 

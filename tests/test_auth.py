@@ -1,14 +1,14 @@
 """
 认证核心模块测试
 
-测试 webui.server.auth 中的密码生成、JWT token、凭据校验等功能。
+测试 server.auth 中的密码生成、JWT token、凭据校验等功能。
 """
 
 import os
 import time
 from unittest.mock import patch
 
-import webui.server.auth as auth_module
+import server.auth as auth_module
 
 
 class TestGeneratePassword:

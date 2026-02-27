@@ -13,9 +13,9 @@ from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
-from webui.server.agent_runtime.models import SessionMeta, SessionStatus
-from webui.server.agent_runtime.session_store import SessionMetaStore
-from webui.server.agent_runtime.transcript_reader import TranscriptReader
+from server.agent_runtime.models import SessionMeta, SessionStatus
+from server.agent_runtime.session_store import SessionMetaStore
+from server.agent_runtime.transcript_reader import TranscriptReader
 
 try:
     from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient

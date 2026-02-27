@@ -155,7 +155,7 @@ class GenerationWorker:
         task_type = task.get("task_type", "unknown")
         logger.info("开始处理任务 %s (type=%s)", task_id, task_type)
         try:
-            from webui.server.services.generation_tasks import execute_generation_task
+            from server.services.generation_tasks import execute_generation_task
 
             result = await asyncio.to_thread(execute_generation_task, task)
             self.queue.mark_task_succeeded(task_id, result)

@@ -1,7 +1,7 @@
 """
 登录 API 路由测试
 
-测试 webui.server.routers.auth 中的登录和 token 验证路由。
+测试 server.routers.auth 中的登录和 token 验证路由。
 """
 
 import os
@@ -11,8 +11,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import webui.server.auth as auth_module
-from webui.server.routers import auth as auth_router
+import server.auth as auth_module
+from server.routers import auth as auth_router
 
 
 @pytest.fixture()

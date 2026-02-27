@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from webui.server.routers import generate
+from server.routers import generate
 
 
 class _FakeVersions:

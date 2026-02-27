@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from tests.fakes import FakeSDKClient
-from webui.server.agent_runtime.session_manager import (
+from server.agent_runtime.session_manager import (
     ManagedSession,
     SDK_AVAILABLE,
 )

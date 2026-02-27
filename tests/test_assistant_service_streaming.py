@@ -4,8 +4,8 @@ import json
 import pytest
 from pathlib import Path
 
-from webui.server.agent_runtime.models import SessionMeta
-from webui.server.agent_runtime.service import AssistantService
+from server.agent_runtime.models import SessionMeta
+from server.agent_runtime.service import AssistantService
 from tests.factories import make_session_meta
 
 import asyncio
@@ -436,7 +436,7 @@ class TestAssistantServiceStreaming:
     def test_prune_transient_buffer_removes_groupable_messages(self):
         """Verify _prune_transient_buffer clears user/assistant/result messages
         in addition to stream_event and runtime_status."""
-        from webui.server.agent_runtime.session_manager import (
+        from server.agent_runtime.session_manager import (
             ManagedSession,
             SessionManager,
         )

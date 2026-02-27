@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from webui.server.agent_runtime.turn_grouper import group_messages_into_turns
+from server.agent_runtime.turn_grouper import group_messages_into_turns
 
 
 class TranscriptReader:

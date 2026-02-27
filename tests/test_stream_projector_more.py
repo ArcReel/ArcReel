@@ -1,4 +1,4 @@
-from webui.server.agent_runtime import stream_projector as projector_mod
+from server.agent_runtime import stream_projector as projector_mod
 
 
 class TestStreamProjectorMore:

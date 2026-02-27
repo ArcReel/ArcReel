@@ -23,7 +23,7 @@ jobs:
         run: uv sync
 
       - name: Run tests with coverage
-        run: uv run python -m pytest --cov=lib --cov=webui/server --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+        run: uv run python -m pytest --cov=lib --cov=server --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 
   frontend-tests:
     runs-on: ubuntu-latest

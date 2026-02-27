@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from webui.server.routers import tasks as tasks_router
+from server.routers import tasks as tasks_router
 
 
 class _FakeRequest:

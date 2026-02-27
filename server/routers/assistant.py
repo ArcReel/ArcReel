@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from webui.server.agent_runtime.service import AssistantService
+from server.agent_runtime.service import AssistantService
 
 router = APIRouter()
 

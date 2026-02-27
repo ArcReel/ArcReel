@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-import webui.server.auth as auth_module
+import server.auth as auth_module
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +32,7 @@ def _auth_env():
 @pytest.fixture()
 def client():
     """创建使用真实 app（含认证中间件）的测试客户端。"""
-    from webui.server.app import app
+    from server.app import app
 
     with TestClient(app, raise_server_exceptions=False) as c:
         yield c

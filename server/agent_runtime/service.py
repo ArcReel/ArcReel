@@ -13,11 +13,11 @@ from typing import Any, AsyncIterator, Optional
 logger = logging.getLogger(__name__)
 
 from lib.project_manager import ProjectManager
-from webui.server.agent_runtime.models import SessionMeta, SessionStatus
-from webui.server.agent_runtime.session_manager import SessionManager
-from webui.server.agent_runtime.session_store import SessionMetaStore
-from webui.server.agent_runtime.stream_projector import AssistantStreamProjector
-from webui.server.agent_runtime.transcript_reader import TranscriptReader
+from server.agent_runtime.models import SessionMeta, SessionStatus
+from server.agent_runtime.session_manager import SessionManager
+from server.agent_runtime.session_store import SessionMetaStore
+from server.agent_runtime.stream_projector import AssistantStreamProjector
+from server.agent_runtime.transcript_reader import TranscriptReader
 
 
 class AssistantService:

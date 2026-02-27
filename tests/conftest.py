@@ -9,8 +9,8 @@ import pytest
 
 import lib.generation_queue as generation_queue_module
 from lib.generation_queue import GenerationQueue
-from webui.server.agent_runtime.session_manager import SessionManager
-from webui.server.agent_runtime.session_store import SessionMetaStore
+from server.agent_runtime.session_manager import SessionManager
+from server.agent_runtime.session_store import SessionMetaStore
 
 
 # ---------------------------------------------------------------------------
