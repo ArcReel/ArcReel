@@ -65,7 +65,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
         </div>
         <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 transition-all"
+            className="h-full rounded-full bg-indigo-600 transition-all"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -107,7 +107,7 @@ export function ProjectsPage() {
       <header className="border-b border-gray-800 px-6 py-4">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <h1 className="text-xl font-bold">
-            <span className="bg-gradient-to-r from-indigo-400 to-fuchsia-400 bg-clip-text text-transparent">
+            <span className="text-indigo-400">
               ArcReel
             </span>
             <span className="ml-2 text-gray-400 font-normal text-base">项目</span>
@@ -115,7 +115,7 @@ export function ProjectsPage() {
           <button
             type="button"
             onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-white hover:from-indigo-400 hover:to-fuchsia-400 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
             新建项目

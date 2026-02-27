@@ -6,14 +6,14 @@
   @apply font-mono text-sm bg-gray-800 rounded-lg p-3 text-gray-200;
 }
 
-/* 强调色渐变 */
+/* 强调色 — 低饱和度纯色 */
 .accent-gradient {
-  @apply bg-gradient-to-r from-indigo-500 to-fuchsia-500;
+  @apply bg-indigo-600;
 }
 
-/* 强调色渐变文字 */
+/* 强调色文字 */
 .accent-gradient-text {
-  @apply bg-gradient-to-r from-indigo-500 to-fuchsia-500 bg-clip-text text-transparent;
+  @apply text-indigo-400;
 }
 
 /* 片段卡片 */

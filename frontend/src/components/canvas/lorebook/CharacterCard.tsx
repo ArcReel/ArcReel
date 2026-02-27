@@ -81,82 +81,76 @@ export function CharacterCard({
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <div className="grid grid-cols-2 gap-4">
-        {/* ---- Left: form area ---- */}
-        <div className="flex flex-col gap-3 min-w-0">
-          <h3 className="text-lg font-bold text-white truncate">{name}</h3>
+      {/* ---- Header ---- */}
+      <h3 className="text-lg font-bold text-white truncate mb-4">{name}</h3>
 
-          {/* Description */}
-          <label className="text-xs font-medium text-gray-400">描述</label>
-          <textarea
-            ref={textareaRef}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onInput={autoResize}
-            rows={3}
-            className="w-full resize-none overflow-hidden bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
-            placeholder="输入角色描述..."
+      {/* ---- Image area ---- */}
+      <div className="mb-4">
+        <AspectFrame ratio="3:4">
+          <ImageFlipReveal
+            src={sheetUrl && !imgError ? sheetUrl : null}
+            alt={`${name} 设计图`}
+            className="h-full w-full object-cover"
+            onError={() => setImgError(true)}
+            fallback={
+              <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
+                <User className="h-10 w-10" />
+                <span className="text-xs">点击生成</span>
+              </div>
+            }
           />
+        </AspectFrame>
 
-          {/* Voice style */}
-          <label className="text-xs font-medium text-gray-400">声音风格</label>
-          <input
-            type="text"
-            value={voiceStyle}
-            onChange={(e) => setVoiceStyle(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
-            placeholder="例如：温柔但有威严"
-          />
-
-          {/* Save button (only visible when dirty) */}
-          {isDirty && (
-            <button
-              type="button"
-              onClick={handleSave}
-              className="self-start rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
-            >
-              保存
-            </button>
-          )}
-        </div>
-
-        {/* ---- Right: image area ---- */}
-        <div className="flex flex-col gap-3">
-          {/* Character sheet (3:4) */}
-          <AspectFrame ratio="3:4">
-            <ImageFlipReveal
-              src={sheetUrl && !imgError ? sheetUrl : null}
-              alt={`${name} 设计图`}
-              className="h-full w-full object-cover"
-              onError={() => setImgError(true)}
-              fallback={
-                <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
-                  <User className="h-10 w-10" />
-                  <span className="text-xs">点击生成</span>
-                </div>
-              }
+        {/* Reference image (smaller) */}
+        {refImgUrl && (
+          <div className="mt-2 overflow-hidden rounded-lg bg-gray-800">
+            <img
+              src={refImgUrl}
+              alt={`${name} 参考图`}
+              className="h-24 w-full object-cover"
             />
-          </AspectFrame>
+          </div>
+        )}
+      </div>
 
-          {/* Reference image (smaller) */}
-          {refImgUrl && (
-            <div className="overflow-hidden rounded-lg bg-gray-800">
-              <img
-                src={refImgUrl}
-                alt={`${name} 参考图`}
-                className="h-24 w-full object-cover"
-              />
-            </div>
-          )}
+      {/* ---- Form area ---- */}
+      <label className="text-xs font-medium text-gray-400">描述</label>
+      <textarea
+        ref={textareaRef}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        onInput={autoResize}
+        rows={3}
+        className="mt-1 w-full resize-none overflow-hidden bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
+        placeholder="输入角色描述..."
+      />
 
-          {/* Generate button */}
-          <GenerateButton
-            onClick={() => onGenerate(name)}
-            loading={generating}
-            label="生成设计图"
-            className="w-full justify-center"
-          />
-        </div>
+      <label className="mt-3 block text-xs font-medium text-gray-400">声音风格</label>
+      <input
+        type="text"
+        value={voiceStyle}
+        onChange={(e) => setVoiceStyle(e.target.value)}
+        className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
+        placeholder="例如：温柔但有威严"
+      />
+
+      {isDirty && (
+        <button
+          type="button"
+          onClick={handleSave}
+          className="mt-3 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
+        >
+          保存
+        </button>
+      )}
+
+      <div className="mt-3">
+        <GenerateButton
+          onClick={() => onGenerate(name)}
+          loading={generating}
+          label="生成设计图"
+          className="w-full justify-center"
+        />
       </div>
     </div>
   );

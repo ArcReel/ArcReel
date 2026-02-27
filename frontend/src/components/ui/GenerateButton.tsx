@@ -33,8 +33,8 @@ export function GenerateButton({
       disabled={isDisabled}
       className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-colors ${
         loading
-          ? "bg-gradient-to-r from-indigo-600 to-fuchsia-600"
-          : "bg-gradient-to-r from-indigo-500 to-fuchsia-500 hover:from-indigo-400 hover:to-fuchsia-400"
+          ? "bg-indigo-700"
+          : "bg-indigo-600 hover:bg-indigo-500"
       } ${isDisabled ? "cursor-not-allowed opacity-50" : ""} ${className ?? ""}`}
       animate={
         loading

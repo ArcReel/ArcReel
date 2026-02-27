@@ -231,7 +231,7 @@ export function WelcomeCanvas({ projectName, onUpload, onAnalyze }: WelcomeCanva
             <button
               type="button"
               onClick={startAnalysis}
-              className="w-full rounded-xl bg-linear-to-r from-indigo-500 to-fuchsia-500 px-6 py-3 text-sm font-medium text-white hover:from-indigo-600 hover:to-fuchsia-600 transition-colors"
+              className="w-full rounded-xl bg-indigo-600 px-6 py-3 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
             >
               <Sparkles className="inline-block h-4 w-4 mr-2 -mt-0.5" />
               开始 AI 分析
@@ -255,7 +255,7 @@ export function WelcomeCanvas({ projectName, onUpload, onAnalyze }: WelcomeCanva
             <p className="mt-3 text-sm text-indigo-300 font-medium">AI 分析中...</p>
             <p className="mt-1 text-xs text-gray-400">正在提取故事梗概、题材、主题和世界观设定</p>
             <div className="mt-4 mx-auto w-48 h-1 rounded-full bg-gray-800 overflow-hidden">
-              <div className="h-full rounded-full bg-linear-to-r from-indigo-500 to-fuchsia-500 animate-progress" />
+              <div className="h-full rounded-full bg-indigo-600 animate-progress" />
             </div>
           </div>
         )}

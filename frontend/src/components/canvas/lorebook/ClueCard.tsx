@@ -73,18 +73,16 @@ export function ClueCard({
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      {/* Header: name + badges */}
-      <div className="mb-3 flex items-center gap-2">
+      {/* ---- Header: name + badges ---- */}
+      <div className="mb-4 flex items-center gap-2">
         <h3 className="text-lg font-bold text-white truncate">{name}</h3>
 
-        {/* Type badge */}
         <span className="shrink-0 rounded-full bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-300">
           {TYPE_LABELS[clue.type] ?? clue.type}
         </span>
 
-        {/* Importance badge */}
         {clue.importance === "major" ? (
-          <span className="shrink-0 rounded-full bg-amber-900/60 px-2 py-0.5 text-xs font-medium text-amber-400">
+          <span className="shrink-0 rounded-full bg-indigo-500/10 px-2 py-0.5 text-xs font-medium text-indigo-400 border border-indigo-500/20">
             重要
           </span>
         ) : (
@@ -94,7 +92,26 @@ export function ClueCard({
         )}
       </div>
 
-      {/* Description */}
+      {/* ---- Image area ---- */}
+      <div className="mb-4">
+        <AspectFrame ratio="16:9">
+          {sheetUrl && !imgError ? (
+            <img
+              src={sheetUrl}
+              alt={`${name} 设计图`}
+              className="h-full w-full object-cover"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
+              <Puzzle className="h-10 w-10" />
+              <span className="text-xs">点击生成</span>
+            </div>
+          )}
+        </AspectFrame>
+      </div>
+
+      {/* ---- Description ---- */}
       <textarea
         ref={textareaRef}
         value={description}
@@ -105,7 +122,6 @@ export function ClueCard({
         placeholder="输入线索描述..."
       />
 
-      {/* Save button (only visible when dirty) */}
       {isDirty && (
         <button
           type="button"
@@ -116,33 +132,13 @@ export function ClueCard({
         </button>
       )}
 
-      {/* Clue sheet image (16:9) */}
-      <AspectFrame ratio="16:9">
-        {sheetUrl && !imgError ? (
-          <img
-            src={sheetUrl}
-            alt={`${name} 设计图`}
-            className="h-full w-full object-cover"
-            onError={() => setImgError(true)}
-          />
-        ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
-            <Puzzle className="h-10 w-10" />
-            <span className="text-xs">点击生成</span>
-          </div>
-        )}
-      </AspectFrame>
-
-      {/* Generate button — only for major clues */}
       {clue.importance === "major" && (
-        <div className="mt-3">
-          <GenerateButton
-            onClick={() => onGenerate(name)}
-            loading={generating}
-            label="生成设计图"
-            className="w-full justify-center"
-          />
-        </div>
+        <GenerateButton
+          onClick={() => onGenerate(name)}
+          loading={generating}
+          label="生成设计图"
+          className="w-full justify-center"
+        />
       )}
     </div>
   );

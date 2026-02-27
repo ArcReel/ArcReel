@@ -25,7 +25,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
   };
 
   return (
-    <div className="mt-4 rounded-xl border border-fuchsia-500/30 bg-gray-900 p-4">
+    <div className="mt-4 rounded-xl border border-indigo-500/30 bg-gray-900 p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-200">添加线索</h3>
         <button
@@ -47,7 +47,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="线索名称"
-            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-fuchsia-500"
+            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
             autoFocus
           />
         </div>
@@ -58,7 +58,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
             <div className="flex gap-2">
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-1.5 text-center text-xs transition-colors ${
                 clueType === "prop"
-                  ? "border-fuchsia-500 bg-fuchsia-500/10 text-fuchsia-300"
+                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
                   : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
               }`}>
                 <input type="radio" name="clueType" value="prop" checked={clueType === "prop"} onChange={() => setClueType("prop")} className="sr-only" />
@@ -66,7 +66,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
               </label>
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-1.5 text-center text-xs transition-colors ${
                 clueType === "location"
-                  ? "border-fuchsia-500 bg-fuchsia-500/10 text-fuchsia-300"
+                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
                   : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
               }`}>
                 <input type="radio" name="clueType" value="location" checked={clueType === "location"} onChange={() => setClueType("location")} className="sr-only" />
@@ -80,7 +80,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
             <div className="flex gap-2">
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-1.5 text-center text-xs transition-colors ${
                 importance === "major"
-                  ? "border-fuchsia-500 bg-fuchsia-500/10 text-fuchsia-300"
+                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
                   : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
               }`}>
                 <input type="radio" name="importance" value="major" checked={importance === "major"} onChange={() => setImportance("major")} className="sr-only" />
@@ -88,7 +88,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
               </label>
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-1.5 text-center text-xs transition-colors ${
                 importance === "minor"
-                  ? "border-fuchsia-500 bg-fuchsia-500/10 text-fuchsia-300"
+                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
                   : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
               }`}>
                 <input type="radio" name="importance" value="minor" checked={importance === "minor"} onChange={() => setImportance("minor")} className="sr-only" />
@@ -107,7 +107,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
             onChange={(e) => setDescription(e.target.value)}
             placeholder="线索的外观、特征、重要性等描述..."
             rows={3}
-            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-fuchsia-500 resize-none"
+            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500 resize-none"
           />
         </div>
 
@@ -122,7 +122,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
           <button
             type="submit"
             disabled={submitting || !name.trim() || !description.trim()}
-            className="rounded-lg bg-fuchsia-500 px-4 py-1.5 text-sm font-medium text-white hover:bg-fuchsia-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? (
               <span className="inline-flex items-center gap-1.5">

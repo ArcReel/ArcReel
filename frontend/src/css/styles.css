@@ -1,31 +1,47 @@
 /* 自定义样式 */
 
-/* 滚动条样式 */
+/* 滚动条样式 — 极窄 + 滚动时渐显、停止后渐隐 */
+
+/* 注册可动画的自定义属性（::-webkit-scrollbar-thumb 不支持 transition，
+   但 @property 注册的自定义属性可在元素自身上过渡，伪元素读取插值后的值） */
+@property --scrollbar-opacity {
+    syntax: '<number>';
+    inherits: true;
+    initial-value: 0;
+}
+
+* {
+    --scrollbar-opacity: 0;
+    transition: --scrollbar-opacity 0.4s ease-out;
+}
+
+[data-scrolling] {
+    --scrollbar-opacity: 1;
+    transition: none;
+}
+
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 4px;
+    height: 4px;
 }
 
 ::-webkit-scrollbar-track {
-    background: #1a1a1a;
+    background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #3a3a3a;
-    border-radius: 4px;
+    background: rgba(255, 255, 255, calc(0.12 * var(--scrollbar-opacity)));
+    border-radius: 9999px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-    background: #4a4a4a;
+/* 悬停在滑块上：提亮 */
+[data-scrolling]::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
 }
 
-/* 卡片悬停效果 */
+/* 卡片悬停效果 — 仅颜色过渡，禁止位移 */
 .project-card {
-    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-}
-
-.project-card:hover {
-    transform: translateY(-4px);
+    transition: border-color 0.2s ease-in-out, background-color 0.2s ease-in-out;
 }
 
 /* 模态框动画 */
@@ -64,11 +80,11 @@
 }
 
 .image-preview img {
-    transition: transform 0.3s ease;
+    transition: opacity 0.3s ease;
 }
 
 .image-preview:hover img {
-    transform: scale(1.05);
+    opacity: 0.85;
 }
 
 /* 场景网格 */
@@ -149,14 +165,9 @@
     gap: 1rem;
 }
 
-/* 片段卡片 */
+/* 片段卡片 — 仅颜色过渡，禁止位移 */
 .segment-card {
-    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-}
-
-.segment-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: border-color 0.2s ease-in-out, background-color 0.2s ease-in-out;
 }
 
 /* 多宫格图展示区 */

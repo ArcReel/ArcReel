@@ -188,7 +188,7 @@ export function CreateProjectModal() {
                   key={opt.value}
                   className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
                     style === opt.value
-                      ? "border-fuchsia-500 bg-fuchsia-500/10 text-fuchsia-300"
+                      ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
                       : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
                   }`}
                 >
@@ -252,7 +252,7 @@ export function CreateProjectModal() {
           <button
             type="submit"
             disabled={creatingProject || !name.trim() || !title.trim()}
-            className="w-full rounded-lg bg-gradient-to-r from-indigo-500 to-fuchsia-500 px-4 py-2.5 text-sm font-medium text-white hover:from-indigo-400 hover:to-fuchsia-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {creatingProject ? (
               <span className="inline-flex items-center gap-2">

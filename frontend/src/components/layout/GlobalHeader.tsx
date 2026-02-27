@@ -44,10 +44,10 @@ function PhaseStepper({
         let labelClass = "text-xs whitespace-nowrap transition-colors";
 
         if (isCompleted) {
-          circleClass += " bg-green-600 text-white";
-          labelClass += " text-green-400";
+          circleClass += " bg-emerald-600 text-white";
+          labelClass += " text-emerald-400";
         } else if (isCurrent) {
-          circleClass += " bg-indigo-500 text-white";
+          circleClass += " bg-indigo-600 text-white";
           labelClass += " text-indigo-300 font-medium";
         } else {
           circleClass += " bg-gray-700 text-gray-400";
@@ -60,7 +60,7 @@ function PhaseStepper({
             {idx > 0 && (
               <div
                 className={`h-px w-4 shrink-0 ${
-                  isCompleted ? "bg-green-600" : "bg-gray-700"
+                  isCompleted ? "bg-emerald-600" : "bg-gray-700"
                 }`}
               />
             )}

@@ -15,7 +15,7 @@ export function SkillPills({ onSendCommand }: { onSendCommand: (cmd: string) => 
         <button
           key={skill.name}
           onClick={() => onSendCommand(`/${skill.name}`)}
-          className="flex items-center gap-1 rounded-full bg-gradient-to-r from-indigo-600/20 to-fuchsia-600/20 px-2.5 py-1 text-[11px] text-indigo-300 transition-colors hover:from-indigo-600/30 hover:to-fuchsia-600/30"
+          className="flex items-center gap-1 rounded-full bg-white/5 border border-white/10 px-2.5 py-1 text-xs text-gray-300 transition-colors hover:bg-white/10"
         >
           <Zap className="h-3 w-3" />
           /{skill.name}

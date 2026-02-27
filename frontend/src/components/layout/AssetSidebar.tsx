@@ -66,7 +66,7 @@ function CollapsibleSection({
 const STATUS_DOT_CLASSES: Record<string, string> = {
   draft: "text-gray-500",
   in_production: "text-amber-500",
-  completed: "text-green-500",
+  completed: "text-emerald-500",
   missing: "text-red-500",
 };
 
@@ -322,7 +322,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       <CollapsibleSection title="设定集" icon={Users} defaultOpen={true}>
         {/* Characters sub-section */}
         <div className="mb-1">
-          <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-600">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-600">
             <Users className="h-3 w-3" />
             <span>角色</span>
           </div>
@@ -356,7 +356,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
 
         {/* Clues sub-section */}
         <div>
-          <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-600">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-600">
             <Puzzle className="h-3 w-3" />
             <span>线索</span>
           </div>

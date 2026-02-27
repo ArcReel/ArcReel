@@ -56,10 +56,10 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       <button
         type="button"
         onClick={toggleAssistantPanel}
-        className={`fixed top-14 right-4 z-50 flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-indigo-500 to-fuchsia-500 shadow-lg shadow-indigo-500/25 transition-all duration-300 ease-in-out ${
+        className={`fixed top-14 right-4 z-50 flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 shadow-lg shadow-indigo-500/20 transition-all duration-300 ease-in-out ${
           assistantPanelOpen
             ? "scale-0 opacity-0 pointer-events-none"
-            : "scale-100 opacity-100 hover:shadow-xl hover:shadow-indigo-500/40 hover:scale-110 cursor-pointer"
+            : "scale-100 opacity-100 hover:bg-indigo-500 cursor-pointer"
         }`}
         style={{ transitionDelay: assistantPanelOpen ? "0ms" : "200ms" }}
         title="展开助手面板"
