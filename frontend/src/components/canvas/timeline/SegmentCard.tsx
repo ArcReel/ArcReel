@@ -1,15 +1,20 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { ImageIcon, Film, Clock, Play, Pause } from "lucide-react";
 import { API } from "@/api";
 import { AvatarStack } from "@/components/ui/AvatarStack";
 import { AspectFrame } from "@/components/ui/AspectFrame";
+import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { GenerateButton } from "@/components/ui/GenerateButton";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
+import { ImagePromptEditor } from "./ImagePromptEditor";
+import { VideoPromptEditor } from "./VideoPromptEditor";
 import type {
   NarrationSegment,
   DramaScene,
   Character,
   Clue,
+  ImagePrompt,
+  VideoPrompt,
   TransitionType,
 } from "@/types";
 
@@ -42,6 +47,75 @@ function getCharacterNames(
   return mode === "narration"
     ? ((segment as NarrationSegment).characters_in_segment ?? [])
     : ((segment as DramaScene).characters_in_scene ?? []);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isStructuredImagePromptValue(value: unknown): value is ImagePrompt {
+  if (!isRecord(value) || typeof value.scene !== "string") {
+    return false;
+  }
+
+  const composition = value.composition;
+  if (!isRecord(composition)) {
+    return false;
+  }
+
+  return (
+    typeof composition.shot_type === "string" &&
+    typeof composition.lighting === "string" &&
+    typeof composition.ambiance === "string"
+  );
+}
+
+function isStructuredVideoPromptValue(value: unknown): value is VideoPrompt {
+  if (
+    !isRecord(value) ||
+    typeof value.action !== "string" ||
+    typeof value.camera_motion !== "string" ||
+    typeof value.ambiance_audio !== "string"
+  ) {
+    return false;
+  }
+
+  const dialogue = value.dialogue;
+  if (dialogue === undefined) {
+    return true;
+  }
+  if (!Array.isArray(dialogue)) {
+    return false;
+  }
+
+  return dialogue.every(
+    (item) =>
+      isRecord(item) &&
+      typeof item.speaker === "string" &&
+      typeof item.line === "string"
+  );
+}
+
+function mergePromptPatch<T extends Record<string, unknown>>(
+  base: T,
+  patch: Record<string, unknown>
+): T {
+  const merged: Record<string, unknown> = { ...base };
+
+  for (const [k, v] of Object.entries(patch)) {
+    if (
+      isRecord(v) &&
+      isRecord(base[k]) &&
+      !Array.isArray(v) &&
+      !Array.isArray(base[k])
+    ) {
+      merged[k] = { ...(base[k] as Record<string, unknown>), ...v };
+    } else {
+      merged[k] = v;
+    }
+  }
+
+  return merged as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,45 +235,6 @@ function TextColumn({
 // Column 2 — Prompt area
 // ---------------------------------------------------------------------------
 
-/** Auto-resizing textarea. */
-function AutoTextarea({
-  value,
-  onChange,
-  placeholder,
-  className,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  className?: string;
-}) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-
-  const resize = useCallback(() => {
-    const el = ref.current;
-    if (el) {
-      el.style.height = "auto";
-      el.style.height = `${el.scrollHeight}px`;
-    }
-  }, []);
-
-  useEffect(() => {
-    resize();
-  }, [value, resize]);
-
-  return (
-    <textarea
-      ref={ref}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onInput={resize}
-      placeholder={placeholder}
-      rows={2}
-      className={`w-full resize-none overflow-hidden bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-2 font-mono text-xs text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none ${className ?? ""}`}
-    />
-  );
-}
-
 function PromptColumn({
   segment,
   contentMode,
@@ -213,40 +248,94 @@ function PromptColumn({
 }) {
   const { image_prompt, video_prompt } = segment;
 
-  // Prompts can be plain strings or structured objects depending on the project.
+  const isStructuredImage = isStructuredImagePromptValue(image_prompt);
+  const isStructuredVideo = isStructuredVideoPromptValue(video_prompt);
+
+  // ---- String fallback state (only used when prompts are plain strings) ----
   const promptToStr = (p: unknown, key: string): string => {
     if (typeof p === "string") return p;
     if (typeof p === "object" && p !== null) {
       const val = (p as Record<string, unknown>)[key];
       if (typeof val === "string") return val;
-      return JSON.stringify(p);
     }
     return "";
   };
 
   const [imgText, setImgText] = useState(() => promptToStr(image_prompt, "scene"));
   const [vidText, setVidText] = useState(() => promptToStr(video_prompt, "action"));
+  const [imgDraft, setImgDraft] = useState<ImagePrompt | null>(() =>
+    isStructuredImage ? image_prompt : null
+  );
+  const [vidDraft, setVidDraft] = useState<VideoPrompt | null>(() =>
+    isStructuredVideo ? video_prompt : null
+  );
+  const prevSegmentIdRef = useRef(segmentId);
 
-  // Sync from props
   useEffect(() => {
+    if (prevSegmentIdRef.current === segmentId) {
+      return;
+    }
+
+    prevSegmentIdRef.current = segmentId;
     setImgText(promptToStr(image_prompt, "scene"));
     setVidText(promptToStr(video_prompt, "action"));
-  }, [image_prompt, video_prompt]);
+    setImgDraft(isStructuredImage ? image_prompt : null);
+    setVidDraft(isStructuredVideo ? video_prompt : null);
+  }, [
+    segmentId,
+    image_prompt,
+    video_prompt,
+    isStructuredImage,
+    isStructuredVideo,
+  ]);
 
-  // When the original prompt is a structured object, patch only the text field
-  // (scene for image_prompt, action for video_prompt) so the backend receives
-  // a valid dict. When it's a plain string, send the string as-is.
-  const buildPromptValue = (field: string, text: string): unknown => {
-    const original = field === "image_prompt" ? image_prompt : video_prompt;
-    if (typeof original === "object" && original !== null) {
-      const key = field === "image_prompt" ? "scene" : "action";
-      return { ...(original as unknown as Record<string, unknown>), [key]: text };
+  useEffect(() => {
+    if (!isStructuredImage) {
+      setImgDraft(null);
+      setImgText(promptToStr(image_prompt, "scene"));
     }
-    return text;
+  }, [image_prompt, isStructuredImage]);
+
+  useEffect(() => {
+    if (!isStructuredVideo) {
+      setVidDraft(null);
+      setVidText(promptToStr(video_prompt, "action"));
+    }
+  }, [video_prompt, isStructuredVideo]);
+
+  // ---- Firing helpers ----
+  const fireStructuredImage = (patch: Partial<ImagePrompt>) => {
+    setImgDraft((prev) => {
+      const base = prev ?? (isStructuredImage ? image_prompt : null);
+      if (!base) {
+        return prev;
+      }
+      const merged = mergePromptPatch(
+        base as unknown as Record<string, unknown>,
+        patch as Record<string, unknown>
+      ) as unknown as ImagePrompt;
+      onUpdatePrompt?.(segmentId, "image_prompt", merged);
+      return merged;
+    });
   };
 
-  const fire = (field: string, value: string) => {
-    onUpdatePrompt?.(segmentId, field, buildPromptValue(field, value));
+  const fireStructuredVideo = (patch: Partial<VideoPrompt>) => {
+    setVidDraft((prev) => {
+      const base = prev ?? (isStructuredVideo ? video_prompt : null);
+      if (!base) {
+        return prev;
+      }
+      const merged = mergePromptPatch(
+        base as unknown as Record<string, unknown>,
+        patch as Record<string, unknown>
+      ) as unknown as VideoPrompt;
+      onUpdatePrompt?.(segmentId, "video_prompt", merged);
+      return merged;
+    });
+  };
+
+  const fireString = (field: string, value: string) => {
+    onUpdatePrompt?.(segmentId, field, value);
   };
 
   return (
@@ -264,14 +353,21 @@ function PromptColumn({
           </span>
         </div>
 
-        <AutoTextarea
-          value={imgText}
-          onChange={(v) => {
-            setImgText(v);
-            fire("image_prompt", v);
-          }}
-          placeholder="分镜图描述..."
-        />
+        {isStructuredImage && imgDraft ? (
+          <ImagePromptEditor
+            prompt={imgDraft}
+            onUpdate={fireStructuredImage}
+          />
+        ) : (
+          <AutoTextarea
+            value={imgText}
+            onChange={(v) => {
+              setImgText(v);
+              fireString("image_prompt", v);
+            }}
+            placeholder="分镜图描述..."
+          />
+        )}
       </div>
 
       {/* ---- Video Prompt ---- */}
@@ -283,14 +379,21 @@ function PromptColumn({
           </span>
         </div>
 
-        <AutoTextarea
-          value={vidText}
-          onChange={(v) => {
-            setVidText(v);
-            fire("video_prompt", v);
-          }}
-          placeholder="视频动作描述..."
-        />
+        {isStructuredVideo && vidDraft ? (
+          <VideoPromptEditor
+            prompt={vidDraft}
+            onUpdate={fireStructuredVideo}
+          />
+        ) : (
+          <AutoTextarea
+            value={vidText}
+            onChange={(v) => {
+              setVidText(v);
+              fireString("video_prompt", v);
+            }}
+            placeholder="视频动作描述..."
+          />
+        )}
       </div>
     </div>
   );

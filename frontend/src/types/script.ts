@@ -5,26 +5,32 @@
  * - lib/script_models.py (NarrationSegment, DramaScene, ImagePrompt, VideoPrompt, etc.)
  */
 
-export type ShotType =
-  | "Extreme Close-up"
-  | "Close-up"
-  | "Medium Close-up"
-  | "Medium Shot"
-  | "Medium Long Shot"
-  | "Long Shot"
-  | "Extreme Long Shot"
-  | "Over-the-shoulder"
-  | "Point-of-view";
+export const SHOT_TYPES = [
+  "Extreme Close-up",
+  "Close-up",
+  "Medium Close-up",
+  "Medium Shot",
+  "Medium Long Shot",
+  "Long Shot",
+  "Extreme Long Shot",
+  "Over-the-shoulder",
+  "Point-of-view",
+] as const;
 
-export type CameraMotion =
-  | "Static"
-  | "Pan Left"
-  | "Pan Right"
-  | "Tilt Up"
-  | "Tilt Down"
-  | "Zoom In"
-  | "Zoom Out"
-  | "Tracking Shot";
+export type ShotType = (typeof SHOT_TYPES)[number];
+
+export const CAMERA_MOTIONS = [
+  "Static",
+  "Pan Left",
+  "Pan Right",
+  "Tilt Up",
+  "Tilt Down",
+  "Zoom In",
+  "Zoom Out",
+  "Tracking Shot",
+] as const;
+
+export type CameraMotion = (typeof CAMERA_MOTIONS)[number];
 
 export type TransitionType = "cut" | "fade" | "dissolve";
 export type DurationSeconds = 4 | 6 | 8;
