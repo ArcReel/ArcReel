@@ -169,18 +169,20 @@ def get_image_prompt(item: dict) -> str:
     return prompt
 
 
-def get_aspect_ratio(project_data: dict, asset_type: str) -> str:
+def get_aspect_ratio(project_data: dict, asset_type: str, content_mode: Optional[str] = None) -> str:
     """
     根据项目配置获取画面比例（通过 API 参数传递，不写入 prompt）
 
     Args:
         project_data: project.json 数据
         asset_type: "design" | "storyboard" | "video"
+        content_mode: 显式指定内容模式（优先于 project_data 中的值）
 
     Returns:
         画面比例字符串，如 "16:9" 或 "9:16"
     """
-    content_mode = project_data.get('content_mode', 'narration') if project_data else 'narration'
+    if content_mode is None:
+        content_mode = project_data.get('content_mode', 'narration') if project_data else 'narration'
 
     # 默认配置：说书模式使用竖屏，剧集动画模式使用横屏
     defaults = {
@@ -263,7 +265,13 @@ def build_direct_scene_prompt(
     style_prefix = '\n'.join(style_parts) + '\n\n' if style_parts else ''
 
     # narration 模式追加竖屏构图后缀，drama 模式通过 API aspect_ratio 参数控制
-    composition_suffix = "\n竖屏构图。" if content_mode == 'narration' else ""
+    composition_suffix = ""
+    if content_mode == 'narration':
+        # 结构化 prompt 使用换行，普通字符串使用空格，以保证格式正确
+        if is_structured_image_prompt(image_prompt):
+            composition_suffix = "\n竖屏构图。"
+        else:
+            composition_suffix = " 竖屏构图。"
 
     # 检测是否为结构化格式
     if is_structured_image_prompt(image_prompt):
@@ -271,7 +279,7 @@ def build_direct_scene_prompt(
         yaml_prompt = image_prompt_to_yaml(image_prompt, style)
         return f"{style_prefix}{yaml_prompt}{composition_suffix}"
 
-    return f"{style_prefix}{image_prompt}{' 竖屏构图。' if content_mode == 'narration' else ''}"
+    return f"{style_prefix}{image_prompt}{composition_suffix}"
 
 
 def _generate_storyboard_direct_image(
@@ -354,7 +362,7 @@ def generate_storyboard_direct(
     clues = project_data.get('clues', {}) if project_data else {}
     style = project_data.get('style', '') if project_data else ''
     style_description = project_data.get('style_description', '') if project_data else ''
-    storyboard_aspect_ratio = get_aspect_ratio(project_data, 'storyboard')  # 9:16
+    storyboard_aspect_ratio = get_aspect_ratio(project_data, 'storyboard', content_mode=content_mode)
     queue_worker_online = is_worker_online()
 
     print(f"📷 直接生成 {len(segments_to_process)} 个分镜图（无多宫格）...")
