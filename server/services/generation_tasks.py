@@ -179,37 +179,6 @@ def _collect_reference_images(
     return reference_images or None
 
 
-def _get_grid_layout(scene_count: int) -> Tuple[int, int, str]:
-    if scene_count <= 4:
-        return (2, 2, "2x2 四宫格")
-    return (2, 3, "2x3 六宫格")
-
-
-def _build_grid_prompt(scenes: List[dict], style: str, id_field: str) -> str:
-    scene_count = len(scenes)
-    _, _, layout_name = _get_grid_layout(scene_count)
-
-    descriptions = []
-    for i, scene in enumerate(scenes, 1):
-        image_prompt = scene.get("image_prompt", "")
-        if not image_prompt:
-            raise ValueError(f"scene missing image_prompt: {scene.get(id_field)}")
-
-        if is_structured_image_prompt(image_prompt):
-            prompt_content = image_prompt_to_yaml(image_prompt, style)
-        else:
-            prompt_content = str(image_prompt)
-
-        descriptions.append(f"宫格{i}（{scene[id_field]}）：{prompt_content}")
-
-    return (
-        f"一张 16:9 横屏的多宫格分镜图，包含 {scene_count} 个连续场景。\n"
-        f"采用 {layout_name} 布局，每个格子展示一个场景的关键画面。宫格之间用细黑线分隔。\n\n"
-        f"{chr(10).join(descriptions)}\n\n"
-        "人物必须与提供的参考图完全一致。"
-    )
-
-
 def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     script_file = payload.get("script_file")
     if not script_file:
@@ -431,91 +400,6 @@ def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, An
     }
 
 
-def execute_storyboard_grid_task(project_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    script_file = payload.get("script_file")
-    batch_id = payload.get("batch_id")
-    scene_ids = payload.get("scene_ids") or []
-
-    if not script_file:
-        raise ValueError("script_file is required for storyboard_grid task")
-    if not isinstance(batch_id, int):
-        raise ValueError("batch_id must be an int")
-    if not isinstance(scene_ids, list) or not scene_ids:
-        raise ValueError("scene_ids must be a non-empty list")
-
-    script = get_project_manager().load_script(project_name, script_file)
-    project = get_project_manager().load_project(project_name) if get_project_manager().project_exists(project_name) else {}
-    project_path = get_project_manager().get_project_path(project_name)
-
-    items, id_field, char_field, clue_field = _get_items_from_script(script)
-    scene_lookup = {str(item.get(id_field)): item for item in items}
-
-    selected_scenes: List[dict] = []
-    for scene_id in scene_ids:
-        scene = scene_lookup.get(str(scene_id))
-        if not scene:
-            raise ValueError(f"scene not found for storyboard_grid: {scene_id}")
-        selected_scenes.append(scene)
-
-    all_characters = set()
-    all_clues = set()
-    for scene in selected_scenes:
-        all_characters.update(scene.get(char_field, []))
-        all_clues.update(scene.get(clue_field, []))
-
-    reference_images: List[Path] = []
-    characters = project.get("characters", {})
-    clues = project.get("clues", {})
-
-    for char_name in all_characters:
-        char_sheet = characters.get(char_name, {}).get("character_sheet", "")
-        if not char_sheet:
-            continue
-        char_path = project_path / char_sheet
-        if char_path.exists():
-            reference_images.append(char_path)
-
-    for clue_name in all_clues:
-        clue_sheet = clues.get(clue_name, {}).get("clue_sheet", "")
-        if not clue_sheet:
-            continue
-        clue_path = project_path / clue_sheet
-        if clue_path.exists():
-            reference_images.append(clue_path)
-
-    style = project.get("style", "")
-    prompt = _build_grid_prompt(selected_scenes, style, id_field)
-
-    client = GeminiClient(rate_limiter=rate_limiter)
-    output_path = project_path / "storyboards" / f"grid_{batch_id:03d}.png"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    client.generate_image(
-        prompt=prompt,
-        reference_images=reference_images or None,
-        aspect_ratio="16:9",
-        output_path=output_path,
-    )
-
-    relative_path = f"storyboards/grid_{batch_id:03d}.png"
-    for scene in selected_scenes:
-        get_project_manager().update_scene_asset(
-            project_name=project_name,
-            script_filename=script_file,
-            scene_id=str(scene.get(id_field)),
-            asset_type="storyboard_grid",
-            asset_path=relative_path,
-        )
-
-    return {
-        "file_path": relative_path,
-        "batch_id": batch_id,
-        "scene_ids": [str(scene_id) for scene_id in scene_ids],
-        "resource_type": "storyboard_grid",
-        "resource_id": f"batch_{batch_id}",
-    }
-
-
 def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
     task_type = task.get("task_type")
     project_name = task.get("project_name")
@@ -533,7 +417,5 @@ def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
         return execute_character_task(project_name, str(resource_id), payload)
     if task_type == "clue":
         return execute_clue_task(project_name, str(resource_id), payload)
-    if task_type == "storyboard_grid":
-        return execute_storyboard_grid_task(project_name, payload)
 
     raise ValueError(f"unsupported task_type: {task_type}")

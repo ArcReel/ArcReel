@@ -127,10 +127,7 @@ class TestGenerationTasks:
         with pytest.raises(ValueError):
             generation_tasks._normalize_video_prompt({"action": ""})
 
-        assert generation_tasks._get_grid_layout(4)[2] == "2x2 四宫格"
-        assert generation_tasks._get_grid_layout(5)[2] == "2x3 六宫格"
-
-    def test_execute_task_dispatch_and_storyboard_grid(self, tmp_path, monkeypatch):
+    def test_execute_task_dispatch(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
@@ -169,12 +166,6 @@ class TestGenerationTasks:
         )
         assert clue_result["resource_type"] == "clues"
 
-        grid_result = generation_tasks.execute_storyboard_grid_task(
-            "demo",
-            {"script_file": "episode_1.json", "batch_id": 1, "scene_ids": ["E1S01"]},
-        )
-        assert grid_result["resource_type"] == "storyboard_grid"
-
         dispatch = generation_tasks.execute_generation_task(
             {
                 "task_type": "storyboard",
@@ -211,6 +202,3 @@ class TestGenerationTasks:
 
         with pytest.raises(ValueError):
             generation_tasks.execute_clue_task("demo", "玉佩", {"prompt": ""})
-
-        with pytest.raises(ValueError):
-            generation_tasks.execute_storyboard_grid_task("demo", {"script_file": "episode_1.json", "batch_id": "bad", "scene_ids": []})

@@ -108,11 +108,11 @@ class TestProjectManagerMore:
         pending_video = pm.get_pending_scenes("demo", "episode_1.json", "video_clip")
         assert len(pending_video) == 1
 
-        # get_scenes_needing_individual
+        # get_scenes_needing_storyboard
         drama = pm.load_script("demo", "episode_2.json")
-        drama["scenes"][0]["generated_assets"] = {"storyboard_grid": "storyboards/grid_001.png", "storyboard_image": None}
+        drama["scenes"][0]["generated_assets"] = {"storyboard_image": None}
         pm.save_script("demo", drama, "episode_2.json")
-        assert len(pm.get_scenes_needing_individual("demo", "episode_2.json")) == 1
+        assert len(pm.get_scenes_needing_storyboard("demo", "episode_2.json")) == 1
 
         with pytest.raises(KeyError):
             pm.update_scene_asset("demo", "episode_1.json", "NOT_FOUND", "video_clip", "x.mp4")
@@ -122,20 +122,14 @@ class TestProjectManagerMore:
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "drama")
 
-        scene = {"scene_id": "S1", "generated_assets": {"storyboard_grid": "g.png"}}
+        scene = {"scene_id": "S1", "generated_assets": {}}
         normalized = pm.normalize_scene(scene, episode=3)
         assert normalized["episode"] == 3
         assert normalized["generated_assets"]["status"] == "pending"
 
         assert pm.update_scene_status({"generated_assets": {"video_clip": "v.mp4"}}) == "completed"
         assert pm.update_scene_status({"generated_assets": {"storyboard_image": "s.png"}}) == "storyboard_ready"
-        assert (
-            pm.update_scene_status(
-                {"generated_assets": {"storyboard_grid": "g.png"}},
-                content_mode="drama",
-            )
-            == "in_progress"
-        )
+        assert pm.update_scene_status({"generated_assets": {}}) == "pending"
 
         raw_script = {
             "novel": {"chapter": "chapter"},

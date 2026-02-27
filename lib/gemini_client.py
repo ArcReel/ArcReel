@@ -353,7 +353,7 @@ class GeminiClient:
     """Gemini API 客户端封装"""
 
     # 跳过名称推断的文件名模式
-    SKIP_NAME_PATTERNS = ("grid_", "scene_", "storyboard_", "output_")
+    SKIP_NAME_PATTERNS = ("scene_", "storyboard_", "output_")
 
     def __init__(
         self, api_key: Optional[str] = None, rate_limiter: Optional[RateLimiter] = None

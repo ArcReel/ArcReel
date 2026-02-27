@@ -392,18 +392,12 @@ class ProjectManager:
         Returns:
             标准的 generated_assets 字典
         """
-        assets = {
+        return {
             "storyboard_image": None,
             "video_clip": None,
             "video_uri": None,
             "status": "pending",
         }
-
-        # 仅 drama 模式包含 storyboard_grid
-        if content_mode == "drama":
-            assets["storyboard_grid"] = None
-
-        return assets
 
     @staticmethod
     def create_scene_template(
@@ -507,26 +501,23 @@ class ProjectManager:
 
         return scene
 
-    def update_scene_status(self, scene: Dict, content_mode: str = "narration") -> str:
+    def update_scene_status(self, scene: Dict) -> str:
         """
         根据 generated_assets 内容更新并返回场景状态
 
         状态值:
         - pending: 未开始
-        - in_progress: 处理中（仅 drama 模式）
         - storyboard_ready: 分镜图完成
         - completed: 视频完成
 
         Args:
             scene: 场景字典
-            content_mode: 内容模式（'narration' 或 'drama'）
 
         Returns:
             更新后的状态值
         """
         assets = scene.get("generated_assets", {})
 
-        has_grid = bool(assets.get("storyboard_grid"))
         has_image = bool(assets.get("storyboard_image"))
         has_video = bool(assets.get("video_clip"))
 
@@ -534,9 +525,6 @@ class ProjectManager:
             status = "completed"
         elif has_image:
             status = "storyboard_ready"
-        elif content_mode == "drama" and has_grid:
-            # 仅 drama 模式下 grid 表示 in_progress
-            status = "in_progress"
         else:
             status = "pending"
 
@@ -683,7 +671,7 @@ class ProjectManager:
             project_name: 项目名称
             script_filename: 剧本文件名
             scene_id: 场景/片段 ID
-            asset_type: 资源类型 ('storyboard_grid', 'storyboard_image' 或 'video_clip')
+            asset_type: 资源类型 ('storyboard_image' 或 'video_clip')
             asset_path: 资源路径
 
         Returns:
@@ -715,7 +703,7 @@ class ProjectManager:
                 assets[asset_type] = asset_path
 
                 # 使用 update_scene_status 更新状态
-                self.update_scene_status(item, content_mode)
+                self.update_scene_status(item)
 
                 self.save_script(project_name, script, script_filename)
                 return script
@@ -769,14 +757,11 @@ class ProjectManager:
         """获取输出路径"""
         return self.get_project_path(project_name) / "output" / filename
 
-    def get_scenes_needing_individual(
+    def get_scenes_needing_storyboard(
         self, project_name: str, script_filename: str
     ) -> List[Dict]:
         """
-        获取需要生成分镜图的场景/片段列表
-
-        - narration 模式：返回所有没有 storyboard_image 的片段
-        - drama 模式：返回有 storyboard_grid 但无 storyboard_image 的场景
+        获取需要生成分镜图的场景/片段列表（两种模式统一逻辑）
 
         Args:
             project_name: 项目名称
@@ -787,25 +772,17 @@ class ProjectManager:
         """
         script = self.load_script(project_name, script_filename)
 
-        # 根据内容模式选择正确的数据结构
         content_mode = script.get("content_mode", "narration")
         if content_mode == "narration" and "segments" in script:
             items = script["segments"]
-            # narration 模式：直接检查是否缺少 storyboard_image
-            return [
-                item
-                for item in items
-                if not item.get("generated_assets", {}).get("storyboard_image")
-            ]
         else:
             items = script.get("scenes", [])
-            # drama 模式：需要先有 grid，再生成 image
-            return [
-                item
-                for item in items
-                if item.get("generated_assets", {}).get("storyboard_grid")
-                and not item.get("generated_assets", {}).get("storyboard_image")
-            ]
+
+        return [
+            item
+            for item in items
+            if not item.get("generated_assets", {}).get("storyboard_image")
+        ]
 
     # ==================== 项目级元数据管理 ====================
 
