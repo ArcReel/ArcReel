@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { Loader2, Plus, FolderOpen } from "lucide-react";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
+import { CreateProjectModal } from "./CreateProjectModal";
 import type { ProjectSummary } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -78,9 +79,8 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
 // ---------------------------------------------------------------------------
 
 export function ProjectsPage() {
-  const { projects, projectsLoading, setProjects, setProjectsLoading } =
+  const { projects, projectsLoading, showCreateModal, setProjects, setProjectsLoading, setShowCreateModal } =
     useProjectsStore();
-  const [, navigate] = useLocation();
 
   useEffect(() => {
     let cancelled = false;
@@ -114,7 +114,7 @@ export function ProjectsPage() {
           </h1>
           <button
             type="button"
-            onClick={() => navigate("/app/projects/new")}
+            onClick={() => setShowCreateModal(true)}
             className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-white hover:from-indigo-400 hover:to-fuchsia-400 transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
@@ -144,6 +144,9 @@ export function ProjectsPage() {
           </div>
         )}
       </main>
+
+      {/* Create project modal */}
+      {showCreateModal && <CreateProjectModal />}
     </div>
   );
 }

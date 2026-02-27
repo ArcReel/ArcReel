@@ -1,9 +1,12 @@
+import { useState, useEffect } from "react";
 import { ChevronLeft, Activity, Settings, DollarSign } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageStore } from "@/stores/usage-store";
 import { TaskHud } from "@/components/task-hud/TaskHud";
+import { UsageDrawer } from "./UsageDrawer";
+import { API } from "@/api";
 
 // ---------------------------------------------------------------------------
 // Phase definitions
@@ -86,11 +89,27 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const { stats } = useTasksStore();
   const { taskHudOpen, setTaskHudOpen } = useAppStore();
-  const { stats: usageStats } = useUsageStore();
+  const { stats: usageStats, setStats: setUsageStats } = useUsageStore();
+  const [usageDrawerOpen, setUsageDrawerOpen] = useState(false);
 
   const currentPhase = currentProjectData?.status?.current_phase;
   const contentMode = currentProjectData?.content_mode;
   const runningCount = stats.running + stats.queued;
+
+  // 加载费用统计数据
+  useEffect(() => {
+    API.getUsageStats(currentProjectName ? { projectName: currentProjectName } : {})
+      .then((res) => {
+        setUsageStats(res as {
+          total_cost: number;
+          image_count: number;
+          video_count: number;
+          failed_count: number;
+          total_count: number;
+        });
+      })
+      .catch(() => {});
+  }, [currentProjectName, setUsageStats]);
 
   // Format content mode badge text
   const modeBadgeText =
@@ -138,15 +157,27 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
       {/* ---- Right section ---- */}
       <div className="flex items-center gap-3">
-        {/* Cost badge */}
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-          title={`项目总花费: ${costText}`}
-        >
-          <DollarSign className="h-3.5 w-3.5" />
-          <span>{costText}</span>
-        </button>
+        {/* Cost badge + UsageDrawer */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setUsageDrawerOpen(!usageDrawerOpen)}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors ${
+              usageDrawerOpen
+                ? "bg-indigo-500/20 text-indigo-400"
+                : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            }`}
+            title={`项目总花费: ${costText}`}
+          >
+            <DollarSign className="h-3.5 w-3.5" />
+            <span>{costText}</span>
+          </button>
+          <UsageDrawer
+            open={usageDrawerOpen}
+            onClose={() => setUsageDrawerOpen(false)}
+            projectName={currentProjectName}
+          />
+        </div>
 
         {/* Task radar + TaskHud popover */}
         <div className="relative">
@@ -183,6 +214,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
         >
           <Settings className="h-4 w-4" />
         </button>
+
       </div>
     </header>
   );

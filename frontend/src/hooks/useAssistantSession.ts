@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { API } from "@/api";
 import { useAssistantStore } from "@/stores/assistant-store";
-import type { Turn, PendingQuestion } from "@/types";
+import type { Turn, PendingQuestion, SessionMeta } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Helpers — 从旧 use-assistant-state.js 移植
@@ -28,6 +28,31 @@ function applyTurnPatch(prev: Turn[], patch: Record<string, unknown>): Turn[] {
 }
 
 const TERMINAL = new Set(["completed", "error", "interrupted"]);
+
+// ---------------------------------------------------------------------------
+// localStorage helpers — 记住每个项目最后使用的会话
+// ---------------------------------------------------------------------------
+
+const LAST_SESSION_KEY = "arcreel:lastSessionByProject";
+
+function getLastSessionId(projectName: string): string | null {
+  try {
+    const map = JSON.parse(localStorage.getItem(LAST_SESSION_KEY) || "{}");
+    return map[projectName] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLastSessionId(projectName: string, sessionId: string): void {
+  try {
+    const map = JSON.parse(localStorage.getItem(LAST_SESSION_KEY) || "{}");
+    map[projectName] = sessionId;
+    localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(map));
+  } catch {
+    // 静默失败
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -157,7 +182,11 @@ export function useAssistantSession(projectName: string | null) {
         const sessions = res.sessions ?? [];
         store.getState().setSessions(sessions);
 
-        const sessionId = sessions[0]?.id;
+        // 优先使用上次选择的会话（如果仍存在于列表中）
+        const lastId = getLastSessionId(projectName!);
+        const sessionId = (lastId && sessions.some((s: SessionMeta) => s.id === lastId))
+          ? lastId
+          : sessions[0]?.id;
         if (!sessionId) {
           store.getState().setCurrentSessionId(null);
           store.getState().setMessagesLoading(false);
@@ -214,12 +243,29 @@ export function useAssistantSession(projectName: string | null) {
       try {
         let sessionId = store.getState().currentSessionId;
 
-        // 如果没有会话，创建一个
+        // 如果没有会话，创建一个（懒创建：以首条消息作为标题）
         if (!sessionId && projectName) {
-          const res = await API.createAssistantSession(projectName, "");
-          sessionId = res.session.id;
-          store.getState().setCurrentSessionId(sessionId);
-          store.getState().setSessions([res.session, ...store.getState().sessions]);
+          const title = content.trim().slice(0, 30);
+          const res = await API.createAssistantSession(projectName, title);
+          const raw = res as Record<string, unknown>;
+          const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
+          sessionId = (sessionObj.id as string) ?? null;
+          if (sessionId) {
+            const newSession: SessionMeta = {
+              id: sessionId,
+              sdk_session_id: null,
+              transcript_path: null,
+              project_name: projectName,
+              title,
+              status: "idle" as const,
+              created_at: (sessionObj.created_at as string) ?? new Date().toISOString(),
+              updated_at: (sessionObj.created_at as string) ?? new Date().toISOString(),
+            };
+            store.getState().setCurrentSessionId(sessionId);
+            store.getState().setSessions([newSession, ...store.getState().sessions]);
+            store.getState().setIsDraftSession(false);
+            saveLastSessionId(projectName, sessionId);
+          }
         }
 
         if (!sessionId) throw new Error("无法创建会话");
@@ -253,5 +299,81 @@ export function useAssistantSession(projectName: string | null) {
     }
   }, [store]);
 
-  return { sendMessage, interrupt };
+  // 创建新会话（懒创建：仅清空状态，实际创建延迟到首次发消息时）
+  const createNewSession = useCallback(async () => {
+    if (!projectName) return;
+
+    closeStream();
+    store.getState().setTurns([]);
+    store.getState().setDraftTurn(null);
+    store.getState().setSessionStatus("idle");
+    store.getState().setPendingQuestion(null);
+    store.getState().setCurrentSessionId(null);
+    store.getState().setIsDraftSession(true);
+    statusRef.current = "idle";
+  }, [projectName, closeStream, store]);
+
+  // 切换到指定会话
+  const switchSession = useCallback(async (sessionId: string) => {
+    if (store.getState().currentSessionId === sessionId) return;
+
+    closeStream();
+    store.getState().setCurrentSessionId(sessionId);
+    store.getState().setIsDraftSession(false);
+    store.getState().setTurns([]);
+    store.getState().setDraftTurn(null);
+    store.getState().setPendingQuestion(null);
+    store.getState().setMessagesLoading(true);
+
+    // 记住选择
+    if (projectName) saveLastSessionId(projectName, sessionId);
+
+    try {
+      const res = await API.getAssistantSession(sessionId);
+      const raw = res as Record<string, unknown>;
+      const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
+      const status = (sessionObj.status as string) ?? "idle";
+      statusRef.current = status;
+      store.getState().setSessionStatus(status as "idle");
+
+      if (status === "running") {
+        connectStream(sessionId);
+      } else {
+        const snapshot = await API.getAssistantSnapshot(sessionId);
+        store.getState().setTurns((snapshot.turns as Turn[]) ?? []);
+        store.getState().setDraftTurn((snapshot.draft_turn as Turn) ?? null);
+      }
+    } catch {
+      // 静默失败
+    } finally {
+      store.getState().setMessagesLoading(false);
+    }
+  }, [projectName, closeStream, connectStream, store]);
+
+  // 删除会话
+  const deleteSession = useCallback(async (sessionId: string) => {
+    try {
+      await API.deleteAssistantSession(sessionId);
+      const sessions = store.getState().sessions.filter((s) => s.id !== sessionId);
+      store.getState().setSessions(sessions);
+
+      // 如果删除的是当前会话，切换到下一个
+      if (store.getState().currentSessionId === sessionId) {
+        if (sessions.length > 0) {
+          await switchSession(sessions[0].id);
+        } else {
+          closeStream();
+          store.getState().setCurrentSessionId(null);
+          store.getState().setTurns([]);
+          store.getState().setDraftTurn(null);
+          store.getState().setSessionStatus(null);
+          statusRef.current = "idle";
+        }
+      }
+    } catch {
+      // 静默失败
+    }
+  }, [closeStream, switchSession, store]);
+
+  return { sendMessage, interrupt, createNewSession, switchSession, deleteSession };
 }

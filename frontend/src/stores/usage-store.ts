@@ -17,12 +17,17 @@ interface UsageStats {
 interface UsageCall {
   id: string;
   project_name: string;
-  media_type: string;
+  call_type: string;
   model: string;
   status: string;
-  cost: number;
+  cost_usd: number;
+  output_path: string | null;
+  resolution: string | null;
+  duration_seconds: number | null;
+  duration_ms: number | null;
+  error_message: string | null;
+  started_at: string;
   created_at: string;
-  [key: string]: unknown;
 }
 
 interface UsageState {

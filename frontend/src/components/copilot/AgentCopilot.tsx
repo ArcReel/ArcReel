@@ -1,11 +1,125 @@
-import { useState, useRef, useCallback } from "react";
-import { Bot, Send, Square } from "lucide-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRightClose } from "lucide-react";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useAppStore } from "@/stores/app-store";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
 import { ContextBanner } from "./ContextBanner";
 import { SkillPills } from "./SkillPills";
 import { ChatMessage } from "./chat/ChatMessage";
+
+// ---------------------------------------------------------------------------
+// SessionSelector — 会话下拉选择器
+// ---------------------------------------------------------------------------
+
+function SessionSelector({
+  onSwitch,
+  onDelete,
+}: {
+  onSwitch: (sessionId: string) => void;
+  onDelete: (sessionId: string) => void;
+}) {
+  const { sessions, currentSessionId, isDraftSession } = useAssistantStore();
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // 点击外部关闭下拉
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const currentSession = sessions.find((s) => s.id === currentSessionId);
+  const displayTitle = isDraftSession ? "新会话" : (currentSession?.title || formatTime(currentSession?.created_at));
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+        title="切换会话"
+      >
+        <MessageSquare className="h-3 w-3" />
+        <span className="max-w-24 truncate">{displayTitle || "无会话"}</span>
+        <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && sessions.length > 0 && (
+        <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-gray-700 bg-gray-850 shadow-xl"
+          style={{ backgroundColor: "rgb(17 24 39)" }}
+        >
+          <div className="max-h-60 overflow-y-auto py-1">
+            {sessions.map((session) => {
+              const isActive = session.id === currentSessionId;
+              const title = session.title || formatTime(session.created_at);
+              return (
+                <div
+                  key={session.id}
+                  className={`group flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
+                    isActive
+                      ? "bg-indigo-500/10 text-indigo-300"
+                      : "text-gray-300 hover:bg-gray-800"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => { onSwitch(session.id); setOpen(false); }}
+                    className="flex flex-1 items-center gap-2 truncate text-left"
+                  >
+                    <StatusDot status={session.status} />
+                    <span className="truncate">{title}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
+                    className="shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                    title="删除会话"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusDot({ status }: { status: string }) {
+  const colorMap: Record<string, string> = {
+    idle: "bg-gray-500",
+    running: "bg-amber-400",
+    completed: "bg-green-500",
+    error: "bg-red-500",
+    interrupted: "bg-gray-400",
+  };
+  return (
+    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${colorMap[status] ?? "bg-gray-500"}`} />
+  );
+}
+
+function formatTime(isoStr: string | undefined): string {
+  if (!isoStr) return "新会话";
+  try {
+    const d = new Date(isoStr);
+    return `${(d.getMonth() + 1).toString().padStart(2, "0")}/${d.getDate().toString().padStart(2, "0")} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+  } catch {
+    return "新会话";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AgentCopilot — 主面板
+// ---------------------------------------------------------------------------
 
 export function AgentCopilot() {
   const {
@@ -14,7 +128,9 @@ export function AgentCopilot() {
   } = useAssistantStore();
 
   const { currentProjectName } = useProjectsStore();
-  const { sendMessage, interrupt } = useAssistantSession(currentProjectName);
+  const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
+  const { sendMessage, interrupt, createNewSession, switchSession, deleteSession } =
+    useAssistantSession(currentProjectName);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [localInput, setLocalInput] = useState("");
@@ -32,30 +148,56 @@ export function AgentCopilot() {
     }
   }, [handleSend]);
 
+  // 新消息时自动滚动到底部
   const allTurns = draftTurn ? [...turns, draftTurn] : turns;
   const isRunning = sessionStatus === "running";
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [allTurns.length]);
 
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex h-10 items-center justify-between border-b border-gray-800 px-4">
+      <div className="flex h-10 items-center justify-between border-b border-gray-800 px-3">
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleAssistantPanel}
+            className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+            title="收起助手面板"
+          >
+            <PanelRightClose className="h-4 w-4" />
+          </button>
           <Bot className="h-4 w-4 text-indigo-400" />
-          <span className="text-sm font-medium text-gray-300">AI 副驾驶</span>
+          <span className="text-sm font-medium text-gray-300">ArcReel 智能体</span>
         </div>
-        {isRunning && (
-          <span className="flex items-center gap-1.5 text-xs text-indigo-400">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400" />
-            思考中
-          </span>
-        )}
+        <div className="flex items-center gap-1">
+          {isRunning && (
+            <span className="flex items-center gap-1.5 text-xs text-indigo-400 mr-1">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400" />
+              思考中
+            </span>
+          )}
+          <SessionSelector onSwitch={switchSession} onDelete={deleteSession} />
+          <button
+            type="button"
+            onClick={createNewSession}
+            className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+            title="新建会话"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* Context banner */}
       <ContextBanner />
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+      <div ref={scrollRef} className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-3 py-3 space-y-3">
         {allTurns.length === 0 && !messagesLoading && (
           <div className="flex h-full flex-col items-center justify-center text-center text-gray-500">
             <Bot className="mb-3 h-8 w-8 text-gray-600" />

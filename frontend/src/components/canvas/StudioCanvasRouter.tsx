@@ -1,8 +1,15 @@
-import { Route, Switch } from "wouter";
+import { useState, useCallback } from "react";
+import { Route, Switch, Redirect, useLocation } from "wouter";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useAppStore } from "@/stores/app-store";
 import { LorebookGallery } from "./lorebook/LorebookGallery";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
+import { SourceFileViewer } from "./SourceFileViewer";
+import { AddCharacterForm } from "./lorebook/AddCharacterForm";
+import { AddClueForm } from "./lorebook/AddClueForm";
+import { API } from "@/api";
+import type { Character, Clue } from "@/types";
 
 // ---------------------------------------------------------------------------
 // StudioCanvasRouter — reads Zustand store data and renders the correct
@@ -12,6 +19,92 @@ import { OverviewCanvas } from "./OverviewCanvas";
 export function StudioCanvasRouter() {
   const { currentProjectData, currentProjectName, currentScripts } =
     useProjectsStore();
+
+  const [addingCharacter, setAddingCharacter] = useState(false);
+  const [addingClue, setAddingClue] = useState(false);
+
+  // 刷新项目数据
+  const refreshProject = useCallback(async () => {
+    if (!currentProjectName) return;
+    try {
+      const res = await API.getProject(currentProjectName);
+      useProjectsStore.getState().setCurrentProject(
+        currentProjectName,
+        res.project,
+        res.scripts ?? {},
+      );
+    } catch {
+      // 静默失败
+    }
+  }, [currentProjectName]);
+
+  // ---- Character CRUD callbacks ----
+  const handleUpdateCharacter = useCallback(async (name: string, updates: Partial<Character>) => {
+    if (!currentProjectName) return;
+    try {
+      await API.updateCharacter(currentProjectName, name, updates);
+      await refreshProject();
+    } catch (err) {
+      useAppStore.getState().pushToast(`更新角色失败: ${(err as Error).message}`, "error");
+    }
+  }, [currentProjectName, refreshProject]);
+
+  const handleGenerateCharacter = useCallback(async (name: string) => {
+    if (!currentProjectName) return;
+    try {
+      await API.generateCharacter(currentProjectName, name, currentProjectData?.characters?.[name]?.description ?? "");
+      useAppStore.getState().pushToast(`已提交角色 "${name}" 设计图生成任务`, "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(`生成失败: ${(err as Error).message}`, "error");
+    }
+  }, [currentProjectName, currentProjectData]);
+
+  const handleAddCharacterSubmit = useCallback(async (name: string, description: string, voiceStyle: string) => {
+    if (!currentProjectName) return;
+    try {
+      await API.addCharacter(currentProjectName, name, description, voiceStyle);
+      await refreshProject();
+      setAddingCharacter(false);
+      useAppStore.getState().pushToast(`角色 "${name}" 已添加`, "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(`添加失败: ${(err as Error).message}`, "error");
+    }
+  }, [currentProjectName, refreshProject]);
+
+  // ---- Clue CRUD callbacks ----
+  const handleUpdateClue = useCallback(async (name: string, updates: Partial<Clue>) => {
+    if (!currentProjectName) return;
+    try {
+      await API.updateClue(currentProjectName, name, updates);
+      await refreshProject();
+    } catch (err) {
+      useAppStore.getState().pushToast(`更新线索失败: ${(err as Error).message}`, "error");
+    }
+  }, [currentProjectName, refreshProject]);
+
+  const handleGenerateClue = useCallback(async (name: string) => {
+    if (!currentProjectName) return;
+    try {
+      await API.generateClue(currentProjectName, name, currentProjectData?.clues?.[name]?.description ?? "");
+      useAppStore.getState().pushToast(`已提交线索 "${name}" 设计图生成任务`, "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(`生成失败: ${(err as Error).message}`, "error");
+    }
+  }, [currentProjectName, currentProjectData]);
+
+  const handleAddClueSubmit = useCallback(async (name: string, clueType: string, description: string, importance: string) => {
+    if (!currentProjectName) return;
+    try {
+      await API.addClue(currentProjectName, name, clueType, description, importance);
+      await refreshProject();
+      setAddingClue(false);
+      useAppStore.getState().pushToast(`线索 "${name}" 已添加`, "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(`添加失败: ${(err as Error).message}`, "error");
+    }
+  }, [currentProjectName, refreshProject]);
+
+  const [location] = useLocation();
 
   if (!currentProjectName) {
     return (
@@ -31,15 +124,46 @@ export function StudioCanvasRouter() {
       </Route>
 
       <Route path="/lorebook">
-        <LorebookGallery
-          projectName={currentProjectName}
-          characters={currentProjectData?.characters ?? {}}
-          clues={currentProjectData?.clues ?? {}}
-          onUpdateCharacter={() => {}}
-          onUpdateClue={() => {}}
-          onGenerateCharacter={() => {}}
-          onGenerateClue={() => {}}
-        />
+        <Redirect to="/characters" />
+      </Route>
+
+      {/* Characters & Clues share one LorebookGallery to avoid remount flash */}
+      {(location === "/characters" || location === "/clues") && (
+        <div className="p-4">
+          <LorebookGallery
+            projectName={currentProjectName}
+            characters={currentProjectData?.characters ?? {}}
+            clues={currentProjectData?.clues ?? {}}
+            mode={location === "/clues" ? "clues" : "characters"}
+            onUpdateCharacter={handleUpdateCharacter}
+            onUpdateClue={handleUpdateClue}
+            onGenerateCharacter={handleGenerateCharacter}
+            onGenerateClue={handleGenerateClue}
+            onAddCharacter={() => setAddingCharacter(true)}
+            onAddClue={() => setAddingClue(true)}
+          />
+          {addingCharacter && (
+            <AddCharacterForm
+              onSubmit={handleAddCharacterSubmit}
+              onCancel={() => setAddingCharacter(false)}
+            />
+          )}
+          {addingClue && (
+            <AddClueForm
+              onSubmit={handleAddClueSubmit}
+              onCancel={() => setAddingClue(false)}
+            />
+          )}
+        </div>
+      )}
+
+      <Route path="/source/:filename">
+        {(params) => (
+          <SourceFileViewer
+            projectName={currentProjectName}
+            filename={decodeURIComponent(params.filename)}
+          />
+        )}
       </Route>
 
       <Route path="/episodes/:episodeId">
@@ -49,8 +173,11 @@ export function StudioCanvasRouter() {
             (e) => e.episode === epNum,
           );
           const scriptFile = episode?.script_file;
+          // Backend strips "scripts/" prefix from keys, so try both forms
           const script = scriptFile
-            ? (currentScripts[scriptFile] ?? null)
+            ? (currentScripts[scriptFile] ??
+               currentScripts[scriptFile.replace(/^scripts\//, "")] ??
+               null)
             : null;
 
           return (

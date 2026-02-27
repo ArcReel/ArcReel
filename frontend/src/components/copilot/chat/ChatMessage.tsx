@@ -36,17 +36,17 @@ export function ChatMessage({ message }: ChatMessageProps) {
   const isSystem = messageType === "system";
 
   const containerClass = isUser
-    ? "ml-8 bg-neon-500/15 border-neon-400/25"
+    ? "ml-4 bg-neon-500/15 border-neon-400/25"
     : isSystem
-      ? "mr-3 bg-slate-800/30 border-slate-600/20"
-      : "mr-3 bg-white/5 border-white/10";
+      ? "bg-slate-800/30 border-slate-600/20"
+      : "bg-white/5 border-white/10";
 
   return (
-    <article className={cn("rounded-xl px-3 py-2 border", containerClass)}>
+    <article className={cn("rounded-xl px-3 py-2 border min-w-0", containerClass)}>
       <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">
         {getRoleLabel(messageType)}
       </div>
-      <div className="text-sm text-slate-100 leading-6">
+      <div className="text-sm text-slate-100 leading-6 min-w-0 overflow-hidden">
         {blocks.map((block, index) => (
           <ContentBlockRenderer
             key={block.id ?? index}

@@ -40,8 +40,8 @@ function getCharacterNames(
   mode: "narration" | "drama"
 ): string[] {
   return mode === "narration"
-    ? (segment as NarrationSegment).characters_in_segment
-    : (segment as DramaScene).characters_in_scene;
+    ? ((segment as NarrationSegment).characters_in_segment ?? [])
+    : ((segment as DramaScene).characters_in_scene ?? []);
 }
 
 // ---------------------------------------------------------------------------
@@ -350,10 +350,10 @@ function MediaColumn({
   generatingVideo?: boolean;
 }) {
   const assets = segment.generated_assets;
-  const storyboardUrl = assets.storyboard_image
+  const storyboardUrl = assets?.storyboard_image
     ? API.getFileUrl(projectName, assets.storyboard_image)
     : null;
-  const videoUrl = assets.video_clip
+  const videoUrl = assets?.video_clip
     ? API.getFileUrl(projectName, assets.video_clip)
     : null;
 
@@ -364,47 +364,61 @@ function MediaColumn({
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
-        预览
-      </span>
-
-      {/* Media preview */}
-      <AspectFrame ratio={normalizedRatio}>
-        {videoUrl ? (
-          <VideoPlayer src={videoUrl} />
-        ) : (
+      {/* ---- Storyboard image (always shown) ---- */}
+      <div>
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <ImageIcon className="h-3 w-3 text-gray-500" />
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">分镜图</span>
+        </div>
+        <AspectFrame ratio={normalizedRatio}>
           <ImageFlipReveal
             src={storyboardUrl}
             alt={`${segmentId} storyboard`}
             className="h-full w-full object-cover"
             fallback={
-              <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
+              <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-600">
                 <ImageIcon className="h-8 w-8" />
-                <span className="text-xs">暂无媒体</span>
+                <span className="text-xs">暂无分镜</span>
               </div>
             }
           />
+        </AspectFrame>
+        <div className="mt-2">
+          <GenerateButton
+            onClick={() => onGenerateStoryboard?.(segmentId)}
+            loading={generatingStoryboard}
+            label="生成分镜"
+            className="w-full justify-center"
+          />
+        </div>
+      </div>
+
+      {/* ---- Video (shown when available or as placeholder) ---- */}
+      <div>
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <Film className="h-3 w-3 text-gray-500" />
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">视频</span>
+        </div>
+        {videoUrl ? (
+          <AspectFrame ratio={normalizedRatio}>
+            <VideoPlayer src={videoUrl} />
+          </AspectFrame>
+        ) : (
+          <div className="flex items-center justify-center rounded-lg border border-dashed border-gray-700 bg-gray-800/30 py-4">
+            <span className="text-xs text-gray-600">
+              {assets?.storyboard_image ? "可生成视频" : "需先生成分镜"}
+            </span>
+          </div>
         )}
-      </AspectFrame>
-
-      {/* VersionTimeMachine placeholder (Task 2.3) */}
-      <div className="h-6" />
-
-      {/* Generate buttons */}
-      <div className="flex flex-col gap-2">
-        <GenerateButton
-          onClick={() => onGenerateStoryboard?.(segmentId)}
-          loading={generatingStoryboard}
-          label="生成分镜"
-          className="w-full justify-center"
-        />
-        <GenerateButton
-          onClick={() => onGenerateVideo?.(segmentId)}
-          loading={generatingVideo}
-          label="生成视频"
-          className="w-full justify-center"
-          disabled={!assets.storyboard_image}
-        />
+        <div className="mt-2">
+          <GenerateButton
+            onClick={() => onGenerateVideo?.(segmentId)}
+            loading={generatingVideo}
+            label="生成视频"
+            className="w-full justify-center"
+            disabled={!assets?.storyboard_image}
+          />
+        </div>
       </div>
     </div>
   );

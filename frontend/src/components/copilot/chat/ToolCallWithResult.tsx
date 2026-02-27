@@ -111,34 +111,27 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
     ? `/${extractSkillInfo(block.input).skillName}`
     : getToolSummary(toolName, block.input);
 
-  const args = isSkill ? extractSkillInfo(block.input).args : null;
-
   return (
-    <div className={cn("my-1.5 rounded-lg border overflow-hidden", borderClass, bgClass)}>
+    <div className={cn("my-1.5 rounded-lg border overflow-hidden min-w-0", borderClass, bgClass)}>
       {/* Header button */}
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-white/5 transition-colors"
+        className="w-full px-2.5 py-1.5 flex items-center justify-between text-left hover:bg-white/5 transition-colors"
       >
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className={cn("text-xs font-semibold uppercase shrink-0", labelColor)}>
+        <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+          <span className={cn("text-[10px] font-semibold uppercase shrink-0", labelColor)}>
             {toolName}
           </span>
-          <span className="text-xs text-slate-300 truncate">
+          <span className="text-[11px] text-slate-300 truncate">
             {summary}
           </span>
-          {args && (
-            <span className="text-xs text-slate-500 truncate">
-              {args.length > 30 ? args.slice(0, 30) + "..." : args}
-            </span>
-          )}
         </div>
-        <div className="flex items-center gap-2 shrink-0 ml-2">
+        <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
           <span className={cn("text-xs font-medium", statusColor)}>
             {statusIcon}
           </span>
-          <span className="text-xs text-slate-500">
+          <span className="text-[10px] text-slate-500">
             {isExpanded ? "\u25BC" : "\u25B6"}
           </span>
         </div>
@@ -148,22 +141,22 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
       {isExpanded && (
         <div className="border-t border-white/10">
           {/* Tool Input */}
-          <div className="px-3 py-2 bg-ink-900/30">
+          <div className="px-2.5 py-2 bg-ink-900/30">
             <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
               输入参数
             </div>
-            <pre className="text-xs text-slate-300 overflow-x-auto whitespace-pre-wrap max-h-32 overflow-y-auto">
+            <pre className="text-[11px] text-slate-300 whitespace-pre-wrap break-all max-h-32 overflow-y-auto">
               {JSON.stringify(block.input, null, 2)}
             </pre>
           </div>
 
           {/* Skill Content (only for Skill tool) */}
           {hasSkillContent && (
-            <div className="px-3 py-2 border-t border-purple-400/10 bg-purple-900/10">
+            <div className="px-2.5 py-2 border-t border-purple-400/10 bg-purple-900/10">
               <div className="text-[10px] uppercase tracking-wide text-purple-400 mb-1">
                 Skill 内容
               </div>
-              <div className="max-h-48 overflow-y-auto text-xs">
+              <div className="max-h-48 overflow-y-auto text-xs overflow-hidden">
                 <StreamMarkdown content={block.skill_content!} />
               </div>
             </div>
@@ -173,7 +166,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
           {hasResult && (
             <div
               className={cn(
-                "px-3 py-2 border-t",
+                "px-2.5 py-2 border-t",
                 isError
                   ? "border-red-400/20 bg-red-900/10"
                   : "border-white/10 bg-ink-900/50",
@@ -187,7 +180,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
               >
                 {isError ? "执行失败" : "执行结果"}
               </div>
-              <pre className="text-xs text-slate-300 overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+              <pre className="text-[11px] text-slate-300 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
                 {typeof block.result === "string"
                   ? block.result
                   : JSON.stringify(block.result, null, 2)}

@@ -7,6 +7,7 @@ import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useAssistantStore } from "@/stores/assistant-store";
 
 // ---------------------------------------------------------------------------
 // StudioWorkspace — loads project data and renders three-column layout
@@ -20,6 +21,15 @@ function StudioWorkspace() {
   useEffect(() => {
     if (!projectName) return;
     let cancelled = false;
+
+    // 清空上一个项目的 assistant 状态，确保会话隔离
+    const assistantState = useAssistantStore.getState();
+    assistantState.setSessions([]);
+    assistantState.setCurrentSessionId(null);
+    assistantState.setTurns([]);
+    assistantState.setDraftTurn(null);
+    assistantState.setSessionStatus(null);
+    assistantState.setIsDraftSession(false);
 
     setProjectDetailLoading(true);
     API.getProject(projectName)

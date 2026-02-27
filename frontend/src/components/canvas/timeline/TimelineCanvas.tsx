@@ -75,8 +75,8 @@ export function TimelineCanvas({
   // Pick the correct array (segments for narration, scenes for drama)
   const segments: Segment[] =
     contentMode === "narration"
-      ? (episodeScript as NarrationEpisodeScript).segments
-      : (episodeScript as DramaEpisodeScript).scenes;
+      ? ((episodeScript as NarrationEpisodeScript).segments ?? [])
+      : ((episodeScript as DramaEpisodeScript).scenes ?? []);
 
   // Compute total duration from actual segments if available
   const totalDuration =

@@ -14,6 +14,8 @@ interface LorebookGalleryProps {
   projectName: string;
   characters: Record<string, Character>;
   clues: Record<string, Clue>;
+  /** When specified, only show the given section without tab bar. */
+  mode?: "characters" | "clues";
   onUpdateCharacter: (name: string, updates: Partial<Character>) => void;
   onUpdateClue: (name: string, updates: Partial<Clue>) => void;
   onGenerateCharacter: (name: string) => void;
@@ -40,6 +42,7 @@ export function LorebookGallery({
   projectName,
   characters,
   clues,
+  mode,
   onUpdateCharacter,
   onUpdateClue,
   onGenerateCharacter,
@@ -48,7 +51,13 @@ export function LorebookGallery({
   onAddCharacter,
   onAddClue,
 }: LorebookGalleryProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("characters");
+  const [activeTab, setActiveTab] = useState<Tab>(mode ?? "characters");
+  const showTabs = !mode;
+
+  // Sync activeTab when mode prop changes (avoids stale tab on route switch)
+  useEffect(() => {
+    if (mode) setActiveTab(mode);
+  }, [mode]);
 
   // Respond to agent-triggered scroll targets
   useScrollTarget("character");
@@ -74,7 +83,8 @@ export function LorebookGallery({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* ---- Tab bar ---- */}
+      {/* ---- Tab bar (hidden when mode is specified) ---- */}
+      {showTabs && (
       <div className="flex border-b border-gray-800">
         <TabButton
           active={activeTab === "characters"}
@@ -89,6 +99,7 @@ export function LorebookGallery({
           线索 ({clueCount})
         </TabButton>
       </div>
+      )}
 
       {/* ---- Characters tab ---- */}
       {activeTab === "characters" && (

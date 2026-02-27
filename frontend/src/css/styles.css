@@ -109,6 +109,17 @@
     transform-origin: 50% 50%;
 }
 
+/* 分析进度条动画 */
+@keyframes progress-indeterminate {
+  0% { width: 0%; margin-left: 0%; }
+  50% { width: 40%; margin-left: 30%; }
+  100% { width: 0%; margin-left: 100%; }
+}
+
+.animate-progress {
+  animation: progress-indeterminate 2s ease-in-out infinite;
+}
+
 /* 响应式调整 */
 @media (max-width: 640px) {
     .scene-grid {
@@ -230,6 +241,8 @@
     border-radius: 0.25rem;
     font-family: ui-monospace, monospace;
     font-size: 0.875rem;
+    overflow-wrap: break-word;
+    word-break: break-all;
 }
 
 .markdown-body pre {
@@ -254,10 +267,17 @@
     font-style: italic;
 }
 
+.markdown-body .table-wrapper {
+    overflow-x: auto;
+    margin: 0.5rem 0;
+}
+
 .markdown-body table {
     width: 100%;
     border-collapse: collapse;
     margin: 0.5rem 0;
+    display: block;
+    overflow-x: auto;
 }
 
 .markdown-body th,

@@ -33,6 +33,9 @@ interface AssistantState {
   // Scope
   currentProject: string | null;
 
+  // Draft session (lazy creation)
+  isDraftSession: boolean;
+
   // Actions (basic setters -- full logic migrated later)
   setSessions: (sessions: SessionMeta[]) => void;
   setCurrentSessionId: (id: string | null) => void;
@@ -51,6 +54,7 @@ interface AssistantState {
   setSkills: (skills: SkillInfo[]) => void;
   setSkillsLoading: (loading: boolean) => void;
   setCurrentProject: (project: string | null) => void;
+  setIsDraftSession: (draft: boolean) => void;
 }
 
 export const useAssistantStore = create<AssistantState>((set) => ({
@@ -71,6 +75,7 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   skills: [],
   skillsLoading: false,
   currentProject: null,
+  isDraftSession: false,
 
   setSessions: (sessions) => set({ sessions }),
   setCurrentSessionId: (id) => set({ currentSessionId: id }),
@@ -89,4 +94,5 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   setSkills: (skills) => set({ skills }),
   setSkillsLoading: (loading) => set({ skillsLoading: loading }),
   setCurrentProject: (project) => set({ currentProject: project }),
+  setIsDraftSession: (draft) => set({ isDraftSession: draft }),
 }));

@@ -38,6 +38,10 @@ interface AppState {
   setAssistantPanelOpen: (open: boolean) => void;
   taskHudOpen: boolean;
   setTaskHudOpen: (open: boolean) => void;
+
+  // Source files invalidation signal
+  sourceFilesVersion: number;
+  invalidateSourceFiles: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -53,10 +57,13 @@ export const useAppStore = create<AppState>((set) => ({
     set({ toast: { id: `${Date.now()}-${Math.random()}`, text, tone } }),
   clearToast: () => set({ toast: null }),
 
-  assistantPanelOpen: false,
+  assistantPanelOpen: true,
   toggleAssistantPanel: () =>
     set((s) => ({ assistantPanelOpen: !s.assistantPanelOpen })),
   setAssistantPanelOpen: (open) => set({ assistantPanelOpen: open }),
   taskHudOpen: false,
   setTaskHudOpen: (open) => set({ taskHudOpen: open }),
+
+  sourceFilesVersion: 0,
+  invalidateSourceFiles: () => set((s) => ({ sourceFilesVersion: s.sourceFilesVersion + 1 })),
 }));

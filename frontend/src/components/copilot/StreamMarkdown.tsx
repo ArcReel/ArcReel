@@ -50,7 +50,7 @@ export function StreamMarkdown({ content }: StreamMarkdownProps) {
   }, []);
 
   if (!StreamdownComponent) {
-    return <div className="whitespace-pre-wrap">{content || ""}</div>;
+    return <div className="whitespace-pre-wrap break-words">{content || ""}</div>;
   }
 
   return (
