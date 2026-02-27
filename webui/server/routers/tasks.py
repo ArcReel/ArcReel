@@ -57,6 +57,17 @@ def _format_sse(event: str, data: Any, event_id: Optional[int] = None) -> str:
     return "\n".join(lines) + "\n\n"
 
 
+def _transform_task_event(raw_event: dict, stats: dict) -> dict:
+    """将原始 task_events 行转换为前端期望的 TaskStreamTaskPayload 结构。"""
+    event_type = raw_event.get("event_type", "")
+    action = "created" if event_type == "queued" else "updated"
+    return {
+        "action": action,
+        "task": raw_event.get("data", {}),
+        "stats": stats,
+    }
+
+
 @router.get("/tasks/stats")
 async def get_task_stats(project_name: Optional[str] = None):
     queue = get_task_queue()
@@ -148,9 +159,11 @@ async def stream_tasks(
                 limit=200,
             )
             if events:
+                batch_stats = queue.get_task_stats(project_name=project_name)
                 for event in events:
                     cursor = int(event["id"])
-                    yield _format_sse("task", event, event_id=cursor)
+                    transformed = _transform_task_event(event, batch_stats)
+                    yield _format_sse("task", transformed, event_id=cursor)
                 last_heartbeat = time.monotonic()
                 continue
 

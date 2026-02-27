@@ -83,7 +83,7 @@ class TestTasksRouterMore:
             latest=10,
             snapshot=[{"task_id": "t1"}],
             stats={"running": 1},
-            events=[{"id": 11, "event_type": "updated", "task_id": "t1"}],
+            events=[{"id": 11, "event_type": "running", "task_id": "t1", "data": {"task_id": "t1", "status": "running"}}],
         )
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
         monkeypatch.setattr(tasks_router, "read_queue_poll_interval", lambda: 0.0)
@@ -109,7 +109,9 @@ class TestTasksRouterMore:
         task_event, event_id, task_payload = _decode_sse(chunks[1])
         assert task_event == "task"
         assert event_id == 11
-        assert task_payload["task_id"] == "t1"
+        assert task_payload["action"] == "updated"
+        assert task_payload["task"]["task_id"] == "t1"
+        assert task_payload["stats"] == {"running": 1}
         assert queue.cursors[0] == 10
 
     @pytest.mark.asyncio
@@ -149,3 +151,19 @@ class TestTasksRouterMore:
             resp = client.get("/api/v1/tasks/missing-task")
             assert resp.status_code == 404
             assert "不存在" in resp.json()["detail"]
+
+    def test_transform_task_event_queued_maps_to_created(self):
+        raw = {"event_type": "queued", "data": {"task_id": "t1", "status": "queued"}}
+        stats = {"queued": 1, "running": 0, "succeeded": 0, "failed": 0, "total": 1}
+        result = tasks_router._transform_task_event(raw, stats)
+        assert result["action"] == "created"
+        assert result["task"]["task_id"] == "t1"
+        assert result["stats"] is stats
+
+    def test_transform_task_event_non_queued_maps_to_updated(self):
+        for event_type in ("running", "succeeded", "failed", "requeued"):
+            raw = {"event_type": event_type, "data": {"task_id": "t1", "status": event_type}}
+            stats = {"queued": 0, "running": 1, "succeeded": 0, "failed": 0, "total": 1}
+            result = tasks_router._transform_task_event(raw, stats)
+            assert result["action"] == "updated", f"expected 'updated' for {event_type}"
+            assert result["task"]["task_id"] == "t1"
