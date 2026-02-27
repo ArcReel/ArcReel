@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { FileText, Edit3, Save, X, Trash2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 
 // ---------------------------------------------------------------------------
 // SourceFileViewer — 源文件预览/编辑组件
@@ -62,6 +63,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
     if (!confirm(`确定要删除文件 "${filename}" 吗？此操作不可撤销。`)) return;
     try {
       await API.deleteSourceFile(projectName, filename);
+      useAppStore.getState().invalidateSourceFiles();
       setLocation("/");
     } catch {
       // 可以添加 toast 提示

@@ -39,21 +39,23 @@ export function StudioCanvasRouter() {
   }, [currentProjectName]);
 
   // ---- Timeline action callbacks ----
-  const handleUpdatePrompt = useCallback(async (segmentId: string, field: string, value: unknown) => {
+  // These receive scriptFile from TimelineCanvas so they always use the active episode's script.
+  const handleUpdatePrompt = useCallback(async (segmentId: string, field: string, value: unknown, scriptFile?: string) => {
     if (!currentProjectName) return;
     try {
-      await API.updateSegment(currentProjectName, segmentId, { [field]: value });
+      await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, [field]: value });
       await refreshProject();
     } catch (err) {
       useAppStore.getState().pushToast(`更新 Prompt 失败: ${(err as Error).message}`, "error");
     }
   }, [currentProjectName, refreshProject]);
 
-  const handleGenerateStoryboard = useCallback(async (segmentId: string) => {
+  const handleGenerateStoryboard = useCallback(async (segmentId: string, scriptFile?: string) => {
     if (!currentProjectName || !currentScripts) return;
-    const scriptFile = Object.keys(currentScripts)[0];
-    if (!scriptFile) return;
-    const script = currentScripts[scriptFile];
+    const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
+    if (!resolvedFile) return;
+    const script = currentScripts[resolvedFile] ?? currentScripts[resolvedFile.replace(/^scripts\//, "")];
+    if (!script) return;
     const segments = ("segments" in script ? script.segments : undefined) ??
                      ("scenes" in script ? script.scenes : undefined) ?? [];
     const seg = segments.find((s) => {
@@ -62,18 +64,19 @@ export function StudioCanvasRouter() {
     });
     const prompt = seg?.image_prompt ?? "";
     try {
-      await API.generateStoryboard(currentProjectName, segmentId, prompt as string | Record<string, unknown>, scriptFile);
+      await API.generateStoryboard(currentProjectName, segmentId, prompt as string | Record<string, unknown>, resolvedFile);
       useAppStore.getState().pushToast(`已提交分镜 "${segmentId}" 生成任务`, "success");
     } catch (err) {
       useAppStore.getState().pushToast(`生成分镜失败: ${(err as Error).message}`, "error");
     }
   }, [currentProjectName, currentScripts]);
 
-  const handleGenerateVideo = useCallback(async (segmentId: string) => {
+  const handleGenerateVideo = useCallback(async (segmentId: string, scriptFile?: string) => {
     if (!currentProjectName || !currentScripts) return;
-    const scriptFile = Object.keys(currentScripts)[0];
-    if (!scriptFile) return;
-    const script = currentScripts[scriptFile];
+    const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
+    if (!resolvedFile) return;
+    const script = currentScripts[resolvedFile] ?? currentScripts[resolvedFile.replace(/^scripts\//, "")];
+    if (!script) return;
     const segments = ("segments" in script ? script.segments : undefined) ??
                      ("scenes" in script ? script.scenes : undefined) ?? [];
     const seg = segments.find((s) => {
@@ -83,7 +86,7 @@ export function StudioCanvasRouter() {
     const prompt = seg?.video_prompt ?? "";
     const duration = seg?.duration_seconds ?? 4;
     try {
-      await API.generateVideo(currentProjectName, segmentId, prompt as string | Record<string, unknown>, scriptFile, duration);
+      await API.generateVideo(currentProjectName, segmentId, prompt as string | Record<string, unknown>, resolvedFile, duration);
       useAppStore.getState().pushToast(`已提交视频 "${segmentId}" 生成任务`, "success");
     } catch (err) {
       useAppStore.getState().pushToast(`生成视频失败: ${(err as Error).message}`, "error");
@@ -236,6 +239,7 @@ export function StudioCanvasRouter() {
             <TimelineCanvas
               projectName={currentProjectName}
               episodeScript={script}
+              scriptFile={scriptFile ?? undefined}
               projectData={currentProjectData}
               onUpdatePrompt={handleUpdatePrompt}
               onGenerateStoryboard={handleGenerateStoryboard}

@@ -28,10 +28,11 @@ function getSegmentId(segment: Segment, mode: "narration" | "drama"): string {
 interface TimelineCanvasProps {
   projectName: string;
   episodeScript: EpisodeScript | null;
+  scriptFile?: string;
   projectData: ProjectData | null;
-  onUpdatePrompt?: (segmentId: string, field: string, value: unknown) => void;
-  onGenerateStoryboard?: (segmentId: string) => void;
-  onGenerateVideo?: (segmentId: string) => void;
+  onUpdatePrompt?: (segmentId: string, field: string, value: unknown, scriptFile?: string) => void;
+  onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
+  onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,6 +49,7 @@ interface TimelineCanvasProps {
 export function TimelineCanvas({
   projectName,
   episodeScript,
+  scriptFile,
   projectData,
   onUpdatePrompt,
   onGenerateStoryboard,
@@ -112,9 +114,9 @@ export function TimelineCanvas({
                   characters={projectData.characters}
                   clues={projectData.clues}
                   projectName={projectName}
-                  onUpdatePrompt={onUpdatePrompt}
-                  onGenerateStoryboard={onGenerateStoryboard}
-                  onGenerateVideo={onGenerateVideo}
+                  onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}
+                  onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
+                  onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
                 />
               </div>
             );
