@@ -42,13 +42,18 @@ export function StudioCanvasRouter() {
   // These receive scriptFile from TimelineCanvas so they always use the active episode's script.
   const handleUpdatePrompt = useCallback(async (segmentId: string, field: string, value: unknown, scriptFile?: string) => {
     if (!currentProjectName) return;
+    const mode = currentProjectData?.content_mode ?? "narration";
     try {
-      await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, [field]: value });
+      if (mode === "drama") {
+        await API.updateScene(currentProjectName, segmentId, scriptFile ?? "", { [field]: value });
+      } else {
+        await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, [field]: value });
+      }
       await refreshProject();
     } catch (err) {
       useAppStore.getState().pushToast(`更新 Prompt 失败: ${(err as Error).message}`, "error");
     }
-  }, [currentProjectName, refreshProject]);
+  }, [currentProjectName, currentProjectData, refreshProject]);
 
   const handleGenerateStoryboard = useCallback(async (segmentId: string, scriptFile?: string) => {
     if (!currentProjectName || !currentScripts) return;

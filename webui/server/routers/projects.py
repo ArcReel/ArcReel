@@ -6,7 +6,7 @@
 
 import logging
 import shutil
-from typing import Optional, List
+from typing import Optional, List, Union
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -265,8 +265,8 @@ class UpdateSegmentRequest(BaseModel):
     script_file: str
     duration_seconds: Optional[int] = None
     segment_break: Optional[bool] = None
-    image_prompt: Optional[dict] = None
-    video_prompt: Optional[dict] = None
+    image_prompt: Optional[Union[dict, str]] = None
+    video_prompt: Optional[Union[dict, str]] = None
     transition_to_next: Optional[str] = None
 
 

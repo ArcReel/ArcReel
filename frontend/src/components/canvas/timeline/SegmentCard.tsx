@@ -233,8 +233,20 @@ function PromptColumn({
     setVidText(promptToStr(video_prompt, "action"));
   }, [image_prompt, video_prompt]);
 
-  const fire = (field: string, value: unknown) => {
-    onUpdatePrompt?.(segmentId, field, value);
+  // When the original prompt is a structured object, patch only the text field
+  // (scene for image_prompt, action for video_prompt) so the backend receives
+  // a valid dict. When it's a plain string, send the string as-is.
+  const buildPromptValue = (field: string, text: string): unknown => {
+    const original = field === "image_prompt" ? image_prompt : video_prompt;
+    if (typeof original === "object" && original !== null) {
+      const key = field === "image_prompt" ? "scene" : "action";
+      return { ...(original as unknown as Record<string, unknown>), [key]: text };
+    }
+    return text;
+  };
+
+  const fire = (field: string, value: string) => {
+    onUpdatePrompt?.(segmentId, field, buildPromptValue(field, value));
   };
 
   return (
