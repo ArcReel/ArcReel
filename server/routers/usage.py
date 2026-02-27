@@ -5,18 +5,17 @@ API 调用统计路由
 """
 
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Query
 
+from lib import PROJECT_ROOT
 from lib.usage_tracker import UsageTracker
 
 router = APIRouter()
 
 # 数据库路径（存放在 projects 目录下）
-project_root = Path(__file__).parent.parent.parent.parent
-db_path = project_root / "projects" / ".api_usage.db"
+db_path = PROJECT_ROOT / "projects" / ".api_usage.db"
 
 
 def get_usage_tracker() -> UsageTracker:

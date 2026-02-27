@@ -4,19 +4,18 @@
 
 import logging
 from typing import Optional
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from lib import PROJECT_ROOT
 from lib.project_manager import ProjectManager
 
 router = APIRouter()
 
 # 初始化项目管理器
-project_root = Path(__file__).parent.parent.parent.parent
-pm = ProjectManager(project_root / "projects")
+pm = ProjectManager(PROJECT_ROOT / "projects")
 
 
 def get_project_manager() -> ProjectManager:

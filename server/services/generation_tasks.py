@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from lib import PROJECT_ROOT
 from lib.gemini_client import GeminiClient, get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
 from lib.project_manager import ProjectManager
@@ -19,8 +20,7 @@ from lib.prompt_utils import (
 )
 
 
-project_root = Path(__file__).parent.parent.parent.parent
-pm = ProjectManager(project_root / "projects")
+pm = ProjectManager(PROJECT_ROOT / "projects")
 rate_limiter = get_shared_rate_limiter()
 
 

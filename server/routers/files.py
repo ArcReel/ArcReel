@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
+from lib import PROJECT_ROOT
 from lib.gemini_client import GeminiClient
 from lib.image_utils import convert_image_bytes_to_png
 from lib.project_manager import ProjectManager
@@ -22,8 +23,7 @@ from lib.project_manager import ProjectManager
 router = APIRouter()
 
 # 初始化项目管理器
-project_root = Path(__file__).parent.parent.parent.parent
-pm = ProjectManager(project_root / "projects")
+pm = ProjectManager(PROJECT_ROOT / "projects")
 
 
 def get_project_manager() -> ProjectManager:

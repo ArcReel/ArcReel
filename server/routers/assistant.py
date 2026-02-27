@@ -3,7 +3,6 @@ Assistant session APIs.
 """
 
 import logging
-from pathlib import Path
 from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
@@ -12,12 +11,12 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from lib import PROJECT_ROOT
 from server.agent_runtime.service import AssistantService
 
 router = APIRouter()
 
-project_root = Path(__file__).parent.parent.parent.parent
-assistant_service = AssistantService(project_root=project_root)
+assistant_service = AssistantService(project_root=PROJECT_ROOT)
 
 
 def get_assistant_service() -> AssistantService:

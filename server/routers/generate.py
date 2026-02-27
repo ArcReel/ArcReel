@@ -9,7 +9,6 @@ import asyncio
 import logging
 import os
 import threading
-from pathlib import Path
 from typing import Any, Optional, Union
 
 logger = logging.getLogger(__name__)
@@ -17,6 +16,7 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
+from lib import PROJECT_ROOT
 from lib.gemini_client import get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
 from lib.project_manager import ProjectManager
@@ -31,8 +31,7 @@ from lib.prompt_utils import (
 router = APIRouter()
 
 # 初始化管理器
-project_root = Path(__file__).parent.parent.parent.parent
-pm = ProjectManager(project_root / "projects")
+pm = ProjectManager(PROJECT_ROOT / "projects")
 
 # 初始化限流器（共享给 MediaGenerator）
 rate_limiter = get_shared_rate_limiter()

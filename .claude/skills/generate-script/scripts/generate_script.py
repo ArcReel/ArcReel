@@ -13,7 +13,15 @@ generate_script.py - 使用 Gemini 生成 JSON 剧本
 """
 
 import argparse
+import sys
 from pathlib import Path
+
+# 允许从仓库任意工作目录直接运行该脚本
+PROJECT_ROOT = (
+    Path(__file__).resolve().parents[4]
+)  # .claude/skills/generate-script/scripts -> repo root
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from lib.script_generator import ScriptGenerator
 

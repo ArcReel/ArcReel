@@ -14,6 +14,8 @@ from typing import Optional
 
 import jwt
 
+from lib import PROJECT_ROOT
+
 logger = logging.getLogger(__name__)
 
 # JWT 签名密钥缓存
@@ -121,8 +123,7 @@ def ensure_auth_password(env_path: Optional[str] = None) -> str:
 
     # 回写到 .env 文件
     if env_path is None:
-        project_root = Path(__file__).parent.parent.parent
-        env_path = str(project_root / ".env")
+        env_path = str(PROJECT_ROOT / ".env")
 
     env_file = Path(env_path)
     try:
