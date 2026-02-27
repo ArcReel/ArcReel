@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAppStore } from "@/stores/app-store";
 
 /**
@@ -15,6 +15,16 @@ import { useAppStore } from "@/stores/app-store";
 export function useScrollTarget(type: string): void {
   const scrollTarget = useAppStore((s) => s.scrollTarget);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!scrollTarget || scrollTarget.type !== type) return;
@@ -35,13 +45,18 @@ export function useScrollTarget(type: string): void {
       el.style.transition = "box-shadow 0.3s ease";
       el.style.boxShadow = "0 0 20px rgba(99, 102, 241, 0.4)";
 
-      const timer = setTimeout(() => {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+      }
+
+      highlightTimerRef.current = setTimeout(() => {
         el.classList.remove("ring-2", "ring-indigo-500");
         el.style.boxShadow = "";
+        highlightTimerRef.current = null;
       }, 2000);
 
       clearScrollTarget();
-      return () => clearTimeout(timer);
+      return;
     }
 
     clearScrollTarget();

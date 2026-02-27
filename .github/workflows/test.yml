@@ -46,4 +46,4 @@ jobs:
 
       - name: Run tests
         working-directory: frontend
-        run: node --test --experimental-test-coverage tests/*.test.mjs --test-coverage-lines=65 --test-coverage-include=src/react/components/landing-page.js --test-coverage-include=src/react/components/app-shell.js --test-coverage-include=src/react/pages/assistant-question-wizard.js --test-coverage-include=src/react/pages/projects-page.js --test-coverage-include=src/react/pages/workspace-review-helpers.js
+        run: pnpm test:coverage

@@ -1,0 +1,84 @@
+import { act, render, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useScrollTarget } from "@/hooks/useScrollTarget";
+import { useAppStore } from "@/stores/app-store";
+
+function ScrollTargetHarness({ type }: { type: string }) {
+  useScrollTarget(type);
+  return null;
+}
+
+describe("useScrollTarget", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    document.body.innerHTML = "";
+  });
+
+  it("scrolls to the matching element and clears scroll target", async () => {
+    const el = document.createElement("div");
+    el.id = "segment-S1";
+    const scrollSpy = vi.fn();
+    Object.defineProperty(el, "scrollIntoView", {
+      value: scrollSpy,
+      writable: true,
+      configurable: true,
+    });
+    document.body.appendChild(el);
+
+    render(<ScrollTargetHarness type="segment" />);
+
+    act(() => {
+      useAppStore.getState().triggerScrollTo({ type: "segment", id: "S1" });
+    });
+
+    await waitFor(() => {
+      expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+    });
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+  });
+
+  it("applies and removes highlight class after timer", async () => {
+    vi.useFakeTimers();
+
+    const el = document.createElement("div");
+    el.id = "character-hero";
+    Object.defineProperty(el, "scrollIntoView", {
+      value: vi.fn(),
+      writable: true,
+      configurable: true,
+    });
+    document.body.appendChild(el);
+
+    render(<ScrollTargetHarness type="character" />);
+    act(() => {
+      useAppStore.getState().triggerScrollTo({
+        type: "character",
+        id: "hero",
+        highlight: true,
+      });
+    });
+
+    expect(el.classList.contains("ring-2")).toBe(true);
+    expect(el.classList.contains("ring-indigo-500")).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(el.classList.contains("ring-2")).toBe(false);
+    expect(el.classList.contains("ring-indigo-500")).toBe(false);
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+  });
+
+  it("clears target even when target element does not exist", async () => {
+    render(<ScrollTargetHarness type="clue" />);
+
+    act(() => {
+      useAppStore.getState().triggerScrollTo({ type: "clue", id: "missing" });
+    });
+
+    await waitFor(() => {
+      expect(useAppStore.getState().scrollTarget).toBeNull();
+    });
+  });
+});
