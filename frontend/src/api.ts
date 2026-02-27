@@ -51,7 +51,8 @@ export interface TaskStreamTaskPayload {
 }
 
 export interface TaskStreamHeartbeatPayload {
-  timestamp: string;
+  last_event_id: number;
+  generated_at: string;
 }
 
 /** Filters for {@link API.listTasks} and {@link API.listProjectTasks}. */
