@@ -118,6 +118,7 @@ _AUTH_WHITELIST = (
     "/health",
     "/assets",
     "/api/v1/auth/login",
+    "/api/v1/files/",
 )
 
 
@@ -132,6 +133,10 @@ async def auth_middleware(request: Request, call_next):
 
     # 非 API 路径（前端静态页面）跳过
     if not path.startswith("/api/"):
+        return await call_next(request)
+
+    # CORS preflight 跳过（浏览器不会附加 Authorization header）
+    if request.method == "OPTIONS":
         return await call_next(request)
 
     # 从 Authorization header 获取 token

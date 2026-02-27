@@ -96,7 +96,7 @@ def check_credentials(username: str, password: str) -> bool:
     """
     expected_username = os.environ.get("AUTH_USERNAME", "admin")
     expected_password = os.environ.get("AUTH_PASSWORD", "")
-    return username == expected_username and password == expected_password
+    return secrets.compare_digest(username, expected_username) and secrets.compare_digest(password, expected_password)
 
 
 def ensure_auth_password(env_path: Optional[str] = None) -> str:
@@ -127,33 +127,29 @@ def ensure_auth_password(env_path: Optional[str] = None) -> str:
     env_file = Path(env_path)
     try:
         if env_file.exists():
-            content = env_file.read_text()
-            if "AUTH_PASSWORD=" in content:
-                # 替换已有的空值行
-                lines = content.splitlines()
-                new_lines = []
-                for line in lines:
-                    if line.strip().startswith("AUTH_PASSWORD="):
-                        new_lines.append(f"AUTH_PASSWORD={password}")
-                    else:
-                        new_lines.append(line)
-                new_content = "\n".join(new_lines) + "\n"
-                # 使用原地写入（truncate + write）保留 inode，兼容 Docker bind mount
-                with open(env_file, "r+") as f:
-                    f.seek(0)
-                    f.write(new_content)
-                    f.truncate()
-            else:
-                # 追加到文件末尾
-                with open(env_file, "a") as f:
-                    f.write(f"\nAUTH_PASSWORD={password}\n")
+            lines = env_file.read_text().splitlines()
+            new_lines = []
+            found = False
+            for line in lines:
+                if not found and line.strip().startswith("AUTH_PASSWORD="):
+                    new_lines.append(f"AUTH_PASSWORD={password}")
+                    found = True
+                else:
+                    new_lines.append(line)
+            if not found:
+                new_lines.append(f"AUTH_PASSWORD={password}")
+            new_content = "\n".join(new_lines) + "\n"
+            # 使用原地写入（truncate + write）保留 inode，兼容 Docker bind mount
+            with open(env_file, "r+") as f:
+                f.seek(0)
+                f.write(new_content)
+                f.truncate()
         else:
             env_file.write_text(f"AUTH_PASSWORD={password}\n")
     except OSError:
         logger.warning("无法写入 .env 文件: %s", env_path)
 
     logger.warning(
-        "已自动生成认证密码: %s（请妥善保存，或在 .env 文件中修改 AUTH_PASSWORD）",
-        password,
+        "已自动生成认证密码，请查看 .env 文件中的 AUTH_PASSWORD 字段"
     )
     return password
