@@ -279,6 +279,9 @@ class SessionManager:
 
         parts = [base_prompt, "", "## 当前项目上下文", ""]
 
+        # TODO: 当前定位是自部署服务，这里直接拼接项目元数据以保持实现简单。
+        # TODO: 若后续演进为 SaaS / 多租户服务，需要把 title/style/overview 等用户输入
+        # TODO: 按“非指令上下文”做边界化或转义，降低 prompt injection 风险。
         parts.append(f"- 项目标识：{project_name}")
         if title := config.get("title"):
             parts.append(f"- 项目标题：{title}")
