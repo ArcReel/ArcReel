@@ -262,7 +262,7 @@ class TestAssistantServiceMore:
                 "timestamp": "2026-02-01T00:00:00Z",
             }
         )
-        assert result_key.startswith("content:result:success:False:s1:")
+        assert result_key == "content:result:success:False"
         assert service._content_key({"type": "user", "content": "x"}) is None
 
         seen_keys, seen_content = service._build_seen_sets([{"uuid": "u1"}, "bad"])

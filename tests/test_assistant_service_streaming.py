@@ -775,3 +775,51 @@ class TestAssistantServiceStreaming:
         assert projector.turns[1]["content"][0]["text"] == "Done"
         assert projector.turns[2]["content"][0]["text"] == "task 2"
         assert projector.turns[3]["content"][0]["text"] == "Done"
+
+    async def test_build_projector_dedupes_result_messages(self, tmp_path):
+        """Verify that buffer result messages (lacking timestamp/uuid) are
+        successfully deduplicated against transcript result messages in the same round."""
+        service = AssistantService(project_root=tmp_path)
+        meta = make_session_meta()
+        
+        # Round 1 in transcript: has a completed result with timestamp
+        history = [
+            {
+                "type": "user",
+                "content": "task 1",
+                "uuid": "u1",
+            },
+            {
+                "type": "assistant",
+                "content": [{"text": "Done"}],
+                "uuid": "a1",
+            },
+            {
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+                "uuid": "r1",
+                "timestamp": "2026-02-09T08:00:05Z",
+            }
+        ]
+        
+        # Buffer has the same result message but lacks uuid and timestamp (SDK format)
+        buffer = [
+            {
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+            }
+        ]
+
+        service.meta_store = _FakeMetaStore(meta)
+        service.transcript_reader = _FakeTranscriptReader([], history_raw=history)
+        service.session_manager = _FakeSessionManager([], status="completed", replay_messages=buffer)
+
+        projector = service._build_projector(meta, "session-1")
+        
+        # We should have exactly 3 turns total: user, assistant, result.
+        # The buffer result should be deduplicated away.
+        assert len(projector.turns) == 3
+        turn_types = [t.get("type") for t in projector.turns]
+        assert turn_types == ["user", "assistant", "result"]
