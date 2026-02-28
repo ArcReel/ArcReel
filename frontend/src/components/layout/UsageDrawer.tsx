@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { X, Image, Video, AlertCircle, DollarSign, ChevronLeft, ChevronRight } from "lucide-react";
 import { useUsageStore } from "@/stores/usage-store";
 import { API } from "@/api";
+import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
 import { UI_LAYERS } from "@/utils/ui-layers";
 
 // ---------------------------------------------------------------------------
@@ -12,6 +14,7 @@ interface UsageDrawerProps {
   open: boolean;
   onClose: () => void;
   projectName?: string | null;
+  anchorRef: RefObject<HTMLElement | null>;
 }
 
 interface UsageCall {
@@ -30,10 +33,15 @@ interface UsageCall {
   created_at: string;
 }
 
-export function UsageDrawer({ open, onClose, projectName }: UsageDrawerProps) {
+export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDrawerProps) {
   const { stats, calls, total, page, pageSize, setStats, setCalls, setPage, setLoading } = useUsageStore();
-  const panelRef = useRef<HTMLDivElement>(null);
   const [callsLoading, setCallsLoading] = useState(false);
+  const { panelRef, positionStyle } = useAnchoredPopover({
+    open,
+    anchorRef,
+    onClose,
+    sideOffset: 8,
+  });
 
   // 加载费用统计
   useEffect(() => {
@@ -73,31 +81,19 @@ export function UsageDrawer({ open, onClose, projectName }: UsageDrawerProps) {
     if (open) loadCalls();
   }, [open, loadCalls]);
 
-  // 点击外部关闭
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    // 延迟绑定以避免立即触发
-    const timer = setTimeout(() => document.addEventListener("mousedown", handleClick), 100);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener("mousedown", handleClick);
-    };
-  }, [open, onClose]);
-
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
   const totalPages = Math.ceil(total / pageSize);
   const totalCost = stats?.total_cost ?? 0;
 
-  return (
+  return createPortal(
     <div
       ref={panelRef}
-      className={`absolute right-0 top-full mt-2 w-96 rounded-xl border border-gray-700 bg-gray-900 shadow-2xl ${UI_LAYERS.workspacePopover}`}
+      className={`fixed w-96 isolate rounded-xl border border-gray-700 shadow-2xl ${UI_LAYERS.workspacePopover}`}
+      style={{
+        ...positionStyle,
+        backgroundColor: "rgb(17 24 39)",
+      }}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
@@ -201,7 +197,8 @@ export function UsageDrawer({ open, onClose, projectName }: UsageDrawerProps) {
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 

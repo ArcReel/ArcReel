@@ -124,6 +124,6 @@ describe("AgentCopilot", () => {
     expect(container.firstElementChild).toHaveClass("isolate");
 
     fireEvent.click(screen.getByTitle("切换会话"));
-    expect(container.querySelector(`.${UI_LAYERS.assistantLocalPopover}`)).toBeTruthy();
+    expect(document.querySelector(`.${UI_LAYERS.assistantLocalPopover}`)).toBeTruthy();
   });
 });

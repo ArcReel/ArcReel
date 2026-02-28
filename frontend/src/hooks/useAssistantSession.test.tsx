@@ -22,7 +22,7 @@ class MockEventSource {
     this.listeners.set(type, current);
   }
 
-  emit(type: string, data: Record<string, unknown>): void {
+  emit(type: string, data: unknown): void {
     const event = { data: JSON.stringify(data) } as MessageEvent;
     const listeners = this.listeners.get(type) ?? [];
     for (const listener of listeners) {
@@ -84,7 +84,7 @@ describe("useAssistantSession", () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "running")],
     });
-    vi.spyOn(API, "getAssistantSession").mockResolvedValue(makeSession("session-1", "running"));
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
 
     renderHook(() => useAssistantSession("demo"));
 
@@ -105,7 +105,7 @@ describe("useAssistantSession", () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "idle")],
     });
-    vi.spyOn(API, "getAssistantSession").mockResolvedValue(makeSession("session-1", "idle"));
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "idle") });
     vi.spyOn(API, "getAssistantSnapshot").mockResolvedValue(
       makeSnapshot({ pending_questions: [makePendingQuestion()] }),
     );
@@ -122,7 +122,7 @@ describe("useAssistantSession", () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "idle")],
     });
-    vi.spyOn(API, "getAssistantSession").mockResolvedValue(makeSession("session-1", "idle"));
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "idle") });
     vi.spyOn(API, "getAssistantSnapshot").mockResolvedValue(makeSnapshot());
     const answerSpy = vi
       .spyOn(API, "answerAssistantQuestion")
@@ -153,7 +153,7 @@ describe("useAssistantSession", () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "idle")],
     });
-    vi.spyOn(API, "getAssistantSession").mockResolvedValue(makeSession("session-1", "idle"));
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "idle") });
     vi.spyOn(API, "getAssistantSnapshot").mockResolvedValue(makeSnapshot());
     vi.spyOn(API, "answerAssistantQuestion").mockRejectedValue(new Error("回答失败"));
 
@@ -183,9 +183,9 @@ describe("useAssistantSession", () => {
         makeSession("session-2", "idle"),
       ],
     });
-    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => (
-      makeSession(sessionId, "idle")
-    ));
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
     vi.spyOn(API, "getAssistantSnapshot").mockResolvedValue(makeSnapshot());
 
     const { result } = renderHook(() => useAssistantSession("demo"));

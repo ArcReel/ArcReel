@@ -69,7 +69,7 @@ describe("useTasksSSE", () => {
 
     act(() => {
       captured[0].onHeartbeat?.(
-        { timestamp: "2026-02-02T00:00:00Z" },
+        { last_event_id: 42, generated_at: "2026-02-02T00:00:00Z" },
         new MessageEvent("heartbeat"),
       );
     });

@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRightClose } from "lucide-react";
+import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
@@ -24,18 +26,12 @@ function SessionSelector({
   const { sessions, currentSessionId, isDraftSession } = useAssistantStore();
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // 点击外部关闭下拉
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
+  const { panelRef, positionStyle } = useAnchoredPopover({
+    open,
+    anchorRef: dropdownRef,
+    onClose: () => setOpen(false),
+    sideOffset: 4,
+  });
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const displayTitle = isDraftSession ? "新会话" : (currentSession?.title || formatTime(currentSession?.created_at));
@@ -53,10 +49,14 @@ function SessionSelector({
         <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
-      {open && sessions.length > 0 && (
+      {open && sessions.length > 0 && typeof document !== "undefined" && createPortal(
         <div
-          className={`absolute right-0 top-full mt-1 w-64 rounded-lg border border-gray-700 bg-gray-850 shadow-xl ${UI_LAYERS.assistantLocalPopover}`}
-          style={{ backgroundColor: "rgb(17 24 39)" }}
+          ref={panelRef}
+          className={`fixed w-64 rounded-lg border border-gray-700 shadow-xl ${UI_LAYERS.assistantLocalPopover}`}
+          style={{
+            ...positionStyle,
+            backgroundColor: "rgb(17 24 39)",
+          }}
         >
           <div className="max-h-60 overflow-y-auto py-1">
             {sessions.map((session) => {
@@ -91,7 +91,8 @@ function SessionSelector({
               );
             })}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

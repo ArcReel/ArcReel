@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChevronLeft, Activity, Settings, DollarSign } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -91,6 +91,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const { taskHudOpen, setTaskHudOpen } = useAppStore();
   const { stats: usageStats, setStats: setUsageStats } = useUsageStore();
   const [usageDrawerOpen, setUsageDrawerOpen] = useState(false);
+  const usageAnchorRef = useRef<HTMLDivElement>(null);
+  const taskHudAnchorRef = useRef<HTMLDivElement>(null);
 
   const currentPhase = currentProjectData?.status?.current_phase;
   const contentMode = currentProjectData?.content_mode;
@@ -158,7 +160,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       {/* ---- Right section ---- */}
       <div className="flex items-center gap-3">
         {/* Cost badge + UsageDrawer */}
-        <div className="relative">
+        <div className="relative" ref={usageAnchorRef}>
           <button
             type="button"
             onClick={() => setUsageDrawerOpen(!usageDrawerOpen)}
@@ -176,11 +178,12 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             open={usageDrawerOpen}
             onClose={() => setUsageDrawerOpen(false)}
             projectName={currentProjectName}
+            anchorRef={usageAnchorRef}
           />
         </div>
 
         {/* Task radar + TaskHud popover */}
-        <div className="relative">
+        <div className="relative" ref={taskHudAnchorRef}>
           <button
             type="button"
             onClick={() => setTaskHudOpen(!taskHudOpen)}
@@ -202,7 +205,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               </span>
             )}
           </button>
-          <TaskHud />
+          <TaskHud anchorRef={taskHudAnchorRef} />
         </div>
 
         {/* Settings (placeholder) */}

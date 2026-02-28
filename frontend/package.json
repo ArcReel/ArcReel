@@ -8,7 +8,9 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "build": "pnpm typecheck && vite build",
+    "check": "pnpm typecheck && vitest run",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

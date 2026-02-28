@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Image, Video, Check, X, Loader2, ChevronDown } from "lucide-react";
+import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
 import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem } from "@/types";
@@ -251,27 +253,22 @@ function ChannelSection({
 // TaskHud — 弹出面板，实时展示任务队列状态
 // ---------------------------------------------------------------------------
 
-export function TaskHud() {
+export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> }) {
   const { taskHudOpen, setTaskHudOpen } = useAppStore();
   const { tasks, stats } = useTasksStore();
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  // 点击面板外部时关闭
-  useEffect(() => {
-    if (!taskHudOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setTaskHudOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [taskHudOpen, setTaskHudOpen]);
+  const { panelRef, positionStyle } = useAnchoredPopover({
+    open: taskHudOpen,
+    anchorRef,
+    onClose: () => setTaskHudOpen(false),
+    sideOffset: 4,
+  });
 
   const imageTasks = tasks.filter((t) => t.media_type === "image");
   const videoTasks = tasks.filter((t) => t.media_type === "video");
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <AnimatePresence>
       {taskHudOpen && (
         <motion.div
@@ -280,7 +277,11 @@ export function TaskHud() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.15 }}
-          className={`absolute right-0 top-full mt-1 w-80 rounded-lg border border-gray-800 bg-gray-900 shadow-xl ${UI_LAYERS.workspacePopover}`}
+          className={`fixed w-80 isolate rounded-lg border border-gray-800 shadow-xl ${UI_LAYERS.workspacePopover}`}
+          style={{
+            ...positionStyle,
+            backgroundColor: "rgb(17 24 39)",
+          }}
         >
           {/* 统计栏 */}
           <div className="flex gap-3 border-b border-gray-800 px-3 py-2 text-xs text-gray-400">
@@ -309,6 +310,7 @@ export function TaskHud() {
           </div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }

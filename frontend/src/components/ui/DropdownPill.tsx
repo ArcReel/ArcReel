@@ -1,5 +1,7 @@
-import { useState, useRef, useEffect } from "react";
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
+import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
 
 // ---------------------------------------------------------------------------
 // DropdownPill
@@ -22,23 +24,13 @@ export function DropdownPill<T extends string>({
 }: DropdownPillProps<T>) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  // Close on click outside
-  useEffect(() => {
-    if (!open) return;
-
-    function handleClick(e: MouseEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
+  const { panelRef, positionStyle } = useAnchoredPopover({
+    open,
+    anchorRef: containerRef,
+    onClose: () => setOpen(false),
+    align: "start",
+    sideOffset: 4,
+  });
 
   return (
     <div ref={containerRef} className={`relative inline-block ${className ?? ""}`}>
@@ -54,8 +46,15 @@ export function DropdownPill<T extends string>({
       </button>
 
       {/* Options popover */}
-      {open && (
-        <div className="absolute left-0 top-full z-40 mt-1 min-w-[140px] overflow-hidden rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl">
+      {open && typeof document !== "undefined" && createPortal(
+        <div
+          ref={panelRef}
+          className="fixed z-40 min-w-[140px] overflow-hidden rounded-lg border border-gray-700 py-1 shadow-xl"
+          style={{
+            ...positionStyle,
+            backgroundColor: "rgb(17 24 39)",
+          }}
+        >
           {options.map((opt) => (
             <button
               key={opt}
@@ -73,7 +72,8 @@ export function DropdownPill<T extends string>({
               {opt}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

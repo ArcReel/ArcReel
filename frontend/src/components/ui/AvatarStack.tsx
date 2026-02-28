@@ -1,6 +1,8 @@
-import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { useState, useRef, type RefObject } from "react";
 import { User } from "lucide-react";
 import { API } from "@/api";
+import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
 import type { Character } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -39,29 +41,27 @@ function AvatarPopover({
   name: string;
   character: Character;
   projectName: string;
-  anchorRef: React.RefObject<HTMLElement | null>;
+  anchorRef: RefObject<HTMLElement | null>;
 }) {
-  const [position, setPosition] = useState<{ top: number; left: number }>({
-    top: 0,
-    left: 0,
+  const { panelRef, positionStyle } = useAnchoredPopover({
+    open: true,
+    anchorRef,
+    align: "center",
+    sideOffset: 6,
   });
-
-  useEffect(() => {
-    if (anchorRef.current) {
-      const rect = anchorRef.current.getBoundingClientRect();
-      setPosition({
-        top: rect.bottom + 6,
-        left: rect.left + rect.width / 2,
-      });
-    }
-  }, [anchorRef]);
 
   const firstLine = character.description?.split("\n")[0] ?? "";
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <div
-      className="pointer-events-none fixed z-50 -translate-x-1/2 rounded-lg border border-gray-700 bg-gray-900 p-2 shadow-xl"
-      style={{ top: position.top, left: position.left }}
+      ref={panelRef}
+      className="pointer-events-none fixed z-50 w-[26rem] max-w-[calc(100vw-1.5rem)] rounded-lg border border-gray-700 p-2 shadow-xl"
+      style={{
+        ...positionStyle,
+        backgroundColor: "rgb(17 24 39)",
+      }}
     >
       <div className="flex items-start gap-2.5">
         {character.character_sheet ? (
@@ -75,16 +75,17 @@ function AvatarPopover({
             <User className="h-8 w-8 text-gray-600" />
           </div>
         )}
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-white">{name}</p>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-white">{name}</p>
           {firstLine && (
-            <p className="mt-0.5 text-xs leading-relaxed text-gray-400 line-clamp-3">
+            <p className="mt-0.5 line-clamp-4 whitespace-normal break-words text-xs leading-relaxed text-gray-400">
               {firstLine}
             </p>
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
