@@ -823,3 +823,58 @@ class TestAssistantServiceStreaming:
         assert len(projector.turns) == 3
         turn_types = [t.get("type") for t in projector.turns]
         assert turn_types == ["user", "assistant", "result"]
+
+    async def test_build_projector_ignores_system_user_when_scoping_dedup(self, tmp_path):
+        """Verify that system-injected user messages do not reset the content deduplication
+        scope. The scope should only begin at the last REAL user message."""
+        service = AssistantService(project_root=tmp_path)
+        meta = make_session_meta()
+        
+        # Transcript: User asks question, Assistant uses tool, Subagent returns result
+        history = [
+            {
+                "type": "user",
+                "content": "task",
+                "uuid": "u1",
+            },
+            {
+                "type": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "t1", "name": "Task", "input": {}}
+                ],
+                "uuid": "a1",
+            },
+            {
+                "type": "user",
+                "content": "some system result",
+                "uuid": "sys-u1",
+                # This is the subagent metadata that identifies it as system-injected
+                "sourceToolAssistantUUID": "agent-123",
+            }
+        ]
+        
+        # Buffer: The same assistant tool_use message (replayed by SDK, no uuid).
+        # It must be correctly deduplicated against a1.
+        buffer = [
+            {
+                "type": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "t1", "name": "Task", "input": {}}
+                ],
+            }
+        ]
+
+        service.meta_store = _FakeMetaStore(meta)
+        service.transcript_reader = _FakeTranscriptReader([], history_raw=history)
+        service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
+
+        projector = service._build_projector(meta, "session-1")
+        
+        # We should have exactly 2 turns total!
+        # turn 1: user "task"
+        # turn 2: assistant tool_use + system result folded in
+        # The buffer assistant message must be completely deduplicated away.
+        assert len(projector.turns) == 2
+        assert projector.turns[0]["type"] == "user"
+        assert projector.turns[1]["type"] == "assistant"
+

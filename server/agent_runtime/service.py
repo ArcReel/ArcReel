@@ -3,6 +3,7 @@ Assistant service orchestration using ClaudeSDKClient.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -18,6 +19,11 @@ from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from server.agent_runtime.stream_projector import AssistantStreamProjector
 from server.agent_runtime.transcript_reader import TranscriptReader
+from server.agent_runtime.turn_grouper import (
+    _has_subagent_user_metadata,
+    _is_system_injected_user_message,
+)
+from server.agent_runtime.turn_schema import normalize_turns
 
 
 class AssistantService:
@@ -427,10 +433,13 @@ class AssistantService:
                     continue
 
                 if message.get("type") == "user":
-                    # Clear previous content keys when a NEW user message arrives.
-                    # This prevents the "P1" issue where a simple "Done" answer
-                    # in round 3 collides with "Done" in round 1.
-                    seen_content_keys.clear()
+                    content = message.get("content", "")
+                    has_subagent_meta = _has_subagent_user_metadata(message)
+                    if not (_is_system_injected_user_message(content) or has_subagent_meta):
+                        # Clear previous content keys when a NEW user message arrives.
+                        # This prevents the "P1" issue where a simple "Done" answer
+                        # in round 3 collides with "Done" in round 1.
+                        seen_content_keys.clear()
 
                 # It's a valid new groupable message, update seen sets
                 seen_keys.add(self._message_key(message))
@@ -532,7 +541,10 @@ class AssistantService:
                 elif tool_id is not None:
                     parts.append(f"u:{tool_id}")
                 elif thinking is not None:
-                    parts.append(f"th:{thinking[:50]}")
+                    # Use MD5 hash to accurately deduplicate long thinking blocks
+                    # without retaining unbounded strings in memory.
+                    th_hash = hashlib.md5(thinking.encode("utf-8")).hexdigest()
+                    parts.append(f"th:{th_hash}")
             return f"content:assistant:{'/'.join(parts)}" if parts else None
         if msg_type == "result":
             # Since seen_content_keys is now scoped to the current round,
@@ -558,7 +570,10 @@ class AssistantService:
         last_user_idx = 0
         for i, msg in enumerate(messages):
             if isinstance(msg, dict) and msg.get("type") == "user":
-                last_user_idx = i
+                content = msg.get("content", "")
+                has_subagent_meta = _has_subagent_user_metadata(msg)
+                if not (_is_system_injected_user_message(content) or has_subagent_meta):
+                    last_user_idx = i
 
         for i, msg in enumerate(messages):
             if not isinstance(msg, dict):
