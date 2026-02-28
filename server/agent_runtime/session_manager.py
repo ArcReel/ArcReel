@@ -3,6 +3,7 @@ Manages ClaudeSDKClient instances with background execution and reconnection sup
 """
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -235,6 +236,52 @@ class SessionManager:
         self.max_turns = int(max_turns_env) if max_turns_env else None
         self.cli_path = os.environ.get("ASSISTANT_CLAUDE_CLI_PATH", "").strip() or None
 
+    def _build_system_prompt(self, project_name: str) -> str:
+        """Build system prompt with project context injected."""
+        base_prompt = self.system_prompt
+
+        project_json = (
+            self.project_root / "projects" / project_name / "project.json"
+        )
+        if not project_json.exists():
+            return base_prompt
+
+        try:
+            config = json.loads(project_json.read_text(encoding="utf-8"))
+        except Exception:
+            return base_prompt
+
+        parts = [base_prompt, "", "## 当前项目上下文", ""]
+
+        if title := config.get("title"):
+            parts.append(f"- 项目名称：{title}")
+        if mode := config.get("content_mode"):
+            parts.append(f"- 内容模式：{mode}")
+        if style := config.get("style"):
+            parts.append(f"- 视觉风格：{style}")
+        if style_desc := config.get("style_description"):
+            parts.append(f"- 风格描述：{style_desc}")
+
+        self._append_overview_section(parts, config.get("overview", {}))
+
+        return "\n".join(parts)
+
+    @staticmethod
+    def _append_overview_section(parts: list[str], overview: Any) -> None:
+        """Append project overview fields to prompt parts."""
+        if not isinstance(overview, dict) or not overview:
+            return
+        parts.append("")
+        parts.append("### 项目概述")
+        if synopsis := overview.get("synopsis"):
+            parts.append(synopsis)
+        if genre := overview.get("genre"):
+            parts.append(f"- 题材：{genre}")
+        if theme := overview.get("theme"):
+            parts.append(f"- 主题：{theme}")
+        if world := overview.get("world_setting"):
+            parts.append(f"- 世界观：{world}")
+
     def _build_options(
         self,
         project_name: str,
@@ -264,7 +311,7 @@ class SessionManager:
             setting_sources=self.DEFAULT_SETTING_SOURCES,
             allowed_tools=self.DEFAULT_ALLOWED_TOOLS,
             max_turns=self.max_turns,
-            system_prompt=self.system_prompt,
+            system_prompt=self._build_system_prompt(project_name),
             include_partial_messages=True,
             resume=resume_id,
             can_use_tool=can_use_tool,
