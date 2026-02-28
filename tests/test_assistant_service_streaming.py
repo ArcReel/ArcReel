@@ -385,8 +385,9 @@ class TestAssistantServiceStreaming:
         assert payload.get("is_error") == True
         assert payload.get("session_id") == "sdk-1"
 
-    async def test_merge_raw_messages_dedupes_local_echo_when_transcript_has_real_user(self, tmp_path):
+    async def test_build_projector_dedupes_local_echo_when_transcript_has_real_user(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
+        meta = make_session_meta()
         history = [
             {
                 "type": "user",
@@ -405,12 +406,18 @@ class TestAssistantServiceStreaming:
             }
         ]
 
-        merged = service._merge_raw_messages(history, buffer)
-        assert len(merged) == 1
-        assert merged[0]["uuid"] == "real-1"
+        service.meta_store = _FakeMetaStore(meta)
+        service.transcript_reader = _FakeTranscriptReader([], history_raw=history)
+        service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
 
-    async def test_merge_raw_messages_keeps_new_local_echo_for_old_same_text(self, tmp_path):
+        projector = service._build_projector(meta, "session-1")
+        # local echo should be dropped, so only the real transcript user turn exists
+        assert len(projector.turns) == 1
+        assert projector.turns[0]["uuid"] == "real-1"
+
+    async def test_build_projector_keeps_new_local_echo_for_old_same_text(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
+        meta = make_session_meta()
         history = [
             {
                 "type": "user",
@@ -429,9 +436,14 @@ class TestAssistantServiceStreaming:
             }
         ]
 
-        merged = service._merge_raw_messages(history, buffer)
-        assert len(merged) == 2
-        assert merged[-1]["uuid"] == "local-user-new"
+        service.meta_store = _FakeMetaStore(meta)
+        service.transcript_reader = _FakeTranscriptReader([], history_raw=history)
+        service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
+
+        projector = service._build_projector(meta, "session-1")
+        # Time gap is > 5 seconds, so it's treated as a new message
+        assert len(projector.turns) == 2
+        assert projector.turns[-1]["uuid"] == "local-user-new"
 
     def test_prune_transient_buffer_removes_groupable_messages(self):
         """Verify _prune_transient_buffer clears user/assistant/result messages
