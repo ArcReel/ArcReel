@@ -6,6 +6,7 @@ import pytest
 from tests.fakes import FakeSDKClient
 from server.agent_runtime import session_manager as sm_mod
 from server.agent_runtime.session_manager import ManagedSession
+from server.agent_runtime.session_store import SessionMetaStore
 
 
 class _FakeOptions:
@@ -59,7 +60,7 @@ class _FakeAllow:
 
 
 class _FakeDeny:
-    def __init__(self, message, interrupt):
+    def __init__(self, message, interrupt=False):
         self.message = message
         self.interrupt = interrupt
 
@@ -275,3 +276,130 @@ class TestSessionManagerMore:
         await session_manager.shutdown_gracefully(timeout=0.01)
         assert client.interrupted is True
         assert session_manager.sessions == {}
+
+    @pytest.mark.asyncio
+    async def test_can_use_tool_blocks_read_outside_project(self, tmp_path, monkeypatch):
+        """Read denied for other project dirs, allowed for own project and public dirs."""
+        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
+        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
+
+        # Set up directories
+        own_project = tmp_path / "projects" / "alpha"
+        own_project.mkdir(parents=True)
+        other_project = tmp_path / "projects" / "beta"
+        other_project.mkdir(parents=True)
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir(parents=True)
+
+        meta_store = SessionMetaStore(tmp_path / "sessions.db")
+        mgr = sm_mod.SessionManager(
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=meta_store,
+        )
+
+        meta = meta_store.create("alpha", "test session")
+        managed = ManagedSession(session_id=meta.id, client=FakeSDKClient())
+        mgr.sessions[meta.id] = managed
+
+        cb = mgr._build_can_use_tool_callback(meta.id)
+
+        # Read own project file — allowed
+        result = await cb("Read", {"file_path": str(own_project / "script.json")}, None)
+        assert hasattr(result, "updated_input")
+
+        # Read other project file — denied
+        result = await cb("Read", {"file_path": str(other_project / "script.json")}, None)
+        assert hasattr(result, "message")
+        assert "访问被拒绝" in result.message
+
+        # Read public docs dir — allowed
+        result = await cb("Read", {"file_path": str(docs_dir / "guide.md")}, None)
+        assert hasattr(result, "updated_input")
+
+    @pytest.mark.asyncio
+    async def test_can_use_tool_blocks_write_to_readonly_dir(self, tmp_path, monkeypatch):
+        """Write denied to lib/, allowed to own project."""
+        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
+        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
+
+        own_project = tmp_path / "projects" / "alpha"
+        own_project.mkdir(parents=True)
+        lib_dir = tmp_path / "lib"
+        lib_dir.mkdir(parents=True)
+
+        meta_store = SessionMetaStore(tmp_path / "sessions.db")
+        mgr = sm_mod.SessionManager(
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=meta_store,
+        )
+
+        meta = meta_store.create("alpha", "test session")
+        managed = ManagedSession(session_id=meta.id, client=FakeSDKClient())
+        mgr.sessions[meta.id] = managed
+
+        cb = mgr._build_can_use_tool_callback(meta.id)
+
+        # Write own project file — allowed
+        result = await cb("Write", {"file_path": str(own_project / "output.txt")}, None)
+        assert hasattr(result, "updated_input")
+
+        # Write to lib/ (readonly) — denied
+        result = await cb("Write", {"file_path": str(lib_dir / "hack.py")}, None)
+        assert hasattr(result, "message")
+        assert "访问被拒绝" in result.message
+
+    @pytest.mark.asyncio
+    async def test_can_use_tool_allows_bash_without_path_check(self, tmp_path, monkeypatch):
+        """Bash tool not intercepted by path check."""
+        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
+        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
+
+        own_project = tmp_path / "projects" / "alpha"
+        own_project.mkdir(parents=True)
+
+        meta_store = SessionMetaStore(tmp_path / "sessions.db")
+        mgr = sm_mod.SessionManager(
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=meta_store,
+        )
+
+        meta = meta_store.create("alpha", "test session")
+        managed = ManagedSession(session_id=meta.id, client=FakeSDKClient())
+        mgr.sessions[meta.id] = managed
+
+        cb = mgr._build_can_use_tool_callback(meta.id)
+
+        # Bash — allowed without path check
+        result = await cb("Bash", {"command": "ls /etc"}, None)
+        assert hasattr(result, "updated_input")
+
+    @pytest.mark.asyncio
+    async def test_can_use_tool_allows_read_claude_md(self, tmp_path, monkeypatch):
+        """Read allowed for root CLAUDE.md."""
+        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
+        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
+
+        own_project = tmp_path / "projects" / "alpha"
+        own_project.mkdir(parents=True)
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text("# Project instructions")
+
+        meta_store = SessionMetaStore(tmp_path / "sessions.db")
+        mgr = sm_mod.SessionManager(
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=meta_store,
+        )
+
+        meta = meta_store.create("alpha", "test session")
+        managed = ManagedSession(session_id=meta.id, client=FakeSDKClient())
+        mgr.sessions[meta.id] = managed
+
+        cb = mgr._build_can_use_tool_callback(meta.id)
+
+        # Read CLAUDE.md — allowed
+        result = await cb("Read", {"file_path": str(claude_md)}, None)
+        assert hasattr(result, "updated_input")
