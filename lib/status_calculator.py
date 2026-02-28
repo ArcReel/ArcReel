@@ -111,7 +111,7 @@ class StatusCalculator:
         sb_total, sb_done, vid_total, vid_done = 0, 0, 0, 0
 
         for ep in project.get('episodes', []):
-            script_file = ep.get('script_file', '').replace('scripts/', '')
+            script_file = ep.get('script_file', '')
             if script_file:
                 try:
                     script = self.pm.load_script(project_name, script_file)
@@ -182,7 +182,7 @@ class StatusCalculator:
 
         # 为每个 episode 注入计算字段
         for ep in project.get('episodes', []):
-            script_file = ep.get('script_file', '').replace('scripts/', '')
+            script_file = ep.get('script_file', '')
             if script_file:
                 try:
                     script = self.pm.load_script(project_name, script_file)

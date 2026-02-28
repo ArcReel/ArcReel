@@ -140,12 +140,14 @@ async def get_project(name: str):
         # 加载所有剧本并注入计算字段
         scripts = {}
         for ep in project.get("episodes", []):
-            script_file = ep.get("script_file", "").replace("scripts/", "")
+            script_file = ep.get("script_file", "")
             if script_file:
                 try:
                     script = manager.load_script(name, script_file)
                     script = calculator.enrich_script(script)
-                    scripts[script_file] = script
+                    # 使用纯文件名作为 key（去掉 scripts/ 前缀）
+                    key = script_file.replace("scripts/", "", 1) if script_file.startswith("scripts/") else script_file
+                    scripts[key] = script
                 except FileNotFoundError:
                     pass
 

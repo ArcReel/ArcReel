@@ -16,6 +16,8 @@ class _FakePM:
         return self._project_root / project_name
 
     def load_script(self, project_name: str, filename: str):
+        if filename.startswith("scripts/"):
+            filename = filename[len("scripts/"):]
         if filename not in self._scripts:
             raise FileNotFoundError(filename)
         return self._scripts[filename]

@@ -59,7 +59,7 @@ export function StudioCanvasRouter() {
     if (!currentProjectName || !currentScripts) return;
     const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
     if (!resolvedFile) return;
-    const script = currentScripts[resolvedFile] ?? currentScripts[resolvedFile.replace(/^scripts\//, "")];
+    const script = currentScripts[resolvedFile];
     if (!script) return;
     const segments = ("segments" in script ? script.segments : undefined) ??
                      ("scenes" in script ? script.scenes : undefined) ?? [];
@@ -80,7 +80,7 @@ export function StudioCanvasRouter() {
     if (!currentProjectName || !currentScripts) return;
     const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
     if (!resolvedFile) return;
-    const script = currentScripts[resolvedFile] ?? currentScripts[resolvedFile.replace(/^scripts\//, "")];
+    const script = currentScripts[resolvedFile];
     if (!script) return;
     const segments = ("segments" in script ? script.segments : undefined) ??
                      ("scenes" in script ? script.scenes : undefined) ?? [];
@@ -232,12 +232,9 @@ export function StudioCanvasRouter() {
           const episode = currentProjectData?.episodes?.find(
             (e) => e.episode === epNum,
           );
-          const scriptFile = episode?.script_file;
-          // Backend strips "scripts/" prefix from keys, so try both forms
+          const scriptFile = episode?.script_file?.replace(/^scripts\//, "");
           const script = scriptFile
-            ? (currentScripts[scriptFile] ??
-               currentScripts[scriptFile.replace(/^scripts\//, "")] ??
-               null)
+            ? (currentScripts[scriptFile] ?? null)
             : null;
 
           return (

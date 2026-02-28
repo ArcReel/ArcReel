@@ -117,6 +117,41 @@ class TestProjectManagerMore:
         with pytest.raises(KeyError):
             pm.update_scene_asset("demo", "episode_1.json", "NOT_FOUND", "video_clip", "x.mp4")
 
+    def test_load_script_strips_scripts_prefix(self, tmp_path):
+        """load_script / save_script / update_scene_asset 应兼容带 scripts/ 前缀的文件名"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        script = {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "duration_seconds": 4, "generated_assets": {}}],
+        }
+        pm.save_script("demo", script, "episode_1.json")
+
+        # 纯文件名
+        loaded1 = pm.load_script("demo", "episode_1.json")
+        assert loaded1["episode"] == 1
+
+        # 带 scripts/ 前缀（前端传入的格式）
+        loaded2 = pm.load_script("demo", "scripts/episode_1.json")
+        assert loaded2["episode"] == 1
+
+        # save_script 也应兼容带前缀的文件名
+        script["title"] = "修改后"
+        pm.save_script("demo", script, "scripts/episode_1.json")
+        loaded3 = pm.load_script("demo", "episode_1.json")
+        assert loaded3["title"] == "修改后"
+
+        # update_scene_asset 也应兼容
+        pm.update_scene_asset(
+            "demo", "scripts/episode_1.json", "E1S01", "storyboard_image", "storyboards/scene_E1S01.png"
+        )
+        updated = pm.load_script("demo", "episode_1.json")
+        assert updated["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
+
     def test_normalize_and_templates(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")

@@ -75,6 +75,8 @@ class _FakePM:
         self.project_data[name] = payload
 
     def load_script(self, name, script_file):
+        if script_file.startswith("scripts/"):
+            script_file = script_file[len("scripts/"):]
         key = (name, script_file)
         if key not in self.scripts:
             raise FileNotFoundError(script_file)

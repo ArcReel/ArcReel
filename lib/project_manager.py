@@ -217,6 +217,9 @@ class ProjectManager:
         project_dir = self.get_project_path(project_name)
         scripts_dir = project_dir / "scripts"
 
+        if filename is not None and filename.startswith("scripts/"):
+            filename = filename[len("scripts/"):]
+
         if filename is None:
             chapter = script["novel"].get("chapter", "chapter_01")
             filename = f"{chapter.replace(' ', '_')}_script.json"
@@ -320,6 +323,8 @@ class ProjectManager:
             剧本字典
         """
         project_dir = self.get_project_path(project_name)
+        if filename.startswith("scripts/"):
+            filename = filename[len("scripts/"):]
         script_path = (project_dir / "scripts" / filename).resolve()
         try:
             script_path.relative_to(project_dir.resolve())

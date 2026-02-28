@@ -52,6 +52,7 @@ projects/.agent_data/sessions.db
 .env.*
 !.env.example
 service-account.json
+CLAUDE.local.md
 
 # Local Codex runtime metadata
 .codex/
