@@ -23,7 +23,7 @@ export function PendingQuestionWizard({
   error,
   onSubmitAnswers,
 }: PendingQuestionWizardProps) {
-  const pendingQuestions = pendingQuestion.questions ?? [];
+  const pendingQuestions = pendingQuestion.questions;
   const [questionAnswers, setQuestionAnswers] = useState<Record<string, string | string[]>>({});
   const [questionCustomAnswers, setQuestionCustomAnswers] = useState<Record<string, string>>({});
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -43,7 +43,7 @@ export function PendingQuestionWizard({
     setQuestionCustomAnswers(initialCustomAnswers);
     setCurrentQuestionIndex(0);
     setVisitedQuestionIndexes(pendingQuestions.length > 0 ? [0] : []);
-  }, [pendingQuestion.question_id, pendingQuestions]);
+  }, [pendingQuestion.question_id, pendingQuestion.questions]);
 
   const totalQuestions = pendingQuestions.length;
   const normalizedQuestionIndex = totalQuestions === 0
