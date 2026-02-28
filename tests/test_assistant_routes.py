@@ -1,23 +1,28 @@
 """Unit tests for assistant router contract changes."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.routers import assistant
+from tests.factories import make_session_meta
+
+
+PROJECT = "demo"
+PREFIX = f"/api/v1/projects/{PROJECT}/assistant"
 
 
 def _build_client() -> TestClient:
     app = FastAPI()
-    app.include_router(assistant.router, prefix="/api/v1/assistant")
+    app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant")
     return TestClient(app)
 
 
 class TestAssistantRoutes:
     def test_messages_endpoint_returns_410(self):
         with _build_client() as client:
-            response = client.get("/api/v1/assistant/sessions/session-1/messages")
+            response = client.get(f"{PREFIX}/sessions/session-1/messages")
 
         assert response.status_code == 410
         payload = response.json()
@@ -35,13 +40,19 @@ class TestAssistantRoutes:
             "pending_questions": [],
         }
 
+        # Mock get_session for ownership validation
+        session_meta = make_session_meta(id="session-1", project_name=PROJECT)
         with patch.object(
+            assistant.assistant_service,
+            "get_session",
+            return_value=session_meta,
+        ), patch.object(
             assistant.assistant_service,
             "get_snapshot",
             new=AsyncMock(return_value=snapshot_payload),
         ):
             with _build_client() as client:
-                response = client.get("/api/v1/assistant/sessions/session-1/snapshot")
+                response = client.get(f"{PREFIX}/sessions/session-1/snapshot")
 
         assert response.status_code == 200
         assert response.json() == snapshot_payload
@@ -53,13 +64,19 @@ class TestAssistantRoutes:
             "session_status": "interrupted",
         }
 
+        # Mock get_session for ownership validation
+        session_meta = make_session_meta(id="session-1", project_name=PROJECT)
         with patch.object(
+            assistant.assistant_service,
+            "get_session",
+            return_value=session_meta,
+        ), patch.object(
             assistant.assistant_service,
             "interrupt_session",
             new=AsyncMock(return_value=interrupt_payload),
         ):
             with _build_client() as client:
-                response = client.post("/api/v1/assistant/sessions/session-1/interrupt")
+                response = client.post(f"{PREFIX}/sessions/session-1/interrupt")
 
         assert response.status_code == 200
         assert response.json() == interrupt_payload

@@ -7,7 +7,7 @@ from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Path as PathParam
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -23,8 +23,18 @@ def get_assistant_service() -> AssistantService:
     return assistant_service
 
 
+def _validate_session_ownership(
+    service: AssistantService, session_id: str, project_name: str
+) -> None:
+    """Validate session belongs to the specified project."""
+    session = service.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+    if session.project_name != project_name:
+        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+
+
 class CreateSessionRequest(BaseModel):
-    project_name: str = Field(min_length=1)
     title: Optional[str] = ""
 
 
@@ -41,13 +51,13 @@ class UpdateSessionRequest(BaseModel):
 
 
 @router.post("/sessions")
-async def create_session(req: CreateSessionRequest):
+async def create_session(project_name: str, req: CreateSessionRequest):
     try:
         service = get_assistant_service()
-        session = await service.create_session(req.project_name, req.title or "")
+        session = await service.create_session(project_name, req.title or "")
         return {"id": session.id, "status": session.status, "created_at": session.created_at}
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{req.project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except HTTPException:
         raise
     except Exception as exc:
@@ -57,7 +67,7 @@ async def create_session(req: CreateSessionRequest):
 
 @router.get("/sessions")
 async def list_sessions(
-    project_name: Optional[str] = None,
+    project_name: str,
     status: Optional[Literal["idle", "running", "completed", "error", "interrupted"]] = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -75,11 +85,11 @@ async def list_sessions(
 
 
 @router.get("/sessions/{session_id}")
-async def get_session(session_id: str):
+async def get_session(project_name: str, session_id: str):
     try:
-        session = get_assistant_service().get_session(session_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+        service = get_assistant_service()
+        _validate_session_ownership(service, session_id, project_name)
+        session = service.get_session(session_id)
         return session.model_dump()
     except HTTPException:
         raise
@@ -89,9 +99,11 @@ async def get_session(session_id: str):
 
 
 @router.patch("/sessions/{session_id}")
-async def update_session(session_id: str, req: UpdateSessionRequest):
+async def update_session(project_name: str, session_id: str, req: UpdateSessionRequest):
     try:
-        session = get_assistant_service().update_session_title(session_id, req.title)
+        service = get_assistant_service()
+        _validate_session_ownership(service, session_id, project_name)
+        session = service.update_session_title(session_id, req.title)
         if session is None:
             raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
         return {"success": True, "session": session.model_dump()}
@@ -105,9 +117,11 @@ async def update_session(session_id: str, req: UpdateSessionRequest):
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(project_name: str, session_id: str):
     try:
-        deleted = await get_assistant_service().delete_session(session_id)
+        service = get_assistant_service()
+        _validate_session_ownership(service, session_id, project_name)
+        deleted = await service.delete_session(session_id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
         return {"success": True}
@@ -119,7 +133,7 @@ async def delete_session(session_id: str):
 
 
 @router.get("/sessions/{session_id}/messages")
-async def list_messages(session_id: str):
+async def list_messages(project_name: str, session_id: str):
     raise HTTPException(
         status_code=410,
         detail="messages 接口已下线，请使用 /snapshot 与 SSE stream 协议。",
@@ -127,80 +141,86 @@ async def list_messages(session_id: str):
 
 
 @router.get("/sessions/{session_id}/snapshot")
-async def get_snapshot(session_id: str):
+async def get_snapshot(project_name: str, session_id: str):
     try:
-        snapshot = await get_assistant_service().get_snapshot(session_id)
+        service = get_assistant_service()
+        _validate_session_ownership(service, session_id, project_name)
+        snapshot = await service.get_snapshot(session_id)
         return snapshot
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
     except HTTPException:
         raise
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/sessions/{session_id}/messages")
-async def send_message(session_id: str, req: SendMessageRequest):
+async def send_message(project_name: str, session_id: str, req: SendMessageRequest):
     try:
-        result = await get_assistant_service().send_message(session_id, req.content)
+        service = get_assistant_service()
+        _validate_session_ownership(service, session_id, project_name)
+        result = await service.send_message(session_id, req.content)
         return result
+    except HTTPException:
+        raise
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except HTTPException:
-        raise
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/sessions/{session_id}/interrupt")
-async def interrupt_session(session_id: str):
+async def interrupt_session(project_name: str, session_id: str):
     try:
-        result = await get_assistant_service().interrupt_session(session_id)
+        service = get_assistant_service()
+        _validate_session_ownership(service, session_id, project_name)
+        result = await service.interrupt_session(session_id)
         return result
+    except HTTPException:
+        raise
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except HTTPException:
-        raise
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/sessions/{session_id}/questions/{question_id}/answer")
-async def answer_question(session_id: str, question_id: str, req: AnswerQuestionRequest):
+async def answer_question(project_name: str, session_id: str, question_id: str, req: AnswerQuestionRequest):
     if not req.answers:
         raise HTTPException(status_code=400, detail="answers 不能为空")
     try:
-        result = await get_assistant_service().answer_user_question(
+        service = get_assistant_service()
+        _validate_session_ownership(service, session_id, project_name)
+        result = await service.answer_user_question(
             session_id=session_id,
             question_id=question_id,
             answers=req.answers,
         )
         return result
+    except HTTPException:
+        raise
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except HTTPException:
-        raise
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/sessions/{session_id}/stream")
-async def stream_events(session_id: str):
+async def stream_events(project_name: str, session_id: str):
     try:
         service = get_assistant_service()
-        session = service.get_session(session_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+        _validate_session_ownership(service, session_id, project_name)
 
         return StreamingResponse(
             service.stream_events(session_id),
@@ -219,7 +239,7 @@ async def stream_events(session_id: str):
 
 
 @router.get("/skills")
-async def list_skills(project_name: Optional[str] = None):
+async def list_skills(project_name: str):
     try:
         skills = get_assistant_service().list_available_skills(project_name=project_name)
         return {"skills": skills}
