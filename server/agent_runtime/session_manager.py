@@ -213,6 +213,7 @@ class SessionManager:
         "MultiEdit": "file_path",
         "Glob": "path",
         "Grep": "path",
+        "LS": "path",
     }
     _WRITE_TOOLS = {"Write", "Edit", "MultiEdit"}
     _READONLY_DIRS = [
@@ -269,8 +270,8 @@ class SessionManager:
 
         try:
             config = json.loads(project_json.read_text(encoding="utf-8"))
-        except Exception:
-            logger.warning("Failed to read project.json for %s, using base prompt", project_name)
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Failed to read project.json for %s: %s", project_name, exc)
             return base_prompt
 
         parts = [base_prompt, "", "## 当前项目上下文", ""]
@@ -640,6 +641,24 @@ class SessionManager:
         logger.warning("PermissionResultDeny unavailable; path access control is inoperative")
         return PermissionResultAllow(updated_input=input_data)
 
+    def _check_file_access(
+        self,
+        tool_name: str,
+        input_data: dict[str, Any],
+        project_cwd: Optional[Path],
+    ) -> Optional[Any]:
+        """Check file access for path-based tools. Returns deny result or None if allowed."""
+        if tool_name not in self._PATH_TOOLS:
+            return None
+        # Fail-close: deny if project_cwd could not be resolved
+        if project_cwd is None:
+            return self._deny_path_access(input_data)
+        path_key = self._PATH_TOOLS[tool_name]
+        file_path = input_data.get(path_key)
+        if file_path and not self._is_path_allowed(file_path, tool_name, project_cwd):
+            return self._deny_path_access(input_data)
+        return None
+
     def _build_can_use_tool_callback(self, session_id: str):
         """Create per-session can_use_tool callback for AskUserQuestion and file access control."""
 
@@ -649,6 +668,13 @@ class SessionManager:
             project_cwd = self._resolve_project_cwd(meta.project_name) if meta else None
         except (ValueError, FileNotFoundError):
             project_cwd = None
+
+        if project_cwd is None:
+            logger.warning(
+                "Cannot resolve project_cwd for session %s; "
+                "file access control will deny all path-based tools",
+                session_id,
+            )
 
         async def _can_use_tool(
             tool_name: str,
@@ -666,13 +692,9 @@ class SessionManager:
                 )
 
             # File access control — use original tool_name (case-sensitive)
-            if project_cwd is not None and tool_name in self._PATH_TOOLS:
-                path_key = self._PATH_TOOLS[tool_name]
-                file_path = input_data.get(path_key)
-                if file_path and not self._is_path_allowed(
-                    file_path, tool_name, project_cwd
-                ):
-                    return self._deny_path_access(input_data)
+            denial = self._check_file_access(tool_name, input_data, project_cwd)
+            if denial is not None:
+                return denial
 
             return PermissionResultAllow(updated_input=input_data)
 

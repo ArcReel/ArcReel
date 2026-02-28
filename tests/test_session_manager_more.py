@@ -197,8 +197,10 @@ class TestSessionManagerMore:
         monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
 
         allow_cb = session_manager._build_can_use_tool_callback("unknown-session")
+        # With unknown session, project_cwd is None → fail-close: path-based tools denied
         result = await allow_cb("Read", {"x": 1}, None)
-        assert result.updated_input == {"x": 1}
+        assert hasattr(result, "message")  # denied
+        # Non-path tools still allowed
         result2 = await allow_cb("AskUserQuestion", {"questions": []}, None)
         assert result2.updated_input == {"questions": []}
 
