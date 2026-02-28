@@ -34,12 +34,40 @@ function PopoverHarness({ onClose }: { onClose: () => void }) {
   );
 }
 
+function BottomEdgePopoverHarness({ onClose }: { onClose: () => void }) {
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const { panelRef, positionStyle } = useAnchoredPopover({
+    open: true,
+    anchorRef,
+    onClose,
+    sideOffset: 8,
+  });
+
+  return (
+    <div>
+      <button ref={anchorRef} data-testid="bottom-anchor" type="button">
+        bottom-anchor
+      </button>
+      {createPortal(
+        <div ref={panelRef} data-testid="bottom-popover" style={positionStyle}>
+          bottom-popover
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
 describe("useAnchoredPopover", () => {
   beforeEach(() => {
     vi.stubGlobal("ResizeObserver", MockResizeObserver);
     Object.defineProperty(document.documentElement, "clientWidth", {
       configurable: true,
       value: 1200,
+    });
+    Object.defineProperty(document.documentElement, "clientHeight", {
+      configurable: true,
+      value: 900,
     });
 
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
@@ -63,6 +91,24 @@ describe("useAnchoredPopover", () => {
         });
       }
 
+      if (testId === "bottom-anchor") {
+        return DOMRect.fromRect({
+          x: 500,
+          y: 820,
+          width: 80,
+          height: 32,
+        });
+      }
+
+      if (testId === "bottom-popover") {
+        return DOMRect.fromRect({
+          x: 0,
+          y: 0,
+          width: 320,
+          height: 240,
+        });
+      }
+
       return DOMRect.fromRect();
     });
   });
@@ -77,6 +123,14 @@ describe("useAnchoredPopover", () => {
 
     const popover = screen.getByTestId("popover");
     expect(popover.style.top).toBe("100px");
+    expect(popover.style.left).toBe("260px");
+  });
+
+  it("flips the popover above the anchor when there is not enough space below", () => {
+    render(<BottomEdgePopoverHarness onClose={vi.fn()} />);
+
+    const popover = screen.getByTestId("bottom-popover");
+    expect(popover.style.top).toBe("572px");
     expect(popover.style.left).toBe("260px");
   });
 

@@ -47,7 +47,18 @@ export function useAnchoredPopover({
       const anchorRect = anchor.getBoundingClientRect();
       const panelRect = panel.getBoundingClientRect();
       const viewportWidth = document.documentElement.clientWidth;
-      const top = anchorRect.bottom + sideOffset;
+      const viewportHeight = document.documentElement.clientHeight;
+      const preferredBelowTop = anchorRect.bottom + sideOffset;
+      const preferredAboveTop = anchorRect.top - panelRect.height - sideOffset;
+      const maxTop = Math.max(collisionPadding, viewportHeight - panelRect.height - collisionPadding);
+      const shouldFlip =
+        viewportHeight - preferredBelowTop < panelRect.height + collisionPadding &&
+        preferredAboveTop >= collisionPadding;
+      const top = clamp(
+        shouldFlip ? preferredAboveTop : preferredBelowTop,
+        collisionPadding,
+        maxTop,
+      );
 
       let desiredLeft = anchorRect.right - panelRect.width;
       if (align === "start") {
