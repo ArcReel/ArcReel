@@ -6,6 +6,7 @@ import { AgentCopilot } from "@/components/copilot/AgentCopilot";
 import { useTasksSSE } from "@/hooks/useTasksSSE";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
+import { UI_LAYERS } from "@/utils/ui-layers";
 
 // ---------------------------------------------------------------------------
 // StudioLayout — three-column studio workspace shell
@@ -56,7 +57,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       <button
         type="button"
         onClick={toggleAssistantPanel}
-        className={`fixed top-14 right-4 z-50 flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 shadow-lg shadow-indigo-500/20 transition-all duration-300 ease-in-out ${
+        className={`fixed top-14 right-4 flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 shadow-lg shadow-indigo-500/20 transition-all duration-300 ease-in-out ${UI_LAYERS.workspaceFloating} ${
           assistantPanelOpen
             ? "scale-0 opacity-0 pointer-events-none"
             : "scale-100 opacity-100 hover:bg-indigo-500 cursor-pointer"

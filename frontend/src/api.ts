@@ -921,7 +921,7 @@ class API {
     projectName: string,
     sessionId: string,
     questionId: string,
-    answers: Record<string, string[]>
+    answers: Record<string, string>
   ): Promise<SuccessResponse> {
     return this.request(
       `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(questionId)}/answer`,

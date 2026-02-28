@@ -22,6 +22,7 @@ class AssistantSnapshotV2(BaseModel):
     """Unified assistant snapshot for history and reconnect."""
 
     session_id: str
+    sdk_session_id: Optional[str] = None
     status: SessionStatus
     turns: list[dict[str, Any]]
     draft_turn: Optional[dict[str, Any]] = None

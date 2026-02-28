@@ -901,6 +901,8 @@ class SessionManager:
         managed = self.sessions.get(session_id)
         if managed is None:
             raise ValueError("会话未运行或无待回答问题")
+        if managed.status != "running":
+            raise ValueError("会话未运行或无待回答问题")
         if not managed.resolve_pending_question(question_id, answers):
             raise ValueError("未找到待回答的问题")
 

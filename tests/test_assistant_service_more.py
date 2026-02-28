@@ -6,6 +6,7 @@ import pytest
 
 from tests.factories import make_session_meta
 from server.agent_runtime.service import AssistantService
+from server.agent_runtime.session_store import SessionMetaStore
 from server.agent_runtime.stream_projector import AssistantStreamProjector
 
 
@@ -112,6 +113,24 @@ class _ManagedForDelete:
 
 
 class TestAssistantServiceMore:
+    def test_service_init_interrupts_stale_running_sessions(self, tmp_path):
+        data_dir = tmp_path / "projects" / ".agent_data"
+        store = SessionMetaStore(data_dir / "sessions.db")
+
+        running = store.create("demo", "Running")
+        completed = store.create("demo", "Completed")
+        store.update_status(running.id, "running")
+        store.update_status(completed.id, "completed")
+
+        service = AssistantService(project_root=tmp_path)
+
+        refreshed_running = service.meta_store.get(running.id)
+        refreshed_completed = service.meta_store.get(completed.id)
+        assert refreshed_running is not None
+        assert refreshed_running.status == "interrupted"
+        assert refreshed_completed is not None
+        assert refreshed_completed.status == "completed"
+
     @pytest.mark.asyncio
     async def test_crud_and_message_validation(self, tmp_path):
         service = AssistantService(project_root=tmp_path)

@@ -38,6 +38,210 @@ def _safe_json_parse(value: str) -> Optional[Any]:
         return None
 
 
+def _is_ask_user_question_block(block: Any) -> bool:
+    """Return True when a block is an AskUserQuestion tool_use block."""
+    if not isinstance(block, dict):
+        return False
+    return block.get("type") == "tool_use" and block.get("name") == "AskUserQuestion"
+
+
+def _get_ask_user_question_signature(block: dict[str, Any]) -> Optional[str]:
+    """Build a stable signature for AskUserQuestion blocks."""
+    block_id = block.get("id")
+    if isinstance(block_id, str) and block_id:
+        return f"id:{block_id}"
+
+    input_payload = block.get("input")
+    if not isinstance(input_payload, dict):
+        return None
+
+    questions = input_payload.get("questions")
+    if not isinstance(questions, list) or not questions:
+        return None
+
+    try:
+        return f"questions:{json.dumps(questions, ensure_ascii=False, sort_keys=True)}"
+    except (TypeError, ValueError):
+        return None
+
+
+def _canonicalize_block_for_dedupe(
+    block: Any,
+    *,
+    include_tool_result_state: bool = True,
+) -> dict[str, Any]:
+    """Reduce a block to the user-visible fields used for duplicate detection."""
+    normalized = _shared_normalize_block(block)
+    canonical: dict[str, Any] = {"type": normalized.get("type", "")}
+
+    for key in (
+        "text",
+        "thinking",
+        "id",
+        "name",
+        "skill_content",
+        "tool_use_id",
+        "content",
+    ):
+        if key in normalized:
+            canonical[key] = copy.deepcopy(normalized[key])
+
+    if include_tool_result_state:
+        for key in ("result", "is_error"):
+            if key in normalized:
+                canonical[key] = copy.deepcopy(normalized[key])
+
+    if isinstance(normalized.get("input"), dict):
+        canonical["input"] = copy.deepcopy(normalized["input"])
+
+    return canonical
+
+
+def _draft_matches_last_assistant_turn(
+    turns: list[dict[str, Any]],
+    draft_turn: Optional[dict[str, Any]],
+    *,
+    include_tool_result_state: bool = True,
+) -> bool:
+    """Return True when the reconnect draft repeats the last committed assistant turn."""
+    if not isinstance(draft_turn, dict):
+        return False
+
+    last_turn = turns[-1] if turns else None
+    if not isinstance(last_turn, dict) or last_turn.get("type") != "assistant":
+        return False
+
+    draft_blocks = draft_turn.get("content")
+    last_turn_blocks = last_turn.get("content")
+    if not isinstance(draft_blocks, list) or not isinstance(last_turn_blocks, list):
+        return False
+
+    return [
+        _canonicalize_block_for_dedupe(
+            block,
+            include_tool_result_state=include_tool_result_state,
+        )
+        for block in draft_blocks
+    ] == [
+        _canonicalize_block_for_dedupe(
+            block,
+            include_tool_result_state=include_tool_result_state,
+        )
+        for block in last_turn_blocks
+    ]
+
+
+def _draft_matches_suffix_of_last_assistant_turn(
+    turns: list[dict[str, Any]],
+    draft_turn: Optional[dict[str, Any]],
+    *,
+    include_tool_result_state: bool = True,
+) -> bool:
+    """Return True when the reconnect draft repeats a suffix of the last assistant turn."""
+    if not isinstance(draft_turn, dict):
+        return False
+
+    last_turn = turns[-1] if turns else None
+    if not isinstance(last_turn, dict) or last_turn.get("type") != "assistant":
+        return False
+
+    draft_blocks = draft_turn.get("content")
+    last_turn_blocks = last_turn.get("content")
+    if not isinstance(draft_blocks, list) or not isinstance(last_turn_blocks, list):
+        return False
+    if not draft_blocks or len(draft_blocks) >= len(last_turn_blocks):
+        return False
+
+    canonical_draft_blocks = [
+        _canonicalize_block_for_dedupe(
+            block,
+            include_tool_result_state=include_tool_result_state,
+        )
+        for block in draft_blocks
+    ]
+    canonical_last_turn_blocks = [
+        _canonicalize_block_for_dedupe(
+            block,
+            include_tool_result_state=include_tool_result_state,
+        )
+        for block in last_turn_blocks
+    ]
+
+    return canonical_last_turn_blocks[-len(canonical_draft_blocks):] == canonical_draft_blocks
+
+
+def _hide_stale_draft_turn(
+    turns: list[dict[str, Any]],
+    draft_turn: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    """Hide stale drafts that would duplicate the last committed assistant turn."""
+    if not isinstance(draft_turn, dict):
+        return None
+
+    if _draft_matches_last_assistant_turn(turns, draft_turn):
+        return None
+    if _draft_matches_suffix_of_last_assistant_turn(turns, draft_turn):
+        return None
+
+    # When an AskUserQuestion answer arrives, the committed assistant turn gains
+    # tool_use.result/is_error before the next continuation text starts streaming.
+    # The in-flight draft may still hold the pre-result copy of that same turn.
+    if _draft_matches_last_assistant_turn(
+        turns,
+        draft_turn,
+        include_tool_result_state=False,
+    ):
+        return None
+    if _draft_matches_suffix_of_last_assistant_turn(
+        turns,
+        draft_turn,
+        include_tool_result_state=False,
+    ):
+        return None
+
+    draft_blocks = draft_turn.get("content")
+    if not isinstance(draft_blocks, list) or not draft_blocks:
+        return draft_turn
+    if not all(_is_ask_user_question_block(block) for block in draft_blocks):
+        return draft_turn
+
+    last_turn = turns[-1] if turns else None
+    if not isinstance(last_turn, dict):
+        return draft_turn
+
+    last_turn_blocks = last_turn.get("content")
+    if not isinstance(last_turn_blocks, list):
+        return draft_turn
+
+    last_turn_signatures = {
+        signature
+        for signature in (
+            _get_ask_user_question_signature(block)
+            for block in last_turn_blocks
+            if _is_ask_user_question_block(block)
+        )
+        if signature
+    }
+    if not last_turn_signatures:
+        return draft_turn
+
+    draft_signatures = [
+        signature
+        for signature in (
+            _get_ask_user_question_signature(block)
+            for block in draft_blocks
+        )
+        if signature
+    ]
+    if not draft_signatures:
+        return draft_turn
+
+    if all(signature in last_turn_signatures for signature in draft_signatures):
+        return None
+
+    return draft_turn
+
+
 class DraftAssistantProjector:
     """Builds an in-flight assistant turn from StreamEvent payloads."""
 
@@ -221,6 +425,14 @@ class AssistantStreamProjector:
         for message in initial_messages or []:
             self.apply_message(message)
 
+    def _build_visible_draft_turn(self) -> Optional[dict[str, Any]]:
+        """Build the current draft turn and hide reconnect/resume duplicates."""
+        normalized_turns = [normalize_turn(t) for t in self.turns]
+        return _hide_stale_draft_turn(
+            normalized_turns,
+            self.draft.build_turn(),
+        )
+
     def apply_message(self, message: dict[str, Any]) -> dict[str, Any]:
         """Apply one message and return projector updates."""
         update = {
@@ -247,14 +459,14 @@ class AssistantStreamProjector:
             if patch:
                 update["patch"] = {
                     "patch": patch,
-                    "draft_turn": self.draft.build_turn(),
+                    "draft_turn": self._build_visible_draft_turn(),
                 }
             return update
 
         if msg_type == "stream_event":
             delta = self.draft.apply_stream_event(message)
             if delta:
-                delta["draft_turn"] = self.draft.build_turn()
+                delta["draft_turn"] = self._build_visible_draft_turn()
                 update["delta"] = delta
             return update
 
@@ -270,10 +482,11 @@ class AssistantStreamProjector:
         pending_questions: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, Any]:
         """Build unified snapshot payload for API and SSE."""
+        normalized_turns = [normalize_turn(t) for t in self.turns]
         return {
             "session_id": session_id,
             "status": status,
-            "turns": [normalize_turn(t) for t in self.turns],
-            "draft_turn": self.draft.build_turn(),
+            "turns": normalized_turns,
+            "draft_turn": self._build_visible_draft_turn(),
             "pending_questions": copy.deepcopy(pending_questions or []),
         }

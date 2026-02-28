@@ -4,7 +4,9 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
+import { UI_LAYERS } from "@/utils/ui-layers";
 import { ContextBanner } from "./ContextBanner";
+import { PendingQuestionWizard } from "./PendingQuestionWizard";
 import { SkillPills } from "./SkillPills";
 import { ChatMessage } from "./chat/ChatMessage";
 
@@ -52,7 +54,8 @@ function SessionSelector({
       </button>
 
       {open && sessions.length > 0 && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-gray-700 bg-gray-850 shadow-xl"
+        <div
+          className={`absolute right-0 top-full mt-1 w-64 rounded-lg border border-gray-700 bg-gray-850 shadow-xl ${UI_LAYERS.assistantLocalPopover}`}
           style={{ backgroundColor: "rgb(17 24 39)" }}
         >
           <div className="max-h-60 overflow-y-auto py-1">
@@ -124,22 +127,30 @@ function formatTime(isoStr: string | undefined): string {
 export function AgentCopilot() {
   const {
     turns, draftTurn, messagesLoading,
-    sending, sessionStatus,
+    sending, sessionStatus, pendingQuestion, answeringQuestion, error,
   } = useAssistantStore();
 
   const { currentProjectName } = useProjectsStore();
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
-  const { sendMessage, interrupt, createNewSession, switchSession, deleteSession } =
+  const { sendMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession } =
     useAssistantSession(currentProjectName);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [localInput, setLocalInput] = useState("");
+  const allTurns = draftTurn ? [...turns, draftTurn] : turns;
+  const isRunning = sessionStatus === "running";
+  const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
+  const inputPlaceholder = pendingQuestion
+    ? "请先回答上方问题"
+    : isRunning
+      ? "助手正在生成中，可点击停止中断"
+      : "输入消息...";
 
   const handleSend = useCallback(() => {
-    if (!localInput.trim()) return;
+    if (inputDisabled || !localInput.trim()) return;
     sendMessage(localInput.trim());
     setLocalInput("");
-  }, [localInput, sendMessage]);
+  }, [inputDisabled, localInput, sendMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -148,10 +159,6 @@ export function AgentCopilot() {
     }
   }, [handleSend]);
 
-  // 新消息时自动滚动到底部
-  const allTurns = draftTurn ? [...turns, draftTurn] : turns;
-  const isRunning = sessionStatus === "running";
-
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -159,7 +166,7 @@ export function AgentCopilot() {
   }, [allTurns.length]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative isolate flex h-full flex-col">
       {/* Header */}
       <div className="flex h-10 items-center justify-between border-b border-gray-800 px-3">
         <div className="flex items-center gap-2">
@@ -212,8 +219,22 @@ export function AgentCopilot() {
         ))}
       </div>
 
-      {/* Skill pills */}
-      <SkillPills onSendCommand={(cmd) => setLocalInput(cmd)} />
+      {pendingQuestion && (
+        <PendingQuestionWizard
+          pendingQuestion={pendingQuestion}
+          answeringQuestion={answeringQuestion}
+          error={error}
+          onSubmitAnswers={answerQuestion}
+        />
+      )}
+
+      {!pendingQuestion && <SkillPills onSendCommand={(cmd) => setLocalInput(cmd)} />}
+
+      {!pendingQuestion && error && (
+        <div className="border-t border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          {error}
+        </div>
+      )}
 
       {/* Input area */}
       <div className="border-t border-gray-800 p-3">
@@ -222,19 +243,28 @@ export function AgentCopilot() {
             value={localInput}
             onChange={(e) => setLocalInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="输入消息..."
+            placeholder={inputPlaceholder}
             rows={1}
+            aria-label="助手输入"
             className="flex-1 resize-none bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none"
+            disabled={inputDisabled}
           />
           {isRunning ? (
-            <button onClick={interrupt} className="rounded p-1.5 text-red-400 hover:bg-gray-700">
+            <button
+              onClick={interrupt}
+              className="rounded p-1.5 text-red-400 hover:bg-gray-700"
+              title="中断会话"
+              aria-label="中断会话"
+            >
               <Square className="h-4 w-4" />
             </button>
           ) : (
             <button
               onClick={handleSend}
-              disabled={!localInput.trim() || sending}
+              disabled={!localInput.trim() || inputDisabled}
               className="rounded p-1.5 text-indigo-400 hover:bg-gray-700 disabled:opacity-30"
+              title="发送消息"
+              aria-label="发送消息"
             >
               <Send className="h-4 w-4" />
             </button>

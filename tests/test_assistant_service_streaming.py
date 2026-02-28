@@ -245,13 +245,24 @@ class TestAssistantServiceStreaming:
         assert delta_payload.get("delta_type") == "text_delta"
         assert delta_payload.get("text") == "Hi"
         assert isinstance(delta_payload.get("draft_turn"), dict)
+        assert delta_payload.get("session_id") == "session-1"
+        assert delta_payload.get("sdk_session_id") == "sdk-1"
+
+        patch_payload = next(payload for name, payload in events if name == "patch")
+        assert patch_payload.get("session_id") == "session-1"
+        assert patch_payload.get("sdk_session_id") == "sdk-1"
+
+        question_payload = next(payload for name, payload in events if name == "question")
+        assert question_payload.get("session_id") == "session-1"
+        assert question_payload.get("sdk_session_id") == "sdk-1"
 
         status_payload = next(payload for name, payload in events if name == "status")
         assert status_payload.get("status") == "completed"
         assert status_payload.get("subtype") == "success"
         assert status_payload.get("stop_reason") == "end_turn"
         assert status_payload.get("is_error") == False
-        assert status_payload.get("session_id") == "sdk-1"
+        assert status_payload.get("session_id") == "session-1"
+        assert status_payload.get("sdk_session_id") == "sdk-1"
 
     async def test_stream_completed_session_emits_snapshot_and_status(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
@@ -296,12 +307,15 @@ class TestAssistantServiceStreaming:
 
         assert first_name == "snapshot"
         assert len(first_payload.get("turns", [])) == 3
+        assert first_payload.get("session_id") == "session-1"
+        assert first_payload.get("sdk_session_id") == "sdk-1"
         assert second_name == "status"
         assert second_payload.get("status") == "completed"
         assert second_payload.get("subtype") == "success"
         assert second_payload.get("stop_reason") == "end_turn"
         assert second_payload.get("is_error") == False
-        assert second_payload.get("session_id") == "sdk-1"
+        assert second_payload.get("session_id") == "session-1"
+        assert second_payload.get("sdk_session_id") == "sdk-1"
 
     async def test_stream_runtime_status_emits_interrupted_status(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
@@ -338,7 +352,8 @@ class TestAssistantServiceStreaming:
         assert payload.get("status") == "interrupted"
         assert payload.get("subtype") == "interrupted"
         assert payload.get("is_error") == False
-        assert payload.get("session_id") == "sdk-1"
+        assert payload.get("session_id") == "session-1"
+        assert payload.get("sdk_session_id") == "sdk-1"
 
     async def test_stream_result_prefers_session_status_from_result_message(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
@@ -383,7 +398,8 @@ class TestAssistantServiceStreaming:
         assert payload.get("status") == "interrupted"
         assert payload.get("subtype") == "error_during_execution"
         assert payload.get("is_error") == True
-        assert payload.get("session_id") == "sdk-1"
+        assert payload.get("session_id") == "session-1"
+        assert payload.get("sdk_session_id") == "sdk-1"
 
     async def test_build_projector_dedupes_local_echo_when_transcript_has_real_user(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
@@ -877,4 +893,3 @@ class TestAssistantServiceStreaming:
         assert len(projector.turns) == 2
         assert projector.turns[0]["type"] == "user"
         assert projector.turns[1]["type"] == "assistant"
-

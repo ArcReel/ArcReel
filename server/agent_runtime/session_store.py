@@ -145,6 +145,20 @@ class SessionMetaStore:
             )
         return cursor.rowcount > 0
 
+    def interrupt_running_sessions(self) -> int:
+        """Mark all persisted running sessions as interrupted."""
+        now = self._now()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE sessions
+                SET status = ?, updated_at = ?
+                WHERE status = ?
+                """,
+                ("interrupted", now, "running"),
+            )
+        return cursor.rowcount
+
     def update_sdk_session_id(self, session_id: str, sdk_session_id: str) -> bool:
         now = self._now()
         with self._connect() as conn:

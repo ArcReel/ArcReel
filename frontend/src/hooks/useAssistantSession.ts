@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { API } from "@/api";
 import { useAssistantStore } from "@/stores/assistant-store";
-import type { Turn, PendingQuestion, SessionMeta } from "@/types";
+import type { AssistantSnapshot, PendingQuestion, SessionMeta, Turn } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Helpers — 从旧 use-assistant-state.js 移植
@@ -71,6 +71,21 @@ export function useAssistantSession(projectName: string | null) {
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statusRef = useRef<string>("idle");
 
+  const syncPendingQuestion = useCallback((question: PendingQuestion | null) => {
+    store.getState().setPendingQuestion(question);
+    store.getState().setAnsweringQuestion(false);
+  }, [store]);
+
+  const clearPendingQuestion = useCallback(() => {
+    syncPendingQuestion(null);
+  }, [syncPendingQuestion]);
+
+  const applySnapshot = useCallback((snapshot: Partial<AssistantSnapshot>) => {
+    store.getState().setTurns((snapshot.turns as Turn[]) ?? []);
+    store.getState().setDraftTurn((snapshot.draft_turn as Turn) ?? null);
+    syncPendingQuestion(getPendingQuestionFromSnapshot(snapshot));
+  }, [store, syncPendingQuestion]);
+
   // 关闭流
   const closeStream = useCallback(() => {
     if (reconnectRef.current) {
@@ -94,8 +109,7 @@ export function useAssistantSession(projectName: string | null) {
 
       source.addEventListener("snapshot", (event) => {
         const data = parseSsePayload(event as MessageEvent);
-        store.getState().setTurns((data.turns as Turn[]) ?? []);
-        store.getState().setDraftTurn((data.draft_turn as Turn) ?? null);
+        applySnapshot(data as Partial<AssistantSnapshot>);
 
         if (typeof data.status === "string") {
           store.getState().setSessionStatus(data.status as "idle");
@@ -104,15 +118,6 @@ export function useAssistantSession(projectName: string | null) {
             store.getState().setSending(false);
           }
         }
-
-        // pending questions
-        const questions = data.pending_questions as Array<Record<string, unknown>> | undefined;
-        const pending = questions?.find(
-          (q) => q.question_id && Array.isArray(q.questions) && (q.questions as unknown[]).length > 0,
-        );
-        store.getState().setPendingQuestion(
-          pending ? { question_id: pending.question_id as string, questions: pending.questions as PendingQuestion["questions"] } : null,
-        );
       });
 
       source.addEventListener("patch", (event) => {
@@ -140,7 +145,7 @@ export function useAssistantSession(projectName: string | null) {
         if (TERMINAL.has(status)) {
           store.getState().setSending(false);
           store.getState().setInterrupting(false);
-          store.getState().setPendingQuestion(null);
+          clearPendingQuestion();
           if (status !== "interrupted") {
             store.getState().setDraftTurn(null);
           }
@@ -150,11 +155,9 @@ export function useAssistantSession(projectName: string | null) {
 
       source.addEventListener("question", (event) => {
         const payload = parseSsePayload(event as MessageEvent);
-        if (payload.question_id && Array.isArray(payload.questions)) {
-          store.getState().setPendingQuestion({
-            question_id: payload.question_id as string,
-            questions: payload.questions as PendingQuestion["questions"],
-          });
+        const pendingQuestion = getPendingQuestionFromEvent(payload);
+        if (pendingQuestion) {
+          syncPendingQuestion(pendingQuestion);
         }
       });
 
@@ -166,7 +169,7 @@ export function useAssistantSession(projectName: string | null) {
         }
       };
     },
-    [projectName, closeStream, store],
+    [applySnapshot, clearPendingQuestion, projectName, closeStream, store, syncPendingQuestion],
   );
 
   // 加载会话
@@ -189,6 +192,7 @@ export function useAssistantSession(projectName: string | null) {
           : sessions[0]?.id;
         if (!sessionId) {
           store.getState().setCurrentSessionId(null);
+          clearPendingQuestion();
           store.getState().setMessagesLoading(false);
           return;
         }
@@ -198,7 +202,9 @@ export function useAssistantSession(projectName: string | null) {
 
         // 加载会话快照
         const session = await API.getAssistantSession(projectName!, sessionId);
-        const status = (session.session as { status?: string })?.status ?? "idle";
+        const raw = session as Record<string, unknown>;
+        const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
+        const status = (sessionObj.status as string) ?? "idle";
         statusRef.current = status;
         store.getState().setSessionStatus(status as "idle");
 
@@ -207,8 +213,7 @@ export function useAssistantSession(projectName: string | null) {
         } else {
           const snapshot = await API.getAssistantSnapshot(projectName!, sessionId);
           if (cancelled) return;
-          store.getState().setTurns((snapshot.turns as Turn[]) ?? []);
-          store.getState().setDraftTurn((snapshot.draft_turn as Turn) ?? null);
+          applySnapshot(snapshot);
         }
       } catch {
         // 静默失败
@@ -230,7 +235,7 @@ export function useAssistantSession(projectName: string | null) {
       cancelled = true;
       closeStream();
     };
-  }, [projectName, connectStream, closeStream, store]);
+  }, [projectName, applySnapshot, clearPendingQuestion, connectStream, closeStream, store]);
 
   // 发送消息
   const sendMessage = useCallback(
@@ -284,6 +289,26 @@ export function useAssistantSession(projectName: string | null) {
     [projectName, connectStream, store],
   );
 
+  const answerQuestion = useCallback(
+    async (questionId: string, answers: Record<string, string>) => {
+      const sessionId = store.getState().currentSessionId;
+      if (!projectName || !sessionId) return;
+
+      store.getState().setError(null);
+      store.getState().setAnsweringQuestion(true);
+
+      try {
+        await API.answerAssistantQuestion(projectName, sessionId, questionId, answers);
+        store.getState().setPendingQuestion(null);
+      } catch (err) {
+        store.getState().setError((err as Error).message ?? "回答失败");
+      } finally {
+        store.getState().setAnsweringQuestion(false);
+      }
+    },
+    [projectName, store],
+  );
+
   // 中断会话
   const interrupt = useCallback(async () => {
     const sessionId = store.getState().currentSessionId;
@@ -306,11 +331,11 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setTurns([]);
     store.getState().setDraftTurn(null);
     store.getState().setSessionStatus("idle");
-    store.getState().setPendingQuestion(null);
+    clearPendingQuestion();
     store.getState().setCurrentSessionId(null);
     store.getState().setIsDraftSession(true);
     statusRef.current = "idle";
-  }, [projectName, closeStream, store]);
+  }, [projectName, clearPendingQuestion, closeStream, store]);
 
   // 切换到指定会话
   const switchSession = useCallback(async (sessionId: string) => {
@@ -321,7 +346,7 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setIsDraftSession(false);
     store.getState().setTurns([]);
     store.getState().setDraftTurn(null);
-    store.getState().setPendingQuestion(null);
+    clearPendingQuestion();
     store.getState().setMessagesLoading(true);
 
     // 记住选择
@@ -339,15 +364,14 @@ export function useAssistantSession(projectName: string | null) {
         connectStream(sessionId);
       } else {
         const snapshot = await API.getAssistantSnapshot(projectName!, sessionId);
-        store.getState().setTurns((snapshot.turns as Turn[]) ?? []);
-        store.getState().setDraftTurn((snapshot.draft_turn as Turn) ?? null);
+        applySnapshot(snapshot);
       }
     } catch {
       // 静默失败
     } finally {
       store.getState().setMessagesLoading(false);
     }
-  }, [projectName, closeStream, connectStream, store]);
+  }, [projectName, applySnapshot, clearPendingQuestion, closeStream, connectStream, store]);
 
   // 删除会话
   const deleteSession = useCallback(async (sessionId: string) => {
@@ -367,13 +391,46 @@ export function useAssistantSession(projectName: string | null) {
           store.getState().setTurns([]);
           store.getState().setDraftTurn(null);
           store.getState().setSessionStatus(null);
+          clearPendingQuestion();
           statusRef.current = "idle";
         }
       }
     } catch {
       // 静默失败
     }
-  }, [projectName, closeStream, switchSession, store]);
+  }, [projectName, clearPendingQuestion, closeStream, switchSession, store]);
 
-  return { sendMessage, interrupt, createNewSession, switchSession, deleteSession };
+  return { sendMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession };
+}
+
+function getPendingQuestionFromSnapshot(
+  snapshot: Partial<AssistantSnapshot> | Record<string, unknown>,
+): PendingQuestion | null {
+  const questions = snapshot.pending_questions as Array<Record<string, unknown>> | undefined;
+  const pending = questions?.find(
+    (question) =>
+      typeof question?.question_id === "string" &&
+      Array.isArray(question.questions) &&
+      question.questions.length > 0,
+  );
+
+  if (!pending) {
+    return null;
+  }
+
+  return {
+    question_id: pending.question_id as string,
+    questions: pending.questions as PendingQuestion["questions"],
+  };
+}
+
+function getPendingQuestionFromEvent(payload: Record<string, unknown>): PendingQuestion | null {
+  if (!(typeof payload.question_id === "string" && Array.isArray(payload.questions))) {
+    return null;
+  }
+
+  return {
+    question_id: payload.question_id,
+    questions: payload.questions as PendingQuestion["questions"],
+  };
 }

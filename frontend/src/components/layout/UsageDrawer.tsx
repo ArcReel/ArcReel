@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { X, Image, Video, AlertCircle, DollarSign, ChevronLeft, ChevronRight } from "lucide-react";
 import { useUsageStore } from "@/stores/usage-store";
 import { API } from "@/api";
+import { UI_LAYERS } from "@/utils/ui-layers";
 
 // ---------------------------------------------------------------------------
 // UsageDrawer — 费用明细抽屉面板
@@ -96,7 +97,7 @@ export function UsageDrawer({ open, onClose, projectName }: UsageDrawerProps) {
   return (
     <div
       ref={panelRef}
-      className="absolute right-0 top-full z-50 mt-2 w-96 rounded-xl border border-gray-700 bg-gray-900 shadow-2xl"
+      className={`absolute right-0 top-full mt-2 w-96 rounded-xl border border-gray-700 bg-gray-900 shadow-2xl ${UI_LAYERS.workspacePopover}`}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">

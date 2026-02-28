@@ -44,6 +44,7 @@ export interface Turn {
 export interface PendingQuestion {
   question_id: string;
   questions: Array<{
+    header?: string;
     question: string;
     options: Array<{ label: string; description: string }>;
     multiSelect: boolean;
@@ -52,6 +53,7 @@ export interface PendingQuestion {
 
 export interface AssistantSnapshot {
   session_id: string;
+  sdk_session_id?: string | null;
   status: SessionStatus;
   turns: Turn[];
   draft_turn: Turn | null;

@@ -4,6 +4,7 @@ import { Image, Video, Check, X, Loader2, ChevronDown } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem } from "@/types";
+import { UI_LAYERS } from "@/utils/ui-layers";
 
 // ---------------------------------------------------------------------------
 // Task status icon — visual indicator per task state
@@ -279,7 +280,7 @@ export function TaskHud() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.15 }}
-          className="absolute right-0 top-full z-50 mt-1 w-80 rounded-lg border border-gray-800 bg-gray-900 shadow-xl"
+          className={`absolute right-0 top-full mt-1 w-80 rounded-lg border border-gray-800 bg-gray-900 shadow-xl ${UI_LAYERS.workspacePopover}`}
         >
           {/* 统计栏 */}
           <div className="flex gap-3 border-b border-gray-800 px-3 py-2 text-xs text-gray-400">

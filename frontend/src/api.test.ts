@@ -244,7 +244,7 @@ describe("API", () => {
       await API.getAssistantSnapshot("demo", "session-1");
       await API.sendAssistantMessage("demo", "session-1", "hello");
       await API.interruptAssistantSession("demo", "session-1");
-      await API.answerAssistantQuestion("demo", "session-1", "q-1", { key: ["a"] });
+      await API.answerAssistantQuestion("demo", "session-1", "q-1", { key: "a" });
       await API.listAssistantSkills("demo");
       await API.updateAssistantSession("demo", "session-1", { title: "Renamed", status: "idle" });
       await API.deleteAssistantSession("demo", "session-1");

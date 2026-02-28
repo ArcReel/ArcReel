@@ -42,11 +42,21 @@ class AssistantService:
             data_dir=self.data_dir,
             meta_store=self.meta_store,
         )
+        self._interrupt_stale_running_sessions()
         self.stream_heartbeat_seconds = int(
             os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20")
         )
 
     # ==================== Session CRUD ====================
+
+    def _interrupt_stale_running_sessions(self) -> None:
+        """On service restart, stale running sessions cannot safely resume."""
+        interrupted_count = self.meta_store.interrupt_running_sessions()
+        if interrupted_count > 0:
+            logger.warning(
+                "服务启动时中断遗留运行中会话 count=%s",
+                interrupted_count,
+            )
 
     async def create_session(self, project_name: str, title: str = "") -> SessionMeta:
         """Create a new session."""
@@ -121,10 +131,13 @@ class AssistantService:
             pending_questions = await self.session_manager.get_pending_questions_snapshot(
                 session_id
             )
-        return projector.build_snapshot(
+        return self._with_session_metadata(
+            projector.build_snapshot(
+                session_id=session_id,
+                status=status,
+                pending_questions=pending_questions,
+            ),
             session_id=session_id,
-            status=status,
-            pending_questions=pending_questions,
         )
 
     async def send_message(self, session_id: str, content: str) -> dict[str, Any]:
@@ -238,10 +251,13 @@ class AssistantService:
         return [
             self._sse_event(
                 "snapshot",
-                projector.build_snapshot(
+                self._with_session_metadata(
+                    projector.build_snapshot(
+                        session_id=session_id,
+                        status=status,
+                        pending_questions=[],
+                    ),
                     session_id=session_id,
-                    status=status,
-                    pending_questions=[],
                 ),
             ),
             self._sse_event(
@@ -269,10 +285,13 @@ class AssistantService:
         events = [
             self._sse_event(
                 "snapshot",
-                projector.build_snapshot(
+                self._with_session_metadata(
+                    projector.build_snapshot(
+                        session_id=session_id,
+                        status=status,
+                        pending_questions=pending_questions,
+                    ),
                     session_id=session_id,
-                    status=status,
-                    pending_questions=pending_questions,
                 ),
             ),
         ]
@@ -315,11 +334,38 @@ class AssistantService:
 
         update = projector.apply_message(message)
         if isinstance(update.get("patch"), dict):
-            events.append(self._sse_event("patch", update["patch"]))
+            events.append(
+                self._sse_event(
+                    "patch",
+                    self._with_session_metadata(
+                        update["patch"],
+                        session_id=session_id,
+                        message=message,
+                    ),
+                )
+            )
         if isinstance(update.get("delta"), dict):
-            events.append(self._sse_event("delta", update["delta"]))
+            events.append(
+                self._sse_event(
+                    "delta",
+                    self._with_session_metadata(
+                        update["delta"],
+                        session_id=session_id,
+                        message=message,
+                    ),
+                )
+            )
         if isinstance(update.get("question"), dict):
-            events.append(self._sse_event("question", update["question"]))
+            events.append(
+                self._sse_event(
+                    "question",
+                    self._with_session_metadata(
+                        update["question"],
+                        session_id=session_id,
+                        message=message,
+                    ),
+                )
+            )
 
         msg_type = message.get("type", "")
 
@@ -476,20 +522,86 @@ class AssistantService:
         subtype = message.get("subtype")
         stop_reason = message.get("stop_reason")
         is_error = bool(message.get("is_error"))
-        normalized_session_id = message.get("session_id") or session_id
+        sdk_session_id = None
+        explicit_sdk_session_id = message.get("sdk_session_id") or message.get("sdkSessionId")
+        if isinstance(explicit_sdk_session_id, str) and explicit_sdk_session_id.strip():
+            sdk_session_id = explicit_sdk_session_id.strip()
+        else:
+            raw_session_id = message.get("session_id") or message.get("sessionId")
+            if isinstance(raw_session_id, str):
+                normalized_raw_session_id = raw_session_id.strip()
+                if normalized_raw_session_id and normalized_raw_session_id != session_id:
+                    sdk_session_id = normalized_raw_session_id
 
         if status == "error" and subtype is None:
             subtype = "error"
         if status == "error":
             is_error = True
 
-        return {
+        payload = {
             "status": status,
             "subtype": subtype,
             "stop_reason": stop_reason,
             "is_error": is_error,
-            "session_id": normalized_session_id,
+            "session_id": session_id,
         }
+        if sdk_session_id:
+            payload["sdk_session_id"] = sdk_session_id
+        return payload
+
+    def _with_session_metadata(
+        self,
+        payload: dict[str, Any],
+        *,
+        session_id: str,
+        message: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Normalize outward-facing event payloads to ArcReel session ids."""
+        normalized = dict(payload)
+        normalized["session_id"] = session_id
+
+        sdk_session_id = self._resolve_sdk_session_id(
+            session_id,
+            message,
+            payload,
+        )
+        if sdk_session_id:
+            normalized["sdk_session_id"] = sdk_session_id
+        else:
+            normalized.pop("sdk_session_id", None)
+
+        return normalized
+
+    def _resolve_sdk_session_id(
+        self,
+        session_id: str,
+        *sources: Optional[dict[str, Any]],
+    ) -> Optional[str]:
+        """Resolve the Claude SDK session id without leaking it into public session_id."""
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+
+            explicit = source.get("sdk_session_id") or source.get("sdkSessionId")
+            if isinstance(explicit, str) and explicit.strip():
+                return explicit.strip()
+
+            candidate = source.get("session_id") or source.get("sessionId")
+            if isinstance(candidate, str):
+                normalized_candidate = candidate.strip()
+                if normalized_candidate and normalized_candidate != session_id:
+                    return normalized_candidate
+
+        sessions = getattr(self.session_manager, "sessions", None)
+        managed = sessions.get(session_id) if isinstance(sessions, dict) else None
+        if managed and managed.sdk_session_id:
+            return managed.sdk_session_id
+
+        meta = self.meta_store.get(session_id)
+        if meta and meta.sdk_session_id:
+            return meta.sdk_session_id
+
+        return None
 
     @staticmethod
     def _is_groupable_message(message: dict[str, Any]) -> bool:

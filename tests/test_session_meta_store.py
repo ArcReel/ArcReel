@@ -68,3 +68,21 @@ class TestSessionMetaStore:
 
         deleted = store.delete("nonexistent-id")
         assert not deleted
+
+    def test_interrupt_running_sessions(self, tmp_path):
+        db_path = tmp_path / "sessions.db"
+        store = SessionMetaStore(db_path)
+
+        running = store.create(project_name="demo", title="Running")
+        completed = store.create(project_name="demo", title="Completed")
+        idle = store.create(project_name="demo", title="Idle")
+
+        store.update_status(running.id, "running")
+        store.update_status(completed.id, "completed")
+
+        interrupted_count = store.interrupt_running_sessions()
+
+        assert interrupted_count == 1
+        assert store.get(running.id).status == "interrupted"
+        assert store.get(completed.id).status == "completed"
+        assert store.get(idle.id).status == "idle"
