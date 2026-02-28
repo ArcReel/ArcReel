@@ -10,9 +10,9 @@ class TestUsageTracker:
         call_id = tracker.start_call(
             project_name="demo",
             call_type="image",
-            model="gemini-3-pro-image-preview",
+            model="gemini-3.1-flash-image-preview",
             prompt="x" * 700,
-            resolution="2K",
+            resolution="1K",
         )
         tracker.finish_call(call_id, status="success", output_path="a.png")
 
@@ -20,7 +20,7 @@ class TestUsageTracker:
         item = result["items"][0]
         assert item["id"] == call_id
         assert item["status"] == "success"
-        assert item["cost_usd"] == 0.134
+        assert item["cost_usd"] == 0.067
         assert len(item["prompt"]) == 500
 
     def test_finish_video_and_failed_call(self, tmp_path):
@@ -37,7 +37,7 @@ class TestUsageTracker:
         fail_id = tracker.start_call(
             project_name="demo",
             call_type="image",
-            model="gemini-3-pro-image-preview",
+            model="gemini-3.1-flash-image-preview",
             resolution="1K",
         )
 

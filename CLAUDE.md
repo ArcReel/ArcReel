@@ -21,7 +21,7 @@
 - **单片段/场景时长**：
   - 说书+画面模式：默认 **4 秒**（可选 6s/8s）
   - 剧集动画模式：默认 8 秒
-- **图片分辨率**：2K（通过 API `image_size` 参数设置）
+- **图片分辨率**：1K（通过 API `image_size` 参数设置）
 - **视频分辨率**：1080p
 - **分镜图格式**：
   - 说书+画面模式：直接生成（9:16 竖屏）
@@ -197,7 +197,7 @@ python .claude/skills/generate-video/scripts/generate_video.py \
 | 单片段/场景时长 | 说书模式默认 4 秒，剧集动画模式默认 8 秒 |
 | 时长选项 | 仅支持 4s / 6s / 8s |
 | extend 功能 | 仅用于延长单个片段/场景，每次固定 +7 秒，最多延长至 148 秒 |
-| 图片分辨率 | 2K |
+| 图片分辨率 | 1K |
 | 视频分辨率 | 1080p |
 | 宽高比 | 说书模式 9:16 竖屏，剧集动画模式 16:9 横屏（通过 API 参数设置） |
 
@@ -424,7 +424,7 @@ projects/{项目名}/
 ## API 使用
 
 图片和视频生成通过 Gemini API：
-- 图片生成：`gemini-3-pro-image-preview`
+- 图片生成：`gemini-3.1-flash-image-preview`
 - 视频生成：`veo-3.1-generate-preview`
 - 视频扩展：`veo-3.1-generate-preview`（使用 extend 功能）
 

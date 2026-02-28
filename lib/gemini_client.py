@@ -155,7 +155,7 @@ class RateLimiter:
                 await asyncio.sleep(0.1)  # 短暂让出控制权
 
 
-_SHARED_IMAGE_MODEL_NAME = "gemini-3-pro-image-preview"
+_SHARED_IMAGE_MODEL_NAME = "gemini-3.1-flash-image-preview"
 _SHARED_VIDEO_MODEL_NAME = "veo-3.1-generate-preview"
 
 _shared_rate_limiter: Optional["RateLimiter"] = None
@@ -443,7 +443,7 @@ class GeminiClient:
             logger.info("使用 AI Studio 后端")
 
         # 模型配置（两种后端使用相同的模型名）
-        self.IMAGE_MODEL = "gemini-3-pro-image-preview"
+        self.IMAGE_MODEL = "gemini-3.1-flash-image-preview"
         self.VIDEO_MODEL = "veo-3.1-generate-preview"
 
     @staticmethod
@@ -534,7 +534,7 @@ class GeminiClient:
 
         return contents
 
-    def _prepare_image_config(self, aspect_ratio: str, image_size: str = "2K"):
+    def _prepare_image_config(self, aspect_ratio: str, image_size: str = "1K"):
         """构建图片生成配置"""
         return self.types.GenerateContentConfig(
             response_modalities=["IMAGE"],
@@ -563,7 +563,7 @@ class GeminiClient:
         prompt: str,
         reference_images: Optional[List[Union[str, Path, Image.Image]]] = None,
         aspect_ratio: str = "9:16",
-        image_size: str = "2K",
+        image_size: str = "1K",
         output_path: Optional[Union[str, Path]] = None,
     ) -> Image.Image:
         """
@@ -573,7 +573,7 @@ class GeminiClient:
             prompt: 图片生成提示词
             reference_images: 参考图片列表（用于人物一致性）
             aspect_ratio: 宽高比，默认 9:16（竖屏）
-            image_size: 图片尺寸，默认 2K
+            image_size: 图片尺寸，默认 1K
             output_path: 可选的输出路径
 
         Returns:
@@ -600,7 +600,7 @@ class GeminiClient:
         prompt: str,
         reference_images: Optional[List[Union[str, Path, Image.Image]]] = None,
         aspect_ratio: str = "9:16",
-        image_size: str = "2K",
+        image_size: str = "1K",
         output_path: Optional[Union[str, Path]] = None,
     ) -> Image.Image:
         """
@@ -612,7 +612,7 @@ class GeminiClient:
             prompt: 图片生成提示词
             reference_images: 参考图片列表（用于人物一致性）
             aspect_ratio: 宽高比，默认 9:16（竖屏）
-            image_size: 图片尺寸，默认 2K
+            image_size: 图片尺寸，默认 1K
             output_path: 可选的输出路径
 
         Returns:

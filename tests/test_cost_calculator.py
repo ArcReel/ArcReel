@@ -6,10 +6,14 @@ from lib.cost_calculator import CostCalculator, cost_calculator
 class TestCostCalculator:
     def test_calculate_image_cost_known_and_default(self):
         calculator = CostCalculator()
-        assert calculator.calculate_image_cost("1k") == 0.134
-        assert calculator.calculate_image_cost("2K") == 0.134
-        assert calculator.calculate_image_cost("4K") == 0.24
-        assert calculator.calculate_image_cost("unknown") == 0.134
+        # 默认模型 (gemini-3.1-flash-image-preview)
+        assert calculator.calculate_image_cost("1k") == 0.067
+        assert calculator.calculate_image_cost("2K") == 0.101
+        assert calculator.calculate_image_cost("4K") == 0.151
+        assert calculator.calculate_image_cost("unknown") == 0.067
+        # 指定旧模型 (gemini-3-pro-image-preview)
+        assert calculator.calculate_image_cost("1k", model="gemini-3-pro-image-preview") == 0.134
+        assert calculator.calculate_image_cost("2K", model="gemini-3-pro-image-preview") == 0.134
 
     def test_calculate_video_cost_known_and_default(self):
         calculator = CostCalculator()

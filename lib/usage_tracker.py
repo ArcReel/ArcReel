@@ -163,14 +163,14 @@ class UsageTracker:
         with sqlite3.connect(self.db_path) as conn:
             # 获取调用信息
             row = conn.execute(
-                "SELECT call_type, resolution, duration_seconds, generate_audio, started_at FROM api_calls WHERE id = ?",
+                "SELECT call_type, model, resolution, duration_seconds, generate_audio, started_at FROM api_calls WHERE id = ?",
                 (call_id,)
             ).fetchone()
 
             if not row:
                 return
 
-            call_type, resolution, duration_seconds, generate_audio, started_at = row
+            call_type, model, resolution, duration_seconds, generate_audio, started_at = row
 
             # 计算耗时
             try:
@@ -184,12 +184,13 @@ class UsageTracker:
             cost_usd = 0.0
             if status == 'success':
                 if call_type == 'image':
-                    cost_usd = cost_calculator.calculate_image_cost(resolution or "2K")
+                    cost_usd = cost_calculator.calculate_image_cost(resolution or "1K", model=model)
                 elif call_type == 'video':
                     cost_usd = cost_calculator.calculate_video_cost(
                         duration_seconds=duration_seconds or 8,
                         resolution=resolution or "1080p",
-                        generate_audio=bool(generate_audio)
+                        generate_audio=bool(generate_audio),
+                        model=model,
                     )
 
             # 截断错误信息

@@ -495,10 +495,10 @@ def main():
     args = parser.parse_args()
 
     # 初始化限流器
-    # 从环境变量读取配置，默认 Gemini 3 Pro Image 限制为 15 RPM
+    # 从环境变量读取配置，默认限制为 15 RPM
     image_rpm = int(os.environ.get('GEMINI_IMAGE_RPM', 15))
     rate_limiter = RateLimiter({
-        "gemini-3-pro-image-preview": image_rpm
+        "gemini-3.1-flash-image-preview": image_rpm
     })
 
     # 从环境变量读取最大并发数，默认 3

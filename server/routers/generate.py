@@ -255,7 +255,7 @@ async def generate_storyboard(
             resource_id=segment_id,
             reference_images=reference_images if reference_images else None,
             aspect_ratio=aspect_ratio,
-            image_size="2K",
+            image_size="1K",
         )
 
         # 更新剧本中的 generated_assets
@@ -453,7 +453,7 @@ async def generate_character(
             resource_id=char_name,
             reference_images=reference_images,
             aspect_ratio=aspect_ratio,
-            image_size="2K",
+            image_size="1K",
         )
 
         # 更新 project.json 中的 character_sheet
@@ -517,7 +517,7 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
             resource_type="clues",
             resource_id=clue_name,
             aspect_ratio=aspect_ratio,
-            image_size="2K",
+            image_size="1K",
         )
 
         # 更新 project.json 中的 clue_sheet

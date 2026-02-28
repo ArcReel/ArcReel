@@ -221,7 +221,7 @@ def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[s
         resource_id=resource_id,
         reference_images=reference_images,
         aspect_ratio=aspect_ratio,
-        image_size="2K",
+        image_size="1K",
     )
 
     get_project_manager().update_scene_asset(
@@ -338,7 +338,7 @@ def execute_character_task(project_name: str, resource_id: str, payload: Dict[st
         resource_id=resource_id,
         reference_images=reference_images,
         aspect_ratio=aspect_ratio,
-        image_size="2K",
+        image_size="1K",
     )
 
     project["characters"][resource_id]["character_sheet"] = f"characters/{resource_id}.png"
@@ -381,7 +381,7 @@ def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, An
         resource_type="clues",
         resource_id=resource_id,
         aspect_ratio=aspect_ratio,
-        image_size="2K",
+        image_size="1K",
     )
 
     project["clues"][resource_id]["clue_sheet"] = f"clues/{resource_id}.png"
