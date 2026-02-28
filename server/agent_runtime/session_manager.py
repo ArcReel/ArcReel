@@ -274,6 +274,10 @@ class SessionManager:
             logger.warning("Failed to read project.json for %s: %s", project_name, exc)
             return base_prompt
 
+        if not isinstance(config, dict):
+            logger.warning("project.json for %s is not a JSON object, using base prompt", project_name)
+            return base_prompt
+
         parts = [base_prompt, "", "## 当前项目上下文", ""]
 
         if title := config.get("title"):
@@ -565,7 +569,9 @@ class SessionManager:
     ) -> bool:
         """Check if file_path is allowed for the given tool."""
         try:
-            resolved = Path(file_path).resolve()
+            p = Path(file_path)
+            # Resolve relative paths against project_cwd, not server cwd
+            resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
         except (ValueError, OSError):
             return False
 
