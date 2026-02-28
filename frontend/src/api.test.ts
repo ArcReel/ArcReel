@@ -240,14 +240,14 @@ describe("API", () => {
 
       await API.createAssistantSession("demo", "My Session");
       await API.listAssistantSessions("demo", "running");
-      await API.getAssistantSession("session-1");
-      await API.getAssistantSnapshot("session-1");
-      await API.sendAssistantMessage("session-1", "hello");
-      await API.interruptAssistantSession("session-1");
-      await API.answerAssistantQuestion("session-1", "q-1", { key: ["a"] });
+      await API.getAssistantSession("demo", "session-1");
+      await API.getAssistantSnapshot("demo", "session-1");
+      await API.sendAssistantMessage("demo", "session-1", "hello");
+      await API.interruptAssistantSession("demo", "session-1");
+      await API.answerAssistantQuestion("demo", "session-1", "q-1", { key: ["a"] });
       await API.listAssistantSkills("demo");
-      await API.updateAssistantSession("session-1", { title: "Renamed", status: "idle" });
-      await API.deleteAssistantSession("session-1");
+      await API.updateAssistantSession("demo", "session-1", { title: "Renamed", status: "idle" });
+      await API.deleteAssistantSession("demo", "session-1");
 
       await API.getUsageStats({
         projectName: "demo",
@@ -274,9 +274,9 @@ describe("API", () => {
       );
       expect(requestSpy).toHaveBeenCalledWith("/tasks/stats?project_name=demo");
       expect(requestSpy).toHaveBeenCalledWith(
-        "/assistant/sessions?project_name=demo&status=running",
+        "/projects/demo/assistant/sessions?status=running",
       );
-      expect(requestSpy).toHaveBeenCalledWith("/assistant/skills?project_name=demo");
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/assistant/skills");
       expect(requestSpy).toHaveBeenCalledWith(
         "/usage/stats?project_name=demo&start_date=2026-01-01&end_date=2026-02-01",
       );
@@ -290,8 +290,8 @@ describe("API", () => {
       expect(API.getFileUrl("my project", "source/a.txt")).toBe(
         "/api/v1/files/my%20project/source/a.txt",
       );
-      expect(API.getAssistantStreamUrl("session-1")).toBe(
-        "/api/v1/assistant/sessions/session-1/stream",
+      expect(API.getAssistantStreamUrl("demo", "session-1")).toBe(
+        "/api/v1/projects/demo/assistant/sessions/session-1/stream",
       );
     });
   });

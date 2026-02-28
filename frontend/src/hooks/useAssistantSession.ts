@@ -88,7 +88,7 @@ export function useAssistantSession(projectName: string | null) {
     (sessionId: string) => {
       closeStream();
 
-      const url = API.getAssistantStreamUrl(sessionId);
+      const url = API.getAssistantStreamUrl(projectName!, sessionId);
       const source = new EventSource(url);
       streamRef.current = source;
 
@@ -166,7 +166,7 @@ export function useAssistantSession(projectName: string | null) {
         }
       };
     },
-    [closeStream, store],
+    [projectName, closeStream, store],
   );
 
   // 加载会话
@@ -178,7 +178,7 @@ export function useAssistantSession(projectName: string | null) {
       store.getState().setMessagesLoading(true);
       try {
         // 获取会话列表
-        const res = await API.listAssistantSessions(projectName);
+        const res = await API.listAssistantSessions(projectName!);
         const sessions = res.sessions ?? [];
         store.getState().setSessions(sessions);
 
@@ -197,7 +197,7 @@ export function useAssistantSession(projectName: string | null) {
         store.getState().setCurrentSessionId(sessionId);
 
         // 加载会话快照
-        const session = await API.getAssistantSession(sessionId);
+        const session = await API.getAssistantSession(projectName!, sessionId);
         const status = (session.session as { status?: string })?.status ?? "idle";
         statusRef.current = status;
         store.getState().setSessionStatus(status as "idle");
@@ -205,7 +205,7 @@ export function useAssistantSession(projectName: string | null) {
         if (status === "running") {
           connectStream(sessionId);
         } else {
-          const snapshot = await API.getAssistantSnapshot(sessionId);
+          const snapshot = await API.getAssistantSnapshot(projectName!, sessionId);
           if (cancelled) return;
           store.getState().setTurns((snapshot.turns as Turn[]) ?? []);
           store.getState().setDraftTurn((snapshot.draft_turn as Turn) ?? null);
@@ -270,7 +270,7 @@ export function useAssistantSession(projectName: string | null) {
         if (!sessionId) throw new Error("无法创建会话");
 
         // 发送消息
-        await API.sendAssistantMessage(sessionId, content);
+        await API.sendAssistantMessage(projectName!, sessionId, content);
 
         // 连接 SSE 流
         statusRef.current = "running";
@@ -287,16 +287,16 @@ export function useAssistantSession(projectName: string | null) {
   // 中断会话
   const interrupt = useCallback(async () => {
     const sessionId = store.getState().currentSessionId;
-    if (!sessionId || statusRef.current !== "running") return;
+    if (!projectName || !sessionId || statusRef.current !== "running") return;
 
     store.getState().setInterrupting(true);
     try {
-      await API.interruptAssistantSession(sessionId);
+      await API.interruptAssistantSession(projectName, sessionId);
     } catch (err) {
       store.getState().setError((err as Error).message ?? "中断失败");
       store.getState().setInterrupting(false);
     }
-  }, [store]);
+  }, [projectName, store]);
 
   // 创建新会话（懒创建：仅清空状态，实际创建延迟到首次发消息时）
   const createNewSession = useCallback(async () => {
@@ -328,7 +328,7 @@ export function useAssistantSession(projectName: string | null) {
     if (projectName) saveLastSessionId(projectName, sessionId);
 
     try {
-      const res = await API.getAssistantSession(sessionId);
+      const res = await API.getAssistantSession(projectName!, sessionId);
       const raw = res as Record<string, unknown>;
       const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
       const status = (sessionObj.status as string) ?? "idle";
@@ -338,7 +338,7 @@ export function useAssistantSession(projectName: string | null) {
       if (status === "running") {
         connectStream(sessionId);
       } else {
-        const snapshot = await API.getAssistantSnapshot(sessionId);
+        const snapshot = await API.getAssistantSnapshot(projectName!, sessionId);
         store.getState().setTurns((snapshot.turns as Turn[]) ?? []);
         store.getState().setDraftTurn((snapshot.draft_turn as Turn) ?? null);
       }
@@ -351,8 +351,9 @@ export function useAssistantSession(projectName: string | null) {
 
   // 删除会话
   const deleteSession = useCallback(async (sessionId: string) => {
+    if (!projectName) return;
     try {
-      await API.deleteAssistantSession(sessionId);
+      await API.deleteAssistantSession(projectName, sessionId);
       const sessions = store.getState().sessions.filter((s) => s.id !== sessionId);
       store.getState().setSessions(sessions);
 
@@ -372,7 +373,7 @@ export function useAssistantSession(projectName: string | null) {
     } catch {
       // 静默失败
     }
-  }, [closeStream, switchSession, store]);
+  }, [projectName, closeStream, switchSession, store]);
 
   return { sendMessage, interrupt, createNewSession, switchSession, deleteSession };
 }
