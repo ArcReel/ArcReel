@@ -203,7 +203,9 @@ class SessionManager:
     ]
     DEFAULT_SETTING_SOURCES = ["user", "project"]
 
-    # File access control
+    # File access control — Bash is intentionally excluded: its free-form command
+    # string cannot be reliably parsed for paths.  Isolation relies on cwd being
+    # set to the project directory and system-prompt guidance.
     _PATH_TOOLS: dict[str, str] = {
         "Read": "file_path",
         "Write": "file_path",
@@ -635,6 +637,7 @@ class SessionManager:
                 message="访问被拒绝：不允许访问当前项目和公共目录之外的路径",
             )
         # Fallback if PermissionResultDeny not available
+        logger.warning("PermissionResultDeny unavailable; path access control is inoperative")
         return PermissionResultAllow(updated_input=input_data)
 
     def _build_can_use_tool_callback(self, session_id: str):
