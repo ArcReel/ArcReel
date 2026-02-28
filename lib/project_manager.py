@@ -89,8 +89,12 @@ class ProjectManager:
         return project_dir
 
     def get_project_path(self, name: str) -> Path:
-        """获取项目路径"""
-        project_dir = self.projects_root / name
+        """获取项目路径（含路径遍历防护）"""
+        project_dir = (self.projects_root / name).resolve()
+        try:
+            project_dir.relative_to(self.projects_root.resolve())
+        except ValueError:
+            raise ValueError(f"非法项目名称: '{name}'")
         if not project_dir.exists():
             raise FileNotFoundError(f"项目 '{name}' 不存在")
         return project_dir
@@ -316,7 +320,11 @@ class ProjectManager:
             剧本字典
         """
         project_dir = self.get_project_path(project_name)
-        script_path = project_dir / "scripts" / filename
+        script_path = (project_dir / "scripts" / filename).resolve()
+        try:
+            script_path.relative_to(project_dir.resolve())
+        except ValueError:
+            raise ValueError(f"非法剧本文件名: '{filename}'")
 
         if not script_path.exists():
             raise FileNotFoundError(f"剧本文件不存在: {script_path}")

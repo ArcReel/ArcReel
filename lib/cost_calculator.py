@@ -62,7 +62,8 @@ class CostCalculator:
         """
         model = model or self.DEFAULT_IMAGE_MODEL
         model_costs = self.IMAGE_COST.get(model, self.IMAGE_COST[self.DEFAULT_IMAGE_MODEL])
-        return model_costs.get(resolution.upper(), model_costs.get("1K", 0.067))
+        default_cost = model_costs.get("1K") or self.IMAGE_COST[self.DEFAULT_IMAGE_MODEL]["1K"]
+        return model_costs.get(resolution.upper(), default_cost)
 
     def calculate_video_cost(
         self,
@@ -88,7 +89,7 @@ class CostCalculator:
         resolution = resolution.lower()
         cost_per_second = model_costs.get(
             (resolution, generate_audio),
-            0.40  # 默认 1080p 含音频
+            model_costs.get(("1080p", True)) or self.VIDEO_COST[self.DEFAULT_VIDEO_MODEL][("1080p", True)],
         )
         return duration_seconds * cost_per_second
 

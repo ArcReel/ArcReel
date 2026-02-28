@@ -75,7 +75,12 @@ class MediaGenerator:
 
         pattern = self.OUTPUT_PATTERNS[resource_type]
         relative_path = pattern.format(resource_id=resource_id)
-        return self.project_path / relative_path
+        output_path = (self.project_path / relative_path).resolve()
+        try:
+            output_path.relative_to(self.project_path.resolve())
+        except ValueError:
+            raise ValueError(f"非法资源 ID: '{resource_id}'")
+        return output_path
 
     def _ensure_parent_dir(self, output_path: Path) -> None:
         """确保输出目录存在"""
