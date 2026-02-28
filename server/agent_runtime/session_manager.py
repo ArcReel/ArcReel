@@ -240,15 +240,19 @@ class SessionManager:
         """Build system prompt with project context injected."""
         base_prompt = self.system_prompt
 
-        project_json = (
-            self.project_root / "projects" / project_name / "project.json"
-        )
+        try:
+            project_cwd = self._resolve_project_cwd(project_name)
+        except (ValueError, FileNotFoundError):
+            return base_prompt
+
+        project_json = project_cwd / "project.json"
         if not project_json.exists():
             return base_prompt
 
         try:
             config = json.loads(project_json.read_text(encoding="utf-8"))
         except Exception:
+            logger.warning("Failed to read project.json for %s, using base prompt", project_name)
             return base_prompt
 
         parts = [base_prompt, "", "## 当前项目上下文", ""]
