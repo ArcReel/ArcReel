@@ -426,6 +426,12 @@ class AssistantService:
                 if self._is_duplicate(message, seen_keys, seen_content_keys):
                     continue
 
+                if message.get("type") == "user":
+                    # Clear previous content keys when a NEW user message arrives.
+                    # Because user messages demarcate new rounds, this prevents the "P1" issue
+                    # where a simple "Done" answer in round 3 collides with "Done" in round 1.
+                    seen_content_keys.clear()
+
                 # It's a valid new groupable message, update seen sets
                 seen_keys.add(self._message_key(message))
                 ck = self._content_key(message)
@@ -520,10 +526,13 @@ class AssistantService:
                     continue
                 text = block.get("text")
                 tool_id = block.get("id")
+                thinking = block.get("thinking")
                 if text is not None:
                     parts.append(f"t:{text}")
                 elif tool_id is not None:
                     parts.append(f"u:{tool_id}")
+                elif thinking is not None:
+                    parts.append(f"th:{thinking[:50]}")
             return f"content:assistant:{'/'.join(parts)}" if parts else None
         if msg_type == "result":
             # Include session_id and timestamp to avoid cross-round collisions

@@ -724,3 +724,54 @@ class TestAssistantServiceStreaming:
         assert last_assistant.get("uuid") == "assistant-2"
         assert len(last_assistant.get("content", [])) == 1
         assert last_assistant["content"][0].get("text") == "A2 - cwd answer"
+
+    async def test_build_projector_preserves_repeated_assistant_replies_across_rounds(self, tmp_path):
+        """Verify that identical assistant replies in different rounds (e.g. 'Done')
+        are not deduplicated away when processing the buffer, because a new user message
+        clears the content-based dedup cache."""
+        service = AssistantService(project_root=tmp_path)
+        meta = make_session_meta()
+        
+        # Round 1 in transcript: Assistant said "Done"
+        history = [
+            {
+                "type": "user",
+                "content": "task 1",
+                "uuid": "u1",
+                "timestamp": "2026-02-09T08:00:00Z",
+            },
+            {
+                "type": "assistant",
+                "content": [{"text": "Done"}],
+                "uuid": "a1",
+                "timestamp": "2026-02-09T08:00:05Z",
+            }
+        ]
+        
+        # Round 2 in buffer: User asks task 2, Assistant also says "Done" (no uuid from SDK)
+        buffer = [
+            {
+                "type": "user",
+                "content": "task 2",
+                "uuid": "u2",
+                "timestamp": "2026-02-09T08:00:10Z",
+            },
+            {
+                "type": "assistant",
+                "content": [{"text": "Done"}],
+                # No uuid, mimicking SDK payload
+            }
+        ]
+
+        service.meta_store = _FakeMetaStore(meta)
+        service.transcript_reader = _FakeTranscriptReader([], history_raw=history)
+        service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
+
+        projector = service._build_projector(meta, "session-1")
+        
+        # We should have 4 turns total: user1, asst1, user2, asst2
+        assert len(projector.turns) == 4
+        assert projector.turns[0]["content"][0]["text"] == "task 1"
+        assert projector.turns[1]["content"][0]["text"] == "Done"
+        assert projector.turns[2]["content"][0]["text"] == "task 2"
+        assert projector.turns[3]["content"][0]["text"] == "Done"
