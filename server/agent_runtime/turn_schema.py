@@ -15,16 +15,16 @@ Turn Contract:
 
     ContentBlock = {
         "type": str,                     # always present
-        "text"?: str,
-        "thinking"?: str,
-        "id"?: str | None,
-        "name"?: str,
-        "input"?: dict,                  # always dict when present
-        "result"?: str,
-        "is_error"?: bool,
-        "skill_content"?: str,
-        "tool_use_id"?: str,
-        "content"?: str,
+        "text": str,                     # Optional
+        "thinking": str,                 # Optional
+        "id": str | None,                # Optional
+        "name": str,                     # Optional
+        "input": dict,                   # Optional, always dict when present
+        "result": str,                   # Optional
+        "is_error": bool,                # Optional
+        "skill_content": str,            # Optional
+        "tool_use_id": str,              # Optional
+        "content": str,                  # Optional
     }
 """
 

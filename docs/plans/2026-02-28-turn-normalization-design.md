@@ -47,14 +47,14 @@ Turn = {
 
 ContentBlock = {
     "type": str,                     # 始终存在
-    "text"?: str,                    # type=text/skill_content
-    "thinking"?: str,                # type=thinking
-    "id"?: str | None,               # type=tool_use（流式初期可为 None）
-    "name"?: str,                    # type=tool_use（流式初期可为 ""）
-    "input"?: dict,                  # type=tool_use（始终为 dict）
-    "result"?: str,                  # type=tool_use（已完成的工具调用）
-    "is_error"?: bool,               # type=tool_use
-    "skill_content"?: str,           # type=tool_use 且 name=Skill
+    "text": str,                     # Optional, type=text/skill_content
+    "thinking": str,                 # Optional, type=thinking
+    "id": str | None,                # Optional, type=tool_use（流式初期可为 None）
+    "name": str,                     # Optional, type=tool_use（流式初期可为 ""）
+    "input": dict,                   # Optional, type=tool_use（始终为 dict）
+    "result": str,                   # Optional, type=tool_use（已完成的工具调用）
+    "is_error": bool,                # Optional, type=tool_use
+    "skill_content": str,            # Optional, type=tool_use 且 name=Skill
 }
 ```
 
