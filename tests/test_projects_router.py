@@ -63,8 +63,8 @@ class _FakePM:
         return {"current_stage": "source_ready"}
 
     def create_project(self, name):
-        if not name or not re.fullmatch(r"[A-Za-z0-9_-]+", name):
-            raise ValueError("项目标识仅允许英文字母、数字、下划线和中划线")
+        if not name or not re.fullmatch(r"[A-Za-z0-9-]+", name):
+            raise ValueError("项目标识仅允许英文字母、数字和中划线")
         if name == "exists":
             raise FileExistsError(name)
         self.created.add(name)
@@ -151,11 +151,11 @@ class TestProjectsRouter:
 
             create_manual_name = client.post(
                 "/api/v1/projects",
-                json={"name": "manual_project", "style": "Anime", "content_mode": "narration"},
+                json={"name": "manual-project", "style": "Anime", "content_mode": "narration"},
             )
             assert create_manual_name.status_code == 200
-            assert create_manual_name.json()["name"] == "manual_project"
-            assert create_manual_name.json()["project"]["title"] == "manual_project"
+            assert create_manual_name.json()["name"] == "manual-project"
+            assert create_manual_name.json()["project"]["title"] == "manual-project"
 
             create_exists = client.post(
                 "/api/v1/projects",
@@ -165,7 +165,7 @@ class TestProjectsRouter:
 
             create_invalid = client.post(
                 "/api/v1/projects",
-                json={"name": "bad name", "title": "Bad", "style": "", "content_mode": "narration"},
+                json={"name": "bad_name", "title": "Bad", "style": "", "content_mode": "narration"},
             )
             assert create_invalid.status_code == 400
 

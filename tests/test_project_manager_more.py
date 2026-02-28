@@ -61,6 +61,8 @@ class TestProjectManagerMore:
 
         with pytest.raises(ValueError):
             pm.create_project("bad name")
+        with pytest.raises(ValueError):
+            pm.create_project("bad_name")
 
         pm.create_project("demo")
         project = pm.create_project_metadata("demo", "")

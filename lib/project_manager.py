@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
 # ==================== 数据模型 ====================
@@ -58,7 +58,7 @@ class ProjectManager:
         if not normalized:
             raise ValueError("项目标识不能为空")
         if not PROJECT_NAME_PATTERN.fullmatch(normalized):
-            raise ValueError("项目标识仅允许英文字母、数字、下划线和中划线")
+            raise ValueError("项目标识仅允许英文字母、数字和中划线")
         return normalized
 
     @staticmethod
