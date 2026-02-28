@@ -441,14 +441,6 @@ class AssistantService:
             message
             for message in (runtime_buffer or [])
             if self._is_groupable_message(message)
-            # Skip buffer assistant/result messages that lack uuid — these are
-            # SDK-serialized duplicates of transcript entries.  The CLI writes
-            # messages to the JSONL transcript with a uuid wrapper; SDK objects
-            # (AssistantMessage, ResultMessage) don't carry uuid, so they can
-            # never be reliably deduplicated against transcript entries.
-            # Only user messages (local_echo with uuid) may be the sole source
-            # for a round that the CLI hasn't persisted yet.
-            and (message.get("type") == "user" or message.get("uuid"))
         ]
         return self._merge_raw_messages(history_messages, groupable_runtime)
 

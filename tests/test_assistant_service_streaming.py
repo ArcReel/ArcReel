@@ -618,10 +618,12 @@ class TestAssistantServiceStreaming:
         turns = payload.get("turns", [])
         turn_types = [t.get("type") for t in turns]
         # Transcript provides all 3 users and 2 assistants + 2 results.
-        # Buffer assistant-A3 (no uuid) is correctly excluded.
+        # Buffer assistant-A3 (no uuid) is now correctly included — it
+        # represents the latest reply not yet persisted to JSONL.
+        # Content-based dedup prevents genuine duplicates.
         # user-Q3 must be present after result-R2 so A2 and A3 are not merged.
         assert turn_types == [
-            "user", "assistant", "result", "user", "assistant", "result", "user",
+            "user", "assistant", "result", "user", "assistant", "result", "user", "assistant",
         ], f"unexpected turns={turn_types}"
 
     async def test_stream_new_session_first_round_preserves_user(self, tmp_path):

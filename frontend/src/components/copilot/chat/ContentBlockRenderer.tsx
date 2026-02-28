@@ -27,6 +27,9 @@ export function ContentBlockRenderer({ block, index }: ContentBlockRendererProps
   }
 
   const blockType = block.type || "text";
+  if (!block.type && import.meta.env.DEV) {
+    console.warn("[ContentBlockRenderer] block missing type, falling back to text:", block);
+  }
 
   switch (blockType) {
     case "text":

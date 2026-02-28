@@ -9,6 +9,10 @@ import json
 from typing import Any, Optional
 
 from server.agent_runtime.turn_grouper import build_turn_patch, group_messages_into_turns
+from server.agent_runtime.turn_schema import (
+    normalize_block as _shared_normalize_block,
+    normalize_turn,
+)
 
 _GROUPABLE_TYPES = {"user", "assistant", "result"}
 
@@ -48,21 +52,6 @@ class DraftAssistantProjector:
         self._tool_input_json.clear()
         self._session_id = None
         self._parent_tool_use_id = None
-
-    @staticmethod
-    def _normalize_block(content_block: dict[str, Any]) -> dict[str, Any]:
-        normalized = copy.deepcopy(content_block)
-        block_type = normalized.get("type")
-
-        if block_type == "text":
-            normalized.setdefault("text", "")
-        elif block_type == "thinking":
-            normalized.setdefault("thinking", "")
-        elif block_type == "tool_use":
-            if not isinstance(normalized.get("input"), dict):
-                normalized["input"] = {}
-
-        return normalized
 
     def _default_index(self) -> int:
         if not self._blocks_by_index:
@@ -114,7 +103,7 @@ class DraftAssistantProjector:
             content_block = event.get("content_block")
             if not isinstance(content_block, dict):
                 content_block = {"type": "text", "text": ""}
-            self._blocks_by_index[index] = self._normalize_block(content_block)
+            self._blocks_by_index[index] = _shared_normalize_block(content_block)
             return None
 
         if event_type == "content_block_delta":
@@ -213,11 +202,11 @@ class DraftAssistantProjector:
             return None
 
         draft_id = self._session_id or "unknown"
-        return {
+        return normalize_turn({
             "type": "assistant",
             "content": ordered_blocks,
             "uuid": f"draft-{draft_id}",
-        }
+        })
 
 
 class AssistantStreamProjector:
@@ -284,7 +273,7 @@ class AssistantStreamProjector:
         return {
             "session_id": session_id,
             "status": status,
-            "turns": copy.deepcopy(self.turns),
+            "turns": [normalize_turn(t) for t in self.turns],
             "draft_turn": self.draft.build_turn(),
             "pending_questions": copy.deepcopy(pending_questions or []),
         }

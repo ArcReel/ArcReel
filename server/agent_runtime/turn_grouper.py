@@ -7,6 +7,13 @@ from __future__ import annotations
 import copy
 from typing import Any, Optional
 
+from server.agent_runtime.turn_schema import (
+    infer_block_type,
+    normalize_block as _normalize_block,
+    normalize_content as _normalize_content,
+    normalize_turn,
+)
+
 # Constants for skill content detection
 _SKILL_BASE_DIR_PREFIX = "Base directory for this skill:"
 _SKILL_CONTENT_PREFIX = "Skill content:"
@@ -39,34 +46,6 @@ def _is_skill_content_text(text: str) -> bool:
     )
 
 
-def _infer_block_type(block: dict[str, Any]) -> str:
-    """Infer content block type when SDK omits explicit `type`."""
-    explicit_type = block.get("type")
-    if isinstance(explicit_type, str) and explicit_type:
-        return explicit_type
-
-    if block.get("tool_use_id") and ("content" in block or "is_error" in block):
-        return "tool_result"
-
-    if block.get("id") and block.get("name") and "input" in block:
-        return "tool_use"
-
-    if "text" in block:
-        return "text"
-
-    return ""
-
-
-def _normalize_block(block: Any) -> Any:
-    """Normalize a single content block to include inferred type when possible."""
-    if not isinstance(block, dict):
-        return copy.deepcopy(block)
-
-    normalized: dict[str, Any] = copy.deepcopy(block)
-    block_type = _infer_block_type(normalized)
-    if block_type and not normalized.get("type"):
-        normalized["type"] = block_type
-    return normalized
 
 
 def _is_tool_result_block(block: Any) -> bool:
@@ -80,7 +59,7 @@ def _is_tool_result_block(block: Any) -> bool:
     if not isinstance(block, dict):
         return False
 
-    return _infer_block_type(block) == "tool_result"
+    return infer_block_type(block) == "tool_result"
 
 
 def _normalize_tool_result_block(block: dict[str, Any]) -> dict[str, Any]:
@@ -93,21 +72,6 @@ def _normalize_tool_result_block(block: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _normalize_content(content: Any) -> list[dict[str, Any]]:
-    """Normalize message content into content blocks."""
-    if isinstance(content, str):
-        if not content.strip():
-            return []
-        return [{"type": "text", "text": content}]
-    if isinstance(content, list):
-        normalized_blocks: list[dict[str, Any]] = []
-        for block in content:
-            normalized = _normalize_block(block)
-            if isinstance(normalized, dict):
-                normalized_blocks.append(normalized)
-        return normalized_blocks
-    return []
-
 
 def _all_blocks_are_system_injected(blocks: list[Any]) -> bool:
     """Check whether all blocks are tool_result / skill content blocks."""
@@ -116,7 +80,7 @@ def _all_blocks_are_system_injected(blocks: list[Any]) -> bool:
             continue
         if _is_tool_result_block(block):
             continue
-        block_type = _infer_block_type(block)
+        block_type = infer_block_type(block)
         if block_type == "text":
             text = block.get("text", "").strip()
             if _is_skill_content_text(text):
@@ -361,7 +325,7 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
     if current_turn:
         turns.append(current_turn)
 
-    return turns
+    return [normalize_turn(t) for t in turns]
 
 
 def build_turn_patch(

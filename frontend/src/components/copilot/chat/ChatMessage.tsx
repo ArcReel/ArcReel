@@ -67,28 +67,15 @@ export function ChatMessage({ message }: ChatMessageProps) {
  * Normalise content to an array of ContentBlocks.
  */
 function normalizeContent(content: ContentBlock[] | string | undefined): ContentBlock[] {
-  // Already an array
+  // Already an array — backend guarantees normalized blocks
   if (Array.isArray(content)) {
     return content;
   }
 
-  // String content -- wrap in text block
+  // String content — defensive fallback (backend should not send this)
   if (typeof content === "string") {
     const trimmed = content.trim();
     if (!trimmed) return [];
-
-    // Try to parse as JSON array
-    if (trimmed.startsWith("[")) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-          return parsed as ContentBlock[];
-        }
-      } catch {
-        // Not valid JSON, treat as plain text
-      }
-    }
-
     return [{ type: "text", text: content }];
   }
 
