@@ -428,8 +428,8 @@ class AssistantService:
 
                 if message.get("type") == "user":
                     # Clear previous content keys when a NEW user message arrives.
-                    # Because user messages demarcate new rounds, this prevents the "P1" issue
-                    # where a simple "Done" answer in round 3 collides with "Done" in round 1.
+                    # This prevents the "P1" issue where a simple "Done" answer
+                    # in round 3 collides with "Done" in round 1.
                     seen_content_keys.clear()
 
                 # It's a valid new groupable message, update seen sets
@@ -535,27 +535,41 @@ class AssistantService:
                     parts.append(f"th:{thinking[:50]}")
             return f"content:assistant:{'/'.join(parts)}" if parts else None
         if msg_type == "result":
-            # Include session_id and timestamp to avoid cross-round collisions
-            # when multiple results share the same subtype/is_error.
-            sid = message.get("session_id", "")
-            ts = message.get("timestamp", "")
-            return f"content:result:{message.get('subtype', '')}:{message.get('is_error', False)}:{sid}:{ts}"
+            # Since seen_content_keys is now scoped to the current round,
+            # we don't need timestamp or session_id to prevent cross-round collisions.
+            # This allows SDK result messages (which lack timestamps) to successfully
+            # deduplicate against transcript result messages within the same round.
+            return f"content:result:{message.get('subtype', '')}:{message.get('is_error', False)}"
         return None
 
 
     def _build_seen_sets(
         self, messages: list[dict[str, Any]]
     ) -> tuple[set[str], set[str]]:
-        """Build uuid-based and content-based seen sets from existing messages."""
+        """Build uuid-based and content-based seen sets from existing messages.
+
+        To prevent identical short replies across different rounds (e.g., "Done")
+        from colliding, seen_content_keys only tracks messages from the CURRENT round
+        (i.e. messages that appear after the final user message).
+        """
         seen_keys: set[str] = set()
         seen_content_keys: set[str] = set()
-        for msg in messages:
+
+        last_user_idx = 0
+        for i, msg in enumerate(messages):
+            if isinstance(msg, dict) and msg.get("type") == "user":
+                last_user_idx = i
+
+        for i, msg in enumerate(messages):
             if not isinstance(msg, dict):
                 continue
             seen_keys.add(self._message_key(msg))
-            ck = self._content_key(msg)
-            if ck:
-                seen_content_keys.add(ck)
+
+            # Only track content keys for the current round
+            if i >= last_user_idx:
+                ck = self._content_key(msg)
+                if ck:
+                    seen_content_keys.add(ck)
         return seen_keys, seen_content_keys
 
     def _is_duplicate(
