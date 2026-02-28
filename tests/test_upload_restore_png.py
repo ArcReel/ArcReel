@@ -14,7 +14,7 @@ class TestUploadRestorePng:
     async def test_restore_character_updates_sheet_and_file(self, tmp_path, monkeypatch):
         projects_root = tmp_path / "projects"
         pm = ProjectManager(projects_root)
-        project_name = "demo_project"
+        project_name = "demo-project"
         char_name = "Alice"
 
         pm.create_project(project_name)
