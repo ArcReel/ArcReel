@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -33,6 +34,7 @@ class _FakePM:
             },
         }
         self.created = set()
+        self.generated_names = ["project-aa11bb22", "project-cc33dd44"]
         (self.base / "ready" / "storyboards").mkdir(parents=True, exist_ok=True)
         (self.base / "ready" / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
         (self.base / "empty").mkdir(parents=True, exist_ok=True)
@@ -61,13 +63,18 @@ class _FakePM:
         return {"current_stage": "source_ready"}
 
     def create_project(self, name):
+        if not name or not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+            raise ValueError("项目标识仅允许英文字母、数字、下划线和中划线")
         if name == "exists":
             raise FileExistsError(name)
         self.created.add(name)
         (self.base / name).mkdir(parents=True, exist_ok=True)
 
+    def generate_project_name(self, title):
+        return self.generated_names.pop(0)
+
     def create_project_metadata(self, name, title, style, content_mode):
-        payload = {"title": title, "style": style or "", "content_mode": content_mode, "episodes": []}
+        payload = {"title": (title or name), "style": style or "", "content_mode": content_mode, "episodes": []}
         self.project_data[name] = payload
         return payload
 
@@ -136,15 +143,37 @@ class TestProjectsRouter:
 
             create_ok = client.post(
                 "/api/v1/projects",
-                json={"name": "new", "title": "New", "style": "Real", "content_mode": "narration"},
+                json={"title": "New", "style": "Real", "content_mode": "narration"},
             )
             assert create_ok.status_code == 200
+            assert create_ok.json()["name"] == "project-aa11bb22"
+            assert create_ok.json()["project"]["title"] == "New"
+
+            create_manual_name = client.post(
+                "/api/v1/projects",
+                json={"name": "manual_project", "style": "Anime", "content_mode": "narration"},
+            )
+            assert create_manual_name.status_code == 200
+            assert create_manual_name.json()["name"] == "manual_project"
+            assert create_manual_name.json()["project"]["title"] == "manual_project"
 
             create_exists = client.post(
                 "/api/v1/projects",
                 json={"name": "exists", "title": "Dup", "style": "", "content_mode": "narration"},
             )
             assert create_exists.status_code == 400
+
+            create_invalid = client.post(
+                "/api/v1/projects",
+                json={"name": "bad name", "title": "Bad", "style": "", "content_mode": "narration"},
+            )
+            assert create_invalid.status_code == 400
+
+            create_missing_title = client.post(
+                "/api/v1/projects",
+                json={"style": "", "content_mode": "narration"},
+            )
+            assert create_missing_title.status_code == 400
 
             delete_ok = client.delete("/api/v1/projects/remove-me")
             assert delete_ok.status_code == 200

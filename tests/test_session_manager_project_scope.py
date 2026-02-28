@@ -124,10 +124,15 @@ class TestSessionManagerProjectScope:
         assert manager.system_prompt in prompt
 
         # Project metadata fields
+        assert "项目标识：demo" in prompt
+        assert "项目标题：重生之皇后威武" in prompt
         assert "重生之皇后威武" in prompt
         assert "narration" in prompt
         assert "Photographic" in prompt
         assert "Soft diffused lighting" in prompt
+        assert f"项目根目录绝对路径：{project_dir.resolve()}" in prompt
+        assert "必须使用绝对路径" in prompt
+        assert "不要把项目标题当成目录名" in prompt
 
         # Overview fields
         assert "姜月茴重生后逆袭的故事" in prompt
@@ -177,6 +182,9 @@ class TestSessionManagerProjectScope:
         assert manager.system_prompt in prompt
 
         # Present fields should be injected
+        assert "项目标识：partial" in prompt
+        assert "项目标题：测试项目" in prompt
+        assert f"项目根目录绝对路径：{project_dir.resolve()}" in prompt
         assert "测试项目" in prompt
         assert "drama" in prompt
 

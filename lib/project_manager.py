@@ -7,6 +7,9 @@
 import json
 import logging
 import os
+import re
+import secrets
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -14,6 +17,9 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
 # ==================== 数据模型 ====================
 
@@ -45,6 +51,35 @@ class ProjectManager:
     # 项目元数据文件名
     PROJECT_FILE = "project.json"
 
+    @staticmethod
+    def normalize_project_name(name: str) -> str:
+        """Validate and normalize a project identifier."""
+        normalized = str(name).strip()
+        if not normalized:
+            raise ValueError("项目标识不能为空")
+        if not PROJECT_NAME_PATTERN.fullmatch(normalized):
+            raise ValueError("项目标识仅允许英文字母、数字、下划线和中划线")
+        return normalized
+
+    @staticmethod
+    def _slugify_project_title(title: str) -> str:
+        """Build a filesystem-safe slug prefix from the project title."""
+        ascii_text = (
+            unicodedata.normalize("NFKD", str(title).strip())
+            .encode("ascii", "ignore")
+            .decode("ascii")
+        )
+        slug = PROJECT_SLUG_SANITIZER.sub("-", ascii_text).strip("-_").lower()
+        return slug[:24] or "project"
+
+    def generate_project_name(self, title: Optional[str] = None) -> str:
+        """Generate a unique internal project identifier."""
+        prefix = self._slugify_project_title(title or "")
+        while True:
+            candidate = f"{prefix}-{secrets.token_hex(4)}"
+            if not (self.projects_root / candidate).exists():
+                return candidate
+
     def __init__(self, projects_root: Optional[str] = None):
         """
         初始化项目管理器
@@ -72,11 +107,12 @@ class ProjectManager:
         创建新项目
 
         Args:
-            name: 项目名称（通常是小说名称）
+            name: 项目标识（全局唯一，用于 URL 和文件系统）
 
         Returns:
             项目目录路径
         """
+        name = self.normalize_project_name(name)
         project_dir = self.projects_root / name
 
         if project_dir.exists():
@@ -90,6 +126,7 @@ class ProjectManager:
 
     def get_project_path(self, name: str) -> Path:
         """获取项目路径（含路径遍历防护）"""
+        name = self.normalize_project_name(name)
         project_dir = (self.projects_root / name).resolve()
         try:
             project_dir.relative_to(self.projects_root.resolve())
@@ -859,7 +896,7 @@ class ProjectManager:
     def create_project_metadata(
         self,
         project_name: str,
-        title: str,
+        title: Optional[str] = None,
         style: Optional[str] = None,
         content_mode: str = "narration",
     ) -> Dict:
@@ -867,16 +904,19 @@ class ProjectManager:
         创建新的项目元数据文件
 
         Args:
-            project_name: 项目名称
-            title: 项目标题
+            project_name: 项目标识
+            title: 项目标题，留空时默认使用项目标识
             style: 整体视觉风格描述
             content_mode: 内容模式 ('narration' 或 'drama')
 
         Returns:
             项目元数据字典
         """
+        project_name = self.normalize_project_name(project_name)
+        project_title = str(title).strip() if title is not None else ""
+
         project = {
-            "title": title,
+            "title": project_title or project_name,
             "content_mode": content_mode,
             "style": style or "",
             "episodes": [],

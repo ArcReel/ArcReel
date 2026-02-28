@@ -5,8 +5,6 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 
-const NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
-
 const STYLE_OPTIONS = [
   { value: "Photographic", label: "写实摄影" },
   { value: "Anime", label: "动漫风格" },
@@ -18,11 +16,10 @@ export function CreateProjectModal() {
   const { setShowCreateModal, setCreatingProject, creatingProject } =
     useProjectsStore();
 
-  const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [contentMode, setContentMode] = useState<"narration" | "drama">("narration");
   const [style, setStyle] = useState("Photographic");
-  const [nameError, setNameError] = useState("");
+  const [titleError, setTitleError] = useState("");
   const [styleImageFile, setStyleImageFile] = useState<File | null>(null);
   const [styleImagePreview, setStyleImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -48,20 +45,15 @@ export function CreateProjectModal() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!name.trim()) {
-      setNameError("项目标识不能为空");
+    if (!title.trim()) {
+      setTitleError("项目标题不能为空");
       return;
     }
-    if (!NAME_REGEX.test(name.trim())) {
-      setNameError("仅允许英文字母、数字、下划线和中划线");
-      return;
-    }
-    if (!title.trim()) return;
 
     setCreatingProject(true);
     try {
-      const projectName = name.trim();
-      await API.createProject(projectName, title.trim(), style, contentMode);
+      const response = await API.createProject(title.trim(), style, contentMode);
+      const projectName = response.name;
 
       // 如果用户选择了风格参考图，在项目创建后上传
       if (styleImageFile) {
@@ -104,26 +96,6 @@ export function CreateProjectModal() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Name */}
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              项目标识 <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => { setName(e.target.value); setNameError(""); }}
-              placeholder="my-project"
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
-            />
-            {nameError && (
-              <p className="mt-1 text-xs text-red-400">{nameError}</p>
-            )}
-            <p className="mt-1 text-xs text-gray-600">
-              用于 URL 和文件系统，仅允许英文、数字、下划线、中划线
-            </p>
-          </div>
-
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">
@@ -132,10 +104,19 @@ export function CreateProjectModal() {
             <input
               type="text"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="我的视频项目"
+              onChange={(e) => {
+                setTitle(e.target.value);
+                setTitleError("");
+              }}
+              placeholder="例如：重生之皇后威武"
               className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
             />
+            {titleError && (
+              <p className="mt-1 text-xs text-red-400">{titleError}</p>
+            )}
+            <p className="mt-1 text-xs text-gray-600">
+              系统会自动生成内部项目标识并用于 URL 与文件存储
+            </p>
           </div>
 
           {/* Content Mode */}
@@ -251,7 +232,7 @@ export function CreateProjectModal() {
           {/* Submit */}
           <button
             type="submit"
-            disabled={creatingProject || !name.trim() || !title.trim()}
+            disabled={creatingProject || !title.trim()}
             className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {creatingProject ? (

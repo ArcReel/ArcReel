@@ -127,7 +127,8 @@ describe("API", () => {
         .mockResolvedValue({ success: true } as never);
 
       await API.listProjects();
-      await API.createProject("demo", "Demo");
+      await API.createProject("Demo");
+      await API.createProject("Untitled");
       await API.getProject("a b");
       await API.updateProject("demo", { style: "Anime" });
       await API.deleteProject("demo");
@@ -159,8 +160,15 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/projects", {
         method: "POST",
         body: JSON.stringify({
-          name: "demo",
           title: "Demo",
+          style: "",
+          content_mode: "narration",
+        }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects", {
+        method: "POST",
+        body: JSON.stringify({
+          title: "Untitled",
           style: "",
           content_mode: "narration",
         }),

@@ -11,6 +11,7 @@ export type UploadPhase = "loading" | "idle" | "has_sources" | "uploading" | "an
 
 interface WelcomeCanvasProps {
   projectName: string;
+  projectTitle?: string;
   onUpload?: (file: File) => Promise<void>;
   onAnalyze?: () => Promise<void>;
 }
@@ -23,7 +24,12 @@ interface WelcomeCanvasProps {
 // Then: uploading → analyzing → done
 // ---------------------------------------------------------------------------
 
-export function WelcomeCanvas({ projectName, onUpload, onAnalyze }: WelcomeCanvasProps) {
+export function WelcomeCanvas({
+  projectName,
+  projectTitle,
+  onUpload,
+  onAnalyze,
+}: WelcomeCanvasProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [phase, setPhase] = useState<UploadPhase>("loading");
   const [sourceFiles, setSourceFiles] = useState<string[]>([]);
@@ -31,6 +37,7 @@ export function WelcomeCanvas({ projectName, onUpload, onAnalyze }: WelcomeCanva
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
+  const displayProjectTitle = projectTitle?.trim() || projectName;
 
   // Check existing source files on mount and when sourceFilesVersion changes
   useEffect(() => {
@@ -138,7 +145,7 @@ export function WelcomeCanvas({ projectName, onUpload, onAnalyze }: WelcomeCanva
         <div>
           <Sparkles className="mx-auto mb-3 h-10 w-10 text-indigo-400" />
           <h1 className="text-2xl font-bold text-gray-100">
-            欢迎来到 {projectName}！
+            欢迎来到 {displayProjectTitle}！
           </h1>
           <p className="mt-2 text-sm text-gray-400">
             {phase === "idle" && "请拖拽或上传您的小说源文件（txt/md），AI 将为您拆解设定。"}

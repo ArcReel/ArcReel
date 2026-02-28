@@ -56,6 +56,29 @@ class TestProjectManagerMore:
         pm.save_project("demo", loaded)
         assert pm.load_project("demo")["style"] == "Noir"
 
+    def test_project_identifier_validation_and_title_fallback(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+
+        with pytest.raises(ValueError):
+            pm.create_project("bad name")
+
+        pm.create_project("demo")
+        project = pm.create_project_metadata("demo", "")
+
+        assert project["title"] == "demo"
+
+    def test_generate_project_name_is_unique_and_safe(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+
+        first = pm.generate_project_name("My Demo Project")
+        second = pm.generate_project_name("我的项目")
+
+        assert first.startswith("my-demo-project-")
+        assert second.startswith("project-")
+        assert first != second
+        assert pm.normalize_project_name(first) == first
+        assert pm.normalize_project_name(second) == second
+
     def test_script_operations_and_scene_updates(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")

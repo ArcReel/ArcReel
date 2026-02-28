@@ -169,15 +169,13 @@ class API {
   }
 
   static async createProject(
-    name: string,
     title: string,
     style: string = "",
     contentMode: string = "narration"
-  ): Promise<{ success: boolean; project: ProjectData }> {
+  ): Promise<{ success: boolean; name: string; project: ProjectData }> {
     return this.request("/projects", {
       method: "POST",
       body: JSON.stringify({
-        name,
         title,
         style,
         content_mode: contentMode,

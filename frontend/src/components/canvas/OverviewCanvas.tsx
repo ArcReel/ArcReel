@@ -71,6 +71,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     return (
       <WelcomeCanvas
         projectName={projectName}
+        projectTitle={projectData.title}
         onUpload={handleUpload}
         onAnalyze={handleAnalyze}
       />

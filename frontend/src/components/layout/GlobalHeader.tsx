@@ -97,6 +97,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const currentPhase = currentProjectData?.status?.current_phase;
   const contentMode = currentProjectData?.content_mode;
   const runningCount = stats.running + stats.queued;
+  const displayProjectTitle =
+    currentProjectData?.title?.trim() || currentProjectName || "未选择项目";
 
   // 加载费用统计数据
   useEffect(() => {
@@ -141,7 +143,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
         {/* Project name */}
         <span className="max-w-48 truncate text-sm font-medium text-gray-200">
-          {currentProjectName ?? "未选择项目"}
+          {displayProjectTitle}
         </span>
 
         {/* Content mode badge */}

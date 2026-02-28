@@ -32,8 +32,8 @@ def get_status_calculator() -> StatusCalculator:
 
 
 class CreateProjectRequest(BaseModel):
-    name: str
-    title: str
+    name: Optional[str] = None
+    title: Optional[str] = None
     style: Optional[str] = ""
     content_mode: Optional[str] = "narration"
 
@@ -109,13 +109,21 @@ async def create_project(req: CreateProjectRequest):
     """创建新项目"""
     try:
         manager = get_project_manager()
+        title = (req.title or "").strip()
+        manual_name = (req.name or "").strip()
+        if not title and not manual_name:
+            raise HTTPException(status_code=400, detail="项目标题不能为空")
+        project_name = manual_name or manager.generate_project_name(title)
+
         # 创建项目目录结构
-        manager.create_project(req.name)
+        manager.create_project(project_name)
         # 创建项目元数据
-        project = manager.create_project_metadata(req.name, req.title, req.style, req.content_mode)
-        return {"success": True, "project": project}
+        project = manager.create_project_metadata(project_name, title or manual_name, req.style, req.content_mode)
+        return {"success": True, "name": project_name, "project": project}
     except FileExistsError:
-        raise HTTPException(status_code=400, detail=f"项目 '{req.name}' 已存在")
+        raise HTTPException(status_code=400, detail=f"项目 '{project_name}' 已存在")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
