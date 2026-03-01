@@ -42,7 +42,7 @@ class _FakeVM:
             raise ValueError("bad")
         return {
             "restored_version": version,
-            "new_current_version": version + 1,
+            "current_version": version,
             "prompt": "p",
         }
 
@@ -83,7 +83,7 @@ class TestVersionsRouter:
 
             restore_resp = client.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
             assert restore_resp.status_code == 200
-            assert restore_resp.json()["new_current_version"] == 2
+            assert restore_resp.json()["current_version"] == 1
             assert any(item[0] == "character" for item in fake_pm.updated)
 
     def test_restore_error_mapping(self, monkeypatch):

@@ -16,12 +16,21 @@ interface LorebookGalleryProps {
   clues: Record<string, Clue>;
   /** When specified, only show the given section without tab bar. */
   mode?: "characters" | "clues";
-  onUpdateCharacter: (name: string, updates: Partial<Character>) => void;
+  onSaveCharacter: (
+    name: string,
+    payload: {
+      description: string;
+      voiceStyle: string;
+      referenceFile?: File | null;
+    }
+  ) => Promise<void>;
   onUpdateClue: (name: string, updates: Partial<Clue>) => void;
   onGenerateCharacter: (name: string) => void;
   onGenerateClue: (name: string) => void;
-  /** Set of names currently being generated (for loading state). */
-  generatingNames?: Set<string>;
+  onRestoreCharacterVersion?: () => Promise<void> | void;
+  onRestoreClueVersion?: () => Promise<void> | void;
+  generatingCharacterNames?: Set<string>;
+  generatingClueNames?: Set<string>;
   /** Called when the user clicks "添加角色". */
   onAddCharacter?: () => void;
   /** Called when the user clicks "添加线索". */
@@ -43,11 +52,14 @@ export function LorebookGallery({
   characters,
   clues,
   mode,
-  onUpdateCharacter,
+  onSaveCharacter,
   onUpdateClue,
   onGenerateCharacter,
   onGenerateClue,
-  generatingNames,
+  onRestoreCharacterVersion,
+  onRestoreClueVersion,
+  generatingCharacterNames,
+  generatingClueNames,
   onAddCharacter,
   onAddClue,
 }: LorebookGalleryProps) {
@@ -79,7 +91,10 @@ export function LorebookGallery({
   const charCount = charEntries.length;
   const clueCount = clueEntries.length;
 
-  const isGenerating = (name: string) => generatingNames?.has(name) ?? false;
+  const isGeneratingCharacter = (name: string) =>
+    generatingCharacterNames?.has(name) ?? false;
+  const isGeneratingClue = (name: string) =>
+    generatingClueNames?.has(name) ?? false;
 
   return (
     <div className="flex flex-col gap-4">
@@ -117,9 +132,10 @@ export function LorebookGallery({
                     name={charName}
                     character={character}
                     projectName={projectName}
-                    onUpdate={onUpdateCharacter}
+                    onSave={onSaveCharacter}
                     onGenerate={onGenerateCharacter}
-                    generating={isGenerating(charName)}
+                    onRestoreVersion={onRestoreCharacterVersion}
+                    generating={isGeneratingCharacter(charName)}
                   />
                 </div>
               ))}
@@ -150,7 +166,8 @@ export function LorebookGallery({
                     projectName={projectName}
                     onUpdate={onUpdateClue}
                     onGenerate={onGenerateClue}
-                    generating={isGenerating(clueName)}
+                    onRestoreVersion={onRestoreClueVersion}
+                    generating={isGeneratingClue(clueName)}
                   />
                 </div>
               ))}

@@ -49,7 +49,14 @@ class TestVersionManagerMore:
 
         restored = vm.restore_version("characters", "Alice", 1, current)
         assert restored["restored_version"] == 1
-        assert restored["new_current_version"] == 3
+        assert restored["current_version"] == 1
+
+        info = vm.get_versions("characters", "Alice")
+        assert info["current_version"] == 1
+        assert len(info["versions"]) == 2
+
+        current.write_bytes(b"png-v3")
+        assert vm.add_version("characters", "Alice", "p3", source_file=current) == 3
 
     def test_restore_errors_and_missing_current(self, tmp_path):
         project = tmp_path / "demo"

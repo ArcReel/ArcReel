@@ -9,7 +9,7 @@ import { SourceFileViewer } from "./SourceFileViewer";
 import { AddCharacterForm } from "./lorebook/AddCharacterForm";
 import { AddClueForm } from "./lorebook/AddClueForm";
 import { API } from "@/api";
-import type { Character, Clue } from "@/types";
+import type { Clue } from "@/types";
 
 // ---------------------------------------------------------------------------
 // StudioCanvasRouter — reads Zustand store data and renders the correct
@@ -22,9 +22,15 @@ export function StudioCanvasRouter() {
 
   const [addingCharacter, setAddingCharacter] = useState(false);
   const [addingClue, setAddingClue] = useState(false);
+  const [generatingCharacterNames, setGeneratingCharacterNames] = useState<
+    Set<string>
+  >(new Set());
+  const [generatingClueNames, setGeneratingClueNames] = useState<Set<string>>(
+    new Set(),
+  );
 
   // 刷新项目数据
-  const refreshProject = useCallback(async () => {
+  const refreshProject = useCallback(async (invalidateMedia: boolean = false) => {
     if (!currentProjectName) return;
     try {
       const res = await API.getProject(currentProjectName);
@@ -33,6 +39,9 @@ export function StudioCanvasRouter() {
         res.project,
         res.scripts ?? {},
       );
+      if (invalidateMedia) {
+        useAppStore.getState().invalidateMediaAssets();
+      }
     } catch {
       // 静默失败
     }
@@ -99,11 +108,32 @@ export function StudioCanvasRouter() {
   }, [currentProjectName, currentScripts]);
 
   // ---- Character CRUD callbacks ----
-  const handleUpdateCharacter = useCallback(async (name: string, updates: Partial<Character>) => {
+  const handleSaveCharacter = useCallback(async (
+    name: string,
+    payload: {
+      description: string;
+      voiceStyle: string;
+      referenceFile?: File | null;
+    },
+  ) => {
     if (!currentProjectName) return;
     try {
-      await API.updateCharacter(currentProjectName, name, updates);
-      await refreshProject();
+      await API.updateCharacter(currentProjectName, name, {
+        description: payload.description,
+        voice_style: payload.voiceStyle,
+      });
+
+      if (payload.referenceFile) {
+        await API.uploadFile(
+          currentProjectName,
+          "character_ref",
+          payload.referenceFile,
+          name,
+        );
+      }
+
+      await refreshProject(Boolean(payload.referenceFile));
+      useAppStore.getState().pushToast(`角色 "${name}" 已更新`, "success");
     } catch (err) {
       useAppStore.getState().pushToast(`更新角色失败: ${(err as Error).message}`, "error");
     }
@@ -111,19 +141,46 @@ export function StudioCanvasRouter() {
 
   const handleGenerateCharacter = useCallback(async (name: string) => {
     if (!currentProjectName) return;
+    setGeneratingCharacterNames((prev) => new Set(prev).add(name));
     try {
-      await API.generateCharacter(currentProjectName, name, currentProjectData?.characters?.[name]?.description ?? "");
-      useAppStore.getState().pushToast(`已提交角色 "${name}" 设计图生成任务`, "success");
+      const result = await API.generateCharacter(
+        currentProjectName,
+        name,
+        currentProjectData?.characters?.[name]?.description ?? "",
+      );
+      await refreshProject(true);
+      useAppStore
+        .getState()
+        .pushToast(
+          `角色 "${name}" 已更新到 v${result.version ?? "新版本"}`,
+          "success",
+        );
     } catch (err) {
       useAppStore.getState().pushToast(`生成失败: ${(err as Error).message}`, "error");
+    } finally {
+      setGeneratingCharacterNames((prev) => {
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
     }
-  }, [currentProjectName, currentProjectData]);
+  }, [currentProjectName, currentProjectData, refreshProject]);
 
-  const handleAddCharacterSubmit = useCallback(async (name: string, description: string, voiceStyle: string) => {
+  const handleAddCharacterSubmit = useCallback(async (
+    name: string,
+    description: string,
+    voiceStyle: string,
+    referenceFile?: File | null,
+  ) => {
     if (!currentProjectName) return;
     try {
       await API.addCharacter(currentProjectName, name, description, voiceStyle);
-      await refreshProject();
+
+      if (referenceFile) {
+        await API.uploadFile(currentProjectName, "character_ref", referenceFile, name);
+      }
+
+      await refreshProject(Boolean(referenceFile));
       setAddingCharacter(false);
       useAppStore.getState().pushToast(`角色 "${name}" 已添加`, "success");
     } catch (err) {
@@ -144,13 +201,30 @@ export function StudioCanvasRouter() {
 
   const handleGenerateClue = useCallback(async (name: string) => {
     if (!currentProjectName) return;
+    setGeneratingClueNames((prev) => new Set(prev).add(name));
     try {
-      await API.generateClue(currentProjectName, name, currentProjectData?.clues?.[name]?.description ?? "");
-      useAppStore.getState().pushToast(`已提交线索 "${name}" 设计图生成任务`, "success");
+      const result = await API.generateClue(
+        currentProjectName,
+        name,
+        currentProjectData?.clues?.[name]?.description ?? "",
+      );
+      await refreshProject(true);
+      useAppStore
+        .getState()
+        .pushToast(
+          `线索 "${name}" 已更新到 v${result.version ?? "新版本"}`,
+          "success",
+        );
     } catch (err) {
       useAppStore.getState().pushToast(`生成失败: ${(err as Error).message}`, "error");
+    } finally {
+      setGeneratingClueNames((prev) => {
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
     }
-  }, [currentProjectName, currentProjectData]);
+  }, [currentProjectName, currentProjectData, refreshProject]);
 
   const handleAddClueSubmit = useCallback(async (name: string, clueType: string, description: string, importance: string) => {
     if (!currentProjectName) return;
@@ -163,6 +237,10 @@ export function StudioCanvasRouter() {
       useAppStore.getState().pushToast(`添加失败: ${(err as Error).message}`, "error");
     }
   }, [currentProjectName, refreshProject]);
+
+  const handleRestoreAsset = useCallback(async () => {
+    await refreshProject(true);
+  }, [refreshProject]);
 
   const [location] = useLocation();
 
@@ -195,10 +273,14 @@ export function StudioCanvasRouter() {
             characters={currentProjectData?.characters ?? {}}
             clues={currentProjectData?.clues ?? {}}
             mode={location === "/clues" ? "clues" : "characters"}
-            onUpdateCharacter={handleUpdateCharacter}
+            onSaveCharacter={handleSaveCharacter}
             onUpdateClue={handleUpdateClue}
             onGenerateCharacter={handleGenerateCharacter}
             onGenerateClue={handleGenerateClue}
+            onRestoreCharacterVersion={handleRestoreAsset}
+            onRestoreClueVersion={handleRestoreAsset}
+            generatingCharacterNames={generatingCharacterNames}
+            generatingClueNames={generatingClueNames}
             onAddCharacter={() => setAddingCharacter(true)}
             onAddClue={() => setAddingClue(true)}
           />
@@ -246,6 +328,8 @@ export function StudioCanvasRouter() {
               onUpdatePrompt={handleUpdatePrompt}
               onGenerateStoryboard={handleGenerateStoryboard}
               onGenerateVideo={handleGenerateVideo}
+              onRestoreStoryboard={handleRestoreAsset}
+              onRestoreVideo={handleRestoreAsset}
             />
           );
         }}

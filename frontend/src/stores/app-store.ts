@@ -42,6 +42,10 @@ interface AppState {
   // Source files invalidation signal
   sourceFilesVersion: number;
   invalidateSourceFiles: () => void;
+
+  // Media invalidation signal for cache-busted asset URLs
+  mediaRevision: number;
+  invalidateMediaAssets: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -66,4 +70,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   sourceFilesVersion: 0,
   invalidateSourceFiles: () => set((s) => ({ sourceFilesVersion: s.sourceFilesVersion + 1 })),
+
+  mediaRevision: 0,
+  invalidateMediaAssets: () => set((s) => ({ mediaRevision: s.mediaRevision + 1 })),
 }));

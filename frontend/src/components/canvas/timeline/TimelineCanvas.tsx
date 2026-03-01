@@ -33,6 +33,8 @@ interface TimelineCanvasProps {
   onUpdatePrompt?: (segmentId: string, field: string, value: unknown, scriptFile?: string) => void;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
+  onRestoreStoryboard?: () => Promise<void> | void;
+  onRestoreVideo?: () => Promise<void> | void;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,6 +56,8 @@ export function TimelineCanvas({
   onUpdatePrompt,
   onGenerateStoryboard,
   onGenerateVideo,
+  onRestoreStoryboard,
+  onRestoreVideo,
 }: TimelineCanvasProps) {
   // Respond to agent-triggered scroll targets for segments
   useScrollTarget("segment");
@@ -117,6 +121,8 @@ export function TimelineCanvas({
                   onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}
                   onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
                   onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
+                  onRestoreStoryboard={onRestoreStoryboard}
+                  onRestoreVideo={onRestoreVideo}
                 />
               </div>
             );

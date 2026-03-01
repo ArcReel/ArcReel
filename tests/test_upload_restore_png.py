@@ -44,12 +44,12 @@ class TestUploadRestorePng:
         # Patch router project manager to the temp projects root.
         monkeypatch.setattr(versions_router, "pm", pm)
 
-        # Restore to v1; restore itself becomes a new version (+1).
+        # Switch back to v1 without creating a synthetic new version.
         result = await versions_router.restore_version(project_name, "characters", char_name, 1)
 
         assert result["success"]
         assert result["restored_version"] == 1
-        assert result["new_current_version"] == 2
+        assert result["current_version"] == 1
         assert result["file_path"] == f"characters/{char_name}.png"
 
         # project.json should be updated to point to the normalized .png path.
@@ -62,5 +62,5 @@ class TestUploadRestorePng:
             assert restored_rgba.getpixel((0, 0)) == (255, 0, 0, 255)
 
         info = vm.get_versions("characters", char_name)
-        assert info["current_version"] == 2
-        assert len(info["versions"]) == 2
+        assert info["current_version"] == 1
+        assert len(info["versions"]) == 1

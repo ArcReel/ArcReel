@@ -44,7 +44,7 @@ vi.mock("./timeline/TimelineCanvas", () => ({
 vi.mock("./lorebook/LorebookGallery", () => ({
   LorebookGallery: ({
     mode,
-    onUpdateCharacter,
+    onSaveCharacter,
     onUpdateClue,
     onGenerateCharacter,
     onGenerateClue,
@@ -52,7 +52,14 @@ vi.mock("./lorebook/LorebookGallery", () => ({
     onAddClue,
   }: {
     mode: "characters" | "clues";
-    onUpdateCharacter: (name: string, updates: Record<string, unknown>) => void;
+    onSaveCharacter: (
+      name: string,
+      payload: {
+        description: string;
+        voiceStyle: string;
+        referenceFile?: File | null;
+      },
+    ) => Promise<void>;
     onUpdateClue: (name: string, updates: Record<string, unknown>) => void;
     onGenerateCharacter: (name: string) => void;
     onGenerateClue: (name: string) => void;
@@ -60,7 +67,15 @@ vi.mock("./lorebook/LorebookGallery", () => ({
     onAddClue?: () => void;
   }) => (
     <div data-testid="lorebook-gallery" data-mode={mode}>
-      <button onClick={() => onUpdateCharacter("Hero", { description: "new desc" })}>
+      <button
+        onClick={() =>
+          void onSaveCharacter("Hero", {
+            description: "new desc",
+            voiceStyle: "new voice",
+            referenceFile: new File(["ref"], "hero.png", { type: "image/png" }),
+          })
+        }
+      >
         update-character
       </button>
       <button onClick={() => onGenerateCharacter("Hero")}>generate-character</button>
@@ -79,11 +94,27 @@ vi.mock("./lorebook/AddCharacterForm", () => ({
     onSubmit,
     onCancel,
   }: {
-    onSubmit: (name: string, description: string, voice: string) => Promise<void>;
+    onSubmit: (
+      name: string,
+      description: string,
+      voice: string,
+      referenceFile?: File | null,
+    ) => Promise<void>;
     onCancel: () => void;
   }) => (
     <div data-testid="add-character-form">
-      <button onClick={() => void onSubmit("NewHero", "desc", "voice")}>submit-add-character</button>
+      <button
+        onClick={() =>
+          void onSubmit(
+            "NewHero",
+            "desc",
+            "voice",
+            new File(["ref"], "new-hero.png", { type: "image/png" }),
+          )
+        }
+      >
+        submit-add-character
+      </button>
       <button onClick={onCancel}>cancel-add-character</button>
     </div>
   ),
@@ -218,8 +249,11 @@ describe("StudioCanvasRouter", () => {
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "updateCharacter").mockResolvedValue({ success: true });
-    vi.spyOn(API, "generateCharacter").mockResolvedValue({ success: true, task_id: "task-1" });
-    vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });
+    const uploadFileSpy = vi
+      .spyOn(API, "uploadFile")
+      .mockResolvedValue({ success: true, path: "x", url: "y" });
+    vi.spyOn(API, "generateCharacter").mockResolvedValue({ success: true, version: 2 });
+    const addCharacterSpy = vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });
     vi.spyOn(API, "updateClue").mockRejectedValue(new Error("clue failed"));
     vi.spyOn(API, "generateClue").mockRejectedValue(new Error("generate failed"));
     vi.spyOn(API, "addClue").mockResolvedValue({ success: true });
@@ -230,7 +264,15 @@ describe("StudioCanvasRouter", () => {
     await waitFor(() => {
       expect(API.updateCharacter).toHaveBeenCalledWith("demo", "Hero", {
         description: "new desc",
+        voice_style: "new voice",
       });
+      expect(API.uploadFile).toHaveBeenNthCalledWith(
+        1,
+        "demo",
+        "character_ref",
+        expect.any(File),
+        "Hero",
+      );
       expect(API.getProject).toHaveBeenCalled();
     });
 
@@ -241,6 +283,8 @@ describe("StudioCanvasRouter", () => {
         "Hero",
         "hero description",
       );
+      expect(API.getProject).toHaveBeenCalledTimes(2);
+      expect(useAppStore.getState().toast?.text).toContain("已更新到 v2");
       expect(useAppStore.getState().toast?.tone).toBe("success");
     });
 
@@ -253,6 +297,16 @@ describe("StudioCanvasRouter", () => {
         "NewHero",
         "desc",
         "voice",
+      );
+      expect(API.uploadFile).toHaveBeenNthCalledWith(
+        2,
+        "demo",
+        "character_ref",
+        expect.any(File),
+        "NewHero",
+      );
+      expect(addCharacterSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        uploadFileSpy.mock.invocationCallOrder[1],
       );
     });
 

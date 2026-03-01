@@ -4,6 +4,7 @@ import { GlobalHeader } from "./GlobalHeader";
 import { AssetSidebar } from "./AssetSidebar";
 import { AgentCopilot } from "@/components/copilot/AgentCopilot";
 import { useTasksSSE } from "@/hooks/useTasksSSE";
+import { useProjectAssetSync } from "@/hooks/useProjectAssetSync";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { UI_LAYERS } from "@/utils/ui-layers";
@@ -24,6 +25,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
 
   // 进入工作区时连接任务 SSE 流
   useTasksSSE(currentProjectName);
+  useProjectAssetSync(currentProjectName);
 
   return (
     <div className="flex h-screen flex-col bg-gray-950 text-gray-100">

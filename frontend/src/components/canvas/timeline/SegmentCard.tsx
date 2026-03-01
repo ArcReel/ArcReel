@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { ImageIcon, Film, Clock, Play, Pause } from "lucide-react";
 import { API } from "@/api";
+import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AvatarStack } from "@/components/ui/AvatarStack";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { GenerateButton } from "@/components/ui/GenerateButton";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
+import { useAppStore } from "@/stores/app-store";
 import { ImagePromptEditor } from "./ImagePromptEditor";
 import { VideoPromptEditor } from "./VideoPromptEditor";
 import type {
@@ -136,6 +138,8 @@ interface SegmentCardProps {
   ) => void;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void;
+  onRestoreStoryboard?: () => Promise<void> | void;
+  onRestoreVideo?: () => Promise<void> | void;
   generatingStoryboard?: boolean;
   generatingVideo?: boolean;
 }
@@ -452,6 +456,8 @@ function MediaColumn({
   segmentId,
   onGenerateStoryboard,
   onGenerateVideo,
+  onRestoreStoryboard,
+  onRestoreVideo,
   generatingStoryboard,
   generatingVideo,
 }: {
@@ -461,15 +467,18 @@ function MediaColumn({
   segmentId: string;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void;
+  onRestoreStoryboard?: () => Promise<void> | void;
+  onRestoreVideo?: () => Promise<void> | void;
   generatingStoryboard?: boolean;
   generatingVideo?: boolean;
 }) {
+  const mediaRevision = useAppStore((s) => s.mediaRevision);
   const assets = segment.generated_assets;
   const storyboardUrl = assets?.storyboard_image
-    ? API.getFileUrl(projectName, assets.storyboard_image)
+    ? API.getFileUrl(projectName, assets.storyboard_image, mediaRevision)
     : null;
   const videoUrl = assets?.video_clip
-    ? API.getFileUrl(projectName, assets.video_clip)
+    ? API.getFileUrl(projectName, assets.video_clip, mediaRevision)
     : null;
 
   // Normalize aspect ratio to the union type expected by AspectFrame
@@ -481,9 +490,17 @@ function MediaColumn({
     <div className="flex flex-col gap-3 p-3">
       {/* ---- Storyboard image (always shown) ---- */}
       <div>
-        <div className="flex items-center gap-1.5 mb-1.5">
-          <ImageIcon className="h-3 w-3 text-gray-500" />
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">分镜图</span>
+        <div className="mb-1.5 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <ImageIcon className="h-3 w-3 text-gray-500" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">分镜图</span>
+          </div>
+          <VersionTimeMachine
+            projectName={projectName}
+            resourceType="storyboards"
+            resourceId={segmentId}
+            onRestore={onRestoreStoryboard}
+          />
         </div>
         <AspectFrame ratio={normalizedRatio}>
           <ImageFlipReveal
@@ -510,9 +527,17 @@ function MediaColumn({
 
       {/* ---- Video (shown when available or as placeholder) ---- */}
       <div>
-        <div className="flex items-center gap-1.5 mb-1.5">
-          <Film className="h-3 w-3 text-gray-500" />
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">视频</span>
+        <div className="mb-1.5 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Film className="h-3 w-3 text-gray-500" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">视频</span>
+          </div>
+          <VersionTimeMachine
+            projectName={projectName}
+            resourceType="videos"
+            resourceId={segmentId}
+            onRestore={onRestoreVideo}
+          />
         </div>
         {videoUrl ? (
           <AspectFrame ratio={normalizedRatio}>
@@ -553,6 +578,8 @@ export function SegmentCard({
   onUpdatePrompt,
   onGenerateStoryboard,
   onGenerateVideo,
+  onRestoreStoryboard,
+  onRestoreVideo,
   generatingStoryboard = false,
   generatingVideo = false,
 }: SegmentCardProps) {
@@ -605,6 +632,8 @@ export function SegmentCard({
             segmentId={segmentId}
             onGenerateStoryboard={onGenerateStoryboard}
             onGenerateVideo={onGenerateVideo}
+            onRestoreStoryboard={onRestoreStoryboard}
+            onRestoreVideo={onRestoreVideo}
             generatingStoryboard={generatingStoryboard}
             generatingVideo={generatingVideo}
           />

@@ -3,6 +3,7 @@ import { useState, useRef, type RefObject } from "react";
 import { User } from "lucide-react";
 import { API } from "@/api";
 import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
+import { useAppStore } from "@/stores/app-store";
 import type { Character } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,7 @@ function AvatarPopover({
   projectName: string;
   anchorRef: RefObject<HTMLElement | null>;
 }) {
+  const mediaRevision = useAppStore((s) => s.mediaRevision);
   const { panelRef, positionStyle } = useAnchoredPopover({
     open: true,
     anchorRef,
@@ -66,7 +68,7 @@ function AvatarPopover({
       <div className="flex items-start gap-2.5">
         {character.character_sheet ? (
           <img
-            src={API.getFileUrl(projectName, character.character_sheet)}
+            src={API.getFileUrl(projectName, character.character_sheet, mediaRevision)}
             alt={name}
             className="h-[120px] w-[90px] shrink-0 rounded object-cover"
           />
@@ -102,6 +104,7 @@ function SingleAvatar({
   character: Character | undefined;
   projectName: string;
 }) {
+  const mediaRevision = useAppStore((s) => s.mediaRevision);
   const [imgError, setImgError] = useState(false);
   const [hovered, setHovered] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
@@ -119,7 +122,7 @@ function SingleAvatar({
       >
         {showImage ? (
           <img
-            src={API.getFileUrl(projectName, sheetPath)}
+            src={API.getFileUrl(projectName, sheetPath, mediaRevision)}
             alt={name}
             className="h-7 w-7 rounded-full border-2 border-gray-900 object-cover"
             onError={() => setImgError(true)}

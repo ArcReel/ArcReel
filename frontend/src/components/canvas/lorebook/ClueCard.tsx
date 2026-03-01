@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Puzzle } from "lucide-react";
 import { API } from "@/api";
+import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
+import { useAppStore } from "@/stores/app-store";
 import type { Clue } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -15,6 +17,7 @@ interface ClueCardProps {
   projectName: string;
   onUpdate: (name: string, updates: Partial<Clue>) => void;
   onGenerate: (name: string) => void;
+  onRestoreVersion?: () => Promise<void> | void;
   generating?: boolean;
 }
 
@@ -37,8 +40,10 @@ export function ClueCard({
   projectName,
   onUpdate,
   onGenerate,
+  onRestoreVersion,
   generating = false,
 }: ClueCardProps) {
+  const mediaRevision = useAppStore((s) => s.mediaRevision);
   const [description, setDescription] = useState(clue.description);
   const [imgError, setImgError] = useState(false);
 
@@ -47,6 +52,10 @@ export function ClueCard({
   useEffect(() => {
     setDescription(clue.description);
   }, [clue.description]);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [clue.clue_sheet, mediaRevision]);
 
   // Auto-resize textarea.
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -68,7 +77,7 @@ export function ClueCard({
   };
 
   const sheetUrl = clue.clue_sheet
-    ? API.getFileUrl(projectName, clue.clue_sheet)
+    ? API.getFileUrl(projectName, clue.clue_sheet, mediaRevision)
     : null;
 
   return (
@@ -94,6 +103,17 @@ export function ClueCard({
 
       {/* ---- Image area ---- */}
       <div className="mb-4">
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+            线索设计图
+          </span>
+          <VersionTimeMachine
+            projectName={projectName}
+            resourceType="clues"
+            resourceId={name}
+            onRestore={onRestoreVersion}
+          />
+        </div>
         <AspectFrame ratio="16:9">
           {sheetUrl && !imgError ? (
             <img
@@ -136,7 +156,7 @@ export function ClueCard({
         <GenerateButton
           onClick={() => onGenerate(name)}
           loading={generating}
-          label="生成设计图"
+          label={clue.clue_sheet ? "重新生成设计图" : "生成设计图"}
           className="w-full justify-center"
         />
       )}

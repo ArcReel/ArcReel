@@ -27,6 +27,9 @@ export interface VersionInfo {
   created_at: string;
   file_size: number;
   is_current: boolean;
+  file_url?: string;
+  prompt?: string;
+  restored_from?: number;
 }
 
 /** Options for {@link API.openTaskStream}. */
@@ -380,8 +383,17 @@ class API {
     );
   }
 
-  static getFileUrl(projectName: string, path: string): string {
-    return `${API_BASE}/files/${encodeURIComponent(projectName)}/${path}`;
+  static getFileUrl(
+    projectName: string,
+    path: string,
+    cacheBust?: number | string | null
+  ): string {
+    const base = `${API_BASE}/files/${encodeURIComponent(projectName)}/${path}`;
+    if (cacheBust === undefined || cacheBust === null || cacheBust === "") {
+      return base;
+    }
+
+    return `${base}?v=${encodeURIComponent(String(cacheBust))}`;
   }
 
   // ==================== Source 文件管理 ====================
@@ -596,7 +608,13 @@ class API {
     projectName: string,
     charName: string,
     prompt: string
-  ): Promise<{ success: boolean; task_id: string }> {
+  ): Promise<{
+    success: boolean;
+    task_id?: string;
+    version?: number;
+    file_path?: string;
+    created_at?: string;
+  }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}`,
       {
@@ -616,7 +634,13 @@ class API {
     projectName: string,
     clueName: string,
     prompt: string
-  ): Promise<{ success: boolean; task_id: string }> {
+  ): Promise<{
+    success: boolean;
+    task_id?: string;
+    version?: number;
+    file_path?: string;
+    created_at?: string;
+  }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/clue/${encodeURIComponent(clueName)}`,
       {

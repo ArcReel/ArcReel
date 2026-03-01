@@ -298,6 +298,9 @@ describe("API", () => {
       expect(API.getFileUrl("my project", "source/a.txt")).toBe(
         "/api/v1/files/my%20project/source/a.txt",
       );
+      expect(API.getFileUrl("my project", "source/a.txt", 3)).toBe(
+        "/api/v1/files/my%20project/source/a.txt?v=3",
+      );
       expect(API.getAssistantStreamUrl("demo", "session-1")).toBe(
         "/api/v1/projects/demo/assistant/sessions/session-1/stream",
       );

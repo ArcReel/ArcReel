@@ -2,7 +2,7 @@
 版本管理模块
 
 管理分镜图、视频、人物图、线索图的历史版本。
-支持版本备份、还原、记录和查询。
+支持版本备份、切换当前版本、记录和查询。
 """
 
 import json
@@ -173,7 +173,12 @@ class VersionManager:
                 }
 
             resource_data = data[resource_type][resource_id]
-            new_version = resource_data["current_version"] + 1
+            existing_versions = resource_data.get("versions", [])
+            max_version = max(
+                (item.get("version", 0) for item in existing_versions),
+                default=0,
+            )
+            new_version = max_version + 1
 
             # 生成版本文件名和路径
             timestamp = self._generate_timestamp()
@@ -286,9 +291,9 @@ class VersionManager:
         current_file: Path
     ) -> Dict:
         """
-        还原到指定版本
+        切换到指定版本
 
-        将指定版本复制到当前路径，并创建一个“还原产生的新版本”作为当前版本。
+        将指定版本复制到当前路径，并将 current_version 指向该版本。
 
         Args:
             resource_type: 资源类型
@@ -297,7 +302,7 @@ class VersionManager:
             current_file: 当前文件路径
 
         Returns:
-            还原信息，包含 restored_version, new_current_version, prompt
+            切换信息，包含 restored_version, current_version, prompt
         """
         if resource_type not in self.RESOURCE_TYPES:
             raise ValueError(f"不支持的资源类型: {resource_type}")
@@ -311,7 +316,6 @@ class VersionManager:
             if not resource_data:
                 raise ValueError(f"资源不存在: {resource_type}/{resource_id}")
 
-            # 查找要还原的版本
             target_version = None
             for v in resource_data["versions"]:
                 if v["version"] == version:
@@ -325,29 +329,17 @@ class VersionManager:
             if not target_file.exists():
                 raise FileNotFoundError(f"版本文件不存在: {target_file}")
 
-        # 复制目标版本到当前路径
-        current_file.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(target_file, current_file)
+            current_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target_file, current_file)
 
-        # 将“还原后的当前内容”作为一个新版本记录，成为当前版本
+            resource_data["current_version"] = version
+            self._save_versions(data)
+
         restored_prompt = target_version.get("prompt", "")
-        inherited_metadata = {
-            k: v for k, v in target_version.items()
-            if k not in ("version", "file", "prompt", "created_at", "is_current", "file_url", "restored_from")
-        }
-        new_current = self.add_version(
-            resource_type=resource_type,
-            resource_id=resource_id,
-            prompt=restored_prompt,
-            source_file=current_file,
-            restored_from=version,
-            **inherited_metadata
-        )
-
         return {
             "restored_version": version,
-            "new_current_version": new_current,
-            "prompt": restored_prompt
+            "current_version": version,
+            "prompt": restored_prompt,
         }
 
     def get_version_file_url(

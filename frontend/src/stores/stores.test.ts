@@ -78,6 +78,10 @@ describe("stores", () => {
     expect(useAppStore.getState().sourceFilesVersion).toBe(0);
     app.invalidateSourceFiles();
     expect(useAppStore.getState().sourceFilesVersion).toBe(1);
+
+    expect(useAppStore.getState().mediaRevision).toBe(0);
+    app.invalidateMediaAssets();
+    expect(useAppStore.getState().mediaRevision).toBe(1);
   });
 
   it("upserts tasks by task_id and updates task stats", () => {

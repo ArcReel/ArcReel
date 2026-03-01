@@ -74,9 +74,9 @@ async def restore_version(
     version: int
 ):
     """
-    还原到指定版本
+    切换到指定版本
 
-    会先备份当前版本，然后将指定版本复制到当前路径。
+    会将指定版本复制到当前路径，并把当前版本指针切换到该版本。
 
     Args:
         project_name: 项目名称
