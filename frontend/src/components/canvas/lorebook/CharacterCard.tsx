@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ImagePlus, Upload, User } from "lucide-react";
 import { API } from "@/api";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
@@ -41,6 +41,7 @@ export function CharacterCard({
   const [referencePreview, setReferencePreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setDescription(character.description);
@@ -66,6 +67,18 @@ export function CharacterCard({
       }
     };
   }, [referencePreview]);
+
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current;
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    }
+  }, []);
+
+  useEffect(() => {
+    autoResize();
+  }, [autoResize, description]);
 
   const isDirty =
     description !== character.description ||
@@ -215,8 +228,10 @@ export function CharacterCard({
 
       <label className="text-xs font-medium text-gray-400">描述</label>
       <textarea
+        ref={textareaRef}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
+        onInput={autoResize}
         rows={3}
         className="mt-1 w-full resize-none overflow-hidden rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
         placeholder="输入角色描述..."
