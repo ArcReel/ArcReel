@@ -389,7 +389,7 @@ class API {
     cacheBust?: number | string | null
   ): string {
     const base = `${API_BASE}/files/${encodeURIComponent(projectName)}/${path}`;
-    if (cacheBust === undefined || cacheBust === null || cacheBust === "") {
+    if (cacheBust == null || cacheBust === "") {
       return base;
     }
 
