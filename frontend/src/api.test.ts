@@ -127,6 +127,25 @@ describe("API", () => {
 
       await expect(API.request("/projects")).rejects.toThrow("Service Unavailable");
     });
+
+    it("clears auth and redirects on unauthorized responses", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({
+          ok: false,
+          status: 401,
+          statusText: "Unauthorized",
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const clearTokenMock = vi.spyOn(await import("@/utils/auth"), "clearToken");
+      const location = { href: "/app" };
+      vi.stubGlobal("location", location);
+
+      await expect(API.request("/projects")).rejects.toThrow("认证已过期，请重新登录");
+
+      expect(clearTokenMock).toHaveBeenCalledTimes(1);
+      expect(location.href).toBe("/login");
+    });
   });
 
   describe("request-based wrappers", () => {
@@ -538,6 +557,27 @@ describe("API", () => {
         status: 409,
         conflict_project_name: "demo",
       });
+    });
+
+    it("reuses unauthorized handling for import requests", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({
+          ok: false,
+          status: 401,
+          statusText: "Unauthorized",
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const clearTokenMock = vi.spyOn(await import("@/utils/auth"), "clearToken");
+      const location = { href: "/app/projects" };
+      vi.stubGlobal("location", location);
+
+      await expect(
+        API.importProject(new File(["zip"], "demo.zip", { type: "application/zip" }))
+      ).rejects.toThrow("认证已过期，请重新登录");
+
+      expect(clearTokenMock).toHaveBeenCalledTimes(1);
+      expect(location.href).toBe("/login");
     });
   });
 

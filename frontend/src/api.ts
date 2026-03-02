@@ -122,16 +122,20 @@ const API_BASE = "/api/v1";
  */
 async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<void> {
   if (!response.ok) {
-    if (response.status === 401) {
-      clearToken();
-      globalThis.location.href = "/login";
-      throw new Error("认证已过期，请重新登录");
-    }
+    handleUnauthorized(response);
     const error = await response
       .json()
       .catch(() => ({ detail: response.statusText }));
     throw new Error(error.detail || fallbackMsg);
   }
+}
+
+function handleUnauthorized(response: Response): void {
+  if (response.status !== 401) return;
+
+  clearToken();
+  globalThis.location.href = "/login";
+  throw new Error("认证已过期，请重新登录");
 }
 
 function parseDownloadFilename(contentDisposition: string | null): string | null {
@@ -185,11 +189,7 @@ class API {
     const response = await fetch(url, withAuth({ ...defaultOptions, ...options }));
 
     if (!response.ok) {
-      if (response.status === 401) {
-        clearToken();
-        globalThis.location.href = "/login";
-        throw new Error("认证已过期，请重新登录");
-      }
+      handleUnauthorized(response);
       const error = await response
         .json()
         .catch(() => ({ detail: response.statusText }));
@@ -284,11 +284,7 @@ class API {
     );
 
     if (!response.ok) {
-      if (response.status === 401) {
-        clearToken();
-        globalThis.location.href = "/login";
-        throw new Error("认证已过期，请重新登录");
-      }
+      handleUnauthorized(response);
 
       const payload = await response
         .json()

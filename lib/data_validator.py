@@ -81,7 +81,7 @@ class DataValidator:
         try:
             with open(file_path, "r", encoding="utf-8") as handle:
                 return json.load(handle)
-        except Exception:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return None
 
     @staticmethod
