@@ -100,3 +100,13 @@ export interface ProjectSummary {
   progress: ProjectProgress | Record<string, never>;
   current_phase: string;
 }
+
+export type ImportConflictPolicy = "prompt" | "rename" | "overwrite";
+
+export interface ImportProjectResponse {
+  success: boolean;
+  project_name: string;
+  project: ProjectData;
+  warnings: string[];
+  conflict_resolution: "none" | "renamed" | "overwritten";
+}

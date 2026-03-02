@@ -99,4 +99,77 @@ describe("GlobalHeader", () => {
     screen.getByRole("button", { name: "打开通知中心" }).click();
     expect(await screen.findByTestId("notifications-drawer")).toBeInTheDocument();
   });
+
+  it("exports the current project zip", async () => {
+    vi.spyOn(API, "getUsageStats").mockResolvedValue({
+      total_cost: 0,
+      image_count: 0,
+      video_count: 0,
+      failed_count: 0,
+      total_count: 0,
+    });
+    vi.spyOn(API, "exportProject").mockResolvedValue({
+      blob: new Blob(["zip"]),
+      filename: "demo-20260302-170000.zip",
+    });
+    const createObjectURL = vi
+      .spyOn(URL, "createObjectURL")
+      .mockReturnValue("blob:demo");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: {
+        title: "导出项目",
+        content_mode: "narration",
+        style: "Anime",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+    });
+
+    renderHeader();
+    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+
+    await waitFor(() => {
+      expect(API.exportProject).toHaveBeenCalledWith("demo");
+    });
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(clickSpy).toHaveBeenCalled();
+    expect(useAppStore.getState().toast?.text).toContain("开始下载");
+  });
+
+  it("shows an error toast when exporting fails", async () => {
+    vi.spyOn(API, "getUsageStats").mockResolvedValue({
+      total_cost: 0,
+      image_count: 0,
+      video_count: 0,
+      failed_count: 0,
+      total_count: 0,
+    });
+    vi.spyOn(API, "exportProject").mockRejectedValue(new Error("network"));
+
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: {
+        title: "导出项目",
+        content_mode: "narration",
+        style: "Anime",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+    });
+
+    renderHeader();
+    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.text).toContain("导出失败");
+    });
+  });
 });

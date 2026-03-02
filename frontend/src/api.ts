@@ -8,6 +8,8 @@
 import type {
   ProjectData,
   ProjectSummary,
+  ImportConflictPolicy,
+  ImportProjectResponse,
   EpisodeScript,
   TaskItem,
   TaskStats,
@@ -120,11 +122,32 @@ const API_BASE = "/api/v1";
  */
 async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<void> {
   if (!response.ok) {
+    if (response.status === 401) {
+      clearToken();
+      globalThis.location.href = "/login";
+      throw new Error("认证已过期，请重新登录");
+    }
     const error = await response
       .json()
       .catch(() => ({ detail: response.statusText }));
     throw new Error(error.detail || fallbackMsg);
   }
+}
+
+function parseDownloadFilename(contentDisposition: string | null): string | null {
+  if (!contentDisposition) return null;
+
+  const encodedMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1].trim().replace(/^"|"$/g, ""));
+    } catch {
+      // fall through to plain filename parsing
+    }
+  }
+
+  const plainMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] ?? null;
 }
 
 /** 为 fetch options 注入 Authorization header */
@@ -223,6 +246,73 @@ class API {
     return this.request(`/projects/${encodeURIComponent(name)}`, {
       method: "DELETE",
     });
+  }
+
+  static async exportProject(
+    name: string
+  ): Promise<{ blob: Blob; filename: string }> {
+    const response = await fetch(
+      `${API_BASE}/projects/${encodeURIComponent(name)}/export`,
+      withAuth()
+    );
+    await throwIfNotOk(response, "导出失败");
+
+    const filename =
+      parseDownloadFilename(response.headers.get("Content-Disposition")) ??
+      `${name}.zip`;
+
+    return {
+      blob: await response.blob(),
+      filename,
+    };
+  }
+
+  static async importProject(
+    file: File,
+    conflictPolicy: ImportConflictPolicy = "prompt"
+  ): Promise<ImportProjectResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("conflict_policy", conflictPolicy);
+
+    const response = await fetch(
+      `${API_BASE}/projects/import`,
+      withAuth({
+        method: "POST",
+        body: formData,
+      })
+    );
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        clearToken();
+        globalThis.location.href = "/login";
+        throw new Error("认证已过期，请重新登录");
+      }
+
+      const payload = await response
+        .json()
+        .catch(() => ({ detail: response.statusText, errors: [], warnings: [] }));
+      const error = new Error(
+        typeof payload.detail === "string" ? payload.detail : "导入失败"
+      ) as Error & {
+        status?: number;
+        detail?: string;
+        errors?: string[];
+        warnings?: string[];
+        conflict_project_name?: string;
+      };
+      error.status = response.status;
+      error.detail = typeof payload.detail === "string" ? payload.detail : "导入失败";
+      error.errors = Array.isArray(payload.errors) ? payload.errors : [];
+      error.warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
+      if (typeof payload.conflict_project_name === "string") {
+        error.conflict_project_name = payload.conflict_project_name;
+      }
+      throw error;
+    }
+
+    return response.json();
   }
 
   // ==================== 人物管理 ====================

@@ -5,10 +5,16 @@
 """
 
 import logging
+import os
 import shutil
+import tempfile
+from pathlib import Path
 from typing import Optional, List, Union
-from fastapi import APIRouter, HTTPException
+
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +22,10 @@ from lib import PROJECT_ROOT
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator
+from server.services.project_archive import (
+    ProjectArchiveService,
+    ProjectArchiveValidationError,
+)
 
 router = APIRouter()
 
@@ -32,6 +42,10 @@ def get_status_calculator() -> StatusCalculator:
     return calc
 
 
+def get_archive_service() -> ProjectArchiveService:
+    return ProjectArchiveService(get_project_manager())
+
+
 class CreateProjectRequest(BaseModel):
     name: Optional[str] = None
     title: Optional[str] = None
@@ -44,6 +58,85 @@ class UpdateProjectRequest(BaseModel):
     style: Optional[str] = None
     content_mode: Optional[str] = None
     aspect_ratio: Optional[dict] = None
+
+
+def _cleanup_temp_file(path: str) -> None:
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return
+
+
+@router.post("/projects/import")
+async def import_project_archive(
+    file: UploadFile = File(...),
+    conflict_policy: str = Form("prompt"),
+):
+    """从 ZIP 导入项目。"""
+    upload_path: Optional[str] = None
+    try:
+        fd, upload_path = tempfile.mkstemp(prefix="arcreel-upload-", suffix=".zip")
+        os.close(fd)
+
+        with open(upload_path, "wb") as target:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                target.write(chunk)
+
+        result = get_archive_service().import_project_archive(
+            Path(upload_path),
+            uploaded_filename=file.filename,
+            conflict_policy=conflict_policy,
+        )
+        return {
+            "success": True,
+            "project_name": result.project_name,
+            "project": result.project,
+            "warnings": result.warnings,
+            "conflict_resolution": result.conflict_resolution,
+        }
+    except ProjectArchiveValidationError as exc:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "detail": exc.detail,
+                "errors": exc.errors,
+                "warnings": exc.warnings,
+                **exc.extra,
+            },
+        )
+    except Exception as e:
+        logger.exception("请求处理失败")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": str(e), "errors": [], "warnings": []},
+        )
+    finally:
+        await file.close()
+        if upload_path:
+            _cleanup_temp_file(upload_path)
+
+
+@router.get("/projects/{name}/export")
+async def export_project_archive(name: str):
+    """将完整项目导出为 ZIP。"""
+    try:
+        archive_path, download_name = get_archive_service().export_project(name)
+        return FileResponse(
+            archive_path,
+            media_type="application/zip",
+            filename=download_name,
+            background=BackgroundTask(_cleanup_temp_file, str(archive_path)),
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在或未初始化")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/projects")

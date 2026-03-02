@@ -4,28 +4,37 @@ import type { TaskItem } from "@/types";
 
 type JsonResponseOptions = {
   ok?: boolean;
+  status?: number;
   statusText?: string;
   jsonData?: unknown;
   jsonError?: Error;
   textData?: string;
+  blobData?: Blob;
+  headers?: HeadersInit;
 };
 
 function mockResponse(options: JsonResponseOptions = {}): Response {
   const {
     ok = true,
+    status = ok ? 200 : 400,
     statusText = "OK",
     jsonData = {},
     jsonError,
     textData = "",
+    blobData = new Blob(),
+    headers = {},
   } = options;
 
   return {
     ok,
+    status,
     statusText,
+    headers: new Headers(headers),
     json: jsonError
       ? vi.fn().mockRejectedValue(jsonError)
       : vi.fn().mockResolvedValue(jsonData),
     text: vi.fn().mockResolvedValue(textData),
+    blob: vi.fn().mockResolvedValue(blobData),
   } as unknown as Response;
 }
 
@@ -433,6 +442,102 @@ describe("API", () => {
       expect(res.success).toBe(true);
       expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/projects/demo/style-image");
       expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST");
+    });
+
+    it("exports project archive and parses the download filename", async () => {
+      const blob = new Blob(["zip"]);
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({
+          blobData: blob,
+          headers: {
+            "Content-Disposition": 'attachment; filename="demo-20260302-170000.zip"',
+          },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await API.exportProject("demo");
+
+      expect(result).toEqual({
+        blob,
+        filename: "demo-20260302-170000.zip",
+      });
+      expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects/demo/export", {});
+    });
+
+    it("imports project via multipart form and preserves structured errors", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          mockResponse({
+            jsonData: {
+              success: true,
+              project_name: "demo",
+              project: {
+                title: "Demo",
+                content_mode: "narration",
+                style: "Anime",
+                episodes: [],
+                characters: {},
+                clues: {},
+              },
+              warnings: [],
+              conflict_resolution: "none",
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          mockResponse({
+            ok: false,
+            statusText: "Bad Request",
+            jsonData: {
+              detail: "导入包校验失败",
+              errors: ["缺少 project.json", "缺少 scripts/episode_1.json"],
+              warnings: ["发现未识别的附加文件/目录: extra"],
+            },
+          }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const file = new File(["zip"], "demo.zip", { type: "application/zip" });
+      const result = await API.importProject(file, "overwrite");
+      expect(result.project_name).toBe("demo");
+
+      await expect(API.importProject(file)).rejects.toMatchObject({
+        message: "导入包校验失败",
+        detail: "导入包校验失败",
+        errors: ["缺少 project.json", "缺少 scripts/episode_1.json"],
+        warnings: ["发现未识别的附加文件/目录: extra"],
+      });
+
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/projects/import");
+      expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST");
+      expect((fetchMock.mock.calls[0][1] as RequestInit).body).toBeInstanceOf(FormData);
+    });
+
+    it("preserves conflict metadata for secondary confirmation", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({
+          ok: false,
+          status: 409,
+          statusText: "Conflict",
+          jsonData: {
+            detail: "检测到项目编号冲突",
+            errors: ["项目编号 'demo' 已存在"],
+            warnings: [],
+            conflict_project_name: "demo",
+          },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        API.importProject(new File(["zip"], "demo.zip", { type: "application/zip" }))
+      ).rejects.toMatchObject({
+        message: "检测到项目编号冲突",
+        status: 409,
+        conflict_project_name: "demo",
+      });
     });
   });
 
