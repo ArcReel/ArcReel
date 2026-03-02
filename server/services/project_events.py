@@ -190,6 +190,8 @@ class ProjectEventService:
         if channel is None or not changes:
             return
 
+        channel.scan_now.clear()
+
         fingerprint = channel.fingerprint
         try:
             self._ensure_script_index_synced(project_name)
@@ -200,6 +202,7 @@ class ProjectEventService:
             channel.pending_sources.clear()
         except Exception:
             logger.exception("构建显式项目事件快照失败 project=%s", project_name)
+            return
 
         payload = {
             "project_name": project_name,
