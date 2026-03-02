@@ -4,6 +4,7 @@ import type { ProjectData } from "@/types";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
+import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { WelcomeCanvas } from "./WelcomeCanvas";
 
 interface OverviewCanvasProps {
@@ -158,13 +159,15 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
       <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
         <div className="space-y-3">
           {styleImageUrl ? (
-            <div className="overflow-hidden rounded-xl border border-gray-700 bg-gray-950/70">
-              <img
-                src={styleImageUrl}
-                alt="项目风格参考图"
-                className="aspect-[4/3] w-full object-cover"
-              />
-            </div>
+            <PreviewableImageFrame src={styleImageUrl} alt="项目风格参考图">
+              <div className="overflow-hidden rounded-xl border border-gray-700 bg-gray-950/70">
+                <img
+                  src={styleImageUrl}
+                  alt="项目风格参考图"
+                  className="aspect-[4/3] w-full object-cover"
+                />
+              </div>
+            </PreviewableImageFrame>
           ) : (
             <button
               type="button"

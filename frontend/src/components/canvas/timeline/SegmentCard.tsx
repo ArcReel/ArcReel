@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { ImageIcon, Film, Clock, Play, Pause } from "lucide-react";
+import { ImageIcon, Film, Clock } from "lucide-react";
 import { API } from "@/api";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AvatarStack } from "@/components/ui/AvatarStack";
@@ -7,6 +7,7 @@ import { AspectFrame } from "@/components/ui/AspectFrame";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { GenerateButton } from "@/components/ui/GenerateButton";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
+import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
 import { ImagePromptEditor } from "./ImagePromptEditor";
 import { VideoPromptEditor } from "./VideoPromptEditor";
@@ -409,43 +410,14 @@ function PromptColumn({
 
 /** Simple video player with play/pause toggle. */
 function VideoPlayer({ src }: { src: string }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(false);
-
-  const toggle = () => {
-    const el = videoRef.current;
-    if (!el) return;
-    if (playing) {
-      el.pause();
-    } else {
-      el.play();
-    }
-    setPlaying(!playing);
-  };
-
   return (
-    <div className="relative h-full w-full">
-      <video
-        ref={videoRef}
-        src={src}
-        className="h-full w-full object-cover"
-        loop
-        muted
-        playsInline
-        onEnded={() => setPlaying(false)}
-      />
-      <button
-        type="button"
-        onClick={toggle}
-        className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition-opacity hover:opacity-100"
-      >
-        {playing ? (
-          <Pause className="h-8 w-8 text-white drop-shadow-lg" />
-        ) : (
-          <Play className="h-8 w-8 text-white drop-shadow-lg" />
-        )}
-      </button>
-    </div>
+    <video
+      src={src}
+      className="h-full w-full bg-black object-contain"
+      controls
+      playsInline
+      preload="metadata"
+    />
   );
 }
 
@@ -502,19 +474,21 @@ function MediaColumn({
             onRestore={onRestoreStoryboard}
           />
         </div>
-        <AspectFrame ratio={normalizedRatio}>
-          <ImageFlipReveal
-            src={storyboardUrl}
-            alt={`${segmentId} storyboard`}
-            className="h-full w-full object-cover"
-            fallback={
-              <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-600">
-                <ImageIcon className="h-8 w-8" />
-                <span className="text-xs">暂无分镜</span>
-              </div>
-            }
-          />
-        </AspectFrame>
+        <PreviewableImageFrame src={storyboardUrl} alt={`${segmentId} 分镜图`}>
+          <AspectFrame ratio={normalizedRatio}>
+            <ImageFlipReveal
+              src={storyboardUrl}
+              alt={`${segmentId} storyboard`}
+              className="h-full w-full object-cover"
+              fallback={
+                <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-600">
+                  <ImageIcon className="h-8 w-8" />
+                  <span className="text-xs">暂无分镜</span>
+                </div>
+              }
+            />
+          </AspectFrame>
+        </PreviewableImageFrame>
         <div className="mt-2">
           <GenerateButton
             onClick={() => onGenerateStoryboard?.(segmentId)}

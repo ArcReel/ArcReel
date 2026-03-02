@@ -4,6 +4,7 @@ import { API } from "@/api";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
+import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
 import type { Clue } from "@/types";
 
@@ -126,21 +127,26 @@ export function ClueCard({
             onRestore={onRestoreVersion}
           />
         </div>
-        <AspectFrame ratio="16:9">
-          {sheetUrl && !imgError ? (
-            <img
-              src={sheetUrl}
-              alt={`${name} 设计图`}
-              className="h-full w-full object-cover"
-              onError={() => setImgError(true)}
-            />
-          ) : (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
-              <Puzzle className="h-10 w-10" />
-              <span className="text-xs">点击生成</span>
-            </div>
-          )}
-        </AspectFrame>
+        <PreviewableImageFrame
+          src={sheetUrl && !imgError ? sheetUrl : null}
+          alt={`${name} 设计图`}
+        >
+          <AspectFrame ratio="16:9">
+            {sheetUrl && !imgError ? (
+              <img
+                src={sheetUrl}
+                alt={`${name} 设计图`}
+                className="h-full w-full object-cover"
+                onError={() => setImgError(true)}
+              />
+            ) : (
+              <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
+                <Puzzle className="h-10 w-10" />
+                <span className="text-xs">点击生成</span>
+              </div>
+            )}
+          </AspectFrame>
+        </PreviewableImageFrame>
       </div>
 
       {/* ---- Description ---- */}

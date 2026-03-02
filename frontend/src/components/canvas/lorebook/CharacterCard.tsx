@@ -5,6 +5,7 @@ import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMach
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
+import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
 import type { Character } from "@/types";
 
@@ -161,20 +162,25 @@ export function CharacterCard({
               onRestore={onRestoreVersion}
             />
           </div>
-          <AspectFrame ratio="3:4">
-            <ImageFlipReveal
-              src={sheetUrl && !imgError ? sheetUrl : null}
-              alt={`${name} 设计图`}
-              className="h-full w-full object-cover"
-              onError={() => setImgError(true)}
-              fallback={
-                <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
-                  <User className="h-10 w-10" />
-                  <span className="text-xs">点击生成</span>
-                </div>
-              }
-            />
-          </AspectFrame>
+          <PreviewableImageFrame
+            src={sheetUrl && !imgError ? sheetUrl : null}
+            alt={`${name} 设计图`}
+          >
+            <AspectFrame ratio="3:4">
+              <ImageFlipReveal
+                src={sheetUrl && !imgError ? sheetUrl : null}
+                alt={`${name} 设计图`}
+                className="h-full w-full object-cover"
+                onError={() => setImgError(true)}
+                fallback={
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
+                    <User className="h-10 w-10" />
+                    <span className="text-xs">点击生成</span>
+                  </div>
+                }
+              />
+            </AspectFrame>
+          </PreviewableImageFrame>
         </div>
 
         <div>
@@ -198,26 +204,32 @@ export function CharacterCard({
           </div>
 
           {displayedReferenceUrl ? (
-            <div className="relative overflow-hidden rounded-lg border border-gray-700 bg-gray-800">
-              <img
-                src={displayedReferenceUrl}
-                alt={`${name} 参考图`}
-                className="h-28 w-full object-cover"
-              />
-              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
-                <span className="flex items-center gap-1.5 text-xs text-gray-200">
-                  <ImagePlus className="h-3.5 w-3.5" />
-                  {referenceFile ? "待保存参考图" : "已保存参考图"}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="rounded bg-black/40 px-2 py-1 text-xs text-gray-200 transition-colors hover:bg-black/60"
-                >
-                  更换
-                </button>
+            <PreviewableImageFrame
+              src={displayedReferenceUrl}
+              alt={`${name} 参考图`}
+              buttonClassName="right-2.5 top-2.5"
+            >
+              <div className="relative overflow-hidden rounded-lg border border-gray-700 bg-gray-800">
+                <img
+                  src={displayedReferenceUrl}
+                  alt={`${name} 参考图`}
+                  className="h-28 w-full object-cover"
+                />
+                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
+                  <span className="flex items-center gap-1.5 text-xs text-gray-200">
+                    <ImagePlus className="h-3.5 w-3.5" />
+                    {referenceFile ? "待保存参考图" : "已保存参考图"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="rounded bg-black/40 px-2 py-1 text-xs text-gray-200 transition-colors hover:bg-black/60"
+                  >
+                    更换
+                  </button>
+                </div>
               </div>
-            </div>
+            </PreviewableImageFrame>
           ) : (
             <button
               type="button"

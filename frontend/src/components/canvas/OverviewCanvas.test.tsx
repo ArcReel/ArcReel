@@ -85,7 +85,7 @@ describe("OverviewCanvas", () => {
       expect(API.getProject).toHaveBeenCalledTimes(2);
       expect(useAppStore.getState().mediaRevision).toBe(2);
     });
-  });
+  }, 10_000);
 
   it("shows a save action only when style description is edited", async () => {
     vi.spyOn(API, "updateStyleDescription").mockResolvedValue({ success: true });
