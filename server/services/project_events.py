@@ -192,7 +192,6 @@ class ProjectEventService:
 
         channel.scan_now.clear()
 
-        fingerprint = channel.fingerprint
         try:
             self._ensure_script_index_synced(project_name)
             snapshot = self._build_snapshot(project_name)
