@@ -478,7 +478,7 @@ function MediaColumn({
           <AspectFrame ratio={normalizedRatio}>
             <ImageFlipReveal
               src={storyboardUrl}
-              alt={`${segmentId} storyboard`}
+              alt={`${segmentId} 分镜图`}
               className="h-full w-full object-cover"
               fallback={
                 <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-600">
