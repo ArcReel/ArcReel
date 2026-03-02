@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional, List, Union, Tuple
 from PIL import Image
 
-from lib.gemini_client import GeminiClient, RateLimiter
+from lib.gemini_client import GeminiClient, RateLimiter, ReferenceImageInput
 from lib.version_manager import VersionManager
 from lib.usage_tracker import UsageTracker
 
@@ -91,7 +91,7 @@ class MediaGenerator:
         prompt: str,
         resource_type: str,
         resource_id: str,
-        reference_images: Optional[List[Union[str, Path, Image.Image]]] = None,
+        reference_images: Optional[List[ReferenceImageInput]] = None,
         aspect_ratio: str = "9:16",
         image_size: str = "1K",
         **version_metadata
@@ -185,7 +185,7 @@ class MediaGenerator:
         prompt: str,
         resource_type: str,
         resource_id: str,
-        reference_images: Optional[List[Union[str, Path, Image.Image]]] = None,
+        reference_images: Optional[List[ReferenceImageInput]] = None,
         aspect_ratio: str = "9:16",
         image_size: str = "1K",
         **version_metadata

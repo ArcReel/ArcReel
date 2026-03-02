@@ -3,11 +3,47 @@ import pytest
 from lib.generation_queue_client import (
     TaskWaitTimeoutError,
     WorkerOfflineError,
+    enqueue_task_only,
     wait_for_task,
 )
 
 
 class TestGenerationQueueClient:
+    def test_enqueue_task_only_requires_online_worker(self, generation_queue):
+        with pytest.raises(WorkerOfflineError):
+            enqueue_task_only(
+                project_name="demo",
+                task_type="storyboard",
+                media_type="image",
+                resource_id="S00",
+                payload={"prompt": "p"},
+                script_file="episode_01.json",
+            )
+
+    def test_enqueue_task_only_enqueues_when_worker_online(self, generation_queue):
+        generation_queue.acquire_or_renew_worker_lease(
+            name="default",
+            owner_id="worker-a",
+            ttl_seconds=30,
+        )
+
+        result = enqueue_task_only(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="S01",
+            payload={"prompt": "p"},
+            script_file="episode_01.json",
+            dependency_group="episode_01.json:group:1",
+            dependency_index=0,
+        )
+
+        task = generation_queue.get_task(result["task_id"])
+        assert task is not None
+        assert task["status"] == "queued"
+        assert task["dependency_group"] == "episode_01.json:group:1"
+        assert task["dependency_index"] == 0
+
     def test_wait_for_task_timeout(self, generation_queue):
         task = generation_queue.enqueue_task(
             project_name="demo",

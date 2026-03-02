@@ -20,6 +20,12 @@ from lib.prompt_utils import (
     is_structured_video_prompt,
     video_prompt_to_yaml,
 )
+from lib.storyboard_sequence import (
+    build_previous_storyboard_reference,
+    find_storyboard_item,
+    get_storyboard_items,
+    resolve_previous_storyboard_path,
+)
 
 
 pm = ProjectManager(PROJECT_ROOT / "projects")
@@ -65,20 +71,7 @@ def normalize_veo_duration_seconds(duration_seconds: Optional[int]) -> str:
 
 
 def _get_items_from_script(script: dict) -> Tuple[List[dict], str, str, str]:
-    content_mode = script.get("content_mode", "narration")
-    if content_mode == "narration" and "segments" in script:
-        return (
-            script.get("segments", []),
-            "segment_id",
-            "characters_in_segment",
-            "clues_in_segment",
-        )
-    return (
-        script.get("scenes", []),
-        "scene_id",
-        "characters_in_scene",
-        "clues_in_scene",
-    )
+    return get_storyboard_items(script)
 
 
 def _normalize_storyboard_prompt(prompt: Union[str, dict], style: str) -> str:
@@ -153,8 +146,9 @@ def _collect_reference_images(
     char_field: str,
     clue_field: str,
     extra_reference_images: Optional[List[str]] = None,
-) -> Optional[List[Path]]:
-    reference_images: List[Path] = []
+    previous_storyboard_path: Optional[Path] = None,
+) -> Optional[List[object]]:
+    reference_images: List[object] = []
 
     for char_name in target_item.get(char_field, []):
         char_data = project.get("characters", {}).get(char_name, {})
@@ -178,6 +172,11 @@ def _collect_reference_images(
             extra_path = project_path / extra_path
         if extra_path.exists():
             reference_images.append(extra_path)
+
+    if previous_storyboard_path and previous_storyboard_path.exists():
+        reference_images.append(
+            build_previous_storyboard_reference(previous_storyboard_path)
+        )
 
     return reference_images or None
 
@@ -282,14 +281,17 @@ def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[s
     script = get_project_manager().load_script(project_name, script_file)
     items, id_field, char_field, clue_field = _get_items_from_script(script)
 
-    target_item = None
-    for item in items:
-        if str(item.get(id_field)) == resource_id:
-            target_item = item
-            break
-
-    if not target_item:
+    resolved = find_storyboard_item(items, id_field, resource_id)
+    if resolved is None:
         raise ValueError(f"scene/segment not found: {resource_id}")
+    target_item, _ = resolved
+
+    previous_storyboard_path = resolve_previous_storyboard_path(
+        project_path,
+        items,
+        id_field,
+        resource_id,
+    )
 
     prompt_text = _normalize_storyboard_prompt(prompt, project.get("style", ""))
     reference_images = _collect_reference_images(
@@ -299,6 +301,7 @@ def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[s
         char_field=char_field,
         clue_field=clue_field,
         extra_reference_images=payload.get("extra_reference_images") or [],
+        previous_storyboard_path=previous_storyboard_path,
     )
 
     generator = get_media_generator(project_name)

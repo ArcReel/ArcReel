@@ -3,6 +3,10 @@ from pathlib import Path
 import pytest
 
 from server.services import generation_tasks
+from lib.storyboard_sequence import (
+    PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
+    PREVIOUS_STORYBOARD_REFERENCE_LABEL,
+)
 
 
 class _FakePM:
@@ -26,6 +30,15 @@ class _FakePM:
                 {
                     "segment_id": "E1S01",
                     "duration_seconds": 4,
+                    "segment_break": False,
+                    "characters_in_segment": [],
+                    "clues_in_segment": [],
+                    "image_prompt": "首镜头",
+                },
+                {
+                    "segment_id": "E1S02",
+                    "duration_seconds": 4,
+                    "segment_break": False,
                     "characters_in_segment": ["Alice"],
                     "clues_in_segment": ["玉佩"],
                     "image_prompt": {
@@ -37,6 +50,15 @@ class _FakePM:
                         },
                     },
                 }
+                ,
+                {
+                    "segment_id": "E1S03",
+                    "duration_seconds": 4,
+                    "segment_break": True,
+                    "characters_in_segment": ["Alice"],
+                    "clues_in_segment": ["玉佩"],
+                    "image_prompt": "切场后的镜头",
+                },
             ],
         }
         self.updated_assets = []
@@ -150,10 +172,31 @@ class TestGenerationTasks:
 
         storyboard_result = generation_tasks.execute_storyboard_task(
             "demo",
-            "E1S01",
+            "E1S02",
             {"script_file": "episode_1.json", "prompt": "direct prompt", "extra_reference_images": ["characters/Alice.png"]},
         )
         assert storyboard_result["resource_type"] == "storyboards"
+        storyboard_refs = fake_generator.image_calls[0]["reference_images"]
+        assert storyboard_refs == [
+            project_path / "characters" / "Alice.png",
+            project_path / "clues" / "玉佩.png",
+            project_path / "characters" / "Alice.png",
+            {
+                "image": project_path / "storyboards" / "scene_E1S01.png",
+                "label": PREVIOUS_STORYBOARD_REFERENCE_LABEL,
+                "description": PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
+            },
+        ]
+
+        generation_tasks.execute_storyboard_task(
+            "demo",
+            "E1S03",
+            {"script_file": "episode_1.json", "prompt": "direct prompt"},
+        )
+        assert fake_generator.image_calls[1]["reference_images"] == [
+            project_path / "characters" / "Alice.png",
+            project_path / "clues" / "玉佩.png",
+        ]
 
         video_result = generation_tasks.execute_video_task(
             "demo",
@@ -182,7 +225,7 @@ class TestGenerationTasks:
             {
                 "task_type": "storyboard",
                 "project_name": "demo",
-                "resource_id": "E1S01",
+                "resource_id": "E1S02",
                 "payload": {"script_file": "episode_1.json", "prompt": "text"},
             }
         )
@@ -195,8 +238,8 @@ class TestGenerationTasks:
                     {
                         "entity_type": "segment",
                         "action": "storyboard_ready",
-                        "entity_id": "E1S01",
-                        "label": "分镜「E1S01」",
+                        "entity_id": "E1S02",
+                        "label": "分镜「E1S02」",
                         "script_file": "episode_1.json",
                         "episode": None,
                         "focus": None,

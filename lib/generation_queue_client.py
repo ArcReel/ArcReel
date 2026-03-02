@@ -112,20 +112,22 @@ def enqueue_and_wait(
     lease_name: str = "default",
     wait_timeout_seconds: Optional[float] = None,
     worker_offline_grace_seconds: Optional[float] = None,
+    dependency_task_id: Optional[str] = None,
+    dependency_group: Optional[str] = None,
+    dependency_index: Optional[int] = None,
 ) -> Dict[str, Any]:
-    queue = get_generation_queue()
-
-    if not queue.is_worker_online(name=lease_name):
-        raise WorkerOfflineError("queue worker is offline")
-
-    enqueue_result = queue.enqueue_task(
+    enqueue_result = enqueue_task_only(
         project_name=project_name,
         task_type=task_type,
         media_type=media_type,
         resource_id=resource_id,
-        payload=payload or {},
+        payload=payload,
         script_file=script_file,
         source=source,
+        lease_name=lease_name,
+        dependency_task_id=dependency_task_id,
+        dependency_group=dependency_group,
+        dependency_index=dependency_index,
     )
 
     task = wait_for_task(
@@ -143,3 +145,37 @@ def enqueue_and_wait(
         "task": task,
         "result": task.get("result") or {},
     }
+
+
+def enqueue_task_only(
+    *,
+    project_name: str,
+    task_type: str,
+    media_type: str,
+    resource_id: str,
+    payload: Optional[Dict[str, Any]] = None,
+    script_file: Optional[str] = None,
+    source: str = "skill",
+    lease_name: str = "default",
+    dependency_task_id: Optional[str] = None,
+    dependency_group: Optional[str] = None,
+    dependency_index: Optional[int] = None,
+) -> Dict[str, Any]:
+    queue = get_generation_queue()
+
+    if not queue.is_worker_online(name=lease_name):
+        raise WorkerOfflineError("queue worker is offline")
+
+    enqueue_result = queue.enqueue_task(
+        project_name=project_name,
+        task_type=task_type,
+        media_type=media_type,
+        resource_id=resource_id,
+        payload=payload or {},
+        script_file=script_file,
+        source=source,
+        dependency_task_id=dependency_task_id,
+        dependency_group=dependency_group,
+        dependency_index=dependency_index,
+    )
+    return enqueue_result

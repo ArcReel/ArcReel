@@ -28,6 +28,12 @@ from lib.prompt_utils import (
     is_structured_video_prompt,
     video_prompt_to_yaml,
 )
+from lib.storyboard_sequence import (
+    build_previous_storyboard_reference,
+    find_storyboard_item,
+    get_storyboard_items,
+    resolve_previous_storyboard_path,
+)
 
 router = APIRouter()
 
@@ -173,34 +179,17 @@ async def generate_storyboard(
 
             # 加载剧本获取参考图
             script = get_project_manager().load_script(project_name, req.script_file)
-            content_mode = script.get(
-                "content_mode", project.get("content_mode", "narration")
-            )
-
             # 查找 segment/scene 获取参考角色和线索
-            items = script.get("segments" if content_mode == "narration" else "scenes", [])
-            id_field = "segment_id" if content_mode == "narration" else "scene_id"
-            target_item = None
-            for item in items:
-                if item.get(id_field) == segment_id:
-                    target_item = item
-                    break
-
-            if not target_item:
+            items, id_field, chars_field, clues_field = get_storyboard_items(script)
+            resolved = find_storyboard_item(items, id_field, segment_id)
+            if resolved is None:
                 raise HTTPException(
                     status_code=404, detail=f"片段/场景 '{segment_id}' 不存在"
                 )
+            target_item, _ = resolved
 
             # 收集参考图
             reference_images = []
-            chars_field = (
-                "characters_in_segment"
-                if content_mode == "narration"
-                else "characters_in_scene"
-            )
-            clues_field = (
-                "clues_in_segment" if content_mode == "narration" else "clues_in_scene"
-            )
 
             for char_name in target_item.get(chars_field, []):
                 char_data = project.get("characters", {}).get(char_name, {})
@@ -217,6 +206,17 @@ async def generate_storyboard(
                     sheet_path = project_path / sheet
                     if sheet_path.exists():
                         reference_images.append(sheet_path)
+
+            previous_storyboard_path = resolve_previous_storyboard_path(
+                project_path,
+                items,
+                id_field,
+                segment_id,
+            )
+            if previous_storyboard_path is not None:
+                reference_images.append(
+                    build_previous_storyboard_reference(previous_storyboard_path)
+                )
 
             # 兼容 prompt 旧格式（字符串）与新格式（结构化对象）
             prompt_text: str

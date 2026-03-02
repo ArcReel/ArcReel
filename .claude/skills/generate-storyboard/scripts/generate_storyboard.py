@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
-Storyboard Generator - 使用 Gemini API 生成分镜图
+Storyboard Generator - 通过生成队列生成分镜图
 
-两种模式统一使用直接生成方式，无需多宫格中间步骤：
-- narration 模式（说书+画面）：直接生成 9:16 竖屏分镜图
-- drama 模式（剧集动画）：直接生成 16:9 横屏分镜图
+两种模式统一通过 generation worker 生成分镜图：
+- narration 模式（说书+画面）：生成 9:16 竖屏分镜图
+- drama 模式（剧集动画）：生成 16:9 横屏分镜图
 
 Usage:
-    # narration 模式：直接生成分镜图（默认）
+    # narration 模式：提交分镜图生成任务（默认）
     python generate_storyboard.py <project_name> <script_file>
+    python generate_storyboard.py <project_name> <script_file> --scene E1S05
     python generate_storyboard.py <project_name> <script_file> --segment-ids E1S01 E1S02
 
-    # drama 模式：直接生成分镜图
+    # drama 模式：提交分镜图生成任务
     python generate_storyboard.py <project_name> <script_file>
+    python generate_storyboard.py <project_name> <script_file> --scene E1S05
     python generate_storyboard.py <project_name> <script_file> --scene-ids E1S01 E1S02
 """
 
@@ -22,82 +24,25 @@ import os
 import json
 import threading
 from pathlib import Path
-from typing import List, Tuple, Optional, Callable, TypeVar, Any
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from lib.generation_queue_client import (
     TaskFailedError,
-    WorkerOfflineError,
-    enqueue_and_wait,
-    is_worker_online,
+    enqueue_task_only,
+    wait_for_task,
 )
-from lib.gemini_client import GeminiClient, RateLimiter
-from lib.media_generator import MediaGenerator
 from lib.project_manager import ProjectManager
 from lib.prompt_utils import (
     image_prompt_to_yaml,
     is_structured_image_prompt
 )
-
-
-# ==================== 并行处理工具类 ====================
-
-T = TypeVar('T')
-
-
-class ParallelExecutor:
-    """并行任务执行器"""
-
-    def __init__(self, max_workers: int = 10):
-        self.max_workers = max_workers
-        self._lock = threading.Lock()
-
-    def execute(
-        self,
-        tasks: List[Any],
-        task_fn: Callable[[Any], T],
-        desc: str = "处理中",
-        task_id_fn: Optional[Callable[[Any], str]] = None
-    ) -> Tuple[List[T], List[Tuple[Any, str]]]:
-        """
-        并行执行任务列表
-
-        Args:
-            tasks: 任务列表
-            task_fn: 任务处理函数
-            desc: 进度描述
-            task_id_fn: 可选，从任务获取 ID 的函数（用于日志）
-
-        Returns:
-            (成功结果列表, 失败列表[(task, error)])
-        """
-        results = []
-        failures = []
-        completed = 0
-        total = len(tasks)
-
-        if total == 0:
-            return results, failures
-
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_task = {executor.submit(task_fn, task): task for task in tasks}
-
-            for future in as_completed(future_to_task):
-                task = future_to_task[future]
-                with self._lock:
-                    completed += 1
-                    task_id = task_id_fn(task) if task_id_fn else str(completed)
-
-                try:
-                    result = future.result()
-                    results.append(result)
-                    print(f"✅ [{completed}/{total}] {desc}: {task_id} 完成")
-                except Exception as e:
-                    failures.append((task, str(e)))
-                    print(f"❌ [{completed}/{total}] {desc}: {task_id} 失败 - {e}")
-
-        return results, failures
+from lib.storyboard_sequence import (
+    StoryboardTaskPlan,
+    build_storyboard_dependency_plan,
+    get_storyboard_items,
+)
 
 
 class FailureRecorder:
@@ -150,50 +95,7 @@ class FailureRecorder:
         return [f["scene_id"] for f in self.failures if f["type"] == "scene"]
 
 
-# ==================== 布局和 Prompt 构建函数 ====================
-
-
-def get_image_prompt(item: dict) -> str:
-    """
-    获取分镜图生成 Prompt
-
-    Args:
-        item: 片段/场景字典
-
-    Returns:
-        image_prompt 字符串
-    """
-    prompt = item.get('image_prompt', '')
-    if not prompt:
-        raise ValueError(f"片段/场景缺少 image_prompt 字段: {item.get('segment_id') or item.get('scene_id')}")
-    return prompt
-
-
-def get_aspect_ratio(project_data: dict, asset_type: str, content_mode: Optional[str] = None) -> str:
-    """
-    根据项目配置获取画面比例（通过 API 参数传递，不写入 prompt）
-
-    Args:
-        project_data: project.json 数据
-        asset_type: "design" | "storyboard" | "video"
-        content_mode: 显式指定内容模式（优先于 project_data 中的值）
-
-    Returns:
-        画面比例字符串，如 "16:9" 或 "9:16"
-    """
-    if content_mode is None:
-        content_mode = project_data.get('content_mode', 'narration') if project_data else 'narration'
-
-    # 默认配置：说书模式使用竖屏，剧集动画模式使用横屏
-    defaults = {
-        "design": "16:9",      # 人物/线索设计图始终横屏
-        "storyboard": "9:16" if content_mode == 'narration' else "16:9",
-        "video": "9:16" if content_mode == 'narration' else "16:9"
-    }
-
-    # 允许 project.json 中的 aspect_ratio 覆盖默认值
-    custom = project_data.get('aspect_ratio', {}) if project_data else {}
-    return custom.get(asset_type, defaults[asset_type])
+# ==================== Prompt 构建函数 ====================
 
 
 def get_items_from_script(script: dict) -> tuple:
@@ -206,23 +108,10 @@ def get_items_from_script(script: dict) -> tuple:
     Returns:
         (items_list, id_field, char_field, clue_field) 元组
     """
-    content_mode = script.get('content_mode', 'narration')
-    if content_mode == 'narration' and 'segments' in script:
-        return (
-            script['segments'],
-            'segment_id',
-            'characters_in_segment',
-            'clues_in_segment'
-        )
-    return (
-        script.get('scenes', []),
-        'scene_id',
-        'characters_in_scene',
-        'clues_in_scene'
-    )
+    return get_storyboard_items(script)
 
 
-def build_direct_scene_prompt(
+def build_storyboard_prompt(
     segment: dict,
     characters: dict = None,
     clues: dict = None,
@@ -234,7 +123,7 @@ def build_direct_scene_prompt(
     content_mode: str = 'narration',
 ) -> str:
     """
-    构建直接生成场景图的 prompt（通用，适用于 narration 和 drama 模式）
+    构建分镜图任务 prompt（通用，适用于 narration 和 drama 模式）
 
     支持结构化 prompt 格式：如果 image_prompt 是 dict，则转换为 YAML 格式。
 
@@ -282,25 +171,118 @@ def build_direct_scene_prompt(
     return f"{style_prefix}{image_prompt}{composition_suffix}"
 
 
-def _generate_storyboard_direct_image(
+def _select_storyboard_items(
+    items: List[dict],
+    id_field: str,
+    segment_ids: Optional[List[str]],
+) -> List[dict]:
+    if segment_ids:
+        selected_set = {str(segment_id) for segment_id in segment_ids}
+        return [item for item in items if str(item.get(id_field)) in selected_set]
+
+    return [
+        item for item in items
+        if not item.get('generated_assets', {}).get('storyboard_image')
+    ]
+
+
+def _enqueue_storyboard_batch(
+    *,
+    project_name: str,
+    script_filename: str,
+    plans: List[StoryboardTaskPlan],
+    items_by_id: Dict[str, dict],
+    characters: Dict[str, dict],
+    clues: Dict[str, dict],
+    style: str,
+    style_description: str,
+    id_field: str,
+    char_field: str,
+    clue_field: str,
+    content_mode: str,
+) -> Dict[str, str]:
+    task_ids_by_resource: Dict[str, str] = {}
+
+    for plan in plans:
+        item = items_by_id[plan.resource_id]
+        prompt = build_storyboard_prompt(
+            item,
+            characters,
+            clues,
+            style,
+            style_description,
+            id_field,
+            char_field,
+            clue_field,
+            content_mode=content_mode,
+        )
+
+        dependency_task_id = None
+        if plan.dependency_resource_id:
+            dependency_task_id = task_ids_by_resource.get(plan.dependency_resource_id)
+
+        enqueue_result = enqueue_task_only(
+            project_name=project_name,
+            task_type="storyboard",
+            media_type="image",
+            resource_id=plan.resource_id,
+            payload={
+                "prompt": prompt,
+                "script_file": script_filename,
+            },
+            script_file=script_filename,
+            source="skill",
+            dependency_task_id=dependency_task_id,
+            dependency_group=plan.dependency_group,
+            dependency_index=plan.dependency_index,
+        )
+        task_ids_by_resource[plan.resource_id] = enqueue_result["task_id"]
+
+    return task_ids_by_resource
+
+
+def _wait_for_storyboard_tasks(
     *,
     project_dir: Path,
-    rate_limiter: Optional[Any],
-    prompt: str,
-    resource_id: str,
-    reference_images: Optional[List[Path]],
-    aspect_ratio: str,
-) -> Path:
-    """回退直连生成分镜图。"""
-    generator = MediaGenerator(project_dir, rate_limiter=rate_limiter)
-    output_path, _ = generator.generate_image(
-        prompt=prompt,
-        resource_type="storyboards",
-        resource_id=resource_id,
-        reference_images=reference_images if reference_images else None,
-        aspect_ratio=aspect_ratio
-    )
-    return output_path
+    plans: List[StoryboardTaskPlan],
+    task_ids_by_resource: Dict[str, str],
+    max_workers: int,
+) -> Tuple[Dict[str, Path], List[Tuple[str, str]]]:
+    results: Dict[str, Path] = {}
+    failures: List[Tuple[str, str]] = []
+    total = len(plans)
+    completed = 0
+    lock = threading.Lock()
+
+    if not plans:
+        return results, failures
+
+    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, total))) as executor:
+        future_to_plan = {
+            executor.submit(wait_for_task, task_ids_by_resource[plan.resource_id]): plan
+            for plan in plans
+        }
+
+        for future in as_completed(future_to_plan):
+            plan = future_to_plan[future]
+            with lock:
+                completed += 1
+                index = completed
+            try:
+                task = future.result()
+                if task.get("status") == "failed":
+                    raise TaskFailedError(task.get("error_message") or "task failed")
+
+                result = task.get("result") or {}
+                relative_path = result.get("file_path") or f"storyboards/scene_{plan.resource_id}.png"
+                output_path = project_dir / relative_path
+                results[plan.resource_id] = output_path
+                print(f"✅ [{index}/{total}] 分镜图生成: {plan.resource_id} 完成")
+            except Exception as exc:
+                failures.append((plan.resource_id, str(exc)))
+                print(f"❌ [{index}/{total}] 分镜图生成: {plan.resource_id} 失败 - {exc}")
+
+    return results, failures
 
 
 def generate_storyboard_direct(
@@ -308,19 +290,15 @@ def generate_storyboard_direct(
     script_filename: str,
     segment_ids: Optional[List[str]] = None,
     max_workers: int = 10,
-    rate_limiter: Optional[Any] = None
 ) -> Tuple[List[Path], List[Tuple[str, str]]]:
     """
-    直接生成分镜图（narration 和 drama 模式通用，无需多宫格图）
-
-    仅使用 character_sheet 和 clue_sheet 作为参考图。
+    通过生成队列提交分镜图任务（narration 和 drama 模式通用）。
 
     Args:
         project_name: 项目名称
         script_filename: 剧本文件名
         segment_ids: 可选的片段/场景 ID 列表
         max_workers: 最大并发数
-        rate_limiter: 可选的限流器实例
 
     Returns:
         (成功路径列表, 失败列表) 元组
@@ -344,14 +322,7 @@ def generate_storyboard_direct(
     items, id_field, char_field, clue_field = get_items_from_script(script)
 
     # 筛选需要生成的片段/场景
-    if segment_ids:
-        segments_to_process = [s for s in items if s[id_field] in segment_ids]
-    else:
-        # 获取所有没有 storyboard_image 的片段/场景
-        segments_to_process = [
-            s for s in items
-            if not s.get('generated_assets', {}).get('storyboard_image')
-        ]
+    segments_to_process = _select_storyboard_items(items, id_field, segment_ids)
 
     if not segments_to_process:
         print("✨ 所有片段的分镜图都已生成")
@@ -362,112 +333,48 @@ def generate_storyboard_direct(
     clues = project_data.get('clues', {}) if project_data else {}
     style = project_data.get('style', '') if project_data else ''
     style_description = project_data.get('style_description', '') if project_data else ''
-    storyboard_aspect_ratio = get_aspect_ratio(project_data, 'storyboard', content_mode=content_mode)
-    queue_worker_online = is_worker_online()
+    items_by_id = {
+        str(item[id_field]): item
+        for item in items
+        if item.get(id_field)
+    }
+    dependency_plans = build_storyboard_dependency_plan(
+        items,
+        id_field,
+        [str(item[id_field]) for item in segments_to_process],
+        script_filename,
+    )
 
-    print(f"📷 直接生成 {len(segments_to_process)} 个分镜图（无多宫格）...")
-    print("🧵 任务模式: 队列入队并等待" if queue_worker_online else "🧵 任务模式: 直连生成（worker 离线）")
-
-    # 使用锁保护剧本更新操作
-    script_update_lock = threading.Lock()
+    print(f"📷 提交 {len(segments_to_process)} 个分镜图到生成队列...")
+    print("🧵 任务模式: 队列入队并等待")
 
     # 创建失败记录器
     recorder = FailureRecorder(project_dir / 'storyboards')
-
-    def generate_single(segment: dict) -> Path:
-        segment_id = segment[id_field]
-
-        # 收集参考图：仅 character_sheet 和 clue_sheet
-        reference_images = []
-
-        for char_name in segment.get(char_field, []):
-            if char_name in characters:
-                char_sheet = characters[char_name].get('character_sheet', '')
-                if char_sheet:
-                    char_path = project_dir / char_sheet
-                    if char_path.exists():
-                        reference_images.append(char_path)
-
-        for clue_name in segment.get(clue_field, []):
-            if clue_name in clues:
-                clue_sheet = clues[clue_name].get('clue_sheet', '')
-                if clue_sheet:
-                    clue_path = project_dir / clue_sheet
-                    if clue_path.exists():
-                        reference_images.append(clue_path)
-
-        # 构建 prompt（直接生成，无需参考多宫格）
-        prompt = build_direct_scene_prompt(
-            segment, characters, clues, style, style_description,
-            id_field, char_field, clue_field,
-            content_mode=content_mode,
-        )
-
-        if queue_worker_online:
-            try:
-                queued = enqueue_and_wait(
-                    project_name=project_name,
-                    task_type="storyboard",
-                    media_type="image",
-                    resource_id=str(segment_id),
-                    payload={
-                        "prompt": prompt,
-                        "script_file": script_filename,
-                    },
-                    script_file=script_filename,
-                    source="skill",
-                )
-                result = queued.get("result") or {}
-                relative_path = result.get("file_path") or f"storyboards/scene_{segment_id}.png"
-                output_path = project_dir / relative_path
-            except WorkerOfflineError:
-                output_path = _generate_storyboard_direct_image(
-                    project_dir=project_dir,
-                    rate_limiter=rate_limiter,
-                    prompt=prompt,
-                    resource_id=str(segment_id),
-                    reference_images=reference_images,
-                    aspect_ratio=storyboard_aspect_ratio,
-                )
-                relative_path = f"storyboards/scene_{segment_id}.png"
-                with script_update_lock:
-                    pm.update_scene_asset(
-                        project_name, script_filename,
-                        segment_id, 'storyboard_image', relative_path
-                    )
-            except TaskFailedError as exc:
-                raise RuntimeError(f"队列任务失败: {exc}") from exc
-        else:
-            output_path = _generate_storyboard_direct_image(
-                project_dir=project_dir,
-                rate_limiter=rate_limiter,
-                prompt=prompt,
-                resource_id=str(segment_id),
-                reference_images=reference_images,
-                aspect_ratio=storyboard_aspect_ratio,
-            )
-            relative_path = f"storyboards/scene_{segment_id}.png"
-            with script_update_lock:
-                pm.update_scene_asset(
-                    project_name, script_filename,
-                    segment_id, 'storyboard_image', relative_path
-                )
-
-        return output_path
-
-    # 并行执行
-    executor = ParallelExecutor(max_workers=max_workers)
-    results, failures = executor.execute(
-        segments_to_process,
-        generate_single,
-        desc="分镜图生成",
-        task_id_fn=lambda x: x[id_field]
+    task_ids_by_resource = _enqueue_storyboard_batch(
+        project_name=project_name,
+        script_filename=script_filename,
+        plans=dependency_plans,
+        items_by_id=items_by_id,
+        characters=characters,
+        clues=clues,
+        style=style,
+        style_description=style_description,
+        id_field=id_field,
+        char_field=char_field,
+        clue_field=clue_field,
+        content_mode=content_mode,
+    )
+    result_map, failures = _wait_for_storyboard_tasks(
+        project_dir=project_dir,
+        plans=dependency_plans,
+        task_ids_by_resource=task_ids_by_resource,
+        max_workers=max_workers,
     )
 
     # 记录失败
-    for segment, error in failures:
+    for segment_id, error in failures:
         recorder.record_failure(
-            scene_id=segment[id_field],
+            scene_id=segment_id,
             failure_type="scene",
             error=error,
             attempts=3
@@ -476,30 +383,25 @@ def generate_storyboard_direct(
     # 保存失败记录
     recorder.save()
 
-    failed = [(seg[id_field], error) for seg, error in failures]
-
-    return results, failed
+    ordered_results = [
+        result_map[plan.resource_id]
+        for plan in dependency_plans
+        if plan.resource_id in result_map
+    ]
+    return ordered_results, failures
 
 
 def main():
-    from lib.gemini_client import RateLimiter
-
     parser = argparse.ArgumentParser(description='生成分镜图')
     parser.add_argument('project', help='项目名称')
     parser.add_argument('script', help='剧本文件名')
 
     # 辅助参数
+    parser.add_argument('--scene', help='指定单个场景 ID（单场景模式）')
     parser.add_argument('--scene-ids', nargs='+', help='指定场景 ID')
     parser.add_argument('--segment-ids', nargs='+', help='指定片段 ID（narration 模式别名）')
 
     args = parser.parse_args()
-
-    # 初始化限流器
-    # 从环境变量读取配置，默认限制为 15 RPM
-    image_rpm = int(os.environ.get('GEMINI_IMAGE_RPM', 15))
-    rate_limiter = RateLimiter({
-        "gemini-3.1-flash-image-preview": image_rpm
-    })
 
     # 从环境变量读取最大并发数，默认 3
     max_workers = int(os.environ.get('STORYBOARD_MAX_WORKERS', 3))
@@ -510,16 +412,15 @@ def main():
         script = pm.load_script(args.project, args.script)
         content_mode = script.get('content_mode', 'narration')
 
-        print(f"🚀 {content_mode} 模式：直接生成分镜图")
+        print(f"🚀 {content_mode} 模式：通过队列生成分镜图")
 
         # 合并 --scene-ids 和 --segment-ids 参数
-        segment_ids = args.segment_ids or args.scene_ids
+        segment_ids = [args.scene] if args.scene else (args.segment_ids or args.scene_ids)
 
         results, failed = generate_storyboard_direct(
             args.project, args.script,
             segment_ids=segment_ids,
             max_workers=max_workers,
-            rate_limiter=rate_limiter
         )
         print(f"\n📊 生成完成: {len(results)} 个分镜图")
         if failed:

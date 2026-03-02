@@ -293,10 +293,22 @@ class TestGeminiClientMore:
 
         contents = client._build_contents_with_labeled_refs(
             "prompt",
-            reference_images=[jpg, pil_image],
+            reference_images=[
+                jpg,
+                {
+                    "image": pil_image,
+                    "label": "上一分镜图（镜头衔接参考）",
+                    "description": "仅用于延续前一镜头的构图与色调。",
+                },
+            ],
         )
         assert contents[-1] == "prompt"
         assert any(item == "ref" for item in contents if isinstance(item, str))
+        assert any(
+            "上一分镜图（镜头衔接参考）" in item
+            for item in contents
+            if isinstance(item, str)
+        )
 
     def test_process_image_and_download_video(self, tmp_path, monkeypatch):
         client = _build_client(models=_FakeModels(content_response=_image_response()))

@@ -1,4 +1,5 @@
 import time
+import sqlite3
 from pathlib import Path
 
 from lib.generation_queue import GenerationQueue
@@ -114,6 +115,116 @@ class TestGenerationQueue:
         )
         assert takeover_ok
 
+    def test_claim_next_task_respects_dependencies_without_blocking_other_heads(self, tmp_path):
+        queue = _create_queue(tmp_path)
+
+        head_one = queue.enqueue_task(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={"prompt": "p1"},
+            script_file="episode_01.json",
+            source="skill",
+            dependency_group="episode_01.json:group:1",
+            dependency_index=0,
+        )
+        queue.enqueue_task(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S02",
+            payload={"prompt": "p2"},
+            script_file="episode_01.json",
+            source="skill",
+            dependency_task_id=head_one["task_id"],
+            dependency_group="episode_01.json:group:1",
+            dependency_index=1,
+        )
+        head_two = queue.enqueue_task(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S03",
+            payload={"prompt": "p3"},
+            script_file="episode_01.json",
+            source="skill",
+            dependency_group="episode_01.json:group:2",
+            dependency_index=0,
+        )
+
+        first_claim = queue.claim_next_task(media_type="image")
+        second_claim = queue.claim_next_task(media_type="image")
+        blocked_claim = queue.claim_next_task(media_type="image")
+
+        assert first_claim is not None
+        assert second_claim is not None
+        assert {first_claim["task_id"], second_claim["task_id"]} == {
+            head_one["task_id"],
+            head_two["task_id"],
+        }
+        assert blocked_claim is None
+
+        queue.mark_task_succeeded(head_one["task_id"], {"file_path": "storyboards/scene_E1S01.png"})
+        unblocked_claim = queue.claim_next_task(media_type="image")
+        assert unblocked_claim is not None
+        assert unblocked_claim["resource_id"] == "E1S02"
+
+    def test_mark_task_failed_cascades_to_queued_dependents(self, tmp_path):
+        queue = _create_queue(tmp_path)
+
+        first = queue.enqueue_task(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={"prompt": "p1"},
+            script_file="episode_01.json",
+            source="skill",
+            dependency_group="episode_01.json:group:1",
+            dependency_index=0,
+        )
+        second = queue.enqueue_task(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S02",
+            payload={"prompt": "p2"},
+            script_file="episode_01.json",
+            source="skill",
+            dependency_task_id=first["task_id"],
+            dependency_group="episode_01.json:group:1",
+            dependency_index=1,
+        )
+        third = queue.enqueue_task(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S03",
+            payload={"prompt": "p3"},
+            script_file="episode_01.json",
+            source="skill",
+            dependency_task_id=second["task_id"],
+            dependency_group="episode_01.json:group:1",
+            dependency_index=2,
+        )
+
+        running = queue.claim_next_task(media_type="image")
+        assert running is not None
+        assert running["task_id"] == first["task_id"]
+
+        queue.mark_task_failed(first["task_id"], "boom")
+
+        second_task = queue.get_task(second["task_id"])
+        third_task = queue.get_task(third["task_id"])
+        assert second_task is not None
+        assert third_task is not None
+        assert second_task["status"] == "failed"
+        assert third_task["status"] == "failed"
+        assert "blocked by failed dependency" in second_task["error_message"]
+        assert first["task_id"] in second_task["error_message"]
+        assert second["task_id"] in third_task["error_message"]
+
     def test_requeue_running_tasks(self, tmp_path):
         queue = _create_queue(tmp_path)
 
@@ -167,3 +278,71 @@ class TestGenerationQueue:
         if baseline >= 0 and after >= 0:
             # Allow small runtime fluctuations, but prevent linear FD growth.
             assert after <= baseline + 10, f"FD count grew unexpectedly: baseline={baseline}, after={after}"
+
+    def test_init_db_adds_dependency_columns_for_existing_database(self, tmp_path):
+        db_path = tmp_path / "queue.db"
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute(
+                """
+                CREATE TABLE tasks (
+                    task_id TEXT PRIMARY KEY,
+                    project_name TEXT NOT NULL,
+                    task_type TEXT NOT NULL,
+                    media_type TEXT NOT NULL,
+                    resource_id TEXT NOT NULL,
+                    script_file TEXT,
+                    payload_json TEXT,
+                    status TEXT NOT NULL,
+                    result_json TEXT,
+                    error_message TEXT,
+                    source TEXT NOT NULL DEFAULT 'webui',
+                    queued_at TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE task_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT NOT NULL,
+                    project_name TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    data_json TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE worker_lease (
+                    name TEXT PRIMARY KEY,
+                    owner_id TEXT NOT NULL,
+                    lease_until REAL NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        queue = GenerationQueue(db_path=db_path)
+        assert queue is not None
+
+        conn = sqlite3.connect(db_path)
+        try:
+            columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(tasks)").fetchall()
+            }
+        finally:
+            conn.close()
+
+        assert "dependency_task_id" in columns
+        assert "dependency_group" in columns
+        assert "dependency_index" in columns

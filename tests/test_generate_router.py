@@ -3,6 +3,10 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.storyboard_sequence import (
+    PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
+    PREVIOUS_STORYBOARD_REFERENCE_LABEL,
+)
 from server.routers import generate
 
 
@@ -54,6 +58,23 @@ class _FakePM:
                 {
                     "segment_id": "E1S01",
                     "duration_seconds": 4,
+                    "segment_break": False,
+                    "characters_in_segment": [],
+                    "clues_in_segment": [],
+                    "generated_assets": {},
+                },
+                {
+                    "segment_id": "E1S02",
+                    "duration_seconds": 4,
+                    "segment_break": False,
+                    "characters_in_segment": ["Alice"],
+                    "clues_in_segment": ["玉佩"],
+                    "generated_assets": {},
+                },
+                {
+                    "segment_id": "E1S03",
+                    "duration_seconds": 4,
+                    "segment_break": True,
                     "characters_in_segment": ["Alice"],
                     "clues_in_segment": ["玉佩"],
                     "generated_assets": {},
@@ -112,7 +133,7 @@ class TestGenerateRouter:
 
         with client:
             sb = client.post(
-                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                "/api/v1/projects/demo/generate/storyboard/E1S02",
                 json={
                     "script_file": "episode_1.json",
                     "prompt": {
@@ -123,6 +144,32 @@ class TestGenerateRouter:
             )
             assert sb.status_code == 200
             assert sb.json()["version"] == 1
+            assert fake_generator.image_calls[0]["reference_images"] == [
+                project_path / "characters" / "Alice.png",
+                project_path / "clues" / "玉佩.png",
+                {
+                    "image": project_path / "storyboards" / "scene_E1S01.png",
+                    "label": PREVIOUS_STORYBOARD_REFERENCE_LABEL,
+                    "description": PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
+                },
+            ]
+
+            first_scene = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "首镜头"},
+            )
+            assert first_scene.status_code == 200
+            assert fake_generator.image_calls[1]["reference_images"] is None
+
+            segment_break = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S03",
+                json={"script_file": "episode_1.json", "prompt": "切场镜头"},
+            )
+            assert segment_break.status_code == 200
+            assert fake_generator.image_calls[2]["reference_images"] == [
+                project_path / "characters" / "Alice.png",
+                project_path / "clues" / "玉佩.png",
+            ]
 
             video = client.post(
                 "/api/v1/projects/demo/generate/video/E1S01",
@@ -156,6 +203,37 @@ class TestGenerateRouter:
 
             assert fake_pm.updated
 
+    def test_storyboard_uses_helper_fields_for_compat_scene_scripts(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script = {
+            "content_mode": "narration",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 4,
+                    "segment_break": False,
+                    "characters_in_scene": ["Alice"],
+                    "clues_in_scene": ["玉佩"],
+                    "generated_assets": {},
+                }
+            ],
+        }
+        fake_generator = _FakeGenerator()
+        client = _client(monkeypatch, fake_pm, fake_generator)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "兼容场景"},
+            )
+
+        assert response.status_code == 200
+        assert fake_generator.image_calls[0]["reference_images"] == [
+            project_path / "characters" / "Alice.png",
+            project_path / "clues" / "玉佩.png",
+        ]
+
     def test_error_paths(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -164,7 +242,7 @@ class TestGenerateRouter:
 
         with client:
             bad_prompt = client.post(
-                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                "/api/v1/projects/demo/generate/storyboard/E1S02",
                 json={"script_file": "episode_1.json", "prompt": {"composition": {}}},
             )
             assert bad_prompt.status_code == 400

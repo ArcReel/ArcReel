@@ -100,6 +100,7 @@ class GenerationQueue:
                 )
                 """
             )
+            self._ensure_task_columns(conn)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS task_events (
@@ -131,6 +132,9 @@ class GenerationQueue:
                 "CREATE INDEX IF NOT EXISTS idx_tasks_project_updated_at ON tasks(project_name, updated_at)"
             )
             conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tasks_dependency_task_id ON tasks(dependency_task_id)"
+            )
+            conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_task_events_id ON task_events(id)"
             )
             conn.execute(
@@ -146,6 +150,20 @@ class GenerationQueue:
                 WHERE status IN ('queued', 'running')
                 """
             )
+
+    def _ensure_task_columns(self, conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(tasks)").fetchall()
+        }
+        required_columns = {
+            "dependency_task_id": "TEXT",
+            "dependency_group": "TEXT",
+            "dependency_index": "INTEGER",
+        }
+        for name, column_type in required_columns.items():
+            if name not in columns:
+                conn.execute(f"ALTER TABLE tasks ADD COLUMN {name} {column_type}")
 
     @staticmethod
     def _row_to_task_dict(row: sqlite3.Row) -> Dict[str, Any]:
@@ -197,6 +215,9 @@ class GenerationQueue:
         payload: Optional[Dict[str, Any]] = None,
         script_file: Optional[str] = None,
         source: str = "webui",
+        dependency_task_id: Optional[str] = None,
+        dependency_group: Optional[str] = None,
+        dependency_index: Optional[int] = None,
     ) -> Dict[str, Any]:
         now = _utc_now_iso()
         task_id = uuid.uuid4().hex
@@ -210,8 +231,9 @@ class GenerationQueue:
                     INSERT INTO tasks(
                         task_id, project_name, task_type, media_type, resource_id,
                         script_file, payload_json, status, source,
+                        dependency_task_id, dependency_group, dependency_index,
                         queued_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         task_id,
@@ -222,6 +244,9 @@ class GenerationQueue:
                         script_file,
                         payload_json,
                         source,
+                        dependency_task_id,
+                        dependency_group,
+                        dependency_index,
                         now,
                         now,
                     ),
@@ -281,11 +306,17 @@ class GenerationQueue:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 """
-                SELECT *
+                SELECT tasks.*
                 FROM tasks
-                WHERE status = 'queued'
-                  AND media_type = ?
-                ORDER BY queued_at ASC
+                LEFT JOIN tasks AS dependency
+                  ON dependency.task_id = tasks.dependency_task_id
+                WHERE tasks.status = 'queued'
+                  AND tasks.media_type = ?
+                  AND (
+                    tasks.dependency_task_id IS NULL
+                    OR dependency.status = 'succeeded'
+                  )
+                ORDER BY tasks.queued_at ASC
                 LIMIT 1
                 """,
                 (media_type,),
@@ -424,44 +455,120 @@ class GenerationQueue:
             return done_task
 
     def mark_task_failed(self, task_id: str, error_message: str) -> Optional[Dict[str, Any]]:
-        now = _utc_now_iso()
-
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
-                "SELECT * FROM tasks WHERE task_id = ?", (task_id,)
-            ).fetchone()
-            if not row:
+            failed_task, changed = self._mark_task_failed_conn(
+                conn,
+                task_id=task_id,
+                error_message=error_message,
+                allowed_statuses=ACTIVE_TASK_STATUSES,
+            )
+            if failed_task is None:
                 conn.execute("COMMIT")
                 return None
 
-            conn.execute(
-                """
-                UPDATE tasks
-                SET status = 'failed',
-                    error_message = ?,
-                    finished_at = ?,
-                    updated_at = ?
-                WHERE task_id = ?
-                """,
-                (error_message[:2000], now, now, task_id),
+            cascaded = 0
+            if changed:
+                cascaded = self._cascade_failed_dependents_conn(
+                    conn,
+                    task_id=task_id,
+                    error_message=failed_task.get("error_message") or error_message,
+                )
+            conn.execute("COMMIT")
+            if changed:
+                logger.warning("任务失败 task_id=%s error=%s", task_id, error_message[:200])
+            if cascaded:
+                logger.warning("依赖失败级联 %d 个任务 (source=%s)", cascaded, task_id)
+            return failed_task
+
+    def _mark_task_failed_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        task_id: str,
+        error_message: str,
+        allowed_statuses: Tuple[str, ...],
+    ) -> Tuple[Optional[Dict[str, Any]], bool]:
+        row = conn.execute(
+            "SELECT * FROM tasks WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        if not row:
+            return None, False
+
+        task = self._row_to_task_dict(row)
+        if task.get("status") not in allowed_statuses:
+            return task, False
+
+        now = _utc_now_iso()
+        conn.execute(
+            """
+            UPDATE tasks
+            SET status = 'failed',
+                error_message = ?,
+                finished_at = ?,
+                updated_at = ?
+            WHERE task_id = ?
+            """,
+            (error_message[:2000], now, now, task_id),
+        )
+
+        failed_row = conn.execute(
+            "SELECT * FROM tasks WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        failed_task = self._row_to_task_dict(failed_row)
+        self._append_event_conn(
+            conn,
+            task_id=task_id,
+            project_name=failed_task["project_name"],
+            event_type="failed",
+            status="failed",
+            data=failed_task,
+        )
+        return failed_task, True
+
+    def _cascade_failed_dependents_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        task_id: str,
+        error_message: str,
+    ) -> int:
+        dependent_rows = conn.execute(
+            """
+            SELECT task_id
+            FROM tasks
+            WHERE dependency_task_id = ?
+              AND status = 'queued'
+            ORDER BY queued_at ASC
+            """,
+            (task_id,),
+        ).fetchall()
+
+        cascaded = 0
+        for row in dependent_rows:
+            dependent_task_id = row["task_id"]
+            blocked_message = (
+                f"blocked by failed dependency {task_id}: {error_message}"
+            )
+            failed_task, changed = self._mark_task_failed_conn(
+                conn,
+                task_id=dependent_task_id,
+                error_message=blocked_message,
+                allowed_statuses=("queued",),
+            )
+            if not changed or failed_task is None:
+                continue
+
+            cascaded += 1
+            cascaded += self._cascade_failed_dependents_conn(
+                conn,
+                task_id=dependent_task_id,
+                error_message=failed_task.get("error_message") or blocked_message,
             )
 
-            failed_row = conn.execute(
-                "SELECT * FROM tasks WHERE task_id = ?", (task_id,)
-            ).fetchone()
-            failed_task = self._row_to_task_dict(failed_row)
-            self._append_event_conn(
-                conn,
-                task_id=task_id,
-                project_name=failed_task["project_name"],
-                event_type="failed",
-                status="failed",
-                data=failed_task,
-            )
-            conn.execute("COMMIT")
-            logger.warning("任务失败 task_id=%s error=%s", task_id, error_message[:200])
-            return failed_task
+        return cascaded
 
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:

@@ -21,6 +21,9 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+ReferenceImageValue = Union[str, Path, Image.Image]
+ReferenceImageInput = Union[ReferenceImageValue, Dict[str, object]]
+
 # 可重试的错误类型
 RETRYABLE_ERRORS: Tuple[Type[Exception], ...] = (
     ConnectionError,
@@ -457,7 +460,7 @@ class GeminiClient:
             return img.copy()
 
     def _extract_name_from_path(
-        self, image: Union[str, Path, Image.Image]
+        self, image: ReferenceImageValue
     ) -> Optional[str]:
         """
         从图片路径推断名称
@@ -488,10 +491,26 @@ class GeminiClient:
 
         return filename
 
+    def _normalize_reference_image(
+        self,
+        image: ReferenceImageInput,
+    ) -> tuple[ReferenceImageValue, Optional[str], Optional[str]]:
+        if isinstance(image, dict):
+            image_value = image.get("image")
+            if not isinstance(image_value, (str, Path, Image.Image)):
+                raise TypeError(
+                    "reference_images[].image 必须是 str、Path 或 PIL.Image.Image"
+                )
+            label = str(image.get("label") or "").strip() or None
+            description = str(image.get("description") or "").strip() or None
+            return image_value, label, description
+
+        return image, None, None
+
     def _build_contents_with_labeled_refs(
         self,
         prompt: str,
-        reference_images: Optional[List[Union[str, Path, Image.Image]]] = None,
+        reference_images: Optional[List[ReferenceImageInput]] = None,
     ) -> List:
         """
         构建带名称标签的 contents 列表
@@ -513,16 +532,25 @@ class GeminiClient:
         if reference_images:
             labeled_refs = []
             for img in reference_images:
-                name = self._extract_name_from_path(img)
-                if name:
-                    labeled_refs.append(name)
-                    contents.append(name)
+                image_value, label, description = self._normalize_reference_image(img)
+                name = label or self._extract_name_from_path(image_value)
+                annotation = None
+                if name and description:
+                    annotation = f"{name}: {description}"
+                elif name:
+                    annotation = name
+                elif description:
+                    annotation = description
+
+                if annotation:
+                    labeled_refs.append(annotation)
+                    contents.append(annotation)
 
                 # 加载图片
-                if isinstance(img, (str, Path)):
-                    loaded_img = self._load_image_detached(img)
+                if isinstance(image_value, (str, Path)):
+                    loaded_img = self._load_image_detached(image_value)
                 else:
-                    loaded_img = img
+                    loaded_img = image_value
                 contents.append(loaded_img)
 
             # 打印日志
@@ -561,7 +589,7 @@ class GeminiClient:
     def generate_image(
         self,
         prompt: str,
-        reference_images: Optional[List[Union[str, Path, Image.Image]]] = None,
+        reference_images: Optional[List[ReferenceImageInput]] = None,
         aspect_ratio: str = "9:16",
         image_size: str = "1K",
         output_path: Optional[Union[str, Path]] = None,
@@ -571,7 +599,8 @@ class GeminiClient:
 
         Args:
             prompt: 图片生成提示词
-            reference_images: 参考图片列表（用于人物一致性）
+            reference_images: 参考图片列表，可传路径/PIL Image，
+                或 {"image": ..., "label": str, "description": str}
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             image_size: 图片尺寸，默认 1K
             output_path: 可选的输出路径
@@ -598,7 +627,7 @@ class GeminiClient:
     async def generate_image_async(
         self,
         prompt: str,
-        reference_images: Optional[List[Union[str, Path, Image.Image]]] = None,
+        reference_images: Optional[List[ReferenceImageInput]] = None,
         aspect_ratio: str = "9:16",
         image_size: str = "1K",
         output_path: Optional[Union[str, Path]] = None,
@@ -610,7 +639,8 @@ class GeminiClient:
 
         Args:
             prompt: 图片生成提示词
-            reference_images: 参考图片列表（用于人物一致性）
+            reference_images: 参考图片列表，可传路径/PIL Image，
+                或 {"image": ..., "label": str, "description": str}
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             image_size: 图片尺寸，默认 1K
             output_path: 可选的输出路径
@@ -638,7 +668,7 @@ class GeminiClient:
         self,
         prompt: str,
         chat_session=None,
-        reference_images: Optional[List[Union[str, Path, Image.Image]]] = None,
+        reference_images: Optional[List[ReferenceImageInput]] = None,
     ) -> tuple:
         """
         使用多轮对话生成图片（保持上下文一致性）

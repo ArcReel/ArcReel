@@ -1,11 +1,11 @@
 ---
 name: generate-storyboard
-description: 使用 Gemini 图像 API 生成分镜图。两种模式均直接生成分镜图。使用场景：(1) 用户运行 /generate-storyboard 命令，(2) 剧本中有场景没有分镜图，(3) 用户想在视频生成前预览场景。
+description: 通过生成队列提交分镜图任务。两种模式均由 generation worker 产出分镜图。使用场景：(1) 用户运行 /generate-storyboard 命令，(2) 剧本中有场景没有分镜图，(3) 用户想在视频生成前预览场景。
 ---
 
 # 生成分镜图
 
-使用 Gemini 3 Pro Image API 创建分镜图。
+通过生成队列创建分镜图。
 
 ## 内容模式支持
 
@@ -13,16 +13,18 @@ description: 使用 Gemini 图像 API 生成分镜图。两种模式均直接生
 
 | 模式 | 流程 | 画面比例 |
 |------|------|----------|
-| 说书+画面（默认） | **直接生成** | **9:16 竖屏** |
-| 剧集动画 | **直接生成** | 16:9 横屏 |
+| 说书+画面（默认） | **队列生成** | **9:16 竖屏** |
+| 剧集动画 | **队列生成** | 16:9 横屏 |
 
 > 画面比例通过 API 参数设置，不包含在 prompt 中。
 
 ## 说书模式流程（narration）
 
-### 直接生成分镜图
-- 直接生成单独场景图（**9:16 竖屏**）
+### 队列生成分镜图
+- 由 generation worker 生成单独场景图（**9:16 竖屏**）
 - 使用 character_sheet 和 clue_sheet 作为参考图保持人物一致性
+- 自动将上一张分镜图加入参考图，提升相邻画面连续性
+- 若当前片段 `segment_break=true`，则跳过上一张分镜图参考
 - 保存为 `storyboards/scene_{segment_id}.png`
 - 更新剧本中的 `storyboard_image` 字段
 - 用于视频生成的起始帧
@@ -41,9 +43,11 @@ description: 使用 Gemini 图像 API 生成分镜图。两种模式均直接生
 
 ## 剧集动画模式流程（drama）
 
-### 直接生成分镜图
-- 直接生成单独场景图（**16:9 横屏**）
+### 队列生成分镜图
+- 由 generation worker 生成单独场景图（**16:9 横屏**）
 - 使用 character_sheet 和 clue_sheet 作为参考图保持人物一致性
+- 自动将上一张分镜图加入参考图，提升相邻画面连续性
+- 若当前场景 `segment_break=true`，则跳过上一张分镜图参考
 - 保存为 `storyboards/scene_{scene_id}.png`
 - 更新剧本中的 `storyboard_image` 字段
 - 用于视频生成的起始帧
@@ -63,23 +67,20 @@ description: 使用 Gemini 图像 API 生成分镜图。两种模式均直接生
 ## 命令行用法
 
 ```bash
-# 直接生成所有缺失的分镜图（自动检测 content_mode）
+# 提交所有缺失分镜图到生成队列（自动检测 content_mode）
 python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
     my_project script.json
 
 # 为指定片段/场景重新生成
 python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
     my_project script.json --segment-ids E1S01 E1S02
+
+# 为单个片段/场景重新生成（自动查找上一张分镜图）
+python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
+    my_project script.json --scene E1S05
 ```
 
-> **注意**：脚本会自动检测 content_mode，根据模式选择对应的画面比例（narration: 9:16, drama: 16:9）。
-
-## 限流说明
-
-为了应对 API 限制，脚本内置了滑动窗口限流器：
-- 支持通过环境变量配置速率限制（见 CLAUDE.md）
-- 超出限制时会自动等待
-- 内置指数退避重试机制（最大重试 5 次）
+> **注意**：脚本要求 generation worker 在线；worker 负责实际图像生成与速率控制。
 
 ## 工作流程
 
@@ -90,7 +91,8 @@ python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
 
 2. **生成分镜图**
    - 运行 `.claude/skills/generate-storyboard/scripts/generate_storyboard.py`
-   - 脚本自动检测 content_mode 并选择对应画面比例
+   - 脚本自动检测 content_mode 并按相邻关系串联依赖任务
+   - generation worker 根据模式选择画面比例，并自动查找上一张分镜图（若存在）
 
 3. **审核检查点**
    - 展示每张分镜图
@@ -142,7 +144,7 @@ projects/{项目名}/storyboards/
 
 ## 人物一致性
 
-**关键**：始终传入人物参考图以保持一致性。画面比例根据内容模式自动选择。
+**关键**：始终传入人物参考图以保持一致性；相邻片段默认还会引用上一张分镜图。画面比例根据内容模式自动选择。
 
 ```python
 from lib.gemini_client import GeminiClient
