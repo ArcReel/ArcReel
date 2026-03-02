@@ -18,10 +18,6 @@ interface ImageLightboxProps {
 
 function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
   useEffect(() => {
-    if (typeof document === "undefined") {
-      return;
-    }
-
     const previousOverflow = document.body.style.overflow;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -50,7 +46,10 @@ function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
       <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
         <button
           type="button"
-          onClick={onClose}
+          onClick={(event) => {
+            event.stopPropagation();
+            onClose();
+          }}
           aria-label="关闭全屏预览"
           className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white shadow-lg shadow-black/30 backdrop-blur transition-colors hover:bg-black/75"
         >
