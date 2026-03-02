@@ -71,13 +71,20 @@ description: 通过生成队列提交分镜图任务。两种模式均由 genera
 python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
     my_project script.json
 
-# 为指定片段/场景重新生成
+# 重新生成指定的分镜图
+# 注意：脚本会自动查找上一张分镜图作为参考，以保证镜头连续性。
+
+# 为单个片段/场景重新生成
+python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
+    my_project script.json --scene E1S05
+
+# 为多个指定片段/场景重新生成（可使用 --segment-ids 或 --scene-ids）
 python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
     my_project script.json --segment-ids E1S01 E1S02
 
-# 为单个片段/场景重新生成（自动查找上一张分镜图）
+# 等价的多场景写法
 python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
-    my_project script.json --scene E1S05
+    my_project script.json --scene-ids E1S01 E1S02
 ```
 
 > **注意**：脚本要求 generation worker 在线；worker 负责实际图像生成与速率控制。

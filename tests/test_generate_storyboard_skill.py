@@ -37,7 +37,7 @@ def test_main_supports_scene_flag(monkeypatch):
     module = _load_module()
     captured = {}
 
-    monkeypatch.setattr(module, "ProjectManager", lambda: _FakeProjectManager())
+    monkeypatch.setattr(module, "ProjectManager", _FakeProjectManager)
 
     def _fake_generate(project_name, script_filename, segment_ids=None, max_workers=0):
         captured["project_name"] = project_name
@@ -96,9 +96,7 @@ class _FakeQueueProjectManager:
 
 def test_generate_storyboard_direct_requires_online_worker(monkeypatch):
     module = _load_module()
-    fake_pm = _FakeQueueProjectManager()
-
-    monkeypatch.setattr(module, "ProjectManager", lambda: fake_pm)
+    monkeypatch.setattr(module, "ProjectManager", _FakeQueueProjectManager)
 
     def _raise_worker_offline(**kwargs):
         raise WorkerOfflineError("queue worker is offline")

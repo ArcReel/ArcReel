@@ -415,7 +415,10 @@ def main():
         print(f"🚀 {content_mode} 模式：通过队列生成分镜图")
 
         # 合并 --scene-ids 和 --segment-ids 参数
-        segment_ids = [args.scene] if args.scene else (args.segment_ids or args.scene_ids)
+        if args.scene:
+            segment_ids = [args.scene]
+        else:
+            segment_ids = args.segment_ids or args.scene_ids
 
         results, failed = generate_storyboard_direct(
             args.project, args.script,
