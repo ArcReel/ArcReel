@@ -785,26 +785,21 @@ class API {
       }
     };
 
-    source.addEventListener("snapshot", (event) => {
-      const payload = parsePayload(event as MessageEvent);
-      if (payload && typeof options.onSnapshot === "function") {
-        options.onSnapshot(payload as ProjectEventSnapshotPayload, event as MessageEvent);
-      }
-    });
+    const createHandler = (
+      callback?: (payload: any, event: MessageEvent) => void
+    ) => {
+      return (event: Event) => {
+        if (typeof callback !== "function") return;
+        const payload = parsePayload(event as MessageEvent);
+        if (payload) {
+          callback(payload, event as MessageEvent);
+        }
+      };
+    };
 
-    source.addEventListener("changes", (event) => {
-      const payload = parsePayload(event as MessageEvent);
-      if (payload && typeof options.onChanges === "function") {
-        options.onChanges(payload as ProjectChangeBatchPayload, event as MessageEvent);
-      }
-    });
-
-    source.addEventListener("heartbeat", (event) => {
-      const payload = parsePayload(event as MessageEvent);
-      if (payload && typeof options.onHeartbeat === "function") {
-        options.onHeartbeat(payload as ProjectEventHeartbeatPayload, event as MessageEvent);
-      }
-    });
+    source.addEventListener("snapshot", createHandler(options.onSnapshot));
+    source.addEventListener("changes", createHandler(options.onChanges));
+    source.addEventListener("heartbeat", createHandler(options.onHeartbeat));
 
     source.onerror = (event: Event) => {
       if (typeof options.onError === "function") {
