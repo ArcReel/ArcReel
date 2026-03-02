@@ -10,7 +10,12 @@ from lib.generation_queue_client import WorkerOfflineError
 
 
 SCRIPT_PATH = Path(
-    "/Users/pollochen/Documents/ArcReel/.claude/skills/generate-storyboard/scripts/generate_storyboard.py"
+    Path(__file__).resolve().parents[1]
+    / ".claude"
+    / "skills"
+    / "generate-storyboard"
+    / "scripts"
+    / "generate_storyboard.py"
 )
 
 
