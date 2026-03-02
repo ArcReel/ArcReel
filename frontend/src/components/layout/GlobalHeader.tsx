@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from "react";
-import { ChevronLeft, Activity, Settings, DollarSign } from "lucide-react";
+import { startTransition, useState, useEffect, useRef } from "react";
+import { useLocation } from "wouter";
+import { ChevronLeft, Activity, Settings, DollarSign, Bell } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -7,7 +8,9 @@ import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageStore } from "@/stores/usage-store";
 import { TaskHud } from "@/components/task-hud/TaskHud";
 import { UsageDrawer } from "./UsageDrawer";
+import { WorkspaceNotificationsDrawer } from "./WorkspaceNotificationsDrawer";
 import { API } from "@/api";
+import type { WorkspaceNotification } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Phase definitions
@@ -87,9 +90,11 @@ interface GlobalHeaderProps {
 }
 
 export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
+  const [, setLocation] = useLocation();
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const { stats } = useTasksStore();
-  const { taskHudOpen, setTaskHudOpen } = useAppStore();
+  const { taskHudOpen, setTaskHudOpen, triggerScrollTo, markWorkspaceNotificationRead } =
+    useAppStore();
   const assistantSessionStatus = useAssistantStore((s) => s.sessionStatus);
   const draftTurn = useAssistantStore((s) => s.draftTurn);
   const assistantToolActivitySuppressed = useAppStore(
@@ -100,8 +105,11 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   );
   const { stats: usageStats, setStats: setUsageStats } = useUsageStore();
   const [usageDrawerOpen, setUsageDrawerOpen] = useState(false);
+  const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
   const usageAnchorRef = useRef<HTMLDivElement>(null);
+  const notificationAnchorRef = useRef<HTMLDivElement>(null);
   const taskHudAnchorRef = useRef<HTMLDivElement>(null);
+  const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
 
   const currentPhase = currentProjectData?.status?.current_phase;
   const contentMode = currentProjectData?.content_mode;
@@ -114,6 +122,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     assistantSessionStatus === "running" &&
     assistantHasToolUse &&
     !assistantToolActivitySuppressed;
+  const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
 
   // 加载费用统计数据
   useEffect(() => {
@@ -143,6 +152,24 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   // Format cost display
   const totalCost = usageStats?.total_cost ?? 0;
   const costText = `$${totalCost.toFixed(2)}`;
+
+  const handleNotificationNavigate = (notification: WorkspaceNotification) => {
+    if (!notification.target) return;
+    const target = notification.target;
+
+    markWorkspaceNotificationRead(notification.id);
+    setNotificationDrawerOpen(false);
+    startTransition(() => {
+      setLocation(target.route);
+    });
+    triggerScrollTo({
+      type: target.type,
+      id: target.id,
+      route: target.route,
+      highlight_style: target.highlight_style ?? "flash",
+      expires_at: Date.now() + 3000,
+    });
+  };
 
   return (
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-gray-800 bg-gray-900/80 px-4 backdrop-blur-sm">
@@ -182,6 +209,33 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
       {/* ---- Right section ---- */}
       <div className="flex items-center gap-3">
+        <div className="relative" ref={notificationAnchorRef}>
+          <button
+            type="button"
+            onClick={() => setNotificationDrawerOpen(!notificationDrawerOpen)}
+            className={`relative flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors ${
+              notificationDrawerOpen
+                ? "bg-amber-500/20 text-amber-200"
+                : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            }`}
+            title={`会话通知: ${workspaceNotifications.length} 条`}
+            aria-label="打开通知中心"
+          >
+            <Bell className="h-3.5 w-3.5" />
+            {unreadNotificationCount > 0 && (
+              <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-slate-950">
+                {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
+              </span>
+            )}
+          </button>
+          <WorkspaceNotificationsDrawer
+            open={notificationDrawerOpen}
+            onClose={() => setNotificationDrawerOpen(false)}
+            anchorRef={notificationAnchorRef}
+            onNavigate={handleNotificationNavigate}
+          />
+        </div>
+
         {/* Cost badge + UsageDrawer */}
         <div className="relative" ref={usageAnchorRef}>
           <button

@@ -193,10 +193,22 @@ class TestProjectsRouter:
 
             update = client.patch(
                 "/api/v1/projects/ready",
-                json={"title": "Updated", "style": "Noir", "content_mode": "drama", "aspect_ratio": {"videos": "16:9"}},
+                json={"title": "Updated", "style": "Noir"},
             )
             assert update.status_code == 200
             assert update.json()["project"]["title"] == "Updated"
+
+            rejected_mode = client.patch(
+                "/api/v1/projects/ready",
+                json={"content_mode": "drama"},
+            )
+            assert rejected_mode.status_code == 400
+
+            rejected_ratio = client.patch(
+                "/api/v1/projects/ready",
+                json={"aspect_ratio": {"videos": "16:9"}},
+            )
+            assert rejected_ratio.status_code == 400
 
             get_script = client.get("/api/v1/projects/ready/scripts/episode_1.json")
             assert get_script.status_code == 200

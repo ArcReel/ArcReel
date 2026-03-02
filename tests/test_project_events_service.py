@@ -76,6 +76,83 @@ class TestProjectEventService:
             for change in changes
         )
 
+    def test_diff_snapshots_reports_project_metadata_and_new_segments(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        with project_change_source("filesystem"):
+            pm.save_script(
+                "demo",
+                {
+                    "episode": 1,
+                    "title": "第一集",
+                    "content_mode": "narration",
+                    "segments": [
+                        {
+                            "segment_id": "E1S01",
+                            "duration_seconds": 4,
+                            "segment_break": False,
+                            "characters_in_segment": [],
+                            "clues_in_segment": [],
+                            "image_prompt": "old",
+                            "video_prompt": "old",
+                            "generated_assets": {
+                                "storyboard_image": None,
+                                "video_clip": None,
+                                "video_uri": None,
+                                "status": "pending",
+                            },
+                        }
+                    ],
+                },
+                "episode_1.json",
+            )
+
+        service = ProjectEventService(tmp_path)
+        previous = service._build_snapshot("demo")
+
+        project = pm.load_project("demo")
+        project["title"] = "Demo Updated"
+        project["style_description"] = "moody lighting"
+        with project_change_source("filesystem"):
+            pm.save_project("demo", project)
+
+        script = pm.load_script("demo", "episode_1.json")
+        script["segments"].append(
+            {
+                "segment_id": "E1S02",
+                "duration_seconds": 4,
+                "segment_break": False,
+                "characters_in_segment": [],
+                "clues_in_segment": [],
+                "image_prompt": "new",
+                "video_prompt": "new",
+                "generated_assets": {
+                    "storyboard_image": None,
+                    "video_clip": None,
+                    "video_uri": None,
+                    "status": "pending",
+                },
+            }
+        )
+        with project_change_source("filesystem"):
+            pm.save_script("demo", script, "episode_1.json")
+
+        current = service._build_snapshot("demo")
+        changes = service._diff_snapshots(previous, current)
+
+        assert any(
+            change["entity_type"] == "project" and change["action"] == "updated"
+            for change in changes
+        )
+        assert any(
+            change["entity_type"] == "segment"
+            and change["action"] == "created"
+            and change["entity_id"] == "E1S02"
+            for change in changes
+        )
+
     @pytest.mark.asyncio
     async def test_poll_detects_direct_script_write_and_syncs_episode_index(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

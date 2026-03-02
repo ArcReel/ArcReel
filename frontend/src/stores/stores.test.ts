@@ -66,30 +66,37 @@ describe("stores", () => {
     app.clearScrollTarget(requestId);
     expect(useAppStore.getState().scrollTarget).toBeNull();
 
-    app.setDeferredWorkspaceFocus({
-      text: "AI 刚更新了角色「hero」，点击查看",
-      target: {
-        request_id: "focus-1",
-        type: "character",
-        id: "hero",
-        route: "/characters",
-        highlight: true,
-        highlight_style: "flash",
-        expires_at: Date.now() + 3000,
-      },
-    });
-    expect(useAppStore.getState().deferredWorkspaceFocus?.target.id).toBe("hero");
-    app.clearDeferredWorkspaceFocus();
-    expect(useAppStore.getState().deferredWorkspaceFocus).toBeNull();
-
     app.setAssistantToolActivitySuppressed(true);
     expect(useAppStore.getState().assistantToolActivitySuppressed).toBe(true);
 
     app.pushToast("hello");
     expect(useAppStore.getState().toast?.text).toBe("hello");
     expect(useAppStore.getState().toast?.tone).toBe("info");
+    expect(useAppStore.getState().workspaceNotifications[0]).toEqual(
+      expect.objectContaining({
+        text: "hello",
+        tone: "info",
+      }),
+    );
     app.clearToast();
     expect(useAppStore.getState().toast).toBeNull();
+
+    app.pushWorkspaceNotification({
+      text: "AI 刚更新了角色「hero」，点击查看",
+      target: {
+        type: "character",
+        id: "hero",
+        route: "/characters",
+      },
+    });
+    const notification = useAppStore.getState().workspaceNotifications[0];
+    expect(notification.target?.id).toBe("hero");
+    app.markWorkspaceNotificationRead(notification.id);
+    expect(useAppStore.getState().workspaceNotifications[0].read).toBe(true);
+    app.removeWorkspaceNotification(notification.id);
+    expect(
+      useAppStore.getState().workspaceNotifications.some((item) => item.id === notification.id)
+    ).toBe(false);
 
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
     app.toggleAssistantPanel();

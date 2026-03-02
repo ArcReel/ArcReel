@@ -1,14 +1,20 @@
 import { create } from "zustand";
 import type {
-  DeferredWorkspaceFocus,
   WorkspaceFocusTarget,
   WorkspaceFocusTargetInput,
+  WorkspaceNotification,
+  WorkspaceNotificationInput,
+  WorkspaceNotificationTarget,
 } from "@/types";
 
 interface Toast {
   id: string;
   text: string;
   tone: "info" | "success" | "error" | "warning";
+}
+
+interface ToastOptions {
+  target?: WorkspaceNotificationTarget | null;
 }
 
 interface FocusedContext {
@@ -25,16 +31,19 @@ interface AppState {
   scrollTarget: WorkspaceFocusTarget | null;
   triggerScrollTo: (target: WorkspaceFocusTargetInput) => void;
   clearScrollTarget: (requestId?: string) => void;
-  deferredWorkspaceFocus: DeferredWorkspaceFocus | null;
-  setDeferredWorkspaceFocus: (focus: DeferredWorkspaceFocus | null) => void;
-  clearDeferredWorkspaceFocus: () => void;
   assistantToolActivitySuppressed: boolean;
   setAssistantToolActivitySuppressed: (suppressed: boolean) => void;
 
   // Toast
   toast: Toast | null;
-  pushToast: (text: string, tone?: Toast["tone"]) => void;
+  pushToast: (text: string, tone?: Toast["tone"], options?: ToastOptions) => void;
   clearToast: () => void;
+  workspaceNotifications: WorkspaceNotification[];
+  pushWorkspaceNotification: (input: WorkspaceNotificationInput) => void;
+  markWorkspaceNotificationRead: (id: string) => void;
+  markAllWorkspaceNotificationsRead: () => void;
+  removeWorkspaceNotification: (id: string) => void;
+  clearWorkspaceNotifications: () => void;
 
   // Panels
   assistantPanelOpen: boolean;
@@ -50,6 +59,21 @@ interface AppState {
   // Media invalidation signal for cache-busted asset URLs
   mediaRevision: number;
   invalidateMediaAssets: () => void;
+}
+
+const MAX_WORKSPACE_NOTIFICATIONS = 40;
+
+function buildWorkspaceNotification(
+  input: WorkspaceNotificationInput,
+): WorkspaceNotification {
+  return {
+    id: `${Date.now()}-${Math.random()}`,
+    text: input.text,
+    tone: input.tone ?? "info",
+    created_at: Date.now(),
+    read: input.read ?? false,
+    target: input.target ?? null,
+  };
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -76,17 +100,49 @@ export const useAppStore = create<AppState>((set) => ({
       }
       return s;
     }),
-  deferredWorkspaceFocus: null,
-  setDeferredWorkspaceFocus: (focus) => set({ deferredWorkspaceFocus: focus }),
-  clearDeferredWorkspaceFocus: () => set({ deferredWorkspaceFocus: null }),
   assistantToolActivitySuppressed: false,
   setAssistantToolActivitySuppressed: (suppressed) =>
     set({ assistantToolActivitySuppressed: suppressed }),
 
   toast: null,
-  pushToast: (text, tone = "info") =>
-    set({ toast: { id: `${Date.now()}-${Math.random()}`, text, tone } }),
+  pushToast: (text, tone = "info", options) =>
+    set((s) => ({
+      toast: { id: `${Date.now()}-${Math.random()}`, text, tone },
+      workspaceNotifications: [
+        buildWorkspaceNotification({
+          text,
+          tone,
+          target: options?.target ?? null,
+        }),
+        ...s.workspaceNotifications,
+      ].slice(0, MAX_WORKSPACE_NOTIFICATIONS),
+    })),
   clearToast: () => set({ toast: null }),
+  workspaceNotifications: [],
+  pushWorkspaceNotification: (input) =>
+    set((s) => ({
+      workspaceNotifications: [
+        buildWorkspaceNotification(input),
+        ...s.workspaceNotifications,
+      ].slice(0, MAX_WORKSPACE_NOTIFICATIONS),
+    })),
+  markWorkspaceNotificationRead: (id) =>
+    set((s) => ({
+      workspaceNotifications: s.workspaceNotifications.map((item) =>
+        item.id === id ? { ...item, read: true } : item
+      ),
+    })),
+  markAllWorkspaceNotificationsRead: () =>
+    set((s) => ({
+      workspaceNotifications: s.workspaceNotifications.map((item) =>
+        item.read ? item : { ...item, read: true }
+      ),
+    })),
+  removeWorkspaceNotification: (id) =>
+    set((s) => ({
+      workspaceNotifications: s.workspaceNotifications.filter((item) => item.id !== id),
+    })),
+  clearWorkspaceNotifications: () => set({ workspaceNotifications: [] }),
 
   assistantPanelOpen: true,
   toggleAssistantPanel: () =>

@@ -186,14 +186,16 @@ async def update_project(name: str, req: UpdateProjectRequest):
         manager = get_project_manager()
         project = manager.load_project(name)
 
+        if req.content_mode is not None or req.aspect_ratio is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="项目创建后不支持修改 content_mode 或 aspect_ratio",
+            )
+
         if req.title is not None:
             project["title"] = req.title
         if req.style is not None:
             project["style"] = req.style
-        if req.content_mode is not None:
-            project["content_mode"] = req.content_mode
-        if req.aspect_ratio is not None:
-            project["aspect_ratio"] = req.aspect_ratio
 
         with project_change_source("webui"):
             manager.save_project(name, project)

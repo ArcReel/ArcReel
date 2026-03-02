@@ -219,6 +219,20 @@ describe("API", () => {
       });
     });
 
+    it("rejects unsupported project mode updates before sending the request", async () => {
+      const requestSpy = vi
+        .spyOn(API, "request")
+        .mockResolvedValue({ success: true } as never);
+
+      await expect(
+        API.updateProject("demo", { content_mode: "drama" } as never),
+      ).rejects.toThrow("项目创建后不支持修改 content_mode 或 aspect_ratio");
+      await expect(
+        API.updateProject("demo", { aspect_ratio: { video: "16:9" } } as never),
+      ).rejects.toThrow("项目创建后不支持修改 content_mode 或 aspect_ratio");
+      expect(requestSpy).not.toHaveBeenCalled();
+    });
+
     it("covers task, assistant, version and usage query builders", async () => {
       const requestSpy = vi
         .spyOn(API, "request")

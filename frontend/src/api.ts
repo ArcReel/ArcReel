@@ -210,6 +210,9 @@ class API {
     name: string,
     updates: Partial<ProjectData>
   ): Promise<{ success: boolean; project: ProjectData }> {
+    if ("content_mode" in updates || "aspect_ratio" in updates) {
+      throw new Error("项目创建后不支持修改 content_mode 或 aspect_ratio");
+    }
     return this.request(`/projects/${encodeURIComponent(name)}`, {
       method: "PATCH",
       body: JSON.stringify(updates),

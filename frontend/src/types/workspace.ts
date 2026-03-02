@@ -8,7 +8,7 @@ export interface ProjectChangeFocus {
 }
 
 export interface ProjectChange {
-  entity_type: "character" | "clue" | "segment" | "episode" | "overview";
+  entity_type: "project" | "character" | "clue" | "segment" | "episode" | "overview";
   action:
     | "created"
     | "updated"
@@ -63,7 +63,25 @@ export interface WorkspaceFocusTargetInput {
   expires_at?: number;
 }
 
-export interface DeferredWorkspaceFocus {
+export interface WorkspaceNotificationTarget {
+  type: WorkspaceFocusTarget["type"];
+  id: string;
+  route: string;
+  highlight_style?: WorkspaceFocusTarget["highlight_style"];
+}
+
+export interface WorkspaceNotification {
+  id: string;
   text: string;
-  target: WorkspaceFocusTarget;
+  tone: "info" | "success" | "error" | "warning";
+  created_at: number;
+  read: boolean;
+  target?: WorkspaceNotificationTarget | null;
+}
+
+export interface WorkspaceNotificationInput {
+  text: string;
+  tone?: WorkspaceNotification["tone"];
+  target?: WorkspaceNotification["target"];
+  read?: boolean;
 }

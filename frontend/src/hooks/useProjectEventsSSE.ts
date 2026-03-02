@@ -4,10 +4,9 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type {
-  DeferredWorkspaceFocus,
   ProjectChange,
   ProjectChangeBatchPayload,
-  WorkspaceFocusTarget,
+  WorkspaceNotificationTarget,
 } from "@/types";
 
 const CHANGE_PRIORITY: Record<string, number> = {
@@ -59,7 +58,7 @@ function selectNotificationChange(changes: ProjectChange[]): ProjectChange | nul
     .sort((left, right) => getChangePriority(left) - getChangePriority(right))[0] ?? null;
 }
 
-function buildFocusTarget(change: ProjectChange): WorkspaceFocusTarget | null {
+function buildNotificationTarget(change: ProjectChange): WorkspaceNotificationTarget | null {
   const focus = change.focus;
   if (!focus?.anchor_type || !focus.anchor_id) return null;
 
@@ -75,13 +74,10 @@ function buildFocusTarget(change: ProjectChange): WorkspaceFocusTarget | null {
   if (!route) return null;
 
   return {
-    request_id: `${change.entity_type}-${change.entity_id}-${Date.now()}`,
     type: focus.anchor_type,
     id: focus.anchor_id,
     route,
-    highlight: true,
     highlight_style: "flash",
-    expires_at: Date.now() + 3000,
   };
 }
 
@@ -128,9 +124,9 @@ export function useProjectEventsSSE(projectName?: string | null): void {
   const invalidateMediaAssets = useAppStore((s) => s.invalidateMediaAssets);
   const triggerScrollTo = useAppStore((s) => s.triggerScrollTo);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
-  const setDeferredWorkspaceFocus = useAppStore((s) => s.setDeferredWorkspaceFocus);
-  const clearDeferredWorkspaceFocus = useAppStore((s) => s.clearDeferredWorkspaceFocus);
   const pushToast = useAppStore((s) => s.pushToast);
+  const pushWorkspaceNotification = useAppStore((s) => s.pushWorkspaceNotification);
+  const clearWorkspaceNotifications = useAppStore((s) => s.clearWorkspaceNotifications);
   const setAssistantToolActivitySuppressed = useAppStore(
     (s) => s.setAssistantToolActivitySuppressed
   );
@@ -140,29 +136,32 @@ export function useProjectEventsSSE(projectName?: string | null): void {
   const lastFingerprintRef = useRef<string | null>(null);
   const refreshingRef = useRef(false);
   const needsRefreshRef = useRef(false);
-  const queuedFocusRef = useRef<DeferredWorkspaceFocus | null>(null);
+  const queuedFocusRef = useRef<WorkspaceNotificationTarget | null>(null);
 
   const executeFocus = useCallback(
-    (focus: DeferredWorkspaceFocus) => {
-      if (isWorkspaceEditing()) {
-        setDeferredWorkspaceFocus(focus);
-        return;
-      }
-
-      clearDeferredWorkspaceFocus();
+    (target: WorkspaceNotificationTarget) => {
       startTransition(() => {
-        setLocation(focus.target.route);
+        setLocation(target.route);
       });
-      triggerScrollTo(focus.target);
+      triggerScrollTo({
+        type: target.type,
+        id: target.id,
+        route: target.route,
+        highlight_style: target.highlight_style ?? "flash",
+        expires_at: Date.now() + 3000,
+      });
     },
-    [clearDeferredWorkspaceFocus, setDeferredWorkspaceFocus, setLocation, triggerScrollTo],
+    [setLocation, triggerScrollTo],
   );
 
   const flushQueuedFocus = useCallback(() => {
-    const focus = queuedFocusRef.current;
-    if (!focus) return;
+    const target = queuedFocusRef.current;
+    if (!target) return;
     queuedFocusRef.current = null;
-    executeFocus(focus);
+    if (isWorkspaceEditing()) {
+      return;
+    }
+    executeFocus(target);
   }, [executeFocus]);
 
   const refreshProject = useCallback(async () => {
@@ -195,9 +194,14 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     queuedFocusRef.current = null;
     needsRefreshRef.current = false;
     refreshingRef.current = false;
-    clearDeferredWorkspaceFocus();
     clearScrollTarget();
-  }, [clearDeferredWorkspaceFocus, clearScrollTarget, projectName]);
+    clearWorkspaceNotifications();
+    return () => {
+      queuedFocusRef.current = null;
+      clearScrollTarget();
+      clearWorkspaceNotifications();
+    };
+  }, [clearScrollTarget, clearWorkspaceNotifications, projectName]);
 
   useEffect(() => {
     if (!projectName) return;
@@ -231,17 +235,18 @@ export function useProjectEventsSSE(projectName?: string | null): void {
 
           if (payload.source !== "webui") {
             const primaryChange = selectPrimaryChange(payload.changes);
-            const focusTarget = primaryChange ? buildFocusTarget(primaryChange) : null;
+            const focusTarget = primaryChange
+              ? buildNotificationTarget(primaryChange)
+              : null;
             if (primaryChange && focusTarget) {
-              const deferredFocus = {
+              pushWorkspaceNotification({
                 text: formatDeferredText(primaryChange),
                 target: focusTarget,
-              };
+              });
               if (isWorkspaceEditing()) {
                 queuedFocusRef.current = null;
-                setDeferredWorkspaceFocus(deferredFocus);
               } else {
-                queuedFocusRef.current = deferredFocus;
+                queuedFocusRef.current = focusTarget;
               }
             }
           }
@@ -277,12 +282,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
       }
     };
   }, [
-    clearDeferredWorkspaceFocus,
-    clearScrollTarget,
+    clearWorkspaceNotifications,
     projectName,
+    pushWorkspaceNotification,
     refreshProject,
     pushToast,
     setAssistantToolActivitySuppressed,
-    setDeferredWorkspaceFocus,
   ]);
 }

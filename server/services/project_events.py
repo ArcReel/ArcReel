@@ -352,6 +352,12 @@ class ProjectEventService:
     def _build_snapshot(self, project_name: str) -> dict[str, Any]:
         project = self.pm.load_project(project_name)
         scripts_dir = self.pm.get_project_path(project_name) / "scripts"
+        project_meta = {
+            "title": str(project.get("title") or ""),
+            "style": str(project.get("style") or ""),
+            "style_image": str(project.get("style_image") or ""),
+            "style_description": str(project.get("style_description") or ""),
+        }
 
         characters = {
             name: {
@@ -413,6 +419,7 @@ class ProjectEventService:
 
         return {
             "project": {
+                "meta": project_meta,
                 "characters": characters,
                 "clues": clues,
                 "overview": normalized_overview,
@@ -484,6 +491,17 @@ class ProjectEventService:
                 pane="clues",
             )
         )
+        if previous["project"]["meta"] != current["project"]["meta"]:
+            changes.append(
+                {
+                    "entity_type": "project",
+                    "action": "updated",
+                    "entity_id": "project",
+                    "label": "项目设置",
+                    "focus": None,
+                    "important": False,
+                }
+            )
         if previous["project"]["overview"] != current["project"]["overview"]:
             changes.append(
                 {
@@ -616,16 +634,31 @@ class ProjectEventService:
             current_meta = current_scripts[script_file]
             previous_items = previous_meta.get("items", {})
             current_items = current_meta.get("items", {})
+            for item_id in sorted(set(current_items) - set(previous_items)):
+                changes.append(
+                    self._build_script_item_change(
+                        action="created",
+                        item_id=item_id,
+                        script_file=script_file,
+                        script_meta=current_meta,
+                        important=True,
+                    )
+                )
+            for item_id in sorted(set(previous_items) - set(current_items)):
+                changes.append(
+                    self._build_script_item_change(
+                        action="deleted",
+                        item_id=item_id,
+                        script_file=script_file,
+                        script_meta=previous_meta,
+                        important=False,
+                    )
+                )
             for item_id in sorted(set(previous_items) & set(current_items)):
                 previous_item = previous_items[item_id]
                 current_item = current_items[item_id]
-                focus = {
-                    "pane": "episode",
-                    "episode": current_meta.get("episode"),
-                    "anchor_type": "segment",
-                    "anchor_id": item_id,
-                }
-                label = f"分镜「{item_id}」"
+                focus = self._build_script_item_focus(item_id, current_meta)
+                label = self._build_script_item_label(item_id, current_meta)
                 if self._became_truthy(
                     previous_item["generated_assets"].get("storyboard_image"),
                     current_item["generated_assets"].get("storyboard_image"),
@@ -683,6 +716,49 @@ class ProjectEventService:
                         )
                     )
         return changes
+
+    @staticmethod
+    def _build_script_item_focus(
+        item_id: str,
+        script_meta: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "pane": "episode",
+            "episode": script_meta.get("episode"),
+            "anchor_type": "segment",
+            "anchor_id": item_id,
+        }
+
+    @staticmethod
+    def _build_script_item_label(item_id: str, script_meta: dict[str, Any]) -> str:
+        content_mode = str(script_meta.get("content_mode") or "narration")
+        noun = "分镜" if content_mode == "narration" else "场景"
+        return f"{noun}「{item_id}」"
+
+    def _build_script_item_change(
+        self,
+        *,
+        action: str,
+        item_id: str,
+        script_file: str,
+        script_meta: dict[str, Any],
+        important: bool,
+    ) -> dict[str, Any]:
+        focus = (
+            self._build_script_item_focus(item_id, script_meta)
+            if action != "deleted"
+            else None
+        )
+        return self._build_entity_change(
+            entity_type="segment",
+            action=action,
+            entity_id=item_id,
+            label=self._build_script_item_label(item_id, script_meta),
+            script_file=script_file,
+            episode=script_meta.get("episode"),
+            focus=focus,
+            important=important,
+        )
 
     @staticmethod
     def _became_truthy(previous: Any, current: Any) -> bool:

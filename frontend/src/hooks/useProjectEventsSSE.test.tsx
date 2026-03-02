@@ -24,6 +24,7 @@ function renderHarness(path = "/") {
 
 describe("useProjectEventsSSE", () => {
   beforeEach(() => {
+    document.body.innerHTML = "";
     useAppStore.setState(useAppStore.getInitialState(), true);
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     vi.restoreAllMocks();
@@ -101,7 +102,16 @@ describe("useProjectEventsSSE", () => {
         route: "/characters",
       }),
     );
-    expect(useAppStore.getState().deferredWorkspaceFocus).toBeNull();
+    expect(useAppStore.getState().workspaceNotifications[0]).toEqual(
+      expect.objectContaining({
+        text: "AI 刚新增了 角色「hero」，点击查看",
+        target: expect.objectContaining({
+          type: "character",
+          id: "hero",
+          route: "/characters",
+        }),
+      }),
+    );
     expect(useAppStore.getState().assistantToolActivitySuppressed).toBe(true);
   });
 
@@ -146,7 +156,7 @@ describe("useProjectEventsSSE", () => {
 
     await waitFor(() => {
       expect(API.getProject).toHaveBeenCalledWith("demo");
-      expect(useAppStore.getState().deferredWorkspaceFocus?.target.id).toBe("玉佩");
+      expect(useAppStore.getState().workspaceNotifications[0]?.target?.id).toBe("玉佩");
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/");
     expect(useAppStore.getState().scrollTarget).toBeNull();
@@ -190,9 +200,15 @@ describe("useProjectEventsSSE", () => {
       expect(useAppStore.getState().toast?.text).toBe("分镜「E1S01」的分镜图已生成");
     });
     expect(useAppStore.getState().toast?.tone).toBe("success");
+    expect(useAppStore.getState().workspaceNotifications[0]).toEqual(
+      expect.objectContaining({
+        text: "分镜「E1S01」的分镜图已生成",
+        tone: "success",
+        target: null,
+      }),
+    );
     expect(screen.getByTestId("location")).toHaveTextContent("/episodes/1");
     expect(useAppStore.getState().scrollTarget).toBeNull();
-    expect(useAppStore.getState().deferredWorkspaceFocus).toBeNull();
   });
 
   it("refreshes without changing focus for webui-originated batches", async () => {
@@ -236,7 +252,7 @@ describe("useProjectEventsSSE", () => {
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/clues");
     expect(useAppStore.getState().scrollTarget).toBeNull();
-    expect(useAppStore.getState().deferredWorkspaceFocus).toBeNull();
+    expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
   });
 
   it("defers remote navigation when a workspace edit marker is present", async () => {
@@ -279,7 +295,7 @@ describe("useProjectEventsSSE", () => {
     });
 
     await waitFor(() => {
-      expect(useAppStore.getState().deferredWorkspaceFocus?.target.id).toBe("玉佩");
+      expect(useAppStore.getState().workspaceNotifications[0]?.target?.id).toBe("玉佩");
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/characters");
     expect(useAppStore.getState().scrollTarget).toBeNull();
