@@ -78,14 +78,19 @@ python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
 python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
     my_project script.json --scene E1S05
 
-# 为多个指定片段/场景重新生成（可使用 --segment-ids 或 --scene-ids）
+# 为多个指定片段/场景重新生成（说书模式常用）
 python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
     my_project script.json --segment-ids E1S01 E1S02
 
-# 等价的多场景写法
+# 为多个指定片段/场景重新生成（剧集模式或通用写法）
 python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
     my_project script.json --scene-ids E1S01 E1S02
 ```
+
+> **选择规则**：
+> - `--scene`：只重生成一个片段/场景。
+> - `--segment-ids` / `--scene-ids`：重生成多个片段/场景，二者任选其一。
+> - 未提供上述参数时：提交当前剧本中所有缺失的分镜图。
 
 > **注意**：脚本要求 generation worker 在线；worker 负责实际图像生成与速率控制。
 
