@@ -40,6 +40,7 @@ export function CharacterCard({
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [referencePreview, setReferencePreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -133,7 +134,18 @@ export function CharacterCard({
   const hasSavedReference = Boolean(savedReferenceUrl) && !referencePreview;
 
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+    <div
+      className="rounded-xl border border-gray-800 bg-gray-900 p-5"
+      data-workspace-editing={isEditing || isDirty ? "true" : undefined}
+      onFocusCapture={() => setIsEditing(true)}
+      onBlurCapture={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+          return;
+        }
+        setIsEditing(false);
+      }}
+    >
       <h3 className="mb-4 truncate text-lg font-bold text-white">{name}</h3>
 
       <div className="mb-4 space-y-3">

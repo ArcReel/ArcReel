@@ -28,7 +28,7 @@ describe("useScrollTarget", () => {
     render(<ScrollTargetHarness type="segment" />);
 
     act(() => {
-      useAppStore.getState().triggerScrollTo({ type: "segment", id: "S1" });
+      useAppStore.getState().triggerScrollTo({ type: "segment", id: "S1", route: "/episodes/1" });
     });
 
     await waitFor(() => {
@@ -54,31 +54,34 @@ describe("useScrollTarget", () => {
       useAppStore.getState().triggerScrollTo({
         type: "character",
         id: "hero",
+        route: "/characters",
         highlight: true,
       });
     });
 
-    expect(el.classList.contains("ring-2")).toBe(true);
-    expect(el.classList.contains("ring-indigo-500")).toBe(true);
+    expect(el.classList.contains("workspace-focus-flash")).toBe(true);
 
     act(() => {
-      vi.advanceTimersByTime(2000);
+      vi.advanceTimersByTime(2400);
     });
 
-    expect(el.classList.contains("ring-2")).toBe(false);
-    expect(el.classList.contains("ring-indigo-500")).toBe(false);
+    expect(el.classList.contains("workspace-focus-flash")).toBe(false);
     expect(useAppStore.getState().scrollTarget).toBeNull();
   });
 
   it("clears target even when target element does not exist", async () => {
+    vi.useFakeTimers();
+
     render(<ScrollTargetHarness type="clue" />);
 
     act(() => {
-      useAppStore.getState().triggerScrollTo({ type: "clue", id: "missing" });
+      useAppStore.getState().triggerScrollTo({ type: "clue", id: "missing", route: "/clues" });
     });
 
-    await waitFor(() => {
-      expect(useAppStore.getState().scrollTarget).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3050);
     });
+
+    expect(useAppStore.getState().scrollTarget).toBeNull();
   });
 });

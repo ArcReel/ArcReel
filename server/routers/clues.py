@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from lib import PROJECT_ROOT
+from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 
 router = APIRouter()
@@ -40,13 +41,14 @@ class UpdateClueRequest(BaseModel):
 async def add_clue(project_name: str, req: CreateClueRequest):
     """添加线索"""
     try:
-        project = get_project_manager().add_clue(
-            project_name,
-            req.name,
-            req.clue_type,
-            req.description,
-            req.importance
-        )
+        with project_change_source("webui"):
+            project = get_project_manager().add_clue(
+                project_name,
+                req.name,
+                req.clue_type,
+                req.description,
+                req.importance
+            )
         return {"success": True, "clue": project["clues"][req.name]}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -83,7 +85,8 @@ async def update_clue(project_name: str, clue_name: str, req: UpdateClueRequest)
         if req.clue_sheet is not None:
             clue["clue_sheet"] = req.clue_sheet
 
-        manager.save_project(project_name, project)
+        with project_change_source("webui"):
+            manager.save_project(project_name, project)
         return {"success": True, "clue": clue}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
@@ -105,7 +108,8 @@ async def delete_clue(project_name: str, clue_name: str):
             raise HTTPException(status_code=404, detail=f"线索 '{clue_name}' 不存在")
 
         del project["clues"][clue_name]
-        manager.save_project(project_name, project)
+        with project_change_source("webui"):
+            manager.save_project(project_name, project)
         return {"success": True, "message": f"线索 '{clue_name}' 已删除"}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")

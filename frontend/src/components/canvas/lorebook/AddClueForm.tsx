@@ -25,7 +25,10 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
   };
 
   return (
-    <div className="mt-4 rounded-xl border border-indigo-500/30 bg-gray-900 p-4">
+    <div
+      className="mt-4 rounded-xl border border-indigo-500/30 bg-gray-900 p-4"
+      data-workspace-editing="true"
+    >
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-200">添加线索</h3>
         <button

@@ -51,14 +51,39 @@ describe("stores", () => {
       id: "hero",
     });
 
-    app.triggerScrollTo({ type: "segment", id: "S1", highlight: true });
-    expect(useAppStore.getState().scrollTarget).toEqual({
-      type: "segment",
-      id: "S1",
-      highlight: true,
-    });
-    app.clearScrollTarget();
+    app.triggerScrollTo({ type: "segment", id: "S1", route: "/episodes/1", highlight: true });
+    expect(useAppStore.getState().scrollTarget).toEqual(
+      expect.objectContaining({
+        type: "segment",
+        id: "S1",
+        route: "/episodes/1",
+        highlight: true,
+        highlight_style: "flash",
+      }),
+    );
+    const requestId = useAppStore.getState().scrollTarget?.request_id;
+    expect(requestId).toBeTruthy();
+    app.clearScrollTarget(requestId);
     expect(useAppStore.getState().scrollTarget).toBeNull();
+
+    app.setDeferredWorkspaceFocus({
+      text: "AI 刚更新了角色「hero」，点击查看",
+      target: {
+        request_id: "focus-1",
+        type: "character",
+        id: "hero",
+        route: "/characters",
+        highlight: true,
+        highlight_style: "flash",
+        expires_at: Date.now() + 3000,
+      },
+    });
+    expect(useAppStore.getState().deferredWorkspaceFocus?.target.id).toBe("hero");
+    app.clearDeferredWorkspaceFocus();
+    expect(useAppStore.getState().deferredWorkspaceFocus).toBeNull();
+
+    app.setAssistantToolActivitySuppressed(true);
+    expect(useAppStore.getState().assistantToolActivitySuppressed).toBe(true);
 
     app.pushToast("hello");
     expect(useAppStore.getState().toast?.text).toBe("hello");

@@ -131,10 +131,22 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
+        emitted_batches = []
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "get_media_generator", lambda _p: fake_generator)
         monkeypatch.setattr(generation_tasks, "GeminiClient", _FakeGeminiClient)
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes, source="worker": emitted_batches.append(
+                {
+                    "project_name": project_name,
+                    "source": source,
+                    "changes": list(changes),
+                }
+            ),
+        )
 
         storyboard_result = generation_tasks.execute_storyboard_task(
             "demo",
@@ -175,6 +187,24 @@ class TestGenerationTasks:
             }
         )
         assert dispatch["resource_type"] == "storyboards"
+        assert emitted_batches == [
+            {
+                "project_name": "demo",
+                "source": "worker",
+                "changes": [
+                    {
+                        "entity_type": "segment",
+                        "action": "storyboard_ready",
+                        "entity_id": "E1S01",
+                        "label": "分镜「E1S01」",
+                        "script_file": "episode_1.json",
+                        "episode": None,
+                        "focus": None,
+                        "important": True,
+                    }
+                ],
+            }
+        ]
 
         with pytest.raises(ValueError):
             generation_tasks.execute_generation_task({"task_type": "unknown", "project_name": "demo", "resource_id": "x", "payload": {}})

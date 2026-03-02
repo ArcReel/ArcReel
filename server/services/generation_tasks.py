@@ -4,12 +4,14 @@ Task execution service for queued generation jobs.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from lib import PROJECT_ROOT
 from lib.gemini_client import GeminiClient, get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
+from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
 from lib.prompt_builders import build_character_prompt, build_clue_prompt
 from lib.prompt_utils import (
@@ -22,6 +24,7 @@ from lib.prompt_utils import (
 
 pm = ProjectManager(PROJECT_ROOT / "projects")
 rate_limiter = get_shared_rate_limiter()
+logger = logging.getLogger(__name__)
 
 
 def get_project_manager() -> ProjectManager:
@@ -177,6 +180,92 @@ def _collect_reference_images(
             reference_images.append(extra_path)
 
     return reference_images or None
+
+
+def _resolve_script_episode(project_name: str, script_file: str | None) -> int | None:
+    if not script_file:
+        return None
+    try:
+        script = get_project_manager().load_script(project_name, script_file)
+    except Exception:
+        return None
+
+    episode = script.get("episode")
+    if isinstance(episode, int):
+        return episode
+    return None
+
+
+def _emit_generation_success_batch(
+    *,
+    task_type: str,
+    project_name: str,
+    resource_id: str,
+    payload: Dict[str, Any],
+) -> None:
+    script_file = str(payload.get("script_file") or "") or None
+    episode = _resolve_script_episode(project_name, script_file)
+
+    if task_type == "storyboard":
+        changes = [
+            {
+                "entity_type": "segment",
+                "action": "storyboard_ready",
+                "entity_id": resource_id,
+                "label": f"分镜「{resource_id}」",
+                "script_file": script_file,
+                "episode": episode,
+                "focus": None,
+                "important": True,
+            }
+        ]
+    elif task_type == "video":
+        changes = [
+            {
+                "entity_type": "segment",
+                "action": "video_ready",
+                "entity_id": resource_id,
+                "label": f"分镜「{resource_id}」",
+                "script_file": script_file,
+                "episode": episode,
+                "focus": None,
+                "important": True,
+            }
+        ]
+    elif task_type == "character":
+        changes = [
+            {
+                "entity_type": "character",
+                "action": "updated",
+                "entity_id": resource_id,
+                "label": f"角色「{resource_id}」设计图",
+                "focus": None,
+                "important": True,
+            }
+        ]
+    elif task_type == "clue":
+        changes = [
+            {
+                "entity_type": "clue",
+                "action": "updated",
+                "entity_id": resource_id,
+                "label": f"线索「{resource_id}」设计图",
+                "focus": None,
+                "important": True,
+            }
+        ]
+    else:
+        return
+
+    try:
+        emit_project_change_batch(project_name, changes, source="worker")
+    except Exception:
+        logger.exception(
+            "发送生成完成项目事件失败 project=%s task_type=%s resource_id=%s",
+            project_name,
+            task_type,
+            resource_id,
+        )
 
 
 def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -409,13 +498,42 @@ def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
     if not project_name:
         raise ValueError("task.project_name is required")
 
-    if task_type == "storyboard":
-        return execute_storyboard_task(project_name, str(resource_id), payload)
-    if task_type == "video":
-        return execute_video_task(project_name, str(resource_id), payload)
-    if task_type == "character":
-        return execute_character_task(project_name, str(resource_id), payload)
-    if task_type == "clue":
-        return execute_clue_task(project_name, str(resource_id), payload)
+    with project_change_source("worker"):
+        if task_type == "storyboard":
+            result = execute_storyboard_task(project_name, str(resource_id), payload)
+            _emit_generation_success_batch(
+                task_type="storyboard",
+                project_name=project_name,
+                resource_id=str(resource_id),
+                payload=payload,
+            )
+            return result
+        if task_type == "video":
+            result = execute_video_task(project_name, str(resource_id), payload)
+            _emit_generation_success_batch(
+                task_type="video",
+                project_name=project_name,
+                resource_id=str(resource_id),
+                payload=payload,
+            )
+            return result
+        if task_type == "character":
+            result = execute_character_task(project_name, str(resource_id), payload)
+            _emit_generation_success_batch(
+                task_type="character",
+                project_name=project_name,
+                resource_id=str(resource_id),
+                payload=payload,
+            )
+            return result
+        if task_type == "clue":
+            result = execute_clue_task(project_name, str(resource_id), payload)
+            _emit_generation_success_batch(
+                task_type="clue",
+                project_name=project_name,
+                resource_id=str(resource_id),
+                payload=payload,
+            )
+            return result
 
     raise ValueError(f"unsupported task_type: {task_type}")

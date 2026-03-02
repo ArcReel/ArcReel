@@ -30,11 +30,13 @@ from server.routers import (
     clues,
     files,
     generate,
+    project_events,
     versions,
     usage,
     tasks,
 )
 from server.routers import auth as auth_router
+from server.services.project_events import ProjectEventService
 
 # 初始化日志
 setup_logging()
@@ -52,9 +54,20 @@ async def lifespan(app: FastAPI):
     await worker.start()
     logger.info("GenerationWorker 已启动")
 
+    logger.info("启动 ProjectEventService...")
+    project_event_service = ProjectEventService(PROJECT_ROOT)
+    app.state.project_event_service = project_event_service
+    await project_event_service.start()
+    logger.info("ProjectEventService 已启动")
+
     yield
 
     # Shutdown
+    project_event_service = getattr(app.state, "project_event_service", None)
+    if project_event_service:
+        logger.info("正在停止 ProjectEventService...")
+        await project_event_service.shutdown()
+        logger.info("ProjectEventService 已停止")
     worker = getattr(app.state, "generation_worker", None)
     if worker:
         logger.info("正在停止 GenerationWorker...")
@@ -166,6 +179,7 @@ app.include_router(versions.router, prefix="/api/v1", tags=["版本管理"])
 app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
 app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant", tags=["助手会话"])
 app.include_router(tasks.router, prefix="/api/v1", tags=["任务队列"])
+app.include_router(project_events.router, prefix="/api/v1", tags=["项目变更流"])
 
 # 前端构建产物目录（Vite）
 frontend_dir = PROJECT_ROOT / "frontend"

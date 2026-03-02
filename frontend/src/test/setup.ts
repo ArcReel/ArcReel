@@ -8,4 +8,5 @@ afterEach(() => {
   vi.clearAllTimers();
   vi.useRealTimers();
   window.localStorage.clear();
+  document.body.innerHTML = "";
 });

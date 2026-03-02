@@ -15,6 +15,9 @@ import type {
   AssistantSnapshot,
   SkillInfo,
   ProjectOverview,
+  ProjectChangeBatchPayload,
+  ProjectEventHeartbeatPayload,
+  ProjectEventSnapshotPayload,
 } from "@/types";
 import { getToken, clearToken } from "@/utils/auth";
 
@@ -56,6 +59,14 @@ export interface TaskStreamTaskPayload {
 export interface TaskStreamHeartbeatPayload {
   last_event_id: number;
   generated_at: string;
+}
+
+export interface ProjectEventStreamOptions {
+  projectName: string;
+  onSnapshot?: (payload: ProjectEventSnapshotPayload, event: MessageEvent) => void;
+  onChanges?: (payload: ProjectChangeBatchPayload, event: MessageEvent) => void;
+  onHeartbeat?: (payload: ProjectEventHeartbeatPayload, event: MessageEvent) => void;
+  onError?: (event: Event) => void;
 }
 
 /** Filters for {@link API.listTasks} and {@link API.listProjectTasks}. */
@@ -744,6 +755,51 @@ class API {
           payload as TaskStreamHeartbeatPayload,
           event as MessageEvent
         );
+      }
+    });
+
+    source.onerror = (event: Event) => {
+      if (typeof options.onError === "function") {
+        options.onError(event);
+      }
+    };
+
+    return source;
+  }
+
+  static openProjectEventStream(options: ProjectEventStreamOptions): EventSource {
+    const url = withAuthQuery(
+      `${API_BASE}/projects/${encodeURIComponent(options.projectName)}/events/stream`
+    );
+    const source = new EventSource(url);
+
+    const parsePayload = (event: MessageEvent): unknown | null => {
+      try {
+        return JSON.parse(event.data || "{}");
+      } catch (err) {
+        console.error("解析项目事件 SSE 数据失败:", err, event.data);
+        return null;
+      }
+    };
+
+    source.addEventListener("snapshot", (event) => {
+      const payload = parsePayload(event as MessageEvent);
+      if (payload && typeof options.onSnapshot === "function") {
+        options.onSnapshot(payload as ProjectEventSnapshotPayload, event as MessageEvent);
+      }
+    });
+
+    source.addEventListener("changes", (event) => {
+      const payload = parsePayload(event as MessageEvent);
+      if (payload && typeof options.onChanges === "function") {
+        options.onChanges(payload as ProjectChangeBatchPayload, event as MessageEvent);
+      }
+    });
+
+    source.addEventListener("heartbeat", (event) => {
+      const payload = parsePayload(event as MessageEvent);
+      if (payload && typeof options.onHeartbeat === "function") {
+        options.onHeartbeat(payload as ProjectEventHeartbeatPayload, event as MessageEvent);
       }
     });
 

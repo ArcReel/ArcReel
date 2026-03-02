@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 logger = logging.getLogger(__name__)
 
 from lib import PROJECT_ROOT
+from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
 
@@ -116,12 +117,14 @@ async def restore_version(
         # 同步元数据，确保引用指向统一的 PNG（避免 jpg/png 不一致导致 UI 仍显示旧图）
         if resource_type == "characters":
             try:
-                get_project_manager().update_project_character_sheet(project_name, resource_id, file_path)
+                with project_change_source("webui"):
+                    get_project_manager().update_project_character_sheet(project_name, resource_id, file_path)
             except KeyError:
                 pass
         elif resource_type == "clues":
             try:
-                get_project_manager().update_clue_sheet(project_name, resource_id, file_path)
+                with project_change_source("webui"):
+                    get_project_manager().update_clue_sheet(project_name, resource_id, file_path)
             except KeyError:
                 pass
         elif resource_type == "storyboards":
@@ -129,13 +132,14 @@ async def restore_version(
             if scripts_dir.exists():
                 for script_file in scripts_dir.glob("*.json"):
                     try:
-                        get_project_manager().update_scene_asset(
-                            project_name=project_name,
-                            script_filename=script_file.name,
-                            scene_id=resource_id,
-                            asset_type="storyboard_image",
-                            asset_path=file_path,
-                        )
+                        with project_change_source("webui"):
+                            get_project_manager().update_scene_asset(
+                                project_name=project_name,
+                                script_filename=script_file.name,
+                                scene_id=resource_id,
+                                asset_type="storyboard_image",
+                                asset_path=file_path,
+                            )
                     except KeyError:
                         continue
                     except Exception as exc:

@@ -1,10 +1,11 @@
+import { startTransition } from "react";
 import { useLocation } from "wouter";
-import { Bot } from "lucide-react";
+import { Bot, Sparkles } from "lucide-react";
 import { GlobalHeader } from "./GlobalHeader";
 import { AssetSidebar } from "./AssetSidebar";
 import { AgentCopilot } from "@/components/copilot/AgentCopilot";
 import { useTasksSSE } from "@/hooks/useTasksSSE";
-import { useProjectAssetSync } from "@/hooks/useProjectAssetSync";
+import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { UI_LAYERS } from "@/utils/ui-layers";
@@ -22,14 +23,45 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   const currentProjectName = useProjectsStore((s) => s.currentProjectName);
   const assistantPanelOpen = useAppStore((s) => s.assistantPanelOpen);
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
+  const deferredWorkspaceFocus = useAppStore((s) => s.deferredWorkspaceFocus);
+  const clearDeferredWorkspaceFocus = useAppStore((s) => s.clearDeferredWorkspaceFocus);
+  const triggerScrollTo = useAppStore((s) => s.triggerScrollTo);
 
   // 进入工作区时连接任务 SSE 流
   useTasksSSE(currentProjectName);
-  useProjectAssetSync(currentProjectName);
+  useProjectEventsSSE(currentProjectName);
+
+  const handleDeferredFocus = () => {
+    if (!deferredWorkspaceFocus) return;
+    const target = deferredWorkspaceFocus.target;
+    clearDeferredWorkspaceFocus();
+    startTransition(() => {
+      setLocation(target.route);
+    });
+    triggerScrollTo(target);
+  };
 
   return (
     <div className="flex h-screen flex-col bg-gray-950 text-gray-100">
       <GlobalHeader onNavigateBack={() => setLocation("~/app/projects")} />
+      {deferredWorkspaceFocus && (
+        <div
+          className={`pointer-events-none fixed top-14 left-1/2 -translate-x-1/2 ${UI_LAYERS.workspaceFloating}`}
+        >
+          <button
+            type="button"
+            onClick={handleDeferredFocus}
+            className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-sky-400/25 bg-gray-900/90 px-4 py-2.5 text-left shadow-[0_18px_50px_rgba(15,23,42,0.45)] backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-amber-300/30"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400/20 via-indigo-400/20 to-amber-300/20 text-sky-200">
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <span className="max-w-[28rem] text-sm text-gray-100">
+              {deferredWorkspaceFocus.text}
+            </span>
+          </button>
+        </div>
+      )}
       <div className="flex flex-1 overflow-hidden">
         <AssetSidebar className="w-[15%] min-w-50 border-r border-gray-800" />
         <main className="flex-1 overflow-auto">

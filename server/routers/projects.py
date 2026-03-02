@@ -13,6 +13,7 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 from lib import PROJECT_ROOT
+from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator
 
@@ -118,7 +119,13 @@ async def create_project(req: CreateProjectRequest):
         # 创建项目目录结构
         manager.create_project(project_name)
         # 创建项目元数据
-        project = manager.create_project_metadata(project_name, title or manual_name, req.style, req.content_mode)
+        with project_change_source("webui"):
+            project = manager.create_project_metadata(
+                project_name,
+                title or manual_name,
+                req.style,
+                req.content_mode,
+            )
         return {"success": True, "name": project_name, "project": project}
     except FileExistsError:
         raise HTTPException(status_code=400, detail=f"项目 '{project_name}' 已存在")
@@ -188,7 +195,8 @@ async def update_project(name: str, req: UpdateProjectRequest):
         if req.aspect_ratio is not None:
             project["aspect_ratio"] = req.aspect_ratio
 
-        manager.save_project(name, project)
+        with project_change_source("webui"):
+            manager.save_project(name, project)
         return {"success": True, "project": project}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
@@ -259,7 +267,8 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest):
         if not scene_found:
             raise HTTPException(status_code=404, detail=f"场景 '{scene_id}' 不存在")
 
-        manager.save_script(name, script, req.script_file)
+        with project_change_source("webui"):
+            manager.save_script(name, script, req.script_file)
         return {"success": True, "scene": scene}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"剧本不存在")
@@ -318,7 +327,8 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest):
         if not segment_found:
             raise HTTPException(status_code=404, detail=f"片段 '{segment_id}' 不存在")
 
-        manager.save_script(name, script, req.script_file)
+        with project_change_source("webui"):
+            manager.save_script(name, script, req.script_file)
         return {"success": True, "segment": segment}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"剧本不存在")
@@ -335,7 +345,8 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest):
 async def generate_overview(name: str):
     """使用 AI 生成项目概述"""
     try:
-        overview = await get_project_manager().generate_overview(name)
+        with project_change_source("webui"):
+            overview = await get_project_manager().generate_overview(name)
         return {"success": True, "overview": overview}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
@@ -369,7 +380,8 @@ async def update_overview(name: str, req: UpdateOverviewRequest):
         if req.world_setting is not None:
             project["overview"]["world_setting"] = req.world_setting
 
-        manager.save_project(name, project)
+        with project_change_source("webui"):
+            manager.save_project(name, project)
         return {"success": True, "overview": project["overview"]}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")

@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from lib import PROJECT_ROOT
+from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 
 router = APIRouter()
@@ -40,9 +41,10 @@ class UpdateCharacterRequest(BaseModel):
 async def add_character(project_name: str, req: CreateCharacterRequest):
     """添加人物"""
     try:
-        project = get_project_manager().add_project_character(
-            project_name, req.name, req.description, req.voice_style
-        )
+        with project_change_source("webui"):
+            project = get_project_manager().add_project_character(
+                project_name, req.name, req.description, req.voice_style
+            )
         return {"success": True, "character": project["characters"][req.name]}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
@@ -75,7 +77,8 @@ async def update_character(
         if req.reference_image is not None:
             char["reference_image"] = req.reference_image
 
-        manager.save_project(project_name, project)
+        with project_change_source("webui"):
+            manager.save_project(project_name, project)
         return {"success": True, "character": char}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
@@ -97,7 +100,8 @@ async def delete_character(project_name: str, char_name: str):
             raise HTTPException(status_code=404, detail=f"人物 '{char_name}' 不存在")
 
         del project["characters"][char_name]
-        manager.save_project(project_name, project)
+        with project_change_source("webui"):
+            manager.save_project(project_name, project)
         return {"success": True, "message": f"人物 '{char_name}' 已删除"}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")

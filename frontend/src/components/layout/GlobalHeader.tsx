@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { ChevronLeft, Activity, Settings, DollarSign } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageStore } from "@/stores/usage-store";
@@ -89,6 +90,14 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const { stats } = useTasksStore();
   const { taskHudOpen, setTaskHudOpen } = useAppStore();
+  const assistantSessionStatus = useAssistantStore((s) => s.sessionStatus);
+  const draftTurn = useAssistantStore((s) => s.draftTurn);
+  const assistantToolActivitySuppressed = useAppStore(
+    (s) => s.assistantToolActivitySuppressed
+  );
+  const setAssistantToolActivitySuppressed = useAppStore(
+    (s) => s.setAssistantToolActivitySuppressed
+  );
   const { stats: usageStats, setStats: setUsageStats } = useUsageStore();
   const [usageDrawerOpen, setUsageDrawerOpen] = useState(false);
   const usageAnchorRef = useRef<HTMLDivElement>(null);
@@ -99,6 +108,12 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const runningCount = stats.running + stats.queued;
   const displayProjectTitle =
     currentProjectData?.title?.trim() || currentProjectName || "未选择项目";
+  const assistantHasToolUse =
+    draftTurn?.content.some((block) => block.type === "tool_use") ?? false;
+  const showAssistantActivity =
+    assistantSessionStatus === "running" &&
+    assistantHasToolUse &&
+    !assistantToolActivitySuppressed;
 
   // 加载费用统计数据
   useEffect(() => {
@@ -114,6 +129,12 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       })
       .catch(() => {});
   }, [currentProjectName, setUsageStats]);
+
+  useEffect(() => {
+    if (assistantSessionStatus !== "running") {
+      setAssistantToolActivitySuppressed(false);
+    }
+  }, [assistantSessionStatus, setAssistantToolActivitySuppressed]);
 
   // Format content mode badge text
   const modeBadgeText =
@@ -209,6 +230,13 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           </button>
           <TaskHud anchorRef={taskHudAnchorRef} />
         </div>
+
+        {showAssistantActivity && (
+          <div className="hidden items-center gap-2 rounded-full border border-amber-300/20 bg-amber-400/8 px-3 py-1 text-xs text-amber-100 shadow-[0_10px_30px_rgba(120,53,15,0.24)] lg:flex">
+            <span className="h-2 w-2 rounded-full bg-amber-300 animate-pulse" />
+            AI 正在调用工具并更新项目…
+          </div>
+        )}
 
         {/* Settings (placeholder) */}
         <button

@@ -46,6 +46,7 @@ export function ClueCard({
   const mediaRevision = useAppStore((s) => s.mediaRevision);
   const [description, setDescription] = useState(clue.description);
   const [imgError, setImgError] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   const isDirty = description !== clue.description;
 
@@ -81,7 +82,18 @@ export function ClueCard({
     : null;
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+    <div
+      className="bg-gray-900 border border-gray-800 rounded-xl p-5"
+      data-workspace-editing={isEditing || isDirty ? "true" : undefined}
+      onFocusCapture={() => setIsEditing(true)}
+      onBlurCapture={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+          return;
+        }
+        setIsEditing(false);
+      }}
+    >
       {/* ---- Header: name + badges ---- */}
       <div className="mb-4 flex items-center gap-2">
         <h3 className="text-lg font-bold text-white truncate">{name}</h3>

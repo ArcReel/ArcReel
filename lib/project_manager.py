@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+from lib.project_change_hints import emit_project_change_hint
 
 logger = logging.getLogger(__name__)
 
@@ -300,6 +301,11 @@ class ProjectManager:
         output_path = scripts_dir / filename
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(script, f, ensure_ascii=False, indent=2)
+
+        emit_project_change_hint(
+            project_name,
+            changed_paths=[f"scripts/{output_path.name}"],
+        )
 
         # 自动同步到 project.json
         if self.project_exists(project_name) and isinstance(script.get("episode"), int):
@@ -890,6 +896,11 @@ class ProjectManager:
 
         with open(project_file, "w", encoding="utf-8") as f:
             json.dump(project, f, ensure_ascii=False, indent=2)
+
+        emit_project_change_hint(
+            project_name,
+            changed_paths=[self.PROJECT_FILE],
+        )
 
         return project_file
 

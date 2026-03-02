@@ -1,0 +1,69 @@
+export type ProjectEventSource = "webui" | "worker" | "filesystem";
+
+export interface ProjectChangeFocus {
+  pane: "characters" | "clues" | "episode";
+  episode?: number;
+  anchor_type?: "character" | "clue" | "segment";
+  anchor_id?: string;
+}
+
+export interface ProjectChange {
+  entity_type: "character" | "clue" | "segment" | "episode" | "overview";
+  action:
+    | "created"
+    | "updated"
+    | "deleted"
+    | "storyboard_ready"
+    | "video_ready";
+  entity_id: string;
+  label: string;
+  script_file?: string;
+  episode?: number;
+  focus?: ProjectChangeFocus | null;
+  important: boolean;
+}
+
+export interface ProjectChangeBatchPayload {
+  project_name: string;
+  batch_id: string;
+  fingerprint: string;
+  generated_at: string;
+  source: ProjectEventSource;
+  changes: ProjectChange[];
+}
+
+export interface ProjectEventSnapshotPayload {
+  project_name: string;
+  fingerprint: string;
+  generated_at: string;
+}
+
+export interface ProjectEventHeartbeatPayload {
+  project_name: string;
+  generated_at: string;
+}
+
+export interface WorkspaceFocusTarget {
+  request_id: string;
+  type: "character" | "clue" | "segment";
+  id: string;
+  route: string;
+  highlight: true;
+  highlight_style: "flash";
+  expires_at: number;
+}
+
+export interface WorkspaceFocusTargetInput {
+  request_id?: string;
+  type: WorkspaceFocusTarget["type"];
+  id: string;
+  route?: string;
+  highlight?: boolean;
+  highlight_style?: WorkspaceFocusTarget["highlight_style"];
+  expires_at?: number;
+}
+
+export interface DeferredWorkspaceFocus {
+  text: string;
+  target: WorkspaceFocusTarget;
+}

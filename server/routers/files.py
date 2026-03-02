@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from lib import PROJECT_ROOT
 from lib.gemini_client import GeminiClient
 from lib.image_utils import convert_image_bytes_to_png
+from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 
 router = APIRouter()
@@ -151,23 +152,30 @@ async def upload_file(
 
         if upload_type == "character" and name:
             try:
-                get_project_manager().update_project_character_sheet(
-                    project_name, name, f"characters/{filename}"
-                )
+                with project_change_source("webui"):
+                    get_project_manager().update_project_character_sheet(
+                        project_name, name, f"characters/{filename}"
+                    )
             except KeyError:
                 pass  # 人物不存在，忽略
 
         if upload_type == "character_ref" and name:
             try:
-                get_project_manager().update_character_reference_image(
-                    project_name, name, f"characters/refs/{filename}"
-                )
+                with project_change_source("webui"):
+                    get_project_manager().update_character_reference_image(
+                        project_name, name, f"characters/refs/{filename}"
+                    )
             except KeyError:
                 pass  # 人物不存在，忽略
 
         if upload_type == "clue" and name:
             try:
-                get_project_manager().update_clue_sheet(project_name, name, f"clues/{filename}")
+                with project_change_source("webui"):
+                    get_project_manager().update_clue_sheet(
+                        project_name,
+                        name,
+                        f"clues/{filename}",
+                    )
             except KeyError:
                 pass  # 线索不存在，忽略
 
@@ -515,7 +523,8 @@ async def upload_style_image(project_name: str, file: UploadFile = File(...)):
         project_data = get_project_manager().load_project(project_name)
         project_data["style_image"] = "style_reference.png"
         project_data["style_description"] = style_description
-        get_project_manager().save_project(project_name, project_data)
+        with project_change_source("webui"):
+            get_project_manager().save_project(project_name, project_data)
 
         return {
             "success": True,
@@ -550,7 +559,8 @@ async def delete_style_image(project_name: str):
         project_data = get_project_manager().load_project(project_name)
         project_data.pop("style_image", None)
         project_data.pop("style_description", None)
-        get_project_manager().save_project(project_name, project_data)
+        with project_change_source("webui"):
+            get_project_manager().save_project(project_name, project_data)
 
         return {"success": True}
 
@@ -573,7 +583,8 @@ async def update_style_description(
     try:
         project_data = get_project_manager().load_project(project_name)
         project_data["style_description"] = style_description
-        get_project_manager().save_project(project_name, project_data)
+        with project_change_source("webui"):
+            get_project_manager().save_project(project_name, project_data)
 
         return {"success": True, "style_description": style_description}
 

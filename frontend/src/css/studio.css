@@ -45,3 +45,48 @@
 .animate-progress-pulse {
   animation: progress-pulse 1.5s ease-in-out infinite;
 }
+
+@keyframes workspace-focus-flash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+    background-color: transparent;
+  }
+  12% {
+    box-shadow:
+      0 0 0 1px rgba(125, 211, 252, 0.78),
+      0 0 0 10px rgba(56, 189, 248, 0.12),
+      0 18px 36px rgba(15, 23, 42, 0.38);
+    background-color: rgba(59, 130, 246, 0.08);
+  }
+  32% {
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+    background-color: transparent;
+  }
+  46% {
+    box-shadow:
+      0 0 0 1px rgba(250, 204, 21, 0.68),
+      0 0 0 9px rgba(245, 158, 11, 0.12),
+      0 16px 34px rgba(17, 24, 39, 0.34);
+    background-color: rgba(245, 158, 11, 0.08);
+  }
+  66% {
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+    background-color: transparent;
+  }
+  82% {
+    box-shadow:
+      0 0 0 1px rgba(129, 140, 248, 0.72),
+      0 0 0 8px rgba(99, 102, 241, 0.12),
+      0 14px 28px rgba(17, 24, 39, 0.28);
+    background-color: rgba(99, 102, 241, 0.08);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+    background-color: transparent;
+  }
+}
+
+.workspace-focus-flash {
+  animation: workspace-focus-flash 2.4s ease-in-out forwards;
+  will-change: box-shadow, background-color;
+}
