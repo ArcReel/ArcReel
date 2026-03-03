@@ -20,7 +20,11 @@ from starlette.requests import Request
 from lib import PROJECT_ROOT
 from lib.cost_calculator import cost_calculator
 from lib.gemini_client import refresh_shared_rate_limiter
-from lib.system_config import get_system_config_manager, parse_bool_env
+from lib.system_config import (
+    get_system_config_manager,
+    parse_bool_env,
+    resolve_vertex_credentials_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,18 +76,12 @@ def _effective_video_backend() -> str:
     return _effective_backend("GEMINI_VIDEO_BACKEND")
 
 
-def _vertex_credentials_status(project_root: Path) -> dict[str, Any]:
-    manager = get_system_config_manager(project_root)
-    preferred = manager.paths.vertex_credentials_path
-    path: Optional[Path] = preferred if preferred.exists() else None
-    if path is None:
-        # Backwards-compatible fallback: accept any JSON in vertex_keys/.
-        credentials_dir = preferred.parent
-        if credentials_dir.exists():
-            candidates = sorted(credentials_dir.glob("*.json"))
-            if candidates:
-                path = candidates[0]
+def _resolve_vertex_credentials_path(project_root: Path) -> Optional[Path]:
+    return resolve_vertex_credentials_path(project_root)
 
+
+def _vertex_credentials_status(project_root: Path) -> dict[str, Any]:
+    path = _resolve_vertex_credentials_path(project_root)
     if path is None or not path.exists():
         return {"is_set": False, "filename": None, "project_id": None}
     project_id = None
@@ -97,9 +95,7 @@ def _vertex_credentials_status(project_root: Path) -> dict[str, Any]:
 
 
 def _has_vertex_credentials(project_root: Path) -> bool:
-    status = _vertex_credentials_status(project_root)
-    return bool(status.get("is_set"))
-
+    return bool(_resolve_vertex_credentials_path(project_root))
 
 def _secret_view(
     overrides: dict[str, Any],
@@ -249,7 +245,7 @@ async def patch_system_config(req: SystemConfigPatchRequest, request: Request):
         if ("video_backend" in patch and patch["video_backend"] not in (None, ""))
         else _effective_video_backend()
     )
-    if (final_image_backend == "vertex" or final_video_backend == "vertex") and not manager.paths.vertex_credentials_path.exists():
+    if final_image_backend == "vertex" or final_video_backend == "vertex":
         if not _has_vertex_credentials(PROJECT_ROOT):
             raise HTTPException(status_code=400, detail="请先上传 Vertex AI JSON 凭证文件")
 
@@ -294,12 +290,12 @@ async def upload_vertex_credentials(file: UploadFile = File(...)):
     tmp_path.write_bytes(contents)
     try:
         os.chmod(tmp_path, 0o600)
-    except OSError:
-        pass
+    except OSError as exc:
+        logger.warning("Unable to chmod %s to 0600: %s", tmp_path, exc, exc_info=True)
     os.replace(tmp_path, dest)
     try:
         os.chmod(dest, 0o600)
-    except OSError:
-        pass
+    except OSError as exc:
+        logger.warning("Unable to chmod %s to 0600: %s", dest, exc, exc_info=True)
 
     return _full_payload(PROJECT_ROOT)

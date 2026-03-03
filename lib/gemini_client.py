@@ -177,6 +177,21 @@ def _read_int_env(name: str, default: int) -> int:
         return default
 
 
+def _rate_limiter_limits_from_env() -> Dict[str, int]:
+    image_rpm = _read_int_env("GEMINI_IMAGE_RPM", 15)
+    video_rpm = _read_int_env("GEMINI_VIDEO_RPM", 10)
+
+    image_model = os.environ.get("GEMINI_IMAGE_MODEL", _SHARED_IMAGE_MODEL_NAME)
+    video_model = os.environ.get("GEMINI_VIDEO_MODEL", _SHARED_VIDEO_MODEL_NAME)
+
+    limits: Dict[str, int] = {}
+    if image_rpm > 0:
+        limits[image_model] = image_rpm
+    if video_rpm > 0:
+        limits[video_model] = video_rpm
+    return limits
+
+
 def get_shared_rate_limiter() -> "RateLimiter":
     """
     获取进程内共享的 RateLimiter（从环境变量读取配置）
@@ -193,18 +208,7 @@ def get_shared_rate_limiter() -> "RateLimiter":
         if _shared_rate_limiter is not None:
             return _shared_rate_limiter
 
-        image_rpm = _read_int_env("GEMINI_IMAGE_RPM", 15)
-        video_rpm = _read_int_env("GEMINI_VIDEO_RPM", 10)
-
-        image_model = os.environ.get("GEMINI_IMAGE_MODEL", _SHARED_IMAGE_MODEL_NAME)
-        video_model = os.environ.get("GEMINI_VIDEO_MODEL", _SHARED_VIDEO_MODEL_NAME)
-
-        limits: Dict[str, int] = {}
-        if image_rpm > 0:
-            limits[image_model] = image_rpm
-        if video_rpm > 0:
-            limits[video_model] = video_rpm
-
+        limits = _rate_limiter_limits_from_env()
         _shared_rate_limiter = RateLimiter(limits)
         return _shared_rate_limiter
 
@@ -218,17 +222,7 @@ def refresh_shared_rate_limiter() -> "RateLimiter":
     - GEMINI_IMAGE_RPM / GEMINI_VIDEO_RPM
     """
     limiter = get_shared_rate_limiter()
-
-    image_rpm = _read_int_env("GEMINI_IMAGE_RPM", 15)
-    video_rpm = _read_int_env("GEMINI_VIDEO_RPM", 10)
-    image_model = os.environ.get("GEMINI_IMAGE_MODEL", _SHARED_IMAGE_MODEL_NAME)
-    video_model = os.environ.get("GEMINI_VIDEO_MODEL", _SHARED_VIDEO_MODEL_NAME)
-
-    new_limits: Dict[str, int] = {}
-    if image_rpm > 0:
-        new_limits[image_model] = image_rpm
-    if video_rpm > 0:
-        new_limits[video_model] = video_rpm
+    new_limits = _rate_limiter_limits_from_env()
 
     with limiter.lock:
         limiter.limits = new_limits
@@ -429,23 +423,15 @@ class GeminiClient:
 
             from google.oauth2 import service_account
 
-            # 查找凭证文件
-            credentials_dir = Path(__file__).parent.parent / "vertex_keys"
-            preferred_credentials = credentials_dir / "vertex_credentials.json"
-            credentials_files = []
-            if credentials_dir.exists():
-                if preferred_credentials.exists():
-                    credentials_files = [preferred_credentials]
-                else:
-                    credentials_files = sorted(credentials_dir.glob("*.json"))
+            from .system_config import resolve_vertex_credentials_path
 
-            if not credentials_files:
+            # 查找凭证文件（优先 vertex_credentials.json，兼容 vertex_keys/*.json）
+            credentials_file = resolve_vertex_credentials_path(Path(__file__).parent.parent)
+            if credentials_file is None:
                 raise ValueError(
                     "未找到 Vertex AI 凭证文件\n"
                     "请将服务账号 JSON 文件放入 vertex_keys/ 目录"
                 )
-
-            credentials_file = credentials_files[0]  # 取第一个文件
 
             # 从凭证文件读取项目 ID
             with open(credentials_file) as f:

@@ -133,6 +133,24 @@ class SystemConfigPaths:
     vertex_credentials_path: Path
 
 
+def resolve_vertex_credentials_path(project_root: Path) -> Optional[Path]:
+    """
+    Resolve the Vertex credentials JSON file to use.
+
+    Prefers `vertex_keys/vertex_credentials.json` and falls back to the first
+    `*.json` file in `vertex_keys/` for backward compatibility.
+    """
+    project_root = Path(project_root)
+    credentials_dir = project_root / "vertex_keys"
+    preferred = credentials_dir / "vertex_credentials.json"
+    if preferred.exists():
+        return preferred
+    if not credentials_dir.exists():
+        return None
+    candidates = sorted(credentials_dir.glob("*.json"))
+    return candidates[0] if candidates else None
+
+
 class SystemConfigManager:
     """Manages global system configuration overrides and env application."""
 
@@ -226,8 +244,13 @@ class SystemConfigManager:
         os.replace(tmp_path, self.paths.config_path)
         try:
             os.chmod(self.paths.config_path, 0o600)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug(
+                "Unable to chmod %s to 0600: %s",
+                self.paths.config_path,
+                exc,
+                exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Public API
@@ -362,4 +385,3 @@ class SystemConfigManager:
                     self._set_env(env_key, normalized)
             else:
                 self._restore_or_unset(env_key)
-
