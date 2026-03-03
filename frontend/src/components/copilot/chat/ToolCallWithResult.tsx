@@ -80,7 +80,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
   const isError = block.is_error;
 
   // -- TodoWrite compact display -----------------------------------------------
-  if (isTodoWrite) {
+  if (isTodoWrite && !isError) {
     return <TodoWriteCompact block={block} />;
   }
 

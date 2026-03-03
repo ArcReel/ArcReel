@@ -18,19 +18,20 @@ export function extractLatestTodos(
     if (!Array.isArray(turn.content)) continue;
     for (let j = turn.content.length - 1; j >= 0; j--) {
       const block = turn.content[j];
-      if (block.type === "tool_use" && block.name === "TodoWrite") {
-        const input = block.input as Record<string, unknown> | undefined;
-        const todos = input?.todos;
-        if (
-          Array.isArray(todos) &&
-          todos.length > 0 &&
-          todos.every(
-            (item: unknown) =>
-              item && typeof item === "object" && "content" in item && "status" in item,
-          )
-        ) {
-          return todos as TodoItem[];
-        }
+      if (block.type !== "tool_use" || block.name !== "TodoWrite" || block.is_error === true) {
+        continue;
+      }
+
+      const input = block.input as Record<string, unknown> | undefined;
+      const todos = input?.todos;
+      if (
+        Array.isArray(todos) &&
+        todos.every(
+          (item: unknown) =>
+            item && typeof item === "object" && "content" in item && "status" in item,
+        )
+      ) {
+        return todos as TodoItem[];
       }
     }
   }
