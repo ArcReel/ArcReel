@@ -117,6 +117,16 @@ class TestSystemConfigRouter:
             assert ok.status_code == 200
             assert ok.json()["config"]["video_backend"] == "vertex"
 
+    def test_vertex_credentials_upload_rejects_large_payload(self, tmp_path, monkeypatch, env_guard):
+        client = _client(tmp_path, monkeypatch)
+        with client:
+            too_large = b"0" * (system_config_router.MAX_VERTEX_CREDENTIALS_BYTES + 1)
+            upload = client.post(
+                "/api/v1/system/config/vertex-credentials",
+                files={"file": ("vertex_credentials.json", too_large, "application/json")},
+            )
+            assert upload.status_code == 413
+
     def test_audio_toggle_effective_only_on_vertex(self, tmp_path, monkeypatch, env_guard):
         client = _client(tmp_path, monkeypatch)
         with client:
@@ -177,4 +187,3 @@ class TestSystemConfigRouter:
             assert cfg["gemini_api_key"]["is_set"] is True
             assert secret not in json.dumps(cfg)
             assert cfg["gemini_api_key"]["masked"] is not None
-

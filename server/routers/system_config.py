@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+MAX_VERTEX_CREDENTIALS_BYTES = 1024 * 1024  # 1 MiB
+
 
 def _read_int_env(name: str, default: int) -> int:
     raw = os.environ.get(name)
@@ -271,7 +273,14 @@ async def patch_system_config(req: SystemConfigPatchRequest, request: Request):
 async def upload_vertex_credentials(file: UploadFile = File(...)):
     manager = get_system_config_manager(PROJECT_ROOT)
     try:
-        contents = await file.read()
+        contents = await file.read(MAX_VERTEX_CREDENTIALS_BYTES + 1)
+    except Exception:
+        raise HTTPException(status_code=400, detail="读取上传文件失败")
+
+    if len(contents) > MAX_VERTEX_CREDENTIALS_BYTES:
+        raise HTTPException(status_code=413, detail="凭证文件过大")
+
+    try:
         payload = json.loads(contents.decode("utf-8"))
     except Exception:
         raise HTTPException(status_code=400, detail="无效的 JSON 凭证文件")

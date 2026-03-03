@@ -359,30 +359,28 @@ class MediaGenerator:
         except (ValueError, TypeError):
             duration_int = 8
 
+        video_client = self._get_gemini_video()
+        configured_generate_audio = self._read_bool_env(
+            "GEMINI_VIDEO_GENERATE_AUDIO", True
+        )
+        effective_generate_audio = (
+            configured_generate_audio if self.video_backend == "vertex" else True
+        )
+
         call_id = self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="video",
-            model=self._get_gemini_video().VIDEO_MODEL,
+            model=video_client.VIDEO_MODEL,
             prompt=prompt,
             resolution=resolution,
             duration_seconds=duration_int,
             aspect_ratio=aspect_ratio,
-            generate_audio=(
-                self._read_bool_env("GEMINI_VIDEO_GENERATE_AUDIO", True)
-                if self.video_backend == "vertex"
-                else True
-            ),
+            generate_audio=effective_generate_audio,
         )
 
         try:
-            configured_generate_audio = self._read_bool_env(
-                "GEMINI_VIDEO_GENERATE_AUDIO", True
-            )
-            effective_generate_audio = (
-                configured_generate_audio if self.video_backend == "vertex" else True
-            )
             # 3. 调用 GeminiClient 生成新视频
-            _, video_ref, video_uri = self._get_gemini_video().generate_video(
+            _, video_ref, video_uri = video_client.generate_video(
                 prompt=prompt,
                 start_image=start_image,
                 aspect_ratio=aspect_ratio,
@@ -470,30 +468,28 @@ class MediaGenerator:
         except (ValueError, TypeError):
             duration_int = 8
 
+        video_client = self._get_gemini_video()
+        configured_generate_audio = self._read_bool_env(
+            "GEMINI_VIDEO_GENERATE_AUDIO", True
+        )
+        effective_generate_audio = (
+            configured_generate_audio if self.video_backend == "vertex" else True
+        )
+
         call_id = self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="video",
-            model=self._get_gemini_video().VIDEO_MODEL,
+            model=video_client.VIDEO_MODEL,
             prompt=prompt,
             resolution=resolution,
             duration_seconds=duration_int,
             aspect_ratio=aspect_ratio,
-            generate_audio=(
-                self._read_bool_env("GEMINI_VIDEO_GENERATE_AUDIO", True)
-                if self.video_backend == "vertex"
-                else True
-            ),
+            generate_audio=effective_generate_audio,
         )
 
         try:
-            configured_generate_audio = self._read_bool_env(
-                "GEMINI_VIDEO_GENERATE_AUDIO", True
-            )
-            effective_generate_audio = (
-                configured_generate_audio if self.video_backend == "vertex" else True
-            )
             # 3. 调用 GeminiClient 异步生成新视频
-            _, video_ref, video_uri = await self._get_gemini_video().generate_video_async(
+            _, video_ref, video_uri = await video_client.generate_video_async(
                 prompt=prompt,
                 start_image=start_image,
                 aspect_ratio=aspect_ratio,

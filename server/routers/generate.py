@@ -70,17 +70,13 @@ def _get_video_semaphore() -> asyncio.Semaphore:
     """
     global _video_semaphore, _video_semaphore_max_workers
 
-    max_workers = _read_int_env("VIDEO_MAX_WORKERS", 2)
-    if max_workers < 1:
-        max_workers = 1
+    max_workers = max(1, _read_int_env("VIDEO_MAX_WORKERS", 2))
 
     if _video_semaphore is not None and _video_semaphore_max_workers == max_workers:
         return _video_semaphore
 
     with _video_semaphore_lock:
-        max_workers = _read_int_env("VIDEO_MAX_WORKERS", 2)
-        if max_workers < 1:
-            max_workers = 1
+        max_workers = max(1, _read_int_env("VIDEO_MAX_WORKERS", 2))
         if _video_semaphore is not None and _video_semaphore_max_workers == max_workers:
             return _video_semaphore
         _video_semaphore = asyncio.Semaphore(max_workers)
