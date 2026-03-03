@@ -6,6 +6,7 @@ import { StudioLayout } from "@/components/layout";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { ToastOverlay } from "@/components/layout/ToastOverlay";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAssistantStore } from "@/stores/assistant-store";
@@ -91,40 +92,43 @@ function StudioWorkspace() {
 
 export function AppRoutes() {
   return (
-    <Switch>
-      {/* Login page */}
-      <Route path="/login" component={LoginPage} />
+    <>
+      <Switch>
+        {/* Login page */}
+        <Route path="/login" component={LoginPage} />
 
-      {/* Root redirects to projects list */}
-      <Route path="/">
-        <Redirect to="/app/projects" />
-      </Route>
+        {/* Root redirects to projects list */}
+        <Route path="/">
+          <Redirect to="/app/projects" />
+        </Route>
 
-      {/* /app and /app/ also redirect to projects list */}
-      <Route path="/app">
-        <Redirect to="/app/projects" />
-      </Route>
+        {/* /app and /app/ also redirect to projects list */}
+        <Route path="/app">
+          <Redirect to="/app/projects" />
+        </Route>
 
-      {/* Projects list */}
-      <Route path="/app/projects">
-        <AuthGuard>
-          <ProjectsPage />
-        </AuthGuard>
-      </Route>
+        {/* Projects list */}
+        <Route path="/app/projects">
+          <AuthGuard>
+            <ProjectsPage />
+          </AuthGuard>
+        </Route>
 
-      {/* Studio workspace (three-column layout) */}
-      <Route path="/app/projects/:projectName" nest>
-        <AuthGuard>
-          <StudioWorkspace />
-        </AuthGuard>
-      </Route>
+        {/* Studio workspace (three-column layout) */}
+        <Route path="/app/projects/:projectName" nest>
+          <AuthGuard>
+            <StudioWorkspace />
+          </AuthGuard>
+        </Route>
 
-      {/* 404 */}
-      <Route>
-        <div className="flex h-screen items-center justify-center bg-gray-950 text-gray-400">
-          404 — 页面未找到
-        </div>
-      </Route>
-    </Switch>
+        {/* 404 */}
+        <Route>
+          <div className="flex h-screen items-center justify-center bg-gray-950 text-gray-400">
+            404 — 页面未找到
+          </div>
+        </Route>
+      </Switch>
+      <ToastOverlay />
+    </>
   );
 }

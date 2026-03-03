@@ -80,12 +80,18 @@ body {
 }
 
 .toast-enter {
-    animation: slide-up 0.24s ease-out;
+    animation: slide-down 0.24s ease-out;
 }
 
-@keyframes slide-up {
+@media (prefers-reduced-motion: reduce) {
+    .toast-enter {
+        animation: none;
+    }
+}
+
+@keyframes slide-down {
     from {
-        transform: translateY(8px);
+        transform: translateY(-8px);
         opacity: 0;
     }
 
