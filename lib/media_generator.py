@@ -12,6 +12,7 @@ MediaGenerator 中间层
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import Optional, List, Union, Tuple
 from PIL import Image
@@ -52,12 +53,52 @@ class MediaGenerator:
         """
         self.project_path = Path(project_path)
         self.project_name = self.project_path.name
-        self.gemini = GeminiClient(rate_limiter=rate_limiter)
+        self._rate_limiter = rate_limiter
+        self.image_backend = (
+            (os.environ.get("GEMINI_IMAGE_BACKEND") or "").strip().lower()
+            or (os.environ.get("GEMINI_BACKEND") or "").strip().lower()
+            or "aistudio"
+        )
+        self.video_backend = (
+            (os.environ.get("GEMINI_VIDEO_BACKEND") or "").strip().lower()
+            or (os.environ.get("GEMINI_BACKEND") or "").strip().lower()
+            or "aistudio"
+        )
+        self._gemini_image: Optional[GeminiClient] = None
+        self._gemini_video: Optional[GeminiClient] = None
         self.versions = VersionManager(project_path)
 
         # 初始化 UsageTracker（全局数据库，存放在 projects 目录下）
         db_path = self.project_path.parent / ".api_usage.db"
         self.usage_tracker = UsageTracker(db_path)
+
+    def _get_gemini_image(self) -> GeminiClient:
+        if self._gemini_image is None:
+            self._gemini_image = GeminiClient(
+                rate_limiter=self._rate_limiter,
+                backend=self.image_backend,
+            )
+        return self._gemini_image
+
+    def _get_gemini_video(self) -> GeminiClient:
+        if self._gemini_video is None:
+            self._gemini_video = GeminiClient(
+                rate_limiter=self._rate_limiter,
+                backend=self.video_backend,
+            )
+        return self._gemini_video
+
+    @staticmethod
+    def _read_bool_env(name: str, default: bool) -> bool:
+        raw = os.environ.get(name)
+        if raw is None:
+            return default
+        normalized = str(raw).strip().lower()
+        if normalized in {"1", "true", "t", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "f", "no", "n", "off"}:
+            return False
+        return default
 
     def _get_output_path(self, resource_type: str, resource_id: str) -> Path:
         """
@@ -133,10 +174,11 @@ class MediaGenerator:
             )
 
         # 2. 记录 API 调用开始
+        client = self._get_gemini_image()
         call_id = self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="image",
-            model=self.gemini.IMAGE_MODEL,
+            model=client.IMAGE_MODEL,
             prompt=prompt,
             resolution=image_size,
             aspect_ratio=aspect_ratio,
@@ -144,7 +186,7 @@ class MediaGenerator:
 
         try:
             # 3. 调用 GeminiClient 生成新文件
-            self.gemini.generate_image(
+            client.generate_image(
                 prompt=prompt,
                 reference_images=reference_images,
                 aspect_ratio=aspect_ratio,
@@ -220,10 +262,11 @@ class MediaGenerator:
             )
 
         # 2. 记录 API 调用开始
+        client = self._get_gemini_image()
         call_id = self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="image",
-            model=self.gemini.IMAGE_MODEL,
+            model=client.IMAGE_MODEL,
             prompt=prompt,
             resolution=image_size,
             aspect_ratio=aspect_ratio,
@@ -231,7 +274,7 @@ class MediaGenerator:
 
         try:
             # 3. 调用 GeminiClient 异步生成新文件
-            await self.gemini.generate_image_async(
+            await client.generate_image_async(
                 prompt=prompt,
                 reference_images=reference_images,
                 aspect_ratio=aspect_ratio,
@@ -319,23 +362,34 @@ class MediaGenerator:
         call_id = self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="video",
-            model=self.gemini.VIDEO_MODEL,
+            model=self._get_gemini_video().VIDEO_MODEL,
             prompt=prompt,
             resolution=resolution,
             duration_seconds=duration_int,
             aspect_ratio=aspect_ratio,
-            generate_audio=True,
+            generate_audio=(
+                self._read_bool_env("GEMINI_VIDEO_GENERATE_AUDIO", True)
+                if self.video_backend == "vertex"
+                else True
+            ),
         )
 
         try:
+            configured_generate_audio = self._read_bool_env(
+                "GEMINI_VIDEO_GENERATE_AUDIO", True
+            )
+            effective_generate_audio = (
+                configured_generate_audio if self.video_backend == "vertex" else True
+            )
             # 3. 调用 GeminiClient 生成新视频
-            _, video_ref, video_uri = self.gemini.generate_video(
+            _, video_ref, video_uri = self._get_gemini_video().generate_video(
                 prompt=prompt,
                 start_image=start_image,
                 aspect_ratio=aspect_ratio,
                 duration_seconds=duration_seconds,
                 resolution=resolution,
                 negative_prompt=negative_prompt,
+                generate_audio=effective_generate_audio,
                 output_path=output_path
             )
 
@@ -419,23 +473,34 @@ class MediaGenerator:
         call_id = self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="video",
-            model=self.gemini.VIDEO_MODEL,
+            model=self._get_gemini_video().VIDEO_MODEL,
             prompt=prompt,
             resolution=resolution,
             duration_seconds=duration_int,
             aspect_ratio=aspect_ratio,
-            generate_audio=True,
+            generate_audio=(
+                self._read_bool_env("GEMINI_VIDEO_GENERATE_AUDIO", True)
+                if self.video_backend == "vertex"
+                else True
+            ),
         )
 
         try:
+            configured_generate_audio = self._read_bool_env(
+                "GEMINI_VIDEO_GENERATE_AUDIO", True
+            )
+            effective_generate_audio = (
+                configured_generate_audio if self.video_backend == "vertex" else True
+            )
             # 3. 调用 GeminiClient 异步生成新视频
-            _, video_ref, video_uri = await self.gemini.generate_video_async(
+            _, video_ref, video_uri = await self._get_gemini_video().generate_video_async(
                 prompt=prompt,
                 start_image=start_image,
                 aspect_ratio=aspect_ratio,
                 duration_seconds=duration_seconds,
                 resolution=resolution,
                 negative_prompt=negative_prompt,
+                generate_audio=effective_generate_audio,
                 output_path=output_path
             )
 

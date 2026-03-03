@@ -49,6 +49,7 @@ def get_project_manager() -> ProjectManager:
 
 _video_semaphore: Optional[asyncio.Semaphore] = None
 _video_semaphore_lock = threading.Lock()
+_video_semaphore_max_workers: Optional[int] = None
 
 
 def _read_int_env(name: str, default: int) -> int:
@@ -67,19 +68,23 @@ def _get_video_semaphore() -> asyncio.Semaphore:
 
     注意：如果 uvicorn 使用多 worker 进程，该 semaphore 为“每进程一份”。
     """
-    global _video_semaphore
-    if _video_semaphore is not None:
+    global _video_semaphore, _video_semaphore_max_workers
+
+    max_workers = _read_int_env("VIDEO_MAX_WORKERS", 2)
+    if max_workers < 1:
+        max_workers = 1
+
+    if _video_semaphore is not None and _video_semaphore_max_workers == max_workers:
         return _video_semaphore
 
     with _video_semaphore_lock:
-        if _video_semaphore is not None:
-            return _video_semaphore
-
         max_workers = _read_int_env("VIDEO_MAX_WORKERS", 2)
         if max_workers < 1:
             max_workers = 1
-
+        if _video_semaphore is not None and _video_semaphore_max_workers == max_workers:
+            return _video_semaphore
         _video_semaphore = asyncio.Semaphore(max_workers)
+        _video_semaphore_max_workers = max_workers
         return _video_semaphore
 
 

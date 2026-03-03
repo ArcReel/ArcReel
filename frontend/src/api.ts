@@ -19,6 +19,8 @@ import type {
   ProjectOverview,
   ProjectChangeBatchPayload,
   ProjectEventSnapshotPayload,
+  GetSystemConfigResponse,
+  SystemConfigPatch,
 } from "@/types";
 import { getToken, clearToken } from "@/utils/auth";
 
@@ -188,6 +190,39 @@ class API {
       throw new Error(error.detail || "请求失败");
     }
 
+    return response.json();
+  }
+
+  // ==================== 系统配置 ====================
+
+  static async getSystemConfig(): Promise<GetSystemConfigResponse> {
+    return this.request("/system/config");
+  }
+
+  static async updateSystemConfig(
+    patch: SystemConfigPatch,
+  ): Promise<GetSystemConfigResponse> {
+    return this.request("/system/config", {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  }
+
+  static async uploadVertexCredentials(
+    file: File,
+  ): Promise<GetSystemConfigResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(
+      `${API_BASE}/system/config/vertex-credentials`,
+      withAuth({
+        method: "POST",
+        body: formData,
+      }),
+    );
+
+    await throwIfNotOk(response, "上传失败");
     return response.json();
   }
 

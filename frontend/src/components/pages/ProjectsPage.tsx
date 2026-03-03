@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Plus, FolderOpen, Upload, AlertTriangle } from "lucide-react";
+import { Loader2, Plus, FolderOpen, Upload, AlertTriangle, Settings } from "lucide-react";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
@@ -292,6 +292,15 @@ export function ProjectsPage() {
             <span className="ml-2 text-gray-400 font-normal text-base">项目</span>
           </h1>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate("/app/settings")}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 bg-gray-900 px-4 py-2 text-sm font-medium text-gray-200 transition-colors hover:border-gray-500 hover:bg-gray-800"
+              aria-label="系统配置"
+            >
+              <Settings className="h-4 w-4" />
+              系统配置
+            </button>
             <button
               type="button"
               onClick={() => importInputRef.current?.click()}

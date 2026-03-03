@@ -19,6 +19,8 @@ from typing import Dict, List, Optional, Tuple, Type, Union
 
 from PIL import Image
 
+from .cost_calculator import cost_calculator
+
 logger = logging.getLogger(__name__)
 
 ReferenceImageValue = Union[str, Path, Image.Image]
@@ -158,8 +160,8 @@ class RateLimiter:
                 await asyncio.sleep(0.1)  # 短暂让出控制权
 
 
-_SHARED_IMAGE_MODEL_NAME = "gemini-3.1-flash-image-preview"
-_SHARED_VIDEO_MODEL_NAME = "veo-3.1-generate-preview"
+_SHARED_IMAGE_MODEL_NAME = cost_calculator.DEFAULT_IMAGE_MODEL
+_SHARED_VIDEO_MODEL_NAME = cost_calculator.DEFAULT_VIDEO_MODEL
 
 _shared_rate_limiter: Optional["RateLimiter"] = None
 _shared_rate_limiter_lock = threading.Lock()
@@ -194,14 +196,44 @@ def get_shared_rate_limiter() -> "RateLimiter":
         image_rpm = _read_int_env("GEMINI_IMAGE_RPM", 15)
         video_rpm = _read_int_env("GEMINI_VIDEO_RPM", 10)
 
+        image_model = os.environ.get("GEMINI_IMAGE_MODEL", _SHARED_IMAGE_MODEL_NAME)
+        video_model = os.environ.get("GEMINI_VIDEO_MODEL", _SHARED_VIDEO_MODEL_NAME)
+
         limits: Dict[str, int] = {}
         if image_rpm > 0:
-            limits[_SHARED_IMAGE_MODEL_NAME] = image_rpm
+            limits[image_model] = image_rpm
         if video_rpm > 0:
-            limits[_SHARED_VIDEO_MODEL_NAME] = video_rpm
+            limits[video_model] = video_rpm
 
         _shared_rate_limiter = RateLimiter(limits)
         return _shared_rate_limiter
+
+
+def refresh_shared_rate_limiter() -> "RateLimiter":
+    """
+    Refresh the process-wide shared RateLimiter in-place.
+
+    Updates model keys based on current environment variables:
+    - GEMINI_IMAGE_MODEL / GEMINI_VIDEO_MODEL
+    - GEMINI_IMAGE_RPM / GEMINI_VIDEO_RPM
+    """
+    limiter = get_shared_rate_limiter()
+
+    image_rpm = _read_int_env("GEMINI_IMAGE_RPM", 15)
+    video_rpm = _read_int_env("GEMINI_VIDEO_RPM", 10)
+    image_model = os.environ.get("GEMINI_IMAGE_MODEL", _SHARED_IMAGE_MODEL_NAME)
+    video_model = os.environ.get("GEMINI_VIDEO_MODEL", _SHARED_VIDEO_MODEL_NAME)
+
+    new_limits: Dict[str, int] = {}
+    if image_rpm > 0:
+        new_limits[image_model] = image_rpm
+    if video_rpm > 0:
+        new_limits[video_model] = video_rpm
+
+    with limiter.lock:
+        limiter.limits = new_limits
+
+    return limiter
 
 
 def with_retry(
@@ -359,7 +391,10 @@ class GeminiClient:
     SKIP_NAME_PATTERNS = ("scene_", "storyboard_", "output_")
 
     def __init__(
-        self, api_key: Optional[str] = None, rate_limiter: Optional[RateLimiter] = None
+        self,
+        api_key: Optional[str] = None,
+        rate_limiter: Optional[RateLimiter] = None,
+        backend: Optional[str] = None,
     ):
         """
         初始化 Gemini 客户端
@@ -368,20 +403,22 @@ class GeminiClient:
         - AI Studio（默认）：使用 GEMINI_API_KEY
         - Vertex AI：使用 GCP 项目和应用默认凭据
 
-        通过环境变量 GEMINI_BACKEND 切换：
+        通过环境变量 GEMINI_BACKEND 切换（或通过参数 backend 显式覆盖）：
         - GEMINI_BACKEND=aistudio（默认）
         - GEMINI_BACKEND=vertex
 
         Args:
             api_key: API 密钥（仅 AI Studio 模式），默认从环境变量 GEMINI_API_KEY 读取
             rate_limiter: 可选的限流器实例
+            backend: 可选的后端覆盖（aistudio/vertex）。None 时读取环境变量 GEMINI_BACKEND。
         """
         from google import genai
         from google.genai import types
 
         self.types = types
         self.rate_limiter = rate_limiter or get_shared_rate_limiter()
-        self.backend = os.environ.get("GEMINI_BACKEND", "aistudio").lower()
+        raw_backend = backend or os.environ.get("GEMINI_BACKEND", "aistudio")
+        self.backend = str(raw_backend).strip().lower() or "aistudio"
         self.credentials = None  # 用于 Vertex AI 模式
         self.project_id = None  # 用于 Vertex AI 模式
         self.gcs_bucket = None  # 用于 Vertex AI 模式的视频延长输出
@@ -394,9 +431,13 @@ class GeminiClient:
 
             # 查找凭证文件
             credentials_dir = Path(__file__).parent.parent / "vertex_keys"
-            credentials_files = (
-                list(credentials_dir.glob("*.json")) if credentials_dir.exists() else []
-            )
+            preferred_credentials = credentials_dir / "vertex_credentials.json"
+            credentials_files = []
+            if credentials_dir.exists():
+                if preferred_credentials.exists():
+                    credentials_files = [preferred_credentials]
+                else:
+                    credentials_files = sorted(credentials_dir.glob("*.json"))
 
             if not credentials_files:
                 raise ValueError(
@@ -446,8 +487,12 @@ class GeminiClient:
             logger.info("使用 AI Studio 后端")
 
         # 模型配置（两种后端使用相同的模型名）
-        self.IMAGE_MODEL = "gemini-3.1-flash-image-preview"
-        self.VIDEO_MODEL = "veo-3.1-generate-preview"
+        self.IMAGE_MODEL = os.environ.get(
+            "GEMINI_IMAGE_MODEL", cost_calculator.DEFAULT_IMAGE_MODEL
+        )
+        self.VIDEO_MODEL = os.environ.get(
+            "GEMINI_VIDEO_MODEL", cost_calculator.DEFAULT_VIDEO_MODEL
+        )
 
     @staticmethod
     def _load_image_detached(image_path: Union[str, Path]) -> Image.Image:
@@ -718,6 +763,7 @@ class GeminiClient:
         duration_seconds: str = "8",
         resolution: str = "1080p",
         negative_prompt: str = "music, BGM, background music, subtitles, low quality",
+        generate_audio: bool = True,
         output_path: Optional[Union[str, Path]] = None,
         output_gcs_uri: Optional[str] = None,
         poll_interval: int = 10,
@@ -744,6 +790,7 @@ class GeminiClient:
             duration_seconds: 视频时长，可选 "4", "6", "8"（生成模式使用）
             resolution: 分辨率，可选 "720p", "1080p", "4k"（延长模式强制 720p）
             negative_prompt: 负面提示词，指定不想要的元素（默认禁止 BGM）
+            generate_audio: 是否生成音频（仅 Vertex AI 生成模式支持关闭）
             output_path: 本地输出路径
             output_gcs_uri: GCS 输出路径（Vertex AI 延长模式必须设置）
             poll_interval: 轮询间隔（秒）
@@ -849,12 +896,15 @@ class GeminiClient:
         else:
             # ===== 生成模式 =====
             # 构建配置
-            config = self.types.GenerateVideosConfig(
-                aspect_ratio=aspect_ratio,
-                resolution=resolution,
-                duration_seconds=duration_seconds,
-                negative_prompt=negative_prompt,
-            )
+            config_params = {
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+                "duration_seconds": duration_seconds,
+                "negative_prompt": negative_prompt,
+            }
+            if self.backend == "vertex":
+                config_params["generate_audio"] = bool(generate_audio)
+            config = self.types.GenerateVideosConfig(**config_params)
 
             # 准备起始帧
             image_param = self._prepare_image_param(start_image)
@@ -930,14 +980,18 @@ class GeminiClient:
         resolution: str,
         duration_seconds: str,
         negative_prompt: str,
+        generate_audio: Optional[bool] = None,
     ):
         """构建视频生成配置"""
-        return self.types.GenerateVideosConfig(
-            aspect_ratio=aspect_ratio,
-            resolution=resolution,
-            duration_seconds=duration_seconds,
-            negative_prompt=negative_prompt,
-        )
+        params = {
+            "aspect_ratio": aspect_ratio,
+            "resolution": resolution,
+            "duration_seconds": duration_seconds,
+            "negative_prompt": negative_prompt,
+        }
+        if generate_audio is not None:
+            params["generate_audio"] = bool(generate_audio)
+        return self.types.GenerateVideosConfig(**params)
 
     def _prepare_video_extend_config(self, output_gcs_uri: Optional[str] = None):
         """构建视频延长配置"""
@@ -1018,6 +1072,7 @@ class GeminiClient:
         duration_seconds: str = "8",
         resolution: str = "1080p",
         negative_prompt: str = "music, BGM, background music, subtitles, low quality",
+        generate_audio: bool = True,
         output_path: Optional[Union[str, Path]] = None,
         output_gcs_uri: Optional[str] = None,
         poll_interval: int = 10,
@@ -1046,6 +1101,7 @@ class GeminiClient:
             duration_seconds: 视频时长，可选 "4", "6", "8"（生成模式使用）
             resolution: 分辨率，可选 "720p", "1080p", "4k"（延长模式强制 720p）
             negative_prompt: 负面提示词，指定不想要的元素（默认禁止 BGM）
+            generate_audio: 是否生成音频（仅 Vertex AI 生成模式支持关闭）
             output_path: 本地输出路径
             output_gcs_uri: GCS 输出路径（Vertex AI 延长模式必须设置）
             poll_interval: 轮询间隔（秒）
@@ -1113,7 +1169,11 @@ class GeminiClient:
         else:
             # ===== 生成模式 =====
             config = self._prepare_video_generate_config(
-                aspect_ratio, resolution, duration_seconds, negative_prompt
+                aspect_ratio,
+                resolution,
+                duration_seconds,
+                negative_prompt,
+                generate_audio=bool(generate_audio) if self.backend == "vertex" else None,
             )
 
             # 准备起始帧

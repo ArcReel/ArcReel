@@ -65,7 +65,12 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen.project_path = tmp_path / "projects" / "demo"
     gen.project_path.mkdir(parents=True, exist_ok=True)
     gen.project_name = "demo"
-    gen.gemini = _FakeGemini()
+    gen._rate_limiter = None
+    gen.image_backend = "aistudio"
+    gen.video_backend = "aistudio"
+    fake = _FakeGemini()
+    gen._gemini_image = fake
+    gen._gemini_video = fake
     gen.versions = _FakeVersions()
     gen.usage_tracker = _FakeUsage()
     return gen
@@ -97,7 +102,7 @@ class TestMediaGenerator:
         def _raise(**kwargs):
             raise RuntimeError("boom")
 
-        gen.gemini.generate_image = _raise
+        gen._gemini_image.generate_image = _raise
         with pytest.raises(RuntimeError):
             gen.generate_image(prompt="p", resource_type="characters", resource_id="A")
 

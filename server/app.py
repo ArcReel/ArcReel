@@ -34,6 +34,7 @@ from server.routers import (
     versions,
     usage,
     tasks,
+    system_config,
 )
 from server.routers import auth as auth_router
 from server.services.project_events import ProjectEventService
@@ -180,6 +181,7 @@ app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
 app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant", tags=["助手会话"])
 app.include_router(tasks.router, prefix="/api/v1", tags=["任务队列"])
 app.include_router(project_events.router, prefix="/api/v1", tags=["项目变更流"])
+app.include_router(system_config.router, prefix="/api/v1", tags=["系统配置"])
 
 # 前端构建产物目录（Vite）
 frontend_dir = PROJECT_ROOT / "frontend"

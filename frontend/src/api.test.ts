@@ -173,6 +173,9 @@ describe("API", () => {
       await API.updateScene("demo", "scene-1", "episode_1.json", { x: 1 });
       await API.updateSegment("demo", "segment-1", { y: 2 });
 
+      await API.getSystemConfig();
+      await API.updateSystemConfig({ image_backend: "vertex" });
+
       await API.listFiles("demo");
       await API.listDrafts("demo");
       await API.deleteDraft("demo", 1, 2);
@@ -236,6 +239,11 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/segments/segment-1", {
         method: "PATCH",
         body: JSON.stringify({ y: 2 }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/system/config");
+      expect(requestSpy).toHaveBeenCalledWith("/system/config", {
+        method: "PATCH",
+        body: JSON.stringify({ image_backend: "vertex" }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/video/seg-1", {
         method: "POST",
@@ -363,6 +371,23 @@ describe("API", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock.mock.calls[0][0]).toBe(
         "/api/v1/projects/my%20project/upload/source?name=x%20y",
+      );
+      expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST");
+      expect((fetchMock.mock.calls[0][1] as RequestInit).body).toBeInstanceOf(FormData);
+    });
+
+    it("uploads vertex credentials via multipart form", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({ jsonData: { config: {}, options: {} } }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const file = new File(["{}"], "vertex.json", { type: "application/json" });
+      await API.uploadVertexCredentials(file);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "/api/v1/system/config/vertex-credentials",
       );
       expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST");
       expect((fetchMock.mock.calls[0][1] as RequestInit).body).toBeInstanceOf(FormData);

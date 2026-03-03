@@ -56,6 +56,11 @@ class GenerationWorker:
         self._video_inflight: Dict[str, asyncio.Task] = {}
         self._owns_lease = False
 
+    def reload_limits_from_env(self) -> None:
+        """Reload worker concurrency limits from environment variables."""
+        self.image_workers = _read_int_env("STORYBOARD_MAX_WORKERS", 3, minimum=1)
+        self.video_workers = _read_int_env("VIDEO_MAX_WORKERS", 2, minimum=1)
+
     async def start(self) -> None:
         if self._main_task and not self._main_task.done():
             return
