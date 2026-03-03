@@ -3,12 +3,13 @@ Assistant session APIs.
 """
 
 import logging
+from collections.abc import AsyncIterator
 from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, HTTPException, Query, Path as PathParam
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Path as PathParam
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
 
 from lib import PROJECT_ROOT
@@ -32,6 +33,14 @@ def _validate_session_ownership(
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
     if session.project_name != project_name:
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+
+def _assistant_service_for_stream(
+    project_name: str,
+    session_id: str,
+) -> AssistantService:
+    service = get_assistant_service()
+    _validate_session_ownership(service, session_id, project_name)
+    return service
 
 
 class CreateSessionRequest(BaseModel):
@@ -216,21 +225,15 @@ async def answer_question(project_name: str, session_id: str, question_id: str, 
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.get("/sessions/{session_id}/stream")
-async def stream_events(project_name: str, session_id: str):
+@router.get("/sessions/{session_id}/stream", response_class=EventSourceResponse)
+async def stream_events(
+    project_name: str,
+    session_id: str,
+    service: AssistantService = Depends(_assistant_service_for_stream),
+) -> AsyncIterator[ServerSentEvent]:
     try:
-        service = get_assistant_service()
-        _validate_session_ownership(service, session_id, project_name)
-
-        return StreamingResponse(
-            service.stream_events(session_id),
-            media_type="text/event-stream; charset=utf-8",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
+        async for event in service.stream_events(session_id):
+            yield event
     except HTTPException:
         raise
     except Exception as exc:

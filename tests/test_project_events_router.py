@@ -1,5 +1,4 @@
 import asyncio
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -8,14 +7,11 @@ from server.routers import project_events as project_events_router
 
 
 class _FakeRequest:
-    def __init__(self, app, disconnect_after: int):
+    def __init__(self, app):
         self.app = app
-        self._calls = 0
-        self._disconnect_after = disconnect_after
 
     async def is_disconnected(self):
-        self._calls += 1
-        return self._calls > self._disconnect_after
+        return False
 
 
 class _FakeService:
@@ -49,36 +45,22 @@ class _FakeService:
         self.unsubscribed = True
 
 
-def _decode_sse(chunk):
-    text = chunk.decode("utf-8") if isinstance(chunk, (bytes, bytearray)) else str(chunk)
-    event = ""
-    payload = None
-    for line in text.splitlines():
-        if line.startswith("event: "):
-            event = line[len("event: "):]
-        elif line.startswith("data: "):
-            payload = json.loads(line[len("data: "):])
-    return event, payload
-
-
 @pytest.mark.asyncio
 async def test_stream_project_events_emits_snapshot_and_changes():
     service = _FakeService()
     app = SimpleNamespace(state=SimpleNamespace(project_event_service=service))
-    request = _FakeRequest(app, disconnect_after=1)
+    request = _FakeRequest(app)
 
-    response = await project_events_router.stream_project_events("demo", request)
+    subscription = await project_events_router._project_events_subscription("demo", request)
+    stream = project_events_router.stream_project_events("demo", request, subscription=subscription)
 
-    chunks = []
-    async for chunk in response.body_iterator:
-        chunks.append(chunk)
+    snapshot_event = await anext(stream)
+    changes_event = await anext(stream)
+    await stream.aclose()
 
-    assert len(chunks) >= 2
-    snapshot_event, snapshot_payload = _decode_sse(chunks[0])
-    assert snapshot_event == "snapshot"
-    assert snapshot_payload["fingerprint"] == "fp-0"
+    assert snapshot_event.event == "snapshot"
+    assert snapshot_event.data["fingerprint"] == "fp-0"
 
-    changes_event, changes_payload = _decode_sse(chunks[1])
-    assert changes_event == "changes"
-    assert changes_payload["batch_id"] == "batch-1"
+    assert changes_event.event == "changes"
+    assert changes_event.data["batch_id"] == "batch-1"
     assert service.unsubscribed is True

@@ -2,6 +2,7 @@ import asyncio
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from fastapi.sse import ServerSentEvent
 
 from tests.factories import make_session_meta
 from server.routers import assistant
@@ -70,7 +71,7 @@ class _FakeService:
         return {"status": "accepted", "session_id": session_id, "question_id": question_id, "answers": answers}
 
     async def stream_events(self, session_id):
-        yield "event: snapshot\ndata: {}\n\n"
+        yield ServerSentEvent(event="snapshot", data={})
         await asyncio.sleep(0)
 
     def list_available_skills(self, project_name=None):

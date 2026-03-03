@@ -4,7 +4,7 @@ import { useTasksStore } from "@/stores/tasks-store";
 
 /**
  * 连接任务队列 SSE 流的 Hook。
- * 挂载时建立连接，处理 snapshot/task/heartbeat 事件，
+ * 挂载时建立连接，处理 snapshot/task 事件，
  * 断开后 3 秒自动重连，卸载时清理。
  */
 export function useTasksSSE(projectName?: string | null): void {
@@ -33,9 +33,6 @@ export function useTasksSSE(projectName?: string | null): void {
           if (disposed) return;
           upsertTask(payload.task);
           setStats(payload.stats);
-        },
-        onHeartbeat() {
-          if (disposed) return;
           setConnected(true);
         },
         onError() {

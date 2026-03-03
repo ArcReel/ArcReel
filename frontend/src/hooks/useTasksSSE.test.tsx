@@ -31,7 +31,7 @@ describe("useTasksSSE", () => {
     useTasksStore.setState(useTasksStore.getInitialState(), true);
   });
 
-  it("connects, applies snapshot/task/heartbeat events, and cleans up on unmount", () => {
+  it("connects, applies snapshot/task events, and cleans up on unmount", () => {
     const captured: TaskStreamOptions[] = [];
     const source = { close: vi.fn() } as unknown as EventSource;
 
@@ -66,14 +66,6 @@ describe("useTasksSSE", () => {
     });
     expect(useTasksStore.getState().tasks[0].status).toBe("running");
     expect(useTasksStore.getState().stats.running).toBe(1);
-
-    act(() => {
-      captured[0].onHeartbeat?.(
-        { last_event_id: 42, generated_at: "2026-02-02T00:00:00Z" },
-        new MessageEvent("heartbeat"),
-      );
-    });
-    expect(useTasksStore.getState().connected).toBe(true);
 
     unmount();
     expect(source.close).toHaveBeenCalledTimes(1);

@@ -38,11 +38,6 @@ export interface ProjectEventSnapshotPayload {
   generated_at: string;
 }
 
-export interface ProjectEventHeartbeatPayload {
-  project_name: string;
-  generated_at: string;
-}
-
 export interface WorkspaceFocusTarget {
   request_id: string;
   type: "character" | "clue" | "segment";

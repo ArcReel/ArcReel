@@ -238,7 +238,7 @@ class TestAssistantServiceMore:
             "s1",
         )
         assert stop2 is False
-        assert any("event: compact" in event for event in events2)
+        assert any(event.event == "compact" for event in events2)
 
         events3, stop3 = service._dispatch_live_message(
             {"type": "runtime_status", "status": "interrupted"},
@@ -246,7 +246,7 @@ class TestAssistantServiceMore:
             "s1",
         )
         assert stop3 is True
-        assert any("event: status" in event for event in events3)
+        assert any(event.event == "status" for event in events3)
 
         events4, stop4 = service._dispatch_live_message(
             {"type": "result", "subtype": "success", "is_error": False},
@@ -254,15 +254,17 @@ class TestAssistantServiceMore:
             "s1",
         )
         assert stop4 is True
-        assert any("event: status" in event for event in events4)
+        assert any(event.event == "status" for event in events4)
 
         assert service._check_runtime_status_terminal({"status": "???."}, "s1") is None
         assert service._handle_heartbeat_timeout("s1", "running", projector) is None
         sm.status = "completed"
         status_event = service._handle_heartbeat_timeout("s1", "running", projector)
-        assert "event: status" in status_event
-        assert service._sse_keepalive_comment().strip() == ": keepalive"
-        assert "event: patch" in service._sse_event("patch", {"x": 1})
+        assert status_event is not None
+        assert status_event.event == "status"
+        patch_event = service._sse_event("patch", {"x": 1})
+        assert patch_event.event == "patch"
+        assert patch_event.data == {"x": 1}
 
     def test_merge_and_dedup_helpers(self, tmp_path):
         service = AssistantService(project_root=tmp_path)

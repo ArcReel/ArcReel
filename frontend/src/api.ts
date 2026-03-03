@@ -18,7 +18,6 @@ import type {
   SkillInfo,
   ProjectOverview,
   ProjectChangeBatchPayload,
-  ProjectEventHeartbeatPayload,
   ProjectEventSnapshotPayload,
 } from "@/types";
 import { getToken, clearToken } from "@/utils/auth";
@@ -43,7 +42,6 @@ export interface TaskStreamOptions {
   lastEventId?: number | string;
   onSnapshot?: (payload: TaskStreamSnapshotPayload, event: MessageEvent) => void;
   onTask?: (payload: TaskStreamTaskPayload, event: MessageEvent) => void;
-  onHeartbeat?: (payload: TaskStreamHeartbeatPayload, event: MessageEvent) => void;
   onError?: (event: Event) => void;
 }
 
@@ -58,16 +56,10 @@ export interface TaskStreamTaskPayload {
   stats: TaskStats;
 }
 
-export interface TaskStreamHeartbeatPayload {
-  last_event_id: number;
-  generated_at: string;
-}
-
 export interface ProjectEventStreamOptions {
   projectName: string;
   onSnapshot?: (payload: ProjectEventSnapshotPayload, event: MessageEvent) => void;
   onChanges?: (payload: ProjectChangeBatchPayload, event: MessageEvent) => void;
-  onHeartbeat?: (payload: ProjectEventHeartbeatPayload, event: MessageEvent) => void;
   onError?: (event: Event) => void;
 }
 
@@ -837,16 +829,6 @@ class API {
       }
     });
 
-    source.addEventListener("heartbeat", (event) => {
-      const payload = parsePayload(event as MessageEvent);
-      if (payload && typeof options.onHeartbeat === "function") {
-        options.onHeartbeat(
-          payload as TaskStreamHeartbeatPayload,
-          event as MessageEvent
-        );
-      }
-    });
-
     source.onerror = (event: Event) => {
       if (typeof options.onError === "function") {
         options.onError(event);
@@ -885,7 +867,6 @@ class API {
 
     source.addEventListener("snapshot", createHandler(options.onSnapshot));
     source.addEventListener("changes", createHandler(options.onChanges));
-    source.addEventListener("heartbeat", createHandler(options.onHeartbeat));
 
     source.onerror = (event: Event) => {
       if (typeof options.onError === "function") {

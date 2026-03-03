@@ -27,7 +27,6 @@ from lib.project_manager import ProjectManager
 logger = logging.getLogger(__name__)
 
 PROJECT_EVENTS_POLL_SECONDS = 0.5
-PROJECT_EVENTS_HEARTBEAT_SECONDS = 15.0
 
 
 def _utc_now_iso() -> str:

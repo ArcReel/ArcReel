@@ -7,6 +7,6 @@ python-dotenv>=1.0.0
 PyYAML>=6.0.1
 
 # Web Framework
-fastapi>=0.109.0
+fastapi>=0.135.1
 uvicorn>=0.27.0
 python-multipart>=0.0.6

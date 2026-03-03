@@ -5,16 +5,14 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import time
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from lib.generation_queue import (
-    TASK_SSE_HEARTBEAT_SEC,
     get_generation_queue,
     read_queue_poll_interval,
 )
@@ -42,19 +40,6 @@ def _parse_last_event_id(value: Optional[str]) -> Optional[int]:
     except ValueError:
         return None
     return max(0, parsed)
-
-
-def _format_sse(event: str, data: Any, event_id: Optional[int] = None) -> str:
-    lines = []
-    if event_id is not None:
-        lines.append(f"id: {event_id}")
-    lines.append(f"event: {event}")
-
-    payload = json.dumps(data, ensure_ascii=False)
-    for line in payload.splitlines():
-        lines.append(f"data: {line}")
-
-    return "\n".join(lines) + "\n\n"
 
 
 def _transform_task_event(raw_event: dict, stats: dict) -> dict:
@@ -115,15 +100,14 @@ async def list_project_tasks(
     )
 
 
-@router.get("/tasks/stream")
+@router.get("/tasks/stream", response_class=EventSourceResponse)
 async def stream_tasks(
     request: Request,
     project_name: Optional[str] = None,
     last_event_id: Optional[int] = Query(default=None, ge=0),
     last_event_header: Optional[str] = Header(default=None, alias="Last-Event-ID"),
-):
+) -> AsyncIterator[ServerSentEvent]:
     queue = get_task_queue()
-    heartbeat_sec = max(5.0, float(TASK_SSE_HEARTBEAT_SEC))
     poll_interval = read_queue_poll_interval()
 
     header_last_id = _parse_last_event_id(last_event_header)
@@ -133,59 +117,42 @@ async def stream_tasks(
         cursor = 0
     cursor = max(0, int(cursor))
 
-    async def event_generator():
-        nonlocal cursor
-
-        latest_event_id = queue.get_latest_event_id(project_name=project_name)
-        snapshot_last_event_id = max(cursor, latest_event_id) if resume_requested else latest_event_id
-        snapshot = {
-            "project_name": project_name,
-            "tasks": queue.get_recent_tasks_snapshot(project_name=project_name, limit=1000),
-            "stats": queue.get_task_stats(project_name=project_name),
-            "last_event_id": snapshot_last_event_id,
-            "generated_at": _utc_now_iso(),
-        }
-        yield _format_sse("snapshot", snapshot)
-        cursor = snapshot_last_event_id
-
-        last_heartbeat = time.monotonic()
-        while True:
-            if await request.is_disconnected():
-                break
-
-            events = queue.get_events_since(
-                last_event_id=cursor,
-                project_name=project_name,
-                limit=200,
-            )
-            if events:
-                batch_stats = queue.get_task_stats(project_name=project_name)
-                for event in events:
-                    cursor = int(event["id"])
-                    transformed = _transform_task_event(event, batch_stats)
-                    yield _format_sse("task", transformed, event_id=cursor)
-                last_heartbeat = time.monotonic()
-                continue
-
-            if time.monotonic() - last_heartbeat >= heartbeat_sec:
-                heartbeat = {
-                    "last_event_id": cursor,
-                    "generated_at": _utc_now_iso(),
-                }
-                yield _format_sse("heartbeat", heartbeat)
-                last_heartbeat = time.monotonic()
-
-            await asyncio.sleep(poll_interval)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+    latest_event_id = queue.get_latest_event_id(project_name=project_name)
+    snapshot_last_event_id = (
+        max(cursor, latest_event_id) if resume_requested else latest_event_id
     )
+    snapshot = {
+        "project_name": project_name,
+        "tasks": queue.get_recent_tasks_snapshot(project_name=project_name, limit=1000),
+        "stats": queue.get_task_stats(project_name=project_name),
+        "last_event_id": snapshot_last_event_id,
+        "generated_at": _utc_now_iso(),
+    }
+    yield ServerSentEvent(event="snapshot", data=snapshot)
+    cursor = snapshot_last_event_id
+
+    while True:
+        if await request.is_disconnected():
+            break
+
+        events = queue.get_events_since(
+            last_event_id=cursor,
+            project_name=project_name,
+            limit=200,
+        )
+        if events:
+            batch_stats = queue.get_task_stats(project_name=project_name)
+            for event in events:
+                cursor = int(event["id"])
+                transformed = _transform_task_event(event, batch_stats)
+                yield ServerSentEvent(
+                    event="task",
+                    data=transformed,
+                    id=str(cursor),
+                )
+            continue
+
+        await asyncio.sleep(poll_interval)
 
 
 @router.get("/tasks/{task_id}")

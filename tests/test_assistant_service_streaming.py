@@ -1,8 +1,9 @@
 """Unit tests for AssistantService streaming snapshot/replay behavior."""
 
-import json
 import pytest
 from pathlib import Path
+
+from fastapi.sse import ServerSentEvent
 
 from server.agent_runtime.models import SessionMeta
 from server.agent_runtime.service import AssistantService
@@ -69,14 +70,11 @@ class _FakeSessionManager:
         return list(self.pending_questions)
 
 
-def _parse_sse_event(sse_event: str) -> tuple[str, dict]:
-    event_name = ""
-    payload = {}
-    for line in sse_event.splitlines():
-        if line.startswith("event: "):
-            event_name = line[len("event: "):].strip()
-        elif line.startswith("data: "):
-            payload = json.loads(line[len("data: "):])
+def _parse_sse_event(sse_event: ServerSentEvent) -> tuple[str, dict]:
+    event_name = sse_event.event or ""
+    payload = sse_event.data
+    if not isinstance(payload, dict):
+        payload = {}
     return event_name, payload
 
 

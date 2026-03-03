@@ -1,6 +1,4 @@
 import asyncio
-import json
-import itertools
 
 import pytest
 from fastapi import FastAPI
@@ -49,21 +47,6 @@ class _FakeQueue:
         return self.task
 
 
-def _decode_sse(chunk):
-    text = chunk.decode("utf-8") if isinstance(chunk, (bytes, bytearray)) else str(chunk)
-    event = ""
-    event_id = None
-    payload = None
-    for line in text.splitlines():
-        if line.startswith("event: "):
-            event = line[len("event: "):]
-        elif line.startswith("id: "):
-            event_id = int(line[len("id: "):])
-        elif line.startswith("data: "):
-            payload = json.loads(line[len("data: "):])
-    return event, event_id, payload
-
-
 class TestTasksRouterMore:
     def test_parse_last_event_id_and_format(self):
         assert tasks_router._parse_last_event_id(None) is None
@@ -71,11 +54,6 @@ class TestTasksRouterMore:
         assert tasks_router._parse_last_event_id("oops") is None
         assert tasks_router._parse_last_event_id("-10") == 0
         assert tasks_router._parse_last_event_id("7") == 7
-
-        sse = tasks_router._format_sse("task", {"x": 1}, event_id=12)
-        assert "id: 12" in sse
-        assert "event: task" in sse
-        assert 'data: {"x": 1}' in sse
 
     @pytest.mark.asyncio
     async def test_stream_tasks_emits_snapshot_and_task_event(self, monkeypatch):
@@ -89,58 +67,50 @@ class TestTasksRouterMore:
         monkeypatch.setattr(tasks_router, "read_queue_poll_interval", lambda: 0.0)
 
         request = _FakeRequest(disconnect_after=2)
-        response = await tasks_router.stream_tasks(
+        stream = tasks_router.stream_tasks(
             request=request,
             project_name="demo",
             last_event_id=None,
             last_event_header=" 7 ",
         )
+        events = []
+        async for event in stream:
+            events.append(event)
 
-        chunks = []
-        async for chunk in response.body_iterator:
-            chunks.append(chunk)
+        assert len(events) >= 2
+        snapshot_event = events[0]
+        assert snapshot_event.event == "snapshot"
+        assert snapshot_event.data["last_event_id"] == 10
+        assert snapshot_event.data["stats"]["running"] == 1
 
-        assert len(chunks) >= 2
-        snapshot_event, _, snapshot_payload = _decode_sse(chunks[0])
-        assert snapshot_event == "snapshot"
-        assert snapshot_payload["last_event_id"] == 10
-        assert snapshot_payload["stats"]["running"] == 1
-
-        task_event, event_id, task_payload = _decode_sse(chunks[1])
-        assert task_event == "task"
-        assert event_id == 11
-        assert task_payload["action"] == "updated"
-        assert task_payload["task"]["task_id"] == "t1"
-        assert task_payload["stats"] == {"running": 1}
+        task_event = events[1]
+        assert task_event.event == "task"
+        assert task_event.id == "11"
+        assert task_event.data["action"] == "updated"
+        assert task_event.data["task"]["task_id"] == "t1"
+        assert task_event.data["stats"] == {"running": 1}
         assert queue.cursors[0] == 10
 
     @pytest.mark.asyncio
-    async def test_stream_tasks_emits_heartbeat_when_idle(self, monkeypatch):
+    async def test_stream_tasks_emits_only_snapshot_when_idle(self, monkeypatch):
         queue = _FakeQueue(latest=0)
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
         monkeypatch.setattr(tasks_router, "read_queue_poll_interval", lambda: 0.0)
-        monkeypatch.setattr(tasks_router, "TASK_SSE_HEARTBEAT_SEC", 5)
-
-        monotonic_values = itertools.chain([0.0, 10.0, 10.0, 11.0], itertools.repeat(11.0))
-        monkeypatch.setattr(tasks_router.time, "monotonic", lambda: next(monotonic_values))
 
         request = _FakeRequest(disconnect_after=1)
-        response = await tasks_router.stream_tasks(
+        stream = tasks_router.stream_tasks(
             request=request,
             project_name="demo",
             last_event_id=0,
             last_event_header=None,
         )
 
-        chunks = []
-        async for chunk in response.body_iterator:
-            chunks.append(chunk)
+        events = []
+        async for event in stream:
+            events.append(event)
 
-        assert len(chunks) >= 2
-        assert _decode_sse(chunks[0])[0] == "snapshot"
-        heartbeat_event, _, heartbeat_payload = _decode_sse(chunks[1])
-        assert heartbeat_event == "heartbeat"
-        assert heartbeat_payload["last_event_id"] == 0
+        assert len(events) == 1
+        assert events[0].event == "snapshot"
 
     def test_get_task_not_found(self, monkeypatch):
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: _FakeQueue(task=None))

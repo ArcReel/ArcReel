@@ -594,7 +594,6 @@ describe("API", () => {
 
       const onSnapshot = vi.fn();
       const onTask = vi.fn();
-      const onHeartbeat = vi.fn();
       const onError = vi.fn();
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -603,7 +602,6 @@ describe("API", () => {
         lastEventId: "42",
         onSnapshot,
         onTask,
-        onHeartbeat,
         onError,
       });
 
@@ -627,12 +625,10 @@ describe("API", () => {
           stats: { queued: 0, running: 1, succeeded: 0, failed: 0, total: 1 },
         }),
       );
-      es.emit("heartbeat", JSON.stringify({ timestamp: "2026-02-02T00:00:00Z" }));
       es.emit("snapshot", "{invalid json");
 
       expect(onSnapshot).toHaveBeenCalledTimes(1);
       expect(onTask).toHaveBeenCalledTimes(1);
-      expect(onHeartbeat).toHaveBeenCalledTimes(1);
       expect(consoleError).toHaveBeenCalled();
 
       const errEvent = new Event("error");

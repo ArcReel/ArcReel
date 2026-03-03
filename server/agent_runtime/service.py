@@ -13,6 +13,8 @@ from typing import Any, AsyncIterator, Optional
 
 logger = logging.getLogger(__name__)
 
+from fastapi.sse import ServerSentEvent
+
 from lib.project_manager import ProjectManager
 from server.agent_runtime.models import SessionMeta, SessionStatus
 from server.agent_runtime.session_manager import SessionManager
@@ -181,7 +183,7 @@ class AssistantService:
 
     # ==================== Streaming ====================
 
-    async def stream_events(self, session_id: str) -> AsyncIterator[str]:
+    async def stream_events(self, session_id: str) -> AsyncIterator[ServerSentEvent]:
         """Stream SSE events for a session."""
         meta = self.meta_store.get(session_id)
         if meta is None:
@@ -208,7 +210,7 @@ class AssistantService:
         session_id: str,
         initial_status: SessionStatus,
         queue: asyncio.Queue,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[ServerSentEvent]:
         """Inner generator for a running session's SSE stream."""
         replayed_messages, replay_overflowed = self._drain_replay(queue)
         if replay_overflowed:
@@ -241,11 +243,11 @@ class AssistantService:
                 if event is not None:
                     yield event
                     break
-                yield self._sse_keepalive_comment()
+                continue
 
     def _emit_completed_snapshot(
         self, meta: SessionMeta, session_id: str, status: SessionStatus
-    ) -> list[str]:
+    ) -> list[ServerSentEvent]:
         """Build snapshot + status events for a non-running session."""
         projector = self._build_projector(meta, session_id)
         return [
@@ -275,7 +277,7 @@ class AssistantService:
         session_id: str,
         status: SessionStatus,
         projector: AssistantStreamProjector,
-    ) -> list[str]:
+    ) -> list[ServerSentEvent]:
         """Build snapshot (+ optional terminal status) for a possibly-running session."""
         pending_questions: list[dict[str, Any]] = []
         if status == "running":
@@ -328,9 +330,9 @@ class AssistantService:
         message: dict[str, Any],
         projector: AssistantStreamProjector,
         session_id: str,
-    ) -> tuple[list[str], bool]:
+    ) -> tuple[list[ServerSentEvent], bool]:
         """Process one live message. Returns (sse_events, should_break)."""
-        events: list[str] = []
+        events: list[ServerSentEvent] = []
 
         update = projector.apply_message(message)
         if isinstance(update.get("patch"), dict):
@@ -401,7 +403,7 @@ class AssistantService:
 
     def _check_runtime_status_terminal(
         self, message: dict[str, Any], session_id: str
-    ) -> Optional[str]:
+    ) -> Optional[ServerSentEvent]:
         """Return a status SSE event if *message* carries a terminal runtime status."""
         runtime_status = str(message.get("status") or "").strip()
         if runtime_status in self._TERMINAL_STATUSES:
@@ -420,7 +422,7 @@ class AssistantService:
         session_id: str,
         status: SessionStatus,
         projector: AssistantStreamProjector,
-    ) -> Optional[str]:
+    ) -> Optional[ServerSentEvent]:
         """Check session liveness on heartbeat timeout. Returns status event or None."""
         live_status = self.session_manager.get_status(session_id) or status
         if live_status != "running":
@@ -435,15 +437,9 @@ class AssistantService:
         return None
 
     @staticmethod
-    def _sse_event(event: str, data: dict[str, Any]) -> str:
-        """Format SSE event."""
-        json_data = json.dumps(data, ensure_ascii=False)
-        return f"event: {event}\ndata: {json_data}\n\n"
-
-    @staticmethod
-    def _sse_keepalive_comment() -> str:
-        """Format SSE comment heartbeat without introducing extra event types."""
-        return ": keepalive\n\n"
+    def _sse_event(event: str, data: dict[str, Any]) -> ServerSentEvent:
+        """Build an SSE event for FastAPI's EventSourceResponse."""
+        return ServerSentEvent(event=event, data=data)
 
     def _build_projector(
         self,
