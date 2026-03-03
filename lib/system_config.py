@@ -160,6 +160,7 @@ class SystemConfigManager:
         "GEMINI_BACKEND",
         "GEMINI_API_KEY",
         "ANTHROPIC_API_KEY",
+        "ANTHROPIC_BASE_URL",
         "GEMINI_IMAGE_MODEL",
         "GEMINI_VIDEO_MODEL",
         "GEMINI_VIDEO_GENERATE_AUDIO",
@@ -349,6 +350,11 @@ class SystemConfigManager:
             self._set_env("ANTHROPIC_API_KEY", overrides.get("anthropic_api_key"))
         else:
             self._restore_or_unset("ANTHROPIC_API_KEY")
+
+        if "anthropic_base_url" in overrides:
+            self._set_env("ANTHROPIC_BASE_URL", overrides.get("anthropic_base_url"))
+        else:
+            self._restore_or_unset("ANTHROPIC_BASE_URL")
 
         # Models
         if "image_model" in overrides:

@@ -20,6 +20,7 @@ def env_guard():
         "GEMINI_BACKEND",
         "GEMINI_API_KEY",
         "ANTHROPIC_API_KEY",
+        "ANTHROPIC_BASE_URL",
         "GEMINI_IMAGE_MODEL",
         "GEMINI_VIDEO_MODEL",
         "GEMINI_VIDEO_GENERATE_AUDIO",
@@ -187,3 +188,175 @@ class TestSystemConfigRouter:
             assert cfg["gemini_api_key"]["is_set"] is True
             assert secret not in json.dumps(cfg)
             assert cfg["gemini_api_key"]["masked"] is not None
+
+    def test_patch_updates_and_clears_anthropic_base_url(self, tmp_path, monkeypatch, env_guard):
+        client = _client(tmp_path, monkeypatch)
+        with client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"anthropic_base_url": "https://proxy.example.com/v1"},
+            )
+            assert res.status_code == 200
+            cfg = res.json()["config"]
+            assert cfg["anthropic_base_url"] == {
+                "value": "https://proxy.example.com/v1",
+                "source": "override",
+            }
+            assert os.environ["ANTHROPIC_BASE_URL"] == "https://proxy.example.com/v1"
+
+            cleared = client.patch(
+                "/api/v1/system/config",
+                json={"anthropic_base_url": ""},
+            )
+            assert cleared.status_code == 200
+            cleared_cfg = cleared.json()["config"]
+            assert cleared_cfg["anthropic_base_url"] == {
+                "value": None,
+                "source": "unset",
+            }
+            assert "ANTHROPIC_BASE_URL" not in os.environ
+
+    def test_connection_test_uses_ai_studio_override_key_and_active_model(
+        self, tmp_path, monkeypatch, env_guard
+    ):
+        client = _client(tmp_path, monkeypatch)
+
+        class _FakeModels:
+            def __init__(self):
+                self.calls = []
+
+            def list(self, *, config=None):
+                self.calls.append(config)
+                return [
+                    type("Model", (), {"name": "models/gemini-3.1-flash-image-preview"})(),
+                    type("Model", (), {"name": "models/veo-3.1-generate-preview"})(),
+                ]
+
+        fake_models = _FakeModels()
+        captured = {}
+
+        class _FakeGeminiClient:
+            def __init__(self, api_key=None, backend=None, **kwargs):
+                captured["api_key"] = api_key
+                captured["backend"] = backend
+                self.client = type("Client", (), {"models": fake_models})()
+
+        monkeypatch.setattr(system_config_router, "GeminiClient", _FakeGeminiClient)
+
+        with client:
+            res = client.post(
+                "/api/v1/system/config/connection-test",
+                json={
+                    "provider": "aistudio",
+                    "image_backend": "aistudio",
+                    "video_backend": "vertex",
+                    "image_model": "gemini-3.1-flash-image-preview",
+                    "video_model": "veo-3.1-generate-preview",
+                    "gemini_api_key": "AIza-override",
+                },
+            )
+            assert res.status_code == 200
+            payload = res.json()
+            assert payload["provider"] == "aistudio"
+            assert payload["checked_models"] == [
+                {"media_type": "image", "model": "gemini-3.1-flash-image-preview"}
+            ]
+            assert payload["missing_models"] == []
+            assert captured["api_key"] == "AIza-override"
+            assert captured["backend"] == "aistudio"
+            assert fake_models.calls == [{"page_size": 200}]
+
+    def test_connection_test_uses_vertex_for_both_active_models(
+        self, tmp_path, monkeypatch, env_guard
+    ):
+        client = _client(tmp_path, monkeypatch)
+
+        class _FakeModels:
+            def __init__(self):
+                self.calls = []
+
+            def list(self, *, config=None):
+                self.calls.append(config)
+                return [
+                    type("Model", (), {"name": "models/gemini-3.1-flash-image-preview"})(),
+                    type("Model", (), {"name": "models/veo-3.1-generate-preview"})(),
+                ]
+
+        fake_models = _FakeModels()
+
+        class _FakeGeminiClient:
+            def __init__(self, api_key=None, backend=None, **kwargs):
+                self.client = type("Client", (), {"models": fake_models})()
+
+        monkeypatch.setattr(system_config_router, "GeminiClient", _FakeGeminiClient)
+        monkeypatch.setattr(
+            system_config_router,
+            "_vertex_credentials_status",
+            lambda root: {
+                "is_set": True,
+                "filename": "vertex_credentials.json",
+                "project_id": "demo-project",
+            },
+        )
+
+        with client:
+            res = client.post(
+                "/api/v1/system/config/connection-test",
+                json={
+                    "provider": "vertex",
+                    "image_backend": "vertex",
+                    "video_backend": "vertex",
+                    "image_model": "gemini-3.1-flash-image-preview",
+                    "video_model": "veo-3.1-generate-preview",
+                },
+            )
+            assert res.status_code == 200
+            payload = res.json()
+            assert payload["provider"] == "vertex"
+            assert payload["project_id"] == "demo-project"
+            assert payload["checked_models"] == [
+                {"media_type": "image", "model": "gemini-3.1-flash-image-preview"},
+                {"media_type": "video", "model": "veo-3.1-generate-preview"},
+            ]
+            assert payload["missing_models"] == []
+            assert fake_models.calls == [{"page_size": 200}]
+
+    def test_connection_test_treats_missing_vertex_preview_model_as_warning(
+        self, tmp_path, monkeypatch, env_guard
+    ):
+        client = _client(tmp_path, monkeypatch)
+
+        class _FakeModels:
+            def list(self, *, config=None):
+                return [type("Model", (), {"name": "publishers/google/models/gemini-3.1-flash-image-preview"})()]
+
+        class _FakeGeminiClient:
+            def __init__(self, api_key=None, backend=None, **kwargs):
+                self.client = type("Client", (), {"models": _FakeModels()})()
+
+        monkeypatch.setattr(system_config_router, "GeminiClient", _FakeGeminiClient)
+        monkeypatch.setattr(
+            system_config_router,
+            "_vertex_credentials_status",
+            lambda root: {
+                "is_set": True,
+                "filename": "vertex_credentials.json",
+                "project_id": "demo-project",
+            },
+        )
+
+        with client:
+            res = client.post(
+                "/api/v1/system/config/connection-test",
+                json={
+                    "provider": "vertex",
+                    "image_backend": "vertex",
+                    "video_backend": "vertex",
+                    "image_model": "gemini-3.1-flash-image-preview",
+                    "video_model": "veo-3.1-generate-preview",
+                },
+            )
+            assert res.status_code == 200
+            payload = res.json()
+            assert payload["missing_models"] == ["veo-3.1-generate-preview"]
+            assert "models.list" in payload["message"]

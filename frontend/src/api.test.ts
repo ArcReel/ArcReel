@@ -175,6 +175,7 @@ describe("API", () => {
 
       await API.getSystemConfig();
       await API.updateSystemConfig({ image_backend: "vertex" });
+      await API.testSystemConnection({ provider: "vertex" });
 
       await API.listFiles("demo");
       await API.listDrafts("demo");
@@ -244,6 +245,10 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/system/config", {
         method: "PATCH",
         body: JSON.stringify({ image_backend: "vertex" }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/system/config/connection-test", {
+        method: "POST",
+        body: JSON.stringify({ provider: "vertex" }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/video/seg-1", {
         method: "POST",

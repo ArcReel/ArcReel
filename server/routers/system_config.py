@@ -19,7 +19,7 @@ from starlette.requests import Request
 
 from lib import PROJECT_ROOT
 from lib.cost_calculator import cost_calculator
-from lib.gemini_client import refresh_shared_rate_limiter
+from lib.gemini_client import GeminiClient, refresh_shared_rate_limiter
 from lib.system_config import (
     get_system_config_manager,
     parse_bool_env,
@@ -97,6 +97,108 @@ def _vertex_credentials_status(project_root: Path) -> dict[str, Any]:
 def _has_vertex_credentials(project_root: Path) -> bool:
     return bool(_resolve_vertex_credentials_path(project_root))
 
+
+def _normalize_model(value: Optional[str], allowed: list[str], default: str, field_name: str) -> str:
+    normalized = str(value or "").strip() or default
+    if normalized not in allowed:
+        raise HTTPException(status_code=400, detail=f"{field_name} 不在支持列表内")
+    return normalized
+
+
+def _build_connection_test_targets(
+    *,
+    provider: Literal["aistudio", "vertex"],
+    image_backend: str,
+    video_backend: str,
+    image_model: str,
+    video_model: str,
+) -> list[dict[str, str]]:
+    targets: list[dict[str, str]] = []
+    if image_backend == provider:
+        targets.append({"media_type": "image", "model": image_model})
+    if video_backend == provider:
+        targets.append({"media_type": "video", "model": video_model})
+    if targets:
+        return targets
+
+    fallback_model = image_model if provider == "aistudio" else video_model
+    fallback_type = "image" if provider == "aistudio" else "video"
+    return [{"media_type": fallback_type, "model": fallback_model}]
+
+
+def _collect_visible_model_names(model_pager: Any) -> set[str]:
+    visible_names: set[str] = set()
+    for item in model_pager:
+        name = str(getattr(item, "name", "") or "").strip()
+        if not name:
+            continue
+        visible_names.add(name)
+        if "/" in name:
+            visible_names.add(name.rsplit("/", 1)[-1])
+    return visible_names
+
+
+def _run_connection_test(
+    *,
+    provider: Literal["aistudio", "vertex"],
+    image_backend: str,
+    video_backend: str,
+    image_model: str,
+    video_model: str,
+    gemini_api_key: Optional[str] = None,
+) -> dict[str, Any]:
+    targets = _build_connection_test_targets(
+        provider=provider,
+        image_backend=image_backend,
+        video_backend=video_backend,
+        image_model=image_model,
+        video_model=video_model,
+    )
+
+    try:
+        if provider == "aistudio":
+            api_key = str(gemini_api_key or "").strip() or os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                raise ValueError("请先填写或保存 GEMINI_API_KEY")
+            client = GeminiClient(api_key=api_key, backend="aistudio")
+            filename = None
+            project_id = None
+        else:
+            client = GeminiClient(backend="vertex")
+            status = _vertex_credentials_status(PROJECT_ROOT)
+            filename = status.get("filename")
+            project_id = status.get("project_id")
+
+        visible_names = _collect_visible_model_names(
+            client.client.models.list(config={"page_size": 200})
+        )
+    except Exception as exc:
+        logger.exception("System connection test failed (provider=%s)", provider)
+        provider_label = "AI Studio" if provider == "aistudio" else "Vertex"
+        raise HTTPException(status_code=400, detail=f"{provider_label} 连接测试失败: {exc}")
+
+    missing = [item["model"] for item in targets if item["model"] not in visible_names]
+    checked_summary = "、".join(
+        f"{item['media_type']}:{item['model']}" for item in targets
+    )
+    provider_label = "AI Studio" if provider == "aistudio" else "Vertex"
+    if missing:
+        message = (
+            f"{provider_label} 可用，已成功访问 models.list；"
+            f"但列表未返回目标模型：{', '.join(missing)}"
+        )
+    else:
+        message = f"{provider_label} 可用，models.list 已返回目标模型：{checked_summary}"
+    return {
+        "ok": True,
+        "provider": provider,
+        "filename": filename,
+        "project_id": project_id,
+        "checked_models": targets,
+        "missing_models": missing,
+        "message": message,
+    }
+
 def _secret_view(
     overrides: dict[str, Any],
     override_key: str,
@@ -113,6 +215,24 @@ def _secret_view(
     return {
         "is_set": is_set,
         "masked": _mask_secret(env_value) if is_set else None,
+        "source": source,
+    }
+
+
+def _text_view(
+    overrides: dict[str, Any],
+    override_key: str,
+    env_key: str,
+) -> dict[str, Any]:
+    env_value = (os.environ.get(env_key) or "").strip() or None
+    if override_key in overrides and not isinstance(overrides.get(override_key), type(None)):
+        source: Literal["override", "env", "unset"] = "override"
+    elif env_value:
+        source = "env"
+    else:
+        source = "unset"
+    return {
+        "value": env_value,
         "source": source,
     }
 
@@ -156,6 +276,9 @@ def _config_payload(project_root: Path) -> dict[str, Any]:
         },
         "gemini_api_key": _secret_view(overrides, "gemini_api_key", "GEMINI_API_KEY"),
         "anthropic_api_key": _secret_view(overrides, "anthropic_api_key", "ANTHROPIC_API_KEY"),
+        "anthropic_base_url": _text_view(
+            overrides, "anthropic_base_url", "ANTHROPIC_BASE_URL"
+        ),
         "vertex_credentials": _vertex_credentials_status(project_root),
     }
 
@@ -169,6 +292,7 @@ class SystemConfigPatchRequest(BaseModel):
     video_backend: Optional[str] = None
     gemini_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
+    anthropic_base_url: Optional[str] = None
     image_model: Optional[str] = None
     video_model: Optional[str] = None
     video_generate_audio: Optional[bool] = None
@@ -177,6 +301,15 @@ class SystemConfigPatchRequest(BaseModel):
     gemini_request_gap: Optional[float] = None
     storyboard_max_workers: Optional[int] = None
     video_max_workers: Optional[int] = None
+
+
+class SystemConnectionTestRequest(BaseModel):
+    provider: Literal["aistudio", "vertex"]
+    image_backend: Optional[str] = None
+    video_backend: Optional[str] = None
+    image_model: Optional[str] = None
+    video_model: Optional[str] = None
+    gemini_api_key: Optional[str] = None
 
 
 def _normalize_backend(value: str) -> str:
@@ -216,6 +349,9 @@ async def patch_system_config(req: SystemConfigPatchRequest, request: Request):
         if value not in options["video_models"]:
             raise HTTPException(status_code=400, detail="video_model 不在支持列表内")
         patch["video_model"] = value
+
+    if "anthropic_base_url" in patch and patch["anthropic_base_url"] not in (None, ""):
+        patch["anthropic_base_url"] = str(patch["anthropic_base_url"]).strip()
 
     for key, min_value in (
         ("gemini_image_rpm", 0),
@@ -299,3 +435,40 @@ async def upload_vertex_credentials(file: UploadFile = File(...)):
         logger.warning("Unable to chmod %s to 0600: %s", dest, exc, exc_info=True)
 
     return _full_payload(PROJECT_ROOT)
+
+
+@router.post("/system/config/connection-test")
+async def test_system_connection(req: SystemConnectionTestRequest):
+    options = _options_payload()
+
+    image_backend = (
+        _normalize_backend(str(req.image_backend))
+        if req.image_backend not in (None, "")
+        else _effective_image_backend()
+    )
+    video_backend = (
+        _normalize_backend(str(req.video_backend))
+        if req.video_backend not in (None, "")
+        else _effective_video_backend()
+    )
+    image_model = _normalize_model(
+        req.image_model,
+        options["image_models"],
+        os.environ.get("GEMINI_IMAGE_MODEL", cost_calculator.DEFAULT_IMAGE_MODEL),
+        "image_model",
+    )
+    video_model = _normalize_model(
+        req.video_model,
+        options["video_models"],
+        os.environ.get("GEMINI_VIDEO_MODEL", cost_calculator.DEFAULT_VIDEO_MODEL),
+        "video_model",
+    )
+
+    return _run_connection_test(
+        provider=req.provider,
+        image_backend=image_backend,
+        video_backend=video_backend,
+        image_model=image_model,
+        video_model=video_model,
+        gemini_api_key=req.gemini_api_key,
+    )

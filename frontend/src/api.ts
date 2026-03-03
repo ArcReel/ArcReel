@@ -21,6 +21,8 @@ import type {
   ProjectEventSnapshotPayload,
   GetSystemConfigResponse,
   SystemConfigPatch,
+  SystemConnectionTestRequest,
+  SystemConnectionTestResponse,
 } from "@/types";
 import { getToken, clearToken } from "@/utils/auth";
 
@@ -224,6 +226,15 @@ class API {
 
     await throwIfNotOk(response, "上传失败");
     return response.json();
+  }
+
+  static async testSystemConnection(
+    payload: SystemConnectionTestRequest,
+  ): Promise<SystemConnectionTestResponse> {
+    return this.request("/system/config/connection-test", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   }
 
   // ==================== 项目管理 ====================
