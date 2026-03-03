@@ -21,7 +21,14 @@ export function extractLatestTodos(
       if (block.type === "tool_use" && block.name === "TodoWrite") {
         const input = block.input as Record<string, unknown> | undefined;
         const todos = input?.todos;
-        if (Array.isArray(todos) && todos.length > 0) {
+        if (
+          Array.isArray(todos) &&
+          todos.length > 0 &&
+          todos.every(
+            (item: unknown) =>
+              item && typeof item === "object" && "content" in item && "status" in item,
+          )
+        ) {
           return todos as TodoItem[];
         }
       }
@@ -104,7 +111,7 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
       {!collapsed && (
         <div className="border-t border-white/5 px-3 py-1.5 space-y-0.5">
           {todos.map((todo, idx) => (
-            <TodoRow key={`${todo.content}-${idx}`} todo={todo} />
+            <TodoRow key={`${todo.content}-${todo.status}`} todo={todo} />
           ))}
         </div>
       )}

@@ -205,7 +205,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
 
 function TodoWriteCompact({ block }: Readonly<{ block: ContentBlock }>) {
   const input = block.input as Record<string, unknown> | undefined;
-  const todos = (input?.todos ?? []) as TodoItem[];
+  const todos: TodoItem[] = Array.isArray(input?.todos) ? input.todos : [];
   const total = todos.length;
   const completed = todos.filter((t) => t.status === "completed").length;
   const hasResult = block.result !== undefined;
