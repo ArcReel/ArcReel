@@ -172,10 +172,15 @@ def _run_connection_test(
         visible_names = _collect_visible_model_names(
             client.client.models.list(config={"page_size": 200})
         )
-    except Exception as exc:
+    except Exception:
+        # TODO(multi-user): 异常消息可能包含 SDK 回传的 API key 片段，
+        # 多用户场景需 sanitize 后再写入日志。
         logger.exception("System connection test failed (provider=%s)", provider)
         provider_label = "AI Studio" if provider == "aistudio" else "Vertex"
-        raise HTTPException(status_code=400, detail=f"{provider_label} 连接测试失败: {exc}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"{provider_label} 连接测试失败，请检查 API Key 和网络连接",
+        )
 
     missing = [item["model"] for item in targets if item["model"] not in visible_names]
     checked_summary = "、".join(
@@ -319,6 +324,10 @@ def _normalize_backend(value: str) -> str:
     return normalized
 
 
+# TODO(multi-user): 当前 system config 端点无鉴权/RBAC，
+# 单用户部署无影响；若扩展为多用户需限制为 admin 角色。
+
+
 @router.get("/system/config")
 async def get_system_config():
     return _full_payload(PROJECT_ROOT)
@@ -351,6 +360,7 @@ async def patch_system_config(req: SystemConfigPatchRequest, request: Request):
         patch["video_model"] = value
 
     if "anthropic_base_url" in patch and patch["anthropic_base_url"] not in (None, ""):
+        # TODO(multi-user): 多用户场景需校验 URL 白名单以防 SSRF 窃取 API key。
         patch["anthropic_base_url"] = str(patch["anthropic_base_url"]).strip()
 
     for key, min_value in (

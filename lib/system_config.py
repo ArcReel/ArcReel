@@ -195,6 +195,8 @@ class SystemConfigManager:
             raw = self.paths.config_path.read_text(encoding="utf-8")
             data = json.loads(raw)
         except (OSError, json.JSONDecodeError) as exc:
+            # TODO(multi-user): JSONDecodeError 可能在消息中包含 config 文件片段（含 API key），
+            # 多用户场景需 sanitize 日志内容。
             logger.warning("Failed to read system config, using empty overrides: %s", exc)
             return {"version": 1, "updated_at": None, "overrides": {}}, False
 
@@ -334,7 +336,7 @@ class SystemConfigManager:
         # Compatibility/default: GEMINI_BACKEND follows effective image backend.
         effective_image_backend = (
             (image_backend.strip().lower() if image_backend else None)
-            or (os.environ.get("GEMINI_IMAGE_BACKEND") or "").strip().lower()
+            or (self._baseline_env.get("GEMINI_IMAGE_BACKEND") or "").strip().lower()
             or (self._baseline_env.get("GEMINI_BACKEND") or "").strip().lower()
             or "aistudio"
         )

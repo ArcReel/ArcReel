@@ -31,6 +31,8 @@ def env_guard():
         "VIDEO_MAX_WORKERS",
     ]
     snapshot = {k: os.environ.get(k) for k in keys}
+    for k in keys:
+        os.environ.pop(k, None)
     gemini_client_module._shared_rate_limiter = None
     yield
     for key, value in snapshot.items():
