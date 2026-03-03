@@ -15,6 +15,8 @@ from server.services.project_events import ProjectEventService
 
 router = APIRouter()
 
+PROJECT_EVENTS_SSE_POLL_SECONDS = 1.0
+
 
 def get_project_event_service(request: Request) -> ProjectEventService:
     return request.app.state.project_event_service
@@ -52,7 +54,10 @@ async def stream_project_events(
             if await request.is_disconnected():
                 break
             try:
-                event_name, payload = await asyncio.wait_for(queue.get(), timeout=1.0)
+                event_name, payload = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=PROJECT_EVENTS_SSE_POLL_SECONDS,
+                )
             except asyncio.TimeoutError:
                 continue
             yield ServerSentEvent(event=event_name, data=payload)
