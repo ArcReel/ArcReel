@@ -161,6 +161,11 @@ class SystemConfigManager:
         "GEMINI_API_KEY",
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "CLAUDE_CODE_SUBAGENT_MODEL",
         "GEMINI_IMAGE_MODEL",
         "GEMINI_VIDEO_MODEL",
         "GEMINI_VIDEO_GENERATE_AUDIO",
@@ -357,6 +362,19 @@ class SystemConfigManager:
             self._set_env("ANTHROPIC_BASE_URL", overrides.get("anthropic_base_url"))
         else:
             self._restore_or_unset("ANTHROPIC_BASE_URL")
+
+        # Anthropic model routing
+        for override_key, env_key in (
+            ("anthropic_model", "ANTHROPIC_MODEL"),
+            ("anthropic_default_haiku_model", "ANTHROPIC_DEFAULT_HAIKU_MODEL"),
+            ("anthropic_default_opus_model", "ANTHROPIC_DEFAULT_OPUS_MODEL"),
+            ("anthropic_default_sonnet_model", "ANTHROPIC_DEFAULT_SONNET_MODEL"),
+            ("claude_code_subagent_model", "CLAUDE_CODE_SUBAGENT_MODEL"),
+        ):
+            if override_key in overrides:
+                self._set_env(env_key, overrides.get(override_key))
+            else:
+                self._restore_or_unset(env_key)
 
         # Models
         if "image_model" in overrides:

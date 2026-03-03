@@ -284,6 +284,21 @@ def _config_payload(project_root: Path) -> dict[str, Any]:
         "anthropic_base_url": _text_view(
             overrides, "anthropic_base_url", "ANTHROPIC_BASE_URL"
         ),
+        "anthropic_model": _text_view(
+            overrides, "anthropic_model", "ANTHROPIC_MODEL"
+        ),
+        "anthropic_default_haiku_model": _text_view(
+            overrides, "anthropic_default_haiku_model", "ANTHROPIC_DEFAULT_HAIKU_MODEL"
+        ),
+        "anthropic_default_opus_model": _text_view(
+            overrides, "anthropic_default_opus_model", "ANTHROPIC_DEFAULT_OPUS_MODEL"
+        ),
+        "anthropic_default_sonnet_model": _text_view(
+            overrides, "anthropic_default_sonnet_model", "ANTHROPIC_DEFAULT_SONNET_MODEL"
+        ),
+        "claude_code_subagent_model": _text_view(
+            overrides, "claude_code_subagent_model", "CLAUDE_CODE_SUBAGENT_MODEL"
+        ),
         "vertex_credentials": _vertex_credentials_status(project_root),
     }
 
@@ -298,6 +313,11 @@ class SystemConfigPatchRequest(BaseModel):
     gemini_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     anthropic_base_url: Optional[str] = None
+    anthropic_model: Optional[str] = None
+    anthropic_default_haiku_model: Optional[str] = None
+    anthropic_default_opus_model: Optional[str] = None
+    anthropic_default_sonnet_model: Optional[str] = None
+    claude_code_subagent_model: Optional[str] = None
     image_model: Optional[str] = None
     video_model: Optional[str] = None
     video_generate_audio: Optional[bool] = None
@@ -362,6 +382,16 @@ async def patch_system_config(req: SystemConfigPatchRequest, request: Request):
     if "anthropic_base_url" in patch and patch["anthropic_base_url"] not in (None, ""):
         # TODO(multi-user): 多用户场景需校验 URL 白名单以防 SSRF 窃取 API key。
         patch["anthropic_base_url"] = str(patch["anthropic_base_url"]).strip()
+
+    for model_key in (
+        "anthropic_model",
+        "anthropic_default_haiku_model",
+        "anthropic_default_opus_model",
+        "anthropic_default_sonnet_model",
+        "claude_code_subagent_model",
+    ):
+        if model_key in patch and patch[model_key] not in (None, ""):
+            patch[model_key] = str(patch[model_key]).strip()
 
     for key, min_value in (
         ("gemini_image_rpm", 0),

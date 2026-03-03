@@ -40,6 +40,26 @@ function makeConfigResponse(): GetSystemConfigResponse {
         value: null,
         source: "unset" as const,
       },
+      anthropic_model: {
+        value: null,
+        source: "unset" as const,
+      },
+      anthropic_default_haiku_model: {
+        value: null,
+        source: "unset" as const,
+      },
+      anthropic_default_opus_model: {
+        value: null,
+        source: "unset" as const,
+      },
+      anthropic_default_sonnet_model: {
+        value: null,
+        source: "unset" as const,
+      },
+      claude_code_subagent_model: {
+        value: null,
+        source: "unset" as const,
+      },
       vertex_credentials: {
         is_set: true,
         filename: "vertex_credentials.json",
@@ -78,7 +98,7 @@ describe("SystemConfigPage", () => {
     expect(await screen.findByText("配置加载失败")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重试加载" }));
 
-    expect(await screen.findByText("Vertex 凭证")).toBeInTheDocument();
+    expect(await screen.findByText("Vertex AI 凭证")).toBeInTheDocument();
   });
 
   it("tests vertex connection from the page", async () => {
@@ -95,8 +115,9 @@ describe("SystemConfigPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Vertex 凭证")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "测试 Vertex" }));
+    expect(await screen.findByText("Vertex AI 凭证")).toBeInTheDocument();
+    const testButtons = screen.getAllByRole("button", { name: "测试连接" });
+    fireEvent.click(testButtons[1]);
 
     await waitFor(() => {
       expect(API.testSystemConnection).toHaveBeenCalledWith({
@@ -127,10 +148,11 @@ describe("SystemConfigPage", () => {
 
     expect(await screen.findByText("Gemini API Key")).toBeInTheDocument();
     fireEvent.change(
-      screen.getByPlaceholderText("输入新的 GEMINI_API_KEY（留空不修改）"),
+      screen.getByPlaceholderText("AIza…"),
       { target: { value: "AIza-override" } },
     );
-    fireEvent.click(screen.getByRole("button", { name: "验证 Gemini 连接" }));
+    const testButtons = screen.getAllByRole("button", { name: "测试连接" });
+    fireEvent.click(testButtons[0]);
 
     await waitFor(() => {
       expect(API.testSystemConnection).toHaveBeenCalledWith({

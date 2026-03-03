@@ -291,16 +291,7 @@ export function ProjectsPage() {
             </span>
             <span className="ml-2 text-gray-400 font-normal text-base">项目</span>
           </h1>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => navigate("/app/settings")}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 bg-gray-900 px-4 py-2 text-sm font-medium text-gray-200 transition-colors hover:border-gray-500 hover:bg-gray-800"
-              aria-label="系统配置"
-            >
-              <Settings className="h-4 w-4" />
-              系统配置
-            </button>
+          <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => importInputRef.current?.click()}
@@ -322,6 +313,17 @@ export function ProjectsPage() {
               <Plus className="h-4 w-4" />
               新建项目
             </button>
+            <div className="ml-1 border-l border-gray-800 pl-3">
+              <button
+                type="button"
+                onClick={() => navigate("/app/settings")}
+                className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+                title="系统配置"
+                aria-label="系统配置"
+              >
+                <Settings className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
         <input

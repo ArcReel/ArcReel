@@ -41,6 +41,11 @@ export interface SystemConfigView {
   gemini_api_key: SecretFieldView;
   anthropic_api_key: SecretFieldView;
   anthropic_base_url: TextFieldView;
+  anthropic_model: TextFieldView;
+  anthropic_default_haiku_model: TextFieldView;
+  anthropic_default_opus_model: TextFieldView;
+  anthropic_default_sonnet_model: TextFieldView;
+  claude_code_subagent_model: TextFieldView;
   vertex_credentials: VertexCredentialView;
 }
 
@@ -84,6 +89,11 @@ export type SystemConfigPatch = Partial<{
   gemini_api_key: string | "" | null;
   anthropic_api_key: string | "" | null;
   anthropic_base_url: string | "" | null;
+  anthropic_model: string | "" | null;
+  anthropic_default_haiku_model: string | "" | null;
+  anthropic_default_opus_model: string | "" | null;
+  anthropic_default_sonnet_model: string | "" | null;
+  claude_code_subagent_model: string | "" | null;
   image_model: string | "" | null;
   video_model: string | "" | null;
   video_generate_audio: boolean | null;

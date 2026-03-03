@@ -4,6 +4,8 @@ import {
   ChevronDown,
   ChevronLeft,
   Cpu,
+  Eye,
+  EyeOff,
   Gauge,
   KeyRound,
   Loader2,
@@ -48,6 +50,11 @@ const SECRET_PATCH_KEYS = [
   "gemini_api_key",
   "anthropic_api_key",
   "anthropic_base_url",
+  "anthropic_model",
+  "anthropic_default_haiku_model",
+  "anthropic_default_opus_model",
+  "anthropic_default_sonnet_model",
+  "claude_code_subagent_model",
 ] as const satisfies readonly (keyof SystemConfigPatch)[];
 
 const BACKEND_PATCH_KEYS = [
@@ -86,9 +93,9 @@ const sectionClassName =
   "rounded-2xl border border-gray-800 bg-gray-900/90 p-6 shadow-xl shadow-black/20";
 const cardClassName = "rounded-xl border border-gray-800 bg-gray-950/40 p-4";
 const inputClassName =
-  "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none";
+  "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60";
 const selectClassName =
-  "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 focus:border-indigo-500/60 focus:outline-none";
+  "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 focus:border-indigo-500/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60";
 const secondaryButtonClassName =
   "inline-flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-800/80 disabled:cursor-not-allowed disabled:opacity-60";
 const saveButtonClassName =
@@ -132,6 +139,8 @@ function buildPatch(
   geminiKeyInput: string,
   anthropicKeyInput: string,
   anthropicBaseUrlInput: string,
+  anthropicModelInput: string,
+  advancedModelInputs: Record<string, string>,
 ): SystemConfigPatch {
   const cfg = data.config;
   const patch: SystemConfigPatch = {};
@@ -165,6 +174,13 @@ function buildPatch(
   if (geminiKey) patch.gemini_api_key = geminiKey;
   if (anthropicKey) patch.anthropic_api_key = anthropicKey;
   if (anthropicBaseUrl) patch.anthropic_base_url = anthropicBaseUrl;
+
+  const modelTrim = anthropicModelInput.trim();
+  if (modelTrim) patch.anthropic_model = modelTrim;
+  for (const [key, val] of Object.entries(advancedModelInputs)) {
+    const trimmed = val.trim();
+    if (trimmed) (patch as Record<string, unknown>)[key] = trimmed;
+  }
 
   return patch;
 }
@@ -220,7 +236,17 @@ export function SystemConfigPage() {
   const [geminiKeyInput, setGeminiKeyInput] = useState("");
   const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
   const [anthropicBaseUrlInput, setAnthropicBaseUrlInput] = useState("");
+  const [anthropicModelInput, setAnthropicModelInput] = useState("");
+  const [advancedModelInputs, setAdvancedModelInputs] = useState({
+    anthropic_default_haiku_model: "",
+    anthropic_default_opus_model: "",
+    anthropic_default_sonnet_model: "",
+    claude_code_subagent_model: "",
+  });
   const [limitsExpanded, setLimitsExpanded] = useState(false);
+  const [modelRoutingExpanded, setModelRoutingExpanded] = useState(false);
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [showAnthropicKey, setShowAnthropicKey] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -233,6 +259,13 @@ export function SystemConfigPage() {
       setGeminiKeyInput("");
       setAnthropicKeyInput("");
       setAnthropicBaseUrlInput("");
+      setAnthropicModelInput("");
+      setAdvancedModelInputs({
+        anthropic_default_haiku_model: "",
+        anthropic_default_opus_model: "",
+        anthropic_default_sonnet_model: "",
+        claude_code_subagent_model: "",
+      });
     } catch (err) {
       const message = (err as Error).message;
       setLoadError(message);
@@ -258,8 +291,8 @@ export function SystemConfigPage() {
 
   const pendingPatch = useMemo(() => {
     if (!data || !draft) return null;
-    return buildPatch(data, draft, geminiKeyInput, anthropicKeyInput, anthropicBaseUrlInput);
-  }, [anthropicBaseUrlInput, anthropicKeyInput, data, draft, geminiKeyInput]);
+    return buildPatch(data, draft, geminiKeyInput, anthropicKeyInput, anthropicBaseUrlInput, anthropicModelInput, advancedModelInputs);
+  }, [advancedModelInputs, anthropicBaseUrlInput, anthropicKeyInput, anthropicModelInput, data, draft, geminiKeyInput]);
 
   const secretPatch = useMemo(
     () => pickPatch(pendingPatch, SECRET_PATCH_KEYS),
@@ -310,6 +343,20 @@ export function SystemConfigPage() {
           if ("gemini_api_key" in sectionPatch) setGeminiKeyInput("");
           if ("anthropic_api_key" in sectionPatch) setAnthropicKeyInput("");
           if ("anthropic_base_url" in sectionPatch) setAnthropicBaseUrlInput("");
+          if ("anthropic_model" in sectionPatch) setAnthropicModelInput("");
+          if (
+            "anthropic_default_haiku_model" in sectionPatch ||
+            "anthropic_default_opus_model" in sectionPatch ||
+            "anthropic_default_sonnet_model" in sectionPatch ||
+            "claude_code_subagent_model" in sectionPatch
+          ) {
+            setAdvancedModelInputs({
+              anthropic_default_haiku_model: "",
+              anthropic_default_opus_model: "",
+              anthropic_default_sonnet_model: "",
+              claude_code_subagent_model: "",
+            });
+          }
         }
 
         useAppStore.getState().pushToast("系统配置已保存并立即生效", "success");
@@ -324,6 +371,9 @@ export function SystemConfigPage() {
   );
 
   const handleClearKey = useCallback(async (type: "gemini" | "anthropic") => {
+    const label = type === "gemini" ? "Gemini API Key" : "Anthropic API Key";
+    if (!globalThis.confirm(`确认清除 ${label}？清除后将恢复为环境变量或未设置状态。`)) return;
+
     setSaving(true);
     setSavingSection("secrets");
     try {
@@ -336,7 +386,7 @@ export function SystemConfigPage() {
         setAistudioTestState({ status: "idle" });
       }
       if (type === "anthropic") setAnthropicKeyInput("");
-      useAppStore.getState().pushToast("已清除当前配置，恢复默认来源", "success");
+      useAppStore.getState().pushToast("已清除，将使用环境变量或默认值", "success");
     } catch (err) {
       useAppStore.getState().pushToast(`操作失败: ${(err as Error).message}`, "error");
     } finally {
@@ -352,7 +402,7 @@ export function SystemConfigPage() {
       const res = await API.updateSystemConfig({ anthropic_base_url: "" });
       setData(res);
       setAnthropicBaseUrlInput("");
-      useAppStore.getState().pushToast("已清除 Anthropic Base URL 覆盖", "success");
+      useAppStore.getState().pushToast("已清除 Base URL 自定义配置", "success");
     } catch (err) {
       useAppStore.getState().pushToast(`操作失败: ${(err as Error).message}`, "error");
     } finally {
@@ -433,8 +483,8 @@ export function SystemConfigPage() {
         </header>
         <main className="mx-auto max-w-5xl px-6 py-14">
           <div className="flex items-center gap-2 text-gray-400">
-            <Loader2 className="h-5 w-5 animate-spin text-indigo-400" />
-            加载配置中...
+            <Loader2 className="h-5 w-5 animate-spin text-indigo-400" aria-hidden="true" />
+            加载配置中…
           </div>
         </main>
       </div>
@@ -510,7 +560,7 @@ export function SystemConfigPage() {
             </button>
             <div>
               <h1 className="text-lg font-semibold text-gray-100">系统配置</h1>
-              <p className="text-xs text-gray-500">修改后点击区块右下角保存并立即生效（无需重启服务）</p>
+              <p className="text-xs text-gray-500">修改后保存即生效，无需重启</p>
             </div>
           </div>
         </div>
@@ -525,13 +575,14 @@ export function SystemConfigPage() {
               </div>
               <div>
                 <h2 className="text-base font-semibold text-gray-100">密钥与凭证</h2>
-                <p className="text-xs text-gray-500">密钥与 Vertex 凭证统一管理，修改后即时生效</p>
+                <p className="text-xs text-gray-500">管理 API 密钥和 Vertex AI 凭证</p>
               </div>
             </div>
             <button
               type="button"
               onClick={() => void load()}
               className="text-xs text-gray-400 hover:text-gray-200"
+              aria-label="刷新系统配置"
             >
               刷新
             </button>
@@ -544,9 +595,12 @@ export function SystemConfigPage() {
                   <div className={vendorIconFrameClassName}>
                     <ClaudeColor size={20} />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-sm font-medium text-gray-100">Anthropic API Key</div>
-                    <div className="mt-1 text-xs text-gray-500">
+                    <div className="mt-1 text-xs text-gray-400">
+                      驱动 ArcReel 智能体的核心 AI 能力。
+                    </div>
+                    <div className="mt-1 truncate text-xs text-gray-500">
                       当前：{data.config.anthropic_api_key.masked ?? "未设置"}
                       {anthropicSourceBadge ? (
                         <>
@@ -555,9 +609,6 @@ export function SystemConfigPage() {
                         </>
                       ) : null}
                     </div>
-                    <div className="mt-1 text-xs text-gray-600">
-                      用于 ArcReel 智能体 (Claude Agent SDK)；如果需使用代理网关，可额外设置 Base URL。
-                    </div>
                   </div>
                 </div>
                 <button
@@ -565,24 +616,38 @@ export function SystemConfigPage() {
                   onClick={() => void handleClearKey("anthropic")}
                   disabled={saving}
                   className="text-xs text-gray-400 hover:text-gray-200 disabled:opacity-60"
+                  aria-label="清除 Anthropic API Key"
                 >
-                  清除 Key
+                  清除
                 </button>
               </div>
-              <input
-                value={anthropicKeyInput}
-                onChange={(e) => setAnthropicKeyInput(e.target.value)}
-                placeholder="输入新的 ANTHROPIC_API_KEY（留空不修改）"
-                className={`mt-3 ${inputClassName}`}
-                autoComplete="off"
-                spellCheck={false}
-              />
+              <div className="relative mt-3">
+                <input
+                  type={showAnthropicKey ? "text" : "password"}
+                  value={anthropicKeyInput}
+                  onChange={(e) => setAnthropicKeyInput(e.target.value)}
+                  placeholder="sk-ant-…"
+                  className={`${inputClassName} pr-10`}
+                  autoComplete="off"
+                  spellCheck={false}
+                  name="anthropic_api_key"
+                  aria-label="Anthropic API Key"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAnthropicKey((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
+                  aria-label={showAnthropicKey ? "隐藏密钥" : "显示密钥"}
+                >
+                  {showAnthropicKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               <div className="mt-4 border-t border-gray-800 pt-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-sm font-medium text-gray-100">Base URL</div>
                     <div className="mt-1 text-xs text-gray-400">
-                      当前 Base URL：{anthropicBaseUrlStatus.value ?? "官方默认"}
+                      当前：{anthropicBaseUrlStatus.value ?? "默认 (api.anthropic.com)"}
                     </div>
                   </div>
                   <button
@@ -590,6 +655,7 @@ export function SystemConfigPage() {
                     onClick={() => void handleClearAnthropicBaseUrl()}
                     disabled={saving}
                     className="text-xs text-gray-400 hover:text-gray-200 disabled:opacity-60"
+                    aria-label="清除 Anthropic Base URL"
                   >
                     清除 URL
                   </button>
@@ -601,10 +667,106 @@ export function SystemConfigPage() {
                   className={`mt-3 ${inputClassName}`}
                   autoComplete="off"
                   spellCheck={false}
+                  name="anthropic_base_url"
+                  aria-label="Anthropic Base URL"
                 />
                 <div className="mt-2 text-xs text-gray-500">
-                  可选。留空时使用 Anthropic 官方默认地址；配置代理时填写你的网关地址。
+                  可选。留空使用官方默认地址，使用代理时填写网关地址。
                 </div>
+              </div>
+              <div className="mt-4 border-t border-gray-800 pt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-gray-100">模型配置</div>
+                    <div className="mt-1 text-xs text-gray-400">
+                      当前：{data.config.anthropic_model.value ?? "默认"}
+                    </div>
+                  </div>
+                </div>
+                <input
+                  value={anthropicModelInput}
+                  onChange={(e) => setAnthropicModelInput(e.target.value)}
+                  placeholder="ANTHROPIC_MODEL"
+                  className={`mt-3 ${inputClassName}`}
+                  autoComplete="off"
+                  spellCheck={false}
+                  name="anthropic_model"
+                  aria-label="ANTHROPIC_MODEL"
+                />
+                <div className="mt-2 text-xs text-gray-500">
+                  可选。覆盖 Claude Agent SDK 的默认模型，留空使用 SDK 默认值。
+                </div>
+
+                <details
+                  open={modelRoutingExpanded}
+                  onToggle={(e) => setModelRoutingExpanded(e.currentTarget.open)}
+                  className="mt-4 rounded-xl border border-gray-800 bg-gray-950/40 p-4"
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-gray-100">
+                    <span className="inline-flex items-center gap-2">
+                      <SlidersHorizontal className="h-4 w-4 text-gray-400" />
+                      高级模型配置
+                    </span>
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-800 bg-gray-900 text-gray-500">
+                      <ChevronDown
+                        className={`h-4 w-4 transition-transform duration-200 ${
+                          modelRoutingExpanded ? "rotate-180 text-gray-200" : ""
+                        }`}
+                      />
+                    </span>
+                  </summary>
+                  <div className="mt-4 grid gap-4">
+                    {([
+                      {
+                        key: "anthropic_default_haiku_model" as const,
+                        label: "Haiku 模型",
+                        configField: data.config.anthropic_default_haiku_model,
+                      },
+                      {
+                        key: "anthropic_default_opus_model" as const,
+                        label: "Opus 模型",
+                        configField: data.config.anthropic_default_opus_model,
+                      },
+                      {
+                        key: "anthropic_default_sonnet_model" as const,
+                        label: "Sonnet 模型",
+                        configField: data.config.anthropic_default_sonnet_model,
+                      },
+                      {
+                        key: "claude_code_subagent_model" as const,
+                        label: "子 Agent 模型",
+                        configField: data.config.claude_code_subagent_model,
+                      },
+                    ] as const).map(({ key, label, configField }) => (
+                      <label key={key} className={cardClassName}>
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-medium text-gray-100">{label}</div>
+                          <div className="text-xs text-gray-500">
+                            当前：{configField.value ?? "默认"}
+                          </div>
+                        </div>
+                        <input
+                          value={advancedModelInputs[key]}
+                          onChange={(e) =>
+                            setAdvancedModelInputs((prev) => ({
+                              ...prev,
+                              [key]: e.target.value,
+                            }))
+                          }
+                          placeholder={key.toUpperCase()}
+                          className={`mt-2 ${inputClassName}`}
+                          autoComplete="off"
+                          spellCheck={false}
+                          name={key}
+                          aria-label={label}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-3 text-xs text-gray-500">
+                    分别覆盖按能力等级路由的模型。留空使用 ANTHROPIC_MODEL 或 SDK 默认值。
+                  </div>
+                </details>
               </div>
             </div>
 
@@ -614,9 +776,12 @@ export function SystemConfigPage() {
                   <div className={vendorIconFrameClassName}>
                     <GoogleColor size={20} />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-sm font-medium text-gray-100">Gemini API Key</div>
-                    <div className="mt-1 text-xs text-gray-500">
+                    <div className="mt-1 text-xs text-gray-400">
+                      用于生成分镜图片和视频片段，选择 AI Studio 后端时需要此密钥。
+                    </div>
+                    <div className="mt-1 truncate text-xs text-gray-500">
                       当前：{data.config.gemini_api_key.masked ?? "未设置"}
                       {geminiSourceBadge ? (
                         <>
@@ -632,24 +797,38 @@ export function SystemConfigPage() {
                   onClick={() => void handleClearKey("gemini")}
                   disabled={saving}
                   className="text-xs text-gray-400 hover:text-gray-200 disabled:opacity-60"
+                  aria-label="清除 Gemini API Key 覆盖"
                 >
-                  清除覆盖
+                  清除
                 </button>
               </div>
-              <input
-                value={geminiKeyInput}
-                onChange={(e) => {
-                  setGeminiKeyInput(e.target.value);
-                  setAistudioTestState({ status: "idle" });
-                }}
-                placeholder="输入新的 GEMINI_API_KEY（留空不修改）"
-                className={`mt-3 ${inputClassName}`}
-                autoComplete="off"
-                spellCheck={false}
-              />
+              <div className="relative mt-3">
+                <input
+                  type={showGeminiKey ? "text" : "password"}
+                  value={geminiKeyInput}
+                  onChange={(e) => {
+                    setGeminiKeyInput(e.target.value);
+                    setAistudioTestState({ status: "idle" });
+                  }}
+                  placeholder="AIza…"
+                  className={`${inputClassName} pr-10`}
+                  autoComplete="off"
+                  spellCheck={false}
+                  name="gemini_api_key"
+                  aria-label="Gemini API Key"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowGeminiKey((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
+                  aria-label={showGeminiKey ? "隐藏密钥" : "显示密钥"}
+                >
+                  {showGeminiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               <div className={infoStripClassName}>
                 <div className="text-xs text-gray-300">
-                  使用当前配置中的模型进行校验；若上方填入新 key，则优先验证该 key（不会覆盖已保存配置）。
+                  验证当前模型可用性。填入新 Key 时优先验证新 Key，不影响已保存配置。
                 </div>
                 <button
                   type="button"
@@ -667,16 +846,16 @@ export function SystemConfigPage() {
                   ) : (
                     <ShieldCheck className="h-4 w-4" />
                   )}
-                  {testingProvider === "aistudio" ? "验证中..." : "验证 Gemini 连接"}
+                  {testingProvider === "aistudio" ? "测试中\u2026" : "测试连接"}
                 </button>
               </div>
               {aistudioTestState.status === "success" ? (
-                <div className={successNoteClassName}>
+                <div className={successNoteClassName} aria-live="polite">
                   {aistudioTestState.result.message}
                 </div>
               ) : null}
               {aistudioTestState.status === "error" ? (
-                <div className={errorNoteClassName}>
+                <div className={errorNoteClassName} aria-live="polite">
                   {aistudioTestState.message}
                 </div>
               ) : null}
@@ -688,9 +867,12 @@ export function SystemConfigPage() {
                   <div className={vendorIconFrameClassName}>
                     <VertexAIColor size={20} />
                   </div>
-                  <div>
-                    <div className="text-sm font-medium text-gray-100">Vertex 凭证</div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-gray-100">Vertex AI 凭证</div>
                     <div className="mt-1 text-xs text-gray-400">
+                      Google Cloud 企业级后端，与 AI Studio 使用相同模型，提供更高配额和 SLA 保障。
+                    </div>
+                    <div className="mt-1 truncate text-xs text-gray-500">
                       {vertexStatus.is_set ? (
                         <>
                           已上传：<span className="text-gray-200">{vertexStatus.filename}</span>
@@ -701,7 +883,7 @@ export function SystemConfigPage() {
                           ) : null}
                         </>
                       ) : (
-                        <>未上传 · 切换到 Vertex 前请先上传 JSON 凭证</>
+                        <>未上传 · 切换到 Vertex AI 前请先上传 JSON 凭证</>
                       )}
                     </div>
                   </div>
@@ -723,7 +905,7 @@ export function SystemConfigPage() {
                     ) : (
                       <ShieldCheck className="h-4 w-4" />
                     )}
-                    {testingProvider === "vertex" ? "测试中..." : "测试 Vertex"}
+                    {testingProvider === "vertex" ? "测试中\u2026" : "测试连接"}
                   </button>
                   <button
                     type="button"
@@ -743,6 +925,7 @@ export function SystemConfigPage() {
                     type="file"
                     accept="application/json,.json"
                     className="hidden"
+                    aria-label="上传 Vertex AI JSON 凭证文件"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       e.target.value = "";
@@ -753,7 +936,7 @@ export function SystemConfigPage() {
                 </div>
               </div>
               {vertexTestState.status === "success" ? (
-                <div className="mt-4 rounded-lg border border-gray-800 bg-gray-900/80 px-3 py-2 text-xs text-gray-300">
+                <div className="mt-4 rounded-lg border border-gray-800 bg-gray-900/80 px-3 py-2 text-xs text-gray-300" aria-live="polite">
                   {vertexTestState.result.message}
                   {vertexTestState.result.project_id ? (
                     <span className="text-gray-500">
@@ -763,7 +946,7 @@ export function SystemConfigPage() {
                 </div>
               ) : null}
               {vertexTestState.status === "error" ? (
-                <div className="mt-4 rounded-lg border border-rose-900/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-100">
+                <div className="mt-4 rounded-lg border border-rose-900/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-100" aria-live="polite">
                   {vertexTestState.message}
                 </div>
               ) : null}
@@ -783,7 +966,7 @@ export function SystemConfigPage() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                {savingSection === "secrets" ? "保存中..." : "保存密钥与凭证"}
+                {savingSection === "secrets" ? "保存中\u2026" : "保存密钥与凭证"}
               </button>
             </div>
           )}
@@ -796,7 +979,7 @@ export function SystemConfigPage() {
             </div>
             <div>
               <h2 className="text-base font-semibold text-gray-100">后端与模型</h2>
-              <p className="text-xs text-gray-500">图片/视频后端可分别配置</p>
+              <p className="text-xs text-gray-500">分别选择图片和视频的 API 后端与模型</p>
             </div>
           </div>
 
@@ -825,11 +1008,13 @@ export function SystemConfigPage() {
                 ))}
               </div>
 
-              <div className="mt-4 text-sm font-medium text-gray-100">图片模型</div>
+              <label className="mt-4 text-sm font-medium text-gray-100" htmlFor="image_model">图片模型</label>
               <select
+                id="image_model"
                 value={draft.image_model}
                 onChange={(e) => setDraft((s) => (s ? { ...s, image_model: e.target.value } : s))}
                 className={`mt-2 ${selectClassName}`}
+                name="image_model"
               >
                 {imageModels.map((m) => (
                   <option key={m} value={m}>
@@ -863,11 +1048,13 @@ export function SystemConfigPage() {
                 ))}
               </div>
 
-              <div className="mt-4 text-sm font-medium text-gray-100">视频模型</div>
+              <label className="mt-4 text-sm font-medium text-gray-100" htmlFor="video_model">视频模型</label>
               <select
+                id="video_model"
                 value={draft.video_model}
                 onChange={(e) => setDraft((s) => (s ? { ...s, video_model: e.target.value } : s))}
                 className={`mt-2 ${selectClassName}`}
+                name="video_model"
               >
                 {videoModels.map((m) => (
                   <option key={m} value={m}>
@@ -892,12 +1079,12 @@ export function SystemConfigPage() {
                   <span className="text-sm text-gray-200">
                     生成音频
                     <span className="ml-2 text-xs text-gray-500">
-                      {audioEditable ? "（仅 Vertex 可关闭）" : "（AI Studio 固定开启）"}
+                      {audioEditable ? "（Vertex 可选关闭）" : "（AI Studio 始终开启）"}
                     </span>
                   </span>
                 </label>
                 <span className="text-xs text-gray-500">
-                  生效：{audioEffective ? "开启" : "关闭"}
+                  当前状态：{audioEffective ? "开启" : "关闭"}
                 </span>
               </div>
             </div>
@@ -916,7 +1103,7 @@ export function SystemConfigPage() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                {savingSection === "backend" ? "保存中..." : "保存后端与模型"}
+                {savingSection === "backend" ? "保存中\u2026" : "保存后端与模型"}
               </button>
             </div>
           )}
@@ -930,7 +1117,7 @@ export function SystemConfigPage() {
             </div>
             <div>
               <h2 className="text-base font-semibold text-gray-100">限流</h2>
-              <p className="text-xs text-gray-500">RPM、请求间隔、并发等运行时参数</p>
+              <p className="text-xs text-gray-500">控制 API 请求速率和并发数</p>
             </div>
           </div>
 
@@ -945,8 +1132,10 @@ export function SystemConfigPage() {
                   setDraft((s) => (s ? { ...s, gemini_image_rpm: Number(e.target.value) } : s))
                 }
                 className={`mt-2 ${inputClassName}`}
+                name="gemini_image_rpm"
+                inputMode="numeric"
               />
-              <div className="mt-2 text-xs text-gray-500">设置为 0 表示不限制</div>
+              <div className="mt-2 text-xs text-gray-500">0 = 不限制</div>
             </label>
 
             <label className={cardClassName}>
@@ -959,8 +1148,10 @@ export function SystemConfigPage() {
                   setDraft((s) => (s ? { ...s, gemini_video_rpm: Number(e.target.value) } : s))
                 }
                 className={`mt-2 ${inputClassName}`}
+                name="gemini_video_rpm"
+                inputMode="numeric"
               />
-              <div className="mt-2 text-xs text-gray-500">设置为 0 表示不限制</div>
+              <div className="mt-2 text-xs text-gray-500">0 = 不限制</div>
             </label>
 
             <label className={cardClassName}>
@@ -974,8 +1165,10 @@ export function SystemConfigPage() {
                   setDraft((s) => (s ? { ...s, gemini_request_gap: Number(e.target.value) } : s))
                 }
                 className={`mt-2 ${inputClassName}`}
+                name="gemini_request_gap"
+                inputMode="decimal"
               />
-              <div className="mt-2 text-xs text-gray-500">控制连续请求的最小间隔</div>
+              <div className="mt-2 text-xs text-gray-500">两次请求之间的最小间隔</div>
             </label>
           </div>
 
@@ -1010,6 +1203,8 @@ export function SystemConfigPage() {
                     )
                   }
                   className={`mt-2 ${inputClassName}`}
+                  name="storyboard_max_workers"
+                  inputMode="numeric"
                 />
               </label>
 
@@ -1025,11 +1220,13 @@ export function SystemConfigPage() {
                     )
                   }
                   className={`mt-2 ${inputClassName}`}
+                  name="video_max_workers"
+                  inputMode="numeric"
                 />
               </label>
             </div>
             <div className="mt-3 text-xs text-gray-500">
-              修改后仅影响后续任务；不强制中断已在途生成。
+              仅影响后续任务，不中断进行中的生成
             </div>
           </details>
 
@@ -1046,7 +1243,7 @@ export function SystemConfigPage() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                {savingSection === "limits" ? "保存中..." : "保存限流配置"}
+                {savingSection === "limits" ? "保存中\u2026" : "保存限流配置"}
               </button>
             </div>
           )}
