@@ -10,6 +10,7 @@ import { UI_LAYERS } from "@/utils/ui-layers";
 import { ContextBanner } from "./ContextBanner";
 import { PendingQuestionWizard } from "./PendingQuestionWizard";
 import { SkillPills } from "./SkillPills";
+import { TodoListPanel } from "./TodoListPanel";
 import { ChatMessage } from "./chat/ChatMessage";
 
 // ---------------------------------------------------------------------------
@@ -230,6 +231,8 @@ export function AgentCopilot() {
       )}
 
       {!pendingQuestion && <SkillPills onSendCommand={(cmd) => setLocalInput(cmd)} />}
+
+      <TodoListPanel turns={turns} draftTurn={draftTurn} />
 
       {!pendingQuestion && error && (
         <div className="border-t border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">

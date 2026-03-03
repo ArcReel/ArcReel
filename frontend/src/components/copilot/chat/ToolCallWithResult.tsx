@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { cn } from "./utils";
 import { StreamMarkdown } from "../StreamMarkdown";
-import type { ContentBlock } from "@/types";
+import type { ContentBlock, TodoItem } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -74,9 +74,15 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
 
   const toolName = block.name || "Tool";
   const isSkill = toolName === "Skill";
+  const isTodoWrite = toolName === "TodoWrite";
   const hasResult = block.result !== undefined;
   const hasSkillContent = !!block.skill_content;
   const isError = block.is_error;
+
+  // -- TodoWrite compact display -----------------------------------------------
+  if (isTodoWrite) {
+    return <TodoWriteCompact block={block} />;
+  }
 
   // -- colours ---------------------------------------------------------------
   const borderClass = isError
@@ -189,6 +195,38 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TodoWriteCompact – single-line summary for TodoWrite tool calls
+// ---------------------------------------------------------------------------
+
+function TodoWriteCompact({ block }: Readonly<{ block: ContentBlock }>) {
+  const input = block.input as Record<string, unknown> | undefined;
+  const todos = (input?.todos ?? []) as TodoItem[];
+  const total = todos.length;
+  const completed = todos.filter((t) => t.status === "completed").length;
+  const hasResult = block.result !== undefined;
+  const statusIcon = hasResult ? "\u2713" : "\u2026";
+  const statusColor = hasResult ? "text-emerald-400" : "text-slate-500";
+
+  return (
+    <div className="my-1.5 rounded-lg border border-white/15 bg-ink-800/50 overflow-hidden min-w-0">
+      <div className="px-2.5 py-1.5 flex items-center justify-between">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+          <span className="text-[10px] font-semibold uppercase shrink-0 text-slate-500">
+            TodoWrite
+          </span>
+          <span className="text-[11px] text-slate-300 truncate">
+            {total > 0 ? `任务清单 ${completed}/${total} 完成` : "任务清单已更新"}
+          </span>
+        </div>
+        <span className={cn("text-xs font-medium shrink-0 ml-1.5", statusColor)}>
+          {statusIcon}
+        </span>
+      </div>
     </div>
   );
 }

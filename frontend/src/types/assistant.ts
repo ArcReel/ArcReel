@@ -66,3 +66,9 @@ export interface SkillInfo {
   scope: "project" | "user";
   path: string;
 }
+
+export interface TodoItem {
+  content: string;
+  activeForm: string;
+  status: "pending" | "in_progress" | "completed";
+}
