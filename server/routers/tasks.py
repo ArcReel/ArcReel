@@ -56,7 +56,7 @@ def _transform_task_event(raw_event: dict, stats: dict) -> dict:
 @router.get("/tasks/stats")
 async def get_task_stats(project_name: Optional[str] = None):
     queue = get_task_queue()
-    stats = queue.get_task_stats(project_name=project_name)
+    stats = await queue.get_task_stats(project_name=project_name)
     return {"stats": stats}
 
 
@@ -70,7 +70,7 @@ async def list_tasks(
     page_size: int = Query(default=50, ge=1, le=500),
 ):
     queue = get_task_queue()
-    return queue.list_tasks(
+    return await queue.list_tasks(
         project_name=project_name,
         status=status,
         task_type=task_type,
@@ -90,7 +90,7 @@ async def list_project_tasks(
     page_size: int = Query(default=50, ge=1, le=500),
 ):
     queue = get_task_queue()
-    return queue.list_tasks(
+    return await queue.list_tasks(
         project_name=project_name,
         status=status,
         task_type=task_type,
@@ -117,14 +117,14 @@ async def stream_tasks(
         cursor = 0
     cursor = max(0, int(cursor))
 
-    latest_event_id = queue.get_latest_event_id(project_name=project_name)
+    latest_event_id = await queue.get_latest_event_id(project_name=project_name)
     snapshot_last_event_id = (
         max(cursor, latest_event_id) if resume_requested else latest_event_id
     )
     snapshot = {
         "project_name": project_name,
-        "tasks": queue.get_recent_tasks_snapshot(project_name=project_name, limit=1000),
-        "stats": queue.get_task_stats(project_name=project_name),
+        "tasks": await queue.get_recent_tasks_snapshot(project_name=project_name, limit=1000),
+        "stats": await queue.get_task_stats(project_name=project_name),
         "last_event_id": snapshot_last_event_id,
         "generated_at": _utc_now_iso(),
     }
@@ -135,13 +135,13 @@ async def stream_tasks(
         if await request.is_disconnected():
             break
 
-        events = queue.get_events_since(
+        events = await queue.get_events_since(
             last_event_id=cursor,
             project_name=project_name,
             limit=200,
         )
         if events:
-            batch_stats = queue.get_task_stats(project_name=project_name)
+            batch_stats = await queue.get_task_stats(project_name=project_name)
             for event in events:
                 cursor = int(event["id"])
                 transformed = _transform_task_event(event, batch_stats)
@@ -158,7 +158,7 @@ async def stream_tasks(
 @router.get("/tasks/{task_id}")
 async def get_task(task_id: str):
     queue = get_task_queue()
-    task = queue.get_task(task_id)
+    task = await queue.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail=f"任务 '{task_id}' 不存在")
     return {"task": task}

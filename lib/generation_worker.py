@@ -77,7 +77,7 @@ class GenerationWorker:
         try:
             while not self._stop_event.is_set():
                 had_lease = self._owns_lease
-                self._owns_lease = self.queue.acquire_or_renew_worker_lease(
+                self._owns_lease = await self.queue.acquire_or_renew_worker_lease(
                     name=self.lease_name,
                     owner_id=self.owner_id,
                     ttl_seconds=self.lease_ttl,
@@ -98,7 +98,7 @@ class GenerationWorker:
                     and not self._image_inflight
                     and not self._video_inflight
                 ):
-                    self.queue.requeue_running_tasks()
+                    await self.queue.requeue_running_tasks()
 
                 if not self._owns_lease:
                     await asyncio.sleep(self.heartbeat_interval)
@@ -107,7 +107,7 @@ class GenerationWorker:
                 claimed_any = False
 
                 while len(self._image_inflight) < self.image_workers:
-                    task = self.queue.claim_next_task(media_type="image")
+                    task = await self.queue.claim_next_task(media_type="image")
                     if not task:
                         break
                     claimed_any = True
@@ -117,7 +117,7 @@ class GenerationWorker:
                     )
 
                 while len(self._video_inflight) < self.video_workers:
-                    task = self.queue.claim_next_task(media_type="video")
+                    task = await self.queue.claim_next_task(media_type="video")
                     if not task:
                         break
                     claimed_any = True
@@ -134,7 +134,7 @@ class GenerationWorker:
             await self._wait_inflight_completion()
         finally:
             if self._owns_lease:
-                self.queue.release_worker_lease(name=self.lease_name, owner_id=self.owner_id)
+                await self.queue.release_worker_lease(name=self.lease_name, owner_id=self.owner_id)
             self._owns_lease = False
 
     async def _drain_finished_tasks(self) -> None:
@@ -163,8 +163,8 @@ class GenerationWorker:
             from server.services.generation_tasks import execute_generation_task
 
             result = await asyncio.to_thread(execute_generation_task, task)
-            self.queue.mark_task_succeeded(task_id, result)
+            await self.queue.mark_task_succeeded(task_id, result)
             logger.info("任务完成 %s (type=%s)", task_id, task_type)
         except Exception as exc:
             logger.exception("任务失败 %s (type=%s)", task_id, task_type)
-            self.queue.mark_task_failed(task_id, str(exc))
+            await self.queue.mark_task_failed(task_id, str(exc))

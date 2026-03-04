@@ -26,16 +26,16 @@ class _FakeQueue:
         self.task = task
         self.cursors = []
 
-    def get_latest_event_id(self, project_name=None):
+    async def get_latest_event_id(self, project_name=None):
         return self.latest
 
-    def get_recent_tasks_snapshot(self, project_name=None, limit=1000):
+    async def get_recent_tasks_snapshot(self, project_name=None, limit=1000):
         return self.snapshot
 
-    def get_task_stats(self, project_name=None):
+    async def get_task_stats(self, project_name=None):
         return self.stats
 
-    def get_events_since(self, last_event_id, project_name=None, limit=200):
+    async def get_events_since(self, last_event_id, project_name=None, limit=200):
         self.cursors.append(last_event_id)
         if self.events:
             events = self.events
@@ -43,7 +43,7 @@ class _FakeQueue:
             return events
         return []
 
-    def get_task(self, task_id):
+    async def get_task(self, task_id):
         return self.task
 
 

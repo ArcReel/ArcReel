@@ -1,9 +1,13 @@
 """
 Helper utilities for skills to enqueue-and-wait generation tasks.
+
+All public functions are async wrappers around the async GenerationQueue.
+Skill scripts that run outside the event loop should use asyncio.run().
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, Dict, Optional
 
@@ -46,12 +50,12 @@ def read_worker_offline_grace() -> float:
     return max(1.0, float(DEFAULT_WORKER_OFFLINE_GRACE_SEC))
 
 
-def is_worker_online(lease_name: str = "default") -> bool:
+async def is_worker_online(lease_name: str = "default") -> bool:
     queue = get_generation_queue()
-    return queue.is_worker_online(name=lease_name)
+    return await queue.is_worker_online(name=lease_name)
 
 
-def wait_for_task(
+async def wait_for_task(
     task_id: str,
     poll_interval: Optional[float] = None,
     *,
@@ -73,7 +77,7 @@ def wait_for_task(
     offline_since: Optional[float] = None
 
     while True:
-        task = queue.get_task(task_id)
+        task = await queue.get_task(task_id)
         if not task:
             raise RuntimeError(f"task not found: {task_id}")
 
@@ -87,7 +91,7 @@ def wait_for_task(
                 f"timed out waiting for task '{task_id}' after {timeout:.1f}s"
             )
 
-        if queue.is_worker_online(name=lease_name):
+        if await queue.is_worker_online(name=lease_name):
             offline_since = None
         else:
             if offline_since is None:
@@ -97,10 +101,10 @@ def wait_for_task(
                     f"queue worker offline while waiting for task '{task_id}'"
                 )
 
-        time.sleep(interval)
+        await asyncio.sleep(interval)
 
 
-def enqueue_and_wait(
+async def enqueue_and_wait(
     *,
     project_name: str,
     task_type: str,
@@ -116,7 +120,7 @@ def enqueue_and_wait(
     dependency_group: Optional[str] = None,
     dependency_index: Optional[int] = None,
 ) -> Dict[str, Any]:
-    enqueue_result = enqueue_task_only(
+    enqueue_result = await enqueue_task_only(
         project_name=project_name,
         task_type=task_type,
         media_type=media_type,
@@ -130,7 +134,7 @@ def enqueue_and_wait(
         dependency_index=dependency_index,
     )
 
-    task = wait_for_task(
+    task = await wait_for_task(
         enqueue_result["task_id"],
         timeout_seconds=wait_timeout_seconds,
         lease_name=lease_name,
@@ -147,7 +151,7 @@ def enqueue_and_wait(
     }
 
 
-def enqueue_task_only(
+async def enqueue_task_only(
     *,
     project_name: str,
     task_type: str,
@@ -163,10 +167,10 @@ def enqueue_task_only(
 ) -> Dict[str, Any]:
     queue = get_generation_queue()
 
-    if not queue.is_worker_online(name=lease_name):
+    if not await queue.is_worker_online(name=lease_name):
         raise WorkerOfflineError("queue worker is offline")
 
-    enqueue_result = queue.enqueue_task(
+    enqueue_result = await queue.enqueue_task(
         project_name=project_name,
         task_type=task_type,
         media_type=media_type,
@@ -179,3 +183,42 @@ def enqueue_task_only(
         dependency_index=dependency_index,
     )
     return enqueue_result
+
+
+# ---------------------------------------------------------------------------
+# Sync wrappers for skill scripts running outside an event loop
+# ---------------------------------------------------------------------------
+
+def _run_sync(coro):
+    """Run an async coroutine from synchronous code."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None and loop.is_running():
+        # Already inside an event loop — create a new thread to run the coroutine.
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+    return asyncio.run(coro)
+
+
+def is_worker_online_sync(lease_name: str = "default") -> bool:
+    """Sync wrapper for is_worker_online()."""
+    return _run_sync(is_worker_online(lease_name))
+
+
+def enqueue_task_only_sync(**kwargs) -> Dict[str, Any]:
+    """Sync wrapper for enqueue_task_only()."""
+    return _run_sync(enqueue_task_only(**kwargs))
+
+
+def wait_for_task_sync(task_id: str, poll_interval=None, **kwargs) -> Dict[str, Any]:
+    """Sync wrapper for wait_for_task()."""
+    return _run_sync(wait_for_task(task_id, poll_interval, **kwargs))
+
+
+def enqueue_and_wait_sync(**kwargs) -> Dict[str, Any]:
+    """Sync wrapper for enqueue_and_wait()."""
+    return _run_sync(enqueue_and_wait(**kwargs))

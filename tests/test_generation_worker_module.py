@@ -12,23 +12,23 @@ class _FakeQueue:
         self.failed = []
         self._lease_calls = 0
 
-    def acquire_or_renew_worker_lease(self, name, owner_id, ttl_seconds):
+    async def acquire_or_renew_worker_lease(self, name, owner_id, ttl_seconds):
         self._lease_calls += 1
         return True
 
-    def release_worker_lease(self, name, owner_id):
+    async def release_worker_lease(self, name, owner_id):
         self.released = True
 
-    def requeue_running_tasks(self):
+    async def requeue_running_tasks(self):
         return 0
 
-    def claim_next_task(self, media_type):
+    async def claim_next_task(self, media_type):
         return None
 
-    def mark_task_succeeded(self, task_id, result):
+    async def mark_task_succeeded(self, task_id, result):
         self.succeeded.append((task_id, result))
 
-    def mark_task_failed(self, task_id, error):
+    async def mark_task_failed(self, task_id, error):
         self.failed.append((task_id, error))
 
 

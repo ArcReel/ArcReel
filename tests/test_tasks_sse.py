@@ -1,5 +1,8 @@
+"""Tests for task router endpoints and SSE events."""
+
+import pytest
+from httpx import ASGITransport, AsyncClient
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from server.routers import tasks as tasks_router
 
@@ -11,9 +14,9 @@ def _build_app():
 
 
 class TestTaskRouterAndEvents:
-    def test_task_router_endpoints_and_incremental_events(self, generation_queue):
+    async def test_task_router_endpoints_and_incremental_events(self, generation_queue):
         queue = generation_queue
-        task = queue.enqueue_task(
+        task = await queue.enqueue_task(
             project_name="demo",
             task_type="storyboard",
             media_type="image",
@@ -22,38 +25,40 @@ class TestTaskRouterAndEvents:
             script_file="episode_01.json",
             source="webui",
         )
-        queue.claim_next_task(media_type="image")
-        queue.mark_task_failed(task["task_id"], "mock fail")
+        await queue.claim_next_task(media_type="image")
+        await queue.mark_task_failed(task["task_id"], "mock fail")
 
         app = _build_app()
-        with TestClient(app) as client:
-            task_resp = client.get(f"/api/v1/tasks/{task['task_id']}")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            task_resp = await client.get(f"/api/v1/tasks/{task['task_id']}")
             assert task_resp.status_code == 200
             assert task_resp.json()["task"]["status"] == "failed"
 
-            list_resp = client.get("/api/v1/tasks?project_name=demo")
+            list_resp = await client.get("/api/v1/tasks?project_name=demo")
             assert list_resp.status_code == 200
             assert list_resp.json()["total"] >= 1
 
-            stats_resp = client.get("/api/v1/tasks/stats?project_name=demo")
+            stats_resp = await client.get("/api/v1/tasks/stats?project_name=demo")
             assert stats_resp.status_code == 200
             stats = stats_resp.json()["stats"]
             assert stats["failed"] == 1
 
-        events = queue.get_events_since(last_event_id=0, project_name="demo")
+        events = await queue.get_events_since(last_event_id=0, project_name="demo")
         assert len(events) >= 3
 
         last_running_id = events[1]["id"]
-        incremental = queue.get_events_since(last_event_id=last_running_id, project_name="demo")
+        incremental = await queue.get_events_since(last_event_id=last_running_id, project_name="demo")
         assert all(event["id"] > last_running_id for event in incremental)
         assert any(event["event_type"] == "failed" for event in incremental)
 
-    def test_sse_task_event_has_frontend_shape(self, generation_queue):
+    async def test_sse_task_event_has_frontend_shape(self, generation_queue):
         """SSE task 事件应匹配前端 TaskStreamTaskPayload 结构。"""
         from server.routers.tasks import _transform_task_event
 
         queue = generation_queue
-        task = queue.enqueue_task(
+        task = await queue.enqueue_task(
             project_name="demo",
             task_type="storyboard",
             media_type="image",
@@ -63,10 +68,10 @@ class TestTaskRouterAndEvents:
             source="webui",
         )
 
-        events = queue.get_events_since(last_event_id=0, project_name="demo")
+        events = await queue.get_events_since(last_event_id=0, project_name="demo")
         assert len(events) >= 1
 
-        stats = queue.get_task_stats(project_name="demo")
+        stats = await queue.get_task_stats(project_name="demo")
         transformed = _transform_task_event(events[0], stats)
 
         assert transformed["action"] == "created"
