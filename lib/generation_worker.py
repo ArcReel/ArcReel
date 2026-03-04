@@ -162,7 +162,7 @@ class GenerationWorker:
         try:
             from server.services.generation_tasks import execute_generation_task
 
-            result = await asyncio.to_thread(execute_generation_task, task)
+            result = await execute_generation_task(task)
             await self.queue.mark_task_succeeded(task_id, result)
             logger.info("任务完成 %s (type=%s)", task_id, task_type)
         except Exception as exc:

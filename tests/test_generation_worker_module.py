@@ -48,14 +48,17 @@ class TestGenerationWorker:
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
 
+        async def _fake_execute(task):
+            return {"ok": task["task_id"]}
+
         monkeypatch.setattr(
             "server.services.generation_tasks.execute_generation_task",
-            lambda task: {"ok": task["task_id"]},
+            _fake_execute,
         )
         await worker._process_task({"task_id": "t1"})
         assert queue.succeeded == [("t1", {"ok": "t1"})]
 
-        def _raise(_task):
+        async def _raise(_task):
             raise RuntimeError("boom")
 
         monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _raise)

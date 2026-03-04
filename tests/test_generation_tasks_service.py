@@ -92,7 +92,15 @@ class _FakeGenerator:
         self.image_calls.append(kwargs)
         return Path("/tmp/image.png"), 1
 
+    async def generate_image_async(self, **kwargs):
+        self.image_calls.append(kwargs)
+        return Path("/tmp/image.png"), 1
+
     def generate_video(self, **kwargs):
+        self.video_calls.append(kwargs)
+        return Path("/tmp/video.mp4"), 2, "ref", "uri"
+
+    async def generate_video_async(self, **kwargs):
         self.video_calls.append(kwargs)
         return Path("/tmp/video.mp4"), 2, "ref", "uri"
 
@@ -149,7 +157,7 @@ class TestGenerationTasks:
         with pytest.raises(ValueError):
             generation_tasks._normalize_video_prompt({"action": ""})
 
-    def test_execute_task_dispatch(self, tmp_path, monkeypatch):
+    async def test_execute_task_dispatch(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
@@ -170,7 +178,7 @@ class TestGenerationTasks:
             ),
         )
 
-        storyboard_result = generation_tasks.execute_storyboard_task(
+        storyboard_result = await generation_tasks.execute_storyboard_task(
             "demo",
             "E1S02",
             {"script_file": "episode_1.json", "prompt": "direct prompt", "extra_reference_images": ["characters/Alice.png"]},
@@ -188,7 +196,7 @@ class TestGenerationTasks:
             },
         ]
 
-        generation_tasks.execute_storyboard_task(
+        await generation_tasks.execute_storyboard_task(
             "demo",
             "E1S03",
             {"script_file": "episode_1.json", "prompt": "direct prompt"},
@@ -198,7 +206,7 @@ class TestGenerationTasks:
             project_path / "clues" / "玉佩.png",
         ]
 
-        video_result = generation_tasks.execute_video_task(
+        video_result = await generation_tasks.execute_video_task(
             "demo",
             "E1S01",
             {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
@@ -206,7 +214,7 @@ class TestGenerationTasks:
         assert video_result["resource_type"] == "videos"
         assert video_result["video_uri"] == "uri"
 
-        character_result = generation_tasks.execute_character_task(
+        character_result = await generation_tasks.execute_character_task(
             "demo",
             "Alice",
             {"prompt": "角色描述"},
@@ -214,14 +222,14 @@ class TestGenerationTasks:
         assert character_result["resource_type"] == "characters"
         assert fake_pm.project["characters"]["Alice"]["character_sheet"] == "characters/Alice.png"
 
-        clue_result = generation_tasks.execute_clue_task(
+        clue_result = await generation_tasks.execute_clue_task(
             "demo",
             "玉佩",
             {"prompt": "线索描述"},
         )
         assert clue_result["resource_type"] == "clues"
 
-        dispatch = generation_tasks.execute_generation_task(
+        dispatch = await generation_tasks.execute_generation_task(
             {
                 "task_type": "storyboard",
                 "project_name": "demo",
@@ -250,28 +258,28 @@ class TestGenerationTasks:
         ]
 
         with pytest.raises(ValueError):
-            generation_tasks.execute_generation_task({"task_type": "unknown", "project_name": "demo", "resource_id": "x", "payload": {}})
+            await generation_tasks.execute_generation_task({"task_type": "unknown", "project_name": "demo", "resource_id": "x", "payload": {}})
 
-    def test_execute_task_validation_errors(self, tmp_path, monkeypatch):
+    async def test_execute_task_validation_errors(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "get_media_generator", lambda _p: _FakeGenerator())
 
         with pytest.raises(ValueError):
-            generation_tasks.execute_storyboard_task("demo", "E1S01", {"prompt": "x"})
+            await generation_tasks.execute_storyboard_task("demo", "E1S01", {"prompt": "x"})
 
         with pytest.raises(ValueError):
-            generation_tasks.execute_video_task("demo", "E1S01", {"script_file": "episode_1.json"})
+            await generation_tasks.execute_video_task("demo", "E1S01", {"script_file": "episode_1.json"})
 
         (project_path / "storyboards" / "scene_E1S01.png").unlink()
         with pytest.raises(ValueError):
-            generation_tasks.execute_video_task(
+            await generation_tasks.execute_video_task(
                 "demo", "E1S01", {"script_file": "episode_1.json", "prompt": "x"}
             )
 
         with pytest.raises(ValueError):
-            generation_tasks.execute_character_task("demo", "Alice", {"prompt": ""})
+            await generation_tasks.execute_character_task("demo", "Alice", {"prompt": ""})
 
         with pytest.raises(ValueError):
-            generation_tasks.execute_clue_task("demo", "玉佩", {"prompt": ""})
+            await generation_tasks.execute_clue_task("demo", "玉佩", {"prompt": ""})

@@ -267,7 +267,7 @@ def _emit_generation_success_batch(
         )
 
 
-def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     script_file = payload.get("script_file")
     if not script_file:
         raise ValueError("script_file is required for storyboard task")
@@ -307,7 +307,7 @@ def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[s
     generator = get_media_generator(project_name)
     aspect_ratio = get_aspect_ratio(project, "storyboards")
 
-    _, version = generator.generate_image(
+    _, version = await generator.generate_image_async(
         prompt=prompt_text,
         resource_type="storyboards",
         resource_id=resource_id,
@@ -337,7 +337,7 @@ def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[s
     }
 
 
-def execute_video_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_video_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     script_file = payload.get("script_file")
     if not script_file:
         raise ValueError("script_file is required for video task")
@@ -358,7 +358,7 @@ def execute_video_task(project_name: str, resource_id: str, payload: Dict[str, A
     aspect_ratio = get_aspect_ratio(project, "videos")
     duration_seconds = normalize_veo_duration_seconds(payload.get("duration_seconds"))
 
-    _, version, _, video_uri = generator.generate_video(
+    _, version, _, video_uri = await generator.generate_video_async(
         prompt=prompt_text,
         resource_type="videos",
         resource_id=resource_id,
@@ -398,7 +398,7 @@ def execute_video_task(project_name: str, resource_id: str, payload: Dict[str, A
     }
 
 
-def execute_character_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_character_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
         raise ValueError("prompt is required for character task")
@@ -424,7 +424,7 @@ def execute_character_task(project_name: str, resource_id: str, payload: Dict[st
     generator = get_media_generator(project_name)
     aspect_ratio = get_aspect_ratio(project, "characters")
 
-    _, version = generator.generate_image(
+    _, version = await generator.generate_image_async(
         prompt=full_prompt,
         resource_type="characters",
         resource_id=resource_id,
@@ -449,7 +449,7 @@ def execute_character_task(project_name: str, resource_id: str, payload: Dict[st
     }
 
 
-def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
         raise ValueError("prompt is required for clue task")
@@ -468,7 +468,7 @@ def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, An
     generator = get_media_generator(project_name)
     aspect_ratio = get_aspect_ratio(project, "clues")
 
-    _, version = generator.generate_image(
+    _, version = await generator.generate_image_async(
         prompt=full_prompt,
         resource_type="clues",
         resource_id=resource_id,
@@ -492,7 +492,7 @@ def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, An
     }
 
 
-def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
     task_type = task.get("task_type")
     project_name = task.get("project_name")
     resource_id = task.get("resource_id")
@@ -503,7 +503,7 @@ def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
 
     with project_change_source("worker"):
         if task_type == "storyboard":
-            result = execute_storyboard_task(project_name, str(resource_id), payload)
+            result = await execute_storyboard_task(project_name, str(resource_id), payload)
             _emit_generation_success_batch(
                 task_type="storyboard",
                 project_name=project_name,
@@ -512,7 +512,7 @@ def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
             )
             return result
         if task_type == "video":
-            result = execute_video_task(project_name, str(resource_id), payload)
+            result = await execute_video_task(project_name, str(resource_id), payload)
             _emit_generation_success_batch(
                 task_type="video",
                 project_name=project_name,
@@ -521,7 +521,7 @@ def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
             )
             return result
         if task_type == "character":
-            result = execute_character_task(project_name, str(resource_id), payload)
+            result = await execute_character_task(project_name, str(resource_id), payload)
             _emit_generation_success_batch(
                 task_type="character",
                 project_name=project_name,
@@ -530,7 +530,7 @@ def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
             )
             return result
         if task_type == "clue":
-            result = execute_clue_task(project_name, str(resource_id), payload)
+            result = await execute_clue_task(project_name, str(resource_id), payload)
             _emit_generation_success_batch(
                 task_type="clue",
                 project_name=project_name,
