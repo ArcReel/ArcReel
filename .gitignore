@@ -46,6 +46,12 @@ docs/storycraft/
 projects/.agent_data/transcripts/*.json
 projects/.agent_data/sessions.db
 
+# New unified ORM database (SQLite)
+projects/.arcreel.db
+# Old SQLite database backups (created by migration script)
+projects/.*.db.bak
+projects/.agent_data/*.db.bak
+
 # Environment
 .env
 .env.local
