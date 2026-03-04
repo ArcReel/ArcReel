@@ -24,15 +24,15 @@ class _FakeService:
             raise FileNotFoundError(project_name)
         return make_session_meta(id="session-new", project_name=project_name, title=title or "")
 
-    def list_sessions(self, **kwargs):
+    async def list_sessions(self, **kwargs):
         return [make_session_meta(id="session-1", project_name=kwargs.get("project_name") or "demo")]
 
-    def get_session(self, session_id):
+    async def get_session(self, session_id):
         if session_id == "error":
             raise RuntimeError("boom")
         return self.sessions.get(session_id)
 
-    def update_session_title(self, session_id, title):
+    async def update_session_title(self, session_id, title):
         if title == "bad":
             raise ValueError("bad title")
         if session_id not in self.sessions:

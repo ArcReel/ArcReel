@@ -42,13 +42,20 @@ def fd_count():
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def meta_store(tmp_path: Path) -> SessionMetaStore:
-    """Create a SessionMetaStore backed by a temporary SQLite database."""
-    return SessionMetaStore(tmp_path / "sessions.db")
+async def meta_store():
+    """Create an async SessionMetaStore backed by in-memory SQLite."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+    yield store
+    await engine.dispose()
 
 
 @pytest.fixture()
-def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> SessionManager:
+async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> SessionManager:
     """Create a SessionManager wired to *tmp_path* and *meta_store*."""
     return SessionManager(
         project_root=tmp_path,

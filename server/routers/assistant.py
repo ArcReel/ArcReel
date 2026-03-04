@@ -24,22 +24,22 @@ def get_assistant_service() -> AssistantService:
     return assistant_service
 
 
-def _validate_session_ownership(
+async def _validate_session_ownership(
     service: AssistantService, session_id: str, project_name: str
 ) -> None:
     """Validate session belongs to the specified project."""
-    session = service.get_session(session_id)
+    session = await service.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
     if session.project_name != project_name:
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
 
-def _assistant_service_for_stream(
+async def _assistant_service_for_stream(
     project_name: str,
     session_id: str,
 ) -> AssistantService:
     service = get_assistant_service()
-    _validate_session_ownership(service, session_id, project_name)
+    await _validate_session_ownership(service, session_id, project_name)
     return service
 
 
@@ -82,7 +82,7 @@ async def list_sessions(
     offset: int = Query(default=0, ge=0),
 ):
     try:
-        sessions = get_assistant_service().list_sessions(
+        sessions = await get_assistant_service().list_sessions(
             project_name=project_name, status=status, limit=limit, offset=offset
         )
         return {"sessions": [s.model_dump() for s in sessions]}
@@ -97,8 +97,8 @@ async def list_sessions(
 async def get_session(project_name: str, session_id: str):
     try:
         service = get_assistant_service()
-        _validate_session_ownership(service, session_id, project_name)
-        session = service.get_session(session_id)
+        await _validate_session_ownership(service, session_id, project_name)
+        session = await service.get_session(session_id)
         return session.model_dump()
     except HTTPException:
         raise
@@ -111,8 +111,8 @@ async def get_session(project_name: str, session_id: str):
 async def update_session(project_name: str, session_id: str, req: UpdateSessionRequest):
     try:
         service = get_assistant_service()
-        _validate_session_ownership(service, session_id, project_name)
-        session = service.update_session_title(session_id, req.title)
+        await _validate_session_ownership(service, session_id, project_name)
+        session = await service.update_session_title(session_id, req.title)
         if session is None:
             raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
         return {"success": True, "session": session.model_dump()}
@@ -129,7 +129,7 @@ async def update_session(project_name: str, session_id: str, req: UpdateSessionR
 async def delete_session(project_name: str, session_id: str):
     try:
         service = get_assistant_service()
-        _validate_session_ownership(service, session_id, project_name)
+        await _validate_session_ownership(service, session_id, project_name)
         deleted = await service.delete_session(session_id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
@@ -153,7 +153,7 @@ async def list_messages(project_name: str, session_id: str):
 async def get_snapshot(project_name: str, session_id: str):
     try:
         service = get_assistant_service()
-        _validate_session_ownership(service, session_id, project_name)
+        await _validate_session_ownership(service, session_id, project_name)
         snapshot = await service.get_snapshot(session_id)
         return snapshot
     except HTTPException:
@@ -169,7 +169,7 @@ async def get_snapshot(project_name: str, session_id: str):
 async def send_message(project_name: str, session_id: str, req: SendMessageRequest):
     try:
         service = get_assistant_service()
-        _validate_session_ownership(service, session_id, project_name)
+        await _validate_session_ownership(service, session_id, project_name)
         result = await service.send_message(session_id, req.content)
         return result
     except HTTPException:
@@ -187,7 +187,7 @@ async def send_message(project_name: str, session_id: str, req: SendMessageReque
 async def interrupt_session(project_name: str, session_id: str):
     try:
         service = get_assistant_service()
-        _validate_session_ownership(service, session_id, project_name)
+        await _validate_session_ownership(service, session_id, project_name)
         result = await service.interrupt_session(session_id)
         return result
     except HTTPException:
@@ -207,7 +207,7 @@ async def answer_question(project_name: str, session_id: str, question_id: str, 
         raise HTTPException(status_code=400, detail="answers 不能为空")
     try:
         service = get_assistant_service()
-        _validate_session_ownership(service, session_id, project_name)
+        await _validate_session_ownership(service, session_id, project_name)
         result = await service.answer_user_question(
             session_id=session_id,
             question_id=question_id,

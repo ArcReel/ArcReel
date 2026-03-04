@@ -37,23 +37,30 @@ class AssistantService:
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         self.pm = ProjectManager(self.projects_root)
-        self.meta_store = SessionMetaStore(self.data_dir / "sessions.db")
+        self.meta_store = SessionMetaStore()
         self.transcript_reader = TranscriptReader(self.data_dir, project_root=self.project_root)
         self.session_manager = SessionManager(
             project_root=self.project_root,
             data_dir=self.data_dir,
             meta_store=self.meta_store,
         )
-        self._interrupt_stale_running_sessions()
+        self._startup_task: Optional[asyncio.Task[None]] = None
         self.stream_heartbeat_seconds = int(
             os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20")
         )
 
+    async def startup(self) -> None:
+        """Run async initialization (must be called from event loop)."""
+        if self._startup_task is None:
+            self._startup_task = asyncio.create_task(
+                self._interrupt_stale_running_sessions()
+            )
+
     # ==================== Session CRUD ====================
 
-    def _interrupt_stale_running_sessions(self) -> None:
+    async def _interrupt_stale_running_sessions(self) -> None:
         """On service restart, stale running sessions cannot safely resume."""
-        interrupted_count = self.meta_store.interrupt_running_sessions()
+        interrupted_count = await self.meta_store.interrupt_running_sessions()
         if interrupted_count > 0:
             logger.warning(
                 "服务启动时中断遗留运行中会话 count=%s",
@@ -68,7 +75,7 @@ class AssistantService:
         logger.info("创建会话 session_id=%s project=%s", session.id, project_name)
         return session
 
-    def list_sessions(
+    async def list_sessions(
         self,
         project_name: Optional[str] = None,
         status: Optional[SessionStatus] = None,
@@ -76,13 +83,13 @@ class AssistantService:
         offset: int = 0,
     ) -> list[SessionMeta]:
         """List sessions."""
-        return self.meta_store.list(
+        return await self.meta_store.list(
             project_name=project_name, status=status, limit=limit, offset=offset
         )
 
-    def get_session(self, session_id: str) -> Optional[SessionMeta]:
+    async def get_session(self, session_id: str) -> Optional[SessionMeta]:
         """Get session by ID."""
-        meta = self.meta_store.get(session_id)
+        meta = await self.meta_store.get(session_id)
         if meta and session_id in self.session_manager.sessions:
             # Update status from live session
             managed = self.session_manager.sessions[session_id]
@@ -91,14 +98,14 @@ class AssistantService:
             )
         return meta
 
-    def update_session_title(self, session_id: str, title: str) -> Optional[SessionMeta]:
+    async def update_session_title(self, session_id: str, title: str) -> Optional[SessionMeta]:
         """Update session title."""
-        if self.meta_store.get(session_id) is None:
+        if await self.meta_store.get(session_id) is None:
             return None
         normalized = title.strip() or "未命名会话"
-        if not self.meta_store.update_title(session_id, normalized):
+        if not await self.meta_store.update_title(session_id, normalized):
             return None
-        return self.meta_store.get(session_id)
+        return await self.meta_store.get(session_id)
 
     async def delete_session(self, session_id: str) -> bool:
         """Delete session and cleanup."""
@@ -114,17 +121,17 @@ class AssistantService:
                 logger.debug("会话断开清理异常: %s", exc)
             del self.session_manager.sessions[session_id]
 
-        return self.meta_store.delete(session_id)
+        return await self.meta_store.delete(session_id)
 
     # ==================== Messages ====================
 
     async def get_snapshot(self, session_id: str) -> dict[str, Any]:
         """Build a normalized v2 snapshot for history and reconnect."""
-        meta = self.meta_store.get(session_id)
+        meta = await self.meta_store.get(session_id)
         if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
 
-        status = self.session_manager.get_status(session_id) or meta.status
+        status = await self.session_manager.get_status(session_id) or meta.status
         # Use _build_projector which correctly replays the buffer in chronological order
         projector = self._build_projector(meta, session_id)
 
@@ -133,7 +140,7 @@ class AssistantService:
             pending_questions = await self.session_manager.get_pending_questions_snapshot(
                 session_id
             )
-        return self._with_session_metadata(
+        return await self._with_session_metadata(
             projector.build_snapshot(
                 session_id=session_id,
                 status=status,
@@ -148,7 +155,7 @@ class AssistantService:
         if not text:
             raise ValueError("消息内容不能为空")
 
-        meta = self.meta_store.get(session_id)
+        meta = await self.meta_store.get(session_id)
         if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
 
@@ -163,7 +170,7 @@ class AssistantService:
         answers: dict[str, str],
     ) -> dict[str, Any]:
         """Submit answers for a pending AskUserQuestion."""
-        meta = self.meta_store.get(session_id)
+        meta = await self.meta_store.get(session_id)
         if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
         await self.session_manager.answer_user_question(session_id, question_id, answers)
@@ -171,7 +178,7 @@ class AssistantService:
 
     async def interrupt_session(self, session_id: str) -> dict[str, Any]:
         """Interrupt a running session."""
-        meta = self.meta_store.get(session_id)
+        meta = await self.meta_store.get(session_id)
         if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
         session_status = await self.session_manager.interrupt_session(session_id)
@@ -185,13 +192,13 @@ class AssistantService:
 
     async def stream_events(self, session_id: str) -> AsyncIterator[ServerSentEvent]:
         """Stream SSE events for a session."""
-        meta = self.meta_store.get(session_id)
+        meta = await self.meta_store.get(session_id)
         if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
 
-        initial_status = self.session_manager.get_status(session_id) or meta.status
+        initial_status = await self.session_manager.get_status(session_id) or meta.status
         if initial_status != "running":
-            for event in self._emit_completed_snapshot(meta, session_id, initial_status):
+            for event in await self._emit_completed_snapshot(meta, session_id, initial_status):
                 yield event
             return
 
@@ -216,7 +223,7 @@ class AssistantService:
         if replay_overflowed:
             return
 
-        status = self.session_manager.get_status(session_id) or initial_status
+        status = await self.session_manager.get_status(session_id) or initial_status
         projector = self._build_projector(meta, session_id, replayed_messages)
         snapshot_events = await self._emit_running_snapshot(
             session_id, status, projector
@@ -231,7 +238,7 @@ class AssistantService:
                 message = await asyncio.wait_for(
                     queue.get(), timeout=self.stream_heartbeat_seconds
                 )
-                events, should_break = self._dispatch_live_message(
+                events, should_break = await self._dispatch_live_message(
                     message, projector, session_id
                 )
                 for event in events:
@@ -239,29 +246,27 @@ class AssistantService:
                 if should_break:
                     break
             except asyncio.TimeoutError:
-                event = self._handle_heartbeat_timeout(session_id, status, projector)
+                event = await self._handle_heartbeat_timeout(session_id, status, projector)
                 if event is not None:
                     yield event
                     break
                 continue
 
-    def _emit_completed_snapshot(
+    async def _emit_completed_snapshot(
         self, meta: SessionMeta, session_id: str, status: SessionStatus
     ) -> list[ServerSentEvent]:
         """Build snapshot + status events for a non-running session."""
         projector = self._build_projector(meta, session_id)
-        return [
-            self._sse_event(
-                "snapshot",
-                self._with_session_metadata(
-                    projector.build_snapshot(
-                        session_id=session_id,
-                        status=status,
-                        pending_questions=[],
-                    ),
-                    session_id=session_id,
-                ),
+        snapshot_payload = await self._with_session_metadata(
+            projector.build_snapshot(
+                session_id=session_id,
+                status=status,
+                pending_questions=[],
             ),
+            session_id=session_id,
+        )
+        return [
+            self._sse_event("snapshot", snapshot_payload),
             self._sse_event(
                 "status",
                 self._build_status_event_payload(
@@ -284,18 +289,16 @@ class AssistantService:
             pending_questions = await self.session_manager.get_pending_questions_snapshot(
                 session_id
             )
-        events = [
-            self._sse_event(
-                "snapshot",
-                self._with_session_metadata(
-                    projector.build_snapshot(
-                        session_id=session_id,
-                        status=status,
-                        pending_questions=pending_questions,
-                    ),
-                    session_id=session_id,
-                ),
+        snapshot_payload = await self._with_session_metadata(
+            projector.build_snapshot(
+                session_id=session_id,
+                status=status,
+                pending_questions=pending_questions,
             ),
+            session_id=session_id,
+        )
+        events = [
+            self._sse_event("snapshot", snapshot_payload),
         ]
         if status != "running":
             events.append(self._sse_event(
@@ -325,7 +328,7 @@ class AssistantService:
                 replayed.append(msg)
         return replayed, False
 
-    def _dispatch_live_message(
+    async def _dispatch_live_message(
         self,
         message: dict[str, Any],
         projector: AssistantStreamProjector,
@@ -339,7 +342,7 @@ class AssistantService:
             events.append(
                 self._sse_event(
                     "patch",
-                    self._with_session_metadata(
+                    await self._with_session_metadata(
                         update["patch"],
                         session_id=session_id,
                         message=message,
@@ -350,7 +353,7 @@ class AssistantService:
             events.append(
                 self._sse_event(
                     "delta",
-                    self._with_session_metadata(
+                    await self._with_session_metadata(
                         update["delta"],
                         session_id=session_id,
                         message=message,
@@ -361,7 +364,7 @@ class AssistantService:
             events.append(
                 self._sse_event(
                     "question",
-                    self._with_session_metadata(
+                    await self._with_session_metadata(
                         update["question"],
                         session_id=session_id,
                         message=message,
@@ -417,14 +420,14 @@ class AssistantService:
             )
         return None
 
-    def _handle_heartbeat_timeout(
+    async def _handle_heartbeat_timeout(
         self,
         session_id: str,
         status: SessionStatus,
         projector: AssistantStreamProjector,
     ) -> Optional[ServerSentEvent]:
         """Check session liveness on heartbeat timeout. Returns status event or None."""
-        live_status = self.session_manager.get_status(session_id) or status
+        live_status = await self.session_manager.get_status(session_id) or status
         if live_status != "running":
             return self._sse_event(
                 "status",
@@ -545,7 +548,7 @@ class AssistantService:
             payload["sdk_session_id"] = sdk_session_id
         return payload
 
-    def _with_session_metadata(
+    async def _with_session_metadata(
         self,
         payload: dict[str, Any],
         *,
@@ -556,7 +559,7 @@ class AssistantService:
         normalized = dict(payload)
         normalized["session_id"] = session_id
 
-        sdk_session_id = self._resolve_sdk_session_id(
+        sdk_session_id = await self._resolve_sdk_session_id(
             session_id,
             message,
             payload,
@@ -568,7 +571,7 @@ class AssistantService:
 
         return normalized
 
-    def _resolve_sdk_session_id(
+    async def _resolve_sdk_session_id(
         self,
         session_id: str,
         *sources: Optional[dict[str, Any]],
@@ -593,7 +596,7 @@ class AssistantService:
         if managed and managed.sdk_session_id:
             return managed.sdk_session_id
 
-        meta = self.meta_store.get(session_id)
+        meta = await self.meta_store.get(session_id)
         if meta and meta.sdk_session_id:
             return meta.sdk_session_id
 

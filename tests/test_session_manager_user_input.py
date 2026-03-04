@@ -13,7 +13,7 @@ from server.agent_runtime.session_manager import (
 
 class TestSessionManagerUserInput:
     async def test_send_message_adds_user_echo_to_buffer(self, session_manager, meta_store):
-        meta = meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "demo title")
         client = FakeSDKClient()
         managed = ManagedSession(
             session_id=meta.id,
@@ -34,7 +34,7 @@ class TestSessionManagerUserInput:
             await managed.consumer_task
 
     async def test_send_message_prunes_previous_stream_events(self, session_manager, meta_store):
-        meta = meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "demo title")
         client = FakeSDKClient()
         managed = ManagedSession(
             session_id=meta.id,
@@ -74,7 +74,7 @@ class TestSessionManagerUserInput:
         assert not any(msg.get("type") == "result" for msg in managed.message_buffer)
 
     async def test_consume_result_prunes_stream_events_after_completion(self, session_manager, meta_store):
-        meta = meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "demo title")
         client = FakeSDKClient(
             messages=[
                 {
@@ -104,7 +104,7 @@ class TestSessionManagerUserInput:
             status="running",
         )
         session_manager.sessions[meta.id] = managed
-        meta_store.update_status(meta.id, "running")
+        await meta_store.update_status(meta.id, "running")
 
         await session_manager._consume_messages(managed)
         assert managed.status == "completed"
@@ -117,7 +117,7 @@ class TestSessionManagerUserInput:
         if not SDK_AVAILABLE:
             pytest.skip("claude_agent_sdk is not installed")
 
-        meta = meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "demo title")
         managed = ManagedSession(
             session_id=meta.id,
             client=FakeSDKClient(),
@@ -125,7 +125,7 @@ class TestSessionManagerUserInput:
         )
         session_manager.sessions[meta.id] = managed
 
-        callback = session_manager._build_can_use_tool_callback(meta.id)
+        callback = await session_manager._build_can_use_tool_callback(meta.id)
 
         question_input = {
             "questions": [
@@ -164,7 +164,7 @@ class TestSessionManagerUserInput:
         )
 
     async def test_answer_user_question_raises_for_unknown_question(self, session_manager, meta_store):
-        meta = meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "demo title")
         managed = ManagedSession(
             session_id=meta.id,
             client=FakeSDKClient(),
@@ -180,7 +180,7 @@ class TestSessionManagerUserInput:
             )
 
     async def test_interrupt_session_requests_interrupt_and_keeps_consumer_alive(self, session_manager, meta_store):
-        meta = meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "demo title")
         client = FakeSDKClient()
         managed = ManagedSession(
             session_id=meta.id,
@@ -189,7 +189,7 @@ class TestSessionManagerUserInput:
             status="running",
         )
         session_manager.sessions[meta.id] = managed
-        meta_store.update_status(meta.id, "running")
+        await meta_store.update_status(meta.id, "running")
 
         new_status = await session_manager.interrupt_session(meta.id)
         assert new_status == "running"
@@ -197,7 +197,7 @@ class TestSessionManagerUserInput:
         assert managed.status == "running"
         assert managed.interrupt_requested == True
         assert len(managed.message_buffer) == 0
-        stored = meta_store.get(meta.id)
+        stored = await meta_store.get(meta.id)
         assert stored is not None
         assert stored.status == "running"
 

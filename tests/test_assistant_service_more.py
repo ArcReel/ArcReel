@@ -3,7 +3,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
+from lib.db.base import Base
 from tests.factories import make_session_meta
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_store import SessionMetaStore
@@ -24,20 +26,20 @@ class _FakeMetaStore:
     def __init__(self, metas=None):
         self.metas = {m.id: m for m in (metas or [])}
 
-    def get(self, session_id):
+    async def get(self, session_id):
         return self.metas.get(session_id)
 
-    def list(self, project_name=None, status=None, limit=50, offset=0):
+    async def list(self, project_name=None, status=None, limit=50, offset=0):
         return list(self.metas.values())
 
-    def update_title(self, session_id, title):
+    async def update_title(self, session_id, title):
         meta = self.metas.get(session_id)
         if not meta:
             return False
         self.metas[session_id] = make_session_meta(**{**meta.model_dump(), "title": title})
         return True
 
-    def delete(self, session_id):
+    async def delete(self, session_id):
         return self.metas.pop(session_id, None) is not None
 
 
@@ -57,7 +59,7 @@ class _FakeSessionManager:
         self.created.append((project_name, title))
         return make_session_meta(id="s-created", project_name=project_name, title=title)
 
-    def get_status(self, session_id):
+    async def get_status(self, session_id):
         return self.status
 
     def get_buffered_messages(self, session_id):
@@ -113,23 +115,36 @@ class _ManagedForDelete:
 
 
 class TestAssistantServiceMore:
-    def test_service_init_interrupts_stale_running_sessions(self, tmp_path):
-        data_dir = tmp_path / "projects" / ".agent_data"
-        store = SessionMetaStore(data_dir / "sessions.db")
+    @pytest.mark.asyncio
+    async def test_service_init_interrupts_stale_running_sessions(self, tmp_path):
+        # Create an in-memory async store and seed data
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
 
-        running = store.create("demo", "Running")
-        completed = store.create("demo", "Completed")
-        store.update_status(running.id, "running")
-        store.update_status(completed.id, "completed")
+        running = await store.create("demo", "Running")
+        completed = await store.create("demo", "Completed")
+        await store.update_status(running.id, "running")
+        await store.update_status(completed.id, "completed")
 
         service = AssistantService(project_root=tmp_path)
+        # Replace the service's meta_store with our test store
+        service.meta_store = store
+        service.session_manager.meta_store = store
 
-        refreshed_running = service.meta_store.get(running.id)
-        refreshed_completed = service.meta_store.get(completed.id)
+        # Manually run the interrupt logic (normally done in startup())
+        await service._interrupt_stale_running_sessions()
+
+        refreshed_running = await service.meta_store.get(running.id)
+        refreshed_completed = await service.meta_store.get(completed.id)
         assert refreshed_running is not None
         assert refreshed_running.status == "interrupted"
         assert refreshed_completed is not None
         assert refreshed_completed.status == "completed"
+
+        await engine.dispose()
 
     @pytest.mark.asyncio
     async def test_crud_and_message_validation(self, tmp_path):
@@ -145,17 +160,17 @@ class TestAssistantServiceMore:
         assert created.title == "demo 会话"
         assert sm.created == [("demo", "demo 会话")]
 
-        listed = service.list_sessions()
+        listed = await service.list_sessions()
         assert len(listed) == 1
 
-        fetched = service.get_session("s1")
+        fetched = await service.get_session("s1")
         assert fetched.status == "idle"
         sm.sessions["s1"] = SimpleNamespace(status="running")
-        fetched_live = service.get_session("s1")
+        fetched_live = await service.get_session("s1")
         assert fetched_live.status == "running"
 
-        assert service.update_session_title("missing", "x") is None
-        updated = service.update_session_title("s1", "  ")
+        assert await service.update_session_title("missing", "x") is None
+        updated = await service.update_session_title("s1", "  ")
         assert updated.title == "未命名会话"
 
         with pytest.raises(ValueError):
@@ -224,7 +239,7 @@ class TestAssistantServiceMore:
         assert overflow2 is True
 
         projector = AssistantStreamProjector(initial_messages=[])
-        events, should_break = service._dispatch_live_message(
+        events, should_break = await service._dispatch_live_message(
             {"type": "_queue_overflow"},
             projector,
             "s1",
@@ -232,7 +247,7 @@ class TestAssistantServiceMore:
         assert should_break is True
         assert events == []
 
-        events2, stop2 = service._dispatch_live_message(
+        events2, stop2 = await service._dispatch_live_message(
             {"type": "system", "subtype": "compact_boundary"},
             projector,
             "s1",
@@ -240,7 +255,7 @@ class TestAssistantServiceMore:
         assert stop2 is False
         assert any(event.event == "compact" for event in events2)
 
-        events3, stop3 = service._dispatch_live_message(
+        events3, stop3 = await service._dispatch_live_message(
             {"type": "runtime_status", "status": "interrupted"},
             projector,
             "s1",
@@ -248,7 +263,7 @@ class TestAssistantServiceMore:
         assert stop3 is True
         assert any(event.event == "status" for event in events3)
 
-        events4, stop4 = service._dispatch_live_message(
+        events4, stop4 = await service._dispatch_live_message(
             {"type": "result", "subtype": "success", "is_error": False},
             projector,
             "s1",
@@ -257,9 +272,9 @@ class TestAssistantServiceMore:
         assert any(event.event == "status" for event in events4)
 
         assert service._check_runtime_status_terminal({"status": "???."}, "s1") is None
-        assert service._handle_heartbeat_timeout("s1", "running", projector) is None
+        assert await service._handle_heartbeat_timeout("s1", "running", projector) is None
         sm.status = "completed"
-        status_event = service._handle_heartbeat_timeout("s1", "running", projector)
+        status_event = await service._handle_heartbeat_timeout("s1", "running", projector)
         assert status_event is not None
         assert status_event.event == "status"
         patch_event = service._sse_event("patch", {"x": 1})

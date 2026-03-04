@@ -36,7 +36,7 @@ class FakeClient:
 
 class TestSessionManagerSdkSessionId:
     async def test_updates_sdk_session_id_before_result(self, session_manager, meta_store):
-        meta = meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "demo title")
         sdk_session_id = "sdk-early-123"
         client = FakeClient([StreamEvent(sdk_session_id), ResultMessage(sdk_session_id, "success")])
         managed = ManagedSession(
@@ -49,7 +49,7 @@ class TestSessionManagerSdkSessionId:
 
         await session_manager._consume_messages(managed)
 
-        updated_meta = meta_store.get(meta.id)
+        updated_meta = await meta_store.get(meta.id)
         assert updated_meta is not None
         assert managed.sdk_session_id == sdk_session_id
         assert updated_meta.sdk_session_id == sdk_session_id

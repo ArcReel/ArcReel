@@ -368,7 +368,7 @@ class SessionManager:
 
     async def create_session(self, project_name: str, title: str = "") -> SessionMeta:
         """Create a new session."""
-        meta = self.meta_store.create(project_name, title)
+        meta = await self.meta_store.create(project_name, title)
         return meta
 
     async def get_or_connect(self, session_id: str) -> ManagedSession:
@@ -386,7 +386,7 @@ class SessionManager:
             if session_id in self.sessions:
                 return self.sessions[session_id]
 
-            meta = self.meta_store.get(session_id)
+            meta = await self.meta_store.get(session_id)
             if meta is None:
                 raise FileNotFoundError(f"session not found: {session_id}")
 
@@ -396,7 +396,7 @@ class SessionManager:
             options = self._build_options(
                 meta.project_name,
                 meta.sdk_session_id,
-                can_use_tool=self._build_can_use_tool_callback(session_id),
+                can_use_tool=await self._build_can_use_tool_callback(session_id),
             )
             client = ClaudeSDKClient(options=options)
             await client.connect()
@@ -423,7 +423,7 @@ class SessionManager:
 
         # Update status to running
         managed.status = "running"
-        self.meta_store.update_status(session_id, "running")
+        await self.meta_store.update_status(session_id, "running")
 
         # Echo user input immediately so live SSE shows it even when SDK stream
         # doesn't replay user messages in real time.
@@ -440,7 +440,7 @@ class SessionManager:
             logger.exception("会话消息处理失败")
             managed.pending_user_echoes.clear()
             managed.status = "error"
-            self.meta_store.update_status(session_id, "error")
+            await self.meta_store.update_status(session_id, "error")
             raise
 
         # Start consumer task if not running
@@ -451,14 +451,14 @@ class SessionManager:
 
     async def interrupt_session(self, session_id: str) -> SessionStatus:
         """Interrupt a running session."""
-        meta = self.meta_store.get(session_id)
+        meta = await self.meta_store.get(session_id)
         if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
 
         managed = self.sessions.get(session_id)
         if managed is None:
             if meta.status == "running":
-                self.meta_store.update_status(session_id, "interrupted")
+                await self.meta_store.update_status(session_id, "interrupted")
                 return "interrupted"
             return meta.status
 
@@ -481,24 +481,24 @@ class SessionManager:
                     continue
 
                 if self._is_duplicate_user_echo(managed, msg_dict):
-                    self._maybe_update_sdk_session_id(managed, message, msg_dict)
+                    await self._maybe_update_sdk_session_id(managed, message, msg_dict)
                     continue
 
                 self._handle_special_message(managed, msg_dict)
                 managed.add_message(msg_dict)
-                self._maybe_update_sdk_session_id(managed, message, msg_dict)
+                await self._maybe_update_sdk_session_id(managed, message, msg_dict)
 
                 if msg_dict.get("type") != "result":
                     continue
 
-                self._finalize_turn(managed, msg_dict)
+                await self._finalize_turn(managed, msg_dict)
 
         except asyncio.CancelledError:
-            self._mark_session_terminal(managed, "interrupted", "session interrupted")
+            await self._mark_session_terminal(managed, "interrupted", "session interrupted")
             raise
         except Exception:
             logger.exception("会话消费循环异常")
-            self._mark_session_terminal(managed, "error", "session error")
+            await self._mark_session_terminal(managed, "error", "session error")
             raise
 
     def _handle_special_message(
@@ -517,7 +517,7 @@ class SessionManager:
                 interrupt_requested=managed.interrupt_requested,
             )
 
-    def _finalize_turn(
+    async def _finalize_turn(
         self, managed: ManagedSession, result_msg: dict[str, Any]
     ) -> None:
         """Settle session state after a result message completes a turn."""
@@ -533,18 +533,18 @@ class SessionManager:
             )
         )
         managed.status = final_status
-        self.meta_store.update_status(managed.session_id, final_status)
+        await self.meta_store.update_status(managed.session_id, final_status)
         managed.interrupt_requested = False
         self._prune_transient_buffer(managed)
 
-    def _mark_session_terminal(
+    async def _mark_session_terminal(
         self, managed: ManagedSession, status: SessionStatus, reason: str
     ) -> None:
         """Set terminal status on abnormal consumer exit."""
         managed.pending_user_echoes.clear()
         managed.cancel_pending_questions(reason)
         managed.status = status
-        self.meta_store.update_status(managed.session_id, status)
+        await self.meta_store.update_status(managed.session_id, status)
         managed.interrupt_requested = False
         self._prune_transient_buffer(managed)
 
@@ -669,11 +669,11 @@ class SessionManager:
             return self._deny_path_access(input_data)
         return None
 
-    def _build_can_use_tool_callback(self, session_id: str):
+    async def _build_can_use_tool_callback(self, session_id: str):
         """Create per-session can_use_tool callback for AskUserQuestion and file access control."""
 
         # Pre-resolve project_cwd at callback creation time
-        meta = self.meta_store.get(session_id)
+        meta = await self.meta_store.get(session_id)
         try:
             project_cwd = self._resolve_project_cwd(meta.project_name) if meta else None
         except (ValueError, FileNotFoundError):
@@ -812,7 +812,7 @@ class SessionManager:
         managed.pending_user_echoes.pop(0)
         return True
 
-    def _maybe_update_sdk_session_id(
+    async def _maybe_update_sdk_session_id(
         self,
         managed: ManagedSession,
         message: Any,
@@ -823,7 +823,7 @@ class SessionManager:
         if not sdk_id or sdk_id == managed.sdk_session_id:
             return
         managed.sdk_session_id = sdk_id
-        self.meta_store.update_sdk_session_id(managed.session_id, sdk_id)
+        await self.meta_store.update_sdk_session_id(managed.session_id, sdk_id)
 
     @staticmethod
     def _extract_sdk_session_id(
@@ -931,11 +931,11 @@ class SessionManager:
         if session_id in self.sessions:
             self.sessions[session_id].subscribers.discard(queue)
 
-    def get_status(self, session_id: str) -> Optional[SessionStatus]:
+    async def get_status(self, session_id: str) -> Optional[SessionStatus]:
         """Get session status."""
         if session_id in self.sessions:
             return self.sessions[session_id].status
-        meta = self.meta_store.get(session_id)
+        meta = await self.meta_store.get(session_id)
         return meta.status if meta else None
 
     async def shutdown_gracefully(self, timeout: float = 30.0) -> None:
@@ -952,7 +952,7 @@ class SessionManager:
                         managed.consumer_task.cancel()
 
                 managed.status = "interrupted"
-                self.meta_store.update_status(session_id, "interrupted")
+                await self.meta_store.update_status(session_id, "interrupted")
 
             # Disconnect client
             try:

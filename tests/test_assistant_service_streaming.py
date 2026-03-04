@@ -16,7 +16,7 @@ class _FakeMetaStore:
     def __init__(self, meta: SessionMeta):
         self._meta = meta
 
-    def get(self, session_id: str):
+    async def get(self, session_id: str):
         if session_id == self._meta.id:
             return self._meta
         return None
@@ -46,7 +46,7 @@ class _FakeSessionManager:
         self.pending_questions = pending_questions or []
         self.last_queue: asyncio.Queue | None = None
 
-    def get_status(self, session_id: str):
+    async def get_status(self, session_id: str):
         self.call_log.append(("get_status", session_id))
         return self.status
 

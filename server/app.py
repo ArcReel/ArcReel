@@ -49,6 +49,9 @@ async def lifespan(app: FastAPI):
     # Startup
     ensure_auth_password()
 
+    # Initialize async services
+    await assistant.assistant_service.startup()
+
     logger.info("启动 GenerationWorker...")
     worker = create_generation_worker()
     app.state.generation_worker = worker

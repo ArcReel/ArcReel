@@ -2,7 +2,9 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
+from lib.db.base import Base
 from tests.fakes import FakeSDKClient
 from server.agent_runtime import session_manager as sm_mod
 from server.agent_runtime.session_manager import ManagedSession
@@ -114,7 +116,7 @@ class TestSessionManagerMore:
 
         projects_demo = tmp_path / "projects" / "demo"
         projects_demo.mkdir(parents=True)
-        meta = meta_store.create("demo", "title")
+        meta = await meta_store.create("demo", "title")
 
         with monkeypatch.context() as m:
             m.setattr(sm_mod, "SDK_AVAILABLE", True)
@@ -127,18 +129,19 @@ class TestSessionManagerMore:
 
         assert await session_manager._keep_stream_open_hook({}, None, None) == {"continue_": True}
 
-    def test_resolve_project_scope_and_status_helpers(self, session_manager, tmp_path, meta_store):
+    @pytest.mark.asyncio
+    async def test_resolve_project_scope_and_status_helpers(self, session_manager, tmp_path, meta_store):
         (tmp_path / "projects").mkdir(parents=True, exist_ok=True)
         with pytest.raises(ValueError):
             session_manager._resolve_project_cwd("../evil")
 
-        assert session_manager.get_status("missing") is None
-        meta = meta_store.create("demo", "title")
-        assert session_manager.get_status(meta.id) == "idle"
+        assert await session_manager.get_status("missing") is None
+        meta = await meta_store.create("demo", "title")
+        assert await session_manager.get_status(meta.id) == "idle"
 
     @pytest.mark.asyncio
     async def test_send_message_and_interrupt_branches(self, session_manager, meta_store):
-        meta = meta_store.create("demo", "title")
+        meta = await meta_store.create("demo", "title")
         managed_running = ManagedSession(session_id=meta.id, client=FakeSDKClient(), status="running")
         session_manager.sessions[meta.id] = managed_running
         with pytest.raises(ValueError):
@@ -156,17 +159,17 @@ class TestSessionManagerMore:
         with pytest.raises(RuntimeError):
             await session_manager.send_message(meta.id, "hello")
         assert managed.status == "error"
-        assert meta_store.get(meta.id).status == "error"
+        assert (await meta_store.get(meta.id)).status == "error"
 
         with pytest.raises(FileNotFoundError):
             await session_manager.interrupt_session("missing")
 
-        meta2 = meta_store.create("demo", "title2")
-        meta_store.update_status(meta2.id, "running")
+        meta2 = await meta_store.create("demo", "title2")
+        await meta_store.update_status(meta2.id, "running")
         assert await session_manager.interrupt_session(meta2.id) == "interrupted"
-        assert meta_store.get(meta2.id).status == "interrupted"
+        assert (await meta_store.get(meta2.id)).status == "interrupted"
 
-        meta3 = meta_store.create("demo", "title3")
+        meta3 = await meta_store.create("demo", "title3")
         assert await session_manager.interrupt_session(meta3.id) == "idle"
 
         managed_idle = ManagedSession(session_id=meta3.id, client=FakeSDKClient(), status="completed")
@@ -175,18 +178,18 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_consume_messages_terminal_paths(self, session_manager, meta_store):
-        meta = meta_store.create("demo", "title")
+        meta = await meta_store.create("demo", "title")
         managed_cancel = ManagedSession(session_id=meta.id, client=_CancelClient(), status="running")
         session_manager.sessions[meta.id] = managed_cancel
-        meta_store.update_status(meta.id, "running")
+        await meta_store.update_status(meta.id, "running")
         with pytest.raises(asyncio.CancelledError):
             await session_manager._consume_messages(managed_cancel)
         assert managed_cancel.status == "interrupted"
 
-        meta2 = meta_store.create("demo", "title2")
+        meta2 = await meta_store.create("demo", "title2")
         managed_error = ManagedSession(session_id=meta2.id, client=_ErrorClient(), status="running")
         session_manager.sessions[meta2.id] = managed_error
-        meta_store.update_status(meta2.id, "running")
+        await meta_store.update_status(meta2.id, "running")
         with pytest.raises(RuntimeError):
             await session_manager._consume_messages(managed_error)
         assert managed_error.status == "error"
@@ -196,7 +199,7 @@ class TestSessionManagerMore:
         monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
         monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
 
-        allow_cb = session_manager._build_can_use_tool_callback("unknown-session")
+        allow_cb = await session_manager._build_can_use_tool_callback("unknown-session")
         # With unknown session, project_cwd is None → fail-close: path-based tools denied
         result = await allow_cb("Read", {"x": 1}, None)
         assert hasattr(result, "message")  # denied
@@ -206,7 +209,7 @@ class TestSessionManagerMore:
 
         managed = ManagedSession(session_id="s1", client=FakeSDKClient(), status="running")
         session_manager.sessions["s1"] = managed
-        ask_cb = session_manager._build_can_use_tool_callback("s1")
+        ask_cb = await session_manager._build_can_use_tool_callback("s1")
 
         task = asyncio.create_task(ask_cb("AskUserQuestion", {"questions": [{"question": "Q"}]}, None))
         await asyncio.sleep(0)
@@ -259,7 +262,7 @@ class TestSessionManagerMore:
         with pytest.raises(ValueError):
             await session_manager.answer_user_question("missing", "q", {"a": "b"})
 
-        meta = meta_store.create("demo", "title")
+        meta = await meta_store.create("demo", "title")
         client = _InterruptibleClient(disconnect_raises=True)
         managed = ManagedSession(
             session_id=meta.id,
@@ -293,18 +296,23 @@ class TestSessionManagerMore:
         docs_dir = tmp_path / "docs"
         docs_dir.mkdir(parents=True)
 
-        meta_store = SessionMetaStore(tmp_path / "sessions.db")
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        meta_store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path,
             meta_store=meta_store,
         )
 
-        meta = meta_store.create("alpha", "test session")
+        meta = await meta_store.create("alpha", "test session")
         managed = ManagedSession(session_id=meta.id, client=FakeSDKClient())
         mgr.sessions[meta.id] = managed
 
-        cb = mgr._build_can_use_tool_callback(meta.id)
+        cb = await mgr._build_can_use_tool_callback(meta.id)
 
         # Read own project file — allowed
         result = await cb("Read", {"file_path": str(own_project / "script.json")}, None)
@@ -319,6 +327,8 @@ class TestSessionManagerMore:
         result = await cb("Read", {"file_path": str(docs_dir / "guide.md")}, None)
         assert hasattr(result, "updated_input")
 
+        await engine.dispose()
+
     @pytest.mark.asyncio
     async def test_can_use_tool_blocks_write_to_readonly_dir(self, tmp_path, monkeypatch):
         """Write denied to lib/, allowed to own project."""
@@ -330,18 +340,23 @@ class TestSessionManagerMore:
         lib_dir = tmp_path / "lib"
         lib_dir.mkdir(parents=True)
 
-        meta_store = SessionMetaStore(tmp_path / "sessions.db")
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        meta_store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path,
             meta_store=meta_store,
         )
 
-        meta = meta_store.create("alpha", "test session")
+        meta = await meta_store.create("alpha", "test session")
         managed = ManagedSession(session_id=meta.id, client=FakeSDKClient())
         mgr.sessions[meta.id] = managed
 
-        cb = mgr._build_can_use_tool_callback(meta.id)
+        cb = await mgr._build_can_use_tool_callback(meta.id)
 
         # Write own project file — allowed
         result = await cb("Write", {"file_path": str(own_project / "output.txt")}, None)
@@ -352,6 +367,8 @@ class TestSessionManagerMore:
         assert hasattr(result, "message")
         assert "访问被拒绝" in result.message
 
+        await engine.dispose()
+
     @pytest.mark.asyncio
     async def test_can_use_tool_allows_bash_without_path_check(self, tmp_path, monkeypatch):
         """Bash tool not intercepted by path check."""
@@ -361,22 +378,29 @@ class TestSessionManagerMore:
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
 
-        meta_store = SessionMetaStore(tmp_path / "sessions.db")
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        meta_store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path,
             meta_store=meta_store,
         )
 
-        meta = meta_store.create("alpha", "test session")
+        meta = await meta_store.create("alpha", "test session")
         managed = ManagedSession(session_id=meta.id, client=FakeSDKClient())
         mgr.sessions[meta.id] = managed
 
-        cb = mgr._build_can_use_tool_callback(meta.id)
+        cb = await mgr._build_can_use_tool_callback(meta.id)
 
         # Bash — allowed without path check
         result = await cb("Bash", {"command": "ls /etc"}, None)
         assert hasattr(result, "updated_input")
+
+        await engine.dispose()
 
     @pytest.mark.asyncio
     async def test_can_use_tool_allows_read_claude_md(self, tmp_path, monkeypatch):
@@ -389,19 +413,26 @@ class TestSessionManagerMore:
         claude_md = tmp_path / "CLAUDE.md"
         claude_md.write_text("# Project instructions")
 
-        meta_store = SessionMetaStore(tmp_path / "sessions.db")
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        meta_store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path,
             meta_store=meta_store,
         )
 
-        meta = meta_store.create("alpha", "test session")
+        meta = await meta_store.create("alpha", "test session")
         managed = ManagedSession(session_id=meta.id, client=FakeSDKClient())
         mgr.sessions[meta.id] = managed
 
-        cb = mgr._build_can_use_tool_callback(meta.id)
+        cb = await mgr._build_can_use_tool_callback(meta.id)
 
         # Read CLAUDE.md — allowed
         result = await cb("Read", {"file_path": str(claude_md)}, None)
         assert hasattr(result, "updated_input")
+
+        await engine.dispose()

@@ -5,7 +5,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
+from lib.db.base import Base
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
@@ -21,11 +23,22 @@ class _FakeHookMatcher:
         self.hooks = hooks or []
 
 
+async def _make_store():
+    """Create an async SessionMetaStore backed by in-memory SQLite."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+    return store, engine
+
+
 class TestSessionManagerProjectScope:
-    def test_build_options_uses_project_directory_as_cwd(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_build_options_uses_project_directory_as_cwd(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
-        store = SessionMetaStore(tmp_path / "sessions.db")
+        store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path,
@@ -40,10 +53,12 @@ class TestSessionManagerProjectScope:
                 options = manager._build_options("demo")
 
         assert options.kwargs["cwd"] == str(project_dir.resolve())
+        await engine.dispose()
 
-    def test_build_options_raises_when_project_missing(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_build_options_raises_when_project_missing(self, tmp_path):
         (tmp_path / "projects").mkdir(parents=True, exist_ok=True)
-        store = SessionMetaStore(tmp_path / "sessions.db")
+        store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path,
@@ -58,10 +73,13 @@ class TestSessionManagerProjectScope:
                 with pytest.raises(FileNotFoundError):
                     manager._build_options("missing-project")
 
-    def test_build_options_with_can_use_tool_adds_keep_alive_hook(self, tmp_path):
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_build_options_with_can_use_tool_adds_keep_alive_hook(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
-        store = SessionMetaStore(tmp_path / "sessions.db")
+        store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path,
@@ -93,7 +111,10 @@ class TestSessionManagerProjectScope:
         assert len(matcher.hooks) == 1
         assert matcher.hooks[0] is manager._keep_stream_open_hook
 
-    def test_build_system_prompt_injects_project_context(self, tmp_path):
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_build_system_prompt_injects_project_context(self, tmp_path):
         """Verify full project.json fields are injected into the system prompt."""
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
@@ -111,7 +132,7 @@ class TestSessionManagerProjectScope:
             }
         }, ensure_ascii=False), encoding="utf-8")
 
-        store = SessionMetaStore(tmp_path / "sessions.db")
+        store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path,
@@ -140,13 +161,16 @@ class TestSessionManagerProjectScope:
         assert "复仇与救赎" in prompt
         assert "架空古代皇朝" in prompt
 
-    def test_build_system_prompt_graceful_fallback_no_project_json(self, tmp_path):
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_build_system_prompt_graceful_fallback_no_project_json(self, tmp_path):
         """Verify graceful degradation when project.json does not exist."""
         project_dir = tmp_path / "projects" / "empty"
         project_dir.mkdir(parents=True)
         # No project.json created
 
-        store = SessionMetaStore(tmp_path / "sessions.db")
+        store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path,
@@ -158,7 +182,10 @@ class TestSessionManagerProjectScope:
         # Should return exactly the base prompt without project context
         assert prompt == manager.system_prompt
 
-    def test_build_system_prompt_partial_fields(self, tmp_path):
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_build_system_prompt_partial_fields(self, tmp_path):
         """Verify partial project.json (some fields missing) works correctly."""
         project_dir = tmp_path / "projects" / "partial"
         project_dir.mkdir(parents=True)
@@ -169,7 +196,7 @@ class TestSessionManagerProjectScope:
             # No style, style_description, or overview
         }, ensure_ascii=False), encoding="utf-8")
 
-        store = SessionMetaStore(tmp_path / "sessions.db")
+        store, engine = await _make_store()
         manager = SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path,
@@ -191,3 +218,5 @@ class TestSessionManagerProjectScope:
         # Missing fields should NOT cause errors or appear
         assert "Photographic" not in prompt
         assert "项目概述" not in prompt  # No overview section header
+
+        await engine.dispose()
