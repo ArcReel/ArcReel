@@ -177,24 +177,7 @@ class TaskRepository:
     async def claim_next(self, media_type: str) -> Optional[dict[str, Any]]:
         now = _utc_now_iso()
 
-        # Find next queued task with satisfied dependencies
-        dep = select(Task.task_id).where(Task.task_id == Task.dependency_task_id).correlate(Task)
-
-        stmt = (
-            select(Task)
-            .outerjoin(
-                Task.__table__.alias("dependency"),
-                text("dependency.task_id = tasks.dependency_task_id"),
-            )
-            .where(
-                Task.status == "queued",
-                Task.media_type == media_type,
-            )
-            .order_by(Task.queued_at.asc())
-            .limit(1)
-        )
-
-        # Use raw SQL for the dependency join (simpler and clearer)
+        # Use raw SQL for the dependency join (clearer than ORM for self-join)
         raw_stmt = text("""
             SELECT tasks.task_id
             FROM tasks

@@ -70,7 +70,7 @@ async def generate_storyboard(
     生成由 GenerationWorker 异步执行，状态通过 SSE 推送。
     """
     try:
-        project = get_project_manager().load_project(project_name)
+        get_project_manager().load_project(project_name)
 
         # 加载剧本验证片段存在
         script = get_project_manager().load_script(project_name, req.script_file)
@@ -135,7 +135,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
     需要先有分镜图作为起始帧。生成由 GenerationWorker 异步执行。
     """
     try:
-        project = get_project_manager().load_project(project_name)
+        get_project_manager().load_project(project_name)
         project_path = get_project_manager().get_project_path(project_name)
 
         # 检查分镜图是否存在
