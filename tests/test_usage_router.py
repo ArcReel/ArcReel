@@ -5,18 +5,18 @@ from server.routers import usage
 
 
 class _FakeTracker:
-    def get_stats(self, **kwargs):
+    async def get_stats(self, **kwargs):
         return {"total_cost": 1.2, "image_count": 1, "video_count": 2, "failed_count": 0, "total_count": 3}
 
-    def get_calls(self, **kwargs):
+    async def get_calls(self, **kwargs):
         return {"items": [{"id": 1}], "total": 1, "page": kwargs["page"], "page_size": kwargs["page_size"]}
 
-    def get_projects_list(self):
+    async def get_projects_list(self):
         return ["demo", "demo2"]
 
 
 def _client(monkeypatch):
-    monkeypatch.setattr(usage, "get_usage_tracker", lambda: _FakeTracker())
+    monkeypatch.setattr(usage, "_tracker", _FakeTracker())
     app = FastAPI()
     app.include_router(usage.router, prefix="/api/v1")
     return TestClient(app)

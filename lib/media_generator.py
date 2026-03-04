@@ -11,6 +11,7 @@ MediaGenerator 中间层
 - clues: 线索设计图 (玉佩.png)
 """
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -68,9 +69,22 @@ class MediaGenerator:
         self._gemini_video: Optional[GeminiClient] = None
         self.versions = VersionManager(project_path)
 
-        # 初始化 UsageTracker（全局数据库，存放在 projects 目录下）
-        db_path = self.project_path.parent / ".api_usage.db"
-        self.usage_tracker = UsageTracker(db_path)
+        # 初始化 UsageTracker（使用全局 async session factory）
+        self.usage_tracker = UsageTracker()
+
+    @staticmethod
+    def _sync(coro):
+        """Run an async coroutine from synchronous code (e.g. inside to_thread)."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+        return asyncio.run(coro)
 
     def _get_gemini_image(self) -> GeminiClient:
         if self._gemini_image is None:
@@ -175,14 +189,14 @@ class MediaGenerator:
 
         # 2. 记录 API 调用开始
         client = self._get_gemini_image()
-        call_id = self.usage_tracker.start_call(
+        call_id = self._sync(self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="image",
             model=client.IMAGE_MODEL,
             prompt=prompt,
             resolution=image_size,
             aspect_ratio=aspect_ratio,
-        )
+        ))
 
         try:
             # 3. 调用 GeminiClient 生成新文件
@@ -195,19 +209,19 @@ class MediaGenerator:
             )
 
             # 4. 记录调用成功
-            self.usage_tracker.finish_call(
+            self._sync(self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="success",
                 output_path=str(output_path),
-            )
+            ))
         except Exception as e:
             # 记录调用失败
             logger.exception("生成失败 (%s)", "image")
-            self.usage_tracker.finish_call(
+            self._sync(self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="failed",
                 error_message=str(e),
-            )
+            ))
             raise
 
         # 5. 记录新版本
@@ -263,7 +277,7 @@ class MediaGenerator:
 
         # 2. 记录 API 调用开始
         client = self._get_gemini_image()
-        call_id = self.usage_tracker.start_call(
+        call_id = await self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="image",
             model=client.IMAGE_MODEL,
@@ -283,7 +297,7 @@ class MediaGenerator:
             )
 
             # 4. 记录调用成功
-            self.usage_tracker.finish_call(
+            await self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="success",
                 output_path=str(output_path),
@@ -291,7 +305,7 @@ class MediaGenerator:
         except Exception as e:
             # 记录调用失败
             logger.exception("生成失败 (%s)", "image")
-            self.usage_tracker.finish_call(
+            await self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="failed",
                 error_message=str(e),
@@ -367,7 +381,7 @@ class MediaGenerator:
             configured_generate_audio if self.video_backend == "vertex" else True
         )
 
-        call_id = self.usage_tracker.start_call(
+        call_id = self._sync(self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="video",
             model=video_client.VIDEO_MODEL,
@@ -376,7 +390,7 @@ class MediaGenerator:
             duration_seconds=duration_int,
             aspect_ratio=aspect_ratio,
             generate_audio=effective_generate_audio,
-        )
+        ))
 
         try:
             # 3. 调用 GeminiClient 生成新视频
@@ -392,19 +406,19 @@ class MediaGenerator:
             )
 
             # 4. 记录调用成功
-            self.usage_tracker.finish_call(
+            self._sync(self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="success",
                 output_path=str(output_path),
-            )
+            ))
         except Exception as e:
             # 记录调用失败
             logger.exception("生成失败 (%s)", "video")
-            self.usage_tracker.finish_call(
+            self._sync(self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="failed",
                 error_message=str(e),
-            )
+            ))
             raise
 
         # 5. 记录新版本
@@ -476,7 +490,7 @@ class MediaGenerator:
             configured_generate_audio if self.video_backend == "vertex" else True
         )
 
-        call_id = self.usage_tracker.start_call(
+        call_id = await self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="video",
             model=video_client.VIDEO_MODEL,
@@ -501,7 +515,7 @@ class MediaGenerator:
             )
 
             # 4. 记录调用成功
-            self.usage_tracker.finish_call(
+            await self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="success",
                 output_path=str(output_path),
@@ -509,7 +523,7 @@ class MediaGenerator:
         except Exception as e:
             # 记录调用失败
             logger.exception("生成失败 (%s)", "video")
-            self.usage_tracker.finish_call(
+            await self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="failed",
                 error_message=str(e),

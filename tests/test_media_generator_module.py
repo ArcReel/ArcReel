@@ -52,11 +52,11 @@ class _FakeUsage:
         self.started = []
         self.finished = []
 
-    def start_call(self, **kwargs):
+    async def start_call(self, **kwargs):
         self.started.append(kwargs)
         return len(self.started)
 
-    def finish_call(self, **kwargs):
+    async def finish_call(self, **kwargs):
         self.finished.append(kwargs)
 
 
