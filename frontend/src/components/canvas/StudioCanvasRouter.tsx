@@ -1,7 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Route, Switch, Redirect, useLocation } from "wouter";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
+import { useTasksStore } from "@/stores/tasks-store";
 import { LorebookGallery } from "./lorebook/LorebookGallery";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
@@ -22,12 +23,35 @@ export function StudioCanvasRouter() {
 
   const [addingCharacter, setAddingCharacter] = useState(false);
   const [addingClue, setAddingClue] = useState(false);
-  const [generatingCharacterNames, setGeneratingCharacterNames] = useState<
-    Set<string>
-  >(new Set());
-  const [generatingClueNames, setGeneratingClueNames] = useState<Set<string>>(
-    new Set(),
-  );
+
+  // 从任务队列派生 loading 状态（替代本地 state）
+  const tasks = useTasksStore((s) => s.tasks);
+  const generatingCharacterNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const t of tasks) {
+      if (
+        t.task_type === "character" &&
+        t.project_name === currentProjectName &&
+        (t.status === "queued" || t.status === "running")
+      ) {
+        names.add(t.resource_id);
+      }
+    }
+    return names;
+  }, [tasks, currentProjectName]);
+  const generatingClueNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const t of tasks) {
+      if (
+        t.task_type === "clue" &&
+        t.project_name === currentProjectName &&
+        (t.status === "queued" || t.status === "running")
+      ) {
+        names.add(t.resource_id);
+      }
+    }
+    return names;
+  }, [tasks, currentProjectName]);
 
   // 刷新项目数据
   const refreshProject = useCallback(async (invalidateMedia: boolean = false) => {
@@ -141,30 +165,19 @@ export function StudioCanvasRouter() {
 
   const handleGenerateCharacter = useCallback(async (name: string) => {
     if (!currentProjectName) return;
-    setGeneratingCharacterNames((prev) => new Set(prev).add(name));
     try {
-      const result = await API.generateCharacter(
+      await API.generateCharacter(
         currentProjectName,
         name,
         currentProjectData?.characters?.[name]?.description ?? "",
       );
-      await refreshProject(true);
       useAppStore
         .getState()
-        .pushToast(
-          `角色 "${name}" 已更新到 v${result.version ?? "新版本"}`,
-          "success",
-        );
+        .pushToast(`角色 "${name}" 生成任务已提交`, "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`生成失败: ${(err as Error).message}`, "error");
-    } finally {
-      setGeneratingCharacterNames((prev) => {
-        const next = new Set(prev);
-        next.delete(name);
-        return next;
-      });
+      useAppStore.getState().pushToast(`提交失败: ${(err as Error).message}`, "error");
     }
-  }, [currentProjectName, currentProjectData, refreshProject]);
+  }, [currentProjectName, currentProjectData]);
 
   const handleAddCharacterSubmit = useCallback(async (
     name: string,
@@ -201,30 +214,19 @@ export function StudioCanvasRouter() {
 
   const handleGenerateClue = useCallback(async (name: string) => {
     if (!currentProjectName) return;
-    setGeneratingClueNames((prev) => new Set(prev).add(name));
     try {
-      const result = await API.generateClue(
+      await API.generateClue(
         currentProjectName,
         name,
         currentProjectData?.clues?.[name]?.description ?? "",
       );
-      await refreshProject(true);
       useAppStore
         .getState()
-        .pushToast(
-          `线索 "${name}" 已更新到 v${result.version ?? "新版本"}`,
-          "success",
-        );
+        .pushToast(`线索 "${name}" 生成任务已提交`, "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`生成失败: ${(err as Error).message}`, "error");
-    } finally {
-      setGeneratingClueNames((prev) => {
-        const next = new Set(prev);
-        next.delete(name);
-        return next;
-      });
+      useAppStore.getState().pushToast(`提交失败: ${(err as Error).message}`, "error");
     }
-  }, [currentProjectName, currentProjectData, refreshProject]);
+  }, [currentProjectName, currentProjectData]);
 
   const handleAddClueSubmit = useCallback(async (name: string, clueType: string, description: string, importance: string) => {
     if (!currentProjectName) return;

@@ -252,7 +252,7 @@ describe("StudioCanvasRouter", () => {
     const uploadFileSpy = vi
       .spyOn(API, "uploadFile")
       .mockResolvedValue({ success: true, path: "x", url: "y" });
-    vi.spyOn(API, "generateCharacter").mockResolvedValue({ success: true, version: 2 });
+    vi.spyOn(API, "generateCharacter").mockResolvedValue({ success: true, task_id: "t-1", message: "已提交" });
     const addCharacterSpy = vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });
     vi.spyOn(API, "updateClue").mockRejectedValue(new Error("clue failed"));
     vi.spyOn(API, "generateClue").mockRejectedValue(new Error("generate failed"));
@@ -283,8 +283,7 @@ describe("StudioCanvasRouter", () => {
         "Hero",
         "hero description",
       );
-      expect(API.getProject).toHaveBeenCalledTimes(2);
-      expect(useAppStore.getState().toast?.text).toContain("已更新到 v2");
+      expect(useAppStore.getState().toast?.text).toContain("生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
     });
 
@@ -322,7 +321,7 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("generate-clue"));
     await waitFor(() => {
       expect(API.generateClue).toHaveBeenCalledWith("demo", "Key", "key description");
-      expect(useAppStore.getState().toast?.text).toContain("生成失败");
+      expect(useAppStore.getState().toast?.text).toContain("提交失败");
     });
 
     fireEvent.click(screen.getByText("add-clue"));

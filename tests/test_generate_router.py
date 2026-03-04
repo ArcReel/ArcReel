@@ -3,31 +3,18 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.storyboard_sequence import (
-    PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
-    PREVIOUS_STORYBOARD_REFERENCE_LABEL,
-)
 from server.routers import generate
 
 
-class _FakeVersions:
-    def get_versions(self, resource_type, resource_id):
-        return {"versions": [{"created_at": "2026-02-01T00:00:00Z"}]}
+class _FakeQueue:
+    """Mock GenerationQueue that records enqueue calls."""
 
-
-class _FakeGenerator:
     def __init__(self):
-        self.versions = _FakeVersions()
-        self.image_calls = []
-        self.video_calls = []
+        self.calls = []
 
-    async def generate_image_async(self, **kwargs):
-        self.image_calls.append(kwargs)
-        return Path("/tmp/out.png"), 1
-
-    async def generate_video_async(self, **kwargs):
-        self.video_calls.append(kwargs)
-        return Path("/tmp/out.mp4"), 2, "ref", "video-uri"
+    async def enqueue_task(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"task_id": f"task-{len(self.calls)}", "deduped": False}
 
 
 class _FakePM:
@@ -81,7 +68,6 @@ class _FakePM:
                 }
             ],
         }
-        self.updated = []
 
     def load_project(self, project_name):
         return self.project
@@ -92,32 +78,23 @@ class _FakePM:
     def load_script(self, project_name, script_file):
         return self.script
 
-    def update_scene_asset(self, **kwargs):
-        self.updated.append(kwargs)
-
-    def save_project(self, project_name, project):
-        self.project = project
-
-
 
 def _prepare_files(tmp_path: Path) -> Path:
     project_path = tmp_path / "projects" / "demo"
     (project_path / "storyboards").mkdir(parents=True, exist_ok=True)
     (project_path / "characters").mkdir(parents=True, exist_ok=True)
-    (project_path / "characters" / "refs").mkdir(parents=True, exist_ok=True)
     (project_path / "clues").mkdir(parents=True, exist_ok=True)
 
     (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
     (project_path / "characters" / "Alice.png").write_bytes(b"png")
-    (project_path / "characters" / "refs" / "Alice_ref.png").write_bytes(b"png")
     (project_path / "clues" / "玉佩.png").write_bytes(b"png")
     return project_path
 
 
-def _client(monkeypatch, fake_pm, fake_generator):
+def _client(monkeypatch, fake_pm, fake_queue):
     monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
-    monkeypatch.setattr(generate, "get_media_generator", lambda _project: fake_generator)
-    monkeypatch.setattr(generate, "_get_video_semaphore", lambda: __import__("asyncio").Semaphore(1))
+    monkeypatch.setattr("lib.generation_queue.get_generation_queue", lambda: fake_queue)
+    monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
 
     app = FastAPI()
     app.include_router(generate.router, prefix="/api/v1")
@@ -125,11 +102,11 @@ def _client(monkeypatch, fake_pm, fake_generator):
 
 
 class TestGenerateRouter:
-    def test_storyboard_video_character_clue_success(self, tmp_path, monkeypatch):
+    def test_storyboard_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
-        client = _client(monkeypatch, fake_pm, fake_generator)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
 
         with client:
             sb = client.post(
@@ -143,34 +120,26 @@ class TestGenerateRouter:
                 },
             )
             assert sb.status_code == 200
-            assert sb.json()["version"] == 1
-            assert fake_generator.image_calls[0]["reference_images"] == [
-                project_path / "characters" / "Alice.png",
-                project_path / "clues" / "玉佩.png",
-                {
-                    "image": project_path / "storyboards" / "scene_E1S01.png",
-                    "label": PREVIOUS_STORYBOARD_REFERENCE_LABEL,
-                    "description": PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
-                },
-            ]
+            body = sb.json()
+            assert body["success"] is True
+            assert body["task_id"] == "task-1"
+            assert "message" in body
 
-            first_scene = client.post(
-                "/api/v1/projects/demo/generate/storyboard/E1S01",
-                json={"script_file": "episode_1.json", "prompt": "首镜头"},
-            )
-            assert first_scene.status_code == 200
-            assert fake_generator.image_calls[1]["reference_images"] is None
+            # Verify enqueue was called correctly
+            call = fake_queue.calls[0]
+            assert call["project_name"] == "demo"
+            assert call["task_type"] == "storyboard"
+            assert call["media_type"] == "image"
+            assert call["resource_id"] == "E1S02"
+            assert call["source"] == "webui"
 
-            segment_break = client.post(
-                "/api/v1/projects/demo/generate/storyboard/E1S03",
-                json={"script_file": "episode_1.json", "prompt": "切场镜头"},
-            )
-            assert segment_break.status_code == 200
-            assert fake_generator.image_calls[2]["reference_images"] == [
-                project_path / "characters" / "Alice.png",
-                project_path / "clues" / "玉佩.png",
-            ]
+    def test_video_enqueue_success(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
 
+        with client:
             video = client.post(
                 "/api/v1/projects/demo/generate/video/E1S01",
                 json={
@@ -185,69 +154,79 @@ class TestGenerateRouter:
                 },
             )
             assert video.status_code == 200
-            assert video.json()["version"] == 2
+            body = video.json()
+            assert body["success"] is True
+            assert body["task_id"] == "task-1"
 
+            call = fake_queue.calls[0]
+            assert call["task_type"] == "video"
+            assert call["media_type"] == "video"
+            assert call["payload"]["duration_seconds"] == 5
+
+    def test_character_enqueue_success(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
             character = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
                 json={"prompt": "女主，冷静"},
             )
             assert character.status_code == 200
-            assert character.json()["file_path"] == "characters/Alice.png"
+            body = character.json()
+            assert body["success"] is True
+            assert body["task_id"] == "task-1"
 
+            call = fake_queue.calls[0]
+            assert call["task_type"] == "character"
+            assert call["media_type"] == "image"
+            assert call["resource_id"] == "Alice"
+
+    def test_clue_enqueue_success(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
             clue = client.post(
                 "/api/v1/projects/demo/generate/clue/玉佩",
                 json={"prompt": "古朴玉佩"},
             )
             assert clue.status_code == 200
-            assert clue.json()["file_path"] == "clues/玉佩.png"
+            body = clue.json()
+            assert body["success"] is True
+            assert body["task_id"] == "task-1"
 
-            assert fake_pm.updated
-
-    def test_storyboard_uses_helper_fields_for_compat_scene_scripts(self, tmp_path, monkeypatch):
-        project_path = _prepare_files(tmp_path)
-        fake_pm = _FakePM(project_path)
-        fake_pm.script = {
-            "content_mode": "narration",
-            "scenes": [
-                {
-                    "scene_id": "E1S01",
-                    "duration_seconds": 4,
-                    "segment_break": False,
-                    "characters_in_scene": ["Alice"],
-                    "clues_in_scene": ["玉佩"],
-                    "generated_assets": {},
-                }
-            ],
-        }
-        fake_generator = _FakeGenerator()
-        client = _client(monkeypatch, fake_pm, fake_generator)
-
-        with client:
-            response = client.post(
-                "/api/v1/projects/demo/generate/storyboard/E1S01",
-                json={"script_file": "episode_1.json", "prompt": "兼容场景"},
-            )
-
-        assert response.status_code == 200
-        assert fake_generator.image_calls[0]["reference_images"] == [
-            project_path / "characters" / "Alice.png",
-            project_path / "clues" / "玉佩.png",
-        ]
+            call = fake_queue.calls[0]
+            assert call["task_type"] == "clue"
+            assert call["media_type"] == "image"
+            assert call["resource_id"] == "玉佩"
 
     def test_error_paths(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
-        client = _client(monkeypatch, fake_pm, fake_generator)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
 
         with client:
+            # Bad storyboard prompt (structured but missing scene)
             bad_prompt = client.post(
                 "/api/v1/projects/demo/generate/storyboard/E1S02",
                 json={"script_file": "episode_1.json", "prompt": {"composition": {}}},
             )
             assert bad_prompt.status_code == 400
 
-            # remove storyboard so video endpoint hits pre-check error
+            # Nonexistent segment
+            not_found = client.post(
+                "/api/v1/projects/demo/generate/storyboard/MISSING",
+                json={"script_file": "episode_1.json", "prompt": "test"},
+            )
+            assert not_found.status_code == 404
+
+            # Video without storyboard
             (project_path / "storyboards" / "scene_E1S01.png").unlink()
             no_storyboard = client.post(
                 "/api/v1/projects/demo/generate/video/E1S01",
@@ -255,12 +234,14 @@ class TestGenerateRouter:
             )
             assert no_storyboard.status_code == 400
 
+            # Bad video prompt
             bad_video_prompt = client.post(
                 "/api/v1/projects/demo/generate/video/E1S01",
                 json={"script_file": "episode_1.json", "prompt": {"action": ""}},
             )
             assert bad_video_prompt.status_code in (400, 500)
 
+            # Missing character
             fake_pm.project["characters"] = {}
             missing_char = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
@@ -268,18 +249,10 @@ class TestGenerateRouter:
             )
             assert missing_char.status_code == 404
 
+            # Missing clue
             fake_pm.project["clues"] = {}
             missing_clue = client.post(
                 "/api/v1/projects/demo/generate/clue/玉佩",
                 json={"prompt": "x"},
             )
             assert missing_clue.status_code == 404
-
-    def test_helper_functions(self):
-        assert generate.get_aspect_ratio({"content_mode": "narration"}, "storyboards") == "9:16"
-        assert generate.get_aspect_ratio({"content_mode": "drama"}, "storyboards") == "16:9"
-        assert generate.get_aspect_ratio({"aspect_ratio": {"videos": "4:3"}}, "videos") == "4:3"
-
-        assert generate.normalize_veo_duration_seconds(None) == "4"
-        assert generate.normalize_veo_duration_seconds(6) == "6"
-        assert generate.normalize_veo_duration_seconds(99) == "8"
