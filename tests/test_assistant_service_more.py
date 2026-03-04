@@ -147,6 +147,32 @@ class TestAssistantServiceMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
+    async def test_startup_waits_cleanup_and_is_idempotent(self, tmp_path, monkeypatch):
+        service = AssistantService(project_root=tmp_path)
+        calls = 0
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def fake_interrupt():
+            nonlocal calls
+            calls += 1
+            entered.set()
+            await release.wait()
+
+        monkeypatch.setattr(service, "_interrupt_stale_running_sessions", fake_interrupt)
+
+        startup_task = asyncio.create_task(service.startup())
+        await asyncio.wait_for(entered.wait(), timeout=0.2)
+        assert not startup_task.done()
+
+        release.set()
+        await asyncio.wait_for(startup_task, timeout=0.2)
+        assert calls == 1
+
+        await service.startup()
+        assert calls == 1
+
+    @pytest.mark.asyncio
     async def test_crud_and_message_validation(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta(id="s1", status="idle")

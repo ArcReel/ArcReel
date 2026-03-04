@@ -548,39 +548,38 @@ class TaskRepository:
         lease_until = now_epoch + max(1.0, float(ttl))
         updated_at = _utc_now_iso()
 
-        result = await self.session.execute(
-            select(WorkerLease).where(WorkerLease.name == name)
-        )
-        row = result.scalar_one_or_none()
-
-        if not row:
-            lease = WorkerLease(
-                name=name,
+        # Fast path: renew existing lease only when we own it or it's expired.
+        update_result = await self.session.execute(
+            update(WorkerLease)
+            .where(
+                WorkerLease.name == name,
+                (WorkerLease.owner_id == owner_id) | (WorkerLease.lease_until <= now_epoch),
+            )
+            .values(
                 owner_id=owner_id,
                 lease_until=lease_until,
                 updated_at=updated_at,
             )
-            self.session.add(lease)
+        )
+        if update_result.rowcount > 0:
             await self.session.commit()
             return True
 
-        lease_owner = row.owner_id
-        lease_expired = row.lease_until <= now_epoch
-
-        if lease_owner == owner_id or lease_expired:
-            await self.session.execute(
-                update(WorkerLease)
-                .where(WorkerLease.name == name)
-                .values(
-                    owner_id=owner_id,
-                    lease_until=lease_until,
-                    updated_at=updated_at,
-                )
-            )
+        # Slow path: lease row may not exist yet; try to create it.
+        lease = WorkerLease(
+            name=name,
+            owner_id=owner_id,
+            lease_until=lease_until,
+            updated_at=updated_at,
+        )
+        self.session.add(lease)
+        try:
             await self.session.commit()
             return True
-
-        return False
+        except IntegrityError:
+            # Another worker won the race to insert; treat as normal contention.
+            await self.session.rollback()
+            return False
 
     async def release_lease(self, *, name: str, owner_id: str) -> None:
         await self.session.execute(

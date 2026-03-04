@@ -44,17 +44,21 @@ class AssistantService:
             data_dir=self.data_dir,
             meta_store=self.meta_store,
         )
-        self._startup_task: Optional[asyncio.Task[None]] = None
+        self._startup_lock = asyncio.Lock()
+        self._startup_done = False
         self.stream_heartbeat_seconds = int(
             os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20")
         )
 
     async def startup(self) -> None:
         """Run async initialization (must be called from event loop)."""
-        if self._startup_task is None:
-            self._startup_task = asyncio.create_task(
-                self._interrupt_stale_running_sessions()
-            )
+        if self._startup_done:
+            return
+        async with self._startup_lock:
+            if self._startup_done:
+                return
+            await self._interrupt_stale_running_sessions()
+            self._startup_done = True
 
     # ==================== Session CRUD ====================
 

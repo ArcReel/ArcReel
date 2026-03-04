@@ -1,5 +1,7 @@
 """Tests for TaskRepository."""
 
+import asyncio
+
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
@@ -105,6 +107,40 @@ class TestTaskRepository:
 
         await repo.release_lease(name="default", owner_id="a")
         assert not await repo.is_worker_online(name="default")
+
+    async def test_worker_lease_concurrent_first_acquire(self, tmp_path):
+        db_path = tmp_path / "lease-race.db"
+        engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        start = asyncio.Event()
+
+        async def _attempt(owner_id: str) -> bool:
+            await start.wait()
+            async with factory() as session:
+                repo = TaskRepository(session)
+                return await repo.acquire_or_renew_lease(
+                    name="default",
+                    owner_id=owner_id,
+                    ttl=2,
+                )
+
+        first = asyncio.create_task(_attempt("worker-a"))
+        second = asyncio.create_task(_attempt("worker-b"))
+        start.set()
+
+        a_ok, b_ok = await asyncio.gather(first, second)
+        assert sorted([a_ok, b_ok]) == [False, True]
+
+        async with factory() as session:
+            repo = TaskRepository(session)
+            lease = await repo.get_worker_lease(name="default")
+            assert lease is not None
+            assert lease["owner_id"] in {"worker-a", "worker-b"}
+
+        await engine.dispose()
 
     async def test_list_tasks_with_filters(self, db_session):
         repo = TaskRepository(db_session)
