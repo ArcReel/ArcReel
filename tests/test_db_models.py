@@ -5,7 +5,7 @@ from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from lib.db.base import Base
-from lib.db.models import Task, TaskEvent, WorkerLease, ApiCall, AgentSession
+from lib.db.models import Task, AgentSession
 
 
 @pytest.fixture

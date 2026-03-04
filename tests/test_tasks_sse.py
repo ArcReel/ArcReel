@@ -1,6 +1,5 @@
 """Tests for task router endpoints and SSE events."""
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 from fastapi import FastAPI
 

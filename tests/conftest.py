@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from lib.db.base import Base
-from lib.generation_queue import GenerationQueue
 import lib.generation_queue as generation_queue_module
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
@@ -79,7 +78,7 @@ async def generation_queue():
         await conn.run_sync(Base.metadata.create_all)
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    queue = GenerationQueue(session_factory=factory, _skip_init_db=True)
+    queue = generation_queue_module.GenerationQueue(session_factory=factory, _skip_init_db=True)
     generation_queue_module._QUEUE_INSTANCE = queue
     yield queue
     generation_queue_module._QUEUE_INSTANCE = None

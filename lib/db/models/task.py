@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import Float, Index, Integer, String, Text
+from sqlalchemy import Float, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base
@@ -36,6 +36,16 @@ class Task(Base):
         Index("idx_tasks_status_queued_at", "status", "queued_at"),
         Index("idx_tasks_project_updated_at", "project_name", "updated_at"),
         Index("idx_tasks_dependency_task_id", "dependency_task_id"),
+        Index(
+            "idx_tasks_dedupe_active",
+            "project_name",
+            "task_type",
+            "resource_id",
+            text("COALESCE(script_file, '')"),
+            unique=True,
+            sqlite_where=text("status IN ('queued', 'running')"),
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
     )
 
 

@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import delete as sa_delete, func, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.db.models.task import Task, TaskEvent, WorkerLease
@@ -113,26 +114,6 @@ class TaskRepository:
     ) -> dict[str, Any]:
         now = _utc_now_iso()
 
-        # Check for existing active task (dedup)
-        sf = script_file or ""
-        result = await self.session.execute(
-            select(Task).where(
-                Task.project_name == project_name,
-                Task.task_type == task_type,
-                Task.resource_id == resource_id,
-                func.coalesce(Task.script_file, "") == sf,
-                Task.status.in_(ACTIVE_TASK_STATUSES),
-            ).order_by(Task.queued_at.desc()).limit(1)
-        )
-        existing = result.scalar_one_or_none()
-        if existing:
-            return {
-                "task_id": existing.task_id,
-                "status": existing.status,
-                "deduped": True,
-                "existing_task_id": existing.task_id,
-            }
-
         task_id = uuid.uuid4().hex
         task = Task(
             task_id=task_id,
@@ -151,7 +132,30 @@ class TaskRepository:
             updated_at=now,
         )
         self.session.add(task)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError:
+            await self.session.rollback()
+            # Unique partial index violation: an active task already exists
+            sf = script_file or ""
+            result = await self.session.execute(
+                select(Task).where(
+                    Task.project_name == project_name,
+                    Task.task_type == task_type,
+                    Task.resource_id == resource_id,
+                    func.coalesce(Task.script_file, "") == sf,
+                    Task.status.in_(ACTIVE_TASK_STATUSES),
+                ).order_by(Task.queued_at.desc()).limit(1)
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                return {
+                    "task_id": existing.task_id,
+                    "status": existing.status,
+                    "deduped": True,
+                    "existing_task_id": existing.task_id,
+                }
+            raise
 
         task_data = _task_to_dict(task)
         await self._append_event(
@@ -213,8 +217,8 @@ class TaskRepository:
 
         target_task_id = row[0]
 
-        # Update to running
-        await self.session.execute(
+        # Update to running atomically; check rowcount to guard against concurrent claims
+        update_result = await self.session.execute(
             update(Task)
             .where(Task.task_id == target_task_id, Task.status == "queued")
             .values(
@@ -223,6 +227,10 @@ class TaskRepository:
                 updated_at=now,
             )
         )
+        if update_result.rowcount == 0:
+            # Another worker claimed this task between our SELECT and UPDATE
+            await self.session.rollback()
+            return None
         await self.session.flush()
 
         # Reload task
@@ -379,48 +387,54 @@ class TaskRepository:
         now = _utc_now_iso()
         limit = max(1, min(5000, limit))
 
-        result = await self.session.execute(
+        # Step 1: collect task_ids to requeue
+        id_result = await self.session.execute(
             select(Task.task_id)
             .where(Task.status == "running")
             .order_by(Task.updated_at.asc())
             .limit(limit)
         )
-        task_ids = [row[0] for row in result.all()]
+        task_ids = [row[0] for row in id_result.all()]
+        if not task_ids:
+            return 0
 
-        recovered = 0
-        for tid in task_ids:
-            await self.session.execute(
-                update(Task)
-                .where(Task.task_id == tid, Task.status == "running")
-                .values(
-                    status="queued",
-                    started_at=None,
-                    finished_at=None,
-                    updated_at=now,
-                    result_json=None,
-                    error_message=None,
-                )
+        # Step 2: batch UPDATE — single round-trip for all tasks
+        await self.session.execute(
+            update(Task)
+            .where(Task.task_id.in_(task_ids), Task.status == "running")
+            .values(
+                status="queued",
+                started_at=None,
+                finished_at=None,
+                updated_at=now,
+                result_json=None,
+                error_message=None,
             )
-            await self.session.flush()
+        )
+        await self.session.flush()
 
-            res = await self.session.execute(
-                select(Task).where(Task.task_id == tid)
-            )
-            task = res.scalar_one_or_none()
-            if not task or task.status != "queued":
-                continue
+        # Step 3: reload updated tasks in one SELECT IN
+        rows = await self.session.execute(
+            select(Task).where(Task.task_id.in_(task_ids), Task.status == "queued")
+        )
+        requeued_tasks = rows.scalars().all()
 
-            await self._append_event(
-                task_id=tid,
-                project_name=task.project_name,
+        # Step 4: bulk-insert all requeue events
+        event_now = _utc_now_iso()
+        events = [
+            TaskEvent(
+                task_id=t.task_id,
+                project_name=t.project_name,
                 event_type="requeued",
                 status="queued",
-                data=_task_to_dict(task),
+                data_json=_json_dumps(_task_to_dict(t)),
+                created_at=event_now,
             )
-            recovered += 1
-
+            for t in requeued_tasks
+        ]
+        self.session.add_all(events)
         await self.session.commit()
-        return recovered
+        return len(requeued_tasks)
 
     async def get(self, task_id: str) -> Optional[dict[str, Any]]:
         result = await self.session.execute(

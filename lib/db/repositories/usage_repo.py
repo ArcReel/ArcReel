@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.cost_calculator import cost_calculator
@@ -161,32 +161,23 @@ class UsageRepository:
 
         filters = _base_filters()
 
-        # Total cost
-        cost_q = select(func.coalesce(func.sum(ApiCall.cost_usd), 0)).where(*filters)
-        total_cost = (await self.session.execute(cost_q)).scalar() or 0
-
-        # Image count
-        img_q = select(func.count()).select_from(ApiCall).where(*filters, ApiCall.call_type == "image")
-        image_count = (await self.session.execute(img_q)).scalar() or 0
-
-        # Video count
-        vid_q = select(func.count()).select_from(ApiCall).where(*filters, ApiCall.call_type == "video")
-        video_count = (await self.session.execute(vid_q)).scalar() or 0
-
-        # Failed count
-        fail_q = select(func.count()).select_from(ApiCall).where(*filters, ApiCall.status == "failed")
-        failed_count = (await self.session.execute(fail_q)).scalar() or 0
-
-        # Total count
-        total_q = select(func.count()).select_from(ApiCall).where(*filters)
-        total_count = (await self.session.execute(total_q)).scalar() or 0
+        # Single aggregation query replacing 5 separate queries
+        row = (await self.session.execute(
+            select(
+                func.coalesce(func.sum(ApiCall.cost_usd), 0).label("total_cost"),
+                func.count(case((ApiCall.call_type == "image", 1))).label("image_count"),
+                func.count(case((ApiCall.call_type == "video", 1))).label("video_count"),
+                func.count(case((ApiCall.status == "failed", 1))).label("failed_count"),
+                func.count().label("total_count"),
+            ).select_from(ApiCall).where(*filters)
+        )).one()
 
         return {
-            "total_cost": round(total_cost, 4),
-            "image_count": image_count,
-            "video_count": video_count,
-            "failed_count": failed_count,
-            "total_count": total_count,
+            "total_cost": round(row.total_cost, 4),
+            "image_count": row.image_count,
+            "video_count": row.video_count,
+            "failed_count": row.failed_count,
+            "total_count": row.total_count,
         }
 
     async def get_calls(

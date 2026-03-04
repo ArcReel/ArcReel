@@ -1,7 +1,6 @@
 """Tests for lib.db.engine configuration."""
 
 import os
-import pytest
 from unittest.mock import patch
 
 from lib.db.engine import get_database_url, is_sqlite_backend

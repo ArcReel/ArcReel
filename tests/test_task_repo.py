@@ -1,6 +1,5 @@
 """Tests for TaskRepository."""
 
-import time
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 

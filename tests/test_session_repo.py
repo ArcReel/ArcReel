@@ -4,7 +4,6 @@ import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from lib.db.base import Base
-from lib.db.models import AgentSession
 from lib.db.repositories.session_repo import SessionRepository
 
 
@@ -75,12 +74,14 @@ class TestSessionRepository:
     async def test_delete(self, db_session):
         repo = SessionRepository(db_session)
         created = await repo.create("demo", "Test")
-        assert await repo.delete(created["id"])
+        deleted = await repo.delete(created["id"])
+        assert deleted
         assert await repo.get(created["id"]) is None
 
     async def test_delete_nonexistent(self, db_session):
         repo = SessionRepository(db_session)
-        assert not await repo.delete("nonexistent")
+        result = await repo.delete("nonexistent")
+        assert not result
 
     async def test_interrupt_running(self, db_session):
         repo = SessionRepository(db_session)
