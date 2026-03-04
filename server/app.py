@@ -18,7 +18,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from lib import PROJECT_ROOT
-
+from lib.db import init_db, close_db
 from lib.logging_config import setup_logging
 
 from lib.generation_worker import GenerationWorker
@@ -49,6 +49,9 @@ async def lifespan(app: FastAPI):
     # Startup
     ensure_auth_password()
 
+    # Initialize database tables (dev convenience; production uses Alembic)
+    await init_db()
+
     # Initialize async services
     await assistant.assistant_service.startup()
 
@@ -77,6 +80,7 @@ async def lifespan(app: FastAPI):
         logger.info("正在停止 GenerationWorker...")
         await worker.stop()
         logger.info("GenerationWorker 已停止")
+    await close_db()
 
 
 # 创建 FastAPI 应用
