@@ -100,7 +100,7 @@ async def list_project_tasks(
     )
 
 
-@router.get("/tasks/stream", response_class=EventSourceResponse)
+@router.get("/tasks/stream", response_class=EventSourceResponse, deprecated=True)
 async def stream_tasks(
     request: Request,
     project_name: Optional[str] = None,

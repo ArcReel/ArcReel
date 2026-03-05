@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { API, type TaskStreamOptions } from "@/api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { API } from "@/api";
 import { useTasksSSE } from "@/hooks/useTasksSSE";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem } from "@/types";
@@ -26,81 +26,112 @@ function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
   };
 }
 
-describe("useTasksSSE", () => {
+describe("useTasksSSE (polling)", () => {
   beforeEach(() => {
     useTasksStore.setState(useTasksStore.getInitialState(), true);
+    vi.useFakeTimers();
   });
 
-  it("connects, applies snapshot/task events, and cleans up on unmount", () => {
-    const captured: TaskStreamOptions[] = [];
-    const source = { close: vi.fn() } as unknown as EventSource;
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-    const openSpy = vi.spyOn(API, "openTaskStream").mockImplementation((options) => {
-      captured.push(options ?? {});
-      return source;
+  it("polls on mount, updates store, and cleans up on unmount", async () => {
+    const stats = { queued: 1, running: 0, succeeded: 0, failed: 0, total: 1 };
+    const listSpy = vi.spyOn(API, "listTasks").mockResolvedValue({
+      items: [makeTask()],
+      total: 1,
+      page: 1,
+      page_size: 200,
     });
+    const statsSpy = vi.spyOn(API, "getTaskStats").mockResolvedValue(
+      { stats } as any,
+    );
 
     const { unmount } = renderHook(() => useTasksSSE("demo"));
-    expect(openSpy).toHaveBeenCalledTimes(1);
-    expect(captured[0].projectName).toBe("demo");
 
-    const stats = { queued: 1, running: 0, succeeded: 0, failed: 0, total: 1 };
-    act(() => {
-      captured[0].onSnapshot?.(
-        { tasks: [makeTask()], stats },
-        new MessageEvent("snapshot"),
-      );
-    });
+    // Flush initial poll (micro-task only, no timer advance)
+    await act(async () => {});
+
+    expect(listSpy).toHaveBeenCalledTimes(1);
+    expect(statsSpy).toHaveBeenCalledTimes(1);
     expect(useTasksStore.getState().tasks).toHaveLength(1);
+    expect(useTasksStore.getState().stats).toEqual(stats);
     expect(useTasksStore.getState().connected).toBe(true);
 
-    act(() => {
-      captured[0].onTask?.(
-        {
-          action: "updated",
-          task: makeTask({ status: "running" }),
-          stats: { queued: 0, running: 1, succeeded: 0, failed: 0, total: 1 },
-        },
-        new MessageEvent("task"),
-      );
+    // Advance to next poll interval (3s)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
     });
-    expect(useTasksStore.getState().tasks[0].status).toBe("running");
-    expect(useTasksStore.getState().stats.running).toBe(1);
+    expect(listSpy).toHaveBeenCalledTimes(2);
 
     unmount();
-    expect(source.close).toHaveBeenCalledTimes(1);
     expect(useTasksStore.getState().connected).toBe(false);
   });
 
-  it("closes and reconnects after onError", () => {
-    vi.useFakeTimers();
+  it("sets connected=false on fetch error and retries on next interval", async () => {
+    const listSpy = vi.spyOn(API, "listTasks").mockRejectedValueOnce(new Error("network"));
+    vi.spyOn(API, "getTaskStats").mockRejectedValueOnce(new Error("network"));
 
-    const firstSource = { close: vi.fn() } as unknown as EventSource;
-    const secondSource = { close: vi.fn() } as unknown as EventSource;
-    const captured: TaskStreamOptions[] = [];
-    let connectCount = 0;
+    renderHook(() => useTasksSSE("demo"));
 
-    vi.spyOn(API, "openTaskStream").mockImplementation((options) => {
-      captured.push(options ?? {});
-      connectCount += 1;
-      return connectCount === 1 ? firstSource : secondSource;
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
     });
 
-    const { unmount } = renderHook(() => useTasksSSE("demo"));
-    expect(connectCount).toBe(1);
-
-    act(() => {
-      captured[0].onError?.(new Event("error"));
-    });
     expect(useTasksStore.getState().connected).toBe(false);
-    expect((firstSource.close as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
 
-    act(() => {
-      vi.advanceTimersByTime(3000);
+    // Recover on next poll
+    listSpy.mockResolvedValueOnce({ items: [], total: 0, page: 1, page_size: 200 });
+    vi.spyOn(API, "getTaskStats").mockResolvedValueOnce({ stats: { queued: 0, running: 0, succeeded: 0, failed: 0, total: 0 } } as any);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
     });
-    expect(connectCount).toBe(2);
 
-    unmount();
-    expect((secondSource.close as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
+    expect(useTasksStore.getState().connected).toBe(true);
+  });
+
+  it("correctly maps REST 'items' field to store tasks", async () => {
+    const task1 = makeTask({ task_id: "t1", status: "queued" });
+    const task2 = makeTask({ task_id: "t2", status: "running" });
+    vi.spyOn(API, "listTasks").mockResolvedValue({
+      items: [task1, task2],
+      total: 2,
+      page: 1,
+      page_size: 200,
+    });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({
+      stats: { queued: 1, running: 1, succeeded: 0, failed: 0, total: 2 },
+    } as any);
+
+    renderHook(() => useTasksSSE("demo"));
+    await act(async () => {});
+
+    const { tasks, stats } = useTasksStore.getState();
+    expect(tasks).toHaveLength(2);
+    expect(tasks[0].task_id).toBe("t1");
+    expect(tasks[1].task_id).toBe("t2");
+    expect(stats.queued).toBe(1);
+    expect(stats.running).toBe(1);
+  });
+
+  it("unwraps nested stats from { stats: {...} } envelope", async () => {
+    vi.spyOn(API, "listTasks").mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 200,
+    });
+    // Backend returns { stats: { ... } } wrapper
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({
+      stats: { queued: 3, running: 2, succeeded: 10, failed: 1, total: 16 },
+    } as any);
+
+    renderHook(() => useTasksSSE("demo"));
+    await act(async () => {});
+
+    const { stats } = useTasksStore.getState();
+    expect(stats).toEqual({ queued: 3, running: 2, succeeded: 10, failed: 1, total: 16 });
   });
 });

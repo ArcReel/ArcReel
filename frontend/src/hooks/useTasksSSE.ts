@@ -2,68 +2,58 @@ import { useEffect, useRef } from "react";
 import { API } from "@/api";
 import { useTasksStore } from "@/stores/tasks-store";
 
+const POLL_INTERVAL_MS = 3000;
+
 /**
- * 连接任务队列 SSE 流的 Hook。
- * 挂载时建立连接，处理 snapshot/task 事件，
- * 断开后 3 秒自动重连，卸载时清理。
+ * 轮询任务队列状态的 Hook。
+ * 挂载时立即拉取一次，之后每 3 秒轮询，卸载时清理。
+ *
+ * 替代原先的 EventSource SSE 长连接，释放浏览器连接槽位
+ * （Chrome HTTP/1.1 同域名 6 连接限制）。
  */
 export function useTasksSSE(projectName?: string | null): void {
-  const sourceRef = useRef<EventSource | null>(null);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { setTasks, upsertTask, setStats, setConnected } = useTasksStore();
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { setTasks, setStats, setConnected } = useTasksStore();
 
   useEffect(() => {
     let disposed = false;
 
-    function connect() {
-      if (sourceRef.current) {
-        sourceRef.current.close();
-        sourceRef.current = null;
+    async function poll() {
+      try {
+        const [tasksRes, statsRes] = await Promise.all([
+          API.listTasks({
+            projectName: projectName ?? undefined,
+            pageSize: 200,
+          }),
+          API.getTaskStats(projectName ?? null),
+        ]);
+        if (disposed) return;
+        setTasks(tasksRes.items);
+        // REST returns { stats: {...} }
+        const stats = (statsRes as any).stats ?? statsRes;
+        setStats(stats);
+        setConnected(true);
+      } catch {
+        if (disposed) return;
+        setConnected(false);
       }
-
-      const es = API.openTaskStream({
-        projectName: projectName ?? undefined,
-        onSnapshot(payload) {
-          if (disposed) return;
-          setTasks(payload.tasks);
-          setStats(payload.stats);
-          setConnected(true);
-        },
-        onTask(payload) {
-          if (disposed) return;
-          upsertTask(payload.task);
-          setStats(payload.stats);
-          setConnected(true);
-        },
-        onError() {
-          if (disposed) return;
-          setConnected(false);
-          if (sourceRef.current) {
-            sourceRef.current.close();
-            sourceRef.current = null;
-          }
-          reconnectTimer.current = setTimeout(() => {
-            if (!disposed) connect();
-          }, 3000);
-        },
-      });
-
-      sourceRef.current = es;
     }
 
-    connect();
+    // Initial fetch
+    poll();
+
+    // Periodic polling
+    timerRef.current = setInterval(() => {
+      if (!disposed) poll();
+    }, POLL_INTERVAL_MS);
 
     return () => {
       disposed = true;
-      if (reconnectTimer.current) {
-        clearTimeout(reconnectTimer.current);
-        reconnectTimer.current = null;
-      }
-      if (sourceRef.current) {
-        sourceRef.current.close();
-        sourceRef.current = null;
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
       }
       setConnected(false);
     };
-  }, [projectName, setTasks, upsertTask, setStats, setConnected]);
+  }, [projectName, setTasks, setStats, setConnected]);
 }

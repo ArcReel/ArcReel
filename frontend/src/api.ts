@@ -792,7 +792,7 @@ class API {
 
   static async listTasks(
     filters: TaskListFilters = {}
-  ): Promise<{ tasks: TaskItem[]; total: number; page: number; page_size: number }> {
+  ): Promise<{ items: TaskItem[]; total: number; page: number; page_size: number }> {
     const params = new URLSearchParams();
     if (filters.projectName) params.append("project_name", filters.projectName);
     if (filters.status) params.append("status", filters.status);
@@ -807,7 +807,7 @@ class API {
   static async listProjectTasks(
     projectName: string,
     filters: Omit<TaskListFilters, "projectName"> = {}
-  ): Promise<{ tasks: TaskItem[]; total: number; page: number; page_size: number }> {
+  ): Promise<{ items: TaskItem[]; total: number; page: number; page_size: number }> {
     const params = new URLSearchParams();
     if (filters.status) params.append("status", filters.status);
     if (filters.taskType) params.append("task_type", filters.taskType);
