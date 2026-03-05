@@ -1,24 +1,21 @@
 from server.agent_runtime.service import AssistantService
-import hashlib
 
-def test_content_key_extracts_thinking():
+def test_fingerprint_extracts_thinking():
     # Test text
     msg1 = {"type": "assistant", "content": [{"text": "hello"}]}
-    assert AssistantService._content_key(msg1) == "content:assistant:t:hello"
+    assert AssistantService._fingerprint(msg1) == "fp:assistant:t:hello"
 
-    # Test thinking
+    # Test thinking (truncated to 200 chars)
     thinking_text = "hmm... let me think about this"
     msg2 = {"type": "assistant", "content": [{"thinking": thinking_text}]}
-    expected_hash2 = hashlib.md5(thinking_text.encode("utf-8")).hexdigest()
-    assert AssistantService._content_key(msg2) == f"content:assistant:th:{expected_hash2}"
+    assert AssistantService._fingerprint(msg2) == f"fp:assistant:th:{thinking_text}"
 
-    # Test long thinking
-    long_thinking = "A" * 100
+    # Test long thinking (truncated to 200 chars)
+    long_thinking = "A" * 300
     msg3 = {"type": "assistant", "content": [{"thinking": long_thinking}]}
-    expected_hash3 = hashlib.md5(long_thinking.encode("utf-8")).hexdigest()
-    assert AssistantService._content_key(msg3) == f"content:assistant:th:{expected_hash3}"
+    assert AssistantService._fingerprint(msg3) == f"fp:assistant:th:{long_thinking[:200]}"
 
-def test_content_key_multiple_blocks():
+def test_fingerprint_multiple_blocks():
     msg = {
         "type": "assistant",
         "content": [
@@ -27,10 +24,9 @@ def test_content_key_multiple_blocks():
             {"id": "t1"}
         ]
     }
-    hmm_hash = hashlib.md5("hmm".encode("utf-8")).hexdigest()
-    assert AssistantService._content_key(msg) == f"content:assistant:th:{hmm_hash}/t:ok/u:t1"
+    assert AssistantService._fingerprint(msg) == "fp:assistant:th:hmm/t:ok/u:t1"
 
-def test_content_key_ignores_empty_or_other_blocks():
+def test_fingerprint_ignores_empty_or_other_blocks():
     msg = {
         "type": "assistant",
         "content": [
@@ -39,5 +35,11 @@ def test_content_key_ignores_empty_or_other_blocks():
             {"text": "valid"}
         ]
     }
-    assert AssistantService._content_key(msg) == "content:assistant:t:valid"
+    assert AssistantService._fingerprint(msg) == "fp:assistant:t:valid"
 
+def test_fingerprint_result():
+    msg = {"type": "result", "subtype": "success", "is_error": False}
+    assert AssistantService._fingerprint(msg) == "fp:result:success:False"
+
+def test_fingerprint_returns_none_for_user():
+    assert AssistantService._fingerprint({"type": "user", "content": "x"}) is None

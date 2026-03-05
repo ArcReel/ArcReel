@@ -310,36 +310,33 @@ class TestAssistantServiceMore:
     def test_merge_and_dedup_helpers(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
 
-        assert service._message_key({"uuid": "u1"}) == "uuid:u1"
-        fallback_key = service._message_key({"type": "assistant", "content": []})
-        assert fallback_key.startswith("{")
-
-        assert service._content_key({"type": "assistant", "content": [{"text": "A"}]}) == "content:assistant:t:A"
-        result_key = service._content_key(
+        # _fingerprint tests
+        assert service._fingerprint({"type": "assistant", "content": [{"text": "A"}]}) == "fp:assistant:t:A"
+        result_fp = service._fingerprint(
             {
                 "type": "result",
                 "subtype": "success",
                 "is_error": False,
-                "session_id": "s1",
-                "timestamp": "2026-02-01T00:00:00Z",
             }
         )
-        assert result_key == "content:result:success:False"
-        assert service._content_key({"type": "user", "content": "x"}) is None
+        assert result_fp == "fp:result:success:False"
+        assert service._fingerprint({"type": "user", "content": "x"}) is None
 
-        seen_keys, seen_content = service._build_seen_sets([{"uuid": "u1"}, "bad"])
-        assert "uuid:u1" in seen_keys
-        assert isinstance(seen_content, set)
+        # _fingerprint_tail tests
+        tail_fps = service._fingerprint_tail([
+            {"type": "user", "content": "hello", "uuid": "u1"},
+            {"type": "assistant", "content": [{"text": "A"}], "uuid": "a1"},
+        ])
+        assert "fp:assistant:t:A" in tail_fps
 
-        assert service._is_duplicate({"uuid": "u1"}, {"uuid:u1"}, set()) is True
-        assert (
-            service._is_duplicate(
-                {"type": "assistant", "content": [{"text": "A"}]},
-                set(),
-                {"content:assistant:t:A"},
-            )
-            is True
-        )
+        # _is_buffer_duplicate tests
+        assert service._is_buffer_duplicate(
+            {"uuid": "u1", "type": "user"}, "user", {"u1"}, set(), []
+        ) is True
+        assert service._is_buffer_duplicate(
+            {"type": "assistant", "content": [{"text": "A"}]},
+            "assistant", set(), {"fp:assistant:t:A"}, [],
+        ) is True
 
         assert service._parse_iso_datetime(None) is None
         assert service._parse_iso_datetime("bad") is None
@@ -347,6 +344,7 @@ class TestAssistantServiceMore:
         assert naive.tzinfo is not None
         assert service._parse_iso_datetime("2026-02-01T00:00:00Z") is not None
 
+        # _echo_in_transcript tests
         history = [{"type": "user", "content": "hello", "timestamp": "2026-02-01T00:00:01Z"}]
         local_echo = {
             "type": "user",
@@ -354,8 +352,8 @@ class TestAssistantServiceMore:
             "local_echo": True,
             "timestamp": "2026-02-01T00:00:00Z",
         }
-        assert service._should_skip_local_echo(local_echo, history) is True
-        assert service._should_skip_local_echo({"type": "assistant"}, history) is False
+        assert service._echo_in_transcript(local_echo, history) is True
+        assert service._echo_in_transcript({"type": "assistant"}, history) is False
 
         assert service._extract_plain_user_content({"type": "assistant"}) is None
         assert (

@@ -455,9 +455,9 @@ class TestAssistantServiceStreaming:
         service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
 
         projector = service._build_projector(meta, "session-1")
-        # Time gap is > 5 seconds, so it's treated as a new message
-        assert len(projector.turns) == 2
-        assert projector.turns[-1]["uuid"] == "local-user-new"
+        # Simplified dedup: local echo with matching text in transcript is always deduped
+        assert len(projector.turns) == 1
+        assert projector.turns[0]["uuid"] == "real-old"
 
     def test_prune_transient_buffer_removes_groupable_messages(self):
         """Verify _prune_transient_buffer clears user/assistant/result messages

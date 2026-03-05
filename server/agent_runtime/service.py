@@ -3,11 +3,9 @@ Assistant service orchestration using ClaudeSDKClient.
 """
 
 import asyncio
-import hashlib
-import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 
@@ -454,49 +452,73 @@ class AssistantService:
         session_id: str,
         replayed_messages: Optional[list[dict[str, Any]]] = None,
     ) -> AssistantStreamProjector:
-        """Build projector state from transcript history + in-memory buffer in chronological order."""
+        """Build projector state from transcript history + in-memory buffer."""
         history_messages = self.transcript_adapter.read_raw_messages(meta.sdk_session_id)
         projector = AssistantStreamProjector(initial_messages=history_messages)
 
-        runtime_buffer = replayed_messages
-        if runtime_buffer is None:
-            runtime_buffer = self.session_manager.get_buffered_messages(session_id)
+        # UUID set for primary dedup
+        transcript_uuids = {m["uuid"] for m in history_messages if m.get("uuid")}
 
-        # Build seen sets from history for deduplication
-        seen_keys, seen_content_keys = self._build_seen_sets(history_messages)
+        # Content fingerprints for tail (current round) - fallback dedup
+        tail_fps = self._fingerprint_tail(history_messages)
 
-        # Apply buffer messages in exact chronological order
-        for message in runtime_buffer or []:
-            if not isinstance(message, dict):
+        buffer = replayed_messages
+        if buffer is None:
+            buffer = self.session_manager.get_buffered_messages(session_id)
+
+        for msg in buffer or []:
+            if not isinstance(msg, dict):
+                continue
+            msg_type = msg.get("type", "")
+
+            # Non-groupable messages pass through directly
+            if msg_type not in {"user", "assistant", "result"}:
+                projector.apply_message(msg)
                 continue
 
-            # For groupable messages (user, assistant, result), deduplicate against history
-            if self._is_groupable_message(message):
-                if self._should_skip_local_echo(message, history_messages):
-                    continue
-                if self._is_duplicate(message, seen_keys, seen_content_keys):
-                    continue
+            # A new real user message in buffer starts a new round;
+            # clear tail fingerprints so identical short replies don't collide.
+            if self._is_real_user_message(msg):
+                tail_fps.clear()
 
-                if message.get("type") == "user":
-                    content = message.get("content", "")
-                    has_subagent_meta = _has_subagent_user_metadata(message)
-                    if not (_is_system_injected_user_message(content) or has_subagent_meta):
-                        # Clear previous content keys when a NEW user message arrives.
-                        # This prevents the "P1" issue where a simple "Done" answer
-                        # in round 3 collides with "Done" in round 1.
-                        seen_content_keys.clear()
-
-                # It's a valid new groupable message, update seen sets
-                seen_keys.add(self._message_key(message))
-                ck = self._content_key(message)
-                if ck:
-                    seen_content_keys.add(ck)
-
-            # Apply everything (stream_events, unique groupable messages, etc)
-            projector.apply_message(message)
+            if not self._is_buffer_duplicate(msg, msg_type, transcript_uuids, tail_fps, history_messages):
+                projector.apply_message(msg)
 
         return projector
 
+    def _is_buffer_duplicate(
+        self,
+        msg: dict[str, Any],
+        msg_type: str,
+        transcript_uuids: set[str],
+        tail_fps: set[str],
+        history_messages: list[dict[str, Any]],
+    ) -> bool:
+        """Check if a groupable buffer message duplicates a transcript message."""
+        # 1. UUID dedup
+        uuid = msg.get("uuid")
+        if uuid and uuid in transcript_uuids:
+            return True
+
+        # 2. Local echo dedup
+        if msg.get("local_echo") and self._echo_in_transcript(msg, history_messages):
+            return True
+
+        # 3. Content fingerprint dedup (fallback for UUID-less buffer messages)
+        if not uuid and msg_type in {"assistant", "result"}:
+            fp = self._fingerprint(msg)
+            if fp and fp in tail_fps:
+                return True
+
+        return False
+
+    @staticmethod
+    def _is_real_user_message(msg: dict[str, Any]) -> bool:
+        """Return True if msg is a genuine (non-echo, non-system) user message."""
+        if msg.get("type") != "user" or msg.get("local_echo"):
+            return False
+        content = msg.get("content", "")
+        return not (_is_system_injected_user_message(content) or _has_subagent_user_metadata(msg))
 
     @staticmethod
     def _resolve_result_status(result_message: dict[str, Any]) -> SessionStatus:
@@ -610,36 +632,28 @@ class AssistantService:
         return message.get("type", "") in {"user", "assistant", "result"}
 
     @staticmethod
-    def _message_key(message: dict[str, Any]) -> str:
-        """Build dedupe key for raw messages merged from transcript and memory buffer."""
-        uuid = message.get("uuid")
-        if uuid:
-            return f"uuid:{uuid}"
-        return json.dumps(message, sort_keys=True, ensure_ascii=False)
+    def _fingerprint_tail(messages: list[dict[str, Any]]) -> set[str]:
+        """Build content fingerprints for messages after the last real user message."""
+        last_user_idx = 0
+        for i, msg in enumerate(messages):
+            if msg.get("type") == "user":
+                content = msg.get("content", "")
+                if not (_is_system_injected_user_message(content) or _has_subagent_user_metadata(msg)):
+                    last_user_idx = i
+
+        fps: set[str] = set()
+        for msg in messages[last_user_idx:]:
+            fp = AssistantService._fingerprint(msg)
+            if fp:
+                fps.add(fp)
+        return fps
 
     @staticmethod
-    def _content_key(message: dict[str, Any]) -> Optional[str]:
-        """Build a content-based key for cross-source dedup.
-
-        Transcript messages carry a uuid assigned by the CLI wrapper while
-        buffer messages converted from SDK objects often lack one.  When the
-        same logical message appears in both sources, _message_key produces
-        different keys (uuid vs json.dumps) and dedup fails.
-
-        This helper normalises on (type, content) so that a buffer message
-        without uuid can still be recognised as a duplicate of a transcript
-        entry that has one.
-
-        Returns None for message types where content-based matching is unsafe
-        (e.g. user messages – the user may legitimately send the same text
-        twice).
-        """
+    def _fingerprint(message: dict[str, Any]) -> Optional[str]:
+        """Build a truncated content fingerprint for dedup."""
         msg_type = message.get("type")
         if msg_type == "assistant":
             content = message.get("content", [])
-            # Normalise content blocks: SDK dataclass serialization omits
-            # the ``type`` field that the CLI transcript includes.  Extract
-            # only the fields both sources share so the key matches.
             parts: list[str] = []
             for block in content if isinstance(content, list) else []:
                 if not isinstance(block, dict):
@@ -648,70 +662,30 @@ class AssistantService:
                 tool_id = block.get("id")
                 thinking = block.get("thinking")
                 if text is not None:
-                    parts.append(f"t:{text}")
+                    parts.append(f"t:{text[:200]}")
                 elif tool_id is not None:
                     parts.append(f"u:{tool_id}")
                 elif thinking is not None:
-                    # Use MD5 hash to accurately deduplicate long thinking blocks
-                    # without retaining unbounded strings in memory.
-                    th_hash = hashlib.md5(thinking.encode("utf-8")).hexdigest()
-                    parts.append(f"th:{th_hash}")
-            return f"content:assistant:{'/'.join(parts)}" if parts else None
+                    parts.append(f"th:{thinking[:200]}")
+            return f"fp:assistant:{'/'.join(parts)}" if parts else None
         if msg_type == "result":
-            # Since seen_content_keys is now scoped to the current round,
-            # we don't need timestamp or session_id to prevent cross-round collisions.
-            # This allows SDK result messages (which lack timestamps) to successfully
-            # deduplicate against transcript result messages within the same round.
-            return f"content:result:{message.get('subtype', '')}:{message.get('is_error', False)}"
+            return f"fp:result:{message.get('subtype', '')}:{message.get('is_error', False)}"
         return None
 
-
-    def _build_seen_sets(
-        self, messages: list[dict[str, Any]]
-    ) -> tuple[set[str], set[str]]:
-        """Build uuid-based and content-based seen sets from existing messages.
-
-        To prevent identical short replies across different rounds (e.g., "Done")
-        from colliding, seen_content_keys only tracks messages from the CURRENT round
-        (i.e. messages that appear after the final user message).
-        """
-        seen_keys: set[str] = set()
-        seen_content_keys: set[str] = set()
-
-        last_user_idx = 0
-        for i, msg in enumerate(messages):
-            if isinstance(msg, dict) and msg.get("type") == "user":
-                content = msg.get("content", "")
-                has_subagent_meta = _has_subagent_user_metadata(msg)
-                if not (_is_system_injected_user_message(content) or has_subagent_meta):
-                    last_user_idx = i
-
-        for i, msg in enumerate(messages):
-            if not isinstance(msg, dict):
-                continue
-            seen_keys.add(self._message_key(msg))
-
-            # Only track content keys for the current round
-            if i >= last_user_idx:
-                ck = self._content_key(msg)
-                if ck:
-                    seen_content_keys.add(ck)
-        return seen_keys, seen_content_keys
-
-    def _is_duplicate(
-        self,
-        msg: dict[str, Any],
-        seen_keys: set[str],
-        seen_content_keys: set[str],
+    @staticmethod
+    def _echo_in_transcript(
+        echo_msg: dict[str, Any],
+        transcript_msgs: list[dict[str, Any]],
     ) -> bool:
-        """Check whether *msg* duplicates an already-seen message."""
-        key = self._message_key(msg)
-        if key in seen_keys:
-            return True
-        # For messages without uuid, fall back to content-based dedup
-        if not msg.get("uuid"):
-            ck = self._content_key(msg)
-            if ck and ck in seen_content_keys:
+        """Check if a local echo has a matching real message in transcript."""
+        echo_text = AssistantService._extract_plain_user_content(echo_msg)
+        if not echo_text:
+            return False
+        for existing in reversed(transcript_msgs):
+            if existing.get("type") != "user":
+                continue
+            existing_text = AssistantService._extract_plain_user_content(existing)
+            if existing_text == echo_text:
                 return True
         return False
 
@@ -752,37 +726,6 @@ class AssistantService:
         if parsed.tzinfo is None:
             return parsed.replace(tzinfo=timezone.utc)
         return parsed
-
-    def _should_skip_local_echo(
-        self,
-        message: dict[str, Any],
-        merged_messages: list[dict[str, Any]],
-    ) -> bool:
-        """Drop local echo once a matching real transcript user message is present."""
-        if not message.get("local_echo"):
-            return False
-
-        echo_text = self._extract_plain_user_content(message)
-        if not echo_text:
-            return False
-
-        echo_ts = self._parse_iso_datetime(message.get("timestamp"))
-        for existing in reversed(merged_messages):
-            if not isinstance(existing, dict):
-                continue
-            if existing.get("type") != "user" or existing.get("local_echo"):
-                continue
-            if self._extract_plain_user_content(existing) != echo_text:
-                continue
-            if echo_ts is None:
-                return True
-            existing_ts = self._parse_iso_datetime(existing.get("timestamp"))
-            if existing_ts is None:
-                return True
-            if existing_ts >= (echo_ts - timedelta(seconds=5)):
-                return True
-
-        return False
 
     # ==================== Lifecycle ====================
 
