@@ -123,7 +123,28 @@ class ProjectManager:
         for subdir in self.SUBDIRS:
             (project_dir / subdir).mkdir(parents=True, exist_ok=True)
 
+        self._create_claude_symlink(project_dir)
+
         return project_dir
+
+    def _create_claude_symlink(self, project_dir: Path) -> None:
+        """Create .claude symlink pointing to agent_runtime_profile/.claude."""
+        # Resolve profile relative to projects_root parent (project_root)
+        project_root = self.projects_root.parent
+        profile_claude = project_root / "agent_runtime_profile" / ".claude"
+        if not profile_claude.exists():
+            return
+
+        symlink_path = project_dir / ".claude"
+        if symlink_path.exists() or symlink_path.is_symlink():
+            return
+
+        # Build relative path from project_dir to profile_claude
+        try:
+            rel = Path("../../agent_runtime_profile/.claude")
+            symlink_path.symlink_to(rel)
+        except OSError:
+            pass  # Non-fatal: symlink creation may fail on some platforms
 
     def get_project_path(self, name: str) -> Path:
         """获取项目路径（含路径遍历防护）"""

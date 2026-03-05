@@ -366,6 +366,29 @@ class TestProjectArchiveService:
             encoding="utf-8"
         ) == "source"
 
+    def test_import_creates_claude_symlink(self, tmp_path):
+        """Imported project should get .claude symlink for agent runtime isolation."""
+        # Create agent_runtime_profile in project root (parent of projects/)
+        profile_claude = tmp_path / "agent_runtime_profile" / ".claude"
+        profile_claude.mkdir(parents=True)
+
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        # Import as a new project
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="demo.zip",
+            conflict_policy="rename",
+        )
+
+        imported_dir = pm.get_project_path(result.project_name)
+        symlink = imported_dir / ".claude"
+        assert symlink.is_symlink()
+        assert symlink.resolve() == profile_claude.resolve()
+
     def test_import_overwrite_rolls_back_on_install_failure(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="Fresh")
