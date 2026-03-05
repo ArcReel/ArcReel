@@ -22,13 +22,13 @@ class _FakeMetaStore:
         return None
 
 
-class _FakeTranscriptReader:
+class _FakeTranscriptAdapter:
     def __init__(self, call_log: list[tuple], history_raw: list[dict] | None = None):
         self.call_log = call_log
         self.history_raw = history_raw or []
 
-    def read_raw_messages(self, session_id: str, sdk_session_id=None, project_name=None):
-        self.call_log.append(("read_raw_messages", session_id, sdk_session_id, project_name))
+    def read_raw_messages(self, sdk_session_id=None):
+        self.call_log.append(("read_raw_messages", sdk_session_id))
         return list(self.history_raw)
 
 
@@ -94,7 +94,7 @@ class TestAssistantServiceStreaming:
             }
         ]
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=[])
+        service.transcript_adapter = _FakeTranscriptAdapter(call_log, history_raw=[])
         service.session_manager = _FakeSessionManager(
             call_log,
             status="running",
@@ -110,7 +110,7 @@ class TestAssistantServiceStreaming:
 
         subscribe_idx = call_log.index(("subscribe", "session-1", True))
         read_raw_idx = call_log.index(
-            ("read_raw_messages", "session-1", "sdk-1", "demo")
+            ("read_raw_messages", "sdk-1")
         )
         assert subscribe_idx < read_raw_idx
 
@@ -120,7 +120,7 @@ class TestAssistantServiceStreaming:
 
         call_log: list[tuple] = []
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=[])
+        service.transcript_adapter = _FakeTranscriptAdapter(call_log, history_raw=[])
         service.session_manager = _FakeSessionManager(
             call_log,
             status="running",
@@ -142,7 +142,7 @@ class TestAssistantServiceStreaming:
 
         call_log: list[tuple] = []
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=[])
+        service.transcript_adapter = _FakeTranscriptAdapter(call_log, history_raw=[])
         fake_manager = _FakeSessionManager(call_log, status="running", replay_messages=[])
         service.session_manager = fake_manager
 
@@ -292,7 +292,7 @@ class TestAssistantServiceStreaming:
         ]
 
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=history)
+        service.transcript_adapter = _FakeTranscriptAdapter(call_log, history_raw=history)
         service.session_manager = _FakeSessionManager(call_log, status="completed")
 
         stream = service.stream_events("session-1")
@@ -321,7 +321,7 @@ class TestAssistantServiceStreaming:
 
         call_log: list[tuple] = []
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=[])
+        service.transcript_adapter = _FakeTranscriptAdapter(call_log, history_raw=[])
         fake_manager = _FakeSessionManager(call_log, status="running", replay_messages=[])
         service.session_manager = fake_manager
 
@@ -359,7 +359,7 @@ class TestAssistantServiceStreaming:
 
         call_log: list[tuple] = []
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=[])
+        service.transcript_adapter = _FakeTranscriptAdapter(call_log, history_raw=[])
         fake_manager = _FakeSessionManager(call_log, status="running", replay_messages=[])
         service.session_manager = fake_manager
 
@@ -421,7 +421,7 @@ class TestAssistantServiceStreaming:
         ]
 
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader([], history_raw=history)
+        service.transcript_adapter = _FakeTranscriptAdapter([], history_raw=history)
         service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
 
         projector = service._build_projector(meta, "session-1")
@@ -451,7 +451,7 @@ class TestAssistantServiceStreaming:
         ]
 
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader([], history_raw=history)
+        service.transcript_adapter = _FakeTranscriptAdapter([], history_raw=history)
         service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
 
         projector = service._build_projector(meta, "session-1")
@@ -528,7 +528,7 @@ class TestAssistantServiceStreaming:
             },
         ]
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=history)
+        service.transcript_adapter = _FakeTranscriptAdapter(call_log, history_raw=history)
         service.session_manager = _FakeSessionManager(
             call_log,
             status="running",
@@ -581,7 +581,7 @@ class TestAssistantServiceStreaming:
             },
         ]
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=history)
+        service.transcript_adapter = _FakeTranscriptAdapter(call_log, history_raw=history)
         service.session_manager = _FakeSessionManager(
             call_log,
             status="running",
@@ -635,7 +635,7 @@ class TestAssistantServiceStreaming:
              "event": {"type": "content_block_delta"}},
         ]
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader(
+        service.transcript_adapter = _FakeTranscriptAdapter(
             call_log, history_raw=history)
         service.session_manager = _FakeSessionManager(
             call_log, status="running", replay_messages=buffer)
@@ -672,7 +672,7 @@ class TestAssistantServiceStreaming:
              "timestamp": "2026-02-10T08:00:01Z"},
         ]
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader(
+        service.transcript_adapter = _FakeTranscriptAdapter(
             call_log, history_raw=[])
         service.session_manager = _FakeSessionManager(
             call_log, status="running", replay_messages=buffer)
@@ -723,7 +723,7 @@ class TestAssistantServiceStreaming:
         # Buffer is empty after prune (groupable messages cleared).
         # Only non-groupable messages like ask_user_question would remain.
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader(call_log, history_raw=history)
+        service.transcript_adapter = _FakeTranscriptAdapter(call_log, history_raw=history)
         service.session_manager = _FakeSessionManager(
             call_log,
             status="completed",
@@ -778,7 +778,7 @@ class TestAssistantServiceStreaming:
         ]
 
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader([], history_raw=history)
+        service.transcript_adapter = _FakeTranscriptAdapter([], history_raw=history)
         service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
 
         projector = service._build_projector(meta, "session-1")
@@ -827,7 +827,7 @@ class TestAssistantServiceStreaming:
         ]
 
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader([], history_raw=history)
+        service.transcript_adapter = _FakeTranscriptAdapter([], history_raw=history)
         service.session_manager = _FakeSessionManager([], status="completed", replay_messages=buffer)
 
         projector = service._build_projector(meta, "session-1")
@@ -879,7 +879,7 @@ class TestAssistantServiceStreaming:
         ]
 
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_reader = _FakeTranscriptReader([], history_raw=history)
+        service.transcript_adapter = _FakeTranscriptAdapter([], history_raw=history)
         service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
 
         projector = service._build_projector(meta, "session-1")

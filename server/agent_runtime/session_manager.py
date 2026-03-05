@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 from server.agent_runtime.models import SessionMeta, SessionStatus
 from server.agent_runtime.session_store import SessionMetaStore
-from server.agent_runtime.transcript_reader import TranscriptReader
 
 try:
     from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
@@ -240,7 +239,6 @@ class SessionManager:
         self.project_root = Path(project_root)
         self.data_dir = Path(data_dir)
         self.meta_store = meta_store
-        self.transcript_reader = TranscriptReader(data_dir, project_root=project_root)
         self.sessions: dict[str, ManagedSession] = {}
         self._connect_locks: dict[str, asyncio.Lock] = {}
         self._load_config()

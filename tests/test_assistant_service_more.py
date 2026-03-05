@@ -91,11 +91,11 @@ class _FakeSessionManager:
         return None
 
 
-class _FakeTranscriptReader:
+class _FakeTranscriptAdapter:
     def __init__(self, history=None):
         self.history = history or []
 
-    def read_raw_messages(self, session_id, sdk_session_id, project_name):
+    def read_raw_messages(self, sdk_session_id=None):
         return list(self.history)
 
 
@@ -246,7 +246,7 @@ class TestAssistantServiceMore:
         sm.buffer = [{"type": "runtime_status", "status": "running"}]
         sm.pending = [{"type": "ask_user_question", "question_id": "aq-1"}]
         service.session_manager = sm
-        service.transcript_reader = _FakeTranscriptReader(history=[])
+        service.transcript_adapter = _FakeTranscriptAdapter(history=[])
 
         with pytest.raises(FileNotFoundError):
             await service.get_snapshot("missing")

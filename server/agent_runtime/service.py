@@ -20,7 +20,7 @@ from server.agent_runtime.models import SessionMeta, SessionStatus
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from server.agent_runtime.stream_projector import AssistantStreamProjector
-from server.agent_runtime.transcript_reader import TranscriptReader
+from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.turn_grouper import (
     _has_subagent_user_metadata,
     _is_system_injected_user_message,
@@ -38,7 +38,7 @@ class AssistantService:
 
         self.pm = ProjectManager(self.projects_root)
         self.meta_store = SessionMetaStore()
-        self.transcript_reader = TranscriptReader(self.data_dir, project_root=self.project_root)
+        self.transcript_adapter = SdkTranscriptAdapter()
         self.session_manager = SessionManager(
             project_root=self.project_root,
             data_dir=self.data_dir,
@@ -455,11 +455,7 @@ class AssistantService:
         replayed_messages: Optional[list[dict[str, Any]]] = None,
     ) -> AssistantStreamProjector:
         """Build projector state from transcript history + in-memory buffer in chronological order."""
-        history_messages = self.transcript_reader.read_raw_messages(
-            session_id,
-            meta.sdk_session_id,
-            project_name=meta.project_name,
-        )
+        history_messages = self.transcript_adapter.read_raw_messages(meta.sdk_session_id)
         projector = AssistantStreamProjector(initial_messages=history_messages)
 
         runtime_buffer = replayed_messages
