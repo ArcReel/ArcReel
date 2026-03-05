@@ -304,7 +304,7 @@ class TestAssistantServiceStreaming:
         second_name, second_payload = _parse_sse_event(second)
 
         assert first_name == "snapshot"
-        assert len(first_payload.get("turns", [])) == 3
+        assert len(first_payload.get("turns", [])) == 2
         assert first_payload.get("session_id") == "session-1"
         assert first_payload.get("sdk_session_id") == "sdk-1"
         assert second_name == "status"
@@ -647,9 +647,10 @@ class TestAssistantServiceStreaming:
         # Buffer assistant-A3 (no uuid) is now correctly included — it
         # represents the latest reply not yet persisted to JSONL.
         # Content-based dedup prevents genuine duplicates.
-        # user-Q3 must be present after result-R2 so A2 and A3 are not merged.
+        # Result turns are eliminated, but they still flush the current turn,
+        # so user-Q2 and user-Q3 correctly start new rounds.
         assert turn_types == [
-            "user", "assistant", "result", "user", "assistant", "result", "user", "assistant",
+            "user", "assistant", "user", "assistant", "user", "assistant",
         ], f"unexpected turns={turn_types}"
 
     async def test_stream_new_session_first_round_preserves_user(self, tmp_path):
@@ -832,11 +833,11 @@ class TestAssistantServiceStreaming:
 
         projector = service._build_projector(meta, "session-1")
         
-        # We should have exactly 3 turns total: user, assistant, result.
+        # We should have exactly 2 turns total: user, assistant (result eliminated).
         # The buffer result should be deduplicated away.
-        assert len(projector.turns) == 3
+        assert len(projector.turns) == 2
         turn_types = [t.get("type") for t in projector.turns]
-        assert turn_types == ["user", "assistant", "result"]
+        assert turn_types == ["user", "assistant"]
 
     async def test_build_projector_ignores_system_user_when_scoping_dedup(self, tmp_path):
         """Verify that system-injected user messages do not reset the content deduplication

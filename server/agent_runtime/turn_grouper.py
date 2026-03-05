@@ -252,15 +252,7 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
             if current_turn:
                 turns.append(current_turn)
                 current_turn = None
-            turns.append(
-                {
-                    "type": "result",
-                    "subtype": msg.get("subtype", ""),
-                    "uuid": msg.get("uuid"),
-                    "timestamp": msg.get("timestamp"),
-                }
-            )
-            continue
+            continue  # Don't create independent result turn
 
         if msg_type == "user":
             content = msg.get("content", "")

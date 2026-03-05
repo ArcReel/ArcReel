@@ -71,7 +71,7 @@ class TestTranscriptReader:
         # Read messages (now returns grouped turns)
         turns = reader.read_messages("internal-id", sdk_session_id)
 
-        assert len(turns) == 3  # user turn, assistant turn, result
+        assert len(turns) == 2  # user turn, assistant turn (result eliminated)
 
         # Check user turn (content is now normalized to array)
         assert turns[0]["type"] == "user"
@@ -85,10 +85,6 @@ class TestTranscriptReader:
         assert len(turns[1]["content"]) == 1
         assert turns[1]["content"][0]["type"] == "text"
         assert turns[1]["content"][0]["text"] == "Hello! How can I help you?"
-
-        # Check result
-        assert turns[2]["type"] == "result"
-        assert turns[2]["subtype"] == "success"
 
     def test_tool_use_and_result_pairing(self, tmp_path):
         """Test that tool_use and tool_result are paired correctly."""

@@ -68,14 +68,13 @@ class TestTurnGrouper:
         ]
 
         turns = group_messages_into_turns(raw_messages)
-        assert [turn["type"] for turn in turns] == ["user", "assistant", "result"]
+        assert [turn["type"] for turn in turns] == ["user", "assistant"]
         assistant_turn = turns[1]
         assert len(assistant_turn["content"]) == 3
         assert assistant_turn["content"][0]["type"] == "text"
         assert assistant_turn["content"][1]["type"] == "tool_use"
         assert assistant_turn["content"][1]["result"] == "hello"
         assert assistant_turn["content"][2]["type"] == "text"
-        assert turns[2]["subtype"] == "success"
 
     def test_tool_result_without_type_is_attached(self):
         raw_messages = [
@@ -308,3 +307,25 @@ class TestTurnGrouper:
         assert task_block["type"] == "tool_use"
         assert task_block["name"] == "Task"
         assert task_block["result"] == "subagent finished"
+
+    def test_result_turn_is_eliminated(self):
+        """Result messages flush current turn but don't create independent turn."""
+        raw_messages = [
+            {"type": "user", "content": "hello"},
+            {"type": "assistant", "content": [{"type": "text", "text": "hi"}]},
+            {"type": "result", "subtype": "success"},
+        ]
+        turns = group_messages_into_turns(raw_messages)
+        assert [turn["type"] for turn in turns] == ["user", "assistant"]
+
+    def test_result_between_rounds_flushes_correctly(self):
+        """Result between two user messages flushes correctly."""
+        raw_messages = [
+            {"type": "user", "content": "first"},
+            {"type": "assistant", "content": [{"type": "text", "text": "response 1"}]},
+            {"type": "result", "subtype": "success"},
+            {"type": "user", "content": "second"},
+            {"type": "assistant", "content": [{"type": "text", "text": "response 2"}]},
+        ]
+        turns = group_messages_into_turns(raw_messages)
+        assert [turn["type"] for turn in turns] == ["user", "assistant", "user", "assistant"]
