@@ -319,25 +319,6 @@ class SessionManager:
         if world := overview.get("world_setting"):
             parts.append(f"- 世界观：{world}")
 
-    def _load_agent_definitions(self) -> dict[str, Any]:
-        """Load agent definitions from agent_runtime_profile/.claude/agents/."""
-        agents_dir = self.project_root / "agent_runtime_profile" / ".claude" / "agents"
-        if not agents_dir.exists() or not agents_dir.is_dir():
-            return {}
-
-        agents: dict[str, Any] = {}
-        for md_file in sorted(agents_dir.glob("*.md")):
-            agent_name = md_file.stem
-            try:
-                prompt = md_file.read_text(encoding="utf-8").strip()
-            except OSError:
-                continue
-            if not prompt:
-                continue
-            agents[agent_name] = {"description": f"Agent: {agent_name}", "prompt": prompt}
-
-        return agents
-
     def _build_options(
         self,
         project_name: str,
@@ -371,7 +352,6 @@ class SessionManager:
             resume=resume_id,
             can_use_tool=can_use_tool,
             hooks=hooks,
-            agents=self._load_agent_definitions(),
         )
 
     @staticmethod
