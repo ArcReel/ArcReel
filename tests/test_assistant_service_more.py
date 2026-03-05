@@ -375,21 +375,20 @@ class TestAssistantServiceMore:
         service = AssistantService(project_root=tmp_path)
         service.pm = _FakePM(valid_project="demo")
 
-        project_skill = tmp_path / ".claude" / "skills" / "s1"
-        project_skill.mkdir(parents=True)
-        (project_skill / "SKILL.md").write_text(
+        agent_skill = tmp_path / "agent_runtime_profile" / ".claude" / "skills" / "s1"
+        agent_skill.mkdir(parents=True)
+        (agent_skill / "SKILL.md").write_text(
             "---\nname: project-skill\ndescription: from frontmatter\n---\n# body\n",
             encoding="utf-8",
         )
 
-        fake_home = tmp_path / "home"
-        user_skill = fake_home / ".claude" / "skills" / "s2"
-        user_skill.mkdir(parents=True)
-        (user_skill / "SKILL.md").write_text(
+        # Create a fallback skill for metadata parsing test
+        fallback_skill_dir = tmp_path / "agent_runtime_profile" / ".claude" / "skills" / "s2"
+        fallback_skill_dir.mkdir(parents=True)
+        (fallback_skill_dir / "SKILL.md").write_text(
             "first non heading line\n# heading\n",
             encoding="utf-8",
         )
-        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
 
         all_skills = service.list_available_skills()
         names = {item["name"] for item in all_skills}
@@ -399,7 +398,7 @@ class TestAssistantServiceMore:
         for_project = service.list_available_skills(project_name="demo")
         assert len(for_project) >= 1
 
-        fallback = service._load_skill_metadata(user_skill / "SKILL.md", "fallback")
+        fallback = service._load_skill_metadata(fallback_skill_dir / "SKILL.md", "fallback")
         assert fallback["name"] == "fallback"
         assert fallback["description"] == "first non heading line"
 

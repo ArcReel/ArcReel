@@ -403,15 +403,16 @@ class TestSessionManagerMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_can_use_tool_allows_read_claude_md(self, tmp_path, monkeypatch):
-        """Read allowed for root CLAUDE.md."""
+    async def test_can_use_tool_allows_read_agent_profile(self, tmp_path, monkeypatch):
+        """Read allowed for agent_runtime_profile/ files."""
         monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
         monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
 
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
-        claude_md = tmp_path / "CLAUDE.md"
-        claude_md.write_text("# Project instructions")
+        profile_md = tmp_path / "agent_runtime_profile" / "CLAUDE.md"
+        profile_md.parent.mkdir(parents=True)
+        profile_md.write_text("# Agent instructions")
 
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         async with engine.begin() as conn:
@@ -431,8 +432,8 @@ class TestSessionManagerMore:
 
         cb = await mgr._build_can_use_tool_callback(meta.id)
 
-        # Read CLAUDE.md — allowed
-        result = await cb("Read", {"file_path": str(claude_md)}, None)
+        # Read agent_runtime_profile/CLAUDE.md — allowed (readonly dir)
+        result = await cb("Read", {"file_path": str(profile_md)}, None)
         assert hasattr(result, "updated_input")
 
         await engine.dispose()
