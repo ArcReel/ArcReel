@@ -20,7 +20,7 @@ export interface SessionMeta {
 }
 
 export interface ContentBlock {
-  type: "text" | "thinking" | "tool_use" | "tool_result" | "skill_content";
+  type: "text" | "thinking" | "tool_use" | "tool_result" | "skill_content" | "task_progress";
   text?: string;
   thinking?: string;
   id?: string;
@@ -31,10 +31,17 @@ export interface ContentBlock {
   skill_content?: string;
   tool_use_id?: string;
   content?: string;
+  // task_progress fields
+  task_id?: string;
+  status?: string;
+  description?: string;
+  summary?: string;
+  task_status?: string;
+  usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number };
 }
 
 export interface Turn {
-  type: "user" | "assistant" | "result" | "system";
+  type: "user" | "assistant" | "system";
   content: ContentBlock[];
   uuid?: string;
   timestamp?: string;
