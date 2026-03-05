@@ -6,6 +6,7 @@ from lib.db.engine import (
     get_async_session,
     get_database_url,
     is_sqlite_backend,
+    safe_session_factory,
 )
 from lib.db.base import Base
 
@@ -37,4 +38,5 @@ __all__ = [
     "get_database_url",
     "init_db",
     "is_sqlite_backend",
+    "safe_session_factory",
 ]

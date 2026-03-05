@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from lib.db import async_session_factory, init_db
+from lib.db import init_db, safe_session_factory
 from lib.db.repositories.session_repo import SessionRepository
 from server.agent_runtime.models import SessionMeta, SessionStatus
 
@@ -30,7 +30,7 @@ class SessionMetaStore:
     """Async session metadata store wrapping SessionRepository."""
 
     def __init__(self, *, session_factory=None, _skip_init_db: bool = False):
-        self._session_factory = session_factory or async_session_factory
+        self._session_factory = session_factory or safe_session_factory
         self._skip_init_db = _skip_init_db
         self._db_initialized = _skip_init_db
 

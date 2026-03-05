@@ -42,7 +42,6 @@ def _is_skill_content_text(text: str) -> bool:
     return (
         text.startswith(_SKILL_BASE_DIR_PREFIX)
         or text.startswith(_SKILL_CONTENT_PREFIX)
-        or (_SKILL_PATH_MARKER in text and _SKILL_FILE_MARKER in text)
     )
 
 
@@ -229,6 +228,66 @@ def _track_tool_uses(
                 tool_use_map[tool_id] = True
 
 
+def _find_task_block(
+    turn: Optional[dict[str, Any]], task_id: str
+) -> Optional[dict[str, Any]]:
+    """Find an existing task_progress block by task_id within a turn."""
+    if not isinstance(turn, dict):
+        return None
+    content = turn.get("content")
+    if not isinstance(content, list):
+        return None
+    for block in content:
+        if (
+            isinstance(block, dict)
+            and block.get("type") == "task_progress"
+            and block.get("task_id") == task_id
+        ):
+            return block
+    return None
+
+
+def _resolve_stale_task_blocks(turns: list[dict[str, Any]]) -> None:
+    """Auto-complete task_started blocks whose Agent tool_use already has a result.
+
+    When the SDK doesn't emit TaskNotificationMessage, we infer task completion
+    from the Agent tool_use having a populated result.
+    """
+    for turn in turns:
+        content = turn.get("content")
+        if not isinstance(content, list):
+            continue
+
+        # Build set of tool_use IDs that have results
+        completed_tool_ids: set[str] = set()
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if (
+                block.get("type") == "tool_use"
+                and block.get("name") == "Agent"
+                and block.get("result") is not None
+            ):
+                tool_id = block.get("id")
+                if tool_id:
+                    completed_tool_ids.add(tool_id)
+
+        if not completed_tool_ids:
+            continue
+
+        # Update stale task_progress blocks
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if (
+                block.get("type") == "task_progress"
+                and block.get("status") == "task_started"
+                and block.get("tool_use_id") in completed_tool_ids
+            ):
+                block["status"] = "task_notification"
+                block["task_status"] = "completed"
+
+
 def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Group raw user/assistant/result messages into UI turns.
@@ -314,15 +373,31 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
         if msg_type == "system":
             subtype = msg.get("subtype", "")
             if subtype in ("task_started", "task_progress", "task_notification"):
+                task_id = msg.get("task_id")
                 task_block = {
                     "type": "task_progress",
-                    "task_id": msg.get("task_id"),
+                    "task_id": task_id,
                     "status": subtype,
                     "description": msg.get("description", ""),
                     "summary": msg.get("summary"),
                     "task_status": msg.get("status"),
                     "usage": msg.get("usage"),
+                    "tool_use_id": msg.get("tool_use_id"),
                 }
+
+                # For notification/progress updates, try to update existing block
+                if subtype in ("task_notification", "task_progress") and task_id:
+                    existing = _find_task_block(current_turn, task_id) if current_turn else None
+                    if existing is not None:
+                        existing["status"] = subtype
+                        if task_block.get("summary"):
+                            existing["summary"] = task_block["summary"]
+                        if task_block.get("task_status"):
+                            existing["task_status"] = task_block["task_status"]
+                        if task_block.get("usage"):
+                            existing["usage"] = task_block["usage"]
+                        continue
+
                 if current_turn and current_turn.get("type") == "assistant":
                     current_turn.get("content", []).append(task_block)
                 else:
@@ -342,6 +417,8 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
 
     if current_turn:
         turns.append(current_turn)
+
+    _resolve_stale_task_blocks(turns)
 
     return [normalize_turn(t) for t in turns]
 

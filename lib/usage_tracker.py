@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from lib.db import async_session_factory, init_db
+from lib.db import init_db, safe_session_factory
 from lib.db.repositories.usage_repo import UsageRepository
 
 
@@ -17,7 +17,7 @@ class UsageTracker:
     """Async API 调用记录追踪器，wrapping UsageRepository."""
 
     def __init__(self, *, session_factory=None, _skip_init_db: bool = False):
-        self._session_factory = session_factory or async_session_factory
+        self._session_factory = session_factory or safe_session_factory
         self._skip_init_db = _skip_init_db
         self._db_initialized = _skip_init_db
 
