@@ -329,3 +329,54 @@ class TestTurnGrouper:
         ]
         turns = group_messages_into_turns(raw_messages)
         assert [turn["type"] for turn in turns] == ["user", "assistant", "user", "assistant"]
+
+    def test_task_progress_attached_to_assistant_turn(self):
+        """Task progress messages are attached as blocks to current assistant turn."""
+        raw_messages = [
+            {"type": "user", "content": "do something complex"},
+            {
+                "type": "assistant",
+                "content": [{"type": "tool_use", "id": "agent-1", "name": "Agent", "input": {}}],
+            },
+            {
+                "type": "system",
+                "subtype": "task_started",
+                "description": "Exploring codebase",
+                "task_id": "task-abc",
+            },
+            {
+                "type": "system",
+                "subtype": "task_notification",
+                "description": "Exploring codebase",
+                "summary": "Found 3 relevant files",
+                "status": "completed",
+                "task_id": "task-abc",
+            },
+        ]
+        turns = group_messages_into_turns(raw_messages)
+        assert [turn["type"] for turn in turns] == ["user", "assistant"]
+        assistant_content = turns[1]["content"]
+        # tool_use + 2 task_progress blocks
+        assert len(assistant_content) == 3
+        assert assistant_content[1]["type"] == "task_progress"
+        assert assistant_content[1]["status"] == "task_started"
+        assert assistant_content[2]["type"] == "task_progress"
+        assert assistant_content[2]["status"] == "task_notification"
+        assert assistant_content[2]["task_status"] == "completed"
+
+    def test_task_progress_without_assistant_creates_system_turn(self):
+        """Task progress without a preceding assistant turn creates a system turn."""
+        raw_messages = [
+            {"type": "user", "content": "hello"},
+            {
+                "type": "system",
+                "subtype": "task_started",
+                "description": "Starting task",
+                "task_id": "task-xyz",
+            },
+        ]
+        turns = group_messages_into_turns(raw_messages)
+        assert len(turns) == 2
+        assert turns[0]["type"] == "user"
+        assert turns[1]["type"] == "system"
+        assert turns[1]["content"][0]["type"] == "task_progress"

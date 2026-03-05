@@ -311,7 +311,33 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
                 }
             continue
 
-        # Ignore other message types (stream_event/system/progress/etc)
+        if msg_type == "system":
+            subtype = msg.get("subtype", "")
+            if subtype in ("task_started", "task_progress", "task_notification"):
+                task_block = {
+                    "type": "task_progress",
+                    "task_id": msg.get("task_id"),
+                    "status": subtype,
+                    "description": msg.get("description", ""),
+                    "summary": msg.get("summary"),
+                    "task_status": msg.get("status"),
+                    "usage": msg.get("usage"),
+                }
+                if current_turn and current_turn.get("type") == "assistant":
+                    current_turn.get("content", []).append(task_block)
+                else:
+                    if current_turn:
+                        turns.append(current_turn)
+                    current_turn = {
+                        "type": "system",
+                        "content": [task_block],
+                        "uuid": msg.get("uuid"),
+                        "timestamp": msg.get("timestamp"),
+                    }
+                continue
+            continue  # Ignore other system subtypes
+
+        # Ignore other message types (stream_event/progress/etc)
         continue
 
     if current_turn:
