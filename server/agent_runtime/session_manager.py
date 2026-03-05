@@ -228,6 +228,16 @@ class SessionManager:
         "ResultMessage": "result",
         "SystemMessage": "system",
         "StreamEvent": "stream_event",
+        "TaskStartedMessage": "system",
+        "TaskProgressMessage": "system",
+        "TaskNotificationMessage": "system",
+    }
+
+    # Typed task message subtypes for precise classification
+    _TASK_MESSAGE_SUBTYPES = {
+        "TaskStartedMessage": "task_started",
+        "TaskProgressMessage": "task_progress",
+        "TaskNotificationMessage": "task_notification",
     }
 
     def __init__(
@@ -717,6 +727,13 @@ class SessionManager:
             msg_type = self._infer_message_type(message)
             if msg_type:
                 msg_dict["type"] = msg_type
+
+        # Inject precise subtype for typed task messages
+        if isinstance(msg_dict, dict):
+            class_name = type(message).__name__
+            subtype = self._TASK_MESSAGE_SUBTYPES.get(class_name)
+            if subtype:
+                msg_dict["subtype"] = subtype
 
         return msg_dict
 
