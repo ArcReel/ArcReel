@@ -42,8 +42,7 @@ COPY server/ server/
 COPY alembic/ alembic/
 COPY alembic.ini ./
 COPY scripts/ scripts/
-COPY .claude/skills/ .claude/skills/
-COPY .claude/agents/ .claude/agents/
+COPY agent_runtime_profile/ agent_runtime_profile/
 
 # 复制前端构建产物
 COPY --from=frontend-builder /build/frontend/dist/ frontend/dist/
