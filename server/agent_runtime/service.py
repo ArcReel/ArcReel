@@ -746,8 +746,7 @@ class AssistantService:
             self.pm.get_project_path(project_name)
 
         source_roots = {
-            "project": self.project_root / ".claude" / "skills",
-            "user": Path.home() / ".claude" / "skills",
+            "agent": self.project_root / "agent_runtime_profile" / ".claude" / "skills",
         }
 
         skills: list[dict[str, str]] = []
