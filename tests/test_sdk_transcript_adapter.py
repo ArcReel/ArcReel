@@ -1,7 +1,6 @@
 """Unit tests for SdkTranscriptAdapter."""
 
 from unittest.mock import patch, MagicMock
-import pytest
 
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 

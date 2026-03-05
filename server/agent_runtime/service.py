@@ -482,6 +482,11 @@ class AssistantService:
                 tail_fps.clear()
 
             if not self._is_buffer_duplicate(msg, msg_type, transcript_uuids, tail_fps, history_messages):
+                # A local_echo that survived dedup is a genuinely new round;
+                # clear tail fingerprints so the upcoming assistant reply
+                # isn't falsely matched against a prior round's content.
+                if msg_type == "user" and msg.get("local_echo"):
+                    tail_fps.clear()
                 projector.apply_message(msg)
 
         return projector
