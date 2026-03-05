@@ -303,7 +303,7 @@ class ProjectEventService:
         for subscriber in stale:
             channel.subscribers.discard(subscriber)
         if stale:
-            logger.debug(
+            logger.warning(
                 "项目事件订阅队列溢出，移除 %s 个订阅者 project=%s",
                 len(stale),
                 project_name,
@@ -329,7 +329,7 @@ class ProjectEventService:
             try:
                 script = self.pm.load_script(project_name, script_path.name)
             except Exception:
-                logger.debug("跳过无法读取的剧本文件 project=%s file=%s", project_name, script_path.name)
+                logger.warning("跳过无法读取的剧本文件 project=%s file=%s", project_name, script_path.name)
                 continue
 
             episode = script.get("episode")
@@ -412,7 +412,7 @@ class ProjectEventService:
                 try:
                     script = self.pm.load_script(project_name, script_path.name)
                 except Exception:
-                    logger.debug("跳过无法解析的剧本快照 project=%s file=%s", project_name, script_path.name)
+                    logger.warning("跳过无法解析的剧本快照 project=%s file=%s", project_name, script_path.name)
                     continue
                 scripts[script_path.name] = self._normalize_script_snapshot(script)
 

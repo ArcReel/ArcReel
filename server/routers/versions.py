@@ -143,7 +143,7 @@ async def restore_version(
                     except KeyError:
                         continue
                     except Exception as exc:
-                        logger.debug("同步分镜元数据失败: %s", exc)
+                        logger.warning("同步分镜元数据失败: %s", exc)
                         continue
 
         return {

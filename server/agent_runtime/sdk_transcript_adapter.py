@@ -32,7 +32,7 @@ class SdkTranscriptAdapter:
         try:
             sdk_messages = get_session_messages(sdk_session_id)
         except Exception:
-            logger.debug("Failed to read SDK session %s", sdk_session_id, exc_info=True)
+            logger.warning("Failed to read SDK session %s", sdk_session_id, exc_info=True)
             return []
         return [self._adapt(msg) for msg in sdk_messages]
 

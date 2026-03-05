@@ -120,7 +120,7 @@ class AssistantService:
             try:
                 await managed.client.disconnect()
             except Exception as exc:
-                logger.debug("会话断开清理异常: %s", exc)
+                logger.warning("会话断开清理异常: %s", exc)
             del self.session_manager.sessions[session_id]
 
         return await self.meta_store.delete(session_id)
