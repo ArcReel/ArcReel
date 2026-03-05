@@ -128,23 +128,34 @@ class ProjectManager:
         return project_dir
 
     def _create_claude_symlink(self, project_dir: Path) -> None:
-        """Create .claude symlink pointing to agent_runtime_profile/.claude."""
-        # Resolve profile relative to projects_root parent (project_root)
+        """Create .claude and CLAUDE.md symlinks for agent runtime isolation.
+
+        Creates two symlinks in the project directory:
+        - .claude -> ../../agent_runtime_profile/.claude  (SDK skill/agent discovery)
+        - CLAUDE.md -> ../../agent_runtime_profile/CLAUDE.md  (SDK auto-loads system prompt)
+        """
         project_root = self.projects_root.parent
-        profile_claude = project_root / "agent_runtime_profile" / ".claude"
-        if not profile_claude.exists():
-            return
+        profile_dir = project_root / "agent_runtime_profile"
 
-        symlink_path = project_dir / ".claude"
-        if symlink_path.exists() or symlink_path.is_symlink():
-            return
+        # .claude directory symlink
+        profile_claude = profile_dir / ".claude"
+        if profile_claude.exists():
+            symlink_path = project_dir / ".claude"
+            if not symlink_path.exists() and not symlink_path.is_symlink():
+                try:
+                    symlink_path.symlink_to(Path("../../agent_runtime_profile/.claude"))
+                except OSError:
+                    pass
 
-        # Build relative path from project_dir to profile_claude
-        try:
-            rel = Path("../../agent_runtime_profile/.claude")
-            symlink_path.symlink_to(rel)
-        except OSError:
-            pass  # Non-fatal: symlink creation may fail on some platforms
+        # CLAUDE.md file symlink
+        profile_prompt = profile_dir / "CLAUDE.md"
+        if profile_prompt.exists():
+            symlink_path = project_dir / "CLAUDE.md"
+            if not symlink_path.exists() and not symlink_path.is_symlink():
+                try:
+                    symlink_path.symlink_to(Path("../../agent_runtime_profile/CLAUDE.md"))
+                except OSError:
+                    pass
 
     def get_project_path(self, name: str) -> Path:
         """获取项目路径（含路径遍历防护）"""

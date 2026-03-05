@@ -141,9 +141,6 @@ class TestSessionManagerProjectScope:
 
         prompt = manager._build_system_prompt("demo")
 
-        # Base prompt must always be present
-        assert manager.system_prompt in prompt
-
         # Project metadata fields
         assert "项目标识：demo" in prompt
         assert "项目标题：重生之皇后威武" in prompt
@@ -179,8 +176,8 @@ class TestSessionManagerProjectScope:
 
         prompt = manager._build_system_prompt("empty")
 
-        # Should return exactly the base prompt without project context
-        assert prompt == manager.system_prompt
+        # Should return empty string — base prompt is auto-loaded by SDK
+        assert prompt == ""
 
         await engine.dispose()
 
@@ -205,9 +202,6 @@ class TestSessionManagerProjectScope:
 
         prompt = manager._build_system_prompt("partial")
 
-        # Base prompt must always be present
-        assert manager.system_prompt in prompt
-
         # Present fields should be injected
         assert "项目标识：partial" in prompt
         assert "项目标题：测试项目" in prompt
@@ -219,4 +213,138 @@ class TestSessionManagerProjectScope:
         assert "Photographic" not in prompt
         assert "项目概述" not in prompt  # No overview section header
 
+        await engine.dispose()
+
+
+class TestAllowedToolsAndConstants:
+    @pytest.mark.asyncio
+    async def test_default_allowed_tools_matches_sdk(self, tmp_path):
+        """Verify allowed tools align with SDK documentation."""
+        store, engine = await _make_store()
+        manager = SessionManager(
+            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+        )
+        tools = manager.DEFAULT_ALLOWED_TOOLS
+        assert "Task" in tools
+        assert "Skill" in tools
+        assert "Read" in tools
+        assert "AskUserQuestion" in tools
+        assert "MultiEdit" not in tools
+        assert "LS" not in tools
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_path_tools_no_ls(self, tmp_path):
+        """LS should not be in _PATH_TOOLS."""
+        store, engine = await _make_store()
+        manager = SessionManager(
+            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+        )
+        assert "LS" not in manager._PATH_TOOLS
+        assert "MultiEdit" not in manager._PATH_TOOLS
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_readonly_dirs_includes_agent_profile(self, tmp_path):
+        """agent_runtime_profile should be in readonly dirs."""
+        store, engine = await _make_store()
+        manager = SessionManager(
+            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+        )
+        assert "agent_runtime_profile" in manager._READONLY_DIRS
+        assert ".claude/skills" not in manager._READONLY_DIRS
+        await engine.dispose()
+
+
+class TestSystemPromptProjectContext:
+    @pytest.mark.asyncio
+    async def test_build_system_prompt_returns_empty_without_project_json(self, tmp_path):
+        """Without project.json, system_prompt should be empty (SDK auto-loads CLAUDE.md)."""
+        project_dir = tmp_path / "projects" / "demo"
+        project_dir.mkdir(parents=True)
+
+        store, engine = await _make_store()
+        manager = SessionManager(
+            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+        )
+
+        prompt = manager._build_system_prompt("demo")
+        assert prompt == ""
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_build_system_prompt_returns_project_context_only(self, tmp_path):
+        """system_prompt should only contain project.json context, not base prompt."""
+        project_dir = tmp_path / "projects" / "demo"
+        project_dir.mkdir(parents=True)
+        (project_dir / "project.json").write_text(
+            json.dumps({"title": "测试项目"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        store, engine = await _make_store()
+        manager = SessionManager(
+            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+        )
+
+        prompt = manager._build_system_prompt("demo")
+        assert "项目标题：测试项目" in prompt
+        assert "当前项目上下文" in prompt
+        await engine.dispose()
+
+
+class TestAgentDefinitions:
+    @pytest.mark.asyncio
+    async def test_load_agent_definitions_from_profile(self, tmp_path):
+        """Should load agents from agent_runtime_profile/.claude/agents/."""
+        agents_dir = tmp_path / "agent_runtime_profile" / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "test-agent.md").write_text(
+            "You are a test agent. Help the user with testing."
+        )
+
+        store, engine = await _make_store()
+        manager = SessionManager(
+            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+        )
+
+        agents = manager._load_agent_definitions()
+        assert "test-agent" in agents
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_load_agent_definitions_empty_when_no_dir(self, tmp_path):
+        """Should return empty dict when agents dir doesn't exist."""
+        store, engine = await _make_store()
+        manager = SessionManager(
+            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+        )
+
+        agents = manager._load_agent_definitions()
+        assert agents == {}
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_build_options_includes_agents(self, tmp_path):
+        """_build_options should pass agents to ClaudeAgentOptions."""
+        project_dir = tmp_path / "projects" / "demo"
+        project_dir.mkdir(parents=True)
+        agents_dir = tmp_path / "agent_runtime_profile" / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "my-agent.md").write_text("Agent prompt")
+
+        store, engine = await _make_store()
+        manager = SessionManager(
+            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+        )
+
+        with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
+            with patch(
+                "server.agent_runtime.session_manager.ClaudeAgentOptions",
+                _FakeOptions,
+            ):
+                options = manager._build_options("demo")
+
+        assert "agents" in options.kwargs
+        assert "my-agent" in options.kwargs["agents"]
         await engine.dispose()

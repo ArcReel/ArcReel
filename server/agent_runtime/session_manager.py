@@ -197,8 +197,8 @@ class SessionManager:
     """Manages all active ClaudeSDKClient instances."""
 
     DEFAULT_ALLOWED_TOOLS = [
-        "Skill", "Read", "Write", "Edit", "MultiEdit",
-        "Bash", "Grep", "Glob", "LS", "AskUserQuestion",
+        "Skill", "Task", "Read", "Write", "Edit",
+        "Bash", "Grep", "Glob", "AskUserQuestion",
     ]
     DEFAULT_SETTING_SOURCES = ["project"]
 
@@ -209,17 +209,15 @@ class SessionManager:
         "Read": "file_path",
         "Write": "file_path",
         "Edit": "file_path",
-        "MultiEdit": "file_path",
         "Glob": "path",
         "Grep": "path",
-        "LS": "path",
     }
-    _WRITE_TOOLS = {"Write", "Edit", "MultiEdit"}
+    _WRITE_TOOLS = {"Write", "Edit"}
     _READONLY_DIRS = [
-        "docs", "lib", ".claude/skills", ".claude/agents",
-        ".claude/plans", "scripts",
+        "docs", "lib", "agent_runtime_profile",
+        "scripts",
     ]
-    _READONLY_FILES = ["CLAUDE.md"]
+    _READONLY_FILES: list[str] = []
 
     # SDK message class name to type mapping
     _MESSAGE_TYPE_MAP = {
@@ -255,37 +253,36 @@ class SessionManager:
 
     def _load_config(self) -> None:
         """Load configuration from environment."""
-        self.system_prompt = os.environ.get(
-            "ASSISTANT_SYSTEM_PROMPT",
-            "你是视频项目协作助手。优先复用项目中的 Skills 与现有文件结构，避免擅自改写数据格式。"
-        ).strip()
         max_turns_env = os.environ.get("ASSISTANT_MAX_TURNS", "").strip()
         self.max_turns = int(max_turns_env) if max_turns_env else None
 
     def _build_system_prompt(self, project_name: str) -> str:
-        """Build system prompt with project context injected."""
-        base_prompt = self.system_prompt
+        """Build supplementary system prompt with project context.
 
+        The base CLAUDE.md is auto-loaded by the SDK via setting_sources=["project"]
+        and the CLAUDE.md symlink in the project cwd.  This method only builds the
+        project-specific context overlay (project.json metadata).
+        """
         try:
             project_cwd = self._resolve_project_cwd(project_name)
         except (ValueError, FileNotFoundError):
-            return base_prompt
+            return ""
 
         project_json = project_cwd / "project.json"
         if not project_json.exists():
-            return base_prompt
+            return ""
 
         try:
             config = json.loads(project_json.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Failed to read project.json for %s: %s", project_name, exc)
-            return base_prompt
+            return ""
 
         if not isinstance(config, dict):
-            logger.warning("project.json for %s is not a JSON object, using base prompt", project_name)
-            return base_prompt
+            logger.warning("project.json for %s is not a JSON object", project_name)
+            return ""
 
-        parts = [base_prompt, "", "## 当前项目上下文", ""]
+        parts = ["## 当前项目上下文", ""]
 
         # TODO: 当前定位是自部署服务，这里直接拼接项目元数据以保持实现简单。
         # TODO: 若后续演进为 SaaS / 多租户服务，需要把 title/style/overview 等用户输入
@@ -322,6 +319,25 @@ class SessionManager:
         if world := overview.get("world_setting"):
             parts.append(f"- 世界观：{world}")
 
+    def _load_agent_definitions(self) -> dict[str, Any]:
+        """Load agent definitions from agent_runtime_profile/.claude/agents/."""
+        agents_dir = self.project_root / "agent_runtime_profile" / ".claude" / "agents"
+        if not agents_dir.exists() or not agents_dir.is_dir():
+            return {}
+
+        agents: dict[str, Any] = {}
+        for md_file in sorted(agents_dir.glob("*.md")):
+            agent_name = md_file.stem
+            try:
+                prompt = md_file.read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
+            if not prompt:
+                continue
+            agents[agent_name] = {"description": f"Agent: {agent_name}", "prompt": prompt}
+
+        return agents
+
     def _build_options(
         self,
         project_name: str,
@@ -355,6 +371,7 @@ class SessionManager:
             resume=resume_id,
             can_use_tool=can_use_tool,
             hooks=hooks,
+            agents=self._load_agent_definitions(),
         )
 
     @staticmethod
