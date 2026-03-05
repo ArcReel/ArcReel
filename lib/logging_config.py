@@ -44,3 +44,6 @@ def setup_logging(level: str | None = None) -> None:
     access_logger = logging.getLogger("uvicorn.access")
     access_logger.handlers.clear()
     access_logger.disabled = True
+
+    # 抑制 aiosqlite 的 DEBUG 噪音（每次 SQL 操作都会输出两行日志）
+    logging.getLogger("aiosqlite").setLevel(max(numeric_level, logging.INFO))

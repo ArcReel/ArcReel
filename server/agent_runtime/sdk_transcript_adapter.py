@@ -65,4 +65,5 @@ class SdkTranscriptAdapter:
             messages = get_session_messages(sdk_session_id, limit=1)
             return len(messages) > 0
         except Exception:
+            logger.warning("Failed to check existence of SDK session %s", sdk_session_id, exc_info=True)
             return False
