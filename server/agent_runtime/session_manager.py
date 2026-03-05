@@ -200,7 +200,7 @@ class SessionManager:
         "Skill", "Read", "Write", "Edit", "MultiEdit",
         "Bash", "Grep", "Glob", "LS", "AskUserQuestion",
     ]
-    DEFAULT_SETTING_SOURCES = ["user", "project"]
+    DEFAULT_SETTING_SOURCES = ["project"]
 
     # File access control — Bash is intentionally excluded: its free-form command
     # string cannot be reliably parsed for paths.  Isolation relies on cwd being

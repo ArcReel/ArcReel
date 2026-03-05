@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -12,6 +13,13 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+
+# Suppress noisy pool/connection errors caused by SSE task cancellation.
+# When an SSE client disconnects, Starlette cancels the response task.
+# aiosqlite connections that are being returned to the pool at that moment
+# fail with CancelledError or "no active connection" during rollback.
+# These are harmless — the connection was going to be discarded anyway.
+logging.getLogger("sqlalchemy.pool.impl").setLevel(logging.CRITICAL)
 
 
 def get_database_url() -> str:

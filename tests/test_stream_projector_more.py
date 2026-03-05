@@ -382,6 +382,59 @@ class TestStreamProjectorMore:
 
         assert snapshot["draft_turn"] is None
 
+    def test_build_snapshot_omits_middle_slice_draft_with_trailing_task_progress(self):
+        """Draft [text, Agent_tool_use] is a middle slice of committed turn
+        [thinking, ToolSearch, text, Agent, task_progress].  Should be hidden."""
+        projector = projector_mod.AssistantStreamProjector()
+        projector.turns = [
+            {
+                "type": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "planning", "signature": ""},
+                    {
+                        "type": "tool_use",
+                        "id": "tool-search-1",
+                        "name": "ToolSearch",
+                        "input": {"query": "select:Agent", "max_results": 1},
+                        "result": [{"type": "tool_reference", "tool_name": "Agent"}],
+                        "is_error": False,
+                    },
+                    {"type": "text", "text": "Let me call a subagent:"},
+                    {
+                        "type": "tool_use",
+                        "id": "agent-1",
+                        "name": "Agent",
+                        "input": {"description": "test", "prompt": "hello"},
+                    },
+                    {
+                        "type": "task_progress",
+                        "task_id": "tp-1",
+                        "status": "task_started",
+                        "description": "test",
+                    },
+                ],
+                "uuid": "assistant-1",
+            },
+        ]
+        # Draft built from stream events — missing thinking/ToolSearch prefix
+        # and missing task_progress suffix
+        projector.draft._session_id = "sdk-1"
+        projector.draft._blocks_by_index[0] = {
+            "type": "text",
+            "text": "Let me call a subagent:",
+        }
+        projector.draft._blocks_by_index[1] = {
+            "type": "tool_use",
+            "id": "agent-1",
+            "name": "Agent",
+            "input": {"description": "test", "prompt": "hello"},
+        }
+
+        snapshot = projector.build_snapshot("session-1", "running")
+        assert snapshot["draft_turn"] is None, (
+            "Draft that is a middle slice of the committed turn should be hidden"
+        )
+
     def test_stream_delta_hides_duplicate_resume_draft(self):
         projector = projector_mod.AssistantStreamProjector()
         projector.turns = [

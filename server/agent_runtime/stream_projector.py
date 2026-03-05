@@ -97,6 +97,14 @@ def _canonicalize_block_for_dedupe(
     return canonical
 
 
+def _find_last_assistant_turn(turns: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    """Find the last assistant turn, skipping trailing system turns."""
+    for turn in reversed(turns):
+        if isinstance(turn, dict) and turn.get("type") == "assistant":
+            return turn
+    return None
+
+
 def _draft_matches_last_assistant_turn(
     turns: list[dict[str, Any]],
     draft_turn: Optional[dict[str, Any]],
@@ -107,8 +115,8 @@ def _draft_matches_last_assistant_turn(
     if not isinstance(draft_turn, dict):
         return False
 
-    last_turn = turns[-1] if turns else None
-    if not isinstance(last_turn, dict) or last_turn.get("type") != "assistant":
+    last_turn = _find_last_assistant_turn(turns)
+    if last_turn is None:
         return False
 
     draft_blocks = draft_turn.get("content")
@@ -131,18 +139,23 @@ def _draft_matches_last_assistant_turn(
     ]
 
 
-def _draft_matches_suffix_of_last_assistant_turn(
+def _draft_is_contiguous_slice_of_last_assistant_turn(
     turns: list[dict[str, Any]],
     draft_turn: Optional[dict[str, Any]],
     *,
     include_tool_result_state: bool = True,
 ) -> bool:
-    """Return True when the reconnect draft repeats a suffix of the last assistant turn."""
+    """Return True when the draft repeats any contiguous slice of the last assistant turn.
+
+    Covers prefix, middle, and suffix matches — the draft's stream events may
+    start later than the committed turn (missing thinking/early tool blocks)
+    and end earlier (task_progress appended after the draft was built).
+    """
     if not isinstance(draft_turn, dict):
         return False
 
-    last_turn = turns[-1] if turns else None
-    if not isinstance(last_turn, dict) or last_turn.get("type") != "assistant":
+    last_turn = _find_last_assistant_turn(turns)
+    if last_turn is None:
         return False
 
     draft_blocks = draft_turn.get("content")
@@ -152,14 +165,14 @@ def _draft_matches_suffix_of_last_assistant_turn(
     if not draft_blocks or len(draft_blocks) >= len(last_turn_blocks):
         return False
 
-    canonical_draft_blocks = [
+    canonical_draft = [
         _canonicalize_block_for_dedupe(
             block,
             include_tool_result_state=include_tool_result_state,
         )
         for block in draft_blocks
     ]
-    canonical_last_turn_blocks = [
+    canonical_committed = [
         _canonicalize_block_for_dedupe(
             block,
             include_tool_result_state=include_tool_result_state,
@@ -167,7 +180,11 @@ def _draft_matches_suffix_of_last_assistant_turn(
         for block in last_turn_blocks
     ]
 
-    return canonical_last_turn_blocks[-len(canonical_draft_blocks):] == canonical_draft_blocks
+    n = len(canonical_draft)
+    return any(
+        canonical_committed[i : i + n] == canonical_draft
+        for i in range(len(canonical_committed) - n + 1)
+    )
 
 
 def _hide_stale_draft_turn(
@@ -180,7 +197,7 @@ def _hide_stale_draft_turn(
 
     if _draft_matches_last_assistant_turn(turns, draft_turn):
         return None
-    if _draft_matches_suffix_of_last_assistant_turn(turns, draft_turn):
+    if _draft_is_contiguous_slice_of_last_assistant_turn(turns, draft_turn):
         return None
 
     # When an AskUserQuestion answer arrives, the committed assistant turn gains
@@ -192,7 +209,7 @@ def _hide_stale_draft_turn(
         include_tool_result_state=False,
     ):
         return None
-    if _draft_matches_suffix_of_last_assistant_turn(
+    if _draft_is_contiguous_slice_of_last_assistant_turn(
         turns,
         draft_turn,
         include_tool_result_state=False,

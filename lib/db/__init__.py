@@ -17,8 +17,15 @@ async def init_db() -> None:
 
 
 async def close_db() -> None:
-    """Dispose engine connections on shutdown."""
-    await async_engine.dispose()
+    """Dispose engine connections on shutdown.
+
+    aiosqlite connections may already be dead when SSE tasks were cancelled,
+    so we tolerate errors during pool cleanup.
+    """
+    try:
+        await async_engine.dispose()
+    except Exception:
+        pass
 
 
 __all__ = [
