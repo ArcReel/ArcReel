@@ -3,6 +3,7 @@ import { TextBlock } from "./TextBlock";
 import { ToolCallWithResult } from "./ToolCallWithResult";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { SkillContentBlock } from "./SkillContentBlock";
+import { TaskProgressBlock } from "./TaskProgressBlock";
 
 // ---------------------------------------------------------------------------
 // ContentBlockRenderer – dispatches a single ContentBlock to the appropriate
@@ -72,6 +73,14 @@ export function ContentBlockRenderer({ block, index }: ContentBlockRendererProps
         <ThinkingBlock
           key={block.id ?? `block-${index}`}
           thinking={block.thinking}
+        />
+      );
+
+    case "task_progress":
+      return (
+        <TaskProgressBlock
+          key={block.id ?? `block-${index}`}
+          block={block}
         />
       );
 
