@@ -1,3 +1,5 @@
+# DEPRECATED: Replaced by SdkTranscriptAdapter in v0.1.46 upgrade.
+# Kept for reference during migration period. Safe to delete after verification.
 """
 Read SDK transcript files (JSONL format).
 
