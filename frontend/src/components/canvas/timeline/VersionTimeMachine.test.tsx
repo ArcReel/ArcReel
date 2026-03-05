@@ -73,15 +73,18 @@ describe("VersionTimeMachine", () => {
 
     expect(API.getVersions).not.toHaveBeenCalled();
 
+    // Open the panel
     fireEvent.click(screen.getByRole("button", { name: /版本管理/i }));
 
+    // Click v1 pill to preview
     expect(await screen.findByRole("button", { name: "v1" })).toBeInTheDocument();
     expect(API.getVersions).toHaveBeenCalledTimes(1);
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "v1" }));
+    fireEvent.click(screen.getByRole("button", { name: "v1" }));
     expect(await screen.findByAltText("版本 v1 预览")).toBeInTheDocument();
     expect(screen.getByText("old prompt")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "v1" }));
+    // Click restore button in header
+    fireEvent.click(screen.getByRole("button", { name: /切换到此版本/ }));
 
     await waitFor(() => {
       expect(API.restoreVersion).toHaveBeenCalledWith(
@@ -133,7 +136,8 @@ describe("VersionTimeMachine", () => {
     fireEvent.click(screen.getByRole("button", { name: /版本管理/i }));
     expect(await screen.findByRole("button", { name: "v1" })).toBeInTheDocument();
 
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "v1" }));
+    // Click v1 pill to preview
+    fireEvent.click(screen.getByRole("button", { name: "v1" }));
 
     const previewImage = await screen.findByAltText("版本 v1 预览");
     expect(previewImage).toHaveClass("object-contain");
