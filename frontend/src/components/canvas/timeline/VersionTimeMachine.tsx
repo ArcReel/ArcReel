@@ -101,6 +101,31 @@ export function VersionTimeMachine({
   // Close the panel
   const close = useCallback(() => setOpen(false), []);
 
+  // Compute ideal top position given the trigger rect and panel height
+  const computeTop = useCallback(
+    (triggerRect: DOMRect, panelHeight: number) => {
+      const GAP = 8;
+      return triggerRect.bottom + GAP + panelHeight > window.innerHeight
+        ? Math.max(GAP, triggerRect.top - GAP - panelHeight)
+        : triggerRect.bottom + GAP;
+    },
+    [],
+  );
+
+  // Re-position panel after it mounts or resizes
+  const panelCallbackRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      panelRef.current = node;
+      if (!node || !triggerRef.current) return;
+      const rect = triggerRef.current.getBoundingClientRect();
+      const top = computeTop(rect, node.offsetHeight);
+      setPanelPos((prev) =>
+        prev && Math.abs(prev.top - top) > 1 ? { ...prev, top } : prev,
+      );
+    },
+    [computeTop],
+  );
+
   // Position panel & register dismiss listeners
   useEffect(() => {
     if (!open || !triggerRef.current) {
@@ -108,7 +133,9 @@ export function VersionTimeMachine({
       return;
     }
     const rect = triggerRef.current.getBoundingClientRect();
-    setPanelPos({ top: rect.bottom + 8, left: rect.right });
+    // Use estimated height for initial placement; panelCallbackRef corrects after mount
+    const top = computeTop(rect, 320);
+    setPanelPos({ top, left: rect.right });
 
     // Close on scroll (any scrollable ancestor)
     const scrollParents = getScrollParents(triggerRef.current);
@@ -158,7 +185,7 @@ export function VersionTimeMachine({
         panelPos &&
         createPortal(
           <div
-            ref={panelRef}
+            ref={panelCallbackRef}
             style={{
               position: "fixed",
               top: panelPos.top,
