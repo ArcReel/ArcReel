@@ -32,7 +32,7 @@ description: 使用 Veo 3.1 API 为每个场景独立生成视频片段，以分
 
 ```bash
 python .claude/skills/generate-video/scripts/generate_video.py \
-    my_project script.json --episode 1
+    script.json --episode 1
 ```
 
 **特点：**
@@ -47,7 +47,7 @@ python .claude/skills/generate-video/scripts/generate_video.py \
 
 ```bash
 python .claude/skills/generate-video/scripts/generate_video.py \
-    my_project script.json --episode 1 --resume
+    script.json --episode 1 --resume
 ```
 
 ### 3. 单场景模式
@@ -56,7 +56,7 @@ python .claude/skills/generate-video/scripts/generate_video.py \
 
 ```bash
 python .claude/skills/generate-video/scripts/generate_video.py \
-    my_project script.json --scene E1S1
+    script.json --scene E1S1
 ```
 
 ### 4. 批量独立模式
@@ -65,7 +65,7 @@ python .claude/skills/generate-video/scripts/generate_video.py \
 
 ```bash
 python .claude/skills/generate-video/scripts/generate_video.py \
-    my_project script.json --all
+    script.json --all
 ```
 
 ### 5. 批量自选模式
@@ -74,14 +74,14 @@ python .claude/skills/generate-video/scripts/generate_video.py \
 
 ```bash
 python .claude/skills/generate-video/scripts/generate_video.py \
-    my_project script.json --scenes E1S01,E1S05,E1S10
+    script.json --scenes E1S01,E1S05,E1S10
 ```
 
 结合断点续传：
 
 ```bash
 python .claude/skills/generate-video/scripts/generate_video.py \
-    my_project script.json --scenes E1S01,E1S05,E1S10 --resume
+    script.json --scenes E1S01,E1S05,E1S10 --resume
 ```
 
 **特点：**

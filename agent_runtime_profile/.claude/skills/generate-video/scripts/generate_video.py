@@ -4,16 +4,16 @@ Video Generator - 使用 Veo 3.1 API 生成视频分镜
 
 Usage:
     # 按 episode 生成（推荐）
-    python generate_video.py <project_name> <script_file> --episode N
+    python generate_video.py <script_file> --episode N
 
     # 断点续传
-    python generate_video.py <project_name> <script_file> --episode N --resume
+    python generate_video.py <script_file> --episode N --resume
 
     # 单场景模式
-    python generate_video.py <project_name> <script_file> --scene SCENE_ID
+    python generate_video.py <script_file> --scene SCENE_ID
 
     # 批量模式（独立生成每个场景）
-    python generate_video.py <project_name> <script_file> --all
+    python generate_video.py <script_file> --all
 
 每个场景独立生成视频，使用分镜图作为起始帧，然后使用 ffmpeg 拼接。
 """
@@ -33,8 +33,8 @@ from typing import Optional
 from lib.generation_queue_client import (
     TaskFailedError,
     WorkerOfflineError,
-    enqueue_and_wait,
-    is_worker_online,
+    enqueue_and_wait_sync as enqueue_and_wait,
+    is_worker_online_sync as is_worker_online,
 )
 from lib.gemini_client import get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
@@ -372,7 +372,6 @@ def concatenate_videos(video_paths: list, output_path: Path) -> Path:
 # ============================================================================
 
 def generate_episode_video(
-    project_name: str,
     script_filename: str,
     episode: int,
     resume: bool = False,
@@ -385,7 +384,6 @@ def generate_episode_video(
     最后用 ffmpeg 拼接成完整视频。
 
     Args:
-        project_name: 项目名称
         script_filename: 剧本文件名
         episode: 集数编号
         resume: 是否从上次中断处继续
@@ -393,7 +391,7 @@ def generate_episode_video(
     Returns:
         最终视频路径
     """
-    pm = ProjectManager()
+    pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
     rate_limiter = get_shared_rate_limiter()
     queue_worker_online = is_worker_online()
@@ -604,7 +602,6 @@ def generate_episode_video(
 # ============================================================================
 
 def generate_scene_video(
-    project_name: str,
     script_filename: str,
     scene_id: str
 ) -> Path:
@@ -612,14 +609,13 @@ def generate_scene_video(
     生成单个场景/片段的视频
 
     Args:
-        project_name: 项目名称
         script_filename: 剧本文件名
         scene_id: 场景/片段 ID
 
     Returns:
         生成的视频路径
     """
-    pm = ProjectManager()
+    pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
 
     # 加载剧本和项目配置
@@ -724,14 +720,14 @@ def generate_scene_video(
     return output_path
 
 
-def generate_all_videos(project_name: str, script_filename: str, max_workers: int = 1) -> list:
+def generate_all_videos(script_filename: str, max_workers: int = 1) -> list:
     """
     生成所有待处理场景的视频（独立模式）
 
     Returns:
         生成的视频路径列表
     """
-    pm = ProjectManager()
+    pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
     rate_limiter = get_shared_rate_limiter()
     queue_worker_online = is_worker_online()
@@ -872,7 +868,6 @@ def generate_all_videos(project_name: str, script_filename: str, max_workers: in
 
 
 def generate_selected_videos(
-    project_name: str,
     script_filename: str,
     scene_ids: list,
     resume: bool = False,
@@ -882,7 +877,6 @@ def generate_selected_videos(
     生成指定的多个场景视频
 
     Args:
-        project_name: 项目名称
         script_filename: 剧本文件名
         scene_ids: 场景 ID 列表
         resume: 是否从断点续传
@@ -892,7 +886,7 @@ def generate_selected_videos(
     """
     import hashlib
 
-    pm = ProjectManager()
+    pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
     rate_limiter = get_shared_rate_limiter()
     queue_worker_online = is_worker_online()

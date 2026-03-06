@@ -30,6 +30,12 @@ def _load_module():
 
 
 class _FakeProjectManager:
+    """Fake that supports both from_cwd() and load_script()."""
+
+    @classmethod
+    def from_cwd(cls):
+        return cls(), "demo"
+
     def load_script(self, project_name: str, script_file: str):
         return {"content_mode": "narration"}
 
@@ -40,8 +46,7 @@ def test_main_supports_scene_flag(monkeypatch):
 
     monkeypatch.setattr(module, "ProjectManager", _FakeProjectManager)
 
-    def _fake_generate(project_name, script_filename, segment_ids=None, max_workers=0):
-        captured["project_name"] = project_name
+    def _fake_generate(script_filename, segment_ids=None, max_workers=0):
         captured["script_filename"] = script_filename
         captured["segment_ids"] = segment_ids
         return [], []
@@ -50,13 +55,12 @@ def test_main_supports_scene_flag(monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["generate_storyboard.py", "demo", "episode_1.json", "--scene", "E1S05"],
+        ["generate_storyboard.py", "episode_1.json", "--scene", "E1S05"],
     )
 
     module.main()
 
     assert captured == {
-        "project_name": "demo",
         "script_filename": "episode_1.json",
         "segment_ids": ["E1S05"],
     }
@@ -82,6 +86,10 @@ class _FakeQueueProjectManager:
             ],
         }
 
+    @classmethod
+    def from_cwd(cls):
+        return cls(), "demo"
+
     def load_script(self, project_name: str, script_file: str):
         return self.script
 
@@ -106,7 +114,6 @@ def test_generate_storyboard_direct_requires_online_worker(monkeypatch):
 
     with pytest.raises(WorkerOfflineError):
         module.generate_storyboard_direct(
-            "demo",
             "episode_1.json",
             segment_ids=["E1S05"],
         )

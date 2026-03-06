@@ -30,8 +30,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from lib.generation_queue_client import (
     TaskFailedError,
-    enqueue_task_only,
-    wait_for_task,
+    enqueue_task_only_sync as enqueue_task_only,
+    wait_for_task_sync as wait_for_task,
 )
 from lib.project_manager import ProjectManager
 from lib.prompt_utils import (
@@ -286,7 +286,6 @@ def _wait_for_storyboard_tasks(
 
 
 def generate_storyboard_direct(
-    project_name: str,
     script_filename: str,
     segment_ids: Optional[List[str]] = None,
     max_workers: int = 10,
@@ -295,7 +294,6 @@ def generate_storyboard_direct(
     通过生成队列提交分镜图任务（narration 和 drama 模式通用）。
 
     Args:
-        project_name: 项目名称
         script_filename: 剧本文件名
         segment_ids: 可选的片段/场景 ID 列表
         max_workers: 最大并发数
@@ -303,7 +301,7 @@ def generate_storyboard_direct(
     Returns:
         (成功路径列表, 失败列表) 元组
     """
-    pm = ProjectManager()
+    pm, project_name = ProjectManager.from_cwd()
     script = pm.load_script(project_name, script_filename)
     project_dir = pm.get_project_path(project_name)
 
@@ -393,7 +391,6 @@ def generate_storyboard_direct(
 
 def main():
     parser = argparse.ArgumentParser(description='生成分镜图')
-    parser.add_argument('project', help='项目名称')
     parser.add_argument('script', help='剧本文件名')
 
     # 辅助参数
@@ -408,8 +405,8 @@ def main():
 
     try:
         # 检测 content_mode
-        pm = ProjectManager()
-        script = pm.load_script(args.project, args.script)
+        pm, project_name = ProjectManager.from_cwd()
+        script = pm.load_script(project_name, args.script)
         content_mode = script.get('content_mode', 'narration')
 
         print(f"🚀 {content_mode} 模式：通过队列生成分镜图")
@@ -421,7 +418,7 @@ def main():
             segment_ids = args.segment_ids or args.scene_ids
 
         results, failed = generate_storyboard_direct(
-            args.project, args.script,
+            args.script,
             segment_ids=segment_ids,
             max_workers=max_workers,
         )

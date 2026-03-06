@@ -305,3 +305,26 @@ class TestProjectManagerMore:
         pm_empty.create_project_metadata("demo", "Demo")
         with pytest.raises(ValueError):
             await pm_empty.generate_overview("demo")
+
+
+class TestFromCwd:
+    """Tests for ProjectManager.from_cwd() classmethod."""
+
+    def test_from_cwd_infers_project(self, tmp_path, monkeypatch):
+        projects_root = tmp_path / "projects"
+        project_dir = projects_root / "my-proj"
+        project_dir.mkdir(parents=True)
+        (project_dir / "project.json").write_text("{}", encoding="utf-8")
+
+        monkeypatch.chdir(project_dir)
+        pm, name = ProjectManager.from_cwd()
+        assert name == "my-proj"
+        assert pm.projects_root == projects_root
+
+    def test_from_cwd_raises_when_no_project_json(self, tmp_path, monkeypatch):
+        project_dir = tmp_path / "projects" / "empty"
+        project_dir.mkdir(parents=True)
+
+        monkeypatch.chdir(project_dir)
+        with pytest.raises(FileNotFoundError, match="不是有效的项目目录"):
+            ProjectManager.from_cwd()

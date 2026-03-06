@@ -73,13 +73,13 @@ description: 使用 Gemini 图像生成 API 为视频生成线索设计图。使
 
 ```bash
 # 生成所有待处理的线索
-python .claude/skills/generate-clues/scripts/generate_clue.py <项目名> --all
+python .claude/skills/generate-clues/scripts/generate_clue.py --all
 
 # 生成指定线索
-python .claude/skills/generate-clues/scripts/generate_clue.py <项目名> --clue "玉佩"
+python .claude/skills/generate-clues/scripts/generate_clue.py --clue "玉佩"
 
 # 列出待生成的线索
-python .claude/skills/generate-clues/scripts/generate_clue.py <项目名> --list
+python .claude/skills/generate-clues/scripts/generate_clue.py --list
 ```
 
 ## Prompt 模板

@@ -319,8 +319,9 @@ class SessionManager:
             parts.append(f"- 视觉风格：{style}")
         if style_desc := config.get("style_description"):
             parts.append(f"- 风格描述：{style_desc}")
-        parts.append(f"- 项目根目录绝对路径：{project_cwd}")
-        parts.append("- 需要传递 path 参数时，必须使用绝对路径，不要使用相对路径，也不要把项目标题当成目录名。")
+        parts.append(f"- 项目目录（即当前工作目录 cwd）：{project_cwd}")
+        parts.append("- Read/Edit/Write 等工具的 file_path 参数必须使用绝对路径，不要使用相对路径，也不要把项目标题当成目录名。")
+        parts.append("- Bash 调用 skill 脚本时必须使用相对路径（如 `python .claude/skills/.../script.py`），不要转换为绝对路径。")
 
         self._append_overview_section(parts, config.get("overview", {}))
 

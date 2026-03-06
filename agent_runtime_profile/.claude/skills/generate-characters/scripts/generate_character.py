@@ -3,10 +3,10 @@
 Character Generator - 使用 Gemini API 生成人物设计图
 
 Usage:
-    python generate_character.py <project_name> <character_name>
+    python generate_character.py <character_name>
 
 Example:
-    python generate_character.py my_novel 张三
+    python generate_character.py 张三
 
 Note:
     参考图会自动从 project.json 中的 reference_image 字段读取
@@ -20,8 +20,8 @@ from typing import List, Optional
 from lib.generation_queue_client import (
     TaskFailedError,
     WorkerOfflineError,
-    enqueue_and_wait,
-    is_worker_online,
+    enqueue_and_wait_sync as enqueue_and_wait,
+    is_worker_online_sync as is_worker_online,
 )
 from lib.media_generator import MediaGenerator
 from lib.project_manager import ProjectManager
@@ -29,20 +29,18 @@ from lib.prompt_builders import build_character_prompt
 
 
 def generate_character(
-    project_name: str,
     character_name: str,
 ) -> Path:
     """
     生成人物设计图
 
     Args:
-        project_name: 项目名称
         character_name: 人物名称
 
     Returns:
         生成的图片路径
     """
-    pm = ProjectManager()
+    pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
 
     # 从 project.json 获取人物信息
@@ -123,14 +121,12 @@ def generate_character(
 
 def main():
     parser = argparse.ArgumentParser(description="生成人物设计图")
-    parser.add_argument("project", help="项目名称")
     parser.add_argument("character", help="人物名称")
 
     args = parser.parse_args()
 
     try:
         output_path = generate_character(
-            args.project,
             args.character,
         )
         print(f"\n🖼️  请查看生成的图片: {output_path}")

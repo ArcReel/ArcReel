@@ -81,6 +81,21 @@ class ProjectManager:
             if not (self.projects_root / candidate).exists():
                 return candidate
 
+    @classmethod
+    def from_cwd(cls) -> tuple["ProjectManager", str]:
+        """从当前工作目录推断 ProjectManager 和项目名称。
+
+        假定 cwd 为 ``projects/{project_name}/`` 格式。
+        返回 ``(ProjectManager, project_name)`` 元组。
+        """
+        cwd = Path.cwd().resolve()
+        project_name = cwd.name
+        projects_root = cwd.parent
+        pm = cls(projects_root)
+        if not (projects_root / project_name / cls.PROJECT_FILE).exists():
+            raise FileNotFoundError(f"当前目录不是有效的项目目录: {cwd}")
+        return pm, project_name
+
     def __init__(self, projects_root: Optional[str] = None):
         """
         初始化项目管理器

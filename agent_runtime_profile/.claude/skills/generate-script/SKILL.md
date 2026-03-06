@@ -19,23 +19,23 @@ description: 使用 Gemini API 生成 JSON 剧本。使用场景：(1) 用户运
 
 ```bash
 # 生成指定剧集的剧本
-python .claude/skills/generate-script/scripts/generate_script.py <project> --episode <N>
+python .claude/skills/generate-script/scripts/generate_script.py --episode <N>
 
 # 指定输出路径
-python .claude/skills/generate-script/scripts/generate_script.py <project> --episode <N> --output <path>
+python .claude/skills/generate-script/scripts/generate_script.py --episode <N> --output <path>
 
 # 预览 Prompt（不实际调用 API）
-python .claude/skills/generate-script/scripts/generate_script.py <project> --episode <N> --dry-run
+python .claude/skills/generate-script/scripts/generate_script.py --episode <N> --dry-run
 ```
 
 ## 示例
 
 ```bash
-# 生成 test0205 项目第 1 集的剧本
-python .claude/skills/generate-script/scripts/generate_script.py test0205 --episode 1
+# 生成第 1 集的剧本
+python .claude/skills/generate-script/scripts/generate_script.py --episode 1
 
 # 预览将发送给 Gemini 的 Prompt
-python .claude/skills/generate-script/scripts/generate_script.py test0205 --episode 1 --dry-run
+python .claude/skills/generate-script/scripts/generate_script.py --episode 1 --dry-run
 ```
 
 ## 输出

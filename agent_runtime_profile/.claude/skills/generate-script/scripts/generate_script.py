@@ -3,13 +3,13 @@
 generate_script.py - 使用 Gemini 生成 JSON 剧本
 
 用法:
-    python generate_script.py <project_name> --episode <N>
-    python generate_script.py <project_name> --episode <N> --output <path>
-    python generate_script.py <project_name> --episode <N> --dry-run
+    python generate_script.py --episode <N>
+    python generate_script.py --episode <N> --output <path>
+    python generate_script.py --episode <N> --dry-run
 
 示例:
-    python generate_script.py test0205 --episode 1
-    python generate_script.py 赡养人类 --episode 1 --output scripts/ep1.json
+    python generate_script.py --episode 1
+    python generate_script.py --episode 1 --output scripts/ep1.json
 """
 
 import argparse
@@ -23,6 +23,7 @@ PROJECT_ROOT = (
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from lib.project_manager import ProjectManager
 from lib.script_generator import ScriptGenerator
 
 
@@ -32,13 +33,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-    %(prog)s test0205 --episode 1
-    %(prog)s 赡养人类 --episode 1 --output scripts/ep1.json
-    %(prog)s test0205 --episode 1 --dry-run
+    %(prog)s --episode 1
+    %(prog)s --episode 1 --output scripts/ep1.json
+    %(prog)s --episode 1 --dry-run
         """,
     )
-
-    parser.add_argument("project", type=str, help="项目名称（projects/ 下的目录名）")
 
     parser.add_argument("--episode", "-e", type=int, required=True, help="剧集编号")
 
@@ -57,11 +56,8 @@ def main():
     args = parser.parse_args()
 
     # 构建项目路径
-    project_path = PROJECT_ROOT / "projects" / args.project
-
-    if not project_path.exists():
-        print(f"❌ 项目不存在: {project_path}")
-        sys.exit(1)
+    pm, project_name = ProjectManager.from_cwd()
+    project_path = pm.get_project_path(project_name)
 
     # 检查中间文件是否存在
     drafts_path = project_path / "drafts" / f"episode_{args.episode}"

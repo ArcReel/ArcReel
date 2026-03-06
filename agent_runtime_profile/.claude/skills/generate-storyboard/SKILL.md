@@ -69,22 +69,22 @@ description: 通过生成队列提交分镜图任务。两种模式均由 genera
 ```bash
 # 提交所有缺失分镜图到生成队列（自动检测 content_mode）
 python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
-    my_project script.json
+    script.json
 
 # 重新生成指定的分镜图
 # 注意：脚本会自动查找上一张分镜图作为参考，以保证镜头连续性。
 
 # 为单个片段/场景重新生成
 python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
-    my_project script.json --scene E1S05
+    script.json --scene E1S05
 
 # 为多个指定片段/场景重新生成（说书模式常用）
 python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
-    my_project script.json --segment-ids E1S01 E1S02
+    script.json --segment-ids E1S01 E1S02
 
 # 为多个指定片段/场景重新生成（剧集模式或通用写法）
 python .claude/skills/generate-storyboard/scripts/generate_storyboard.py \
-    my_project script.json --scene-ids E1S01 E1S02
+    script.json --scene-ids E1S01 E1S02
 ```
 
 > **选择规则**：

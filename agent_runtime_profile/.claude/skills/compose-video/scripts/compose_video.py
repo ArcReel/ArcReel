@@ -3,11 +3,11 @@
 Video Composer - 使用 ffmpeg 合成最终视频
 
 Usage:
-    python compose_video.py <project_name> <script_file> [--output OUTPUT] [--music MUSIC_FILE]
+    python compose_video.py <script_file> [--output OUTPUT] [--music MUSIC_FILE]
 
 Example:
-    python compose_video.py my_novel chapter_01_script.json --output chapter_01_final.mp4
-    python compose_video.py my_novel chapter_01_script.json --music bgm.mp3
+    python compose_video.py chapter_01_script.json --output chapter_01_final.mp4
+    python compose_video.py chapter_01_script.json --music bgm.mp3
 """
 
 import argparse
@@ -207,7 +207,6 @@ def add_background_music(
 
 
 def compose_video(
-    project_name: str,
     script_filename: str,
     output_filename: str = None,
     music_path: str = None,
@@ -217,7 +216,6 @@ def compose_video(
     合成最终视频
 
     Args:
-        project_name: 项目名称
         script_filename: 剧本文件名
         output_filename: 输出文件名
         music_path: 背景音乐文件路径
@@ -226,7 +224,7 @@ def compose_video(
     Returns:
         输出视频路径
     """
-    pm = ProjectManager()
+    pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
 
     # 加载剧本
@@ -291,7 +289,6 @@ def compose_video(
 
 def main():
     parser = argparse.ArgumentParser(description='合成最终视频')
-    parser.add_argument('project', help='项目名称')
     parser.add_argument('script', help='剧本文件名')
     parser.add_argument('--output', help='输出文件名')
     parser.add_argument('--music', help='背景音乐文件')
@@ -307,7 +304,6 @@ def main():
 
     try:
         output_path = compose_video(
-            args.project,
             args.script,
             args.output,
             args.music,
@@ -315,7 +311,7 @@ def main():
         )
 
         print(f"\n🎉 最终视频: {output_path}")
-        print(f"   单独片段保留在: projects/{args.project}/videos/")
+        print("   单独片段保留在: videos/")
 
     except Exception as e:
         print(f"❌ 错误: {e}")

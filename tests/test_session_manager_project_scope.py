@@ -181,9 +181,9 @@ class TestSessionManagerProjectScope:
         assert "narration" in prompt
         assert "Photographic" in prompt
         assert "Soft diffused lighting" in prompt
-        assert f"项目根目录绝对路径：{project_dir.resolve()}" in prompt
+        assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve()}" in prompt
         assert "必须使用绝对路径" in prompt
-        assert "不要把项目标题当成目录名" in prompt
+        assert "必须使用相对路径" in prompt
 
         # Overview fields
         assert "姜月茴重生后逆袭的故事" in prompt
@@ -238,7 +238,7 @@ class TestSessionManagerProjectScope:
         # Present fields should be injected
         assert "项目标识：partial" in prompt
         assert "项目标题：测试项目" in prompt
-        assert f"项目根目录绝对路径：{project_dir.resolve()}" in prompt
+        assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve()}" in prompt
         assert "测试项目" in prompt
         assert "drama" in prompt
 

@@ -3,13 +3,13 @@
 Clue Generator - 使用 Gemini API 生成线索设计图
 
 Usage:
-    python generate_clue.py <project_name> --all
-    python generate_clue.py <project_name> --clue "玉佩"
-    python generate_clue.py <project_name> --list
+    python generate_clue.py --all
+    python generate_clue.py --clue "玉佩"
+    python generate_clue.py --list
 
 Example:
-    python generate_clue.py my_novel --all
-    python generate_clue.py my_novel --clue "老槐树"
+    python generate_clue.py --all
+    python generate_clue.py --clue "老槐树"
 """
 
 import argparse
@@ -19,8 +19,8 @@ from pathlib import Path
 from lib.generation_queue_client import (
     TaskFailedError,
     WorkerOfflineError,
-    enqueue_and_wait,
-    is_worker_online,
+    enqueue_and_wait_sync as enqueue_and_wait,
+    is_worker_online_sync as is_worker_online,
 )
 from lib.media_generator import MediaGenerator
 from lib.project_manager import ProjectManager
@@ -28,20 +28,18 @@ from lib.prompt_builders import build_clue_prompt
 
 
 def generate_clue(
-    project_name: str,
     clue_name: str
 ) -> Path:
     """
     生成线索设计图
 
     Args:
-        project_name: 项目名称
         clue_name: 线索名称
 
     Returns:
         生成的图片路径
     """
-    pm = ProjectManager()
+    pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
 
     # 获取项目信息和风格
@@ -106,14 +104,11 @@ def generate_clue(
     return output_path
 
 
-def list_pending_clues(project_name: str) -> None:
+def list_pending_clues() -> None:
     """
     列出待生成的线索
-
-    Args:
-        project_name: 项目名称
     """
-    pm = ProjectManager()
+    pm, project_name = ProjectManager.from_cwd()
     pending = pm.get_pending_clues(project_name)
 
     if not pending:
@@ -130,17 +125,14 @@ def list_pending_clues(project_name: str) -> None:
         print()
 
 
-def generate_all_clues(project_name: str) -> tuple:
+def generate_all_clues() -> tuple:
     """
     生成所有待处理的线索
-
-    Args:
-        project_name: 项目名称
 
     Returns:
         (成功数, 失败数)
     """
-    pm = ProjectManager()
+    pm, project_name = ProjectManager.from_cwd()
     pending = pm.get_pending_clues(project_name)
 
     if not pending:
@@ -154,7 +146,7 @@ def generate_all_clues(project_name: str) -> tuple:
 
     for clue in pending:
         try:
-            generate_clue(project_name, clue['name'])
+            generate_clue(clue['name'])
             success_count += 1
             print()
         except Exception as e:
@@ -173,7 +165,6 @@ def generate_all_clues(project_name: str) -> tuple:
 
 def main():
     parser = argparse.ArgumentParser(description='生成线索设计图')
-    parser.add_argument('project', help='项目名称')
     parser.add_argument('--all', action='store_true', help='生成所有待处理的线索')
     parser.add_argument('--clue', help='指定线索名称')
     parser.add_argument('--list', action='store_true', help='列出待生成的线索')
@@ -182,12 +173,12 @@ def main():
 
     try:
         if args.list:
-            list_pending_clues(args.project)
+            list_pending_clues()
         elif args.all:
-            success, fail = generate_all_clues(args.project)
+            success, fail = generate_all_clues()
             sys.exit(0 if fail == 0 else 1)
         elif args.clue:
-            output_path = generate_clue(args.project, args.clue)
+            output_path = generate_clue(args.clue)
             print(f"\n🖼️  请查看生成的图片: {output_path}")
         else:
             parser.print_help()
