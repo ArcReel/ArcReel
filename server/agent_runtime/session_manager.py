@@ -19,7 +19,7 @@ from server.agent_runtime.session_store import SessionMetaStore
 
 try:
     from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
-    from claude_agent_sdk.types import HookMatcher, PermissionResultAllow
+    from claude_agent_sdk.types import HookMatcher, PermissionResultAllow, SystemPromptPreset
     try:
         from claude_agent_sdk.types import PermissionResultDeny
     except ImportError:
@@ -251,13 +251,38 @@ class SessionManager:
         max_turns_env = os.environ.get("ASSISTANT_MAX_TURNS", "").strip()
         self.max_turns = int(max_turns_env) if max_turns_env else None
 
-    def _build_system_prompt(self, project_name: str) -> str:
-        """Build supplementary system prompt with project context.
+    _PERSONA_PROMPT = """\
+## 身份
 
-        The base CLAUDE.md is auto-loaded by the SDK via setting_sources=["project"]
-        and the CLAUDE.md symlink in the project cwd.  This method only builds the
-        project-specific context overlay (project.json metadata).
+你是 ArcReel 智能体，一个专业的 AI 视频内容创作助手。你的职责是将小说转化为可发布的短视频内容。
+
+## 行为准则
+
+- 回答用户必须使用中文
+- 主动引导用户完成视频创作工作流，而不仅仅被动回答问题
+- 遇到不确定的创作决策时，向用户提出选项并给出建议，而不是自行决定
+- 优先使用 Skill 工具执行视频生成任务（分镜、视频、人物、线索）
+- 涉及多步骤任务时，使用 TodoWrite 跟踪进度并向用户汇报
+- 你是用户的视频制作搭档，专业、友善、高效"""
+
+    def _build_append_prompt(self, project_name: str) -> str:
+        """Build the append portion for SystemPromptPreset.
+
+        Combines the ArcReel persona with project-specific context from
+        project.json.  The base CLAUDE.md is auto-loaded by the SDK via
+        setting_sources=["project"] and the CLAUDE.md symlink in the
+        project cwd.
         """
+        parts = [self._PERSONA_PROMPT]
+
+        project_context = self._build_project_context(project_name)
+        if project_context:
+            parts.append(project_context)
+
+        return "\n".join(parts)
+
+    def _build_project_context(self, project_name: str) -> str:
+        """Build project-specific context from project.json metadata."""
         try:
             project_cwd = self._resolve_project_cwd(project_name)
         except (ValueError, FileNotFoundError):
@@ -277,7 +302,10 @@ class SessionManager:
             logger.warning("project.json for %s is not a JSON object", project_name)
             return ""
 
-        parts = ["## 当前项目上下文", ""]
+        parts = [
+            "## 当前项目上下文",
+            "",
+        ]
 
         # TODO: 当前定位是自部署服务，这里直接拼接项目元数据以保持实现简单。
         # TODO: 若后续演进为 SaaS / 多租户服务，需要把 title/style/overview 等用户输入
@@ -292,7 +320,7 @@ class SessionManager:
         if style_desc := config.get("style_description"):
             parts.append(f"- 风格描述：{style_desc}")
         parts.append(f"- 项目根目录绝对路径：{project_cwd}")
-        parts.append("- 调用 Claude Agent SDK tool 且需要传递 path 参数时，必须使用绝对路径，不要使用相对路径，也不要把项目标题当成目录名。")
+        parts.append("- 需要传递 path 参数时，必须使用绝对路径，不要使用相对路径，也不要把项目标题当成目录名。")
 
         self._append_overview_section(parts, config.get("overview", {}))
 
@@ -352,7 +380,11 @@ class SessionManager:
             setting_sources=self.DEFAULT_SETTING_SOURCES,
             allowed_tools=self.DEFAULT_ALLOWED_TOOLS,
             max_turns=self.max_turns,
-            system_prompt=self._build_system_prompt(project_name),
+            system_prompt=SystemPromptPreset(
+                type="preset",
+                preset="claude_code",
+                append=self._build_append_prompt(project_name),
+            ),
             include_partial_messages=True,
             resume=resume_id,
             can_use_tool=can_use_tool,

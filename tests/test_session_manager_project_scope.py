@@ -147,7 +147,7 @@ class TestSessionManagerProjectScope:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_build_system_prompt_injects_project_context(self, tmp_path):
+    async def test_build_project_context_injects_project_context(self, tmp_path):
         """Verify full project.json fields are injected into the system prompt."""
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
@@ -172,7 +172,7 @@ class TestSessionManagerProjectScope:
             meta_store=store,
         )
 
-        prompt = manager._build_system_prompt("demo")
+        prompt = manager._build_project_context("demo")
 
         # Project metadata fields
         assert "项目标识：demo" in prompt
@@ -194,7 +194,7 @@ class TestSessionManagerProjectScope:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_build_system_prompt_graceful_fallback_no_project_json(self, tmp_path):
+    async def test_build_project_context_graceful_fallback_no_project_json(self, tmp_path):
         """Verify graceful degradation when project.json does not exist."""
         project_dir = tmp_path / "projects" / "empty"
         project_dir.mkdir(parents=True)
@@ -207,7 +207,7 @@ class TestSessionManagerProjectScope:
             meta_store=store,
         )
 
-        prompt = manager._build_system_prompt("empty")
+        prompt = manager._build_project_context("empty")
 
         # Should return empty string — base prompt is auto-loaded by SDK
         assert prompt == ""
@@ -215,7 +215,7 @@ class TestSessionManagerProjectScope:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_build_system_prompt_partial_fields(self, tmp_path):
+    async def test_build_project_context_partial_fields(self, tmp_path):
         """Verify partial project.json (some fields missing) works correctly."""
         project_dir = tmp_path / "projects" / "partial"
         project_dir.mkdir(parents=True)
@@ -233,7 +233,7 @@ class TestSessionManagerProjectScope:
             meta_store=store,
         )
 
-        prompt = manager._build_system_prompt("partial")
+        prompt = manager._build_project_context("partial")
 
         # Present fields should be injected
         assert "项目标识：partial" in prompt
@@ -283,7 +283,7 @@ class TestAllowedToolsAndConstants:
 
 class TestSystemPromptProjectContext:
     @pytest.mark.asyncio
-    async def test_build_system_prompt_returns_empty_without_project_json(self, tmp_path):
+    async def test_build_project_context_returns_empty_without_project_json(self, tmp_path):
         """Without project.json, system_prompt should be empty (SDK auto-loads CLAUDE.md)."""
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
@@ -293,12 +293,12 @@ class TestSystemPromptProjectContext:
             project_root=tmp_path, data_dir=tmp_path, meta_store=store,
         )
 
-        prompt = manager._build_system_prompt("demo")
+        prompt = manager._build_project_context("demo")
         assert prompt == ""
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_build_system_prompt_returns_project_context_only(self, tmp_path):
+    async def test_build_project_context_returns_project_context_only(self, tmp_path):
         """system_prompt should only contain project.json context, not base prompt."""
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
@@ -312,7 +312,7 @@ class TestSystemPromptProjectContext:
             project_root=tmp_path, data_dir=tmp_path, meta_store=store,
         )
 
-        prompt = manager._build_system_prompt("demo")
+        prompt = manager._build_project_context("demo")
         assert "项目标题：测试项目" in prompt
         assert "当前项目上下文" in prompt
         await engine.dispose()
