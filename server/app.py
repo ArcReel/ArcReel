@@ -13,7 +13,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -190,57 +191,34 @@ app.include_router(tasks.router, prefix="/api/v1", tags=["任务队列"])
 app.include_router(project_events.router, prefix="/api/v1", tags=["项目变更流"])
 app.include_router(system_config.router, prefix="/api/v1", tags=["系统配置"])
 
-# 前端构建产物目录（Vite）
-frontend_dir = PROJECT_ROOT / "frontend"
-frontend_dist_dir = frontend_dir / "dist"
-frontend_assets_dir = frontend_dist_dir / "assets"
-frontend_index_file = frontend_dist_dir / "index.html"
-
-if frontend_assets_dir.exists():
-    app.mount("/assets", StaticFiles(directory=frontend_assets_dir), name="frontend-assets")
-
-
-def _serve_frontend_index():
-    if frontend_index_file.exists():
-        return FileResponse(frontend_index_file)
-    return JSONResponse(
-        status_code=503,
-        content={
-            "detail": (
-                "Frontend build not found. Run: cd frontend && npm install && npm run build"
-            )
-        },
-    )
-
-
 def create_generation_worker() -> GenerationWorker:
     return GenerationWorker()
-
-
-@app.get("/", include_in_schema=False)
-async def serve_root():
-    """服务 React 前端入口"""
-    return _serve_frontend_index()
-
-
-@app.get("/login", include_in_schema=False)
-async def serve_login():
-    """服务登录页面"""
-    return _serve_frontend_index()
-
-
-@app.get("/app", include_in_schema=False)
-@app.get("/app/", include_in_schema=False)
-@app.get("/app/{subpath:path}", include_in_schema=False)
-async def serve_dashboard(subpath: str = ""):
-    """服务 React 前端入口"""
-    return _serve_frontend_index()
 
 
 @app.get("/health")
 async def health_check():
     """健康检查"""
     return {"status": "ok", "message": "视频项目管理 WebUI 运行正常"}
+
+
+# 前端构建产物：SPA 静态文件服务（必须在所有显式路由之后挂载）
+frontend_dist_dir = PROJECT_ROOT / "frontend" / "dist"
+
+
+class SPAStaticFiles(StaticFiles):
+    """服务 Vite 构建产物，未匹配的路径回退到 index.html（SPA 路由）。"""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
+
+
+if frontend_dist_dir.exists():
+    app.mount("/", SPAStaticFiles(directory=frontend_dist_dir, html=True), name="frontend")
 
 
 if __name__ == "__main__":

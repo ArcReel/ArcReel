@@ -1,4 +1,3 @@
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -19,11 +18,6 @@ class _FakeWorker:
 
 
 class TestAppModule:
-    def test_serve_frontend_index_returns_503_when_missing(self, monkeypatch):
-        monkeypatch.setattr(app_module, "frontend_index_file", Path("/tmp/__not_exists__/index.html"))
-        resp = app_module._serve_frontend_index()
-        assert resp.status_code == 503
-
     def test_create_generation_worker(self, monkeypatch):
         worker = _FakeWorker()
         monkeypatch.setattr(app_module, "GenerationWorker", lambda: worker)
