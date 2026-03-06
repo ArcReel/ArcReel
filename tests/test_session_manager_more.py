@@ -200,10 +200,11 @@ class TestSessionManagerMore:
         monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
 
         allow_cb = await session_manager._build_can_use_tool_callback("unknown-session")
-        # With unknown session, project_cwd is None → fail-close: path-based tools denied
+        # Non-AskUserQuestion tools should be denied (whitelist fallback)
         result = await allow_cb("Read", {"x": 1}, None)
-        assert hasattr(result, "message")  # denied
-        # Non-path tools still allowed
+        assert isinstance(result, _FakeDeny)
+        assert "未授权" in result.message
+        # AskUserQuestion still handled
         result2 = await allow_cb("AskUserQuestion", {"questions": []}, None)
         assert result2.updated_input == {"questions": []}
 
@@ -283,12 +284,8 @@ class TestSessionManagerMore:
         assert session_manager.sessions == {}
 
     @pytest.mark.asyncio
-    async def test_can_use_tool_blocks_read_outside_project(self, tmp_path, monkeypatch):
-        """Read denied for other project dirs, allowed for own project and public dirs."""
-        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
-        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
-
-        # Set up directories
+    async def test_file_access_hook_allows_read_within_project_root(self, tmp_path):
+        """Hook allows Read for any path within project_root (e.g. other projects, docs)."""
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
         other_project = tmp_path / "projects" / "beta"
@@ -308,33 +305,41 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        meta = await meta_store.create("alpha", "test session")
-        managed = ManagedSession(session_id=meta.id, client=FakeSDKClient())
-        mgr.sessions[meta.id] = managed
+        hook = mgr._build_file_access_hook(own_project)
 
-        cb = await mgr._build_can_use_tool_callback(meta.id)
+        # Read own project file — allowed (within project_cwd)
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": str(own_project / "script.json")}},
+            None, None,
+        )
+        assert result.get("continue_") is True
 
-        # Read own project file — allowed
-        result = await cb("Read", {"file_path": str(own_project / "script.json")}, None)
-        assert hasattr(result, "updated_input")
+        # Read other project file — allowed (within project_root)
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": str(other_project / "script.json")}},
+            None, None,
+        )
+        assert result.get("continue_") is True
 
-        # Read other project file — denied
-        result = await cb("Read", {"file_path": str(other_project / "script.json")}, None)
-        assert hasattr(result, "message")
-        assert "访问被拒绝" in result.message
+        # Read docs dir — allowed (within project_root)
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": str(docs_dir / "guide.md")}},
+            None, None,
+        )
+        assert result.get("continue_") is True
 
-        # Read public docs dir — allowed
-        result = await cb("Read", {"file_path": str(docs_dir / "guide.md")}, None)
-        assert hasattr(result, "updated_input")
+        # Read outside project_root — denied
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": "/etc/passwd"}},
+            None, None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_can_use_tool_blocks_write_to_readonly_dir(self, tmp_path, monkeypatch):
-        """Write denied to lib/, allowed to own project."""
-        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
-        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
-
+    async def test_file_access_hook_blocks_write_to_readonly_dir(self, tmp_path):
+        """Hook denies Write to lib/, allows own project."""
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
         lib_dir = tmp_path / "lib"
@@ -352,29 +357,27 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        meta = await meta_store.create("alpha", "test session")
-        managed = ManagedSession(session_id=meta.id, client=FakeSDKClient())
-        mgr.sessions[meta.id] = managed
-
-        cb = await mgr._build_can_use_tool_callback(meta.id)
+        hook = mgr._build_file_access_hook(own_project)
 
         # Write own project file — allowed
-        result = await cb("Write", {"file_path": str(own_project / "output.txt")}, None)
-        assert hasattr(result, "updated_input")
+        result = await hook(
+            {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "output.txt")}},
+            None, None,
+        )
+        assert result.get("continue_") is True
 
         # Write to lib/ (readonly) — denied
-        result = await cb("Write", {"file_path": str(lib_dir / "hack.py")}, None)
-        assert hasattr(result, "message")
-        assert "访问被拒绝" in result.message
+        result = await hook(
+            {"tool_name": "Write", "tool_input": {"file_path": str(lib_dir / "hack.py")}},
+            None, None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_can_use_tool_allows_bash_without_path_check(self, tmp_path, monkeypatch):
-        """Bash tool not intercepted by path check."""
-        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
-        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
-
+    async def test_file_access_hook_allows_bash_without_path_check(self, tmp_path):
+        """Hook skips Bash (not in _PATH_TOOLS)."""
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
 
@@ -390,24 +393,20 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        meta = await meta_store.create("alpha", "test session")
-        managed = ManagedSession(session_id=meta.id, client=FakeSDKClient())
-        mgr.sessions[meta.id] = managed
+        hook = mgr._build_file_access_hook(own_project)
 
-        cb = await mgr._build_can_use_tool_callback(meta.id)
-
-        # Bash — allowed without path check
-        result = await cb("Bash", {"command": "ls /etc"}, None)
-        assert hasattr(result, "updated_input")
+        # Bash — not a path tool, hook continues
+        result = await hook(
+            {"tool_name": "Bash", "tool_input": {"command": "ls /etc"}},
+            None, None,
+        )
+        assert result.get("continue_") is True
 
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_can_use_tool_allows_read_agent_profile(self, tmp_path, monkeypatch):
-        """Read allowed for agent_runtime_profile/ files."""
-        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
-        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
-
+    async def test_file_access_hook_allows_read_agent_profile(self, tmp_path):
+        """Hook allows Read for agent_runtime_profile/ files."""
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
         profile_md = tmp_path / "agent_runtime_profile" / "CLAUDE.md"
@@ -426,14 +425,13 @@ class TestSessionManagerMore:
             meta_store=meta_store,
         )
 
-        meta = await meta_store.create("alpha", "test session")
-        managed = ManagedSession(session_id=meta.id, client=FakeSDKClient())
-        mgr.sessions[meta.id] = managed
-
-        cb = await mgr._build_can_use_tool_callback(meta.id)
+        hook = mgr._build_file_access_hook(own_project)
 
         # Read agent_runtime_profile/CLAUDE.md — allowed (readonly dir)
-        result = await cb("Read", {"file_path": str(profile_md)}, None)
-        assert hasattr(result, "updated_input")
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": str(profile_md)}},
+            None, None,
+        )
+        assert result.get("continue_") is True
 
         await engine.dispose()

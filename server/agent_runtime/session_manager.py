@@ -198,13 +198,13 @@ class SessionManager:
 
     DEFAULT_ALLOWED_TOOLS = [
         "Skill", "Task", "Read", "Write", "Edit",
-        "Bash", "Grep", "Glob", "AskUserQuestion",
+        "Grep", "Glob", "AskUserQuestion",
     ]
     DEFAULT_SETTING_SOURCES = ["project"]
 
-    # File access control — Bash is intentionally excluded: its free-form command
-    # string cannot be reliably parsed for paths.  Isolation relies on cwd being
-    # set to the project directory and system-prompt guidance.
+    # Bash is NOT in DEFAULT_ALLOWED_TOOLS — it is controlled by declarative
+    # allow rules in settings.json (whitelist approach, default deny).
+    # File access control for Read/Write/Edit/Glob/Grep uses PreToolUse hooks.
     _PATH_TOOLS: dict[str, str] = {
         "Read": "file_path",
         "Write": "file_path",
@@ -213,11 +213,6 @@ class SessionManager:
         "Grep": "path",
     }
     _WRITE_TOOLS = {"Write", "Edit"}
-    _READONLY_DIRS = [
-        "docs", "lib", "agent_runtime_profile",
-        "scripts",
-    ]
-    _READONLY_FILES: list[str] = []
 
     # SDK message class name to type mapping
     _MESSAGE_TYPE_MAP = {
@@ -333,12 +328,22 @@ class SessionManager:
         transcripts_dir.mkdir(parents=True, exist_ok=True)
         project_cwd = self._resolve_project_cwd(project_name)
 
+        # Build PreToolUse hooks — file access control MUST use hooks because
+        # can_use_tool is only invoked for tools that require permission approval
+        # (e.g. Write, Edit, Bash).  Read-only tools (Read, Glob, Grep) are
+        # auto-approved by the CLI and never trigger can_use_tool.
         hooks = None
-        if can_use_tool is not None and HookMatcher is not None:
-            # Official Python SDK guidance: keep stream open when using can_use_tool.
+        if HookMatcher is not None:
+            hook_callbacks: list[Any] = [
+                self._build_file_access_hook(project_cwd),
+            ]
+            if can_use_tool is not None:
+                # Official Python SDK guidance: keep stream open when using
+                # can_use_tool.
+                hook_callbacks.insert(0, self._keep_stream_open_hook)
             hooks = {
                 "PreToolUse": [
-                    HookMatcher(matcher=None, hooks=[self._keep_stream_open_hook]),
+                    HookMatcher(matcher=None, hooks=hook_callbacks),
                 ]
             }
 
@@ -358,6 +363,46 @@ class SessionManager:
     async def _keep_stream_open_hook(_input_data: dict[str, Any], _tool_use_id: str | None, _context: Any) -> dict[str, bool]:
         """Required keep-alive hook for Python can_use_tool callback."""
         return {"continue_": True}
+
+    def _build_file_access_hook(
+        self, project_cwd: Path,
+    ) -> Callable[..., Any]:
+        """Build a PreToolUse hook callback that enforces file access control.
+
+        Unlike can_use_tool (which is only invoked for tools that require
+        permission approval), PreToolUse hooks fire for **every** tool call
+        including auto-approved read-only tools like Read, Glob, and Grep.
+        """
+
+        async def _file_access_hook(
+            input_data: dict[str, Any],
+            _tool_use_id: str | None,
+            _context: Any,
+        ) -> dict[str, Any]:
+            tool_name = input_data.get("tool_name", "")
+            if tool_name not in self._PATH_TOOLS:
+                return {"continue_": True}
+
+            tool_input = input_data.get("tool_input", {})
+            path_key = self._PATH_TOOLS[tool_name]
+            file_path = tool_input.get(path_key)
+
+            if file_path and not self._is_path_allowed(
+                file_path, tool_name, project_cwd,
+            ):
+                return {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": (
+                            "访问被拒绝：不允许访问当前项目和公共目录之外的路径"
+                        ),
+                    },
+                }
+
+            return {"continue_": True}
+
+        return _file_access_hook
 
     def _resolve_project_cwd(self, project_name: str) -> Path:
         """Resolve and validate per-session project working directory."""
@@ -576,36 +621,30 @@ class SessionManager:
         tool_name: str,
         project_cwd: Path,
     ) -> bool:
-        """Check if file_path is allowed for the given tool."""
+        """Check if file_path is allowed for the given tool.
+
+        Write tools: only project_cwd.
+        Read tools: project_cwd + entire project_root (sensitive files
+        protected by settings.json deny rules).
+        """
         try:
             p = Path(file_path)
-            # Resolve relative paths against project_cwd, not server cwd
             resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
         except (ValueError, OSError):
             return False
 
-        is_write = tool_name in self._WRITE_TOOLS
-
-        # 1. Within project directory — full access
+        # 1. Within project directory — full access (read + write)
         if resolved.is_relative_to(project_cwd):
             return True
 
-        # Write tools cannot access anything outside project
-        if is_write:
+        # 2. Write tools: only project directory allowed
+        if tool_name in self._WRITE_TOOLS:
             return False
 
-        # 2. Public readonly directories
-        project_root = self.project_root
-        for d in self._READONLY_DIRS:
-            readonly_dir = (project_root / d).resolve()
-            if resolved.is_relative_to(readonly_dir):
-                return True
-
-        # 3. Public readonly files
-        for f in self._READONLY_FILES:
-            readonly_file = (project_root / f).resolve()
-            if resolved == readonly_file:
-                return True
+        # 3. Read tools: allow entire project_root for shared resources
+        #    Sensitive files protected by settings.json deny rules
+        if resolved.is_relative_to(self.project_root):
+            return True
 
         return False
 
@@ -645,51 +684,15 @@ class SessionManager:
         merged_input["answers"] = answers
         return PermissionResultAllow(updated_input=merged_input)
 
-    @staticmethod
-    def _deny_path_access(input_data: dict[str, Any]) -> Any:
-        """Return a deny result for disallowed file paths, with Allow fallback."""
-        if PermissionResultDeny is not None:
-            return PermissionResultDeny(
-                message="访问被拒绝：不允许访问当前项目和公共目录之外的路径",
-            )
-        # Fallback if PermissionResultDeny not available
-        logger.warning("PermissionResultDeny unavailable; path access control is inoperative")
-        return PermissionResultAllow(updated_input=input_data)
-
-    def _check_file_access(
-        self,
-        tool_name: str,
-        input_data: dict[str, Any],
-        project_cwd: Optional[Path],
-    ) -> Optional[Any]:
-        """Check file access for path-based tools. Returns deny result or None if allowed."""
-        if tool_name not in self._PATH_TOOLS:
-            return None
-        # Fail-close: deny if project_cwd could not be resolved
-        if project_cwd is None:
-            return self._deny_path_access(input_data)
-        path_key = self._PATH_TOOLS[tool_name]
-        file_path = input_data.get(path_key)
-        if file_path and not self._is_path_allowed(file_path, tool_name, project_cwd):
-            return self._deny_path_access(input_data)
-        return None
-
     async def _build_can_use_tool_callback(self, session_id: str):
-        """Create per-session can_use_tool callback for AskUserQuestion and file access control."""
+        """Create per-session can_use_tool callback (default-deny).
 
-        # Pre-resolve project_cwd at callback creation time
-        meta = await self.meta_store.get(session_id)
-        try:
-            project_cwd = self._resolve_project_cwd(meta.project_name) if meta else None
-        except (ValueError, FileNotFoundError):
-            project_cwd = None
-
-        if project_cwd is None:
-            logger.warning(
-                "Cannot resolve project_cwd for session %s; "
-                "file access control will deny all path-based tools",
-                session_id,
-            )
+        File access control is handled by the PreToolUse hook
+        (_build_file_access_hook) which fires for ALL tool calls including
+        auto-approved read-only tools.  This callback handles
+        AskUserQuestion (async user interaction) and denies everything else
+        as a whitelist fallback.
+        """
 
         async def _can_use_tool(
             tool_name: str,
@@ -706,11 +709,10 @@ class SessionManager:
                     session_id, tool_name, input_data,
                 )
 
-            # File access control — use original tool_name (case-sensitive)
-            denial = self._check_file_access(tool_name, input_data, project_cwd)
-            if denial is not None:
-                return denial
-
+            # Whitelist fallback: deny any tool that was not pre-approved
+            # by allowed_tools or settings.json allow rules.
+            if PermissionResultDeny is not None:
+                return PermissionResultDeny(message="未授权的工具调用")
             return PermissionResultAllow(updated_input=input_data)
 
         return _can_use_tool

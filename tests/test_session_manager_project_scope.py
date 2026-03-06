@@ -76,7 +76,41 @@ class TestSessionManagerProjectScope:
         await engine.dispose()
 
     @pytest.mark.asyncio
+    async def test_build_options_always_adds_file_access_hook(self, tmp_path):
+        """File access hook is always registered, even without can_use_tool."""
+        project_dir = tmp_path / "projects" / "demo"
+        project_dir.mkdir(parents=True)
+        store, engine = await _make_store()
+        manager = SessionManager(
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
+        )
+
+        with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
+            with patch(
+                "server.agent_runtime.session_manager.ClaudeAgentOptions",
+                _FakeOptions,
+            ):
+                with patch(
+                    "server.agent_runtime.session_manager.HookMatcher",
+                    _FakeHookMatcher,
+                ):
+                    options = manager._build_options("demo")
+
+        hooks = options.kwargs.get("hooks", {})
+        assert "PreToolUse" in hooks
+        matcher = hooks["PreToolUse"][0]
+        assert matcher.matcher is None
+        # Without can_use_tool: only file_access_hook
+        assert len(matcher.hooks) == 1
+        assert matcher.hooks[0] is not manager._keep_stream_open_hook
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
     async def test_build_options_with_can_use_tool_adds_keep_alive_hook(self, tmp_path):
+        """With can_use_tool: keep_stream_open + file_access hooks."""
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
         store, engine = await _make_store()
@@ -103,12 +137,11 @@ class TestSessionManagerProjectScope:
                         can_use_tool=_can_use_tool,
                     )
 
-        assert "AskUserQuestion" in options.kwargs["allowed_tools"]
         hooks = options.kwargs.get("hooks", {})
         assert "PreToolUse" in hooks
         matcher = hooks["PreToolUse"][0]
         assert matcher.matcher is None
-        assert len(matcher.hooks) == 1
+        assert len(matcher.hooks) == 2
         assert matcher.hooks[0] is manager._keep_stream_open_hook
 
         await engine.dispose()
@@ -231,6 +264,8 @@ class TestAllowedToolsAndConstants:
         assert "AskUserQuestion" in tools
         assert "MultiEdit" not in tools
         assert "LS" not in tools
+        # Bash must NOT be in allowed_tools — controlled by settings.json whitelist
+        assert "Bash" not in tools
         await engine.dispose()
 
     @pytest.mark.asyncio
@@ -244,16 +279,6 @@ class TestAllowedToolsAndConstants:
         assert "MultiEdit" not in manager._PATH_TOOLS
         await engine.dispose()
 
-    @pytest.mark.asyncio
-    async def test_readonly_dirs_includes_agent_profile(self, tmp_path):
-        """agent_runtime_profile should be in readonly dirs."""
-        store, engine = await _make_store()
-        manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
-        )
-        assert "agent_runtime_profile" in manager._READONLY_DIRS
-        assert ".claude/skills" not in manager._READONLY_DIRS
-        await engine.dispose()
 
 
 class TestSystemPromptProjectContext:
