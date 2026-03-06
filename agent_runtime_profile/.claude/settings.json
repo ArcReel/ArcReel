@@ -6,6 +6,11 @@
       "Edit(//app/agent_runtime_profile/**)",
       "Edit(//app/scripts/**)",
       "Edit(//app/alembic/**)",
+      "Write(//app/docs/**)",
+      "Write(//app/lib/**)",
+      "Write(//app/agent_runtime_profile/**)",
+      "Write(//app/scripts/**)",
+      "Write(//app/alembic/**)",
       "Read(//app/.env)",
       "Read(//app/.env.*)",
       "Read(//app/vertex_keys/**)"
@@ -20,6 +25,8 @@
       "Bash(python .claude/skills/edit-script-items/scripts/edit_script_items.py *)",
       "Bash(ffmpeg *)",
       "Bash(ffprobe *)",
+      "BashOutput",
+      "KillBash",
       "Read",
       "Grep",
       "Glob"
