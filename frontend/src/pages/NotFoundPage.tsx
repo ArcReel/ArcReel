@@ -10,7 +10,7 @@ export function NotFoundPage() {
       </p>
       <p className="mt-4 text-lg text-gray-400">页面未找到</p>
       <button
-        onClick={() => navigate("/app/projects")}
+        onClick={() => navigate("/app/projects", { replace: true })}
         className="mt-8 rounded-lg border border-gray-700 px-5 py-2.5 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white"
       >
         返回首页
