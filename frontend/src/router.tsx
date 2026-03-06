@@ -7,6 +7,7 @@ import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -131,9 +132,7 @@ export function AppRoutes() {
 
         {/* 404 */}
         <Route>
-          <div className="flex h-screen items-center justify-center bg-gray-950 text-gray-400">
-            404 — 页面未找到
-          </div>
+          <NotFoundPage />
         </Route>
       </Switch>
       <ToastOverlay />
