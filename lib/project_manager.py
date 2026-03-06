@@ -144,8 +144,8 @@ class ProjectManager:
             if not symlink_path.exists() and not symlink_path.is_symlink():
                 try:
                     symlink_path.symlink_to(Path("../../agent_runtime_profile/.claude"))
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.warning("无法为项目 %s 创建 .claude 符号链接: %s", project_dir.name, e)
 
         # CLAUDE.md file symlink
         profile_prompt = profile_dir / "CLAUDE.md"
@@ -154,8 +154,8 @@ class ProjectManager:
             if not symlink_path.exists() and not symlink_path.is_symlink():
                 try:
                     symlink_path.symlink_to(Path("../../agent_runtime_profile/CLAUDE.md"))
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.warning("无法为项目 %s 创建 CLAUDE.md 符号链接: %s", project_dir.name, e)
 
     def get_project_path(self, name: str) -> Path:
         """获取项目路径（含路径遍历防护）"""

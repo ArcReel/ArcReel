@@ -220,6 +220,9 @@ deny 规则不生效。这是可接受的——开发环境由 `.claude/settings
 
 - **Bash 白名单过紧**：如果后续新增 Skill 脚本，需要同步更新 settings.json 的 allow 规则
 - **本地 deny 规则不生效**：开发环境下 `//app/` 路径不匹配，依赖 settings.local.json
+- **ffmpeg/ffprobe 可绕过 Read deny 规则**：`Bash(ffmpeg *)` 允许任意参数，理论上可用
+  `ffmpeg -i /app/.env ...` 读取敏感文件。实际风险可控（非媒体文件处理会报错），
+  但彻底防护需要 OS 级 Sandboxing 的文件系统隔离（见下方"未来扩展"）
 
 ## 未来扩展
 

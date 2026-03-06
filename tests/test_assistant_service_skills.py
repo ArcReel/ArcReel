@@ -1,6 +1,5 @@
 """Tests for AssistantService.list_available_skills with agent_runtime_profile."""
 
-from pathlib import Path
 from unittest.mock import patch
 
 from server.agent_runtime.service import AssistantService
