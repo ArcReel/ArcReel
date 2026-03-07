@@ -138,39 +138,77 @@ class ProjectManager:
         for subdir in self.SUBDIRS:
             (project_dir / subdir).mkdir(parents=True, exist_ok=True)
 
-        self._create_claude_symlink(project_dir)
+        self.repair_claude_symlink(project_dir)
 
         return project_dir
 
-    def _create_claude_symlink(self, project_dir: Path) -> None:
-        """Create .claude and CLAUDE.md symlinks for agent runtime isolation.
+    def repair_claude_symlink(self, project_dir: Path) -> dict:
+        """修复项目目录的 .claude 和 CLAUDE.md 软连接。
 
-        Creates two symlinks in the project directory:
-        - .claude -> ../../agent_runtime_profile/.claude  (SDK skill/agent discovery)
-        - CLAUDE.md -> ../../agent_runtime_profile/CLAUDE.md  (SDK auto-loads system prompt)
+        对每条软连接执行：
+        - 损坏（is_symlink but not exists）→ 删除并重建
+        - 缺失（not exists and not is_symlink）→ 创建
+        - 正常（exists）→ 跳过
+
+        Returns:
+            {"created": int, "repaired": int, "skipped": int}
         """
         project_root = self.projects_root.parent
         profile_dir = project_root / "agent_runtime_profile"
 
-        # .claude directory symlink
-        profile_claude = profile_dir / ".claude"
-        if profile_claude.exists():
-            symlink_path = project_dir / ".claude"
-            if not symlink_path.exists() and not symlink_path.is_symlink():
-                try:
-                    symlink_path.symlink_to(Path("../../agent_runtime_profile/.claude"))
-                except OSError as e:
-                    logger.warning("无法为项目 %s 创建 .claude 符号链接: %s", project_dir.name, e)
+        SYMLINKS = {
+            ".claude": profile_dir / ".claude",
+            "CLAUDE.md": profile_dir / "CLAUDE.md",
+        }
+        REL_TARGETS = {
+            ".claude": Path("../../agent_runtime_profile/.claude"),
+            "CLAUDE.md": Path("../../agent_runtime_profile/CLAUDE.md"),
+        }
 
-        # CLAUDE.md file symlink
-        profile_prompt = profile_dir / "CLAUDE.md"
-        if profile_prompt.exists():
-            symlink_path = project_dir / "CLAUDE.md"
-            if not symlink_path.exists() and not symlink_path.is_symlink():
+        stats = {"created": 0, "repaired": 0, "skipped": 0}
+        for name, target_source in SYMLINKS.items():
+            if not target_source.exists():
+                continue
+            symlink_path = project_dir / name
+            if symlink_path.is_symlink() and not symlink_path.exists():
+                # 损坏的软连接
                 try:
-                    symlink_path.symlink_to(Path("../../agent_runtime_profile/CLAUDE.md"))
+                    symlink_path.unlink()
+                    symlink_path.symlink_to(REL_TARGETS[name])
+                    stats["repaired"] += 1
                 except OSError as e:
-                    logger.warning("无法为项目 %s 创建 CLAUDE.md 符号链接: %s", project_dir.name, e)
+                    logger.warning("无法修复项目 %s 的 %s 符号链接: %s", project_dir.name, name, e)
+            elif not symlink_path.exists() and not symlink_path.is_symlink():
+                # 缺失
+                try:
+                    symlink_path.symlink_to(REL_TARGETS[name])
+                    stats["created"] += 1
+                except OSError as e:
+                    logger.warning("无法为项目 %s 创建 %s 符号链接: %s", project_dir.name, name, e)
+            else:
+                stats["skipped"] += 1
+        return stats
+
+    def repair_all_symlinks(self) -> dict:
+        """扫描所有项目目录，修复软连接。
+
+        Returns:
+            {"created": int, "repaired": int, "skipped": int, "errors": int}
+        """
+        totals = {"created": 0, "repaired": 0, "skipped": 0, "errors": 0}
+        if not self.projects_root.exists():
+            return totals
+        for project_dir in sorted(self.projects_root.iterdir()):
+            if not project_dir.is_dir() or project_dir.name.startswith("."):
+                continue
+            try:
+                result = self.repair_claude_symlink(project_dir)
+                for key in ("created", "repaired", "skipped"):
+                    totals[key] += result[key]
+            except Exception as e:
+                logger.warning("修复项目 %s 软连接时出错: %s", project_dir.name, e)
+                totals["errors"] += 1
+        return totals
 
     def get_project_path(self, name: str) -> Path:
         """获取项目路径（含路径遍历防护）"""
