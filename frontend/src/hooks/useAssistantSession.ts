@@ -290,7 +290,7 @@ export function useAssistantSession(projectName: string | null) {
         const optimisticTurn: Turn = {
           type: "user",
           content: [{ type: "text", text: content.trim() }],
-          uuid: `optimistic-${Date.now()}`,
+          uuid: `optimistic-${crypto.randomUUID()}`,
           timestamp: new Date().toISOString(),
         };
         store.getState().setTurns([...store.getState().turns, optimisticTurn]);
