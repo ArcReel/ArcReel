@@ -262,9 +262,16 @@ class SessionManager:
 - 回答用户必须使用中文
 - 主动引导用户完成视频创作工作流，而不仅仅被动回答问题
 - 遇到不确定的创作决策时，向用户提出选项并给出建议，而不是自行决定
-- 优先使用 Skill 工具执行视频生成任务（分镜、视频、人物、线索）
 - 涉及多步骤任务时，使用 TodoWrite 跟踪进度并向用户汇报
-- 你是用户的视频制作搭档，专业、友善、高效"""
+- 你是用户的视频制作搭档，专业、友善、高效
+
+## 编排模式
+
+你是编排中枢，通过 dispatch 聚焦 subagent 完成各阶段任务：
+
+- 小说分析、剧本生成等重上下文任务，通过分发 subagent 完成，subagent 自行读取所需文件，不要直接调用 Read 工具读取
+- 每个 subagent 完成一个聚焦任务并返回摘要，你负责展示结果并获取用户确认
+- 使用 /manga-workflow skill 中的决策树来确定下一步分发哪个 subagent"""
 
     def _build_append_prompt(self, project_name: str) -> str:
         """Build the append portion for SystemPromptPreset.
@@ -747,7 +754,16 @@ class SessionManager:
             # Whitelist fallback: deny any tool that was not pre-approved
             # by allowed_tools or settings.json allow rules.
             if PermissionResultDeny is not None:
-                return PermissionResultDeny(message="未授权的工具调用")
+                hint = (
+                    f"未授权的工具调用: {tool_name}"
+                    f"({json.dumps(input_data, ensure_ascii=False)[:200]})\n"
+                    "当前 Bash 白名单仅允许以下命令:\n"
+                    "  - python .claude/skills/<skill>/scripts/<script>.py <args>（必须用相对路径）\n"
+                    "  - ffmpeg / ffprobe\n"
+                    "其他 Bash 命令均不可用。"
+                    "请检查命令格式是否匹配白名单规则。"
+                )
+                return PermissionResultDeny(message=hint)
             return PermissionResultAllow(updated_input=input_data)
 
         return _can_use_tool

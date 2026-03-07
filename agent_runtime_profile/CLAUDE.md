@@ -72,54 +72,67 @@
 - `lib/` - 共享 Python 库（Gemini API 封装、项目管理）
 - `agent_runtime_profile/.claude/skills/` - 可用的 skills
 
+## 架构：编排 Skill + 聚焦 Subagent
+
+```
+主 Agent（编排层 — 极轻量）
+  │  只持有：项目状态摘要 + 用户对话历史
+  │  职责：状态检测、流程决策、用户确认、dispatch subagent
+  │
+  ├─ dispatch → analyze-characters-clues     全局角色/线索提取
+  ├─ dispatch → split-narration-segments     说书模式片段拆分
+  ├─ dispatch → normalize-drama-script       剧集模式规范化剧本
+  ├─ dispatch → create-episode-script        JSON 剧本生成（预加载 generate-script skill）
+  └─ dispatch → general-purpose subagent     资产生成（调用脚本）
+```
+
+### Skill/Agent 边界原则
+
+| 类型 | 用途 | 示例 |
+|------|------|------|
+| **Subagent（聚焦任务）** | 需要大量上下文或推理分析 → 保护主 agent context | analyze-characters-clues、split-narration-segments |
+| **Skill（在 subagent 内调用）** | 确定性脚本执行 → API 调用、文件生成 | generate-script、generate-characters |
+| **主 Agent 直接操作** | 仅限轻量操作 | 读项目状态、简单文件操作、用户交互 |
+
+### 关键约束
+
+- **Subagent 不能 spawn subagent**：多步工作流只能通过主 agent 链式 dispatch
+- **小说原文不进入主 agent**：由 subagent 自行读取，主 agent 只传文件路径
+- **每个 subagent 一个聚焦任务**：完成即返回，不在内部做多步用户确认
+
 ## 可用 Skills
 
 | Skill | 触发命令 | 功能 |
 |-------|---------|------|
+| manga-workflow | `/manga-workflow` | 编排 skill：状态检测 + subagent dispatch + 用户确认 |
+| manage-project | — | 项目管理工具集：分集切分（peek+split）、角色/线索批量写入 |
+| generate-script | — | 使用 Gemini 生成 JSON 剧本（由 subagent 调用） |
 | generate-characters | `/generate-characters` | 生成人物设计图 |
-| generate-clues | `/generate-clues` | 生成线索设计图（重要物品/环境） |
+| generate-clues | `/generate-clues` | 生成线索设计图 |
 | generate-storyboard | `/generate-storyboard` | 生成分镜图片 |
-| generate-video | `/generate-video` | 生成连续视频（推荐）或独立视频 |
-| compose-video | `/compose-video` | 后期处理（添加 BGM、片头片尾） |
-| manga-workflow | `/manga-workflow` | 完整工作流程 |
+| generate-video | `/generate-video` | 生成视频 |
+| compose-video | `/compose-video` | 后期处理 |
 
 ## 快速开始
 
 新用户请使用 `/manga-workflow` 开始完整的视频创作流程。
 
-## 工作流程（说书+画面模式）
+## 工作流程概览
 
-1. **准备小说**：将小说文本放入 `projects/{项目名}/source/`
-2. **项目概述**：上传源文件后系统自动生成项目概述（synopsis、genre、theme、world_setting），供后续 Agent 参考
-3. **创建项目**：设置 `content_mode: "narration"`（默认）和 `style`
-4. **生成剧本**：系统调用 `novel-to-narration-script` agent 执行三步流程：
-   - Step 1: 拆分片段（按朗读节奏，默认 4 秒/片段，含 segment_break 标记）
-   - Step 2: 角色表/线索表（生成参考表并写入 project.json）
-   - Step 3: 生成 JSON（使用 segments 结构）
-5. **人物生成**：`/generate-characters` 生成人物设计图（3:4 竖版）
-6. **线索生成**：`/generate-clues` 生成线索设计图（16:9 横屏）
-7. **分镜图片**：`/generate-storyboard` 直接生成分镜图
-   - 直接生成单独场景图（**9:16 竖屏**）
-   - 根据 script.json 定义自动使用 character_sheet 和 clue_sheet 作为参考图保持一致性
-8. **视频生成**：`/generate-video` 生成视频
-   - **9:16 竖屏**格式
-   - 每个片段独立生成，使用分镜图作为起始帧
-   - 视频 Prompt 仅包含角色对话（如有），不包含旁白
-   - 支持断点续传
+`/manga-workflow` 编排 skill 按以下阶段自动推进（每个阶段完成后等待用户确认）：
 
-每个步骤完成后需要等待用户确认，确认后再继续下一步。
+1. **项目设置**：创建项目、上传小说、生成项目概述
+2. **全局角色/线索设计** → dispatch `analyze-characters-clues` subagent
+3. **分集规划** → 主 agent 直接执行 peek+split 切分（manage-project 工具集）
+4. **单集预处理** → dispatch `split-narration-segments`（narration）或 `normalize-drama-script`（drama）
+5. **JSON 剧本生成** → dispatch `create-episode-script` subagent
+6. **人物设计** → dispatch 资产生成 subagent（调用 generate_character.py）
+7. **线索设计** → dispatch 资产生成 subagent（调用 generate_clue.py）
+8. **分镜图生成** → dispatch 资产生成 subagent（调用 generate_storyboard.py）
+9. **视频生成** → dispatch 资产生成 subagent（调用 generate_video.py）
+10. **最终合成** → dispatch 资产生成 subagent（调用 compose_video.py）
 
-## 工作流程（剧集动画模式）
-
-如需使用剧集动画模式，在 `project.json` 中设置 `content_mode: "drama"`：
-
-1. **准备小说**：将小说文本放入 `projects/{项目名}/source/`
-2. **项目概述**：上传源文件后系统自动生成项目概述（synopsis、genre、theme、world_setting），供后续 Agent 参考
-3. **生成剧本**：系统调用 `novel-to-storyboard-script` agent,agent 进行人物/线索设计后将小说转为分镜剧本
-4. **人物生成**：`/generate-characters` 生成人物设计图
-5. **线索生成**：`/generate-clues` 生成线索设计图
-6. **分镜图片**：`/generate-storyboard` 直接生成分镜图（16:9 横屏）
-7. **视频生成**：`/generate-video` 生成视频（16:9 横屏）
+工作流支持**灵活入口**：状态检测自动定位到第一个未完成的阶段，支持中断后恢复。
 
 ## 关键原则
 
@@ -127,12 +140,6 @@
 - **线索一致性**：重要物品和环境元素通过 `clues` 机制固化，确保跨场景一致
 - **分镜连贯性**：使用 segment_break 标记场景切换点，后期可添加转场效果
 - **质量控制**：每个场景生成后检查质量，可单独重新生成不满意的场景
-
-## 环境要求
-
-- Python 3.10+
-- Gemini API 密钥 或 Vertex AI 配置（通过 WebUI 配置页设置）
-- ffmpeg（用于视频后期处理）
 
 ## 项目目录结构
 

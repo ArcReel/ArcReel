@@ -59,13 +59,27 @@ def main():
     pm, project_name = ProjectManager.from_cwd()
     project_path = pm.get_project_path(project_name)
 
-    # 检查中间文件是否存在
+    # 检查中间文件是否存在（根据 content_mode 确定文件名）
+    import json as _json
+    project_json_path = project_path / "project.json"
+    content_mode = "narration"
+    if project_json_path.exists():
+        try:
+            content_mode = _json.loads(project_json_path.read_text(encoding="utf-8")).get("content_mode", "narration")
+        except Exception:
+            pass
+
     drafts_path = project_path / "drafts" / f"episode_{args.episode}"
-    step1_path = drafts_path / "step1_segments.md"
+    if content_mode == "drama":
+        step1_path = drafts_path / "step1_normalized_script.md"
+        step1_hint = "normalize_drama_script.py"
+    else:
+        step1_path = drafts_path / "step1_segments.md"
+        step1_hint = "片段拆分（Step 1）"
 
     if not step1_path.exists():
         print(f"❌ 未找到 Step 1 文件: {step1_path}")
-        print("   请先完成片段拆分（Step 1）")
+        print(f"   请先完成 {step1_hint}")
         sys.exit(1)
 
     try:
