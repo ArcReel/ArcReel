@@ -50,17 +50,26 @@ def main():
             if not target_source.exists():
                 continue
 
-            if symlink_path.exists() or symlink_path.is_symlink():
+            if symlink_path.is_symlink() and not symlink_path.exists():
+                # 损坏的软连接
+                if args.dry_run:
+                    print(f"  WOULD REPAIR {project_dir.name}/{name} (broken symlink)")
+                else:
+                    symlink_path.unlink()
+                    symlink_path.symlink_to(Path(rel_target))
+                    print(f"  REPAIRED {project_dir.name}/{name} -> {rel_target}")
+                created += 1
+            elif symlink_path.exists():
                 print(f"  SKIP {project_dir.name}/{name} (already exists)")
                 skipped += 1
-                continue
-
-            if args.dry_run:
-                print(f"  WOULD CREATE {project_dir.name}/{name} -> {rel_target}")
             else:
-                symlink_path.symlink_to(Path(rel_target))
-                print(f"  CREATED {project_dir.name}/{name} -> {rel_target}")
-            created += 1
+                # 缺失
+                if args.dry_run:
+                    print(f"  WOULD CREATE {project_dir.name}/{name} -> {rel_target}")
+                else:
+                    symlink_path.symlink_to(Path(rel_target))
+                    print(f"  CREATED {project_dir.name}/{name} -> {rel_target}")
+                created += 1
 
     action = "Would create" if args.dry_run else "Created"
     print(f"\n{action} {created} symlink(s), skipped {skipped}")
