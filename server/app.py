@@ -53,6 +53,13 @@ async def lifespan(app: FastAPI):
     # Initialize database tables (dev convenience; production uses Alembic)
     await init_db()
 
+    # 修复存量项目的 agent_runtime 软连接
+    from lib.project_manager import ProjectManager
+    _pm = ProjectManager(PROJECT_ROOT / "projects")
+    _symlink_stats = _pm.repair_all_symlinks()
+    if any(v > 0 for v in _symlink_stats.values()):
+        logger.info("agent_runtime 软连接修复完成: %s", _symlink_stats)
+
     # Initialize async services
     await assistant.assistant_service.startup()
 
