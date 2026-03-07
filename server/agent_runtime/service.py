@@ -3,6 +3,7 @@ Assistant service orchestration using ClaudeSDKClient.
 """
 
 import asyncio
+import copy
 import logging
 import os
 from datetime import datetime, timezone
@@ -45,6 +46,7 @@ class AssistantService:
         self._startup_lock = asyncio.Lock()
         self._startup_done = False
         self._snapshot_cache: dict[str, dict[str, Any]] = {}  # session_id → snapshot
+        self._snapshot_cache_max = 128
         self.stream_heartbeat_seconds = int(
             os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20")
         )
@@ -139,7 +141,7 @@ class AssistantService:
 
         # Return cached snapshot for terminal (non-running) sessions
         if status != "running" and session_id in self._snapshot_cache:
-            return self._snapshot_cache[session_id]
+            return copy.deepcopy(self._snapshot_cache[session_id])
 
         projector = await self._build_projector(meta, session_id)
 
@@ -159,6 +161,10 @@ class AssistantService:
 
         # Cache snapshots for terminal sessions (transcript won't change)
         if status != "running":
+            if len(self._snapshot_cache) >= self._snapshot_cache_max:
+                # Evict oldest entry (first inserted key in insertion-ordered dict)
+                oldest = next(iter(self._snapshot_cache))
+                del self._snapshot_cache[oldest]
             self._snapshot_cache[session_id] = snapshot
 
         return snapshot
@@ -174,6 +180,7 @@ class AssistantService:
             raise FileNotFoundError(f"session not found: {session_id}")
 
         logger.info("发送消息到会话 session_id=%s", session_id)
+        self._snapshot_cache.pop(session_id, None)
         await self.session_manager.send_message(session_id, text)
         return {"status": "accepted", "session_id": session_id}
 
