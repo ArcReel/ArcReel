@@ -3,7 +3,6 @@ import type { LucideIcon } from "lucide-react";
 import {
   Clapperboard,
   Film,
-  FolderCog,
   LayoutGrid,
   Scissors,
   ScrollText,
@@ -13,7 +12,7 @@ import {
 } from "lucide-react";
 import { useAssistantStore } from "@/stores/assistant-store";
 
-/** Per-skill metadata: Chinese label + icon */
+/** Per-skill metadata: Chinese label + icon. Only skills listed here are shown to users. */
 const SKILL_META: Record<string, { label: string; icon: LucideIcon }> = {
   "manga-workflow":      { label: "视频工作流",   icon: Clapperboard },
   "generate-script":     { label: "生成剧本",     icon: ScrollText },
@@ -22,7 +21,6 @@ const SKILL_META: Record<string, { label: string; icon: LucideIcon }> = {
   "generate-characters": { label: "生成人物图",   icon: Users },
   "generate-clues":      { label: "生成线索图",   icon: Search },
   "compose-video":       { label: "合成视频",     icon: Scissors },
-  "manage-project":      { label: "项目管理",     icon: FolderCog },
 };
 
 export interface SlashCommandMenuHandle {
@@ -49,11 +47,13 @@ export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandM
     const [activeIndex, setActiveIndex] = useState(0);
 
     const query = filter.toLowerCase();
+    // Only show skills registered in SKILL_META (agent-only skills are hidden)
     const filtered = skills.filter(
       (s) =>
-        s.name.toLowerCase().includes(query) ||
-        s.description.toLowerCase().includes(query) ||
-        (SKILL_META[s.name]?.label ?? "").includes(query),
+        s.name in SKILL_META &&
+        (s.name.toLowerCase().includes(query) ||
+          s.description.toLowerCase().includes(query) ||
+          (SKILL_META[s.name]?.label ?? "").includes(query)),
     );
 
     // Reset active index when filter or list changes

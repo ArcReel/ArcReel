@@ -1,6 +1,7 @@
 ---
 name: manage-project
 description: 项目管理工具集。使用场景：(1) 分集切分——探测切分点并执行切分，(2) 批量添加角色/线索到 project.json。提供 peek（预览）+ split（执行）的渐进式切分工作流，以及角色/线索批量写入。
+user-invocable: false
 ---
 
 # 项目管理工具集
