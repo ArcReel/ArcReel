@@ -9,7 +9,8 @@ import { useAssistantSession } from "@/hooks/useAssistantSession";
 import { UI_LAYERS } from "@/utils/ui-layers";
 import { ContextBanner } from "./ContextBanner";
 import { PendingQuestionWizard } from "./PendingQuestionWizard";
-import { SkillPills } from "./SkillPills";
+import { SlashCommandMenu } from "./SlashCommandMenu";
+import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 import { TodoListPanel } from "./TodoListPanel";
 import { ChatMessage } from "./chat/ChatMessage";
 
@@ -138,7 +139,10 @@ export function AgentCopilot() {
     useAssistantSession(currentProjectName);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const slashMenuRef = useRef<SlashCommandMenuHandle>(null);
   const [localInput, setLocalInput] = useState("");
+  const [showSlashMenu, setShowSlashMenu] = useState(false);
   const allTurns = draftTurn ? [...turns, draftTurn] : turns;
   const isRunning = sessionStatus === "running";
   const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
@@ -146,20 +150,93 @@ export function AgentCopilot() {
     ? "请先回答上方问题"
     : isRunning
       ? "助手正在生成中，可点击停止中断"
-      : "输入消息...";
+      : "输入消息，输入 / 查看可用技能";
 
   const handleSend = useCallback(() => {
     if (inputDisabled || !localInput.trim()) return;
     sendMessage(localInput.trim());
     setLocalInput("");
+    setShowSlashMenu(false);
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
   }, [inputDisabled, localInput, sendMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Delegate to slash menu when open
+    if (showSlashMenu && slashMenuRef.current) {
+      const consumed = slashMenuRef.current.handleKeyDown(e.key);
+      if (consumed) {
+        e.preventDefault();
+        if (e.key === "Escape") setShowSlashMenu(false);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
-  }, [handleSend]);
+  }, [handleSend, showSlashMenu]);
+
+  // Track the slash "/" position so we know where the command token starts
+  const slashPosRef = useRef(-1);
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    const cursor = e.target.selectionStart ?? val.length;
+    setLocalInput(val);
+
+    // Check text left of cursor: trigger menu when "/" is at start or after whitespace/newline
+    const textBeforeCursor = val.slice(0, cursor);
+    const lastSlash = textBeforeCursor.lastIndexOf("/");
+    if (lastSlash >= 0) {
+      const charBefore = lastSlash > 0 ? textBeforeCursor[lastSlash - 1] : undefined;
+      const atBoundary = charBefore === undefined || /\s/.test(charBefore);
+      const afterSlash = textBeforeCursor.slice(lastSlash + 1);
+      const noSpaceAfterSlash = !afterSlash.includes(" ");
+      if (atBoundary && noSpaceAfterSlash) {
+        setShowSlashMenu(true);
+        slashPosRef.current = lastSlash;
+      } else {
+        setShowSlashMenu(false);
+        slashPosRef.current = -1;
+      }
+    } else {
+      setShowSlashMenu(false);
+      slashPosRef.current = -1;
+    }
+
+    // Auto-resize: grow upward until 50vh, then scroll
+    const el = e.target;
+    el.style.height = "auto";
+    const maxH = window.innerHeight * 0.5;
+    el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
+    el.style.overflowY = el.scrollHeight > maxH ? "auto" : "hidden";
+  }, []);
+
+  // Derive slash filter from input (text after "/" up to cursor)
+  const slashFilter = showSlashMenu && slashPosRef.current >= 0
+    ? localInput.slice(slashPosRef.current + 1).split(/\s/)[0]
+    : "";
+
+  const handleSlashSelect = useCallback((cmd: string) => {
+    // Replace the "/filter" token with the selected command, keep surrounding text
+    const pos = slashPosRef.current;
+    if (pos >= 0) {
+      const before = localInput.slice(0, pos);
+      // Find end of the slash token (next whitespace or end of string)
+      const afterSlash = localInput.slice(pos);
+      const tokenEnd = afterSlash.search(/\s/);
+      const after = tokenEnd >= 0 ? localInput.slice(pos + tokenEnd) : "";
+      setLocalInput(before + cmd + " " + after.trimStart());
+    } else {
+      setLocalInput(localInput + cmd + " ");
+    }
+    setShowSlashMenu(false);
+    slashPosRef.current = -1;
+    textareaRef.current?.focus();
+  }, [localInput]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -212,7 +289,7 @@ export function AgentCopilot() {
             <Bot className="mb-3 h-8 w-8 text-gray-600" />
             <p className="text-sm">在下方输入消息开始对话</p>
             <p className="mt-1 text-xs text-gray-600">
-              或使用技能快捷按钮执行常用操作
+              输入 / 可快速调用技能
             </p>
           </div>
         )}
@@ -230,8 +307,6 @@ export function AgentCopilot() {
         />
       )}
 
-      {!pendingQuestion && <SkillPills onSendCommand={(cmd) => setLocalInput(cmd)} />}
-
       <TodoListPanel turns={turns} draftTurn={draftTurn} />
 
       {!pendingQuestion && error && (
@@ -242,21 +317,34 @@ export function AgentCopilot() {
 
       {/* Input area */}
       <div className="border-t border-gray-800 p-3">
-        <div className="flex items-end gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2">
+        <div className="relative flex items-end gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2">
+          {showSlashMenu && (
+            <SlashCommandMenu
+              ref={slashMenuRef}
+              filter={slashFilter}
+              onSelect={handleSlashSelect}
+            />
+          )}
           <textarea
+            ref={textareaRef}
+            role="combobox"
             value={localInput}
-            onChange={(e) => setLocalInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder={inputPlaceholder}
             rows={1}
             aria-label="助手输入"
-            className="flex-1 resize-none bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none"
+            aria-expanded={showSlashMenu}
+            aria-controls={showSlashMenu ? "slash-command-menu" : undefined}
+            aria-activedescendant={slashMenuRef.current?.activeDescendantId}
+            className="flex-1 resize-none bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none overflow-hidden"
+            style={{ maxHeight: "50vh" }}
             disabled={inputDisabled}
           />
           {isRunning ? (
             <button
               onClick={interrupt}
-              className="rounded p-1.5 text-red-400 hover:bg-gray-700"
+              className="shrink-0 rounded p-1.5 text-red-400 hover:bg-gray-700"
               title="中断会话"
               aria-label="中断会话"
             >
@@ -266,7 +354,7 @@ export function AgentCopilot() {
             <button
               onClick={handleSend}
               disabled={!localInput.trim() || inputDisabled}
-              className="rounded p-1.5 text-indigo-400 hover:bg-gray-700 disabled:opacity-30"
+              className="shrink-0 rounded p-1.5 text-indigo-400 hover:bg-gray-700 disabled:opacity-30"
               title="发送消息"
               aria-label="发送消息"
             >

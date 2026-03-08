@@ -15,12 +15,8 @@ vi.mock("./ContextBanner", () => ({
   ContextBanner: () => <div data-testid="context-banner" />,
 }));
 
-vi.mock("./SkillPills", () => ({
-  SkillPills: ({ onSendCommand }: { onSendCommand: (cmd: string) => void }) => (
-    <button type="button" data-testid="skill-pills" onClick={() => onSendCommand("/demo")}>
-      skill-pills
-    </button>
-  ),
+vi.mock("./SlashCommandMenu", () => ({
+  SlashCommandMenu: vi.fn(() => null),
 }));
 
 vi.mock("./chat/ChatMessage", () => ({
@@ -82,7 +78,6 @@ describe("AgentCopilot", () => {
     render(<AgentCopilot />);
 
     expect(screen.getByText("需要你的选择")).toBeInTheDocument();
-    expect(screen.queryByTestId("skill-pills")).not.toBeInTheDocument();
     expect(screen.getByLabelText("助手输入")).toBeDisabled();
     expect(screen.getByLabelText("发送消息")).toBeDisabled();
     expect(screen.getByPlaceholderText("请先回答上方问题")).toBeInTheDocument();
