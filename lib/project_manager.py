@@ -151,7 +151,7 @@ class ProjectManager:
         - 正常（exists）→ 跳过
 
         Returns:
-            {"created": int, "repaired": int, "skipped": int}
+            {"created": int, "repaired": int, "skipped": int, "errors": int}
         """
         project_root = self.projects_root.parent
         profile_dir = project_root / "agent_runtime_profile"
@@ -165,7 +165,7 @@ class ProjectManager:
             "CLAUDE.md": Path("../../agent_runtime_profile/CLAUDE.md"),
         }
 
-        stats = {"created": 0, "repaired": 0, "skipped": 0}
+        stats = {"created": 0, "repaired": 0, "skipped": 0, "errors": 0}
         for name, target_source in SYMLINKS.items():
             if not target_source.exists():
                 continue
@@ -178,6 +178,7 @@ class ProjectManager:
                     stats["repaired"] += 1
                 except OSError as e:
                     logger.warning("无法修复项目 %s 的 %s 符号链接: %s", project_dir.name, name, e)
+                    stats["errors"] += 1
             elif not symlink_path.exists() and not symlink_path.is_symlink():
                 # 缺失
                 try:
@@ -185,6 +186,7 @@ class ProjectManager:
                     stats["created"] += 1
                 except OSError as e:
                     logger.warning("无法为项目 %s 创建 %s 符号链接: %s", project_dir.name, name, e)
+                    stats["errors"] += 1
             else:
                 stats["skipped"] += 1
         return stats
@@ -203,8 +205,8 @@ class ProjectManager:
                 continue
             try:
                 result = self.repair_claude_symlink(project_dir)
-                for key in ("created", "repaired", "skipped"):
-                    totals[key] += result[key]
+                for key in ("created", "repaired", "skipped", "errors"):
+                    totals[key] += result.get(key, 0)
             except Exception as e:
                 logger.warning("修复项目 %s 软连接时出错: %s", project_dir.name, e)
                 totals["errors"] += 1
