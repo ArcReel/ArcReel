@@ -12,8 +12,19 @@ import {
 } from "lucide-react";
 import { useAssistantStore } from "@/stores/assistant-store";
 
-/** Per-skill metadata: Chinese label + icon. Only skills listed here are shown to users. */
-const SKILL_META: Record<string, { label: string; icon: LucideIcon }> = {
+/** Lucide icon name → component mapping for icons provided by the API. */
+const ICON_MAP: Record<string, LucideIcon> = {
+  clapperboard: Clapperboard,
+  "scroll-text": ScrollText,
+  "layout-grid": LayoutGrid,
+  film: Film,
+  users: Users,
+  search: Search,
+  scissors: Scissors,
+};
+
+/** Fallback metadata when API doesn't provide label/icon. */
+const SKILL_META_FALLBACK: Record<string, { label: string; icon: LucideIcon }> = {
   "manga-workflow":      { label: "视频工作流",   icon: Clapperboard },
   "generate-script":     { label: "生成剧本",     icon: ScrollText },
   "generate-storyboard": { label: "生成分镜图",   icon: LayoutGrid },
@@ -47,13 +58,12 @@ export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandM
     const [activeIndex, setActiveIndex] = useState(0);
 
     const query = filter.toLowerCase();
-    // Only show skills registered in SKILL_META (agent-only skills are hidden)
+    // Backend already filters out non-user-invocable skills
     const filtered = skills.filter(
       (s) =>
-        s.name in SKILL_META &&
-        (s.name.toLowerCase().includes(query) ||
+        s.name.toLowerCase().includes(query) ||
           s.description.toLowerCase().includes(query) ||
-          (SKILL_META[s.name]?.label ?? "").includes(query)),
+          (s.label ?? SKILL_META_FALLBACK[s.name]?.label ?? "").includes(query),
     );
 
     // Reset active index when filter or list changes
@@ -104,9 +114,9 @@ export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandM
         className="absolute bottom-full left-0 right-0 mb-1 max-h-52 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl"
       >
         {filtered.map((skill, i) => {
-          const meta = SKILL_META[skill.name];
-          const Icon = meta?.icon ?? Zap;
-          const label = meta?.label;
+          const fallback = SKILL_META_FALLBACK[skill.name];
+          const Icon = (skill.icon && ICON_MAP[skill.icon]) || fallback?.icon || Zap;
+          const label = skill.label || fallback?.label;
           const isActive = i === activeIndex;
           return (
             <button

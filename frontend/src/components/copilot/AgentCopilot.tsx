@@ -15,6 +15,12 @@ import { TodoListPanel } from "./TodoListPanel";
 import { ChatMessage } from "./chat/ChatMessage";
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MAX_TEXTAREA_HEIGHT_VH = 50;
+
+// ---------------------------------------------------------------------------
 // SessionSelector — 会话下拉选择器
 // ---------------------------------------------------------------------------
 
@@ -210,7 +216,7 @@ export function AgentCopilot() {
     // Auto-resize: grow upward until 50vh, then scroll
     const el = e.target;
     el.style.height = "auto";
-    const maxH = window.innerHeight * 0.5;
+    const maxH = window.innerHeight * (MAX_TEXTAREA_HEIGHT_VH / 100);
     el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
     el.style.overflowY = el.scrollHeight > maxH ? "auto" : "hidden";
   }, []);
@@ -338,7 +344,7 @@ export function AgentCopilot() {
             aria-controls={showSlashMenu ? "slash-command-menu" : undefined}
             aria-activedescendant={slashMenuRef.current?.activeDescendantId}
             className="flex-1 resize-none bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none overflow-hidden"
-            style={{ maxHeight: "50vh" }}
+            style={{ maxHeight: `${MAX_TEXTAREA_HEIGHT_VH}vh` }}
             disabled={inputDisabled}
           />
           {isRunning ? (

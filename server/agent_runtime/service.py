@@ -748,6 +748,17 @@ class AssistantService:
 
     # ==================== Skills ====================
 
+    # Display metadata for user-facing skills (label + Lucide icon name)
+    _SKILL_DISPLAY_META: dict[str, dict[str, str]] = {
+        "manga-workflow":      {"label": "视频工作流",  "icon": "clapperboard"},
+        "generate-script":     {"label": "生成剧本",    "icon": "scroll-text"},
+        "generate-storyboard": {"label": "生成分镜图",  "icon": "layout-grid"},
+        "generate-video":      {"label": "生成视频",    "icon": "film"},
+        "generate-characters": {"label": "生成人物图",  "icon": "users"},
+        "generate-clues":      {"label": "生成线索图",  "icon": "search"},
+        "compose-video":       {"label": "合成视频",    "icon": "scissors"},
+    }
+
     def list_available_skills(self, project_name: Optional[str] = None) -> list[dict[str, str]]:
         """List available skills."""
         if project_name:
@@ -780,25 +791,37 @@ class AssistantService:
                 except OSError:
                     continue
 
+                if not metadata["user_invocable"]:
+                    continue
+
                 key = f"{scope}:{metadata['name']}"
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
-                skills.append({
+                skill_entry: dict[str, Any] = {
                     "name": metadata["name"],
                     "description": metadata["description"],
                     "scope": scope,
                     "path": str(skill_file),
-                })
+                }
+                display = self._SKILL_DISPLAY_META.get(metadata["name"])
+                if display:
+                    skill_entry["label"] = display["label"]
+                    skill_entry["icon"] = display["icon"]
+                skills.append(skill_entry)
 
         return skills
 
     @staticmethod
-    def _load_skill_metadata(skill_file: Path, fallback_name: str) -> dict[str, str]:
-        """Load skill metadata from SKILL.md."""
+    def _load_skill_metadata(skill_file: Path, fallback_name: str) -> dict[str, Any]:
+        """Load skill metadata from SKILL.md frontmatter.
+
+        Parsed fields: name, description, user-invocable.
+        """
         content = skill_file.read_text(encoding="utf-8", errors="ignore")
         name = fallback_name
         description = ""
+        user_invocable = True
 
         if content.startswith("---"):
             parts = content.split("---", 2)
@@ -815,6 +838,8 @@ class AssistantService:
                         name = value
                     elif key == "description" and value:
                         description = value
+                    elif key == "user-invocable":
+                        user_invocable = value.lower() not in ("false", "no", "0")
                 if not description:
                     for line in body.splitlines():
                         text = line.strip()
@@ -828,7 +853,11 @@ class AssistantService:
                     description = text
                     break
 
-        return {"name": name, "description": description}
+        return {
+            "name": name,
+            "description": description,
+            "user_invocable": user_invocable,
+        }
 
     @staticmethod
     def _load_project_env(project_root: Path) -> None:

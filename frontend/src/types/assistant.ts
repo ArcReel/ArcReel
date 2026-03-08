@@ -72,6 +72,8 @@ export interface SkillInfo {
   description: string;
   scope: "project" | "user";
   path: string;
+  label?: string;
+  icon?: string;
 }
 
 export interface TodoItem {
