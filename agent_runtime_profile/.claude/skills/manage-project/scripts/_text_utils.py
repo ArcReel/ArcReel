@@ -26,7 +26,6 @@ def find_char_offset(text: str, target_count: int) -> int:
     如果 target_count 超过总有效字数，返回文本末尾偏移。
     """
     counted = 0
-    i = 0
     lines = text.split("\n")
     pos = 0  # 原文中的字符位置
 
@@ -68,7 +67,7 @@ def find_natural_breakpoints(text: str, center_offset: int, window: int = 200) -
     start = max(0, center_offset - window)
     end = min(len(text), center_offset + window)
 
-    sentence_endings = {"。", "！", "？", "…", "\u201d"}  # 右双引号
+    sentence_endings = {"。", "！", "？", "…"}
     breakpoints = []
 
     for i in range(start, end):

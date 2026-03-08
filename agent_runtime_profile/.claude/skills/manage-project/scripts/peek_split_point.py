@@ -26,7 +26,10 @@ def main():
     parser.add_argument("--context", default=200, type=int, help="上下文字数（默认 200）")
     args = parser.parse_args()
 
-    source_path = Path(args.source)
+    source_path = Path(args.source).resolve()
+    if not source_path.is_relative_to(Path.cwd().resolve()):
+        print(f"错误：源文件路径超出当前项目目录: {source_path}", file=sys.stderr)
+        sys.exit(1)
     if not source_path.exists():
         print(f"错误：源文件不存在: {source_path}", file=sys.stderr)
         sys.exit(1)

@@ -67,7 +67,7 @@ def main():
         try:
             content_mode = _json.loads(project_json_path.read_text(encoding="utf-8")).get("content_mode", "narration")
         except Exception:
-            pass
+            pass  # 读取或解析失败时降级使用默认值 "narration"
 
     drafts_path = project_path / "drafts" / f"episode_{args.episode}"
     if content_mode == "drama":

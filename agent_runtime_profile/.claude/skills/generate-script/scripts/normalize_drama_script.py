@@ -125,7 +125,10 @@ def main():
 
     # 读取小说原文
     if args.source:
-        source_path = project_path / args.source
+        source_path = (project_path / args.source).resolve()
+        if not source_path.is_relative_to(project_path.resolve()):
+            print(f"❌ 路径超出项目目录: {source_path}")
+            sys.exit(1)
         if not source_path.exists():
             print(f"❌ 未找到源文件: {source_path}")
             sys.exit(1)
