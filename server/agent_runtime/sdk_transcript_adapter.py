@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 try:
     from claude_agent_sdk import get_session_messages
     try:
+        # Public get_session_messages() drops the transcript-level timestamp, but
+        # optimistic-turn dedup needs stable per-message ordering to distinguish
+        # repeated prompts across rounds. Until the SDK exposes timestamps via a
+        # public API, we backfill them from the raw JSONL transcript here.
         from claude_agent_sdk._internal.sessions import _read_session_file
     except ImportError:
         _read_session_file = None  # type: ignore[assignment]
@@ -70,7 +74,14 @@ class SdkTranscriptAdapter:
         return result
 
     def _load_timestamps(self, sdk_session_id: str) -> dict[str, str]:
-        """Read raw JSONL transcript and build a uuid -> timestamp index."""
+        """Read raw JSONL transcript and build a uuid -> timestamp index.
+
+        This is a compatibility shim around the current SDK surface: the public
+        SessionMessage model omits transcript timestamps, so identical user
+        prompts across rounds cannot be ordered reliably without re-reading the
+        raw transcript. Prefer replacing this with a public SDK API once one is
+        available.
+        """
         if _read_session_file is None:
             return {}
         try:
