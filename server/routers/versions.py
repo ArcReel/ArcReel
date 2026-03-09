@@ -5,7 +5,9 @@
 """
 
 import logging
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +15,7 @@ from lib import PROJECT_ROOT
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
+from server.auth import get_current_user
 
 router = APIRouter()
 
@@ -36,7 +39,8 @@ def get_version_manager(project_name: str) -> VersionManager:
 async def get_versions(
     project_name: str,
     resource_type: str,
-    resource_id: str
+    resource_id: str,
+    _user: Annotated[dict, Depends(get_current_user)],
 ):
     """
     获取资源的所有版本列表
@@ -72,7 +76,8 @@ async def restore_version(
     project_name: str,
     resource_type: str,
     resource_id: str,
-    version: int
+    version: int,
+    _user: Annotated[dict, Depends(get_current_user)],
 ):
     """
     切换到指定版本

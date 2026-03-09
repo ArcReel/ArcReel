@@ -6,11 +6,11 @@
 """
 
 import logging
-from typing import Optional, Union
+from typing import Annotated, Optional, Union
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from lib import PROJECT_ROOT
@@ -24,6 +24,7 @@ from lib.storyboard_sequence import (
     find_storyboard_item,
     get_storyboard_items,
 )
+from server.auth import get_current_user
 
 router = APIRouter()
 
@@ -62,7 +63,8 @@ class GenerateClueRequest(BaseModel):
 
 @router.post("/projects/{project_name}/generate/storyboard/{segment_id}")
 async def generate_storyboard(
-    project_name: str, segment_id: str, req: GenerateStoryboardRequest
+    project_name: str, segment_id: str, req: GenerateStoryboardRequest,
+    _user: Annotated[dict, Depends(get_current_user)],
 ):
     """
     提交分镜图生成任务到队列，立即返回 task_id。
@@ -128,7 +130,7 @@ async def generate_storyboard(
 
 
 @router.post("/projects/{project_name}/generate/video/{segment_id}")
-async def generate_video(project_name: str, segment_id: str, req: GenerateVideoRequest):
+async def generate_video(project_name: str, segment_id: str, req: GenerateVideoRequest, _user: Annotated[dict, Depends(get_current_user)]):
     """
     提交视频生成任务到队列，立即返回 task_id。
 
@@ -199,7 +201,8 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
 
 @router.post("/projects/{project_name}/generate/character/{char_name}")
 async def generate_character(
-    project_name: str, char_name: str, req: GenerateCharacterRequest
+    project_name: str, char_name: str, req: GenerateCharacterRequest,
+    _user: Annotated[dict, Depends(get_current_user)],
 ):
     """
     提交人物设计图生成任务到队列，立即返回 task_id。
@@ -243,7 +246,7 @@ async def generate_character(
 
 
 @router.post("/projects/{project_name}/generate/clue/{clue_name}")
-async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequest):
+async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequest, _user: Annotated[dict, Depends(get_current_user)]):
     """
     提交线索设计图生成任务到队列，立即返回 task_id。
     """

@@ -11,9 +11,9 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from starlette.requests import Request
 
@@ -25,6 +25,7 @@ from lib.system_config import (
     parse_bool_env,
     resolve_vertex_credentials_path,
 )
+from server.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -351,12 +352,12 @@ def _normalize_backend(value: str) -> str:
 
 
 @router.get("/system/config")
-async def get_system_config():
+async def get_system_config(_user: Annotated[dict, Depends(get_current_user)]):
     return _full_payload(PROJECT_ROOT)
 
 
 @router.patch("/system/config")
-async def patch_system_config(req: SystemConfigPatchRequest, request: Request):
+async def patch_system_config(req: SystemConfigPatchRequest, request: Request, _user: Annotated[dict, Depends(get_current_user)]):
     manager = get_system_config_manager(PROJECT_ROOT)
     options = _options_payload()
 
@@ -450,7 +451,7 @@ async def patch_system_config(req: SystemConfigPatchRequest, request: Request):
 
 
 @router.post("/system/config/vertex-credentials")
-async def upload_vertex_credentials(file: UploadFile = File(...)):
+async def upload_vertex_credentials(_user: Annotated[dict, Depends(get_current_user)], file: UploadFile = File(...)):
     manager = get_system_config_manager(PROJECT_ROOT)
     try:
         contents = await file.read(MAX_VERTEX_CREDENTIALS_BYTES + 1)
@@ -486,7 +487,7 @@ async def upload_vertex_credentials(file: UploadFile = File(...)):
 
 
 @router.post("/system/config/connection-test")
-async def test_system_connection(req: SystemConnectionTestRequest):
+async def test_system_connection(req: SystemConnectionTestRequest, _user: Annotated[dict, Depends(get_current_user)]):
     options = _options_payload()
 
     image_backend = (
