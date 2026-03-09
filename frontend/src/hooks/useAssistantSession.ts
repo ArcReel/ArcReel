@@ -18,7 +18,18 @@ function parseSsePayload(event: MessageEvent): Record<string, unknown> {
 function applyTurnPatch(prev: Turn[], patch: Record<string, unknown>): Turn[] {
   const op = patch.op as string;
   if (op === "reset") return (patch.turns as Turn[]) ?? [];
-  if (op === "append" && patch.turn) return [...prev, patch.turn as Turn];
+  if (op === "append" && patch.turn) {
+    const newTurn = patch.turn as Turn;
+    // 当后端 append 真实 user turn 时，移除末尾的 optimistic turn 避免重复
+    if (
+      newTurn.type === "user" &&
+      prev.length > 0 &&
+      prev.at(-1)?.uuid?.startsWith("optimistic-")
+    ) {
+      return [...prev.slice(0, -1), newTurn];
+    }
+    return [...prev, newTurn];
+  }
   if (op === "replace_last" && patch.turn) {
     return prev.length === 0
       ? [patch.turn as Turn]
@@ -82,7 +93,22 @@ export function useAssistantSession(projectName: string | null) {
   }, [syncPendingQuestion]);
 
   const applySnapshot = useCallback((snapshot: Partial<AssistantSnapshot>) => {
-    store.getState().setTurns((snapshot.turns as Turn[]) ?? []);
+    const snapshotTurns = (snapshot.turns as Turn[]) ?? [];
+    const currentTurns = store.getState().turns;
+
+    // 保留乐观更新的用户消息：如果当前 turns 末尾有 optimistic turn，
+    // 且 snapshot 中尚未包含该消息，则追加到 snapshot turns 末尾，
+    // 避免 snapshot 全量覆盖导致用户消息气泡闪烁消失。
+    const lastTurn = currentTurns[currentTurns.length - 1];
+    if (
+      lastTurn?.uuid?.startsWith("optimistic-") &&
+      !snapshotTurns.some((t) => t.uuid === lastTurn.uuid)
+    ) {
+      store.getState().setTurns([...snapshotTurns, lastTurn]);
+    } else {
+      store.getState().setTurns(snapshotTurns);
+    }
+
     store.getState().setDraftTurn((snapshot.draft_turn as Turn) ?? null);
     syncPendingQuestion(getPendingQuestionFromSnapshot(snapshot));
   }, [store, syncPendingQuestion]);
