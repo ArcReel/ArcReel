@@ -430,8 +430,7 @@ class TestAssistantServiceStreaming:
         assert projector.turns[0]["uuid"] == "real-1"
 
     async def test_build_projector_keeps_new_local_echo_when_round_complete(self, tmp_path):
-        """When the prior round with same text is complete (assistant replied),
-        the new echo should be kept — it's a genuinely new round."""
+        """When the prior round with same text is older, the new echo should be kept."""
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta()
         # R1 complete: user("hello") + assistant reply
@@ -465,7 +464,7 @@ class TestAssistantServiceStreaming:
         service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
 
         projector = await service._build_projector(meta, "session-1")
-        # R1 user + R1 assistant + R2 echo (kept because R1 is complete)
+        # R1 user + R1 assistant + R2 echo (kept because R1 is an older round)
         assert len(projector.turns) == 3
         assert projector.turns[0]["uuid"] == "real-old"
         assert projector.turns[2]["uuid"] == "local-user-new"
@@ -478,16 +477,31 @@ class TestAssistantServiceStreaming:
         assert AssistantService._echo_in_transcript(echo, []) is False
 
     def test_echo_in_transcript_in_progress_round_dedup(self, tmp_path):
-        """Round in progress (user only, no assistant after) → dedup."""
+        """Round in progress (user only, no result after) → dedup."""
         transcript = [{"type": "user", "content": "hello"}]
         echo = {"type": "user", "content": "hello", "local_echo": True}
         assert AssistantService._echo_in_transcript(echo, transcript) is True
 
     def test_echo_in_transcript_completed_round_no_dedup(self, tmp_path):
-        """Completed round (assistant after user) → do NOT dedup."""
+        """Same-text user from an older round must not dedup."""
+        transcript = [
+            {"type": "user", "content": "hello", "timestamp": "2026-02-09T07:00:00Z"},
+            {"type": "assistant", "content": [{"type": "text", "text": "hi"}]},
+        ]
+        echo = {
+            "type": "user",
+            "content": "hello",
+            "local_echo": True,
+            "timestamp": "2026-02-09T08:00:00Z",
+        }
+        assert AssistantService._echo_in_transcript(echo, transcript) is False
+
+    def test_echo_in_transcript_result_boundary_no_dedup(self, tmp_path):
+        """An explicit result after the last real user must break dedup."""
         transcript = [
             {"type": "user", "content": "hello"},
             {"type": "assistant", "content": [{"type": "text", "text": "hi"}]},
+            {"type": "result", "subtype": "success"},
         ]
         echo = {"type": "user", "content": "hello", "local_echo": True}
         assert AssistantService._echo_in_transcript(echo, transcript) is False
@@ -497,21 +511,37 @@ class TestAssistantServiceStreaming:
         transcript = [
             {"type": "user", "content": "hello"},
             {"type": "assistant", "content": [{"type": "text", "text": "hi"}]},
+            {"type": "result", "subtype": "success"},
             {"type": "user", "content": "hello"},  # R2 user, same text
         ]
         echo = {"type": "user", "content": "hello", "local_echo": True}
         assert AssistantService._echo_in_transcript(echo, transcript) is True
 
     def test_echo_in_transcript_r2_with_partial_assistant(self, tmp_path):
-        """R2 has partial assistant response → round has response → do NOT dedup."""
+        """Partial assistant output without result still belongs to same round."""
         transcript = [
             {"type": "user", "content": "hello"},
             {"type": "assistant", "content": [{"type": "text", "text": "R1 reply"}]},
+            {"type": "result", "subtype": "success"},
             {"type": "user", "content": "hello"},
             {"type": "assistant", "content": [{"type": "text", "text": "R2 partial"}]},
         ]
         echo = {"type": "user", "content": "hello", "local_echo": True}
-        assert AssistantService._echo_in_transcript(echo, transcript) is False
+        assert AssistantService._echo_in_transcript(echo, transcript) is True
+
+    def test_echo_in_transcript_skips_system_injected_tail_users(self, tmp_path):
+        """System/subagent user payloads after the real user must not break dedup."""
+        transcript = [
+            {"type": "user", "content": "task"},
+            {"type": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Task"}]},
+            {
+                "type": "user",
+                "content": "sidechain telemetry",
+                "sourceToolAssistantUUID": "agent-123",
+            },
+        ]
+        echo = {"type": "user", "content": "task", "local_echo": True}
+        assert AssistantService._echo_in_transcript(echo, transcript) is True
 
     def test_echo_in_transcript_different_text_no_dedup(self, tmp_path):
         """Echo text doesn't match last user → should NOT dedup."""
@@ -550,6 +580,8 @@ class TestAssistantServiceStreaming:
              "timestamp": "2026-02-09T07:00:00Z"},
             {"type": "assistant", "content": [{"type": "text", "text": "R1 reply"}],
              "uuid": "asst-r1", "timestamp": "2026-02-09T07:00:01Z"},
+            {"type": "result", "subtype": "success", "uuid": "result-r1",
+             "timestamp": "2026-02-09T07:00:02Z"},
         ]
         # R2 in buffer: echo + assistant response
         buffer = [

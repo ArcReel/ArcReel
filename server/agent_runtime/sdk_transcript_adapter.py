@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Optional
 
@@ -9,9 +10,14 @@ logger = logging.getLogger(__name__)
 
 try:
     from claude_agent_sdk import get_session_messages
+    try:
+        from claude_agent_sdk._internal.sessions import _read_session_file
+    except ImportError:
+        _read_session_file = None  # type: ignore[assignment]
     SDK_AVAILABLE = True
 except ImportError:
     get_session_messages = None  # type: ignore[assignment]
+    _read_session_file = None  # type: ignore[assignment]
     SDK_AVAILABLE = False
 
 
@@ -34,9 +40,10 @@ class SdkTranscriptAdapter:
         except Exception:
             logger.warning("Failed to read SDK session %s", sdk_session_id, exc_info=True)
             return []
-        return [self._adapt(msg) for msg in sdk_messages]
+        timestamp_by_uuid = self._load_timestamps(sdk_session_id)
+        return [self._adapt(msg, timestamp_by_uuid) for msg in sdk_messages]
 
-    def _adapt(self, msg: Any) -> dict[str, Any]:
+    def _adapt(self, msg: Any, timestamp_by_uuid: Optional[dict[str, str]] = None) -> dict[str, Any]:
         """Convert SDK SessionMessage to internal dict format."""
         message_data = getattr(msg, "message", {}) or {}
         if isinstance(message_data, dict):
@@ -44,11 +51,16 @@ class SdkTranscriptAdapter:
         else:
             content = ""
 
+        uuid = getattr(msg, "uuid", None)
+        timestamp = getattr(msg, "timestamp", None)
+        if timestamp is None and isinstance(uuid, str) and timestamp_by_uuid:
+            timestamp = timestamp_by_uuid.get(uuid)
+
         result: dict[str, Any] = {
             "type": getattr(msg, "type", ""),
             "content": content,
-            "uuid": getattr(msg, "uuid", None),
-            "timestamp": getattr(msg, "timestamp", None),
+            "uuid": uuid,
+            "timestamp": timestamp,
         }
 
         parent_tool_use_id = getattr(msg, "parent_tool_use_id", None)
@@ -56,6 +68,39 @@ class SdkTranscriptAdapter:
             result["parent_tool_use_id"] = parent_tool_use_id
 
         return result
+
+    def _load_timestamps(self, sdk_session_id: str) -> dict[str, str]:
+        """Read raw JSONL transcript and build a uuid -> timestamp index."""
+        if _read_session_file is None:
+            return {}
+        try:
+            content = _read_session_file(sdk_session_id, None)
+        except Exception:
+            logger.warning(
+                "Failed to read raw SDK transcript %s for timestamps",
+                sdk_session_id,
+                exc_info=True,
+            )
+            return {}
+        if not content:
+            return {}
+
+        timestamps: dict[str, str] = {}
+        for line in content.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(entry, dict):
+                continue
+            uuid = entry.get("uuid")
+            timestamp = entry.get("timestamp")
+            if isinstance(uuid, str) and uuid and isinstance(timestamp, str) and timestamp.strip():
+                timestamps[uuid] = timestamp.strip()
+        return timestamps
 
     def exists(self, sdk_session_id: Optional[str]) -> bool:
         """Check if SDK session has any messages."""

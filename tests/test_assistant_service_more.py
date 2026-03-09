@@ -345,7 +345,7 @@ class TestAssistantServiceMore:
         assert service._parse_iso_datetime("2026-02-01T00:00:00Z") is not None
 
         # _echo_in_transcript tests — round-aware dedup
-        # Case 1: in-progress round (user only, no assistant after) → dedup
+        # Case 1: in-progress round (user only, no result after) → dedup
         history_in_progress = [
             {"type": "user", "content": "hello", "timestamp": "2026-02-01T00:00:01Z"}
         ]
@@ -357,9 +357,9 @@ class TestAssistantServiceMore:
         }
         assert service._echo_in_transcript(local_echo, history_in_progress) is True
 
-        # Case 2: completed round (assistant after user) → do NOT dedup
+        # Case 2: same text from an older round → do NOT dedup
         history_complete = [
-            {"type": "user", "content": "hello", "timestamp": "2026-02-01T00:00:01Z"},
+            {"type": "user", "content": "hello", "timestamp": "2026-01-31T23:59:59Z"},
             {"type": "assistant", "content": [{"type": "text", "text": "hi"}]},
         ]
         assert service._echo_in_transcript(local_echo, history_complete) is False

@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef } from "react";
 import { API } from "@/api";
 import { useAssistantStore } from "@/stores/assistant-store";
-import type { AssistantSnapshot, PendingQuestion, SessionMeta, Turn } from "@/types";
+import type {
+  AssistantSnapshot,
+  PendingQuestion,
+  SessionMeta,
+  SessionStatus,
+  Turn,
+} from "@/types";
 
 // ---------------------------------------------------------------------------
 // Helpers — 从旧 use-assistant-state.js 移植
@@ -50,6 +56,19 @@ function extractTurnText(turn: Turn): string {
   );
 }
 
+function parseTurnTimestamp(turn: Turn | null): number | null {
+  if (!turn?.timestamp) return null;
+  const parsed = Date.parse(turn.timestamp);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function findLatestUserTurn(turns: Turn[]): Turn | null {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    if (turns[i].type === "user") return turns[i];
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // localStorage helpers — 记住每个项目最后使用的会话
 // ---------------------------------------------------------------------------
@@ -92,6 +111,7 @@ export function useAssistantSession(projectName: string | null) {
   const streamSessionRef = useRef<string | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statusRef = useRef<string>("idle");
+  const pendingSendVersionRef = useRef(0);
 
   const syncPendingQuestion = useCallback((question: PendingQuestion | null) => {
     store.getState().setPendingQuestion(question);
@@ -102,14 +122,32 @@ export function useAssistantSession(projectName: string | null) {
     syncPendingQuestion(null);
   }, [syncPendingQuestion]);
 
+  const invalidatePendingSend = useCallback(() => {
+    pendingSendVersionRef.current += 1;
+    store.getState().setSending(false);
+  }, [store]);
+
+  const restoreFailedSend = useCallback((
+    sessionId: string,
+    optimisticUuid: string,
+    previousStatus: SessionStatus | null,
+  ) => {
+    if (store.getState().currentSessionId !== sessionId) return;
+
+    store.getState().setTurns(
+      store.getState().turns.filter((turn) => turn.uuid !== optimisticUuid),
+    );
+    statusRef.current = previousStatus ?? "idle";
+    store.getState().setSessionStatus(previousStatus ?? "idle");
+    store.getState().setSending(false);
+  }, [store]);
+
   const applySnapshot = useCallback((snapshot: Partial<AssistantSnapshot>) => {
     const snapshotTurns = (snapshot.turns as Turn[]) ?? [];
     const currentTurns = store.getState().turns;
 
-    // 保留末尾的 optimistic turn：仅当 snapshot 尾部尚未包含该消息时。
+    // 保留末尾的 optimistic turn：仅当 snapshot 尚未包含当前轮 user 时。
     // 使用内容匹配而非 UUID（optimistic UUID 永远不会匹配后端真实 UUID）。
-    // 只检查 snapshot 尾部（最后一个 assistant turn 之后），
-    // 与后端 _echo_in_transcript 的尾部去重策略一致。
     const lastTurn = currentTurns.at(-1);
     let shouldPreserveOptimistic = false;
 
@@ -117,18 +155,18 @@ export function useAssistantSession(projectName: string | null) {
       const optText = extractTurnText(lastTurn);
 
       if (optText) {
-        // 在 snapshot 尾部查找匹配的 user turn
-        let echoFound = false;
-        for (let i = snapshotTurns.length - 1; i >= 0; i--) {
-          const t = snapshotTurns[i];
-          if (t.type === "assistant") break;
-          if (t.type !== "user") continue;
-          if (extractTurnText(t) === optText) {
-            echoFound = true;
-            break;
-          }
+        const latestUserTurn = findLatestUserTurn(snapshotTurns);
+        if (!latestUserTurn || extractTurnText(latestUserTurn) !== optText) {
+          shouldPreserveOptimistic = true;
+        } else {
+          const latestUserTs = parseTurnTimestamp(latestUserTurn);
+          const optimisticTs = parseTurnTimestamp(lastTurn);
+          shouldPreserveOptimistic = Boolean(
+            latestUserTs !== null &&
+            optimisticTs !== null &&
+            latestUserTs < optimisticTs,
+          );
         }
-        shouldPreserveOptimistic = !echoFound;
       }
     }
 
@@ -173,8 +211,13 @@ export function useAssistantSession(projectName: string | null) {
       const url = API.getAssistantStreamUrl(projectName!, sessionId);
       const source = new EventSource(url);
       streamRef.current = source;
+      const isActiveStream = () =>
+        streamRef.current === source &&
+        streamSessionRef.current === sessionId &&
+        store.getState().currentSessionId === sessionId;
 
       source.addEventListener("snapshot", (event) => {
+        if (!isActiveStream()) return;
         const data = parseSsePayload(event as MessageEvent);
         const isSending = store.getState().sending;
 
@@ -198,6 +241,7 @@ export function useAssistantSession(projectName: string | null) {
       });
 
       source.addEventListener("patch", (event) => {
+        if (!isActiveStream()) return;
         const payload = parseSsePayload(event as MessageEvent);
         const patch = (payload.patch ?? payload) as Record<string, unknown>;
         store.getState().setTurns(applyTurnPatch(store.getState().turns, patch));
@@ -207,6 +251,7 @@ export function useAssistantSession(projectName: string | null) {
       });
 
       source.addEventListener("delta", (event) => {
+        if (!isActiveStream()) return;
         const payload = parseSsePayload(event as MessageEvent);
         if ("draft_turn" in payload) {
           store.getState().setDraftTurn((payload.draft_turn as Turn) ?? null);
@@ -214,6 +259,7 @@ export function useAssistantSession(projectName: string | null) {
       });
 
       source.addEventListener("status", (event) => {
+        if (!isActiveStream()) return;
         const data = parseSsePayload(event as MessageEvent);
         const status = (data.status as string) ?? statusRef.current;
         const isSending = store.getState().sending;
@@ -241,6 +287,7 @@ export function useAssistantSession(projectName: string | null) {
       });
 
       source.addEventListener("question", (event) => {
+        if (!isActiveStream()) return;
         const payload = parseSsePayload(event as MessageEvent);
         const pendingQuestion = getPendingQuestionFromEvent(payload);
         if (pendingQuestion) {
@@ -249,6 +296,7 @@ export function useAssistantSession(projectName: string | null) {
       });
 
       source.onerror = () => {
+        if (!isActiveStream()) return;
         // 重连条件：session 正在运行，或者前端正在发送消息。
         // 后者处理后端对旧 "completed" session 的 SSE 立即关闭的情况：
         // 连接断开后需要重连，此时后端已将 session 设为 "running"。
@@ -323,21 +371,33 @@ export function useAssistantSession(projectName: string | null) {
 
     return () => {
       cancelled = true;
+      invalidatePendingSend();
       closeStream();
     };
-  }, [projectName, applySnapshot, clearPendingQuestion, connectStream, closeStream, store]);
+  }, [
+    projectName,
+    applySnapshot,
+    clearPendingQuestion,
+    connectStream,
+    closeStream,
+    invalidatePendingSend,
+    store,
+  ]);
 
   // 发送消息
   const sendMessage = useCallback(
     async (content: string) => {
       if (!content.trim() || store.getState().sending) return;
 
+      const sendVersion = pendingSendVersionRef.current + 1;
+      pendingSendVersionRef.current = sendVersion;
+      const previousStatus = store.getState().sessionStatus;
+      let sessionId = store.getState().currentSessionId;
+      let optimisticUuid = "";
       store.getState().setSending(true);
       store.getState().setError(null);
 
       try {
-        let sessionId = store.getState().currentSessionId;
-
         // 如果没有会话，创建一个（懒创建：以首条消息作为标题）
         if (!sessionId && projectName) {
           const title = content.trim().slice(0, 30);
@@ -371,6 +431,7 @@ export function useAssistantSession(projectName: string | null) {
           uuid: `${OPTIMISTIC_PREFIX}${crypto.randomUUID()}`,
           timestamp: new Date().toISOString(),
         };
+        optimisticUuid = optimisticTurn.uuid ?? "";
         store.getState().setTurns([...store.getState().turns, optimisticTurn]);
         statusRef.current = "running";
         store.getState().setSessionStatus("running");
@@ -380,13 +441,22 @@ export function useAssistantSession(projectName: string | null) {
         // "completed/idle" session 导致立即关闭并需要 3 秒重连。
         // local echo 在后端 buffer 中，SSE 连接时的 snapshot 会包含它。
         await API.sendAssistantMessage(projectName!, sessionId, content);
+        if (pendingSendVersionRef.current !== sendVersion) return;
+        if (store.getState().currentSessionId !== sessionId) return;
         connectStream(sessionId);
       } catch (err) {
+        if (pendingSendVersionRef.current !== sendVersion) return;
         store.getState().setError((err as Error).message ?? "发送失败");
-        store.getState().setSending(false);
+        if (sessionId && optimisticUuid) {
+          restoreFailedSend(sessionId, optimisticUuid, previousStatus);
+        } else {
+          statusRef.current = previousStatus ?? "idle";
+          store.getState().setSessionStatus(previousStatus ?? "idle");
+          store.getState().setSending(false);
+        }
       }
     },
-    [projectName, connectStream, store],
+    [projectName, connectStream, restoreFailedSend, store],
   );
 
   const answerQuestion = useCallback(
@@ -427,6 +497,7 @@ export function useAssistantSession(projectName: string | null) {
   const createNewSession = useCallback(async () => {
     if (!projectName) return;
 
+    invalidatePendingSend();
     closeStream();
     store.getState().setTurns([]);
     store.getState().setDraftTurn(null);
@@ -435,12 +506,13 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setCurrentSessionId(null);
     store.getState().setIsDraftSession(true);
     statusRef.current = "idle";
-  }, [projectName, clearPendingQuestion, closeStream, store]);
+  }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, store]);
 
   // 切换到指定会话
   const switchSession = useCallback(async (sessionId: string) => {
     if (store.getState().currentSessionId === sessionId) return;
 
+    invalidatePendingSend();
     closeStream();
     store.getState().setCurrentSessionId(sessionId);
     store.getState().setIsDraftSession(false);
@@ -471,7 +543,7 @@ export function useAssistantSession(projectName: string | null) {
     } finally {
       store.getState().setMessagesLoading(false);
     }
-  }, [projectName, applySnapshot, clearPendingQuestion, closeStream, connectStream, store]);
+  }, [projectName, applySnapshot, clearPendingQuestion, closeStream, connectStream, invalidatePendingSend, store]);
 
   // 删除会话
   const deleteSession = useCallback(async (sessionId: string) => {
@@ -486,6 +558,7 @@ export function useAssistantSession(projectName: string | null) {
         if (sessions.length > 0) {
           await switchSession(sessions[0].id);
         } else {
+          invalidatePendingSend();
           closeStream();
           store.getState().setCurrentSessionId(null);
           store.getState().setTurns([]);
@@ -498,7 +571,7 @@ export function useAssistantSession(projectName: string | null) {
     } catch {
       // 静默失败
     }
-  }, [projectName, clearPendingQuestion, closeStream, switchSession, store]);
+  }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, switchSession, store]);
 
   return { sendMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession };
 }

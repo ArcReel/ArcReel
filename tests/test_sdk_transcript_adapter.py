@@ -26,6 +26,7 @@ class TestSdkTranscriptAdapter:
         assert result[0]["type"] == "user"
         assert result[0]["content"] == "Hello"
         assert result[0]["uuid"] == "uuid-123"
+        assert result[0]["timestamp"] == "2026-03-05T00:00:00Z"
 
     def test_read_raw_messages_empty_session_id(self):
         """Empty session ID returns empty list."""
@@ -59,6 +60,53 @@ class TestSdkTranscriptAdapter:
             result = adapter.read_raw_messages("sdk-session-123")
 
         assert result[0]["parent_tool_use_id"] == "task-1"
+
+    def test_read_raw_messages_backfills_timestamp_from_raw_transcript(self):
+        """SDK SessionMessage lacks timestamp; adapter should backfill it from JSONL."""
+        mock_msg = MagicMock()
+        mock_msg.type = "assistant"
+        mock_msg.message = {"content": [{"type": "text", "text": "Hello"}]}
+        mock_msg.uuid = "uuid-789"
+        mock_msg.parent_tool_use_id = None
+        mock_msg.timestamp = None
+
+        raw_jsonl = (
+            '{"type":"assistant","uuid":"uuid-789","timestamp":"2026-03-05T00:00:01Z",'
+            '"message":{"content":[{"type":"text","text":"Hello"}]}}\n'
+        )
+
+        with patch(
+            "server.agent_runtime.sdk_transcript_adapter.get_session_messages",
+            return_value=[mock_msg],
+        ), patch(
+            "server.agent_runtime.sdk_transcript_adapter._read_session_file",
+            return_value=raw_jsonl,
+        ):
+            adapter = SdkTranscriptAdapter()
+            result = adapter.read_raw_messages("sdk-session-123")
+
+        assert result[0]["timestamp"] == "2026-03-05T00:00:01Z"
+
+    def test_read_raw_messages_keeps_null_timestamp_when_raw_transcript_missing(self):
+        """Missing raw transcript should not break SDK message adaptation."""
+        mock_msg = MagicMock()
+        mock_msg.type = "user"
+        mock_msg.message = {"content": "Hello"}
+        mock_msg.uuid = "uuid-123"
+        mock_msg.parent_tool_use_id = None
+        mock_msg.timestamp = None
+
+        with patch(
+            "server.agent_runtime.sdk_transcript_adapter.get_session_messages",
+            return_value=[mock_msg],
+        ), patch(
+            "server.agent_runtime.sdk_transcript_adapter._read_session_file",
+            return_value=None,
+        ):
+            adapter = SdkTranscriptAdapter()
+            result = adapter.read_raw_messages("sdk-session-123")
+
+        assert result[0]["timestamp"] is None
 
     def test_exists_returns_true_when_messages_found(self):
         """exists() returns True when session has messages."""

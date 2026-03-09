@@ -71,6 +71,16 @@ function makeSnapshot(overrides: Partial<AssistantSnapshot> = {}): AssistantSnap
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("useAssistantSession", () => {
   beforeEach(() => {
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
@@ -218,5 +228,206 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
     expect(useAssistantStore.getState().pendingQuestion).toBeNull();
     expect(useAssistantStore.getState().answeringQuestion).toBe(false);
+  });
+
+  it("restores session state and removes optimistic turn when send fails", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "idle") });
+    vi.spyOn(API, "getAssistantSnapshot").mockResolvedValue(makeSnapshot());
+    vi.spyOn(API, "sendAssistantMessage").mockRejectedValue(new Error("发送失败"));
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    expect(useAssistantStore.getState().sending).toBe(false);
+    expect(useAssistantStore.getState().sessionStatus).toBe("idle");
+    expect(useAssistantStore.getState().turns).toEqual([]);
+    expect(useAssistantStore.getState().error).toBe("发送失败");
+    expect(MockEventSource.instances).toHaveLength(0);
+  });
+
+  it("ignores delayed send completions after switching sessions", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [
+        makeSession("session-1", "idle"),
+        makeSession("session-2", "idle"),
+      ],
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "getAssistantSnapshot").mockImplementation(async (_projectName, sessionId) =>
+      makeSnapshot({
+        session_id: sessionId,
+        turns: sessionId === "session-2"
+          ? [{ type: "assistant", content: [{ type: "text", text: "session-2" }] }]
+          : [],
+      }),
+    );
+    const deferred = createDeferred<{ success: boolean }>();
+    vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    act(() => {
+      void result.current.sendMessage("hello");
+    });
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sending).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.switchSession("session-2");
+    });
+
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
+    expect(useAssistantStore.getState().sending).toBe(false);
+    expect(useAssistantStore.getState().turns).toEqual([
+      { type: "assistant", content: [{ type: "text", text: "session-2" }] },
+    ]);
+
+    await act(async () => {
+      deferred.resolve({ success: true });
+      await deferred.promise;
+    });
+
+    expect(MockEventSource.instances).toHaveLength(0);
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
+  });
+
+  it("drops optimistic turn once snapshot contains the committed user turn", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "idle") });
+    vi.spyOn(API, "getAssistantSnapshot").mockResolvedValue(makeSnapshot());
+    vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({ success: true });
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1);
+    });
+
+    act(() => {
+      MockEventSource.instances[0].emit("snapshot", makeSnapshot({
+        status: "running",
+        turns: [
+          {
+            type: "user",
+            uuid: "real-user-1",
+            timestamp: "2099-01-01T00:00:00Z",
+            content: [{ type: "text", text: "hello" }],
+          },
+          {
+            type: "assistant",
+            uuid: "assistant-1",
+            timestamp: "2099-01-01T00:00:01Z",
+            content: [{ type: "text", text: "hi" }],
+          },
+        ],
+      }));
+    });
+
+    expect(useAssistantStore.getState().turns).toEqual([
+      {
+        type: "user",
+        uuid: "real-user-1",
+        timestamp: "2099-01-01T00:00:00Z",
+        content: [{ type: "text", text: "hello" }],
+      },
+      {
+        type: "assistant",
+        uuid: "assistant-1",
+        timestamp: "2099-01-01T00:00:01Z",
+        content: [{ type: "text", text: "hi" }],
+      },
+    ]);
+  });
+
+  it("keeps optimistic turn when same-text snapshot only contains an older round", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "idle") });
+    vi.spyOn(API, "getAssistantSnapshot").mockResolvedValue(makeSnapshot({
+      turns: [
+        {
+          type: "user",
+          uuid: "old-user-1",
+          timestamp: "2026-01-01T00:00:00Z",
+          content: [{ type: "text", text: "hello" }],
+        },
+        {
+          type: "assistant",
+          uuid: "old-assistant-1",
+          timestamp: "2026-01-01T00:00:01Z",
+          content: [{ type: "text", text: "first reply" }],
+        },
+      ],
+    }));
+    vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({ success: true });
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1);
+    });
+
+    act(() => {
+      MockEventSource.instances[0].emit("snapshot", makeSnapshot({
+        status: "running",
+        turns: [
+          {
+            type: "user",
+            uuid: "old-user-1",
+            timestamp: "2026-01-01T00:00:00Z",
+            content: [{ type: "text", text: "hello" }],
+          },
+          {
+            type: "assistant",
+            uuid: "old-assistant-1",
+            timestamp: "2026-01-01T00:00:01Z",
+            content: [{ type: "text", text: "first reply" }],
+          },
+        ],
+      }));
+    });
+
+    const turns = useAssistantStore.getState().turns;
+    expect(turns).toHaveLength(3);
+    expect(turns[0].uuid).toBe("old-user-1");
+    expect(turns[1].uuid).toBe("old-assistant-1");
+    expect(turns[2].uuid?.startsWith("optimistic-")).toBe(true);
   });
 });
