@@ -16,10 +16,14 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      const resp = await fetch("/api/v1/auth/login", {
+      const body = new URLSearchParams({
+        username,
+        password,
+        grant_type: "password",
+      });
+      const resp = await fetch("/api/v1/auth/token", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body,
       });
 
       if (!resp.ok) {
@@ -28,7 +32,7 @@ export function LoginPage() {
       }
 
       const data = await resp.json();
-      login(data.token, data.username);
+      login(data.access_token, username);
       setLocation("/app/projects");
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");
