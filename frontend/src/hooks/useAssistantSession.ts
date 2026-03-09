@@ -24,7 +24,7 @@ function applyTurnPatch(prev: Turn[], patch: Record<string, unknown>): Turn[] {
     if (
       newTurn.type === "user" &&
       prev.length > 0 &&
-      prev.at(-1)?.uuid?.startsWith("optimistic-")
+      prev.at(-1)?.uuid?.startsWith(OPTIMISTIC_PREFIX)
     ) {
       return [...prev.slice(0, -1), newTurn];
     }
@@ -39,12 +39,15 @@ function applyTurnPatch(prev: Turn[], patch: Record<string, unknown>): Turn[] {
 }
 
 const TERMINAL = new Set(["completed", "error", "interrupted"]);
+const OPTIMISTIC_PREFIX = "optimistic-";
 
 function extractTurnText(turn: Turn): string {
-  return turn.content
-    .filter((b) => b.type === "text")
-    .map((b) => b.text ?? "")
-    .join("");
+  return (
+    turn.content
+      ?.filter((b) => b.type === "text")
+      .map((b) => b.text ?? "")
+      .join("") ?? ""
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -103,19 +106,31 @@ export function useAssistantSession(projectName: string | null) {
     const snapshotTurns = (snapshot.turns as Turn[]) ?? [];
     const currentTurns = store.getState().turns;
 
-    // 保留乐观更新的用户消息：如果当前 turns 末尾有 optimistic turn，
-    // 且 snapshot 中尚未包含该消息（按 UUID 或文本内容匹配），
-    // 则追加到 snapshot turns 末尾，避免 snapshot 全量覆盖导致气泡闪烁消失。
-    // 内容匹配防止竞态：当 snapshot 在 POST 之后到达时，真实 user turn
-    // 的 UUID 不同于 optimistic UUID，但文本内容相同，此时不应追加。
+    // 保留末尾的 optimistic turn：仅当 snapshot 尾部尚未包含该消息时。
+    // 使用内容匹配而非 UUID（optimistic UUID 永远不会匹配后端真实 UUID）。
+    // 只检查 snapshot 尾部（最后一个 assistant turn 之后），
+    // 与后端 _echo_in_transcript 的尾部去重策略一致。
     const lastTurn = currentTurns.at(-1);
-    const shouldPreserveOptimistic =
-      lastTurn?.uuid?.startsWith("optimistic-") &&
-      !snapshotTurns.some(
-        (t) =>
-          t.uuid === lastTurn.uuid ||
-          (t.type === "user" && extractTurnText(t) === extractTurnText(lastTurn)),
-      );
+    let shouldPreserveOptimistic = false;
+
+    if (lastTurn?.uuid?.startsWith(OPTIMISTIC_PREFIX)) {
+      const optText = extractTurnText(lastTurn);
+
+      if (optText) {
+        // 在 snapshot 尾部查找匹配的 user turn
+        let echoFound = false;
+        for (let i = snapshotTurns.length - 1; i >= 0; i--) {
+          const t = snapshotTurns[i];
+          if (t.type === "assistant") break;
+          if (t.type !== "user") continue;
+          if (extractTurnText(t) === optText) {
+            echoFound = true;
+            break;
+          }
+        }
+        shouldPreserveOptimistic = !echoFound;
+      }
+    }
 
     if (shouldPreserveOptimistic && lastTurn) {
       store.getState().setTurns([...snapshotTurns, lastTurn]);
@@ -161,14 +176,24 @@ export function useAssistantSession(projectName: string | null) {
 
       source.addEventListener("snapshot", (event) => {
         const data = parseSsePayload(event as MessageEvent);
+        const isSending = store.getState().sending;
+
+        // 正在发送消息时，后端可能尚未将 session 切为 "running"，
+        // 此时 SSE 连接到旧 "completed" session 会立即收到旧 snapshot + status 后断开。
+        // 忽略这种 stale snapshot 的 turns 和 status，保留前端的 optimistic 状态。
+        if (isSending && typeof data.status === "string" && data.status !== "running") {
+          return;
+        }
+
         applySnapshot(data as Partial<AssistantSnapshot>);
 
         if (typeof data.status === "string") {
           store.getState().setSessionStatus(data.status as "idle");
           statusRef.current = data.status as string;
-          if (data.status !== "running") {
-            store.getState().setSending(false);
-          }
+          // 收到任何有效 status 都清除 sending（stale 的已在上方过滤）。
+          // 特别是 "running" 表示后端已确认收到消息，必须清除 sending，
+          // 否则后续的 "completed" 会被 status handler 的 isSending 守卫过滤掉。
+          store.getState().setSending(false);
         }
       });
 
@@ -191,6 +216,16 @@ export function useAssistantSession(projectName: string | null) {
       source.addEventListener("status", (event) => {
         const data = parseSsePayload(event as MessageEvent);
         const status = (data.status as string) ?? statusRef.current;
+        const isSending = store.getState().sending;
+
+        // 正在发送消息时，忽略旧 session 的 terminal status。
+        // 后端对非 running session 的 SSE 会发 status:"completed" 后关闭连接，
+        // 不应让这个 stale status 触发 closeStream / setSending(false)。
+        // onerror 回调会在连接断开后自动重连到已变为 "running" 的 session。
+        if (isSending && TERMINAL.has(status) && status !== "error") {
+          return;
+        }
+
         statusRef.current = status;
         store.getState().setSessionStatus(status as "idle");
 
@@ -214,7 +249,10 @@ export function useAssistantSession(projectName: string | null) {
       });
 
       source.onerror = () => {
-        if (statusRef.current === "running") {
+        // 重连条件：session 正在运行，或者前端正在发送消息。
+        // 后者处理后端对旧 "completed" session 的 SSE 立即关闭的情况：
+        // 连接断开后需要重连，此时后端已将 session 设为 "running"。
+        if (statusRef.current === "running" || store.getState().sending) {
           reconnectRef.current = setTimeout(() => {
             connectStream(sessionId);
           }, 3000);
@@ -330,17 +368,19 @@ export function useAssistantSession(projectName: string | null) {
         const optimisticTurn: Turn = {
           type: "user",
           content: [{ type: "text", text: content.trim() }],
-          uuid: `optimistic-${crypto.randomUUID()}`,
+          uuid: `${OPTIMISTIC_PREFIX}${crypto.randomUUID()}`,
           timestamp: new Date().toISOString(),
         };
         store.getState().setTurns([...store.getState().turns, optimisticTurn]);
         statusRef.current = "running";
         store.getState().setSessionStatus("running");
 
-        // 先建立 SSE 连接（复用已有连接），再发送消息
-        // 这样后端的 local echo 可以通过已连接的 SSE 实时推送
-        connectStream(sessionId);
+        // 先发送消息，再建立 SSE 连接。
+        // 这样 SSE 连接时后端已将 session 设为 "running"，避免连接到旧
+        // "completed/idle" session 导致立即关闭并需要 3 秒重连。
+        // local echo 在后端 buffer 中，SSE 连接时的 snapshot 会包含它。
         await API.sendAssistantMessage(projectName!, sessionId, content);
+        connectStream(sessionId);
       } catch (err) {
         store.getState().setError((err as Error).message ?? "发送失败");
         store.getState().setSending(false);

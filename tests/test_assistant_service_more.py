@@ -344,16 +344,28 @@ class TestAssistantServiceMore:
         assert naive.tzinfo is not None
         assert service._parse_iso_datetime("2026-02-01T00:00:00Z") is not None
 
-        # _echo_in_transcript tests
-        history = [{"type": "user", "content": "hello", "timestamp": "2026-02-01T00:00:01Z"}]
+        # _echo_in_transcript tests — round-aware dedup
+        # Case 1: in-progress round (user only, no assistant after) → dedup
+        history_in_progress = [
+            {"type": "user", "content": "hello", "timestamp": "2026-02-01T00:00:01Z"}
+        ]
         local_echo = {
             "type": "user",
             "content": "hello",
             "local_echo": True,
             "timestamp": "2026-02-01T00:00:00Z",
         }
-        assert service._echo_in_transcript(local_echo, history) is True
-        assert service._echo_in_transcript({"type": "assistant"}, history) is False
+        assert service._echo_in_transcript(local_echo, history_in_progress) is True
+
+        # Case 2: completed round (assistant after user) → do NOT dedup
+        history_complete = [
+            {"type": "user", "content": "hello", "timestamp": "2026-02-01T00:00:01Z"},
+            {"type": "assistant", "content": [{"type": "text", "text": "hi"}]},
+        ]
+        assert service._echo_in_transcript(local_echo, history_complete) is False
+
+        # Case 3: non-user message → False
+        assert service._echo_in_transcript({"type": "assistant"}, history_in_progress) is False
 
         assert service._extract_plain_user_content({"type": "assistant"}) is None
         assert (

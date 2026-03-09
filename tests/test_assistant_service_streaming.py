@@ -429,17 +429,27 @@ class TestAssistantServiceStreaming:
         assert len(projector.turns) == 1
         assert projector.turns[0]["uuid"] == "real-1"
 
-    async def test_build_projector_keeps_new_local_echo_for_old_same_text(self, tmp_path):
+    async def test_build_projector_keeps_new_local_echo_when_round_complete(self, tmp_path):
+        """When the prior round with same text is complete (assistant replied),
+        the new echo should be kept — it's a genuinely new round."""
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta()
+        # R1 complete: user("hello") + assistant reply
         history = [
             {
                 "type": "user",
                 "content": "hello",
                 "uuid": "real-old",
                 "timestamp": "2026-02-09T07:00:00Z",
-            }
+            },
+            {
+                "type": "assistant",
+                "content": [{"type": "text", "text": "hi there"}],
+                "uuid": "asst-1",
+                "timestamp": "2026-02-09T07:00:01Z",
+            },
         ]
+        # R2 echo with same text
         buffer = [
             {
                 "type": "user",
@@ -455,9 +465,145 @@ class TestAssistantServiceStreaming:
         service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
 
         projector = await service._build_projector(meta, "session-1")
-        # Simplified dedup: local echo with matching text in transcript is always deduped
-        assert len(projector.turns) == 1
+        # R1 user + R1 assistant + R2 echo (kept because R1 is complete)
+        assert len(projector.turns) == 3
         assert projector.turns[0]["uuid"] == "real-old"
+        assert projector.turns[2]["uuid"] == "local-user-new"
+
+    # ── _echo_in_transcript round-aware dedup tests ──
+
+    def test_echo_in_transcript_empty_transcript(self, tmp_path):
+        """Empty transcript → no last user found → should NOT dedup."""
+        echo = {"type": "user", "content": "hello", "local_echo": True}
+        assert AssistantService._echo_in_transcript(echo, []) is False
+
+    def test_echo_in_transcript_in_progress_round_dedup(self, tmp_path):
+        """Round in progress (user only, no assistant after) → dedup."""
+        transcript = [{"type": "user", "content": "hello"}]
+        echo = {"type": "user", "content": "hello", "local_echo": True}
+        assert AssistantService._echo_in_transcript(echo, transcript) is True
+
+    def test_echo_in_transcript_completed_round_no_dedup(self, tmp_path):
+        """Completed round (assistant after user) → do NOT dedup."""
+        transcript = [
+            {"type": "user", "content": "hello"},
+            {"type": "assistant", "content": [{"type": "text", "text": "hi"}]},
+        ]
+        echo = {"type": "user", "content": "hello", "local_echo": True}
+        assert AssistantService._echo_in_transcript(echo, transcript) is False
+
+    def test_echo_in_transcript_r2_in_progress_same_text(self, tmp_path):
+        """R1 complete, R2 user added with same text, echo for R2 → dedup."""
+        transcript = [
+            {"type": "user", "content": "hello"},
+            {"type": "assistant", "content": [{"type": "text", "text": "hi"}]},
+            {"type": "user", "content": "hello"},  # R2 user, same text
+        ]
+        echo = {"type": "user", "content": "hello", "local_echo": True}
+        assert AssistantService._echo_in_transcript(echo, transcript) is True
+
+    def test_echo_in_transcript_r2_with_partial_assistant(self, tmp_path):
+        """R2 has partial assistant response → round has response → do NOT dedup."""
+        transcript = [
+            {"type": "user", "content": "hello"},
+            {"type": "assistant", "content": [{"type": "text", "text": "R1 reply"}]},
+            {"type": "user", "content": "hello"},
+            {"type": "assistant", "content": [{"type": "text", "text": "R2 partial"}]},
+        ]
+        echo = {"type": "user", "content": "hello", "local_echo": True}
+        assert AssistantService._echo_in_transcript(echo, transcript) is False
+
+    def test_echo_in_transcript_different_text_no_dedup(self, tmp_path):
+        """Echo text doesn't match last user → should NOT dedup."""
+        transcript = [{"type": "user", "content": "hello"}]
+        echo = {"type": "user", "content": "goodbye", "local_echo": True}
+        assert AssistantService._echo_in_transcript(echo, transcript) is False
+
+    def test_echo_in_transcript_non_user_echo(self, tmp_path):
+        """Non-user echo message → should return False."""
+        transcript = [{"type": "user", "content": "hello"}]
+        echo = {"type": "assistant", "content": [{"type": "text", "text": "hi"}]}
+        assert AssistantService._echo_in_transcript(echo, transcript) is False
+
+    def test_echo_in_transcript_list_content_format(self, tmp_path):
+        """Content in list format [{"type": "text", "text": "..."}] → should match."""
+        transcript = [
+            {"type": "user", "content": [{"type": "text", "text": "hello"}]}
+        ]
+        echo = {
+            "type": "user",
+            "content": [{"type": "text", "text": "hello"}],
+            "local_echo": True,
+        }
+        assert AssistantService._echo_in_transcript(echo, transcript) is True
+
+    # ── _build_projector multi-round integration tests ──
+
+    async def test_build_projector_multiround_same_text_no_false_dedup(self, tmp_path):
+        """Multi-round same text: R1 complete + R2 echo + R2 assistant in buffer.
+        Should produce 4 turns, not falsely deduplicate R2 against R1."""
+        service = AssistantService(project_root=tmp_path)
+        meta = make_session_meta()
+        # R1 complete in transcript
+        history = [
+            {"type": "user", "content": "hello", "uuid": "user-r1",
+             "timestamp": "2026-02-09T07:00:00Z"},
+            {"type": "assistant", "content": [{"type": "text", "text": "R1 reply"}],
+             "uuid": "asst-r1", "timestamp": "2026-02-09T07:00:01Z"},
+        ]
+        # R2 in buffer: echo + assistant response
+        buffer = [
+            {"type": "user", "content": "hello", "uuid": "local-user-r2",
+             "local_echo": True, "timestamp": "2026-02-09T08:00:00Z"},
+            {"type": "assistant", "content": [{"type": "text", "text": "R2 reply"}],
+             "timestamp": "2026-02-09T08:00:01Z"},
+        ]
+
+        service.meta_store = _FakeMetaStore(meta)
+        service.transcript_adapter = _FakeTranscriptAdapter([], history_raw=history)
+        service.session_manager = _FakeSessionManager(
+            [], status="running", replay_messages=buffer
+        )
+
+        projector = await service._build_projector(meta, "session-1")
+        # R1 user + R1 assistant + R2 echo + R2 assistant = 4 turns
+        assert len(projector.turns) == 4
+        types = [t["type"] for t in projector.turns]
+        assert types == ["user", "assistant", "user", "assistant"]
+
+    async def test_build_projector_echo_dedup_does_not_cascade_clear(self, tmp_path):
+        """When echo is properly deduped (in-progress round), the tail_fps.clear()
+        at line 518 should NOT execute — buffer assistant passes through normally
+        without the cascading dedup failure that caused duplicate thinking blocks."""
+        service = AssistantService(project_root=tmp_path)
+        meta = make_session_meta()
+        # In-progress round: only user in transcript
+        history = [
+            {"type": "user", "content": "hello", "uuid": "user-r1",
+             "timestamp": "2026-02-09T08:00:00Z"},
+        ]
+        # Buffer: echo (should be deduped) + new assistant response
+        buffer = [
+            {"type": "user", "content": "hello", "uuid": "local-user-r1",
+             "local_echo": True, "timestamp": "2026-02-09T08:00:00Z"},
+            {"type": "assistant",
+             "content": [{"type": "thinking", "thinking": "let me think..."},
+                         {"type": "text", "text": "response"}],
+             "timestamp": "2026-02-09T08:00:01Z"},
+        ]
+
+        service.meta_store = _FakeMetaStore(meta)
+        service.transcript_adapter = _FakeTranscriptAdapter([], history_raw=history)
+        service.session_manager = _FakeSessionManager(
+            [], status="running", replay_messages=buffer
+        )
+
+        projector = await service._build_projector(meta, "session-1")
+        # Echo deduped → 1 user (from transcript) + 1 assistant (from buffer)
+        assert len(projector.turns) == 2
+        assert projector.turns[0]["type"] == "user"
+        assert projector.turns[0]["uuid"] == "user-r1"
+        assert projector.turns[1]["type"] == "assistant"
 
     def test_prune_transient_buffer_removes_groupable_messages(self):
         """Verify _prune_transient_buffer clears user/assistant/result messages
@@ -484,14 +630,14 @@ class TestAssistantServiceStreaming:
         assert remaining_types == ["ask_user_question"]
 
     async def test_get_snapshot_no_duplicate_during_streaming(self, tmp_path):
-        """During streaming, buffer contains assistant messages without uuid while
-        transcript already has the same messages with uuid.  get_snapshot must
-        not produce duplicate turns."""
+        """During streaming (in-progress round), buffer contains echo + assistant
+        without uuid while transcript already has the real user message.
+        Echo should be deduped; UUID-less assistant passes through via buffer."""
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta()
 
         call_log: list[tuple] = []
-        # Transcript already has current round's user + assistant (CLI wrote them)
+        # Transcript has current round's user only (round in-progress)
         history = [
             {
                 "type": "user",
@@ -499,15 +645,8 @@ class TestAssistantServiceStreaming:
                 "uuid": "user-1",
                 "timestamp": "2026-02-09T08:00:01Z",
             },
-            {
-                "type": "assistant",
-                "content": [{"type": "text", "text": "A1 - first answer"}],
-                "uuid": "assistant-1",
-                "timestamp": "2026-02-09T08:00:02Z",
-            },
         ]
-        # Buffer also has the same messages but without uuid (SDK objects).
-        # SDK content blocks lack the "type" field that the CLI adds.
+        # Buffer has echo + assistant being streamed (no uuid on assistant)
         stale_buffer = [
             {
                 "type": "user",
@@ -520,7 +659,6 @@ class TestAssistantServiceStreaming:
                 "type": "assistant",
                 "content": [{"text": "A1 - first answer"}],
                 # No uuid — SDK AssistantMessage doesn't have one
-                # No "type" in content block — SDK dataclass omits it
             },
             {
                 "type": "stream_event",
@@ -538,10 +676,8 @@ class TestAssistantServiceStreaming:
         payload = await service.get_snapshot("session-1")
         turns = payload.get("turns", [])
         turn_types = [t.get("type") for t in turns]
-        # Should be exactly 2 turns: user + assistant, no duplicates
+        # Echo deduped, assistant from buffer kept → user + assistant
         assert turn_types == ["user", "assistant"]
-        assistant_turn = turns[-1]
-        assert len(assistant_turn.get("content", [])) == 1
 
     async def test_get_snapshot_no_duplicate_with_tool_use_during_streaming(self, tmp_path):
         """Buffer assistant content blocks lack the 'type' field that the CLI

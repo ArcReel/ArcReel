@@ -711,17 +711,49 @@ class AssistantService:
         echo_msg: dict[str, Any],
         transcript_msgs: list[dict[str, Any]],
     ) -> bool:
-        """Check if a local echo has a matching real message in transcript."""
+        """Check if a local echo has a matching real message in transcript.
+
+        Finds the *last* user message in the transcript and checks whether
+        its text matches the echo AND the round is still in-progress (no
+        assistant message after the last user message).
+
+        If an assistant message exists after the last user message, that round
+        is complete — the echo must be for a *new* round with the same text
+        and should NOT be deduplicated.
+
+        Note: SDK transcript only contains "user" and "assistant" messages
+        (no "result").  The SDK persists the assistant message only after the
+        turn is fully complete, so its presence reliably marks round completion.
+        """
         echo_text = AssistantService._extract_plain_user_content(echo_msg)
         if not echo_text:
             return False
-        for existing in reversed(transcript_msgs):
-            if existing.get("type") != "user":
-                continue
-            existing_text = AssistantService._extract_plain_user_content(existing)
-            if existing_text == echo_text:
-                return True
-        return False
+
+        # Find the last user message in the transcript.
+        last_user_idx: int | None = None
+        for i in range(len(transcript_msgs) - 1, -1, -1):
+            if transcript_msgs[i].get("type") == "user":
+                last_user_idx = i
+                break
+
+        if last_user_idx is None:
+            return False
+
+        # Content must match.
+        existing_text = AssistantService._extract_plain_user_content(
+            transcript_msgs[last_user_idx]
+        )
+        if existing_text != echo_text:
+            return False
+
+        # If an assistant message follows the last user message, the round is
+        # complete.  The echo is therefore for a NEW round → do not dedup.
+        for i in range(last_user_idx + 1, len(transcript_msgs)):
+            if transcript_msgs[i].get("type") == "assistant":
+                return False
+
+        # No assistant after last user → round is in-progress → echo is dup.
+        return True
 
     _extract_plain_user_content = staticmethod(extract_plain_user_content)
 
