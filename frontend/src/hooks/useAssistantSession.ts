@@ -40,6 +40,13 @@ function applyTurnPatch(prev: Turn[], patch: Record<string, unknown>): Turn[] {
 
 const TERMINAL = new Set(["completed", "error", "interrupted"]);
 
+function extractTurnText(turn: Turn): string {
+  return turn.content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text ?? "")
+    .join("");
+}
+
 // ---------------------------------------------------------------------------
 // localStorage helpers — 记住每个项目最后使用的会话
 // ---------------------------------------------------------------------------
@@ -97,13 +104,20 @@ export function useAssistantSession(projectName: string | null) {
     const currentTurns = store.getState().turns;
 
     // 保留乐观更新的用户消息：如果当前 turns 末尾有 optimistic turn，
-    // 且 snapshot 中尚未包含该消息，则追加到 snapshot turns 末尾，
-    // 避免 snapshot 全量覆盖导致用户消息气泡闪烁消失。
-    const lastTurn = currentTurns[currentTurns.length - 1];
-    if (
+    // 且 snapshot 中尚未包含该消息（按 UUID 或文本内容匹配），
+    // 则追加到 snapshot turns 末尾，避免 snapshot 全量覆盖导致气泡闪烁消失。
+    // 内容匹配防止竞态：当 snapshot 在 POST 之后到达时，真实 user turn
+    // 的 UUID 不同于 optimistic UUID，但文本内容相同，此时不应追加。
+    const lastTurn = currentTurns.at(-1);
+    const shouldPreserveOptimistic =
       lastTurn?.uuid?.startsWith("optimistic-") &&
-      !snapshotTurns.some((t) => t.uuid === lastTurn.uuid)
-    ) {
+      !snapshotTurns.some(
+        (t) =>
+          t.uuid === lastTurn.uuid ||
+          (t.type === "user" && extractTurnText(t) === extractTurnText(lastTurn)),
+      );
+
+    if (shouldPreserveOptimistic && lastTurn) {
       store.getState().setTurns([...snapshotTurns, lastTurn]);
     } else {
       store.getState().setTurns(snapshotTurns);
