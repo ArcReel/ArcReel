@@ -493,27 +493,6 @@ describe("API", () => {
       expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST");
     });
 
-    it("exports project archive and parses the download filename", async () => {
-      const blob = new Blob(["zip"]);
-      const fetchMock = vi.fn().mockResolvedValue(
-        mockResponse({
-          blobData: blob,
-          headers: {
-            "Content-Disposition": 'attachment; filename="demo-20260302-170000.zip"',
-          },
-        }),
-      );
-      vi.stubGlobal("fetch", fetchMock);
-
-      const result = await API.exportProject("demo");
-
-      expect(result).toEqual({
-        blob,
-        filename: "demo-20260302-170000.zip",
-      });
-      expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects/demo/export", {});
-    });
-
     it("imports project via multipart form and preserves structured errors", async () => {
       const fetchMock = vi
         .fn()

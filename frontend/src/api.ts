@@ -134,22 +134,6 @@ function handleUnauthorized(response: Response): void {
   throw new Error("认证已过期，请重新登录");
 }
 
-function parseDownloadFilename(contentDisposition: string | null): string | null {
-  if (!contentDisposition) return null;
-
-  const encodedMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
-  if (encodedMatch?.[1]) {
-    try {
-      return decodeURIComponent(encodedMatch[1].trim().replace(/^"|"$/g, ""));
-    } catch {
-      // fall through to plain filename parsing
-    }
-  }
-
-  const plainMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
-  return plainMatch?.[1] ?? null;
-}
-
 /** 为 fetch options 注入 Authorization header */
 function withAuth(options: RequestInit = {}): RequestInit {
   const token = getToken();
@@ -284,25 +268,6 @@ class API {
     return this.request(`/projects/${encodeURIComponent(name)}`, {
       method: "DELETE",
     });
-  }
-
-  static async exportProject(
-    name: string
-  ): Promise<{ blob: Blob; filename: string }> {
-    const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(name)}/export`,
-      withAuth()
-    );
-    await throwIfNotOk(response, "导出失败");
-
-    const filename =
-      parseDownloadFilename(response.headers.get("Content-Disposition")) ??
-      `${name}.zip`;
-
-    return {
-      blob: await response.blob(),
-      filename,
-    };
   }
 
   static async requestExportToken(
