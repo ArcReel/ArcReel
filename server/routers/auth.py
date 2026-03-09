@@ -1,33 +1,29 @@
 """
 认证 API 路由
 
-提供登录和 token 验证接口。
+提供 OAuth2 登录和 token 验证接口。
 """
 
 import logging
-from typing import Optional
+from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
-from server.auth import check_credentials, create_token, verify_token
+from server.auth import check_credentials, create_token, get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-# ==================== 请求/响应模型 ====================
+# ==================== 响应模型 ====================
 
 
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-class LoginResponse(BaseModel):
-    token: str
-    username: str
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
 
 
 class VerifyResponse(BaseModel):
@@ -38,33 +34,33 @@ class VerifyResponse(BaseModel):
 # ==================== 路由 ====================
 
 
-@router.post("/auth/login", response_model=LoginResponse)
-async def login(req: LoginRequest):
+@router.post("/auth/token", response_model=TokenResponse)
+async def login_for_access_token(
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+):
     """用户登录
 
-    验证用户名密码，成功返回 JWT token。
+    使用 OAuth2 标准表单格式验证凭据，成功返回 access_token。
     """
-    if not check_credentials(req.username, req.password):
-        logger.warning("登录失败: 用户名或密码错误 (用户: %s)", req.username)
-        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    if not check_credentials(form_data.username, form_data.password):
+        logger.warning("登录失败: 用户名或密码错误 (用户: %s)", form_data.username)
+        raise HTTPException(
+            status_code=401,
+            detail="用户名或密码错误",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    token = create_token(req.username)
-    logger.info("用户登录成功: %s", req.username)
-    return LoginResponse(token=token, username=req.username)
+    token = create_token(form_data.username)
+    logger.info("用户登录成功: %s", form_data.username)
+    return TokenResponse(access_token=token, token_type="bearer")
 
 
 @router.get("/auth/verify", response_model=VerifyResponse)
-async def verify(authorization: Optional[str] = Header(None)):
+async def verify(
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
     """验证 token 有效性
 
-    从 Authorization header 提取 Bearer token 并验证。
+    使用 OAuth2 Bearer token 依赖自动提取和验证 token。
     """
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="缺少认证 token")
-
-    token = authorization.removeprefix("Bearer ").strip()
-    payload = verify_token(token)
-    if payload is None:
-        raise HTTPException(status_code=401, detail="无效或过期的 token")
-
-    return VerifyResponse(valid=True, username=payload["sub"])
+    return VerifyResponse(valid=True, username=current_user["sub"])
