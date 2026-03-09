@@ -168,6 +168,18 @@ class TestEnsureAuthPassword:
             # 原有内容应保留
             assert "SOME_VAR=hello" in content
 
+    def test_env_file_not_exist_no_error(self, tmp_path):
+        """.env 文件不存在时不抛异常，并创建新文件"""
+        env_file = tmp_path / "nonexistent" / ".env"
+        env = os.environ.copy()
+        env.pop("AUTH_PASSWORD", None)
+        with patch.dict(os.environ, env, clear=True):
+            # 父目录不存在会触发 OSError，函数不应抛异常
+            password = auth_module.ensure_auth_password(env_path=str(env_file))
+            assert len(password) == 16
+            assert password.isalnum()
+
+
 class TestDownloadToken:
     def setup_method(self):
         auth_module._cached_token_secret = None
@@ -224,23 +236,6 @@ class TestDownloadToken:
             token = jwt.encode(payload, secret, algorithm="HS256")
             with pytest.raises(ValueError, match="purpose 不匹配"):
                 auth_module.verify_download_token(token, "demo")
-
-
-class TestEnsureAuthPassword2:
-    def setup_method(self):
-        """每个测试前重置缓存"""
-        auth_module._cached_token_secret = None
-
-    def test_env_file_not_exist_no_error(self, tmp_path):
-        """.env 文件不存在时不抛异常，并创建新文件"""
-        env_file = tmp_path / "nonexistent" / ".env"
-        env = os.environ.copy()
-        env.pop("AUTH_PASSWORD", None)
-        with patch.dict(os.environ, env, clear=True):
-            # 父目录不存在会触发 OSError，函数不应抛异常
-            password = auth_module.ensure_auth_password(env_path=str(env_file))
-            assert len(password) == 16
-            assert password.isalnum()
 
 
 class TestPasswordHash:
