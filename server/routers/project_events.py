@@ -6,11 +6,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
+from server.auth import get_current_user_flexible
 from server.services.project_events import ProjectEventService
 
 router = APIRouter()
@@ -41,6 +42,7 @@ async def _project_events_subscription(
 async def stream_project_events(
     project_name: str,
     request: Request,
+    _user: Annotated[dict, Depends(get_current_user_flexible)],
     subscription: tuple[ProjectEventService, asyncio.Queue, dict[str, Any]] = Depends(
         _project_events_subscription
     ),

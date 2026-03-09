@@ -7,15 +7,16 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from lib.generation_queue import (
     get_generation_queue,
     read_queue_poll_interval,
 )
+from server.auth import get_current_user, get_current_user_flexible
 
 
 router = APIRouter()
@@ -54,7 +55,7 @@ def _transform_task_event(raw_event: dict, stats: dict) -> dict:
 
 
 @router.get("/tasks/stats")
-async def get_task_stats(project_name: Optional[str] = None):
+async def get_task_stats(_user: Annotated[dict, Depends(get_current_user)], project_name: Optional[str] = None):
     queue = get_task_queue()
     stats = await queue.get_task_stats(project_name=project_name)
     return {"stats": stats}
@@ -62,6 +63,7 @@ async def get_task_stats(project_name: Optional[str] = None):
 
 @router.get("/tasks")
 async def list_tasks(
+    _user: Annotated[dict, Depends(get_current_user)],
     project_name: Optional[str] = None,
     status: Optional[str] = None,
     task_type: Optional[str] = None,
@@ -83,6 +85,7 @@ async def list_tasks(
 @router.get("/projects/{project_name}/tasks")
 async def list_project_tasks(
     project_name: str,
+    _user: Annotated[dict, Depends(get_current_user)],
     status: Optional[str] = None,
     task_type: Optional[str] = None,
     source: Optional[str] = None,
@@ -103,6 +106,7 @@ async def list_project_tasks(
 @router.get("/tasks/stream", response_class=EventSourceResponse, deprecated=True)
 async def stream_tasks(
     request: Request,
+    _user: Annotated[dict, Depends(get_current_user_flexible)],
     project_name: Optional[str] = None,
     last_event_id: Optional[int] = Query(default=None, ge=0),
     last_event_header: Optional[str] = Header(default=None, alias="Last-Event-ID"),
@@ -156,7 +160,7 @@ async def stream_tasks(
 
 
 @router.get("/tasks/{task_id}")
-async def get_task(task_id: str):
+async def get_task(task_id: str, _user: Annotated[dict, Depends(get_current_user)]):
     queue = get_task_queue()
     task = await queue.get_task(task_id)
     if not task:
