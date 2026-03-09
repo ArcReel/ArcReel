@@ -127,11 +127,13 @@ async def create_export_token(name: str, request: Request):
         if not get_project_manager().project_exists(name):
             raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在或未初始化")
 
-        # 从 Authorization header 解析用户名
+        # 从 Authorization header 解析用户名（必须通过认证）
         auth_header = request.headers.get("authorization", "")
         token = auth_header.removeprefix("Bearer ").strip()
         payload = verify_token(token)
-        username = payload["sub"] if payload else "anonymous"
+        if not payload:
+            raise HTTPException(status_code=401, detail="认证 token 无效或已过期")
+        username = payload["sub"]
 
         download_token = create_download_token(username, name)
         return {"download_token": download_token, "expires_in": 300}

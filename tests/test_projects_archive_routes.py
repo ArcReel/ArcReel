@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from lib.project_manager import ProjectManager
 from server.routers import projects
-from server.auth import create_download_token, get_token_secret, create_token
+from server.auth import create_download_token, create_token
 
 
 def _write_text(path: Path, content: str) -> None:
