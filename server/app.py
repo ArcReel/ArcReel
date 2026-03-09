@@ -13,7 +13,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request
 from starlette.responses import Response
@@ -23,7 +22,7 @@ from lib.db import init_db, close_db
 from lib.logging_config import setup_logging
 
 from lib.generation_worker import GenerationWorker
-from server.auth import verify_token, ensure_auth_password
+from server.auth import ensure_auth_password
 from server.routers import (
     assistant,
     projects,
@@ -137,60 +136,6 @@ async def request_logging_middleware(request: Request, call_next):
         )
     return response
 
-
-# 不需要认证的路径前缀
-_AUTH_WHITELIST = (
-    "/health",
-    "/assets",
-    "/api/v1/auth/login",
-    "/api/v1/files/",
-)
-
-
-@app.middleware("http")
-async def auth_middleware(request: Request, call_next):
-    """JWT 认证中间件。白名单路径、非 API 路径（前端页面）跳过认证。"""
-    path = request.url.path
-
-    # 白名单路径跳过
-    if any(path.startswith(prefix) for prefix in _AUTH_WHITELIST):
-        return await call_next(request)
-
-    # 非 API 路径（前端静态页面）跳过
-    if not path.startswith("/api/"):
-        return await call_next(request)
-
-    # CORS preflight 跳过（浏览器不会附加 Authorization header）
-    if request.method == "OPTIONS":
-        return await call_next(request)
-
-    # 导出下载端点：仅 GET /api/v1/projects/{name}/export 携带 download_token 时放行
-    if (
-        request.method == "GET"
-        and path.startswith("/api/v1/projects/")
-        and path.endswith("/export")
-        and request.query_params.get("download_token")
-    ):
-        return await call_next(request)
-
-    # 从 Authorization header 获取 token
-    token = None
-    auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header.removeprefix("Bearer ").strip()
-
-    # SSE 端点也接受 query param 中的 token
-    if token is None:
-        token = request.query_params.get("token")
-
-    if not token:
-        return JSONResponse(status_code=401, content={"detail": "缺少认证 token"})
-
-    payload = verify_token(token)
-    if payload is None:
-        return JSONResponse(status_code=401, content={"detail": "token 无效或已过期"})
-
-    return await call_next(request)
 
 
 # 注册 API 路由
