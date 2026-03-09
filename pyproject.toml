@@ -23,6 +23,7 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "asyncpg>=0.31.0",
     "alembic>=1.18.4",
+    "pwdlib[argon2]>=0.3.0",
 ]
 
 [build-system]
