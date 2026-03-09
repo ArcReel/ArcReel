@@ -4,6 +4,7 @@ import re
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from server.auth import get_current_user
 from server.routers import projects
 
 
@@ -126,6 +127,7 @@ def _client(monkeypatch, fake_pm, fake_calc):
     monkeypatch.setattr(projects, "get_status_calculator", lambda: fake_calc)
 
     app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
     app.include_router(projects.router, prefix="/api/v1")
     return TestClient(app)
 

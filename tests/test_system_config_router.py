@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import lib.gemini_client as gemini_client_module
+from server.auth import get_current_user
 from server.routers import system_config as system_config_router
 
 
@@ -54,6 +55,7 @@ class _FakeWorker:
 def _client(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(system_config_router, "PROJECT_ROOT", tmp_path)
     app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
     app.include_router(system_config_router.router, prefix="/api/v1")
     app.state.generation_worker = _FakeWorker()
     return TestClient(app)

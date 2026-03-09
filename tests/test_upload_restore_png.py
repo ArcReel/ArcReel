@@ -8,6 +8,7 @@ from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
 
 import server.routers.versions as versions_router
+from server.auth import get_current_user
 
 
 class TestUploadRestorePng:
@@ -45,7 +46,7 @@ class TestUploadRestorePng:
         monkeypatch.setattr(versions_router, "pm", pm)
 
         # Switch back to v1 without creating a synthetic new version.
-        result = await versions_router.restore_version(project_name, "characters", char_name, 1)
+        result = await versions_router.restore_version(project_name, "characters", char_name, 1, _user={"sub": "testuser"})
 
         assert result["success"]
         assert result["restored_version"] == 1

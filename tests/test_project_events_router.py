@@ -52,7 +52,7 @@ async def test_stream_project_events_emits_snapshot_and_changes():
     request = _FakeRequest(app)
 
     subscription = await project_events_router._project_events_subscription("demo", request)
-    stream = project_events_router.stream_project_events("demo", request, subscription=subscription)
+    stream = project_events_router.stream_project_events("demo", request, _user={"sub": "testuser"}, subscription=subscription)
 
     snapshot_event = await anext(stream)
     changes_event = await anext(stream)

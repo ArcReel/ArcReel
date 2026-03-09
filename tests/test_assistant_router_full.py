@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from fastapi.sse import ServerSentEvent
 
+from server.auth import get_current_user, get_current_user_flexible
 from tests.factories import make_session_meta
 from server.routers import assistant
 
@@ -80,10 +81,15 @@ class _FakeService:
         return [{"name": "skill-a"}]
 
 
+_FAKE_USER = {"sub": "testuser"}
+
+
 def _client(monkeypatch):
     fake = _FakeService()
     monkeypatch.setattr(assistant, "get_assistant_service", lambda: fake)
     app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
+    app.dependency_overrides[get_current_user_flexible] = lambda: _FAKE_USER
     app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant")
     return TestClient(app)
 

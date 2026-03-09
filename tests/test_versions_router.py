@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from server.auth import get_current_user
 from server.routers import versions
 
 
@@ -69,6 +70,7 @@ def _client(monkeypatch):
     monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
     app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
     app.include_router(versions.router, prefix="/api/v1")
     return TestClient(app), fake_pm
 
@@ -113,6 +115,7 @@ class TestVersionsRouter:
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
         app.include_router(versions.router, prefix="/api/v1")
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
@@ -131,6 +134,7 @@ class TestVersionsRouter:
         )
 
         app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
         app.include_router(versions.router, prefix="/api/v1")
         with TestClient(app) as client:
             resp = client.get("/api/v1/projects/demo/versions/characters/Alice")
