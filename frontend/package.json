@@ -23,7 +23,7 @@
     "@lobehub/icons": "^5.0.1",
     "framer-motion": "^12.34.3",
     "lucide-react": "^0.575.0",
-    "pnpm": "^10.30.2",
+    "pnpm": "^10.31.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "streamdown": "^2.3.0",
