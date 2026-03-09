@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from lib.project_manager import ProjectManager
+from server.auth import get_current_user
 from server.routers import files
 
 
@@ -32,6 +33,7 @@ def _client(monkeypatch, tmp_path):
     monkeypatch.setattr(files, "GeminiClient", _FakeGeminiClient)
 
     app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
     app.include_router(files.router, prefix="/api/v1")
     return TestClient(app), pm
 

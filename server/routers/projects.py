@@ -9,7 +9,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Annotated, Optional, List, Union
+from typing import Annotated, Optional, Union
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -145,25 +145,24 @@ async def create_export_token(
 @router.get("/projects/{name}/export")
 async def export_project_archive(
     name: str,
-    download_token: str = Query(None),
+    download_token: str = Query(...),
     scope: str = Query("full"),
 ):
-    """将项目导出为 ZIP。支持 download_token 认证和 scope 选择。"""
+    """将项目导出为 ZIP。需要 download_token 认证（通过 POST /export/token 获取）。"""
     if scope not in ("full", "current"):
         raise HTTPException(status_code=422, detail="scope 必须为 full 或 current")
 
-    # 验证 download_token（如果提供）
-    if download_token:
-        import jwt as pyjwt
+    # 验证 download_token
+    import jwt as pyjwt
 
-        try:
-            verify_download_token(download_token, name)
-        except pyjwt.ExpiredSignatureError:
-            raise HTTPException(status_code=401, detail="下载链接已过期，请重新导出")
-        except ValueError:
-            raise HTTPException(status_code=403, detail="下载 token 与目标项目不匹配")
-        except pyjwt.InvalidTokenError:
-            raise HTTPException(status_code=401, detail="下载 token 无效")
+    try:
+        verify_download_token(download_token, name)
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="下载链接已过期，请重新导出")
+    except ValueError:
+        raise HTTPException(status_code=403, detail="下载 token 与目标项目不匹配")
+    except pyjwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="下载 token 无效")
 
     try:
         archive_path, download_name = get_archive_service().export_project(name, scope=scope)

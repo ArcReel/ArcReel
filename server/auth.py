@@ -209,10 +209,8 @@ def ensure_auth_password(env_path: Optional[str] = None) -> str:
     return password
 
 
-async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)],
-) -> dict:
-    """标准认证依赖 — 从 Authorization header 提取并验证 JWT token。"""
+def _verify_and_get_payload(token: str) -> dict:
+    """验证 token 并在失败时抛出 401 异常。"""
     payload = verify_token(token)
     if payload is None:
         raise HTTPException(
@@ -221,6 +219,13 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return payload
+
+
+async def get_current_user(
+    token: Annotated[str, Depends(oauth2_scheme)],
+) -> dict:
+    """标准认证依赖 — 从 Authorization header 提取并验证 JWT token。"""
+    return _verify_and_get_payload(token)
 
 
 async def get_current_user_flexible(
@@ -235,11 +240,4 @@ async def get_current_user_flexible(
             detail="缺少认证 token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    payload = verify_token(raw)
-    if payload is None:
-        raise HTTPException(
-            status_code=401,
-            detail="token 无效或已过期",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return payload
+    return _verify_and_get_payload(raw)

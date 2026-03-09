@@ -95,8 +95,10 @@ class TestProjectArchiveRoutes:
         _create_demo_project(pm)
         client = _client(monkeypatch, pm)
 
-        with client:
-            response = client.get("/api/v1/projects/demo/export")
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            token = create_download_token("testuser", "demo")
+            with client:
+                response = client.get(f"/api/v1/projects/demo/export?download_token={token}")
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/zip"
@@ -136,18 +138,20 @@ class TestProjectArchiveRoutes:
         _create_demo_project(pm)
         client = _client(monkeypatch, pm)
 
-        with client:
-            export_response = client.get("/api/v1/projects/demo/export")
-            response = client.post(
-                "/api/v1/projects/import",
-                files={
-                    "file": (
-                        "demo.zip",
-                        export_response.content,
-                        "application/zip",
-                    )
-                },
-            )
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            token = create_download_token("testuser", "demo")
+            with client:
+                export_response = client.get(f"/api/v1/projects/demo/export?download_token={token}")
+                response = client.post(
+                    "/api/v1/projects/import",
+                    files={
+                        "file": (
+                            "demo.zip",
+                            export_response.content,
+                            "application/zip",
+                        )
+                    },
+                )
 
         assert response.status_code == 409
         assert response.json()["detail"] == "检测到项目编号冲突"

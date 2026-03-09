@@ -8,7 +8,6 @@ from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
 
 import server.routers.versions as versions_router
-from server.auth import get_current_user
 
 
 class TestUploadRestorePng:

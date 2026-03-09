@@ -9,11 +9,14 @@ import logging
 import os
 import urllib.parse
 from pathlib import Path
+from typing import Annotated
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Body, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
+
+from server.auth import get_current_user
 
 from lib import PROJECT_ROOT
 from lib.gemini_client import GeminiClient
@@ -63,7 +66,7 @@ async def serve_project_file(project_name: str, path: str):
 
 @router.post("/projects/{project_name}/upload/{upload_type}")
 async def upload_file(
-    project_name: str, upload_type: str, file: UploadFile = File(...), name: str = None
+    project_name: str, upload_type: str, _user: Annotated[dict, Depends(get_current_user)], file: UploadFile = File(...), name: str = None
 ):
     """
     上传文件
@@ -196,7 +199,7 @@ async def upload_file(
 
 
 @router.get("/projects/{project_name}/files")
-async def list_project_files(project_name: str):
+async def list_project_files(project_name: str, _user: Annotated[dict, Depends(get_current_user)]):
     """列出项目中的所有文件"""
     try:
         project_dir = get_project_manager().get_project_path(project_name)
@@ -235,7 +238,7 @@ async def list_project_files(project_name: str):
 
 
 @router.get("/projects/{project_name}/source/{filename}")
-async def get_source_file(project_name: str, filename: str):
+async def get_source_file(project_name: str, filename: str, _user: Annotated[dict, Depends(get_current_user)]):
     """获取 source 文件的文本内容"""
     try:
         project_dir = get_project_manager().get_project_path(project_name)
@@ -266,7 +269,7 @@ async def get_source_file(project_name: str, filename: str):
 
 @router.put("/projects/{project_name}/source/{filename}")
 async def update_source_file(
-    project_name: str, filename: str, content: str = Body(..., media_type="text/plain")
+    project_name: str, filename: str, _user: Annotated[dict, Depends(get_current_user)], content: str = Body(..., media_type="text/plain")
 ):
     """更新或创建 source 文件"""
     try:
@@ -294,7 +297,7 @@ async def update_source_file(
 
 
 @router.delete("/projects/{project_name}/source/{filename}")
-async def delete_source_file(project_name: str, filename: str):
+async def delete_source_file(project_name: str, filename: str, _user: Annotated[dict, Depends(get_current_user)]):
     """删除 source 文件"""
     try:
         project_dir = get_project_manager().get_project_path(project_name)
@@ -325,7 +328,7 @@ async def delete_source_file(project_name: str, filename: str):
 
 
 @router.get("/projects/{project_name}/drafts")
-async def list_drafts(project_name: str):
+async def list_drafts(project_name: str, _user: Annotated[dict, Depends(get_current_user)]):
     """列出项目的所有草稿目录和文件"""
     try:
         project_dir = get_project_manager().get_project_path(project_name)
@@ -404,7 +407,7 @@ def _get_content_mode(project_dir: Path) -> str:
 
 
 @router.get("/projects/{project_name}/drafts/{episode}/step{step_num}")
-async def get_draft_content(project_name: str, episode: int, step_num: int):
+async def get_draft_content(project_name: str, episode: int, step_num: int, _user: Annotated[dict, Depends(get_current_user)]):
     """获取特定步骤的草稿内容"""
     try:
         project_dir = get_project_manager().get_project_path(project_name)
@@ -433,6 +436,7 @@ async def update_draft_content(
     project_name: str,
     episode: int,
     step_num: int,
+    _user: Annotated[dict, Depends(get_current_user)],
     content: str = Body(..., media_type="text/plain"),
 ):
     """更新草稿内容"""
@@ -457,7 +461,7 @@ async def update_draft_content(
 
 
 @router.delete("/projects/{project_name}/drafts/{episode}/step{step_num}")
-async def delete_draft(project_name: str, episode: int, step_num: int):
+async def delete_draft(project_name: str, episode: int, step_num: int, _user: Annotated[dict, Depends(get_current_user)]):
     """删除草稿文件"""
     try:
         project_dir = get_project_manager().get_project_path(project_name)
@@ -485,7 +489,7 @@ async def delete_draft(project_name: str, episode: int, step_num: int):
 
 
 @router.post("/projects/{project_name}/style-image")
-async def upload_style_image(project_name: str, file: UploadFile = File(...)):
+async def upload_style_image(project_name: str, _user: Annotated[dict, Depends(get_current_user)], file: UploadFile = File(...)):
     """
     上传风格参考图并分析风格
 
@@ -543,7 +547,7 @@ async def upload_style_image(project_name: str, file: UploadFile = File(...)):
 
 
 @router.delete("/projects/{project_name}/style-image")
-async def delete_style_image(project_name: str):
+async def delete_style_image(project_name: str, _user: Annotated[dict, Depends(get_current_user)]):
     """
     删除风格参考图及相关字段
     """
@@ -575,7 +579,7 @@ async def delete_style_image(project_name: str):
 
 @router.patch("/projects/{project_name}/style-description")
 async def update_style_description(
-    project_name: str, style_description: str = Body(..., embed=True)
+    project_name: str, _user: Annotated[dict, Depends(get_current_user)], style_description: str = Body(..., embed=True)
 ):
     """
     更新风格描述（手动编辑）
