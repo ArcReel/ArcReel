@@ -10,9 +10,12 @@ import secrets
 import string
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
 import jwt
+from fastapi import Depends, HTTPException, Query
+from fastapi.security import OAuth2PasswordBearer
+from pwdlib import PasswordHash
 
 from lib import PROJECT_ROOT
 
@@ -23,6 +26,16 @@ _cached_token_secret: Optional[str] = None
 
 # Token 有效期：7 天
 TOKEN_EXPIRY_SECONDS = 7 * 24 * 3600
+
+# OAuth2 scheme
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
+oauth2_scheme_optional = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/token", auto_error=False
+)
+
+# 密码哈希
+_password_hash = PasswordHash.recommended()
+_cached_password_hash: Optional[str] = None
 
 
 def generate_password(length: int = 16) -> str:
@@ -119,21 +132,26 @@ def verify_download_token(token: str, project_name: str) -> dict:
     return payload
 
 
+def _get_password_hash() -> str:
+    """获取当前密码的哈希值（缓存）"""
+    global _cached_password_hash
+    if _cached_password_hash is None:
+        raw = os.environ.get("AUTH_PASSWORD", "")
+        _cached_password_hash = _password_hash.hash(raw)
+    return _cached_password_hash
+
+
 def check_credentials(username: str, password: str) -> bool:
-    """校验用户名密码
+    """校验用户名密码（使用哈希比对）
 
     从 AUTH_USERNAME（默认 admin）和 AUTH_PASSWORD 环境变量读取。
-
-    Args:
-        username: 输入的用户名
-        password: 输入的密码
-
-    Returns:
-        凭据是否正确
+    即使用户名不匹配也执行哈希验证，防止时序攻击。
     """
     expected_username = os.environ.get("AUTH_USERNAME", "admin")
-    expected_password = os.environ.get("AUTH_PASSWORD", "")
-    return secrets.compare_digest(username, expected_username) and secrets.compare_digest(password, expected_password)
+    pw_hash = _get_password_hash()
+    username_ok = secrets.compare_digest(username, expected_username)
+    password_ok = _password_hash.verify(password, pw_hash)
+    return username_ok and password_ok
 
 
 def ensure_auth_password(env_path: Optional[str] = None) -> str:
@@ -189,3 +207,39 @@ def ensure_auth_password(env_path: Optional[str] = None) -> str:
         "已自动生成认证密码，请查看 .env 文件中的 AUTH_PASSWORD 字段"
     )
     return password
+
+
+async def get_current_user(
+    token: Annotated[str, Depends(oauth2_scheme)],
+) -> dict:
+    """标准认证依赖 — 从 Authorization header 提取并验证 JWT token。"""
+    payload = verify_token(token)
+    if payload is None:
+        raise HTTPException(
+            status_code=401,
+            detail="token 无效或已过期",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload
+
+
+async def get_current_user_flexible(
+    token: Annotated[str | None, Depends(oauth2_scheme_optional)] = None,
+    query_token: str | None = Query(None, alias="token"),
+) -> dict:
+    """SSE 认证依赖 — 同时支持 Authorization header 和 ?token= query param。"""
+    raw = token or query_token
+    if not raw:
+        raise HTTPException(
+            status_code=401,
+            detail="缺少认证 token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    payload = verify_token(raw)
+    if payload is None:
+        raise HTTPException(
+            status_code=401,
+            detail="token 无效或已过期",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload
