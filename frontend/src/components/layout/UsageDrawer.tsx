@@ -73,8 +73,6 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
     if (open) loadCalls();
   }, [open, loadCalls]);
 
-  if (!open) return null;
-
   const totalPages = Math.ceil(total / pageSize);
   const totalCost = stats?.total_cost ?? 0;
 
