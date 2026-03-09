@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional, List, Union
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
@@ -22,6 +22,7 @@ from lib import PROJECT_ROOT
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator
+from server.auth import create_download_token, verify_download_token, verify_token
 from server.services.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
@@ -119,11 +120,53 @@ async def import_project_archive(
             _cleanup_temp_file(upload_path)
 
 
-@router.get("/projects/{name}/export")
-async def export_project_archive(name: str):
-    """将完整项目导出为 ZIP。"""
+@router.post("/projects/{name}/export/token")
+async def create_export_token(name: str, request: Request):
+    """签发短时效下载 token，用于浏览器原生下载认证。"""
     try:
-        archive_path, download_name = get_archive_service().export_project(name)
+        if not get_project_manager().project_exists(name):
+            raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在或未初始化")
+
+        # 从 Authorization header 解析用户名
+        auth_header = request.headers.get("authorization", "")
+        token = auth_header.removeprefix("Bearer ").strip()
+        payload = verify_token(token)
+        username = payload["sub"] if payload else "anonymous"
+
+        download_token = create_download_token(username, name)
+        return {"download_token": download_token, "expires_in": 300}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/projects/{name}/export")
+async def export_project_archive(
+    name: str,
+    download_token: str = Query(None),
+    scope: str = Query("full"),
+):
+    """将项目导出为 ZIP。支持 download_token 认证和 scope 选择。"""
+    if scope not in ("full", "current"):
+        raise HTTPException(status_code=422, detail="scope 必须为 full 或 current")
+
+    # 验证 download_token（如果提供）
+    if download_token:
+        import jwt as pyjwt
+
+        try:
+            verify_download_token(download_token, name)
+        except pyjwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="下载链接已过期，请重新导出")
+        except ValueError:
+            raise HTTPException(status_code=403, detail="下载 token 与目标项目不匹配")
+        except pyjwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="下载 token 无效")
+
+    try:
+        archive_path, download_name = get_archive_service().export_project(name, scope=scope)
         return FileResponse(
             archive_path,
             media_type="application/zip",

@@ -305,6 +305,22 @@ class API {
     };
   }
 
+  static async requestExportToken(
+    projectName: string
+  ): Promise<{ download_token: string; expires_in: number }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/export/token`, {
+      method: "POST",
+    });
+  }
+
+  static getExportDownloadUrl(
+    projectName: string,
+    downloadToken: string,
+    scope: "full" | "current" = "full"
+  ): string {
+    return `${API_BASE}/projects/${encodeURIComponent(projectName)}/export?download_token=${encodeURIComponent(downloadToken)}&scope=${encodeURIComponent(scope)}`;
+  }
+
   static async importProject(
     file: File,
     conflictPolicy: ImportConflictPolicy = "prompt"

@@ -23,6 +23,28 @@ vi.mock("./WorkspaceNotificationsDrawer", () => ({
     open ? <div data-testid="notifications-drawer" /> : null,
 }));
 
+vi.mock("./ExportScopeDialog", () => ({
+  ExportScopeDialog: ({
+    open,
+    onSelect,
+  }: {
+    open: boolean;
+    onClose: () => void;
+    onSelect: (scope: "current" | "full") => void;
+    anchorRef: React.RefObject<HTMLElement | null>;
+  }) =>
+    open ? (
+      <div data-testid="export-scope-dialog">
+        <button data-testid="scope-current" onClick={() => onSelect("current")}>
+          仅当前版本
+        </button>
+        <button data-testid="scope-full" onClick={() => onSelect("full")}>
+          全部数据
+        </button>
+      </div>
+    ) : null,
+}));
+
 function renderHeader() {
   const { hook } = memoryLocation({ path: "/characters" });
   return render(
@@ -100,7 +122,7 @@ describe("GlobalHeader", () => {
     expect(await screen.findByTestId("notifications-drawer")).toBeInTheDocument();
   });
 
-  it("exports the current project zip", async () => {
+  it("exports the current project zip via browser-native download", async () => {
     vi.spyOn(API, "getUsageStats").mockResolvedValue({
       total_cost: 0,
       image_count: 0,
@@ -108,17 +130,11 @@ describe("GlobalHeader", () => {
       failed_count: 0,
       total_count: 0,
     });
-    vi.spyOn(API, "exportProject").mockResolvedValue({
-      blob: new Blob(["zip"]),
-      filename: "demo-20260302-170000.zip",
+    vi.spyOn(API, "requestExportToken").mockResolvedValue({
+      download_token: "test-download-token",
+      expires_in: 300,
     });
-    const createObjectURL = vi
-      .spyOn(URL, "createObjectURL")
-      .mockReturnValue("blob:demo");
-    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(() => {});
+    const windowOpen = vi.spyOn(window, "open").mockImplementation(() => null);
 
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -133,13 +149,20 @@ describe("GlobalHeader", () => {
     });
 
     renderHeader();
+    // Click export button to open dialog
     screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
 
+    // Wait for dialog to appear then click "仅当前版本"
+    const scopeBtn = await screen.findByTestId("scope-current");
+    scopeBtn.click();
+
     await waitFor(() => {
-      expect(API.exportProject).toHaveBeenCalledWith("demo");
+      expect(API.requestExportToken).toHaveBeenCalledWith("demo");
     });
-    expect(createObjectURL).toHaveBeenCalled();
-    expect(clickSpy).toHaveBeenCalled();
+    expect(windowOpen).toHaveBeenCalledWith(
+      expect.stringContaining("download_token=test-download-token"),
+      "_blank",
+    );
     expect(useAppStore.getState().toast?.text).toContain("开始下载");
   });
 
@@ -151,7 +174,7 @@ describe("GlobalHeader", () => {
       failed_count: 0,
       total_count: 0,
     });
-    vi.spyOn(API, "exportProject").mockRejectedValue(new Error("network"));
+    vi.spyOn(API, "requestExportToken").mockRejectedValue(new Error("network"));
 
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -167,6 +190,9 @@ describe("GlobalHeader", () => {
 
     renderHeader();
     screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+
+    const scopeBtn = await screen.findByTestId("scope-full");
+    scopeBtn.click();
 
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toContain("导出失败");

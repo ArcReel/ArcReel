@@ -163,6 +163,69 @@ class TestEnsureAuthPassword:
             # 原有内容应保留
             assert "SOME_VAR=hello" in content
 
+class TestDownloadToken:
+    def setup_method(self):
+        auth_module._cached_token_secret = None
+
+    def test_create_and_verify_download_token(self):
+        """签发并验证下载 token"""
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            token = auth_module.create_download_token("admin", "my-project")
+            payload = auth_module.verify_download_token(token, "my-project")
+            assert payload["sub"] == "admin"
+            assert payload["project"] == "my-project"
+            assert payload["purpose"] == "download"
+
+    def test_verify_download_token_wrong_project(self):
+        """项目不匹配应抛出 ValueError"""
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            token = auth_module.create_download_token("admin", "project-a")
+            import pytest
+            with pytest.raises(ValueError, match="project 不匹配"):
+                auth_module.verify_download_token(token, "project-b")
+
+    def test_verify_download_token_expired(self):
+        """过期 token 应抛出 ExpiredSignatureError"""
+        import jwt
+        import pytest
+
+        secret = "test-secret-key-that-is-at-least-32-bytes"
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": secret}):
+            payload = {
+                "sub": "admin",
+                "project": "demo",
+                "purpose": "download",
+                "iat": time.time() - 600,
+                "exp": time.time() - 1,
+            }
+            expired_token = jwt.encode(payload, secret, algorithm="HS256")
+            with pytest.raises(jwt.ExpiredSignatureError):
+                auth_module.verify_download_token(expired_token, "demo")
+
+    def test_verify_download_token_wrong_purpose(self):
+        """purpose 不匹配应抛出 ValueError"""
+        import jwt
+        import pytest
+
+        secret = "test-secret-key-that-is-at-least-32-bytes"
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": secret}):
+            payload = {
+                "sub": "admin",
+                "project": "demo",
+                "purpose": "other",
+                "iat": time.time(),
+                "exp": time.time() + 300,
+            }
+            token = jwt.encode(payload, secret, algorithm="HS256")
+            with pytest.raises(ValueError, match="purpose 不匹配"):
+                auth_module.verify_download_token(token, "demo")
+
+
+class TestEnsureAuthPassword:
+    def setup_method(self):
+        """每个测试前重置缓存"""
+        auth_module._cached_token_secret = None
+
     def test_env_file_not_exist_no_error(self, tmp_path):
         """.env 文件不存在时不抛异常，并创建新文件"""
         env_file = tmp_path / "nonexistent" / ".env"

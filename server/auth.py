@@ -84,6 +84,41 @@ def verify_token(token: str) -> Optional[dict]:
         return None
 
 
+DOWNLOAD_TOKEN_EXPIRY_SECONDS = 300  # 5 分钟
+
+
+def create_download_token(username: str, project_name: str) -> str:
+    """签发短时效下载 token，用于浏览器原生下载认证"""
+    now = time.time()
+    payload = {
+        "sub": username,
+        "project": project_name,
+        "purpose": "download",
+        "iat": now,
+        "exp": now + DOWNLOAD_TOKEN_EXPIRY_SECONDS,
+    }
+    return jwt.encode(payload, get_token_secret(), algorithm="HS256")
+
+
+def verify_download_token(token: str, project_name: str) -> dict:
+    """验证下载 token
+
+    Returns:
+        成功返回 payload dict
+
+    Raises:
+        jwt.ExpiredSignatureError: token 已过期
+        jwt.InvalidTokenError: token 无效
+        ValueError: purpose 或 project 不匹配
+    """
+    payload = jwt.decode(token, get_token_secret(), algorithms=["HS256"])
+    if payload.get("purpose") != "download":
+        raise ValueError("token purpose 不匹配")
+    if payload.get("project") != project_name:
+        raise ValueError("token project 不匹配")
+    return payload
+
+
 def check_credentials(username: str, password: str) -> bool:
     """校验用户名密码
 

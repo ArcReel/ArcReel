@@ -164,6 +164,10 @@ async def auth_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
 
+    # 导出端点：携带 download_token 时放行，交由端点自身验证
+    if "/export" in path and request.query_params.get("download_token"):
+        return await call_next(request)
+
     # 从 Authorization header 获取 token
     token = None
     auth_header = request.headers.get("authorization", "")

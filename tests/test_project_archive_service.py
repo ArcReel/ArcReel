@@ -415,3 +415,118 @@ class TestProjectArchiveService:
 
         monkeypatch.setattr(project_archive_module.shutil, "move", original_move)
         assert pm.load_project("demo")["style"] == "Stale"
+
+
+class TestExportScope:
+    def _create_project_with_versions(self, pm: ProjectManager) -> Path:
+        """创建带有 versions 历史的项目"""
+        project_dir = _create_project(pm)
+
+        # 添加版本历史文件
+        _write_bytes(project_dir / "versions" / "storyboards" / "E1S01_v1.png", b"png-v1")
+        _write_bytes(project_dir / "versions" / "storyboards" / "E1S01_v2.png", b"png-v2")
+        _write_bytes(project_dir / "versions" / "videos" / "E1S01_v1.mp4", b"mp4-v1")
+        _write_bytes(project_dir / "versions" / "characters" / "Hero_v1.png", b"char-v1")
+        _write_bytes(project_dir / "versions" / "clues" / "Key_v1.png", b"clue-v1")
+
+        # 创建 versions/versions.json
+        versions_data = {
+            "storyboards": {
+                "E1S01": {
+                    "current_version": 3,
+                    "versions": [
+                        {"version": 1, "prompt": "p1", "created_at": "2024-01-01"},
+                        {"version": 2, "prompt": "p2", "created_at": "2024-01-02"},
+                        {"version": 3, "prompt": "p3", "created_at": "2024-01-03"},
+                    ],
+                }
+            },
+            "videos": {
+                "E1S01": {
+                    "current_version": 2,
+                    "versions": [
+                        {"version": 1, "prompt": "vp1", "created_at": "2024-01-01"},
+                        {"version": 2, "prompt": "vp2", "created_at": "2024-01-02"},
+                    ],
+                }
+            },
+        }
+        _write_json(project_dir / "versions" / "versions.json", versions_data)
+        return project_dir
+
+    def test_export_scope_full_includes_version_history(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        self._create_project_with_versions(pm)
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope="full")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            assert "demo/versions/storyboards/E1S01_v1.png" in names
+            assert "demo/versions/storyboards/E1S01_v2.png" in names
+            assert "demo/versions/videos/E1S01_v1.mp4" in names
+            assert "demo/versions/characters/Hero_v1.png" in names
+            assert "demo/versions/clues/Key_v1.png" in names
+
+    def test_export_scope_current_skips_version_history_files(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        self._create_project_with_versions(pm)
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope="current")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            # 历史版本文件不应包含
+            assert "demo/versions/storyboards/E1S01_v1.png" not in names
+            assert "demo/versions/storyboards/E1S01_v2.png" not in names
+            assert "demo/versions/videos/E1S01_v1.mp4" not in names
+            assert "demo/versions/characters/Hero_v1.png" not in names
+            assert "demo/versions/clues/Key_v1.png" not in names
+            # 主资源应保留
+            assert "demo/storyboards/scene_E1S01.png" in names
+            assert "demo/videos/scene_E1S01.mp4" in names
+            # versions.json 应保留（裁剪后）
+            assert "demo/versions/versions.json" in names
+
+    def test_export_scope_current_trims_versions_json(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        self._create_project_with_versions(pm)
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope="current")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            versions_content = json.loads(archive.read("demo/versions/versions.json"))
+            # storyboards.E1S01 应只保留 version 3
+            sb_versions = versions_content["storyboards"]["E1S01"]["versions"]
+            assert len(sb_versions) == 1
+            assert sb_versions[0]["version"] == 3
+            assert sb_versions[0]["prompt"] == "p3"
+            # videos.E1S01 应只保留 version 2
+            vid_versions = versions_content["videos"]["E1S01"]["versions"]
+            assert len(vid_versions) == 1
+            assert vid_versions[0]["version"] == 2
+
+    def test_export_scope_current_manifest_scope_field(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        self._create_project_with_versions(pm)
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope="current")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            assert manifest["scope"] == "current"
+
+    def test_export_scope_full_manifest_scope_field(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        self._create_project_with_versions(pm)
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope="full")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            assert manifest["scope"] == "full"

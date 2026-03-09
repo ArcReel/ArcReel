@@ -8,6 +8,8 @@ import { useUsageStore } from "@/stores/usage-store";
 import { TaskHud } from "@/components/task-hud/TaskHud";
 import { UsageDrawer } from "./UsageDrawer";
 import { WorkspaceNotificationsDrawer } from "./WorkspaceNotificationsDrawer";
+import { ExportScopeDialog } from "./ExportScopeDialog";
+import type { ExportScope } from "./ExportScopeDialog";
 import { API } from "@/api";
 import type { WorkspaceNotification } from "@/types";
 
@@ -98,9 +100,11 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const [usageDrawerOpen, setUsageDrawerOpen] = useState(false);
   const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
   const [exportingProject, setExportingProject] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const usageAnchorRef = useRef<HTMLDivElement>(null);
   const notificationAnchorRef = useRef<HTMLDivElement>(null);
   const taskHudAnchorRef = useRef<HTMLDivElement>(null);
+  const exportAnchorRef = useRef<HTMLDivElement>(null);
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
 
   const currentPhase = currentProjectData?.status?.current_phase;
@@ -152,21 +156,15 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     });
   };
 
-  const handleExportProject = async () => {
+  const handleExportProject = async (scope: ExportScope) => {
     if (!currentProjectName || exportingProject) return;
 
+    setExportDialogOpen(false);
     setExportingProject(true);
     try {
-      const { blob, filename } = await API.exportProject(currentProjectName);
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-
+      const { download_token } = await API.requestExportToken(currentProjectName);
+      const url = API.getExportDownloadUrl(currentProjectName, download_token, scope);
+      window.open(url, "_blank");
       useAppStore.getState().pushToast("项目 ZIP 已开始下载", "success");
     } catch (err) {
       useAppStore
@@ -295,23 +293,31 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
         </div>
 
 
-        <button
-          type="button"
-          onClick={() => void handleExportProject()}
-          disabled={!currentProjectName || exportingProject}
-          className="inline-flex items-center gap-1 rounded-md border border-gray-700 px-2 py-1 text-xs text-gray-300 transition-colors hover:border-gray-500 hover:bg-gray-800 hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
-          title="导出当前项目 ZIP"
-          aria-label="导出当前项目 ZIP"
-        >
-          {exportingProject ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Download className="h-3.5 w-3.5" />
-          )}
-          <span className="hidden lg:inline">
-            {exportingProject ? "导出中..." : "导出 ZIP"}
-          </span>
-        </button>
+        <div className="relative" ref={exportAnchorRef}>
+          <button
+            type="button"
+            onClick={() => setExportDialogOpen(!exportDialogOpen)}
+            disabled={!currentProjectName || exportingProject}
+            className="inline-flex items-center gap-1 rounded-md border border-gray-700 px-2 py-1 text-xs text-gray-300 transition-colors hover:border-gray-500 hover:bg-gray-800 hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
+            title="导出当前项目 ZIP"
+            aria-label="导出当前项目 ZIP"
+          >
+            {exportingProject ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+            <span className="hidden lg:inline">
+              {exportingProject ? "导出中..." : "导出 ZIP"}
+            </span>
+          </button>
+          <ExportScopeDialog
+            open={exportDialogOpen}
+            onClose={() => setExportDialogOpen(false)}
+            onSelect={(scope) => void handleExportProject(scope)}
+            anchorRef={exportAnchorRef}
+          />
+        </div>
 
         {/* Settings (placeholder) */}
         <button

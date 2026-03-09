@@ -1,12 +1,15 @@
 import json
+import os
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.project_manager import ProjectManager
 from server.routers import projects
+from server.auth import create_download_token, get_token_secret, create_token
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -148,3 +151,92 @@ class TestProjectArchiveRoutes:
         assert response.status_code == 409
         assert response.json()["detail"] == "检测到项目编号冲突"
         assert response.json()["conflict_project_name"] == "demo"
+
+    def test_export_token_endpoint(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_demo_project(pm)
+        client = _client(monkeypatch, pm)
+
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            jwt_token = create_token("admin")
+            with client:
+                response = client.post(
+                    "/api/v1/projects/demo/export/token",
+                    headers={"Authorization": f"Bearer {jwt_token}"},
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "download_token" in data
+        assert data["expires_in"] == 300
+
+    def test_export_token_endpoint_project_not_found(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        client = _client(monkeypatch, pm)
+
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            jwt_token = create_token("admin")
+            with client:
+                response = client.post(
+                    "/api/v1/projects/nonexistent/export/token",
+                    headers={"Authorization": f"Bearer {jwt_token}"},
+                )
+
+        assert response.status_code == 404
+
+    def test_export_with_download_token(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_demo_project(pm)
+        client = _client(monkeypatch, pm)
+
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            download_token = create_download_token("admin", "demo")
+            with client:
+                response = client.get(
+                    f"/api/v1/projects/demo/export?download_token={download_token}",
+                )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/zip"
+
+    def test_export_with_wrong_project_token(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_demo_project(pm)
+        client = _client(monkeypatch, pm)
+
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            download_token = create_download_token("admin", "other-project")
+            with client:
+                response = client.get(
+                    f"/api/v1/projects/demo/export?download_token={download_token}",
+                )
+
+        assert response.status_code == 403
+
+    def test_export_scope_current(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_demo_project(pm)
+        client = _client(monkeypatch, pm)
+
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            download_token = create_download_token("admin", "demo")
+            with client:
+                response = client.get(
+                    f"/api/v1/projects/demo/export?download_token={download_token}&scope=current",
+                )
+
+        assert response.status_code == 200
+
+    def test_export_scope_invalid(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_demo_project(pm)
+        client = _client(monkeypatch, pm)
+
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            download_token = create_download_token("admin", "demo")
+            with client:
+                response = client.get(
+                    f"/api/v1/projects/demo/export?download_token={download_token}&scope=invalid",
+                )
+
+        assert response.status_code == 422

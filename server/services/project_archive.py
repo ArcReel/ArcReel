@@ -62,12 +62,18 @@ class ProjectArchiveService:
         self.project_manager = project_manager
         self.validator = DataValidator(projects_root=str(project_manager.projects_root))
 
-    def export_project(self, project_name: str) -> tuple[Path, str]:
+    # scope=current 时需跳过的 versions 子目录
+    _VERSION_HISTORY_DIRS = frozenset({
+        "storyboards", "videos", "characters", "clues",
+    })
+
+    def export_project(self, project_name: str, *, scope: str = "full") -> tuple[Path, str]:
         if not self.project_manager.project_exists(project_name):
             raise FileNotFoundError(f"项目 '{project_name}' 不存在或未初始化")
 
         project_dir = self.project_manager.get_project_path(project_name)
         project = self.project_manager.load_project(project_name)
+        is_current = scope == "current"
 
         fd, archive_path_str = tempfile.mkstemp(
             prefix=f"{project_name}-",
@@ -86,7 +92,7 @@ class ProjectArchiveService:
                 archive.writestr(
                     f"{project_name}/{ARCHIVE_MANIFEST_NAME}",
                     json.dumps(
-                        self._build_archive_manifest(project_name, project),
+                        self._build_archive_manifest(project_name, project, scope=scope),
                         ensure_ascii=False,
                         indent=2,
                     ),
@@ -101,6 +107,16 @@ class ProjectArchiveService:
                         if not name.startswith(".")
                         and not (current_path / name).is_symlink()
                     ]
+
+                    # scope=current: 跳过 versions/ 下的历史资源子目录
+                    if is_current:
+                        relative_dir = current_path.relative_to(project_dir)
+                        if relative_dir.parts == ("versions",):
+                            dirnames[:] = [
+                                d for d in dirnames
+                                if d not in self._VERSION_HISTORY_DIRS
+                            ]
+
                     visible_files = [
                         name
                         for name in sorted(filenames)
@@ -117,6 +133,18 @@ class ProjectArchiveService:
 
                     for filename in visible_files:
                         source_path = current_path / filename
+
+                        # scope=current: 裁剪 versions/versions.json
+                        if (
+                            is_current
+                            and relative_dir.parts == ("versions",)
+                            and filename == "versions.json"
+                        ):
+                            trimmed = self._trim_versions_json(source_path)
+                            archive_name = Path(project_name, relative_dir, filename).as_posix()
+                            archive.writestr(archive_name, trimmed)
+                            continue
+
                         archive_name = Path(project_name, relative_dir, filename).as_posix()
                         archive.write(source_path, arcname=archive_name)
         except Exception:
@@ -127,6 +155,28 @@ class ProjectArchiveService:
             f"{project_name}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
         )
         return archive_path, download_name
+
+    @staticmethod
+    def _trim_versions_json(versions_path: Path) -> str:
+        """裁剪 versions.json，每个资源只保留 current_version 对应的版本记录。"""
+        with open(versions_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        for resource_type_data in data.values():
+            if not isinstance(resource_type_data, dict):
+                continue
+            for resource_id, resource_info in resource_type_data.items():
+                if not isinstance(resource_info, dict):
+                    continue
+                current_ver = resource_info.get("current_version")
+                versions_list = resource_info.get("versions", [])
+                if current_ver is not None and isinstance(versions_list, list):
+                    resource_info["versions"] = [
+                        v for v in versions_list
+                        if isinstance(v, dict) and v.get("version") == current_ver
+                    ]
+
+        return json.dumps(data, ensure_ascii=False, indent=2)
 
     def import_project_archive(
         self,
@@ -214,13 +264,15 @@ class ProjectArchiveService:
         self,
         project_name: str,
         project: dict[str, Any],
+        *,
+        scope: str = "full",
     ) -> dict[str, Any]:
         return {
             "format_version": ARCHIVE_FORMAT_VERSION,
             "project_name": project_name,
             "project_title": project.get("title", project_name),
             "content_mode": project.get("content_mode", ""),
-            "scope": "full",
+            "scope": scope,
             "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
 
