@@ -1,5 +1,4 @@
 import { useEffect, type RefObject } from "react";
-import { createPortal } from "react-dom";
 import {
   ArrowUpRight,
   BellRing,
@@ -10,8 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
-import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
-import { UI_LAYERS } from "@/utils/ui-layers";
+import { Popover } from "@/components/ui/Popover";
 import type { WorkspaceNotification } from "@/types";
 
 interface WorkspaceNotificationsDrawerProps {
@@ -34,28 +32,25 @@ export function WorkspaceNotificationsDrawer({
   const removeWorkspaceNotification = useAppStore(
     (s) => s.removeWorkspaceNotification
   );
-  const { panelRef, positionStyle } = useAnchoredPopover({
-    open,
-    anchorRef,
-    onClose,
-    sideOffset: 10,
-  });
-
   useEffect(() => {
     if (open) {
       markAllWorkspaceNotificationsRead();
     }
   }, [markAllWorkspaceNotificationsRead, open]);
 
-  if (!open || typeof document === "undefined") return null;
+  if (!open) return null;
 
   const unreadCount = workspaceNotifications.filter((item) => !item.read).length;
 
-  return createPortal(
-    <div
-      ref={panelRef}
-      className={`fixed isolate w-[24rem] overflow-hidden rounded-[1.35rem] border border-amber-200/10 bg-slate-950/96 shadow-[0_24px_80px_rgba(15,23,42,0.55)] backdrop-blur-xl ${UI_LAYERS.workspacePopover}`}
-      style={positionStyle}
+  return (
+    <Popover
+      open={open}
+      onClose={onClose}
+      anchorRef={anchorRef}
+      sideOffset={10}
+      width="w-[24rem]"
+      backgroundColor="transparent"
+      className="overflow-hidden rounded-[1.35rem] border border-amber-200/10 bg-slate-950/96 shadow-[0_24px_80px_rgba(15,23,42,0.55)] backdrop-blur-xl"
     >
       <div className="border-b border-white/8 bg-[radial-gradient(circle_at_top_right,rgba(251,191,36,0.16),transparent_42%),radial-gradient(circle_at_top_left,rgba(56,189,248,0.12),transparent_36%)] px-4 py-3">
         <div className="flex items-center justify-between gap-3">
@@ -162,8 +157,7 @@ export function WorkspaceNotificationsDrawer({
           </div>
         </div>
       )}
-    </div>,
-    document.body,
+    </Popover>
   );
 }
 

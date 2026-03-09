@@ -1,12 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { createPortal } from "react-dom";
 import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRightClose } from "lucide-react";
-import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
-import { UI_LAYERS } from "@/utils/ui-layers";
+import { Popover } from "@/components/ui/Popover";
 import { ContextBanner } from "./ContextBanner";
 import { PendingQuestionWizard } from "./PendingQuestionWizard";
 import { SlashCommandMenu } from "./SlashCommandMenu";
@@ -34,12 +32,6 @@ function SessionSelector({
   const { sessions, currentSessionId, isDraftSession } = useAssistantStore();
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const { panelRef, positionStyle } = useAnchoredPopover({
-    open,
-    anchorRef: dropdownRef,
-    onClose: () => setOpen(false),
-    sideOffset: 4,
-  });
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const displayTitle = isDraftSession ? "新会话" : (currentSession?.title || formatTime(currentSession?.created_at));
@@ -57,14 +49,15 @@ function SessionSelector({
         <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
-      {open && sessions.length > 0 && typeof document !== "undefined" && createPortal(
-        <div
-          ref={panelRef}
-          className={`fixed w-64 rounded-lg border border-gray-700 shadow-xl ${UI_LAYERS.assistantLocalPopover}`}
-          style={{
-            ...positionStyle,
-            backgroundColor: "rgb(17 24 39)",
-          }}
+      {sessions.length > 0 && (
+        <Popover
+          open={open}
+          onClose={() => setOpen(false)}
+          anchorRef={dropdownRef}
+          sideOffset={4}
+          width="w-64"
+          layer="assistantLocalPopover"
+          className="rounded-lg border border-gray-700 shadow-xl"
         >
           <div className="max-h-60 overflow-y-auto py-1">
             {sessions.map((session) => {
@@ -99,8 +92,7 @@ function SessionSelector({
               );
             })}
           </div>
-        </div>,
-        document.body,
+        </Popover>
       )}
     </div>
   );

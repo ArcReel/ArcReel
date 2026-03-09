@@ -1,8 +1,7 @@
-import { createPortal } from "react-dom";
 import { useState, useRef, type RefObject } from "react";
 import { User } from "lucide-react";
 import { API } from "@/api";
-import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
+import { Popover } from "@/components/ui/Popover";
 import { useAppStore } from "@/stores/app-store";
 import type { Character } from "@/types";
 
@@ -45,25 +44,18 @@ function AvatarPopover({
   anchorRef: RefObject<HTMLElement | null>;
 }) {
   const mediaRevision = useAppStore((s) => s.mediaRevision);
-  const { panelRef, positionStyle } = useAnchoredPopover({
-    open: true,
-    anchorRef,
-    align: "center",
-    sideOffset: 6,
-  });
 
   const firstLine = character.description?.split("\n")[0] ?? "";
 
-  if (typeof document === "undefined") return null;
-
-  return createPortal(
-    <div
-      ref={panelRef}
-      className="pointer-events-none fixed z-50 w-[26rem] max-w-[calc(100vw-1.5rem)] rounded-lg border border-gray-700 p-2 shadow-xl"
-      style={{
-        ...positionStyle,
-        backgroundColor: "rgb(17 24 39)",
-      }}
+  return (
+    <Popover
+      open
+      anchorRef={anchorRef}
+      align="center"
+      sideOffset={6}
+      width="w-[26rem]"
+      layer="modal"
+      className="pointer-events-none max-w-[calc(100vw-1.5rem)] rounded-lg border border-gray-700 p-2 shadow-xl"
     >
       <div className="flex items-start gap-2.5">
         {character.character_sheet ? (
@@ -86,8 +78,7 @@ function AvatarPopover({
           )}
         </div>
       </div>
-    </div>,
-    document.body,
+    </Popover>
   );
 }
 

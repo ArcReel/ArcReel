@@ -1,10 +1,8 @@
 import { useState, useEffect, useCallback, type RefObject } from "react";
-import { createPortal } from "react-dom";
 import { X, Image, Video, AlertCircle, DollarSign, ChevronLeft, ChevronRight } from "lucide-react";
 import { useUsageStore } from "@/stores/usage-store";
 import { API } from "@/api";
-import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
-import { UI_LAYERS } from "@/utils/ui-layers";
+import { Popover } from "@/components/ui/Popover";
 
 // ---------------------------------------------------------------------------
 // UsageDrawer — 费用明细抽屉面板
@@ -36,12 +34,6 @@ interface UsageCall {
 export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDrawerProps) {
   const { stats, calls, total, page, pageSize, setStats, setCalls, setPage, setLoading } = useUsageStore();
   const [callsLoading, setCallsLoading] = useState(false);
-  const { panelRef, positionStyle } = useAnchoredPopover({
-    open,
-    anchorRef,
-    onClose,
-    sideOffset: 8,
-  });
 
   // 加载费用统计
   useEffect(() => {
@@ -81,19 +73,18 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
     if (open) loadCalls();
   }, [open, loadCalls]);
 
-  if (!open || typeof document === "undefined") return null;
+  if (!open) return null;
 
   const totalPages = Math.ceil(total / pageSize);
   const totalCost = stats?.total_cost ?? 0;
 
-  return createPortal(
-    <div
-      ref={panelRef}
-      className={`fixed w-96 isolate rounded-xl border border-gray-700 shadow-2xl ${UI_LAYERS.workspacePopover}`}
-      style={{
-        ...positionStyle,
-        backgroundColor: "rgb(17 24 39)",
-      }}
+  return (
+    <Popover
+      open={open}
+      onClose={onClose}
+      anchorRef={anchorRef}
+      width="w-96"
+      className="rounded-xl border border-gray-700 shadow-2xl"
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
@@ -197,8 +188,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
           </div>
         </div>
       )}
-    </div>,
-    document.body,
+    </Popover>
   );
 }
 

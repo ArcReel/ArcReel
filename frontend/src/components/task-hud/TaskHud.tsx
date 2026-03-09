@@ -7,6 +7,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem } from "@/types";
 import { UI_LAYERS } from "@/utils/ui-layers";
+import { POPOVER_BG } from "@/components/ui/Popover";
 
 // ---------------------------------------------------------------------------
 // Task status icon — visual indicator per task state
@@ -280,7 +281,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
           className={`fixed w-80 isolate rounded-lg border border-gray-800 shadow-xl ${UI_LAYERS.workspacePopover}`}
           style={{
             ...positionStyle,
-            backgroundColor: "rgb(17 24 39)",
+            backgroundColor: POPOVER_BG,
           }}
         >
           {/* 统计栏 */}

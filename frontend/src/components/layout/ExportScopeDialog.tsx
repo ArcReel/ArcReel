@@ -1,5 +1,6 @@
-import { useRef, useEffect } from "react";
 import { Package, History } from "lucide-react";
+import { Popover } from "@/components/ui/Popover";
+import type { RefObject } from "react";
 
 export type ExportScope = "current" | "full";
 
@@ -7,7 +8,7 @@ interface ExportScopeDialogProps {
   open: boolean;
   onClose: () => void;
   onSelect: (scope: ExportScope) => void;
-  anchorRef: React.RefObject<HTMLElement | null>;
+  anchorRef: RefObject<HTMLElement | null>;
 }
 
 export function ExportScopeDialog({
@@ -16,30 +17,13 @@ export function ExportScopeDialog({
   onSelect,
   anchorRef,
 }: ExportScopeDialogProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (
-        panelRef.current &&
-        !panelRef.current.contains(e.target as Node) &&
-        anchorRef.current &&
-        !anchorRef.current.contains(e.target as Node)
-      ) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open, onClose, anchorRef]);
-
-  if (!open) return null;
-
   return (
-    <div
-      ref={panelRef}
-      className="absolute right-0 top-full z-50 mt-2 w-72 rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-xl"
+    <Popover
+      open={open}
+      onClose={onClose}
+      anchorRef={anchorRef}
+      width="w-72"
+      className="rounded-lg border border-gray-700 p-3 shadow-xl"
     >
       <p className="mb-3 text-xs font-medium text-gray-300">选择导出范围</p>
       <div className="flex flex-col gap-2">
@@ -75,6 +59,6 @@ export function ExportScopeDialog({
           </div>
         </button>
       </div>
-    </div>
+    </Popover>
   );
 }
