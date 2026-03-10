@@ -100,6 +100,7 @@ class NarrationSegment(BaseModel):
     transition_to_next: Literal["cut", "fade", "dissolve"] = Field(
         default="cut", description="转场类型"
     )
+    note: Optional[str] = Field(default=None, description="用户备注（不参与生成）")
     generated_assets: GeneratedAssets = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
@@ -148,6 +149,7 @@ class DramaScene(BaseModel):
     transition_to_next: Literal["cut", "fade", "dissolve"] = Field(
         default="cut", description="转场类型"
     )
+    note: Optional[str] = Field(default=None, description="用户备注（不参与生成）")
     generated_assets: GeneratedAssets = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )

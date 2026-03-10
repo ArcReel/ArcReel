@@ -190,20 +190,54 @@ function TransitionIndicator({ type }: { type: TransitionType }) {
 function TextColumn({
   segment,
   contentMode,
+  onUpdateNote,
 }: {
   segment: Segment;
   contentMode: "narration" | "drama";
+  onUpdateNote?: (value: string) => void;
 }) {
+  const [noteDraft, setNoteDraft] = useState(segment.note ?? "");
+  const committedRef = useRef(segment.note ?? "");
+
+  useEffect(() => {
+    setNoteDraft(segment.note ?? "");
+    committedRef.current = segment.note ?? "";
+  }, [segment.note]);
+
+  const handleNoteBlur = () => {
+    if (noteDraft !== committedRef.current) {
+      committedRef.current = noteDraft;
+      onUpdateNote?.(noteDraft);
+    }
+  };
+
+  const noteSection = (
+    <div className="mt-auto pt-3 border-t border-gray-800">
+      <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2 block">
+        备注
+      </span>
+      <textarea
+        className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 text-sm text-gray-300 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
+        rows={4}
+        placeholder="添加备注..."
+        value={noteDraft}
+        onChange={(e) => setNoteDraft(e.target.value)}
+        onBlur={handleNoteBlur}
+      />
+    </div>
+  );
+
   if (contentMode === "narration") {
     const s = segment as NarrationSegment;
     return (
-      <div className="flex flex-col gap-1.5 p-3">
+      <div className="flex h-full flex-col gap-1.5 p-3">
         <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
           原文
         </span>
         <pre className="whitespace-pre-wrap text-sm leading-relaxed text-gray-300 font-sans">
           {s.novel_text || "（暂无原文）"}
         </pre>
+        {noteSection}
       </div>
     );
   }
@@ -215,7 +249,7 @@ function TextColumn({
     ? (vp.dialogue ?? [])
     : [];
   return (
-    <div className="flex flex-col gap-1.5 p-3">
+    <div className="flex h-full flex-col gap-1.5 p-3">
       <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
         对话
       </span>
@@ -232,6 +266,7 @@ function TextColumn({
           ))}
         </ul>
       )}
+      {noteSection}
     </div>
   );
 }
@@ -588,7 +623,11 @@ export function SegmentCard({
         {/* ---- Content: three-column grid ---- */}
         <div className="grid grid-cols-3 gap-0 divide-x divide-gray-800">
           {/* Column 1 — Text */}
-          <TextColumn segment={segment} contentMode={contentMode} />
+          <TextColumn
+            segment={segment}
+            contentMode={contentMode}
+            onUpdateNote={(value) => onUpdatePrompt?.(segmentId, "note", value)}
+          />
 
           {/* Column 2 — Prompts */}
           <PromptColumn
