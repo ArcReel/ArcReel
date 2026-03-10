@@ -19,6 +19,13 @@ from server.auth import get_current_user, invalidate_api_key_cache
 
 router = APIRouter()
 
+
+def _require_jwt_auth(user: dict) -> None:
+    """确保请求通过 JWT 认证（非 API Key）。API Key 管理操作不允许由 API Key 本身执行。"""
+    if user.get("via") == "apikey":
+        raise HTTPException(status_code=403, detail="API Key 无权执行此操作，请使用 JWT 认证")
+
+
 API_KEY_PREFIX = "arc-"
 API_KEY_RANDOM_BYTES = 32  # 生成 64 hex 字符，取前 32 → 36 字符总长
 API_KEY_DEFAULT_EXPIRY_DAYS = 30
@@ -67,6 +74,7 @@ async def create_api_key(
     _user: Annotated[dict, Depends(get_current_user)],
 ) -> CreateApiKeyResponse:
     """创建新 API Key。完整 key 仅在响应中出现一次，之后无法再查看。"""
+    _require_jwt_auth(_user)
     key = _generate_api_key()
     key_hash = _hash_key(key)
     key_prefix = key[:8]  # e.g. "arc-abcd"
@@ -106,6 +114,7 @@ async def list_api_keys(
     _user: Annotated[dict, Depends(get_current_user)],
 ) -> list[ApiKeyInfo]:
     """查询所有 API Key 的元数据（不含完整 key）。"""
+    _require_jwt_auth(_user)
     async with async_session_factory() as session:
         async with session.begin():
             repo = ApiKeyRepository(session)
@@ -120,6 +129,7 @@ async def delete_api_key(
     _user: Annotated[dict, Depends(get_current_user)],
 ) -> None:
     """删除（吊销）指定 API Key，并立即清除内存缓存。"""
+    _require_jwt_auth(_user)
     async with async_session_factory() as session:
         async with session.begin():
             repo = ApiKeyRepository(session)

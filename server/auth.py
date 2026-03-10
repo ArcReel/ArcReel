@@ -299,14 +299,20 @@ async def _verify_api_key(token: str) -> Optional[dict]:
     if expires_at:
         from datetime import datetime, timezone
         try:
-            exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            # get_by_hash 返回 ORM 原生 datetime 对象；兼容旧式 ISO 字符串路径
+            if isinstance(expires_at, str):
+                exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            else:
+                exp_dt = expires_at
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
             if datetime.now(timezone.utc) >= exp_dt:
                 _set_api_key_cache(key_hash, None)
                 return None
             # 将过期时刻转换为 monotonic 时间戳，供缓存 TTL 上界计算
             remaining_secs = (exp_dt - datetime.now(timezone.utc)).total_seconds()
             expires_at_monotonic = time.monotonic() + remaining_secs
-        except ValueError:
+        except (ValueError, TypeError):
             logger.warning("API Key expires_at 值格式无法解析，忽略过期检查: %r", expires_at)
 
     payload = {"sub": f"apikey:{row['name']}", "via": "apikey"}
