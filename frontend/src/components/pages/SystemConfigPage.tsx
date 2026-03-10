@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import {
   ChevronDown,
   ChevronLeft,
@@ -25,6 +25,9 @@ import type {
   SystemConfigPatch,
   SystemConnectionTestResponse,
 } from "@/types";
+import { ApiKeysTab } from "./ApiKeysTab";
+
+type SettingsTab = "config" | "api-keys";
 
 interface DraftState {
   image_backend: SystemBackend;
@@ -228,6 +231,12 @@ function mergeDraftKeys(
 
 export function SystemConfigPage() {
   const [, navigate] = useLocation();
+  const search = useSearch();
+  const initialTab = useMemo<SettingsTab>(() => {
+    const params = new URLSearchParams(search);
+    return params.get("tab") === "api-keys" ? "api-keys" : "config";
+  }, [search]);
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [data, setData] = useState<GetSystemConfigResponse | null>(null);
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -578,26 +587,64 @@ export function SystemConfigPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
-      <header className="border-b border-gray-800 px-6 py-4">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+      <header className="border-b border-gray-800 px-6 pt-4">
+        <div className="mx-auto max-w-5xl">
+          <div className="flex items-center justify-between gap-4 pb-4">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => navigate("/app/projects")}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-200 hover:border-gray-700 hover:bg-gray-800"
+                aria-label="返回项目大厅"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                返回
+              </button>
+              <div>
+                <h1 className="text-lg font-semibold text-gray-100">设置</h1>
+                <p className="text-xs text-gray-500">系统配置与 API 访问管理</p>
+              </div>
+            </div>
+          </div>
+          {/* Tab 栏 */}
+          <div className="flex gap-1" role="tablist">
             <button
               type="button"
-              onClick={() => navigate("/app/projects")}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-200 hover:border-gray-700 hover:bg-gray-800"
-              aria-label="返回项目大厅"
+              role="tab"
+              aria-selected={activeTab === "config"}
+              onClick={() => setActiveTab("config")}
+              className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 pb-3 text-sm transition-colors ${
+                activeTab === "config"
+                  ? "border-indigo-500 text-indigo-400"
+                  : "border-transparent text-gray-500 hover:text-gray-300"
+              }`}
             >
-              <ChevronLeft className="h-4 w-4" />
-              返回
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              系统配置
             </button>
-            <div>
-              <h1 className="text-lg font-semibold text-gray-100">系统配置</h1>
-              <p className="text-xs text-gray-500">修改后保存即生效，无需重启</p>
-            </div>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "api-keys"}
+              onClick={() => setActiveTab("api-keys")}
+              className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 pb-3 text-sm transition-colors ${
+                activeTab === "api-keys"
+                  ? "border-indigo-500 text-indigo-400"
+                  : "border-transparent text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              API Keys
+            </button>
           </div>
         </div>
       </header>
 
+      {activeTab === "api-keys" ? (
+        <main className="mx-auto max-w-5xl px-6 py-8">
+          <ApiKeysTab />
+        </main>
+      ) : (
       <main className="mx-auto grid max-w-5xl gap-6 px-6 py-8">
         <section className={sectionClassName}>
           <div className="flex items-start justify-between gap-4">
@@ -1336,6 +1383,7 @@ export function SystemConfigPage() {
           )}
         </section>
       </main>
+      )}
     </div>
   );
 }

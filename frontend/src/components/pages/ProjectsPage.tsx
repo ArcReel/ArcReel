@@ -5,6 +5,7 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { CreateProjectModal } from "./CreateProjectModal";
+import { OpenClawModal } from "./OpenClawModal";
 import type { ImportConflictPolicy, ProjectSummary, ProjectStatus } from "@/types";
 
 interface ImportConflictDialogProps {
@@ -196,6 +197,7 @@ export function ProjectsPage() {
   const [importingProject, setImportingProject] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [conflictProjectName, setConflictProjectName] = useState<string | null>(null);
+  const [showOpenClaw, setShowOpenClaw] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const loadProjects = useCallback(async () => {
@@ -343,7 +345,16 @@ export function ProjectsPage() {
               <Plus className="h-4 w-4" />
               新建项目
             </button>
-            <div className="ml-1 border-l border-gray-800 pl-3">
+            <div className="ml-1 flex items-center gap-1 border-l border-gray-800 pl-3">
+              <button
+                type="button"
+                onClick={() => setShowOpenClaw(true)}
+                className="rounded-md px-2.5 py-1.5 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+                title="OpenClaw 集成"
+                aria-label="OpenClaw 集成指南"
+              >
+                🦞
+              </button>
               <button
                 type="button"
                 onClick={() => navigate("/app/settings")}
@@ -389,7 +400,7 @@ export function ProjectsPage() {
 
       {/* Create project modal */}
       {showCreateModal && <CreateProjectModal />}
-      {conflictProjectName && pendingImportFile && (
+      {conflictProjectName !== null && pendingImportFile !== null && (
         <ImportConflictDialog
           projectName={conflictProjectName}
           importing={importingProject}
@@ -397,6 +408,7 @@ export function ProjectsPage() {
           onConfirm={handleResolveConflict}
         />
       )}
+      {showOpenClaw && <OpenClawModal onClose={() => setShowOpenClaw(false)} />}
     </div>
   );
 }

@@ -2,8 +2,10 @@
 认证核心模块
 
 提供密码生成、JWT token 创建/验证、凭据校验等功能。
+同时支持 API Key 认证（`arc-` 前缀的 Bearer token）。
 """
 
+import hashlib
 import logging
 import os
 import secrets
@@ -209,8 +211,110 @@ def ensure_auth_password(env_path: Optional[str] = None) -> str:
     return password
 
 
+# ---------------------------------------------------------------------------
+# API Key 认证支持
+# ---------------------------------------------------------------------------
+
+API_KEY_PREFIX = "arc-"
+API_KEY_CACHE_TTL = 300  # 5 分钟
+
+# TTL 缓存：key_hash → (payload_dict | None, expires_at_timestamp)
+# payload 为 None 表示 key 不存在或已过期（负缓存）
+_api_key_cache: dict[str, tuple[Optional[dict], float]] = {}
+_API_KEY_CACHE_MAX = 512
+
+
+def _hash_api_key(key: str) -> str:
+    """计算 API Key 的 SHA-256 哈希。"""
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def invalidate_api_key_cache(key_hash: str) -> None:
+    """立即清除指定 key_hash 的缓存条目（key 删除时调用）。"""
+    _api_key_cache.pop(key_hash, None)
+
+
+def _get_cached_api_key_payload(key_hash: str) -> tuple[bool, Optional[dict]]:
+    """从缓存中查找。返回 (命中, payload 或 None)。"""
+    entry = _api_key_cache.get(key_hash)
+    if entry is None:
+        return False, None
+    payload, expiry = entry
+    if time.monotonic() > expiry:
+        _api_key_cache.pop(key_hash, None)
+        return False, None
+    return True, payload
+
+
+def _set_api_key_cache(key_hash: str, payload: Optional[dict]) -> None:
+    """写入缓存（含 LRU 淘汰）。"""
+    if len(_api_key_cache) >= _API_KEY_CACHE_MAX:
+        # 淘汰最旧条目
+        oldest = next(iter(_api_key_cache))
+        _api_key_cache.pop(oldest, None)
+    _api_key_cache[key_hash] = (payload, time.monotonic() + API_KEY_CACHE_TTL)
+
+
+async def _verify_api_key(token: str) -> Optional[dict]:
+    """验证 API Key token，返回 payload dict 或 None（失败/过期/不存在）。
+
+    内部先查缓存，缓存未命中再查数据库。
+    查库成功后更新 last_used_at（后台异步，不阻塞响应）。
+    """
+    key_hash = _hash_api_key(token)
+
+    # 缓存查询
+    hit, cached_payload = _get_cached_api_key_payload(key_hash)
+    if hit:
+        return cached_payload
+
+    # 数据库查询
+    from lib.db import async_session_factory
+    from lib.db.repositories.api_key_repository import ApiKeyRepository
+
+    async with async_session_factory() as session:
+        async with session.begin():
+            repo = ApiKeyRepository(session)
+            row = await repo.get_by_hash(key_hash)
+
+    if row is None:
+        _set_api_key_cache(key_hash, None)
+        return None
+
+    # 检查过期
+    expires_at = row.get("expires_at")
+    if expires_at:
+        from datetime import datetime, timezone
+        try:
+            exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) >= exp_dt:
+                _set_api_key_cache(key_hash, None)
+                return None
+        except ValueError:
+            pass
+
+    payload = {"sub": f"apikey:{row['name']}", "via": "apikey"}
+    _set_api_key_cache(key_hash, payload)
+
+    # 异步更新 last_used_at（不阻塞，保存引用防止 GC）
+    import asyncio
+
+    async def _touch():
+        try:
+            async with async_session_factory() as s:
+                async with s.begin():
+                    await ApiKeyRepository(s).touch_last_used(key_hash)
+        except Exception:
+            pass
+
+    _touch_task = asyncio.ensure_future(_touch())
+    _touch_task.add_done_callback(lambda _: None)  # suppress "never retrieved" warning
+
+    return payload
+
+
 def _verify_and_get_payload(token: str) -> dict:
-    """验证 token 并在失败时抛出 401 异常。"""
+    """同步验证 JWT token 并在失败时抛出 401 异常。（仅用于 JWT 路径）"""
     payload = verify_token(token)
     if payload is None:
         raise HTTPException(
@@ -221,11 +325,26 @@ def _verify_and_get_payload(token: str) -> dict:
     return payload
 
 
+async def _verify_and_get_payload_async(token: str) -> dict:
+    """异步验证 token，支持 API Key（arc- 前缀）和 JWT 两种模式。"""
+    if token.startswith(API_KEY_PREFIX):
+        payload = await _verify_api_key(token)
+        if payload is None:
+            raise HTTPException(
+                status_code=401,
+                detail="API Key 无效、已过期或不存在",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return payload
+    # JWT 路径
+    return _verify_and_get_payload(token)
+
+
 async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
 ) -> dict:
-    """标准认证依赖 — 从 Authorization header 提取并验证 JWT token。"""
-    return _verify_and_get_payload(token)
+    """标准认证依赖 — 支持 JWT 和 API Key Bearer token。"""
+    return await _verify_and_get_payload_async(token)
 
 
 async def get_current_user_flexible(
@@ -240,4 +359,4 @@ async def get_current_user_flexible(
             detail="缺少认证 token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return _verify_and_get_payload(raw)
+    return await _verify_and_get_payload_async(raw)

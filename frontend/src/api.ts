@@ -23,6 +23,8 @@ import type {
   SystemConfigPatch,
   SystemConnectionTestRequest,
   SystemConnectionTestResponse,
+  ApiKeyInfo,
+  CreateApiKeyResponse,
 } from "@/types";
 import { getToken, clearToken } from "@/utils/auth";
 
@@ -1179,6 +1181,33 @@ class API {
    */
   static async getUsageProjects(): Promise<{ projects: string[] }> {
     return this.request("/usage/projects");
+  }
+
+  // ==================== API Key 管理 API ====================
+
+  /** 列出所有 API Key（不含完整 key）。 */
+  static async listApiKeys(): Promise<ApiKeyInfo[]> {
+    return this.request("/api-keys");
+  }
+
+  /** 创建新 API Key，返回含完整 key 的响应（仅此一次）。 */
+  static async createApiKey(name: string, expiresDays?: number): Promise<CreateApiKeyResponse> {
+    return this.request("/api-keys", {
+      method: "POST",
+      body: JSON.stringify({ name, expires_days: expiresDays ?? null }),
+    });
+  }
+
+  /** 删除（吊销）指定 API Key。 */
+  static async deleteApiKey(keyId: number): Promise<void> {
+    const url = `${API_BASE}/api-keys/${keyId}`;
+    const response = await fetch(url, withAuth({ method: "DELETE" }));
+    if (!response.ok) {
+      handleUnauthorized(response);
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(error.detail || "请求失败");
+    }
+    // 204 No Content — no body to parse
   }
 }
 

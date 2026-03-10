@@ -474,6 +474,92 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== 源文件管理 ====================
+
+@router.post("/projects/{name}/source")
+async def set_project_source(
+    name: str,
+    _user: Annotated[dict, Depends(get_current_user)],
+    generate_overview: Annotated[bool, Form()] = True,
+    content: Annotated[Optional[str], Form()] = None,
+    file: Annotated[Optional[UploadFile], File()] = None,
+):
+    """上传小说源文件或直接提交文本内容，可选触发 AI 概述生成。
+
+    两种输入方式（互斥，均使用 multipart/form-data）：
+    - file：上传 .txt/.md 文件，文件名取自上传文件
+    - content：直接提交文本内容，自动命名为 novel.txt
+
+    最大 200000 字符（约 10 万汉字）。
+    """
+    MAX_CHARS = 200_000
+    ALLOWED_SUFFIXES = {".txt", ".md"}
+
+    if not content and not file:
+        raise HTTPException(status_code=400, detail="需要提供 content（文本内容）或 file（文件上传）其中之一")
+    if content and file:
+        raise HTTPException(status_code=400, detail="content 和 file 不能同时提供，请选择其一")
+
+    try:
+        manager = get_project_manager()
+        if not manager.project_exists(name):
+            raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
+
+        project_dir = manager.get_project_path(name)
+        source_dir = project_dir / "source"
+        source_dir.mkdir(parents=True, exist_ok=True)
+
+        if file:
+            # 文件上传模式：文件名取自上传文件
+            original_name = file.filename or "novel.txt"
+            suffix = Path(original_name).suffix.lower()
+            if suffix not in ALLOWED_SUFFIXES:
+                raise HTTPException(status_code=400, detail=f"仅支持 .txt / .md 文件，收到: {original_name!r}")
+
+            safe_filename = Path(original_name).name  # 防止路径穿越
+            raw = await file.read()
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                raise HTTPException(status_code=400, detail="文件编码错误，请使用 UTF-8 编码的文本文件")
+
+            if len(text) > MAX_CHARS:
+                raise HTTPException(status_code=400, detail=f"文件内容超出最大限制 {MAX_CHARS} 字符（当前 {len(text)}）")
+
+            (source_dir / safe_filename).write_text(text, encoding="utf-8")
+            chars = len(text)
+        else:
+            # 文本内容模式：固定命名为 novel.txt
+            if len(content) > MAX_CHARS:
+                raise HTTPException(status_code=400, detail=f"content 超出最大长度 {MAX_CHARS} 字符（当前 {len(content)}）")
+
+            safe_filename = "novel.txt"
+            (source_dir / safe_filename).write_text(content, encoding="utf-8")
+            chars = len(content)
+
+        result: dict = {"success": True, "filename": safe_filename, "chars": chars}
+
+        if generate_overview:
+            try:
+                with project_change_source("webui"):
+                    overview = await manager.generate_overview(name)
+                result["overview"] = overview
+            except Exception as ov_err:
+                # 概述生成失败不影响文件写入成功
+                result["overview"] = None
+                result["overview_error"] = str(ov_err)
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if file:
+            await file.close()
+
+
 # ==================== 项目概述管理 ====================
 
 @router.post("/projects/{name}/generate-overview")

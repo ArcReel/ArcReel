@@ -35,6 +35,8 @@ from server.routers import (
     usage,
     tasks,
     system_config,
+    api_keys,
+    agent_chat,
 )
 from server.routers import auth as auth_router
 from server.services.project_events import ProjectEventService
@@ -151,6 +153,8 @@ app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/ass
 app.include_router(tasks.router, prefix="/api/v1", tags=["任务队列"])
 app.include_router(project_events.router, prefix="/api/v1", tags=["项目变更流"])
 app.include_router(system_config.router, prefix="/api/v1", tags=["系统配置"])
+app.include_router(api_keys.router, prefix="/api/v1", tags=["API Key 管理"])
+app.include_router(agent_chat.router, prefix="/api/v1", tags=["Agent 对话"])
 
 def create_generation_worker() -> GenerationWorker:
     return GenerationWorker()
@@ -160,6 +164,27 @@ def create_generation_worker() -> GenerationWorker:
 async def health_check():
     """健康检查"""
     return {"status": "ok", "message": "视频项目管理 WebUI 运行正常"}
+
+
+@app.get("/skill.md", include_in_schema=False)
+async def serve_skill_md(request: Request) -> Response:
+    """动态渲染 skill.md 模板，将 {{BASE_URL}} 替换为实际服务地址（无需认证）。"""
+    from starlette.responses import PlainTextResponse
+
+    template_path = PROJECT_ROOT / "public" / "skill.md.template"
+    if not template_path.exists():
+        return PlainTextResponse("skill.md 模板不存在", status_code=404)
+
+    template = template_path.read_text(encoding="utf-8")
+
+    # 从请求头推断 base URL（支持反向代理）
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    scheme = forwarded_proto or request.url.scheme or "http"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    base_url = f"{scheme}://{host}"
+
+    content = template.replace("{{BASE_URL}}", base_url)
+    return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
 
 
 # 前端构建产物：SPA 静态文件服务（必须在所有显式路由之后挂载）
