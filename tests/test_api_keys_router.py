@@ -6,7 +6,6 @@ API Key 管理路由集成测试
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

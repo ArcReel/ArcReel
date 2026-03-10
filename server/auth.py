@@ -246,13 +246,25 @@ def _get_cached_api_key_payload(key_hash: str) -> tuple[bool, Optional[dict]]:
     return True, payload
 
 
-def _set_api_key_cache(key_hash: str, payload: Optional[dict]) -> None:
-    """写入缓存（含 LRU 淘汰）。"""
+def _set_api_key_cache(key_hash: str, payload: Optional[dict], expires_at_ts: Optional[float] = None) -> None:
+    """写入缓存（含 LRU 淘汰）。
+
+    正向缓存（payload 非 None）TTL 以 key 实际过期时间为上界，
+    避免 key 过期后仍在缓存中通过验证的安全问题。
+    """
     if len(_api_key_cache) >= _API_KEY_CACHE_MAX:
         # 淘汰最旧条目
         oldest = next(iter(_api_key_cache))
         _api_key_cache.pop(oldest, None)
-    _api_key_cache[key_hash] = (payload, time.monotonic() + API_KEY_CACHE_TTL)
+    ttl = API_KEY_CACHE_TTL
+    if payload is not None and expires_at_ts is not None:
+        time_to_expiry = expires_at_ts - time.monotonic()
+        if time_to_expiry <= 0:
+            # key 已过期，写入负缓存
+            _api_key_cache[key_hash] = (None, time.monotonic() + API_KEY_CACHE_TTL)
+            return
+        ttl = min(ttl, time_to_expiry)
+    _api_key_cache[key_hash] = (payload, time.monotonic() + ttl)
 
 
 async def _verify_api_key(token: str) -> Optional[dict]:
@@ -283,6 +295,7 @@ async def _verify_api_key(token: str) -> Optional[dict]:
 
     # 检查过期
     expires_at = row.get("expires_at")
+    expires_at_monotonic: Optional[float] = None
     if expires_at:
         from datetime import datetime, timezone
         try:
@@ -290,11 +303,14 @@ async def _verify_api_key(token: str) -> Optional[dict]:
             if datetime.now(timezone.utc) >= exp_dt:
                 _set_api_key_cache(key_hash, None)
                 return None
+            # 将过期时刻转换为 monotonic 时间戳，供缓存 TTL 上界计算
+            remaining_secs = (exp_dt - datetime.now(timezone.utc)).total_seconds()
+            expires_at_monotonic = time.monotonic() + remaining_secs
         except ValueError:
-            pass
+            logger.warning("API Key expires_at 值格式无法解析，忽略过期检查: %r", expires_at)
 
     payload = {"sub": f"apikey:{row['name']}", "via": "apikey"}
-    _set_api_key_cache(key_hash, payload)
+    _set_api_key_cache(key_hash, payload, expires_at_ts=expires_at_monotonic)
 
     # 异步更新 last_used_at（不阻塞，保存引用防止 GC）
     import asyncio
@@ -305,7 +321,7 @@ async def _verify_api_key(token: str) -> Optional[dict]:
                 async with s.begin():
                     await ApiKeyRepository(s).touch_last_used(key_hash)
         except Exception:
-            pass
+            logger.exception("更新 API Key last_used_at 失败（非致命）")
 
     _touch_task = asyncio.ensure_future(_touch())
     _touch_task.add_done_callback(lambda _: None)  # suppress "never retrieved" warning

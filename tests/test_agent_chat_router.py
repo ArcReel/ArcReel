@@ -4,10 +4,8 @@
 测试 POST /api/v1/agent/chat 端点的核心逻辑。
 """
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

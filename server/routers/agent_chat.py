@@ -81,6 +81,7 @@ async def _collect_reply(
                 # 检查会话是否已完成
                 live_status = await service.session_manager.get_status(session_id)
                 if live_status and live_status != "running":
+                    status = "completed" if live_status in {"idle", "completed"} else live_status
                     break
                 # 检查是否超时
                 if asyncio.get_event_loop().time() >= deadline:
@@ -147,6 +148,11 @@ async def agent_chat(
         session = await service.get_session(body.session_id)
         if session is None:
             raise HTTPException(status_code=404, detail=f"会话 '{body.session_id}' 不存在")
+        if session.project_name != body.project_name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"会话 '{body.session_id}' 属于项目 '{session.project_name}'，与请求项目 '{body.project_name}' 不符",
+            )
         session_id = body.session_id
     else:
         session = await service.create_session(body.project_name)
