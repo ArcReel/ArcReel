@@ -34,9 +34,8 @@ def _hash_key(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
 
-def _default_expires_at() -> str:
-    exp = datetime.now(timezone.utc) + timedelta(days=API_KEY_DEFAULT_EXPIRY_DAYS)
-    return exp.isoformat().replace("+00:00", "Z")
+def _default_expires_at() -> datetime:
+    return datetime.now(timezone.utc) + timedelta(days=API_KEY_DEFAULT_EXPIRY_DAYS)
 
 
 class CreateApiKeyRequest(BaseModel):
@@ -73,10 +72,9 @@ async def create_api_key(
     key_prefix = key[:8]  # e.g. "arc-abcd"
 
     if body.expires_days == 0:
-        expires_at = None
+        expires_at: Optional[datetime] = None
     elif body.expires_days is not None:
-        exp = datetime.now(timezone.utc) + timedelta(days=body.expires_days)
-        expires_at = exp.isoformat().replace("+00:00", "Z")
+        expires_at = datetime.now(timezone.utc) + timedelta(days=body.expires_days)
     else:
         expires_at = _default_expires_at()
 

@@ -26,9 +26,9 @@ def upgrade() -> None:
     sa.Column('name', sa.String(), nullable=False),
     sa.Column('key_hash', sa.String(), nullable=False),
     sa.Column('key_prefix', sa.String(), nullable=False),
-    sa.Column('created_at', sa.String(), nullable=False),
-    sa.Column('expires_at', sa.String(), nullable=True),
-    sa.Column('last_used_at', sa.String(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('last_used_at', sa.DateTime(timezone=True), nullable=True),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('key_hash'),
     sa.UniqueConstraint('name')

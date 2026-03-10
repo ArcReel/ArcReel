@@ -11,8 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.db.models.api_key import ApiKey
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _to_iso(dt: Optional[datetime]) -> Optional[str]:
+    if dt is None:
+        return None
+    return dt.isoformat().replace("+00:00", "Z")
 
 
 def _row_to_dict(row: ApiKey) -> dict[str, Any]:
@@ -20,9 +26,9 @@ def _row_to_dict(row: ApiKey) -> dict[str, Any]:
         "id": row.id,
         "name": row.name,
         "key_prefix": row.key_prefix,
-        "created_at": row.created_at,
-        "expires_at": row.expires_at,
-        "last_used_at": row.last_used_at,
+        "created_at": _to_iso(row.created_at),
+        "expires_at": _to_iso(row.expires_at),
+        "last_used_at": _to_iso(row.last_used_at),
     }
 
 
@@ -36,14 +42,14 @@ class ApiKeyRepository:
         name: str,
         key_hash: str,
         key_prefix: str,
-        expires_at: Optional[str] = None,
+        expires_at: Optional[datetime] = None,
     ) -> dict[str, Any]:
         """Create a new API key record."""
         row = ApiKey(
             name=name,
             key_hash=key_hash,
             key_prefix=key_prefix,
-            created_at=_utc_now_iso(),
+            created_at=_utc_now(),
             expires_at=expires_at,
         )
         self.session.add(row)
@@ -100,5 +106,5 @@ class ApiKeyRepository:
         await self.session.execute(
             update(ApiKey)
             .where(ApiKey.key_hash == key_hash)
-            .values(last_used_at=_utc_now_iso())
+            .values(last_used_at=_utc_now())
         )
