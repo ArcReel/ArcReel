@@ -90,19 +90,21 @@ class StatusCalculator:
         except (OSError, ValueError):
             return False
 
-    def _get_episode_script_status(self, project_name: str, episode_num: int, script_file: str) -> str:
-        """判断单集剧本状态: 'generated' | 'segmented' | 'none'"""
+    def _load_episode_script(self, project_name: str, episode_num: int, script_file: str) -> tuple:
+        """加载单集剧本，返回 (script_status, script|None)，避免重复读取文件。
+        script_status: 'generated' | 'segmented' | 'none'
+        """
         try:
-            self.pm.load_script(project_name, script_file)
-            return 'generated'
+            script = self.pm.load_script(project_name, script_file)
+            return 'generated', script
         except FileNotFoundError:
             project_dir = self.pm.get_project_path(project_name)
             try:
                 safe_num = int(episode_num)
             except (ValueError, TypeError):
-                return 'none'
+                return 'none', None
             draft_file = project_dir / f'drafts/episode_{safe_num}/step1_segments.md'
-            return 'segmented' if draft_file.exists() else 'none'
+            return ('segmented' if draft_file.exists() else 'none'), None
 
     def calculate_current_phase(self, project: Dict, episodes_stats: List[Dict]) -> str:
         """根据项目和集状态推断当前阶段"""
@@ -167,19 +169,17 @@ class StatusCalculator:
         for ep in project.get('episodes', []):
             script_file = ep.get('script_file', '')
             episode_num = ep.get('episode', 0)
-            script_status = self._get_episode_script_status(project_name, episode_num, script_file) if script_file else 'none'
 
-            if script_status == 'generated':
-                try:
-                    script = self.pm.load_script(project_name, script_file)
-                    ep_stats = self.calculate_episode_stats(project_name, script)
-                    if ep_stats['status'] == 'draft':
-                        ep_stats['status'] = 'scripted'
-                    ep_stats['script_status'] = 'generated'
-                except FileNotFoundError:
-                    ep_stats = {'script_status': 'none', 'storyboards': {'total': 0, 'completed': 0},
-                                'videos': {'total': 0, 'completed': 0}, 'status': 'draft',
-                                'scenes_count': 0, 'duration_seconds': 0}
+            if script_file:
+                script_status, script = self._load_episode_script(project_name, episode_num, script_file)
+            else:
+                script_status, script = 'none', None
+
+            if script_status == 'generated' and script is not None:
+                ep_stats = self.calculate_episode_stats(project_name, script)
+                if ep_stats['status'] == 'draft':
+                    ep_stats['status'] = 'scripted'
+                ep_stats['script_status'] = 'generated'
             else:
                 ep_stats = {'script_status': script_status, 'storyboards': {'total': 0, 'completed': 0},
                             'videos': {'total': 0, 'completed': 0}, 'status': 'draft',
@@ -215,20 +215,17 @@ class StatusCalculator:
         for ep in project.get('episodes', []):
             script_file = ep.get('script_file', '')
             episode_num = ep.get('episode', 0)
-            script_status = self._get_episode_script_status(project_name, episode_num, script_file) if script_file else 'none'
 
-            if script_status == 'generated':
-                try:
-                    script = self.pm.load_script(project_name, script_file)
-                    ep_stats = self.calculate_episode_stats(project_name, script)
-                    if ep_stats['status'] == 'draft':
-                        ep_stats['status'] = 'scripted'
-                    ep_stats['script_status'] = 'generated'
-                except FileNotFoundError:
-                    ep_stats = {'script_status': 'none', 'status': 'missing',
-                                'storyboards': {'total': 0, 'completed': 0},
-                                'videos': {'total': 0, 'completed': 0},
-                                'scenes_count': 0, 'duration_seconds': 0}
+            if script_file:
+                script_status, script = self._load_episode_script(project_name, episode_num, script_file)
+            else:
+                script_status, script = 'none', None
+
+            if script_status == 'generated' and script is not None:
+                ep_stats = self.calculate_episode_stats(project_name, script)
+                if ep_stats['status'] == 'draft':
+                    ep_stats['status'] = 'scripted'
+                ep_stats['script_status'] = 'generated'
             else:
                 ep_stats = {'script_status': script_status, 'status': 'draft',
                             'storyboards': {'total': 0, 'completed': 0},

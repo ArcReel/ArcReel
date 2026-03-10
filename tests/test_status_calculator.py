@@ -78,25 +78,32 @@ class TestStatusCalculator:
         assert completed["storyboards"] == {"total": 1, "completed": 0}
         assert completed["videos"] == {"total": 1, "completed": 1}
 
-    def test_get_episode_script_status(self, tmp_path):
+    def test_load_episode_script(self, tmp_path):
         project_root = tmp_path / "projects"
         project_path = project_root / "demo"
 
-        # Case 1: 脚本 JSON 存在 → "generated"
-        scripts = {"episode_1.json": {"content_mode": "narration", "segments": []}}
+        # Case 1: 脚本 JSON 存在 → ("generated", script)
+        script_data = {"content_mode": "narration", "segments": []}
+        scripts = {"episode_1.json": script_data}
         calc = StatusCalculator(_FakePM(project_root, {}, scripts))
-        assert calc._get_episode_script_status("demo", 1, "scripts/episode_1.json") == "generated"
+        status, script = calc._load_episode_script("demo", 1, "scripts/episode_1.json")
+        assert status == "generated"
+        assert script == script_data
 
-        # Case 2: 脚本不存在，draft 文件存在 → "segmented"
+        # Case 2: 脚本不存在，draft 文件存在 → ("segmented", None)
         draft_dir = project_path / "drafts" / "episode_2"
         draft_dir.mkdir(parents=True)
         (draft_dir / "step1_segments.md").write_text("ok")
         calc2 = StatusCalculator(_FakePM(project_root, {}, {}))
-        assert calc2._get_episode_script_status("demo", 2, "scripts/episode_2.json") == "segmented"
+        status2, script2 = calc2._load_episode_script("demo", 2, "scripts/episode_2.json")
+        assert status2 == "segmented"
+        assert script2 is None
 
-        # Case 3: 两者都不存在 → "none"
+        # Case 3: 两者都不存在 → ("none", None)
         calc3 = StatusCalculator(_FakePM(project_root, {}, {}))
-        assert calc3._get_episode_script_status("demo", 3, "scripts/episode_3.json") == "none"
+        status3, script3 = calc3._load_episode_script("demo", 3, "scripts/episode_3.json")
+        assert status3 == "none"
+        assert script3 is None
 
     def test_calculate_current_phase_setup(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
