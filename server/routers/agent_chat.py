@@ -66,7 +66,6 @@ async def _collect_reply(
     queue = await service.session_manager.subscribe(session_id, replay_buffer=True)
     try:
         reply_parts: list[str] = []
-        status = "completed"
         deadline = asyncio.get_event_loop().time() + timeout
 
         while True:
