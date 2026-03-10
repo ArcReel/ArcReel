@@ -78,57 +78,6 @@ class StatusCalculator:
             'videos': {'total': total, 'completed': video_done},
         }
 
-    def calculate_project_progress(self, project_name: str) -> Dict:
-        """
-        计算项目整体进度（实时）
-
-        Args:
-            project_name: 项目名称
-
-        Returns:
-            进度统计字典
-        """
-        project = self.pm.load_project(project_name)
-        project_dir = self.pm.get_project_path(project_name)
-
-        # 人物统计
-        chars = project.get('characters', {})
-        chars_total = len(chars)
-        chars_done = sum(
-            1 for c in chars.values()
-            if c.get('character_sheet') and (project_dir / c['character_sheet']).exists()
-        )
-
-        # 线索统计
-        clues = project.get('clues', {})
-        clues_total = len([c for c in clues.values() if c.get('importance') == 'major'])
-        clues_done = sum(
-            1 for c in clues.values()
-            if c.get('clue_sheet') and (project_dir / c['clue_sheet']).exists()
-        )
-
-        # 分镜/视频统计（遍历所有剧本）
-        sb_total, sb_done, vid_total, vid_done = 0, 0, 0, 0
-
-        for ep in project.get('episodes', []):
-            script_file = ep.get('script_file', '')
-            if script_file:
-                try:
-                    script = self.pm.load_script(project_name, script_file)
-                    stats = self.calculate_episode_stats(project_name, script)
-                    sb_total += stats['scenes_count']
-                    vid_total += stats['scenes_count']
-                    sb_done += stats['storyboards_completed']
-                    vid_done += stats['videos_completed']
-                except FileNotFoundError:
-                    pass
-
-        return {
-            'characters': {'total': chars_total, 'completed': chars_done},
-            'clues': {'total': clues_total, 'completed': clues_done},
-            'storyboards': {'total': sb_total, 'completed': sb_done},
-            'videos': {'total': vid_total, 'completed': vid_done}
-        }
 
     def _get_episode_script_status(self, project_name: str, episode_num: int, script_file: str) -> str:
         """判断单集剧本状态: 'generated' | 'segmented' | 'none'"""
@@ -240,42 +189,39 @@ class StatusCalculator:
 
     def enrich_project(self, project_name: str, project: Dict) -> Dict:
         """
-        为项目数据注入所有计算字段
-
-        不会修改原始 JSON 文件，仅用于 API 响应。
-
-        Args:
-            project_name: 项目名称
-            project: 原始项目数据
-
-        Returns:
-            注入计算字段后的项目数据
+        为项目数据注入所有计算字段（用于详情 API）。
+        不修改原始 JSON 文件，仅用于 API 响应。
         """
-        # 计算整体进度
-        progress = self.calculate_project_progress(project_name)
-        current_phase = self.calculate_current_phase(progress)
-
-        # 注入 status
-        project['status'] = {
-            'progress': progress,
-            'current_phase': current_phase
-        }
-
-        # 为每个 episode 注入计算字段
+        # 计算每集明细（注入到 episode 对象）
+        episodes_stats = []
         for ep in project.get('episodes', []):
             script_file = ep.get('script_file', '')
-            if script_file:
+            episode_num = ep.get('episode', 0)
+            script_status = self._get_episode_script_status(project_name, episode_num, script_file) if script_file else 'none'
+
+            if script_status == 'generated':
                 try:
                     script = self.pm.load_script(project_name, script_file)
-                    stats = self.calculate_episode_stats(project_name, script)
-                    ep['scenes_count'] = stats['scenes_count']
-                    ep['status'] = stats['status']
-                    ep['duration_seconds'] = stats['duration_seconds']
+                    ep_stats = self.calculate_episode_stats(project_name, script)
+                    if ep_stats['status'] == 'draft':
+                        ep_stats['status'] = 'scripted'
+                    ep_stats['script_status'] = 'generated'
                 except FileNotFoundError:
-                    ep['scenes_count'] = 0
-                    ep['status'] = 'missing'
-                    ep['duration_seconds'] = 0
+                    ep_stats = {'script_status': 'none', 'status': 'missing',
+                                'storyboards': {'total': 0, 'completed': 0},
+                                'videos': {'total': 0, 'completed': 0},
+                                'scenes_count': 0, 'duration_seconds': 0}
+            else:
+                ep_stats = {'script_status': script_status, 'status': 'draft',
+                            'storyboards': {'total': 0, 'completed': 0},
+                            'videos': {'total': 0, 'completed': 0},
+                            'scenes_count': 0, 'duration_seconds': 0}
 
+            ep.update(ep_stats)
+            episodes_stats.append(ep_stats)
+
+        # 计算项目状态
+        project['status'] = self.calculate_project_status(project_name, project)
         return project
 
     def enrich_script(self, script: Dict) -> Dict:

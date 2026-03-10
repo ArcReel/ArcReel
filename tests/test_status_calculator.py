@@ -175,13 +175,14 @@ class TestStatusCalculator:
             "total": 1, "scripted": 1, "in_production": 0, "completed": 1
         }
 
-    def test_enrich_project_and_enrich_script(self, tmp_path):
+    def test_enrich_project(self, tmp_path):
         project_root = tmp_path / "projects"
         project_root.mkdir(parents=True)
         project = {
+            "overview": {"synopsis": "test"},
             "episodes": [
-                {"script_file": "scripts/episode_1.json"},
-                {"script_file": "scripts/missing.json"},
+                {"episode": 1, "script_file": "scripts/episode_1.json"},
+                {"episode": 2, "script_file": "scripts/missing.json"},
             ],
             "characters": {},
             "clues": {},
@@ -200,11 +201,36 @@ class TestStatusCalculator:
         }
         calc = StatusCalculator(_FakePM(project_root, project, {"episode_1.json": script}))
 
-        enriched_project = calc.enrich_project("demo", {**project})
-        assert "status" in enriched_project
-        assert enriched_project["episodes"][0]["scenes_count"] == 1
-        assert enriched_project["episodes"][1]["status"] == "missing"
+        enriched = calc.enrich_project("demo", {**project, "episodes": [
+            {"episode": 1, "script_file": "scripts/episode_1.json"},
+            {"episode": 2, "script_file": "scripts/missing.json"},
+        ]})
 
+        assert "status" in enriched
+        assert enriched["status"]["current_phase"] == "scripting"
+        ep1 = enriched["episodes"][0]
+        assert ep1["script_status"] == "generated"
+        assert ep1["status"] == "scripted"
+        assert ep1["scenes_count"] == 1
+        assert ep1["storyboards"] == {"total": 1, "completed": 0}
+        ep2 = enriched["episodes"][1]
+        assert ep2["script_status"] == "none"
+        assert ep2["status"] == "draft"
+
+    def test_enrich_script(self, tmp_path):
+        script = {
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 6,
+                    "characters_in_segment": ["A", "B"],
+                    "clues_in_segment": ["C"],
+                    "generated_assets": {},
+                }
+            ],
+        }
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         enriched_script = calc.enrich_script({**script})
         assert enriched_script["metadata"]["total_scenes"] == 1
         assert enriched_script["metadata"]["estimated_duration_seconds"] == 6
