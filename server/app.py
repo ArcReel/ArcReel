@@ -177,10 +177,11 @@ async def serve_skill_md(request: Request) -> Response:
 
     template = template_path.read_text(encoding="utf-8")
 
-    # 从请求头推断 base URL（支持反向代理）
+    # 从请求推断 base URL；仅信任 x-forwarded-proto（反向代理标准头），
+    # host 使用连接实际目标地址，不接受可被用户伪造的 x-forwarded-host。
     forwarded_proto = request.headers.get("x-forwarded-proto")
     scheme = forwarded_proto or request.url.scheme or "http"
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    host = request.url.netloc
     base_url = f"{scheme}://{host}"
 
     content = template.replace("{{BASE_URL}}", base_url)

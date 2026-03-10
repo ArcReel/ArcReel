@@ -129,10 +129,10 @@ async def delete_api_key(
             if row is None:
                 raise HTTPException(status_code=404, detail=f"API Key {key_id} 不存在")
             key_hash = row["key_hash"]
+            # 先失效缓存再删库：即使事务提交后崩溃，缓存也已清除，
+            # 不会出现 DB 已删但缓存仍有效的宽限窗口。
+            invalidate_api_key_cache(key_hash)
             deleted = await repo.delete(key_id)
 
     if not deleted:
         raise HTTPException(status_code=404, detail=f"API Key {key_id} 不存在")
-
-    # 立即清除该 key 的内存缓存，确保后续请求立即失效
-    invalidate_api_key_cache(key_hash)

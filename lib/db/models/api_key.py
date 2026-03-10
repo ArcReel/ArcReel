@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import Index, Integer, String
+from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base
@@ -21,7 +21,3 @@ class ApiKey(Base):
     expires_at: Mapped[Optional[str]] = mapped_column(String)
     last_used_at: Mapped[Optional[str]] = mapped_column(String)
 
-    __table_args__ = (
-        Index("idx_api_keys_key_hash", "key_hash"),
-        Index("idx_api_keys_name", "name"),
-    )

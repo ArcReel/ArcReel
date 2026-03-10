@@ -58,7 +58,14 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
     if (!canCreate || creating) return;
     setCreating(true);
     try {
-      const days = typeof expiresDays === "number" && expiresDays > 0 ? expiresDays : undefined;
+      // expiresDays === "" 表示用户留空（永不过期），对应后端 expires_days=0；
+      // expiresDays > 0 时按天数过期；undefined 让后端使用默认值（30天）。
+      let days: number | undefined;
+      if (expiresDays === "") {
+        days = 0;
+      } else if (expiresDays > 0) {
+        days = expiresDays;
+      }
       const res = await API.createApiKey(name.trim(), days);
       setCreated(res);
       onCreated({

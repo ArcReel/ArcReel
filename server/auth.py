@@ -323,7 +323,7 @@ async def _verify_api_key(token: str) -> Optional[dict]:
         except Exception:
             logger.exception("更新 API Key last_used_at 失败（非致命）")
 
-    _touch_task = asyncio.ensure_future(_touch())
+    _touch_task = asyncio.create_task(_touch())
     _touch_task.add_done_callback(lambda _: None)  # suppress "never retrieved" warning
 
     return payload
