@@ -130,32 +130,113 @@ class StatusCalculator:
             'videos': {'total': vid_total, 'completed': vid_done}
         }
 
-    def calculate_current_phase(self, progress: Dict) -> str:
-        """
-        根据进度推断当前阶段
+    def _get_episode_script_status(self, project_name: str, episode_num: int, script_file: str) -> str:
+        """判断单集剧本状态: 'generated' | 'segmented' | 'none'"""
+        try:
+            self.pm.load_script(project_name, script_file)
+            return 'generated'
+        except FileNotFoundError:
+            project_dir = self.pm.get_project_path(project_name)
+            draft_file = project_dir / f'drafts/episode_{episode_num}/step1_segments.md'
+            return 'segmented' if draft_file.exists() else 'none'
 
-        Args:
-            progress: 进度统计字典
+    def calculate_current_phase(self, project: Dict, episodes_stats: List[Dict]) -> str:
+        """根据项目和集状态推断当前阶段"""
+        if not project.get('overview'):
+            return 'setup'
+        if not episodes_stats:
+            return 'worldbuilding'
+        any_generated = any(s['script_status'] == 'generated' for s in episodes_stats)
+        all_generated = all(s['script_status'] == 'generated' for s in episodes_stats)
+        if not any_generated:
+            return 'worldbuilding'
+        if not all_generated:
+            return 'scripting'
+        all_completed = all(s['status'] == 'completed' for s in episodes_stats)
+        return 'completed' if all_completed else 'production'
+
+    def _calculate_phase_progress(self, project: Dict, phase: str, episodes_stats: List[Dict]) -> float:
+        """计算当前阶段完成率 0.0–1.0"""
+        if phase == 'setup':
+            return 0.0
+        if phase == 'worldbuilding':
+            return 0.0
+        if phase == 'scripting':
+            total = len(episodes_stats)
+            if total == 0:
+                return 0.0
+            done = sum(1 for s in episodes_stats if s['script_status'] == 'generated')
+            return done / total
+        if phase == 'production':
+            total_videos = sum(s.get('videos', {}).get('total', 0) for s in episodes_stats)
+            done_videos = sum(s.get('videos', {}).get('completed', 0) for s in episodes_stats)
+            return done_videos / total_videos if total_videos > 0 else 0.0
+        return 1.0  # completed
+
+    def calculate_project_status(self, project_name: str, project: Dict) -> Dict:
+        """
+        计算项目整体状态（用于列表 API）。
 
         Returns:
-            当前阶段标识
+            ProjectStatus 字典：current_phase, phase_progress, characters, clues, episodes_summary
         """
-        vid = progress.get('videos', {})
-        sb = progress.get('storyboards', {})
-        clues = progress.get('clues', {})
-        chars = progress.get('characters', {})
+        project_dir = self.pm.get_project_path(project_name)
 
-        if vid.get('completed', 0) == vid.get('total', 0) and vid.get('total', 0) > 0:
-            return 'compose'
-        elif vid.get('completed', 0) > 0:
-            return 'video'
-        elif sb.get('completed', 0) > 0:
-            return 'storyboard'
-        elif clues.get('completed', 0) > 0 or clues.get('total', 0) == 0:
-            return 'storyboard'
-        elif chars.get('completed', 0) > 0:
-            return 'clues'
-        return 'characters'
+        # 人物统计
+        chars = project.get('characters', {})
+        chars_total = len(chars)
+        chars_done = sum(
+            1 for c in chars.values()
+            if c.get('character_sheet') and (project_dir / c['character_sheet']).exists()
+        )
+
+        # 线索统计（所有线索，不限 major）
+        clues = project.get('clues', {})
+        clues_total = len(clues)
+        clues_done = sum(
+            1 for c in clues.values()
+            if c.get('clue_sheet') and (project_dir / c['clue_sheet']).exists()
+        )
+
+        # 每集状态
+        episodes_stats = []
+        for ep in project.get('episodes', []):
+            script_file = ep.get('script_file', '')
+            episode_num = ep.get('episode', 0)
+            script_status = self._get_episode_script_status(project_name, episode_num, script_file) if script_file else 'none'
+
+            if script_status == 'generated':
+                try:
+                    script = self.pm.load_script(project_name, script_file)
+                    ep_stats = self.calculate_episode_stats(project_name, script)
+                    if ep_stats['status'] == 'draft':
+                        ep_stats['status'] = 'scripted'
+                    ep_stats['script_status'] = 'generated'
+                except FileNotFoundError:
+                    ep_stats = {'script_status': 'none', 'storyboards': {'total': 0, 'completed': 0},
+                                'videos': {'total': 0, 'completed': 0}, 'status': 'draft',
+                                'scenes_count': 0, 'duration_seconds': 0}
+            else:
+                ep_stats = {'script_status': script_status, 'storyboards': {'total': 0, 'completed': 0},
+                            'videos': {'total': 0, 'completed': 0}, 'status': 'draft',
+                            'scenes_count': 0, 'duration_seconds': 0}
+            episodes_stats.append(ep_stats)
+
+        phase = self.calculate_current_phase(project, episodes_stats)
+        phase_progress = self._calculate_phase_progress(project, phase, episodes_stats)
+
+        return {
+            'current_phase': phase,
+            'phase_progress': phase_progress,
+            'characters': {'total': chars_total, 'completed': chars_done},
+            'clues': {'total': clues_total, 'completed': clues_done},
+            'episodes_summary': {
+                'total': len(episodes_stats),
+                'scripted': sum(1 for s in episodes_stats if s['script_status'] == 'generated'),
+                'in_production': sum(1 for s in episodes_stats if s['status'] == 'in_production'),
+                'completed': sum(1 for s in episodes_stats if s['status'] == 'completed'),
+            }
+        }
 
     def enrich_project(self, project_name: str, project: Dict) -> Dict:
         """
