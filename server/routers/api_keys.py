@@ -4,7 +4,6 @@ API Key 管理路由
 提供 API Key 的创建、列表查询和删除接口。
 """
 
-import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
@@ -15,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 
 from lib.db import async_session_factory
 from lib.db.repositories.api_key_repository import ApiKeyRepository
-from server.auth import get_current_user, invalidate_api_key_cache
+from server.auth import API_KEY_PREFIX, _hash_api_key, get_current_user, invalidate_api_key_cache
 
 router = APIRouter()
 
@@ -26,8 +25,6 @@ def _require_jwt_auth(user: dict) -> None:
         raise HTTPException(status_code=403, detail="API Key 无权执行此操作，请使用 JWT 认证")
 
 
-API_KEY_PREFIX = "arc-"
-API_KEY_RANDOM_BYTES = 32  # 生成 64 hex 字符，取前 32 → 36 字符总长
 API_KEY_DEFAULT_EXPIRY_DAYS = 30
 
 
@@ -35,10 +32,6 @@ def _generate_api_key() -> str:
     """生成格式为 arc-<32位随机字符> 的 API Key。"""
     random_part = secrets.token_hex(16)  # 32 hex chars
     return f"{API_KEY_PREFIX}{random_part}"
-
-
-def _hash_key(key: str) -> str:
-    return hashlib.sha256(key.encode()).hexdigest()
 
 
 def _default_expires_at() -> datetime:
@@ -76,7 +69,7 @@ async def create_api_key(
     """创建新 API Key。完整 key 仅在响应中出现一次，之后无法再查看。"""
     _require_jwt_auth(_user)
     key = _generate_api_key()
-    key_hash = _hash_key(key)
+    key_hash = _hash_api_key(key)
     key_prefix = key[:8]  # e.g. "arc-abcd"
 
     if body.expires_days == 0:

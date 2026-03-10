@@ -247,13 +247,13 @@ def _get_cached_api_key_payload(key_hash: str) -> tuple[bool, Optional[dict]]:
 
 
 def _set_api_key_cache(key_hash: str, payload: Optional[dict], expires_at_ts: Optional[float] = None) -> None:
-    """写入缓存（含 LRU 淘汰）。
+    """写入缓存（含 FIFO 淘汰）。
 
     正向缓存（payload 非 None）TTL 以 key 实际过期时间为上界，
     避免 key 过期后仍在缓存中通过验证的安全问题。
     """
     if len(_api_key_cache) >= _API_KEY_CACHE_MAX:
-        # 淘汰最旧条目
+        # 淘汰最早插入的条目（FIFO）
         oldest = next(iter(_api_key_cache))
         _api_key_cache.pop(oldest, None)
     ttl = API_KEY_CACHE_TTL

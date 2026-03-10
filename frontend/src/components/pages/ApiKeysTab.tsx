@@ -427,11 +427,6 @@ export function ApiKeysTab() {
   const handleCloseCreate = useCallback(() => setShowCreate(false), []);
   const handleCloseDelete = useCallback(() => setDeleteTarget(null), []);
 
-  const sortedKeys = useMemo(
-    () => [...keys].sort((a, b) => b.created_at.localeCompare(a.created_at)),
-    [keys],
-  );
-
   return (
     <>
       {/* 操作栏 */}
@@ -459,7 +454,7 @@ export function ApiKeysTab() {
             <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
             <span className="text-sm">加载中…</span>
           </div>
-        ) : sortedKeys.length === 0 ? (
+        ) : keys.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-14 text-gray-600">
             <KeyRound className="h-8 w-8 opacity-40" />
             <p className="text-sm">还没有 API Key</p>
@@ -485,7 +480,7 @@ export function ApiKeysTab() {
               </tr>
             </thead>
             <tbody>
-              {sortedKeys.map((k) => (
+              {keys.map((k) => (
                 <ApiKeyRow key={k.id} keyInfo={k} onDelete={setDeleteTarget} />
               ))}
             </tbody>

@@ -49,7 +49,6 @@ def _extract_text_from_assistant_message(msg: dict) -> str:
     return "".join(parts)
 
 
-TERMINAL_RESULT_SUBTYPES = {"success", "error", "timeout", "interrupted"}
 TERMINAL_RUNTIME_STATUSES = {"idle", "completed", "error", "interrupted"}
 
 
@@ -66,10 +65,11 @@ async def _collect_reply(
     queue = await service.session_manager.subscribe(session_id, replay_buffer=True)
     try:
         reply_parts: list[str] = []
-        deadline = asyncio.get_event_loop().time() + timeout
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
 
         while True:
-            remaining = deadline - asyncio.get_event_loop().time()
+            remaining = deadline - loop.time()
             if remaining <= 0:
                 status = "timeout"
                 break
@@ -83,7 +83,7 @@ async def _collect_reply(
                     status = "completed" if live_status in {"idle", "completed"} else live_status
                     break
                 # 检查是否超时
-                if asyncio.get_event_loop().time() >= deadline:
+                if loop.time() >= deadline:
                     status = "timeout"
                     break
                 continue
@@ -157,8 +157,8 @@ async def agent_chat(
         session = await service.create_session(body.project_name)
         session_id = session.id
 
-    # 先订阅队列，再发消息（防止竞争条件漏掉消息）
-    # 实际订阅在 _collect_reply 内部进行；先发消息让 Agent 开始处理
+    # 先发消息，再在 _collect_reply 内订阅队列。
+    # 依赖 replay_buffer=True 缓冲已发送的消息，不会产生竞争条件。
     try:
         await service.send_message(session_id, body.message)
     except ValueError as exc:
