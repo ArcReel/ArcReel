@@ -38,25 +38,45 @@ class TestStatusCalculator:
     def test_calculate_episode_stats_statuses(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
 
-        draft = calc.calculate_episode_stats("demo", {"content_mode": "narration", "segments": [{"duration_seconds": 4}]})
+        # draft：无任何资源
+        draft = calc.calculate_episode_stats(
+            "demo",
+            {"content_mode": "narration", "segments": [{"duration_seconds": 4}]},
+        )
+        assert draft["status"] == "draft"
+        assert draft["storyboards"] == {"total": 1, "completed": 0}
+        assert draft["videos"] == {"total": 1, "completed": 0}
+        assert draft["scenes_count"] == 1
+        assert draft["duration_seconds"] == 4
+
+        # in_production：有分镜图
         in_prod = calc.calculate_episode_stats(
             "demo",
             {
                 "content_mode": "narration",
-                "segments": [{"generated_assets": {"storyboard_image": "a.png"}, "duration_seconds": 6}],
+                "segments": [
+                    {"generated_assets": {"storyboard_image": "a.png"}, "duration_seconds": 6},
+                    {"duration_seconds": 4},
+                ],
             },
         )
+        assert in_prod["status"] == "in_production"
+        assert in_prod["storyboards"] == {"total": 2, "completed": 1}
+        assert in_prod["videos"] == {"total": 2, "completed": 0}
+
+        # completed：所有场景有视频
         completed = calc.calculate_episode_stats(
             "demo",
             {
                 "content_mode": "drama",
-                "scenes": [{"generated_assets": {"video_clip": "a.mp4"}, "duration_seconds": 8}],
+                "scenes": [
+                    {"generated_assets": {"video_clip": "a.mp4"}, "duration_seconds": 8},
+                ],
             },
         )
-
-        assert draft["status"] == "draft"
-        assert in_prod["status"] == "in_production"
         assert completed["status"] == "completed"
+        assert completed["storyboards"] == {"total": 1, "completed": 0}
+        assert completed["videos"] == {"total": 1, "completed": 1}
 
     def test_calculate_project_progress_and_phase(self, tmp_path):
         project_root = tmp_path / "projects"

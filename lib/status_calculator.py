@@ -74,8 +74,8 @@ class StatusCalculator:
             'scenes_count': total,
             'status': status,
             'duration_seconds': sum(i.get('duration_seconds', default_duration) for i in items),
-            'storyboards_completed': storyboard_done,
-            'videos_completed': video_done
+            'storyboards': {'total': total, 'completed': storyboard_done},
+            'videos': {'total': total, 'completed': video_done},
         }
 
     def calculate_project_progress(self, project_name: str) -> Dict:
