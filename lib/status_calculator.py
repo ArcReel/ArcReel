@@ -79,6 +79,17 @@ class StatusCalculator:
         }
 
 
+    @staticmethod
+    def _safe_exists(base: Path, rel_path: str) -> bool:
+        """检查 rel_path 是否为 base 目录内的合法相对路径且文件存在（防止路径穿越）"""
+        if not rel_path:
+            return False
+        try:
+            full = (base / rel_path).resolve()
+            return full.is_relative_to(base.resolve()) and full.exists()
+        except (OSError, ValueError):
+            return False
+
     def _get_episode_script_status(self, project_name: str, episode_num: int, script_file: str) -> str:
         """判断单集剧本状态: 'generated' | 'segmented' | 'none'"""
         try:
@@ -86,7 +97,11 @@ class StatusCalculator:
             return 'generated'
         except FileNotFoundError:
             project_dir = self.pm.get_project_path(project_name)
-            draft_file = project_dir / f'drafts/episode_{episode_num}/step1_segments.md'
+            try:
+                safe_num = int(episode_num)
+            except (ValueError, TypeError):
+                return 'none'
+            draft_file = project_dir / f'drafts/episode_{safe_num}/step1_segments.md'
             return 'segmented' if draft_file.exists() else 'none'
 
     def calculate_current_phase(self, project: Dict, episodes_stats: List[Dict]) -> str:
@@ -136,7 +151,7 @@ class StatusCalculator:
         chars_total = len(chars)
         chars_done = sum(
             1 for c in chars.values()
-            if c.get('character_sheet') and (project_dir / c['character_sheet']).exists()
+            if self._safe_exists(project_dir, c.get('character_sheet', ''))
         )
 
         # 线索统计（所有线索，不限 major）
@@ -144,7 +159,7 @@ class StatusCalculator:
         clues_total = len(clues)
         clues_done = sum(
             1 for c in clues.values()
-            if c.get('clue_sheet') and (project_dir / c['clue_sheet']).exists()
+            if self._safe_exists(project_dir, c.get('clue_sheet', ''))
         )
 
         # 每集状态
@@ -173,6 +188,9 @@ class StatusCalculator:
 
         phase = self.calculate_current_phase(project, episodes_stats)
         phase_progress = self._calculate_phase_progress(project, phase, episodes_stats)
+        if phase == 'worldbuilding':
+            total_assets = chars_total + clues_total
+            phase_progress = (chars_done + clues_done) / total_assets if total_assets > 0 else 0.0
 
         return {
             'current_phase': phase,
