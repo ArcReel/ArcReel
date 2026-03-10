@@ -134,7 +134,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     );
   }
 
-  const progress = projectData.status?.progress;
+  const status = projectData.status;
   const overview = projectData.overview;
   const styleImageUrl = projectData.style_image
     ? API.getFileUrl(projectName, projectData.style_image, mediaRevision)
@@ -310,11 +310,11 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
               </div>
             )}
 
-            {progress && (
+            {status && (
               <div className="grid grid-cols-2 gap-3">
-                {(["characters", "clues", "storyboards", "videos"] as const).map(
+                {(["characters", "clues"] as const).map(
                   (key) => {
-                    const cat = progress[key] as
+                    const cat = status[key] as
                       | { total: number; completed: number }
                       | undefined;
                     if (!cat) return null;
@@ -325,8 +325,6 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                     const labels: Record<string, string> = {
                       characters: "角色",
                       clues: "线索",
-                      storyboards: "分镜",
-                      videos: "视频",
                     };
                     return (
                       <div

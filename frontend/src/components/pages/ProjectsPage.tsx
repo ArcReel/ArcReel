@@ -5,7 +5,7 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { CreateProjectModal } from "./CreateProjectModal";
-import type { ImportConflictPolicy, ProjectSummary } from "@/types";
+import type { ImportConflictPolicy, ProjectSummary, ProjectStatus } from "@/types";
 
 interface ImportConflictDialogProps {
   projectName: string;
@@ -89,26 +89,32 @@ function ImportConflictDialog({
 }
 
 // ---------------------------------------------------------------------------
+// Phase display helpers
+// ---------------------------------------------------------------------------
+
+const PHASE_LABELS: Record<string, string> = {
+  setup: "准备中",
+  worldbuilding: "世界观",
+  scripting: "剧本创作",
+  production: "制作中",
+  completed: "已完成",
+};
+
+// ---------------------------------------------------------------------------
 // ProjectCard — single project entry
 // ---------------------------------------------------------------------------
 
 function ProjectCard({ project }: { project: ProjectSummary }) {
   const [, navigate] = useLocation();
-  const progress = project.progress;
-  const hasProgress = progress && "characters" in progress;
-  const totalItems = hasProgress
-    ? progress.characters.total +
-      progress.clues.total +
-      progress.storyboards.total +
-      progress.videos.total
-    : 0;
-  const completedItems = hasProgress
-    ? progress.characters.completed +
-      progress.clues.completed +
-      progress.storyboards.completed +
-      progress.videos.completed
-    : 0;
-  const pct = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+  const status = project.status;
+  const hasStatus = status && "current_phase" in status;
+
+  const pct = hasStatus ? Math.round((status as ProjectStatus).phase_progress * 100) : 0;
+  const phase = hasStatus ? (status as ProjectStatus).current_phase : "";
+  const phaseLabel = PHASE_LABELS[phase] ?? phase;
+  const characters = hasStatus ? (status as ProjectStatus).characters : null;
+  const clues = hasStatus ? (status as ProjectStatus).clues : null;
+  const summary = hasStatus ? (status as ProjectStatus).episodes_summary : null;
 
   return (
     <button
@@ -135,14 +141,15 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       <div>
         <h3 className="font-semibold text-gray-100 truncate">{project.title}</h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          {project.style || "未设置风格"} · {project.current_phase}
+          {project.style || "未设置风格"}
+          {phaseLabel ? ` · ${phaseLabel}` : ""}
         </p>
       </div>
 
       {/* Progress bar */}
       <div>
         <div className="flex justify-between text-xs text-gray-500 mb-1">
-          <span>进度</span>
+          <span>{phaseLabel || "进度"}</span>
           <span>{pct}%</span>
         </div>
         <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
@@ -152,6 +159,28 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
           />
         </div>
       </div>
+
+      {/* Characters & Clues — always shown */}
+      {(characters || clues) && (
+        <div className="flex gap-3 text-xs text-gray-500">
+          {characters && (
+            <span>人物 {characters.completed}/{characters.total}</span>
+          )}
+          {clues && (
+            <span>线索 {clues.completed}/{clues.total}</span>
+          )}
+        </div>
+      )}
+
+      {/* Episodes summary */}
+      {summary && summary.total > 0 && (
+        <div className="text-xs text-gray-500">
+          {summary.total} 集
+          {summary.scripted > 0 && ` · ${summary.scripted} 集剧本完成`}
+          {summary.in_production > 0 && ` · ${summary.in_production} 集制作中`}
+          {summary.completed > 0 && ` · ${summary.completed} 集已完成`}
+        </div>
+      )}
     </button>
   );
 }
