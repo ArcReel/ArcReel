@@ -3,8 +3,8 @@
  *
  * Maps to backend models in:
  * - lib/project_manager.py (ProjectOverview, project.json structure)
- * - lib/status_calculator.py (ProjectProgress, EpisodeMeta computed fields)
- * - webui/server/routers/projects.py (ProjectSummary list response)
+ * - lib/status_calculator.py (ProjectStatus, EpisodeMeta computed fields)
+ * - server/routers/projects.py (ProjectSummary list response)
  */
 
 export interface ProjectOverview {
@@ -41,11 +41,20 @@ export interface ProgressCategory {
   completed: number;
 }
 
-export interface ProjectProgress {
+export interface EpisodesSummary {
+  total: number;
+  scripted: number;
+  in_production: number;
+  completed: number;
+}
+
+/** Injected by StatusCalculator.calculate_project_status at read time */
+export interface ProjectStatus {
+  current_phase: "setup" | "worldbuilding" | "scripting" | "production" | "completed";
+  phase_progress: number;
   characters: ProgressCategory;
   clues: ProgressCategory;
-  storyboards: ProgressCategory;
-  videos: ProgressCategory;
+  episodes_summary: EpisodesSummary;
 }
 
 export interface EpisodeMeta {
@@ -55,13 +64,15 @@ export interface EpisodeMeta {
   /** Injected by StatusCalculator at read time */
   scenes_count?: number;
   /** Injected by StatusCalculator at read time */
-  status?: "draft" | "in_production" | "completed" | "missing";
+  script_status?: "none" | "segmented" | "generated";
+  /** Injected by StatusCalculator at read time */
+  status?: "draft" | "scripted" | "in_production" | "completed" | "missing";
   /** Injected by StatusCalculator at read time */
   duration_seconds?: number;
   /** Injected by StatusCalculator at read time */
-  storyboards_completed?: number;
+  storyboards?: ProgressCategory;
   /** Injected by StatusCalculator at read time */
-  videos_completed?: number;
+  videos?: ProgressCategory;
 }
 
 export interface ProjectData {
@@ -76,10 +87,7 @@ export interface ProjectData {
   characters: Record<string, Character>;
   clues: Record<string, Clue>;
   /** Injected by StatusCalculator.enrich_project at read time */
-  status?: {
-    progress: ProjectProgress;
-    current_phase: string;
-  };
+  status?: ProjectStatus;
   metadata?: {
     created_at: string;
     updated_at: string;
@@ -89,7 +97,7 @@ export interface ProjectData {
 /**
  * Summary shape returned by GET /api/v1/projects (list endpoint).
  *
- * Note: `progress` may be an empty object `{}` when the project
+ * Note: `status` may be an empty object `{}` when the project
  * has no project.json or encounters an error during loading.
  */
 export interface ProjectSummary {
@@ -97,8 +105,7 @@ export interface ProjectSummary {
   title: string;
   style: string;
   thumbnail: string | null;
-  progress: ProjectProgress | Record<string, never>;
-  current_phase: string;
+  status: ProjectStatus | Record<string, never>;
 }
 
 export type ImportConflictPolicy = "prompt" | "rename" | "overwrite";
