@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 
 from lib.db import async_session_factory
@@ -47,7 +47,7 @@ def _default_expires_at() -> datetime:
 
 class CreateApiKeyRequest(BaseModel):
     name: str
-    expires_days: Optional[int] = None  # None 使用默认 30 天，0 表示不过期
+    expires_days: Optional[int] = Field(None, ge=0)  # None 使用默认 30 天，0 表示不过期
 
 
 class CreateApiKeyResponse(BaseModel):

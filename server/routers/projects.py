@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Annotated, Optional, Union
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
@@ -478,7 +478,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
 
 @router.post("/projects/{name}/source")
 async def set_project_source(
-    name: str,
+    name: Annotated[str, Path(pattern=r"^[a-zA-Z0-9_-]+$")],
     _user: Annotated[dict, Depends(get_current_user)],
     generate_overview: Annotated[bool, Form()] = True,
     content: Annotated[Optional[str], Form()] = None,

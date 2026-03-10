@@ -23,7 +23,7 @@ SYNC_CHAT_TIMEOUT = 120  # 秒
 
 
 class AgentChatRequest(BaseModel):
-    project_name: str
+    project_name: str = Field(pattern=r"^[a-zA-Z0-9_-]+$")
     message: str = Field(min_length=1)
     session_id: Optional[str] = None
 
@@ -159,7 +159,10 @@ async def agent_chat(
 
     # 先订阅队列，再发消息（防止竞争条件漏掉消息）
     # 实际订阅在 _collect_reply 内部进行；先发消息让 Agent 开始处理
-    await service.send_message(session_id, body.message)
+    try:
+        await service.send_message(session_id, body.message)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
     # 收集回复（带超时）
     reply, status = await _collect_reply(service, session_id, SYNC_CHAT_TIMEOUT)

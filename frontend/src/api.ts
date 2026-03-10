@@ -178,6 +178,9 @@ class API {
       throw new Error(error.detail || "请求失败");
     }
 
+    if (response.status === 204) {
+      return undefined as T;
+    }
     return response.json();
   }
 
@@ -1200,14 +1203,7 @@ class API {
 
   /** 删除（吊销）指定 API Key。 */
   static async deleteApiKey(keyId: number): Promise<void> {
-    const url = `${API_BASE}/api-keys/${keyId}`;
-    const response = await fetch(url, withAuth({ method: "DELETE" }));
-    if (!response.ok) {
-      handleUnauthorized(response);
-      const error = await response.json().catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || "请求失败");
-    }
-    // 204 No Content — no body to parse
+    return this.request(`/api-keys/${keyId}`, { method: "DELETE" });
   }
 }
 
