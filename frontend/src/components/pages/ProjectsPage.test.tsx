@@ -58,12 +58,12 @@ describe("ProjectsPage", () => {
           title: "Demo Project",
           style: "Anime",
           thumbnail: null,
-          current_phase: "分镜",
-          progress: {
+          status: {
+            current_phase: "production",
+            phase_progress: 0.5,
             characters: { total: 2, completed: 2 },
             clues: { total: 2, completed: 1 },
-            storyboards: { total: 4, completed: 2 },
-            videos: { total: 4, completed: 0 },
+            episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
           },
         },
       ],
@@ -72,8 +72,8 @@ describe("ProjectsPage", () => {
     renderPage();
 
     expect(await screen.findByText("Demo Project")).toBeInTheDocument();
-    expect(screen.getByText("Anime · 分镜")).toBeInTheDocument();
-    expect(screen.getByText("42%")).toBeInTheDocument();
+    expect(screen.getByText("Anime · 制作中")).toBeInTheDocument();
+    expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
   it("opens create project modal after clicking new project button", async () => {
@@ -100,12 +100,12 @@ describe("ProjectsPage", () => {
             title: "Imported Demo",
             style: "Anime",
             thumbnail: null,
-            current_phase: "storyboard",
-            progress: {
+            status: {
+              current_phase: "completed",
+              phase_progress: 1,
               characters: { total: 1, completed: 1 },
               clues: { total: 1, completed: 1 },
-              storyboards: { total: 1, completed: 1 },
-              videos: { total: 1, completed: 1 },
+              episodes_summary: { total: 1, scripted: 1, in_production: 0, completed: 1 },
             },
           },
         ],
@@ -176,12 +176,12 @@ describe("ProjectsPage", () => {
             title: "Demo",
             style: "Anime",
             thumbnail: null,
-            current_phase: "storyboard",
-            progress: {
+            status: {
+              current_phase: "completed",
+              phase_progress: 1,
               characters: { total: 1, completed: 1 },
               clues: { total: 1, completed: 1 },
-              storyboards: { total: 1, completed: 1 },
-              videos: { total: 1, completed: 1 },
+              episodes_summary: { total: 1, scripted: 1, in_production: 0, completed: 1 },
             },
           },
         ],
