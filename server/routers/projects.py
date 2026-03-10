@@ -396,7 +396,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
                 for key, value in req.updates.items():
                     if key in ["duration_seconds", "image_prompt", "video_prompt",
                                "characters_in_scene", "clues_in_scene", "segment_break", "note"]:
-                        if value is None:
+                        if value is None and key != "note":
                             continue
                         scene[key] = value
                 break
@@ -460,7 +460,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                     segment["video_prompt"] = req.video_prompt
                 if req.transition_to_next is not None:
                     segment["transition_to_next"] = req.transition_to_next
-                if req.note is not None:
+                if "note" in req.model_fields_set:
                     segment["note"] = req.note
                 break
 
