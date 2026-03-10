@@ -100,20 +100,18 @@ class _FakePM:
 
 
 class _FakeCalc:
-    def calculate_project_progress(self, name):
+    def calculate_project_status(self, name, project):
         return {
+            "current_phase": "production",
+            "phase_progress": 0.5,
             "characters": {"total": 1, "completed": 0},
             "clues": {"total": 1, "completed": 0},
-            "storyboards": {"total": 2, "completed": 1},
-            "videos": {"total": 2, "completed": 0},
+            "episodes_summary": {"total": 1, "scripted": 1, "in_production": 1, "completed": 0},
         }
-
-    def calculate_current_phase(self, progress):
-        return "storyboard"
 
     def enrich_project(self, name, project):
         project = dict(project)
-        project["status"] = {"progress": self.calculate_project_progress(name), "current_phase": "storyboard"}
+        project["status"] = self.calculate_project_status(name, project)
         return project
 
     def enrich_script(self, script):
@@ -141,7 +139,8 @@ class TestProjectsRouter:
             names = [p["name"] for p in listed.json()["projects"]]
             assert names == ["ready", "empty", "broken"]
             broken = [p for p in listed.json()["projects"] if p["name"] == "broken"][0]
-            assert broken["current_phase"] == "error"
+            assert broken["status"] == {}
+            assert "error" in broken
 
             create_ok = client.post(
                 "/api/v1/projects",

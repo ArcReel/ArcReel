@@ -202,27 +202,23 @@ async def list_projects(_user: Annotated[dict, Depends(get_current_user)]):
                         thumbnail = f"/api/v1/files/{name}/storyboards/{scene_images[0].name}"
 
                 # 使用 StatusCalculator 计算进度（读时计算）
-                progress = calculator.calculate_project_progress(name)
-                current_phase = calculator.calculate_current_phase(progress)
+                status = calculator.calculate_project_status(name, project)
 
                 projects.append({
                     "name": name,
                     "title": project.get("title", name),
                     "style": project.get("style", ""),
                     "thumbnail": thumbnail,
-                    "progress": progress,
-                    "current_phase": current_phase
+                    "status": status,
                 })
             else:
                 # 没有 project.json 的项目
-                status = manager.get_project_status(name)
                 projects.append({
                     "name": name,
                     "title": name,
                     "style": "",
                     "thumbnail": None,
-                    "progress": {},
-                    "current_phase": status.get("current_stage", "empty")
+                    "status": {},
                 })
         except Exception as e:
             # 出错时返回基本信息
@@ -232,8 +228,7 @@ async def list_projects(_user: Annotated[dict, Depends(get_current_user)]):
                 "title": name,
                 "style": "",
                 "thumbnail": None,
-                "progress": {},
-                "current_phase": "error",
+                "status": {},
                 "error": str(e)
             })
 
