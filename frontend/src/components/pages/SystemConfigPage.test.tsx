@@ -4,6 +4,7 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useConfigStatusStore } from "@/stores/config-status-store";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
 import type { GetSystemConfigResponse } from "@/types";
 
@@ -93,20 +94,21 @@ function renderPage() {
 describe("SystemConfigPage", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
+    useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
     vi.restoreAllMocks();
   });
 
   it("shows an error state and allows retry when the initial load fails", async () => {
     vi.spyOn(API, "getSystemConfig")
       .mockRejectedValueOnce(new Error("network down"))
-      .mockResolvedValueOnce(makeConfigResponse());
+      .mockResolvedValue(makeConfigResponse());
 
     renderPage();
 
     expect(await screen.findByText("配置加载失败")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重试加载" }));
 
-    expect(await screen.findByText("Vertex AI 凭证")).toBeInTheDocument();
+    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
   });
 
   it("tests vertex connection from the page", async () => {
@@ -216,19 +218,27 @@ describe("SystemConfigPage", () => {
     expect(
       Boolean(anthropicHeading.compareDocumentPosition(geminiHeading) & Node.DOCUMENT_POSITION_FOLLOWING),
     ).toBe(true);
-    expect(screen.queryByRole("button", { name: "保存密钥与凭证" })).not.toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole("button", { name: "保存" })
+        .every((button) => (button as HTMLButtonElement).disabled),
+    ).toBe(true);
 
     fireEvent.change(screen.getByPlaceholderText("https://anthropic-proxy.example.com"), {
       target: { value: "https://proxy.example.com/v1" },
     });
     expect(API.updateSystemConfig).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "保存密钥与凭证" }));
+    const saveButton = screen
+      .getAllByRole("button", { name: "保存" })
+      .find((button) => !(button as HTMLButtonElement).disabled);
+    expect(saveButton).toBeDefined();
+    fireEvent.click(saveButton as HTMLButtonElement);
 
     await waitFor(() => {
       expect(API.updateSystemConfig).toHaveBeenCalledWith({
         anthropic_base_url: "https://proxy.example.com/v1",
       });
     });
-    expect(await screen.findByText(/https:\/\/proxy\.example\.com\/v1/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue("https://proxy.example.com/v1")).toBeInTheDocument();
   });
 });
