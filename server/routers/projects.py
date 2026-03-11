@@ -517,6 +517,9 @@ async def set_project_source(
                 raise HTTPException(status_code=400, detail=f"仅支持 .txt / .md 文件，收到: {original_name!r}")
 
             safe_filename = Path(original_name).name  # 防止路径穿越
+            # 若 Content-Length 可用则提前拒绝超大文件，避免读入内存后才检查
+            if file.size is not None and file.size > MAX_CHARS * 4:
+                raise HTTPException(status_code=400, detail=f"文件大小超出限制（最大约 {MAX_CHARS} 字符）")
             raw = await file.read()
             try:
                 text = raw.decode("utf-8")

@@ -11,6 +11,7 @@ import os
 import secrets
 import string
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -218,9 +219,10 @@ def ensure_auth_password(env_path: Optional[str] = None) -> str:
 API_KEY_PREFIX = "arc-"
 API_KEY_CACHE_TTL = 300  # 5 分钟
 
-# TTL 缓存：key_hash → (payload_dict | None, expires_at_timestamp)
+# LRU 缓存：key_hash → (payload_dict | None, expires_at_timestamp)
 # payload 为 None 表示 key 不存在或已过期（负缓存）
-_api_key_cache: dict[str, tuple[Optional[dict], float]] = {}
+# 使用 OrderedDict 实现 LRU：命中时 move_to_end，淘汰时 popitem(last=False)
+_api_key_cache: OrderedDict[str, tuple[Optional[dict], float]] = OrderedDict()
 _API_KEY_CACHE_MAX = 512
 
 
@@ -235,7 +237,7 @@ def invalidate_api_key_cache(key_hash: str) -> None:
 
 
 def _get_cached_api_key_payload(key_hash: str) -> tuple[bool, Optional[dict]]:
-    """从缓存中查找。返回 (命中, payload 或 None)。"""
+    """从缓存中查找。返回 (命中, payload 或 None)。命中时将条目移至末尾（LRU）。"""
     entry = _api_key_cache.get(key_hash)
     if entry is None:
         return False, None
@@ -243,19 +245,19 @@ def _get_cached_api_key_payload(key_hash: str) -> tuple[bool, Optional[dict]]:
     if time.monotonic() > expiry:
         _api_key_cache.pop(key_hash, None)
         return False, None
+    _api_key_cache.move_to_end(key_hash)
     return True, payload
 
 
 def _set_api_key_cache(key_hash: str, payload: Optional[dict], expires_at_ts: Optional[float] = None) -> None:
-    """写入缓存（含 FIFO 淘汰）。
+    """写入缓存（含 LRU 淘汰）。
 
     正向缓存（payload 非 None）TTL 以 key 实际过期时间为上界，
     避免 key 过期后仍在缓存中通过验证的安全问题。
     """
     if len(_api_key_cache) >= _API_KEY_CACHE_MAX:
-        # 淘汰最早插入的条目（FIFO）
-        oldest = next(iter(_api_key_cache))
-        _api_key_cache.pop(oldest, None)
+        # 淘汰最久未使用的条目（LRU：OrderedDict 头部）
+        _api_key_cache.popitem(last=False)
     ttl = API_KEY_CACHE_TTL
     if payload is not None and expires_at_ts is not None:
         time_to_expiry = expires_at_ts - time.monotonic()
