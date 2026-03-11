@@ -8,6 +8,13 @@ import type {
   ProjectChangeBatchPayload,
   WorkspaceNotificationTarget,
 } from "@/types";
+import {
+  buildEntityRevisionKey,
+  formatGroupedDeferredText,
+  formatGroupedNotificationText,
+  groupChangesByType,
+  type GroupedProjectChange,
+} from "@/utils/project-changes";
 
 const CHANGE_PRIORITY: Record<string, number> = {
   "segment:updated": 0,
@@ -35,29 +42,6 @@ function isNavigableChange(change: ProjectChange): boolean {
   return Boolean(change.focus?.anchor_type && change.focus?.anchor_id);
 }
 
-function selectPrimaryChange(changes: ProjectChange[]): ProjectChange | null {
-  return changes
-    .filter((change) => isNavigableChange(change))
-    .sort((left, right) => getChangePriority(left) - getChangePriority(right))[0] ?? null;
-}
-
-function isNotificationOnlyChange(change: ProjectChange): boolean {
-  if (change.action === "storyboard_ready" || change.action === "video_ready") {
-    return true;
-  }
-  return (
-    change.important &&
-    !change.focus?.anchor_type &&
-    (change.entity_type === "character" || change.entity_type === "clue")
-  );
-}
-
-function selectNotificationChange(changes: ProjectChange[]): ProjectChange | null {
-  return changes
-    .filter((change) => isNotificationOnlyChange(change))
-    .sort((left, right) => getChangePriority(left) - getChangePriority(right))[0] ?? null;
-}
-
 function buildNotificationTarget(change: ProjectChange): WorkspaceNotificationTarget | null {
   const focus = change.focus;
   if (!focus?.anchor_type || !focus.anchor_id) return null;
@@ -81,27 +65,30 @@ function buildNotificationTarget(change: ProjectChange): WorkspaceNotificationTa
   };
 }
 
-function formatDeferredText(change: ProjectChange): string {
-  if (change.action === "storyboard_ready") {
-    return `AI 刚生成了 ${change.label} 的分镜图，点击查看`;
-  }
-  if (change.action === "video_ready") {
-    return `AI 刚生成了 ${change.label} 的视频，点击查看`;
-  }
-  if (change.action === "created") {
-    return `AI 刚新增了 ${change.label}，点击查看`;
-  }
-  return `AI 刚更新了 ${change.label}，点击查看`;
+function getGroupPriority(group: GroupedProjectChange): number {
+  return Math.min(
+    ...group.changes.map((change) => getChangePriority(change)),
+  );
 }
 
-function formatNotificationText(change: ProjectChange): string {
-  if (change.action === "storyboard_ready") {
-    return `${change.label}的分镜图已生成`;
-  }
-  if (change.action === "video_ready") {
-    return `${change.label}的视频已生成`;
-  }
-  return `${change.label} 已更新`;
+function sortGroupedChanges(
+  groups: GroupedProjectChange[],
+): GroupedProjectChange[] {
+  return [...groups].sort(
+    (left, right) => getGroupPriority(left) - getGroupPriority(right),
+  );
+}
+
+function hasImportantChanges(group: GroupedProjectChange): boolean {
+  return group.changes.some((change) => change.important);
+}
+
+function getPrimaryGroupTarget(
+  group: GroupedProjectChange,
+): WorkspaceNotificationTarget | null {
+  const primaryChange =
+    group.changes.find((change) => isNavigableChange(change)) ?? null;
+  return primaryChange ? buildNotificationTarget(primaryChange) : null;
 }
 
 function isWorkspaceEditing(): boolean {
@@ -121,7 +108,7 @@ function isWorkspaceEditing(): boolean {
 export function useProjectEventsSSE(projectName?: string | null): void {
   const [, setLocation] = useLocation();
   const setCurrentProject = useProjectsStore((s) => s.setCurrentProject);
-  const invalidateMediaAssets = useAppStore((s) => s.invalidateMediaAssets);
+  const invalidateEntities = useAppStore((s) => s.invalidateEntities);
   const triggerScrollTo = useAppStore((s) => s.triggerScrollTo);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -175,7 +162,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     try {
       const res = await API.getProject(projectName);
       setCurrentProject(projectName, res.project, res.scripts ?? {});
-      invalidateMediaAssets();
     } catch (err) {
       pushToast(`同步项目变更失败: ${(err as Error).message}`, "warning");
     } finally {
@@ -187,7 +173,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
       }
       flushQueuedFocus();
     }
-  }, [flushQueuedFocus, invalidateMediaAssets, projectName, pushToast, setCurrentProject]);
+  }, [flushQueuedFocus, projectName, pushToast, setCurrentProject]);
 
   useEffect(() => {
     lastFingerprintRef.current = null;
@@ -228,26 +214,44 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           lastFingerprintRef.current = payload.fingerprint;
           setAssistantToolActivitySuppressed(true);
 
-          const notificationChange = selectNotificationChange(payload.changes);
-          if (notificationChange) {
-            pushToast(formatNotificationText(notificationChange), "success");
+          const invalidationKeys = payload.changes.map((change) =>
+            buildEntityRevisionKey(change.entity_type, change.entity_id),
+          );
+          invalidateEntities(invalidationKeys);
+
+          const groupedChanges = sortGroupedChanges(
+            groupChangesByType(payload.changes),
+          );
+
+          if (payload.source !== "webui") {
+            for (const group of groupedChanges) {
+              if (!hasImportantChanges(group)) {
+                continue;
+              }
+              pushToast(formatGroupedNotificationText(group), "success");
+            }
           }
 
           if (payload.source !== "webui") {
-            const primaryChange = selectPrimaryChange(payload.changes);
-            const focusTarget = primaryChange
-              ? buildNotificationTarget(primaryChange)
-              : null;
-            if (primaryChange && focusTarget) {
-              pushWorkspaceNotification({
-                text: formatDeferredText(primaryChange),
-                target: focusTarget,
-              });
-              if (isWorkspaceEditing()) {
-                queuedFocusRef.current = null;
-              } else {
-                queuedFocusRef.current = focusTarget;
-              }
+            const nextFocusTarget =
+              groupedChanges
+                .map((group) => {
+                  const target = getPrimaryGroupTarget(group);
+                  if (!target) {
+                    return null;
+                  }
+                  pushWorkspaceNotification({
+                    text: formatGroupedDeferredText(group),
+                    target,
+                  });
+                  return target;
+                })
+                .find(Boolean) ?? null;
+
+            if (isWorkspaceEditing()) {
+              queuedFocusRef.current = null;
+            } else {
+              queuedFocusRef.current = nextFocusTarget;
             }
           }
 
@@ -283,6 +287,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     };
   }, [
     clearWorkspaceNotifications,
+    invalidateEntities,
     projectName,
     pushWorkspaceNotification,
     refreshProject,

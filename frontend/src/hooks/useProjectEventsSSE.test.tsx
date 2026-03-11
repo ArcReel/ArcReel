@@ -211,6 +211,97 @@ describe("useProjectEventsSSE", () => {
     expect(useAppStore.getState().scrollTarget).toBeNull();
   });
 
+  it("groups remote changes by type and invalidates only the touched entity keys", async () => {
+    let capturedOptions: ProjectEventStreamOptions | undefined;
+    vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+      capturedOptions = options;
+      return { close: vi.fn() } as unknown as EventSource;
+    });
+
+    renderHarness("/");
+
+    act(() => {
+      capturedOptions?.onChanges?.(
+        {
+          project_name: "demo",
+          batch_id: "batch-grouped",
+          fingerprint: "fp-grouped",
+          generated_at: "2026-03-01T00:00:00Z",
+          source: "filesystem",
+          changes: [
+            {
+              entity_type: "character",
+              action: "created",
+              entity_id: "hero",
+              label: "角色「hero」",
+              focus: {
+                pane: "characters",
+                anchor_type: "character",
+                anchor_id: "hero",
+              },
+              important: true,
+            },
+            {
+              entity_type: "character",
+              action: "created",
+              entity_id: "mage",
+              label: "角色「mage」",
+              focus: {
+                pane: "characters",
+                anchor_type: "character",
+                anchor_id: "mage",
+              },
+              important: true,
+            },
+            {
+              entity_type: "clue",
+              action: "updated",
+              entity_id: "玉佩",
+              label: "线索「玉佩」",
+              focus: {
+                pane: "clues",
+                anchor_type: "clue",
+                anchor_id: "玉佩",
+              },
+              important: true,
+            },
+          ],
+        },
+        new MessageEvent("changes"),
+      );
+    });
+
+    await waitFor(() => {
+      expect(API.getProject).toHaveBeenCalledWith("demo");
+      expect(useAppStore.getState().toast?.text).toBe("线索「玉佩」已更新");
+    });
+
+    expect(useAppStore.getState().getEntityRevision("character:hero")).toBe(1);
+    expect(useAppStore.getState().getEntityRevision("character:mage")).toBe(1);
+    expect(useAppStore.getState().getEntityRevision("clue:玉佩")).toBe(1);
+    expect(useAppStore.getState().getEntityRevision("segment:SEG-404")).toBe(0);
+    expect(useAppStore.getState().workspaceNotifications).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: "AI 刚新增了 2 个角色：hero、mage，点击查看",
+          target: expect.objectContaining({
+            type: "character",
+            id: "hero",
+            route: "/characters",
+          }),
+        }),
+        expect.objectContaining({
+          text: "AI 刚更新了 线索「玉佩」，点击查看",
+          target: expect.objectContaining({
+            type: "clue",
+            id: "玉佩",
+            route: "/clues",
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("refreshes without changing focus for webui-originated batches", async () => {
     let capturedOptions: ProjectEventStreamOptions | undefined;
     vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {

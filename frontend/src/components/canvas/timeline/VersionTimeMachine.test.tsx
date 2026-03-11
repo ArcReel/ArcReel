@@ -95,7 +95,7 @@ describe("VersionTimeMachine", () => {
       );
       expect(onRestore).toHaveBeenCalledWith(1);
       expect(API.getVersions).toHaveBeenCalledTimes(2);
-      expect(screen.getByText("当前 v1")).toBeInTheDocument();
+      expect(useAppStore.getState().toast?.text).toBe("已切换到 v1");
     });
   });
 

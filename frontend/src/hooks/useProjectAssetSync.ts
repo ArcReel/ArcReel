@@ -29,7 +29,7 @@ export function useProjectAssetSync(projectName?: string | null): void {
         res.project,
         res.scripts ?? {},
       );
-      useAppStore.getState().invalidateMediaAssets();
+      useAppStore.getState().invalidateAllEntities();
     } catch {
       // Ignore refresh failures so SSE processing can continue.
     } finally {

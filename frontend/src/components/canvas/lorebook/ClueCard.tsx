@@ -6,6 +6,7 @@ import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
+import { buildEntityRevisionKey } from "@/utils/project-changes";
 import type { Clue } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +45,8 @@ export function ClueCard({
   onRestoreVersion,
   generating = false,
 }: ClueCardProps) {
-  const mediaRevision = useAppStore((s) => s.mediaRevision);
+  const entityRevisionKey = buildEntityRevisionKey("clue", name);
+  const mediaRevision = useAppStore((s) => s.getEntityRevision(entityRevisionKey));
   const [description, setDescription] = useState(clue.description);
   const [imgError, setImgError] = useState(false);
   const [isEditing, setIsEditing] = useState(false);

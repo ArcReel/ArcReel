@@ -9,6 +9,7 @@ import { GenerateButton } from "@/components/ui/GenerateButton";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
+import { buildEntityRevisionKey } from "@/utils/project-changes";
 import { ImagePromptEditor } from "./ImagePromptEditor";
 import { VideoPromptEditor } from "./VideoPromptEditor";
 import type {
@@ -479,7 +480,8 @@ function MediaColumn({
   generatingStoryboard?: boolean;
   generatingVideo?: boolean;
 }) {
-  const mediaRevision = useAppStore((s) => s.mediaRevision);
+  const entityRevisionKey = buildEntityRevisionKey("segment", segmentId);
+  const mediaRevision = useAppStore((s) => s.getEntityRevision(entityRevisionKey));
   const assets = segment.generated_assets;
   const storyboardUrl = assets?.storyboard_image
     ? API.getFileUrl(projectName, assets.storyboard_image, mediaRevision)
@@ -514,6 +516,7 @@ function MediaColumn({
             <ImageFlipReveal
               src={storyboardUrl}
               alt={`${segmentId} 分镜图`}
+              loading="lazy"
               className="h-full w-full object-cover"
               fallback={
                 <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-600">

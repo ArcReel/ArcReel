@@ -1,8 +1,9 @@
-import { useState, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { User } from "lucide-react";
 import { API } from "@/api";
 import { Popover } from "@/components/ui/Popover";
 import { useAppStore } from "@/stores/app-store";
+import { buildEntityRevisionKey } from "@/utils/project-changes";
 import type { Character } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -43,7 +44,9 @@ function AvatarPopover({
   projectName: string;
   anchorRef: RefObject<HTMLElement | null>;
 }) {
-  const mediaRevision = useAppStore((s) => s.mediaRevision);
+  const mediaRevision = useAppStore((s) =>
+    s.getEntityRevision(buildEntityRevisionKey("character", name)),
+  );
 
   const firstLine = character.description?.split("\n")[0] ?? "";
 
@@ -95,13 +98,19 @@ function SingleAvatar({
   character: Character | undefined;
   projectName: string;
 }) {
-  const mediaRevision = useAppStore((s) => s.mediaRevision);
+  const mediaRevision = useAppStore((s) =>
+    s.getEntityRevision(buildEntityRevisionKey("character", name)),
+  );
   const [imgError, setImgError] = useState(false);
   const [hovered, setHovered] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
 
   const sheetPath = character?.character_sheet;
   const showImage = sheetPath && !imgError;
+
+  useEffect(() => {
+    setImgError(false);
+  }, [mediaRevision, sheetPath]);
 
   return (
     <>

@@ -111,9 +111,14 @@ describe("stores", () => {
     app.invalidateSourceFiles();
     expect(useAppStore.getState().sourceFilesVersion).toBe(1);
 
-    expect(useAppStore.getState().mediaRevision).toBe(0);
-    app.invalidateMediaAssets();
-    expect(useAppStore.getState().mediaRevision).toBe(1);
+    expect(useAppStore.getState().entityRevisions).toEqual({});
+    expect(app.getEntityRevision("segment:S1")).toBe(0);
+    app.invalidateEntities(["segment:S1", "character:hero", "segment:S1"]);
+    expect(app.getEntityRevision("segment:S1")).toBe(1);
+    expect(app.getEntityRevision("character:hero")).toBe(1);
+    app.invalidateAllEntities();
+    expect(app.getEntityRevision("segment:S1")).toBe(2);
+    expect(app.getEntityRevision("clue:missing")).toBe(1);
   });
 
   it("upserts tasks by task_id and updates task stats", () => {

@@ -7,6 +7,7 @@ import { GenerateButton } from "@/components/ui/GenerateButton";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
+import { buildEntityRevisionKey } from "@/utils/project-changes";
 import type { Character } from "@/types";
 
 interface CharacterSavePayload {
@@ -34,7 +35,8 @@ export function CharacterCard({
   onRestoreVersion,
   generating = false,
 }: CharacterCardProps) {
-  const mediaRevision = useAppStore((s) => s.mediaRevision);
+  const entityRevisionKey = buildEntityRevisionKey("character", name);
+  const mediaRevision = useAppStore((s) => s.getEntityRevision(entityRevisionKey));
   const [description, setDescription] = useState(character.description);
   const [voiceStyle, setVoiceStyle] = useState(character.voice_style ?? "");
   const [imgError, setImgError] = useState(false);

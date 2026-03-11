@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight, History } from "lucide-react";
 import { API, type VersionInfo } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { buildVersionResourceRevisionKey } from "@/utils/project-changes";
 
 interface VersionTimeMachineProps {
   projectName: string;
@@ -37,7 +38,8 @@ export function VersionTimeMachine({
   resourceId,
   onRestore,
 }: VersionTimeMachineProps) {
-  const mediaRevision = useAppStore((s) => s.mediaRevision);
+  const entityRevisionKey = buildVersionResourceRevisionKey(resourceType, resourceId);
+  const mediaRevision = useAppStore((s) => s.getEntityRevision(entityRevisionKey));
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -85,6 +87,7 @@ export function VersionTimeMachine({
     setRestoringVersion(version);
     try {
       await API.restoreVersion(projectName, resourceType, resourceId, version);
+      useAppStore.getState().invalidateEntities([entityRevisionKey]);
       await onRestore?.(version);
       await loadVersions();
       setSelectedVersion(version);

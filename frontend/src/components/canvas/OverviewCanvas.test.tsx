@@ -68,7 +68,7 @@ describe("OverviewCanvas", () => {
     await waitFor(() => {
       expect(API.uploadStyleImage).toHaveBeenCalledWith("demo", file);
       expect(API.getProject).toHaveBeenCalledTimes(1);
-      expect(useAppStore.getState().mediaRevision).toBe(1);
+      expect(useAppStore.getState().getEntityRevision("project:project")).toBe(1);
     });
 
     rerender(
@@ -83,7 +83,7 @@ describe("OverviewCanvas", () => {
     await waitFor(() => {
       expect(API.deleteStyleImage).toHaveBeenCalledWith("demo");
       expect(API.getProject).toHaveBeenCalledTimes(2);
-      expect(useAppStore.getState().mediaRevision).toBe(2);
+      expect(useAppStore.getState().getEntityRevision("project:project")).toBe(2);
     });
   }, 10_000);
 

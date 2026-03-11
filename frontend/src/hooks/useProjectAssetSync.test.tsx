@@ -55,7 +55,7 @@ describe("useProjectAssetSync", () => {
     renderHook(() => useProjectAssetSync("demo"));
 
     expect(getProjectSpy).not.toHaveBeenCalled();
-    expect(useAppStore.getState().mediaRevision).toBe(0);
+    expect(useAppStore.getState().getEntityRevision("segment:SEG-1")).toBe(0);
   });
 
   it("refreshes the current project exactly once when a tracked task becomes succeeded", async () => {
@@ -89,7 +89,7 @@ describe("useProjectAssetSync", () => {
 
     await waitFor(() => {
       expect(API.getProject).toHaveBeenCalledTimes(1);
-      expect(useAppStore.getState().mediaRevision).toBe(1);
+      expect(useAppStore.getState().getEntityRevision("segment:SEG-1")).toBe(1);
       expect(useProjectsStore.getState().currentProjectName).toBe("demo");
     });
 

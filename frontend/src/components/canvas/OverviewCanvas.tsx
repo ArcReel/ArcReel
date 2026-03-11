@@ -5,6 +5,7 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
+import { buildEntityRevisionKey } from "@/utils/project-changes";
 import { WelcomeCanvas } from "./WelcomeCanvas";
 
 interface OverviewCanvasProps {
@@ -13,7 +14,8 @@ interface OverviewCanvasProps {
 }
 
 export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps) {
-  const mediaRevision = useAppStore((s) => s.mediaRevision);
+  const projectRevisionKey = buildEntityRevisionKey("project", "project");
+  const mediaRevision = useAppStore((s) => s.getEntityRevision(projectRevisionKey));
   const [regenerating, setRegenerating] = useState(false);
   const [uploadingStyleImage, setUploadingStyleImage] = useState(false);
   const [deletingStyleImage, setDeletingStyleImage] = useState(false);
@@ -24,18 +26,18 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const styleInputRef = useRef<HTMLInputElement>(null);
 
   const refreshProject = useCallback(
-    async (invalidateMedia: boolean = false) => {
+    async (invalidateProjectMedia: boolean = false) => {
       const res = await API.getProject(projectName);
       useProjectsStore.getState().setCurrentProject(
         projectName,
         res.project,
         res.scripts ?? {},
       );
-      if (invalidateMedia) {
-        useAppStore.getState().invalidateMediaAssets();
+      if (invalidateProjectMedia) {
+        useAppStore.getState().invalidateEntities([projectRevisionKey]);
       }
     },
-    [projectName],
+    [projectName, projectRevisionKey],
   );
 
   useEffect(() => {

@@ -22,6 +22,8 @@ interface FocusedContext {
   id: string;
 }
 
+const ALL_ENTITIES_REVISION_KEY = "__all__";
+
 interface AppState {
   // Context focus (design doc "Context-Aware" feature)
   focusedContext: FocusedContext | null;
@@ -56,9 +58,11 @@ interface AppState {
   sourceFilesVersion: number;
   invalidateSourceFiles: () => void;
 
-  // Media invalidation signal for cache-busted asset URLs
-  mediaRevision: number;
-  invalidateMediaAssets: () => void;
+  // Entity-scoped invalidation signal for cache-busted asset URLs
+  entityRevisions: Record<string, number>;
+  invalidateEntities: (keys: string[]) => void;
+  invalidateAllEntities: () => void;
+  getEntityRevision: (key: string) => number;
 }
 
 const MAX_WORKSPACE_NOTIFICATIONS = 40;
@@ -76,7 +80,7 @@ function buildWorkspaceNotification(
   };
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   focusedContext: null,
   setFocusedContext: (ctx) => set({ focusedContext: ctx }),
 
@@ -154,6 +158,33 @@ export const useAppStore = create<AppState>((set) => ({
   sourceFilesVersion: 0,
   invalidateSourceFiles: () => set((s) => ({ sourceFilesVersion: s.sourceFilesVersion + 1 })),
 
-  mediaRevision: 0,
-  invalidateMediaAssets: () => set((s) => ({ mediaRevision: s.mediaRevision + 1 })),
+  entityRevisions: {},
+  invalidateEntities: (keys) =>
+    set((s) => {
+      const normalizedKeys = [...new Set(keys.filter(Boolean))];
+      if (normalizedKeys.length === 0) {
+        return s;
+      }
+
+      const entityRevisions = { ...s.entityRevisions };
+      for (const key of normalizedKeys) {
+        entityRevisions[key] = (entityRevisions[key] ?? 0) + 1;
+      }
+      return { entityRevisions };
+    }),
+  invalidateAllEntities: () =>
+    set((s) => ({
+      entityRevisions: {
+        ...s.entityRevisions,
+        [ALL_ENTITIES_REVISION_KEY]:
+          (s.entityRevisions[ALL_ENTITIES_REVISION_KEY] ?? 0) + 1,
+      },
+    })),
+  getEntityRevision: (key) => {
+    const entityRevisions = get().entityRevisions;
+    return (
+      (entityRevisions[key] ?? 0) +
+      (entityRevisions[ALL_ENTITIES_REVISION_KEY] ?? 0)
+    );
+  },
 }));

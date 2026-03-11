@@ -1,5 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useAppStore } from "@/stores/app-store";
+import type { WorkspaceFocusTarget } from "@/types";
+
+interface UseScrollTargetOptions {
+  prepareTarget?: (target: WorkspaceFocusTarget) => boolean;
+}
 
 /**
  * Hook that watches for scroll target events and scrolls to the matching element.
@@ -12,13 +17,17 @@ import { useAppStore } from "@/stores/app-store";
  * this hook retries until the target element is mounted, then scrolls it into
  * view and applies a workspace flash animation.
  */
-export function useScrollTarget(type: string): void {
+export function useScrollTarget(
+  type: string,
+  options?: UseScrollTargetOptions,
+): void {
   const scrollTarget = useAppStore((s) => s.scrollTarget);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
   const pushToast = useAppStore((s) => s.pushToast);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightedElementRef = useRef<HTMLElement | null>(null);
+  const prepareTarget = options?.prepareTarget;
 
   useEffect(() => {
     return () => {
@@ -42,6 +51,7 @@ export function useScrollTarget(type: string): void {
     const requestId = scrollTarget.request_id;
     const elementId = `${type}-${scrollTarget.id}`;
     let cancelled = false;
+    let prepared = false;
 
     if (retryTimerRef.current) {
       clearTimeout(retryTimerRef.current);
@@ -63,6 +73,9 @@ export function useScrollTarget(type: string): void {
 
       const el = document.getElementById(elementId);
       if (!el) {
+        if (!prepared && prepareTarget) {
+          prepared = prepareTarget(currentTarget);
+        }
         if (Date.now() >= currentTarget.expires_at) {
           clearScrollTarget(requestId);
           pushToast(`未找到可定位的内容：${currentTarget.id}`, "warning");
@@ -100,5 +113,5 @@ export function useScrollTarget(type: string): void {
         retryTimerRef.current = null;
       }
     };
-  }, [scrollTarget, type, clearScrollTarget, pushToast]);
+  }, [clearScrollTarget, prepareTarget, pushToast, scrollTarget, type]);
 }

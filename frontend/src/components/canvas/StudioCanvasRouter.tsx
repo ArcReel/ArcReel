@@ -10,6 +10,7 @@ import { SourceFileViewer } from "./SourceFileViewer";
 import { AddCharacterForm } from "./lorebook/AddCharacterForm";
 import { AddClueForm } from "./lorebook/AddClueForm";
 import { API } from "@/api";
+import { buildEntityRevisionKey } from "@/utils/project-changes";
 import type { Clue } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ export function StudioCanvasRouter() {
   }, [tasks, currentProjectName]);
 
   // 刷新项目数据
-  const refreshProject = useCallback(async (invalidateMedia: boolean = false) => {
+  const refreshProject = useCallback(async (invalidateKeys: string[] = []) => {
     if (!currentProjectName) return;
     try {
       const res = await API.getProject(currentProjectName);
@@ -63,8 +64,8 @@ export function StudioCanvasRouter() {
         res.project,
         res.scripts ?? {},
       );
-      if (invalidateMedia) {
-        useAppStore.getState().invalidateMediaAssets();
+      if (invalidateKeys.length > 0) {
+        useAppStore.getState().invalidateEntities(invalidateKeys);
       }
     } catch {
       // 静默失败
@@ -156,7 +157,11 @@ export function StudioCanvasRouter() {
         );
       }
 
-      await refreshProject(Boolean(payload.referenceFile));
+      await refreshProject(
+        payload.referenceFile
+          ? [buildEntityRevisionKey("character", name)]
+          : [],
+      );
       useAppStore.getState().pushToast(`角色 "${name}" 已更新`, "success");
     } catch (err) {
       useAppStore.getState().pushToast(`更新角色失败: ${(err as Error).message}`, "error");
@@ -193,7 +198,11 @@ export function StudioCanvasRouter() {
         await API.uploadFile(currentProjectName, "character_ref", referenceFile, name);
       }
 
-      await refreshProject(Boolean(referenceFile));
+      await refreshProject(
+        referenceFile
+          ? [buildEntityRevisionKey("character", name)]
+          : [],
+      );
       setAddingCharacter(false);
       useAppStore.getState().pushToast(`角色 "${name}" 已添加`, "success");
     } catch (err) {
@@ -241,7 +250,7 @@ export function StudioCanvasRouter() {
   }, [currentProjectName, refreshProject]);
 
   const handleRestoreAsset = useCallback(async () => {
-    await refreshProject(true);
+    await refreshProject();
   }, [refreshProject]);
 
   const [location] = useLocation();

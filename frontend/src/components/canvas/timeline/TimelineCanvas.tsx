@@ -1,3 +1,5 @@
+import { useCallback, useMemo, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { SegmentCard } from "./SegmentCard";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
 import type {
@@ -59,8 +61,52 @@ export function TimelineCanvas({
   onRestoreStoryboard,
   onRestoreVideo,
 }: TimelineCanvasProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentMode = projectData?.content_mode ?? "narration";
+
+  // Determine aspect ratio — use project config if available, otherwise defaults
+  const aspectRatio =
+    projectData?.aspect_ratio?.storyboard ??
+    (contentMode === "narration" ? "9:16" : "16:9");
+
+  // Pick the correct array (segments for narration, scenes for drama)
+  const segments = useMemo<Segment[]>(
+    () =>
+      !episodeScript || !projectData
+        ? []
+        : contentMode === "narration"
+          ? ((episodeScript as NarrationEpisodeScript).segments ?? [])
+          : ((episodeScript as DramaEpisodeScript).scenes ?? []),
+    [contentMode, episodeScript, projectData],
+  );
+  const segmentIndexMap = useMemo(
+    () =>
+      new Map(
+        segments.map((segment, index) => [getSegmentId(segment, contentMode), index]),
+      ),
+    [contentMode, segments],
+  );
+  const virtualizer = useVirtualizer({
+    count: segments.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 200,
+    overscan: 5,
+    measureElement: (element) => element?.getBoundingClientRect().height ?? 200,
+  });
+  const prepareScrollTarget = useCallback(
+    (target: { id: string }) => {
+      const index = segmentIndexMap.get(target.id);
+      if (index == null) {
+        return false;
+      }
+      virtualizer.scrollToIndex(index, { align: "center" });
+      return true;
+    },
+    [segmentIndexMap, virtualizer],
+  );
+
   // Respond to agent-triggered scroll targets for segments
-  useScrollTarget("segment");
+  useScrollTarget("segment", { prepareTarget: prepareScrollTarget });
 
   // Empty state — no episode selected
   if (!episodeScript || !projectData) {
@@ -71,19 +117,6 @@ export function TimelineCanvas({
     );
   }
 
-  const contentMode = projectData.content_mode;
-
-  // Determine aspect ratio — use project config if available, otherwise defaults
-  const aspectRatio =
-    projectData.aspect_ratio?.storyboard ??
-    (contentMode === "narration" ? "9:16" : "16:9");
-
-  // Pick the correct array (segments for narration, scenes for drama)
-  const segments: Segment[] =
-    contentMode === "narration"
-      ? ((episodeScript as NarrationEpisodeScript).segments ?? [])
-      : ((episodeScript as DramaEpisodeScript).scenes ?? []);
-
   // Compute total duration from actual segments if available
   const totalDuration =
     episodeScript.duration_seconds ??
@@ -91,10 +124,11 @@ export function TimelineCanvas({
 
   // Label depends on content mode
   const segmentLabel = contentMode === "narration" ? "个片段" : "个场景";
+  const virtualItems = virtualizer.getVirtualItems();
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-4 space-y-1">
+    <div ref={scrollRef} className="h-full overflow-y-auto">
+      <div className="p-4">
         {/* ---- Episode header ---- */}
         <div className="mb-4">
           <h2 className="text-lg font-semibold text-gray-100">
@@ -106,11 +140,25 @@ export function TimelineCanvas({
         </div>
 
         {/* ---- Segment cards ---- */}
-        <div className="space-y-4">
-          {segments.map((segment) => {
+        <div
+          className="relative"
+          style={{ height: `${virtualizer.getTotalSize()}px` }}
+        >
+          {virtualItems.map((virtualItem) => {
+            const segment = segments[virtualItem.index];
             const segId = getSegmentId(segment, contentMode);
             return (
-              <div id={`segment-${segId}`} key={segId}>
+              <div
+                id={`segment-${segId}`}
+                key={segId}
+                data-index={virtualItem.index}
+                ref={virtualizer.measureElement}
+                className="absolute left-0 top-0 w-full"
+                style={{
+                  transform: `translateY(${virtualItem.start}px)`,
+                  paddingBottom: virtualItem.index === segments.length - 1 ? 0 : 16,
+                }}
+              >
                 <SegmentCard
                   segment={segment}
                   contentMode={contentMode}

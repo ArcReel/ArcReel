@@ -11,6 +11,7 @@ interface ImageFlipRevealProps {
   className?: string;
   fallback?: ReactNode;
   onError?: () => void;
+  loading?: "eager" | "lazy";
 }
 
 export function ImageFlipReveal({
@@ -19,6 +20,7 @@ export function ImageFlipReveal({
   className,
   fallback,
   onError,
+  loading,
 }: ImageFlipRevealProps) {
   return (
     <div style={{ perspective: 800 }} className="h-full w-full">
@@ -28,6 +30,7 @@ export function ImageFlipReveal({
             key={src}
             src={src}
             alt={alt}
+            loading={loading}
             className={className ?? "h-full w-full object-cover"}
             initial={{ rotateY: 90, opacity: 0 }}
             animate={{ rotateY: 0, opacity: 1 }}

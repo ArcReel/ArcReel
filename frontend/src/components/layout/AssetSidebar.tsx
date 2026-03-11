@@ -16,6 +16,7 @@ import {
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { API } from "@/api";
+import { buildEntityRevisionKey } from "@/utils/project-changes";
 
 // ---------------------------------------------------------------------------
 // CollapsibleSection — reusable accordion primitive
@@ -78,14 +79,19 @@ function CharacterThumbnail({
   name,
   sheetPath,
   projectName,
-  mediaRevision,
 }: {
   name: string;
   sheetPath: string | undefined;
   projectName: string;
-  mediaRevision: number;
 }) {
+  const mediaRevision = useAppStore((s) =>
+    s.getEntityRevision(buildEntityRevisionKey("character", name)),
+  );
   const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [mediaRevision, sheetPath]);
 
   if (!sheetPath || imgError) {
     return (
@@ -113,14 +119,19 @@ function ClueThumbnail({
   name,
   sheetPath,
   projectName,
-  mediaRevision,
 }: {
   name: string;
   sheetPath: string | undefined;
   projectName: string;
-  mediaRevision: number;
 }) {
+  const mediaRevision = useAppStore((s) =>
+    s.getEntityRevision(buildEntityRevisionKey("clue", name)),
+  );
   const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [mediaRevision, sheetPath]);
 
   if (!sheetPath || imgError) {
     return (
@@ -161,7 +172,6 @@ interface AssetSidebarProps {
 export function AssetSidebar({ className }: AssetSidebarProps) {
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
-  const mediaRevision = useAppStore((s) => s.mediaRevision);
   const [location, setLocation] = useLocation();
 
   const characters = currentProjectData?.characters ?? {};
@@ -350,7 +360,6 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                       name={name}
                       sheetPath={char.character_sheet}
                       projectName={projectName}
-                      mediaRevision={mediaRevision}
                     />
                     <span className="truncate">{name}</span>
                   </button>
@@ -385,7 +394,6 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                       name={name}
                       sheetPath={clue.clue_sheet}
                       projectName={projectName}
-                      mediaRevision={mediaRevision}
                     />
                     <span className="truncate">{name}</span>
                   </button>

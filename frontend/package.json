@@ -21,6 +21,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@lobehub/icons": "^5.0.1",
+    "@tanstack/react-virtual": "^3.13.21",
     "framer-motion": "^12.35.1",
     "lucide-react": "^0.577.0",
     "pnpm": "^10.31.0",
