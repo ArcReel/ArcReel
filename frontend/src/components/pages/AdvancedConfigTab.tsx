@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
@@ -50,6 +50,18 @@ function buildPatch(draft: AdvancedDraft, saved: AdvancedDraft): SystemConfigPat
   return patch;
 }
 
+function parseIntegerInput(value: string, min: number): number {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) return min;
+  return Math.max(min, parsed);
+}
+
+function parseFloatInput(value: string, min: number): number {
+  const parsed = Number(value);
+  if (Number.isNaN(parsed)) return min;
+  return Math.max(min, parsed);
+}
+
 // ---------------------------------------------------------------------------
 // Shared style constants
 // ---------------------------------------------------------------------------
@@ -84,25 +96,18 @@ export function AdvancedConfigTab({
   const isDirty = !deepEqual(draft, savedRef.current);
 
   const prevDirtyRef = useRef(isDirty);
-  if (prevDirtyRef.current !== isDirty) {
+  useEffect(() => {
+    if (prevDirtyRef.current === isDirty) return;
     prevDirtyRef.current = isDirty;
     onDirtyChange(isDirty);
-  }
+  }, [isDirty, onDirtyChange]);
 
   const updateDraft = useCallback(
     <K extends keyof AdvancedDraft>(key: K, value: AdvancedDraft[K]) => {
-      setDraft((prev) => {
-        const next = { ...prev, [key]: value };
-        const nextDirty = !deepEqual(next, savedRef.current);
-        if (nextDirty !== prevDirtyRef.current) {
-          prevDirtyRef.current = nextDirty;
-          onDirtyChange(nextDirty);
-        }
-        return next;
-      });
+      setDraft((prev) => ({ ...prev, [key]: value }));
       setSaveError(null);
     },
-    [onDirtyChange],
+    [],
   );
 
   const handleSave = useCallback(async () => {
@@ -113,10 +118,8 @@ export function AdvancedConfigTab({
     try {
       const res = await API.updateSystemConfig(patch);
       const newDraft = buildDraft(res);
-      setDraft(newDraft);
       savedRef.current = newDraft;
-      prevDirtyRef.current = false;
-      onDirtyChange(false);
+      setDraft(newDraft);
       onSaved(res);
       useAppStore.getState().pushToast("高级配置已保存", "success");
     } catch (err) {
@@ -128,10 +131,8 @@ export function AdvancedConfigTab({
 
   const handleReset = useCallback(() => {
     setDraft(savedRef.current);
-    prevDirtyRef.current = false;
-    onDirtyChange(false);
     setSaveError(null);
-  }, [onDirtyChange]);
+  }, []);
 
   return (
     <div className={visible ? undefined : "hidden"}>
@@ -144,7 +145,7 @@ export function AdvancedConfigTab({
               type="number"
               min={0}
               value={draft.geminiImageRpm}
-              onChange={(e) => updateDraft("geminiImageRpm", Number(e.target.value))}
+              onChange={(e) => updateDraft("geminiImageRpm", parseIntegerInput(e.target.value, 0))}
               className={`mt-2 ${inputClassName}`}
               name="gemini_image_rpm"
               inputMode="numeric"
@@ -159,7 +160,7 @@ export function AdvancedConfigTab({
               type="number"
               min={0}
               value={draft.geminiVideoRpm}
-              onChange={(e) => updateDraft("geminiVideoRpm", Number(e.target.value))}
+              onChange={(e) => updateDraft("geminiVideoRpm", parseIntegerInput(e.target.value, 0))}
               className={`mt-2 ${inputClassName}`}
               name="gemini_video_rpm"
               inputMode="numeric"
@@ -175,7 +176,7 @@ export function AdvancedConfigTab({
               min={0}
               step="0.1"
               value={draft.geminiRequestGap}
-              onChange={(e) => updateDraft("geminiRequestGap", Number(e.target.value))}
+              onChange={(e) => updateDraft("geminiRequestGap", parseFloatInput(e.target.value, 0))}
               className={`mt-2 ${inputClassName}`}
               name="gemini_request_gap"
               inputMode="decimal"
@@ -196,7 +197,7 @@ export function AdvancedConfigTab({
                 type="number"
                 min={1}
                 value={draft.imageMaxWorkers}
-                onChange={(e) => updateDraft("imageMaxWorkers", Number(e.target.value))}
+                onChange={(e) => updateDraft("imageMaxWorkers", parseIntegerInput(e.target.value, 1))}
                 className={`mt-2 ${inputClassName}`}
                 name="image_max_workers"
                 inputMode="numeric"
@@ -210,7 +211,7 @@ export function AdvancedConfigTab({
                 type="number"
                 min={1}
                 value={draft.videoMaxWorkers}
-                onChange={(e) => updateDraft("videoMaxWorkers", Number(e.target.value))}
+                onChange={(e) => updateDraft("videoMaxWorkers", parseIntegerInput(e.target.value, 1))}
                 className={`mt-2 ${inputClassName}`}
                 name="video_max_workers"
                 inputMode="numeric"

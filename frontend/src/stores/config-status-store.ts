@@ -16,23 +16,6 @@ function checkBackendCredential(backend: SystemBackend, config: SystemConfigView
   return backend === "aistudio" ? config.gemini_api_key.is_set : config.vertex_credentials.is_set;
 }
 
-function dedupIssues(issues: ConfigIssue[]): ConfigIssue[] {
-  const mediaIssues = issues.filter((i) => i.tab === "media");
-  if (mediaIssues.length === 2) {
-    const [img, vid] = mediaIssues;
-    if (img.label === vid.label) {
-      // Merge identical image & video issues
-      const mergedLabel = img.label
-        .replace("AI 生图 ", "AI 生图/生视频 ")
-        .replace("AI 生视频 ", "AI 生图/生视频 ");
-      const merged: ConfigIssue = { key: "media", tab: "media", label: mergedLabel };
-      const agentIssue = issues.find((i) => i.tab === "agent");
-      return agentIssue ? [agentIssue, merged] : [merged];
-    }
-  }
-  return issues;
-}
-
 export function getConfigIssues(config: SystemConfigView): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
   if (!config.anthropic_api_key.is_set) {
@@ -42,7 +25,26 @@ export function getConfigIssues(config: SystemConfigView): ConfigIssue[] {
       label: "ArcReel 智能体 API Key（Anthropic）未配置",
     });
   }
-  if (!checkBackendCredential(config.image_backend, config)) {
+  const imageCredentialMissing = !checkBackendCredential(config.image_backend, config);
+  const videoCredentialMissing = !checkBackendCredential(config.video_backend, config);
+  const sharedMediaBackendMissing =
+    imageCredentialMissing &&
+    videoCredentialMissing &&
+    config.image_backend === config.video_backend;
+
+  if (sharedMediaBackendMissing) {
+    issues.push({
+      key: `media-${config.image_backend}`,
+      tab: "media",
+      label:
+        config.image_backend === "aistudio"
+          ? "AI 生图/生视频 API Key（Gemini AI Studio）未配置"
+          : "AI 生图/生视频 Vertex AI 凭证未上传",
+    });
+    return issues;
+  }
+
+  if (imageCredentialMissing) {
     issues.push({
       key: "image",
       tab: "media",
@@ -52,7 +54,8 @@ export function getConfigIssues(config: SystemConfigView): ConfigIssue[] {
           : "AI 生图 Vertex AI 凭证未上传",
     });
   }
-  if (!checkBackendCredential(config.video_backend, config)) {
+
+  if (videoCredentialMissing) {
     issues.push({
       key: "video",
       tab: "media",
@@ -62,7 +65,7 @@ export function getConfigIssues(config: SystemConfigView): ConfigIssue[] {
           : "AI 生视频 Vertex AI 凭证未上传",
     });
   }
-  return dedupIssues(issues);
+  return issues;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,18 +88,19 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => ({
   initialized: false,
 
   fetch: async () => {
-    if (get().initialized) return;
+    if (get().initialized || get().loading) return;
     await get().refresh();
   },
 
   refresh: async () => {
+    if (get().loading) return;
     set({ loading: true });
     try {
       const res = await API.getSystemConfig();
       const issues = getConfigIssues(res.config);
       set({ issues, isComplete: issues.length === 0, loading: false, initialized: true });
     } catch {
-      set({ loading: false, initialized: true });
+      set({ loading: false });
     }
   },
 }));

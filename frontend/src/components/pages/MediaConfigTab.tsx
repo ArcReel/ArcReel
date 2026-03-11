@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Loader2, ShieldCheck, Upload, X } from "lucide-react";
 import GeminiColor from "@lobehub/icons/es/Gemini/components/Color";
 import VertexAIColor from "@lobehub/icons/es/VertexAI/components/Color";
@@ -12,6 +12,7 @@ import type {
   SystemConnectionTestResponse,
 } from "@/types";
 import { TabSaveFooter } from "./TabSaveFooter";
+import { mergeServerDraftPreservingDirty } from "./system-config-draft-utils";
 
 // ---------------------------------------------------------------------------
 // Draft types
@@ -128,25 +129,18 @@ export function MediaConfigTab({ data, onSaved, onDirtyChange, visible }: MediaC
   const isDirty = !deepEqual(draft, savedRef.current);
 
   const prevDirtyRef = useRef(isDirty);
-  if (prevDirtyRef.current !== isDirty) {
+  useEffect(() => {
+    if (prevDirtyRef.current === isDirty) return;
     prevDirtyRef.current = isDirty;
     onDirtyChange(isDirty);
-  }
+  }, [isDirty, onDirtyChange]);
 
   const updateDraft = useCallback(
     <K extends keyof MediaDraft>(key: K, value: MediaDraft[K]) => {
-      setDraft((prev) => {
-        const next = { ...prev, [key]: value };
-        const nextDirty = !deepEqual(next, savedRef.current);
-        if (nextDirty !== prevDirtyRef.current) {
-          prevDirtyRef.current = nextDirty;
-          onDirtyChange(nextDirty);
-        }
-        return next;
-      });
+      setDraft((prev) => ({ ...prev, [key]: value }));
       setSaveError(null);
     },
-    [onDirtyChange],
+    [],
   );
 
   const handleSave = useCallback(async () => {
@@ -157,10 +151,8 @@ export function MediaConfigTab({ data, onSaved, onDirtyChange, visible }: MediaC
     try {
       const res = await API.updateSystemConfig(patch);
       const newDraft = buildDraft(res);
-      setDraft(newDraft);
       savedRef.current = newDraft;
-      prevDirtyRef.current = false;
-      onDirtyChange(false);
+      setDraft(newDraft);
       onSaved(res);
       if ("gemini_api_key" in patch) setAistudioTestState({ status: "idle" });
       useConfigStatusStore.getState().refresh();
@@ -174,10 +166,8 @@ export function MediaConfigTab({ data, onSaved, onDirtyChange, visible }: MediaC
 
   const handleReset = useCallback(() => {
     setDraft(savedRef.current);
-    prevDirtyRef.current = false;
-    onDirtyChange(false);
     setSaveError(null);
-  }, [onDirtyChange]);
+  }, []);
 
   // Generic: immediately PATCH a single field to empty (""), used by inline clear buttons
   const handleClearField = useCallback(
@@ -185,11 +175,12 @@ export function MediaConfigTab({ data, onSaved, onDirtyChange, visible }: MediaC
       setClearingField(fieldId);
       try {
         const res = await API.updateSystemConfig(patch);
-        const newDraft = buildDraft(res);
-        setDraft(newDraft);
-        savedRef.current = newDraft;
-        prevDirtyRef.current = false;
-        onDirtyChange(false);
+        const previousSavedDraft = savedRef.current;
+        const nextSavedDraft = buildDraft(res);
+        savedRef.current = nextSavedDraft;
+        setDraft((prev) =>
+          mergeServerDraftPreservingDirty(prev, previousSavedDraft, nextSavedDraft),
+        );
         onSaved(res);
         if ("gemini_api_key" in patch) setAistudioTestState({ status: "idle" });
         useConfigStatusStore.getState().refresh();
@@ -200,18 +191,19 @@ export function MediaConfigTab({ data, onSaved, onDirtyChange, visible }: MediaC
         setClearingField(null);
       }
     },
-    [onDirtyChange, onSaved],
+    [onSaved],
   );
 
   const handleUploadVertex = useCallback(async (file: File) => {
     setUploading(true);
     try {
       const res = await API.uploadVertexCredentials(file);
-      const newDraft = buildDraft(res);
-      setDraft(newDraft);
-      savedRef.current = newDraft;
-      prevDirtyRef.current = false;
-      onDirtyChange(false);
+      const previousSavedDraft = savedRef.current;
+      const nextSavedDraft = buildDraft(res);
+      savedRef.current = nextSavedDraft;
+      setDraft((prev) =>
+        mergeServerDraftPreservingDirty(prev, previousSavedDraft, nextSavedDraft),
+      );
       onSaved(res);
       setVertexTestState({ status: "idle" });
       useConfigStatusStore.getState().refresh();
@@ -221,7 +213,7 @@ export function MediaConfigTab({ data, onSaved, onDirtyChange, visible }: MediaC
     } finally {
       setUploading(false);
     }
-  }, [onDirtyChange, onSaved]);
+  }, [onSaved]);
 
   const handleTestConnection = useCallback(
     async (provider: SystemBackend) => {

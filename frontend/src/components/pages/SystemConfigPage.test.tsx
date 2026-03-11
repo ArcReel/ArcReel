@@ -241,4 +241,67 @@ describe("SystemConfigPage", () => {
     });
     expect(screen.getByDisplayValue("https://proxy.example.com/v1")).toBeInTheDocument();
   });
+
+  it("preserves unsaved agent edits when clearing a saved field", async () => {
+    const response = makeConfigResponse();
+    response.config.anthropic_api_key = {
+      is_set: true,
+      masked: "sk-ant...5678",
+      source: "override",
+    };
+    const cleared = makeConfigResponse();
+
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(response);
+    vi.spyOn(API, "updateSystemConfig").mockResolvedValue(cleared);
+
+    renderPage();
+
+    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("https://anthropic-proxy.example.com"), {
+      target: { value: "https://proxy.example.com/v1" },
+    });
+    expect(screen.getByDisplayValue("https://proxy.example.com/v1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "清除已保存的 Anthropic API Key" }));
+
+    await waitFor(() => {
+      expect(API.updateSystemConfig).toHaveBeenCalledWith({ anthropic_api_key: "" });
+    });
+    expect(screen.getByDisplayValue("https://proxy.example.com/v1")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole("button", { name: "保存" })
+          .some((button) => !(button as HTMLButtonElement).disabled),
+      ).toBe(true);
+    });
+  });
+
+  it("clamps advanced worker inputs to their minimum before saving", async () => {
+    const updated = makeConfigResponse();
+    updated.config.performance.image_max_workers = 1;
+
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
+    vi.spyOn(API, "updateSystemConfig").mockResolvedValue(updated);
+
+    renderPage();
+
+    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "高级配置" }));
+
+    const imageWorkersInput = screen.getByRole("spinbutton", { name: "图片最大并发" });
+    fireEvent.change(imageWorkersInput, { target: { value: "" } });
+
+    expect((imageWorkersInput as HTMLInputElement).value).toBe("1");
+
+    const saveButton = screen
+      .getAllByRole("button", { name: "保存" })
+      .find((button) => !(button as HTMLButtonElement).disabled);
+    expect(saveButton).toBeDefined();
+    fireEvent.click(saveButton as HTMLButtonElement);
+
+    await waitFor(() => {
+      expect(API.updateSystemConfig).toHaveBeenCalledWith({ image_max_workers: 1 });
+    });
+  });
 });

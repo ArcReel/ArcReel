@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Eye, EyeOff, Loader2, SlidersHorizontal, X } from "lucide-react";
 import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
 import { API } from "@/api";
@@ -6,6 +6,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
 import { TabSaveFooter } from "./TabSaveFooter";
+import { mergeServerDraftPreservingDirty } from "./system-config-draft-utils";
 
 // ---------------------------------------------------------------------------
 // Draft types
@@ -103,25 +104,18 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
 
   // Notify parent when dirty state changes
   const prevDirtyRef = useRef(isDirty);
-  if (prevDirtyRef.current !== isDirty) {
+  useEffect(() => {
+    if (prevDirtyRef.current === isDirty) return;
     prevDirtyRef.current = isDirty;
     onDirtyChange(isDirty);
-  }
+  }, [isDirty, onDirtyChange]);
 
   const updateDraft = useCallback(
     <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]) => {
-      setDraft((prev) => {
-        const next = { ...prev, [key]: value };
-        const nextDirty = !deepEqual(next, savedRef.current);
-        if (nextDirty !== prevDirtyRef.current) {
-          prevDirtyRef.current = nextDirty;
-          onDirtyChange(nextDirty);
-        }
-        return next;
-      });
+      setDraft((prev) => ({ ...prev, [key]: value }));
       setSaveError(null);
     },
-    [onDirtyChange],
+    [],
   );
 
   const handleSave = useCallback(async () => {
@@ -132,10 +126,8 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
     try {
       const res = await API.updateSystemConfig(patch);
       const newDraft = buildDraft(res);
-      setDraft(newDraft);
       savedRef.current = newDraft;
-      prevDirtyRef.current = false;
-      onDirtyChange(false);
+      setDraft(newDraft);
       onSaved(res);
       useConfigStatusStore.getState().refresh();
       useAppStore.getState().pushToast("ArcReel 智能体配置已保存", "success");
@@ -148,10 +140,8 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
 
   const handleReset = useCallback(() => {
     setDraft(savedRef.current);
-    prevDirtyRef.current = false;
-    onDirtyChange(false);
     setSaveError(null);
-  }, [onDirtyChange]);
+  }, []);
 
   // Generic: immediately PATCH a single field to empty (""), used by inline clear buttons
   const handleClearField = useCallback(
@@ -159,11 +149,12 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
       setClearingField(fieldId);
       try {
         const res = await API.updateSystemConfig(patch);
-        const newDraft = buildDraft(res);
-        setDraft(newDraft);
-        savedRef.current = newDraft;
-        prevDirtyRef.current = false;
-        onDirtyChange(false);
+        const previousSavedDraft = savedRef.current;
+        const nextSavedDraft = buildDraft(res);
+        savedRef.current = nextSavedDraft;
+        setDraft((prev) =>
+          mergeServerDraftPreservingDirty(prev, previousSavedDraft, nextSavedDraft),
+        );
         onSaved(res);
         useConfigStatusStore.getState().refresh();
         useAppStore.getState().pushToast(`${label} 已清除`, "success");
@@ -173,7 +164,7 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
         setClearingField(null);
       }
     },
-    [onDirtyChange, onSaved],
+    [onSaved],
   );
 
   const cfg = data.config;
