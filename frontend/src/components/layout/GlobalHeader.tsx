@@ -2,6 +2,7 @@ import { startTransition, useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { ChevronLeft, Activity, Settings, DollarSign, Bell, Download, Loader2 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
+import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageStore } from "@/stores/usage-store";
@@ -105,6 +106,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const notificationAnchorRef = useRef<HTMLDivElement>(null);
   const taskHudAnchorRef = useRef<HTMLDivElement>(null);
   const exportAnchorRef = useRef<HTMLDivElement>(null);
+  const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
+  const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
 
   const currentPhase = currentProjectData?.status?.current_phase;
@@ -128,6 +131,10 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       })
       .catch(() => {});
   }, [currentProjectName, setUsageStats]);
+
+  useEffect(() => {
+    void fetchConfigStatus();
+  }, [fetchConfigStatus]);
 
 
   // Format content mode badge text
@@ -323,11 +330,14 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
         <button
           type="button"
           onClick={() => setLocation("/app/settings")}
-          className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+          className="relative rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
           title="设置"
           aria-label="设置"
         >
           <Settings className="h-4 w-4" />
+          {!isConfigComplete && (
+            <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500" aria-label="配置不完整" />
+          )}
         </button>
 
       </div>
