@@ -162,7 +162,7 @@ export function MediaConfigTab({ data, onSaved, onDirtyChange, visible }: MediaC
     } finally {
       setSaving(false);
     }
-  }, [draft, onDirtyChange, onSaved]);
+  }, [draft, onSaved]);
 
   const handleReset = useCallback(() => {
     setDraft(savedRef.current);
@@ -687,6 +687,7 @@ export function MediaConfigTab({ data, onSaved, onDirtyChange, visible }: MediaC
       <TabSaveFooter
         isDirty={isDirty}
         saving={saving}
+        disabled={clearingField !== null || uploading}
         error={saveError}
         onSave={() => void handleSave()}
         onReset={handleReset}

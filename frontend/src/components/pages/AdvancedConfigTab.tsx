@@ -127,7 +127,7 @@ export function AdvancedConfigTab({
     } finally {
       setSaving(false);
     }
-  }, [draft, onDirtyChange, onSaved]);
+  }, [draft, onSaved]);
 
   const handleReset = useCallback(() => {
     setDraft(savedRef.current);

@@ -136,7 +136,7 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
     } finally {
       setSaving(false);
     }
-  }, [draft, onDirtyChange, onSaved]);
+  }, [draft, onSaved]);
 
   const handleReset = useCallback(() => {
     setDraft(savedRef.current);
@@ -472,6 +472,7 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
       <TabSaveFooter
         isDirty={isDirty}
         saving={saving}
+        disabled={clearingField !== null}
         error={saveError}
         onSave={() => void handleSave()}
         onReset={handleReset}

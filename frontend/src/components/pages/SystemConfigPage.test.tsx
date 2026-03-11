@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -80,6 +80,16 @@ function makeConfigResponse(): GetSystemConfigResponse {
       video_models: ["veo-3.1-generate-001"],
     },
   };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 function renderPage() {
@@ -277,6 +287,47 @@ describe("SystemConfigPage", () => {
     });
   });
 
+  it("disables agent save while a clear request is pending", async () => {
+    const response = makeConfigResponse();
+    response.config.anthropic_api_key = {
+      is_set: true,
+      masked: "sk-ant...5678",
+      source: "override",
+    };
+    const cleared = makeConfigResponse();
+    const clearRequest = createDeferred<GetSystemConfigResponse>();
+
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(response);
+    vi.spyOn(API, "updateSystemConfig").mockImplementation(() => clearRequest.promise);
+
+    renderPage();
+
+    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("https://anthropic-proxy.example.com"), {
+      target: { value: "https://proxy.example.com/v1" },
+    });
+
+    const saveButton = screen
+      .getAllByRole("button", { name: "保存" })
+      .find((button) => !(button as HTMLButtonElement).disabled);
+    expect(saveButton).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "清除已保存的 Anthropic API Key" }));
+
+    await waitFor(() => {
+      expect(saveButton).toBeDisabled();
+    });
+
+    await act(async () => {
+      clearRequest.resolve(cleared);
+      await clearRequest.promise;
+    });
+
+    await waitFor(() => {
+      expect(saveButton).not.toBeDisabled();
+    });
+  });
+
   it("clamps advanced worker inputs to their minimum before saving", async () => {
     const updated = makeConfigResponse();
     updated.config.performance.image_max_workers = 1;
@@ -302,6 +353,45 @@ describe("SystemConfigPage", () => {
 
     await waitFor(() => {
       expect(API.updateSystemConfig).toHaveBeenCalledWith({ image_max_workers: 1 });
+    });
+  });
+
+  it("disables media save while a Vertex upload is pending", async () => {
+    const response = makeConfigResponse();
+    const uploaded = makeConfigResponse();
+    const uploadRequest = createDeferred<GetSystemConfigResponse>();
+
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(response);
+    vi.spyOn(API, "uploadVertexCredentials").mockImplementation(() => uploadRequest.promise);
+
+    renderPage();
+
+    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "AI 生图/生视频配置" }));
+    fireEvent.change(screen.getByPlaceholderText("https://gemini-proxy.example.com"), {
+      target: { value: "https://proxy.example.com/v1" },
+    });
+
+    const saveButton = screen
+      .getAllByRole("button", { name: "保存" })
+      .find((button) => !(button as HTMLButtonElement).disabled);
+    expect(saveButton).toBeDefined();
+
+    const uploadInput = screen.getByLabelText("上传 Vertex AI JSON 凭证文件");
+    const file = new File(["{}"], "vertex.json", { type: "application/json" });
+    fireEvent.change(uploadInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(saveButton).toBeDisabled();
+    });
+
+    await act(async () => {
+      uploadRequest.resolve(uploaded);
+      await uploadRequest.promise;
+    });
+
+    await waitFor(() => {
+      expect(saveButton).not.toBeDisabled();
     });
   });
 });
