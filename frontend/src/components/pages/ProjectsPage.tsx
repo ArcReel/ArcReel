@@ -4,6 +4,7 @@ import { Loader2, Plus, FolderOpen, Upload, AlertTriangle, Settings } from "luci
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
+import { useConfigStatusStore } from "@/stores/config-status-store";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
 import type { ImportConflictPolicy, ProjectSummary, ProjectStatus } from "@/types";
@@ -199,6 +200,8 @@ export function ProjectsPage() {
   const [conflictProjectName, setConflictProjectName] = useState<string | null>(null);
   const [showOpenClaw, setShowOpenClaw] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
+  const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
 
   const loadProjects = useCallback(async () => {
     setProjectsLoading(true);
@@ -222,6 +225,10 @@ export function ProjectsPage() {
       cancelled = true;
     };
   }, [loadProjects]);
+
+  useEffect(() => {
+    void fetchConfigStatus();
+  }, [fetchConfigStatus]);
 
   const finishImport = useCallback(
     async (
@@ -358,11 +365,14 @@ export function ProjectsPage() {
               <button
                 type="button"
                 onClick={() => navigate("/app/settings")}
-                className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+                className="relative rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
                 title="系统配置"
                 aria-label="系统配置"
               >
                 <Settings className="h-4 w-4" />
+                {!isConfigComplete && (
+                  <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500" aria-label="配置不完整" />
+                )}
               </button>
             </div>
           </div>

@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useConfigStatusStore } from "@/stores/config-status-store";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
 import type { GetSystemConfigResponse } from "@/types";
 
@@ -81,6 +82,16 @@ function makeConfigResponse(): GetSystemConfigResponse {
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function renderPage() {
   const location = memoryLocation({ path: "/app/settings", record: true });
   return render(
@@ -93,20 +104,21 @@ function renderPage() {
 describe("SystemConfigPage", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
+    useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
     vi.restoreAllMocks();
   });
 
   it("shows an error state and allows retry when the initial load fails", async () => {
     vi.spyOn(API, "getSystemConfig")
       .mockRejectedValueOnce(new Error("network down"))
-      .mockResolvedValueOnce(makeConfigResponse());
+      .mockResolvedValue(makeConfigResponse());
 
     renderPage();
 
     expect(await screen.findByText("配置加载失败")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重试加载" }));
 
-    expect(await screen.findByText("Vertex AI 凭证")).toBeInTheDocument();
+    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
   });
 
   it("tests vertex connection from the page", async () => {
@@ -216,19 +228,170 @@ describe("SystemConfigPage", () => {
     expect(
       Boolean(anthropicHeading.compareDocumentPosition(geminiHeading) & Node.DOCUMENT_POSITION_FOLLOWING),
     ).toBe(true);
-    expect(screen.queryByRole("button", { name: "保存密钥与凭证" })).not.toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole("button", { name: "保存" })
+        .every((button) => (button as HTMLButtonElement).disabled),
+    ).toBe(true);
 
     fireEvent.change(screen.getByPlaceholderText("https://anthropic-proxy.example.com"), {
       target: { value: "https://proxy.example.com/v1" },
     });
     expect(API.updateSystemConfig).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "保存密钥与凭证" }));
+    const saveButton = screen
+      .getAllByRole("button", { name: "保存" })
+      .find((button) => !(button as HTMLButtonElement).disabled);
+    expect(saveButton).toBeDefined();
+    fireEvent.click(saveButton as HTMLButtonElement);
 
     await waitFor(() => {
       expect(API.updateSystemConfig).toHaveBeenCalledWith({
         anthropic_base_url: "https://proxy.example.com/v1",
       });
     });
-    expect(await screen.findByText(/https:\/\/proxy\.example\.com\/v1/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue("https://proxy.example.com/v1")).toBeInTheDocument();
+  });
+
+  it("preserves unsaved agent edits when clearing a saved field", async () => {
+    const response = makeConfigResponse();
+    response.config.anthropic_api_key = {
+      is_set: true,
+      masked: "sk-ant...5678",
+      source: "override",
+    };
+    const cleared = makeConfigResponse();
+
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(response);
+    vi.spyOn(API, "updateSystemConfig").mockResolvedValue(cleared);
+
+    renderPage();
+
+    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("https://anthropic-proxy.example.com"), {
+      target: { value: "https://proxy.example.com/v1" },
+    });
+    expect(screen.getByDisplayValue("https://proxy.example.com/v1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "清除已保存的 Anthropic API Key" }));
+
+    await waitFor(() => {
+      expect(API.updateSystemConfig).toHaveBeenCalledWith({ anthropic_api_key: "" });
+    });
+    expect(screen.getByDisplayValue("https://proxy.example.com/v1")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole("button", { name: "保存" })
+          .some((button) => !(button as HTMLButtonElement).disabled),
+      ).toBe(true);
+    });
+  });
+
+  it("disables agent save while a clear request is pending", async () => {
+    const response = makeConfigResponse();
+    response.config.anthropic_api_key = {
+      is_set: true,
+      masked: "sk-ant...5678",
+      source: "override",
+    };
+    const cleared = makeConfigResponse();
+    const clearRequest = createDeferred<GetSystemConfigResponse>();
+
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(response);
+    vi.spyOn(API, "updateSystemConfig").mockImplementation(() => clearRequest.promise);
+
+    renderPage();
+
+    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("https://anthropic-proxy.example.com"), {
+      target: { value: "https://proxy.example.com/v1" },
+    });
+
+    const saveButton = screen
+      .getAllByRole("button", { name: "保存" })
+      .find((button) => !(button as HTMLButtonElement).disabled);
+    expect(saveButton).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "清除已保存的 Anthropic API Key" }));
+
+    await waitFor(() => {
+      expect(saveButton).toBeDisabled();
+    });
+
+    await act(async () => {
+      clearRequest.resolve(cleared);
+      await clearRequest.promise;
+    });
+
+    await waitFor(() => {
+      expect(saveButton).not.toBeDisabled();
+    });
+  });
+
+  it("clamps advanced worker inputs to their minimum before saving", async () => {
+    const updated = makeConfigResponse();
+    updated.config.performance.image_max_workers = 1;
+
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
+    vi.spyOn(API, "updateSystemConfig").mockResolvedValue(updated);
+
+    renderPage();
+
+    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "高级配置" }));
+
+    const imageWorkersInput = screen.getByRole("spinbutton", { name: "图片最大并发" });
+    fireEvent.change(imageWorkersInput, { target: { value: "" } });
+
+    expect((imageWorkersInput as HTMLInputElement).value).toBe("1");
+
+    const saveButton = screen
+      .getAllByRole("button", { name: "保存" })
+      .find((button) => !(button as HTMLButtonElement).disabled);
+    expect(saveButton).toBeDefined();
+    fireEvent.click(saveButton as HTMLButtonElement);
+
+    await waitFor(() => {
+      expect(API.updateSystemConfig).toHaveBeenCalledWith({ image_max_workers: 1 });
+    });
+  });
+
+  it("disables media save while a Vertex upload is pending", async () => {
+    const response = makeConfigResponse();
+    const uploaded = makeConfigResponse();
+    const uploadRequest = createDeferred<GetSystemConfigResponse>();
+
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(response);
+    vi.spyOn(API, "uploadVertexCredentials").mockImplementation(() => uploadRequest.promise);
+
+    renderPage();
+
+    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "AI 生图/生视频配置" }));
+    fireEvent.change(screen.getByPlaceholderText("https://gemini-proxy.example.com"), {
+      target: { value: "https://proxy.example.com/v1" },
+    });
+
+    const saveButton = screen
+      .getAllByRole("button", { name: "保存" })
+      .find((button) => !(button as HTMLButtonElement).disabled);
+    expect(saveButton).toBeDefined();
+
+    const uploadInput = screen.getByLabelText("上传 Vertex AI JSON 凭证文件");
+    const file = new File(["{}"], "vertex.json", { type: "application/json" });
+    fireEvent.change(uploadInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(saveButton).toBeDisabled();
+    });
+
+    await act(async () => {
+      uploadRequest.resolve(uploaded);
+      await uploadRequest.promise;
+    });
+
+    await waitFor(() => {
+      expect(saveButton).not.toBeDisabled();
+    });
   });
 });

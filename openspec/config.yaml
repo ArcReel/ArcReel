@@ -8,6 +8,9 @@ schema: spec-driven
 #     Tech stack: TypeScript, React, Node.js
 #     We use conventional commits
 #     Domain: e-commerce platform
+context: |
+  语言: 中文（简体）
+  所有产出物必须用简体中文撰写。
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
