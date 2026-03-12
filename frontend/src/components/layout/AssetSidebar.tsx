@@ -16,7 +16,6 @@ import {
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { API } from "@/api";
-import { buildEntityRevisionKey } from "@/utils/project-changes";
 
 // ---------------------------------------------------------------------------
 // CollapsibleSection — reusable accordion primitive
@@ -84,14 +83,14 @@ function CharacterThumbnail({
   sheetPath: string | undefined;
   projectName: string;
 }) {
-  const mediaRevision = useAppStore((s) =>
-    s.getEntityRevision(buildEntityRevisionKey("character", name)),
+  const sheetFp = useProjectsStore((s) =>
+    sheetPath ? s.getAssetFingerprint(sheetPath) : null,
   );
   const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
     setImgError(false);
-  }, [mediaRevision, sheetPath]);
+  }, [sheetFp, sheetPath]);
 
   if (!sheetPath || imgError) {
     return (
@@ -103,7 +102,7 @@ function CharacterThumbnail({
 
   return (
     <img
-      src={API.getFileUrl(projectName, sheetPath, mediaRevision)}
+      src={API.getFileUrl(projectName, sheetPath, sheetFp)}
       alt={name}
       className="h-6 w-6 shrink-0 rounded-full object-cover"
       onError={() => setImgError(true)}
@@ -124,14 +123,14 @@ function ClueThumbnail({
   sheetPath: string | undefined;
   projectName: string;
 }) {
-  const mediaRevision = useAppStore((s) =>
-    s.getEntityRevision(buildEntityRevisionKey("clue", name)),
+  const sheetFp = useProjectsStore((s) =>
+    sheetPath ? s.getAssetFingerprint(sheetPath) : null,
   );
   const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
     setImgError(false);
-  }, [mediaRevision, sheetPath]);
+  }, [sheetFp, sheetPath]);
 
   if (!sheetPath || imgError) {
     return (
@@ -143,7 +142,7 @@ function ClueThumbnail({
 
   return (
     <img
-      src={API.getFileUrl(projectName, sheetPath, mediaRevision)}
+      src={API.getFileUrl(projectName, sheetPath, sheetFp)}
       alt={name}
       className="h-6 w-6 shrink-0 rounded object-cover"
       onError={() => setImgError(true)}

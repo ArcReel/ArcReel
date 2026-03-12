@@ -412,6 +412,9 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
             asset_type="video_thumbnail",
             asset_path=f"thumbnails/scene_{resource_id}.jpg",
         )
+    else:
+        # 提取失败时清除旧缩略图文件，避免展示与新视频不匹配的封面
+        thumbnail_file.unlink(missing_ok=True)
 
     created_at = generator.versions.get_versions("videos", resource_id)["versions"][-1][
         "created_at"

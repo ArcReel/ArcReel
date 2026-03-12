@@ -94,13 +94,13 @@ def _sync_metadata(
             with project_change_source("webui"):
                 get_project_manager().update_project_character_sheet(project_name, resource_id, file_path)
         except KeyError:
-            pass
+            pass  # 角色条目可能已从 project.json 删除，跳过元数据同步
     elif resource_type == "clues":
         try:
             with project_change_source("webui"):
                 get_project_manager().update_clue_sheet(project_name, resource_id, file_path)
         except KeyError:
-            pass
+            pass  # 线索条目可能已从 project.json 删除，跳过元数据同步
     elif resource_type == "storyboards":
         _sync_storyboard_metadata(project_name, resource_id, file_path, project_path)
 

@@ -109,7 +109,7 @@ def compute_asset_fingerprints(project_path: Path) -> dict[str, int]:
     """
     扫描项目目录下所有媒体文件，返回 {相对路径: mtime_int} 映射。
 
-    mtime 为 int(stat.st_mtime)，精度到秒，用作 URL cache-bust 参数。
+    mtime 为 stat.st_mtime_ns（纳秒整数），精度到纳秒，用作 URL cache-bust 参数。
     对约 50 个文件，耗时 <1ms（仅读文件系统元数据）。
     """
     fingerprints: dict[str, int] = {}
