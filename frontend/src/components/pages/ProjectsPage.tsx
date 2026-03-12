@@ -134,7 +134,7 @@ function ImportDiagnosticsDialog({
     },
     {
       key: "auto_fixable",
-      title: "已自动修复",
+      title: "可自动修复",
       tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100",
       items: diagnostics.auto_fixable,
     },
@@ -398,7 +398,7 @@ export function ProjectsPage() {
           .pushToast(
             `导入失败: ${error.detail || error.message || "导入失败"}`
             + (blockingCount > 0 ? `（${blockingCount} 个阻断问题` : "（0 个阻断问题")
-            + (autoFixableCount > 0 ? `，${autoFixableCount} 个已自动修复）` : "）"),
+            + (autoFixableCount > 0 ? `，${autoFixableCount} 个可自动修复）` : "）"),
             "error"
           );
       } finally {

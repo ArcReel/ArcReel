@@ -775,7 +775,7 @@ class ProjectArchiveService:
                         "missing_clue_definition",
                         (
                             f"{items_key}[{index}]: {clues_field} 引用了不存在于 "
-                            f"project.json 的线索: {set(missing_clues)}"
+                            f"project.json 的线索: {', '.join(missing_clues)}"
                         ),
                         location=f"{location_prefix}.{clues_field}",
                     )
@@ -888,7 +888,8 @@ class ProjectArchiveService:
         resource_type: str,
         resource_id: str,
     ) -> Optional[str]:
-        resource_info = versions_payload.get(resource_type, {}).get(resource_id)
+        type_payload = versions_payload.get(resource_type, {})
+        resource_info = type_payload.get(resource_id) if isinstance(type_payload, dict) else None
         if isinstance(resource_info, dict):
             current_version = resource_info.get("current_version")
             versions = resource_info.get("versions", [])
