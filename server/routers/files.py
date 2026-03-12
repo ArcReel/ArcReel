@@ -13,7 +13,7 @@ from typing import Annotated
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from server.auth import get_current_user
@@ -44,7 +44,7 @@ ALLOWED_EXTENSIONS = {
 
 
 @router.get("/files/{project_name}/{path:path}")
-async def serve_project_file(project_name: str, path: str):
+async def serve_project_file(project_name: str, path: str, request: Request):
     """服务项目内的静态文件（图片/视频）"""
     try:
         project_dir = get_project_manager().get_project_path(project_name)
@@ -59,7 +59,12 @@ async def serve_project_file(project_name: str, path: str):
         except ValueError:
             raise HTTPException(status_code=403, detail="禁止访问项目目录外的文件")
 
-        return FileResponse(file_path)
+        # 内容寻址缓存：带 ?v= 参数或 versions/ 路径时设 immutable
+        headers = {}
+        if request.query_params.get("v") or path.startswith("versions/"):
+            headers["Cache-Control"] = "public, max-age=31536000, immutable"
+
+        return FileResponse(file_path, headers=headers)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
 

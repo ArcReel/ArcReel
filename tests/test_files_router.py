@@ -273,6 +273,43 @@ class TestFilesRouter:
             unknown_draft = client.delete("/api/v1/projects/demo/drafts/9/step1")
             assert unknown_draft.status_code == 404
 
+    def test_cache_control_immutable_with_version_param(self, tmp_path, monkeypatch):
+        """带 ?v= 参数时应返回 immutable 缓存头"""
+        client, pm = _client(monkeypatch, tmp_path)
+        project_path = pm.get_project_path("demo")
+        (project_path / "storyboards").mkdir(exist_ok=True)
+        (project_path / "storyboards" / "test.png").write_bytes(b"img")
+
+        with client:
+            resp = client.get("/api/v1/files/demo/storyboards/test.png?v=1710288000")
+            assert resp.status_code == 200
+            assert "immutable" in resp.headers.get("cache-control", "")
+            assert "max-age=31536000" in resp.headers.get("cache-control", "")
+
+    def test_cache_control_immutable_for_version_files(self, tmp_path, monkeypatch):
+        """versions/ 路径下的文件应返回 immutable 缓存头"""
+        client, pm = _client(monkeypatch, tmp_path)
+        project_path = pm.get_project_path("demo")
+        (project_path / "versions" / "storyboards").mkdir(parents=True)
+        (project_path / "versions" / "storyboards" / "E1S01_v1.png").write_bytes(b"img")
+
+        with client:
+            resp = client.get("/api/v1/files/demo/versions/storyboards/E1S01_v1.png")
+            assert resp.status_code == 200
+            assert "immutable" in resp.headers.get("cache-control", "")
+
+    def test_no_cache_control_without_version(self, tmp_path, monkeypatch):
+        """无 ?v= 参数且非 versions 路径时不应有 immutable 头"""
+        client, pm = _client(monkeypatch, tmp_path)
+        project_path = pm.get_project_path("demo")
+        (project_path / "storyboards").mkdir(exist_ok=True)
+        (project_path / "storyboards" / "test.png").write_bytes(b"img")
+
+        with client:
+            resp = client.get("/api/v1/files/demo/storyboards/test.png")
+            assert resp.status_code == 200
+            assert "immutable" not in resp.headers.get("cache-control", "")
+
     def test_files_helper_functions(self, tmp_path):
         assert files._extract_step_number("step12_x.md") == 12
         assert files._extract_step_number("not-match.md") == 0

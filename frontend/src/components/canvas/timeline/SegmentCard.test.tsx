@@ -43,6 +43,7 @@ function makeSegment(overrides: Partial<NarrationSegment> = {}): NarrationSegmen
     generated_assets: {
       storyboard_image: "storyboards/SEG-1.png",
       video_clip: "videos/SEG-1.mp4",
+      video_thumbnail: null,
       video_uri: null,
       status: "completed",
     },

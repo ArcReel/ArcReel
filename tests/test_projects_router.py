@@ -274,3 +274,16 @@ class TestProjectsRouter:
             )
             assert update_overview.status_code == 200
             assert update_overview.json()["overview"]["synopsis"] == "new synopsis"
+
+    def test_get_project_includes_asset_fingerprints(self, tmp_path, monkeypatch):
+        """项目 API 应返回 asset_fingerprints 字段"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.get("/api/v1/projects/ready")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "asset_fingerprints" in data
+            assert "storyboards/scene_E1S01.png" in data["asset_fingerprints"]
+            assert isinstance(data["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)

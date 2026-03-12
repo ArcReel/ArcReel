@@ -538,6 +538,7 @@ class ProjectManager:
         return {
             "storyboard_image": None,
             "video_clip": None,
+            "video_thumbnail": None,
             "video_uri": None,
             "status": "pending",
         }

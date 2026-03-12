@@ -62,7 +62,7 @@ function StudioWorkspace() {
     API.getProject(projectName)
       .then((res) => {
         if (!cancelled) {
-          setCurrentProject(projectName, res.project, res.scripts ?? {});
+          setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
         }
       })
       .catch(() => {

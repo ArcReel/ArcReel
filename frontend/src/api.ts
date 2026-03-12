@@ -252,6 +252,7 @@ class API {
   ): Promise<{
     project: ProjectData;
     scripts: Record<string, EpisodeScript>;
+    asset_fingerprints?: Record<string, number>;
   }> {
     return this.request(`/projects/${encodeURIComponent(name)}`);
   }
@@ -940,7 +941,7 @@ class API {
     resourceType: string,
     resourceId: string,
     version: number
-  ): Promise<SuccessResponse> {
+  ): Promise<SuccessResponse & { file_path?: string; asset_fingerprints?: Record<string, number> }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/versions/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}/restore/${version}`,
       {

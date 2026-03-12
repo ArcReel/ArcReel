@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight, History } from "lucide-react";
 import { API, type VersionInfo } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { buildVersionResourceRevisionKey } from "@/utils/project-changes";
+import { useProjectsStore } from "@/stores/projects-store";
 
 interface VersionTimeMachineProps {
   projectName: string;
@@ -38,8 +38,12 @@ export function VersionTimeMachine({
   resourceId,
   onRestore,
 }: VersionTimeMachineProps) {
-  const entityRevisionKey = buildVersionResourceRevisionKey(resourceType, resourceId);
-  const mediaRevision = useAppStore((s) => s.getEntityRevision(entityRevisionKey));
+  const resourcePath =
+    resourceType === "storyboards" ? `storyboards/scene_${resourceId}.png` :
+    resourceType === "videos" ? `videos/scene_${resourceId}.mp4` :
+    resourceType === "characters" ? `characters/${resourceId}.png` :
+    `clues/${resourceId}.png`;
+  const resourceFp = useProjectsStore((s) => s.getAssetFingerprint(resourcePath));
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -52,7 +56,9 @@ export function VersionTimeMachine({
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
 
-  // Reset everything when the underlying resource changes
+  // Reset version list when the underlying resource changes so it's re-fetched
+  // on next open. Do NOT close the panel — if it's open and a new generation
+  // completes, the user should stay in context and see the refreshed list.
   useEffect(() => {
     setVersions([]);
     setCurrentVersion(0);
@@ -60,8 +66,7 @@ export function VersionTimeMachine({
     setLoadedOnce(false);
     setSelectedVersion(null);
     setRestoringVersion(null);
-    setOpen(false);
-  }, [mediaRevision, projectName, resourceId, resourceType]);
+  }, [resourceFp, projectName, resourceId, resourceType]);
 
   // Fetch versions once when panel first opens
   useEffect(() => {
@@ -86,8 +91,10 @@ export function VersionTimeMachine({
   async function handleRestore(version: number) {
     setRestoringVersion(version);
     try {
-      await API.restoreVersion(projectName, resourceType, resourceId, version);
-      useAppStore.getState().invalidateEntities([entityRevisionKey]);
+      const result = await API.restoreVersion(projectName, resourceType, resourceId, version);
+      if (result.asset_fingerprints) {
+        useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
+      }
       await onRestore?.(version);
       await loadVersions();
       setSelectedVersion(version);
@@ -289,7 +296,7 @@ export function VersionTimeMachine({
                           className="mb-2 w-full rounded-lg border border-gray-800 bg-black object-contain"
                           controls
                           playsInline
-                          preload="metadata"
+                          preload="none"
                         />
                       ) : (
                         <div

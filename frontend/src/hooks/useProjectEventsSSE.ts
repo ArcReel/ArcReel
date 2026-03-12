@@ -161,7 +161,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     refreshingRef.current = true;
     try {
       const res = await API.getProject(projectName);
-      setCurrentProject(projectName, res.project, res.scripts ?? {});
+      setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
     } catch (err) {
       pushToast(`同步项目变更失败: ${(err as Error).message}`, "warning");
     } finally {
@@ -214,6 +214,17 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           lastFingerprintRef.current = payload.fingerprint;
           setAssistantToolActivitySuppressed(true);
 
+          // 提取并更新 asset fingerprints（零延迟，立即写入 store）
+          const mergedFingerprints: Record<string, number> = {};
+          for (const change of payload.changes) {
+            if (change.asset_fingerprints) {
+              Object.assign(mergedFingerprints, change.asset_fingerprints);
+            }
+          }
+          if (Object.keys(mergedFingerprints).length > 0) {
+            useProjectsStore.getState().updateAssetFingerprints(mergedFingerprints);
+          }
+
           const invalidationKeys = payload.changes.map((change) =>
             buildEntityRevisionKey(change.entity_type, change.entity_id),
           );
@@ -248,11 +259,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
                 })
                 .find(Boolean) ?? null;
 
-            if (isWorkspaceEditing()) {
-              queuedFocusRef.current = null;
-            } else {
-              queuedFocusRef.current = nextFocusTarget;
-            }
+            queuedFocusRef.current = isWorkspaceEditing() ? null : nextFocusTarget;
           }
 
           void refreshProject();

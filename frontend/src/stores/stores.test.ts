@@ -220,6 +220,31 @@ describe("stores", () => {
     expect(state.isDraftSession).toBe(true);
   });
 
+  describe("ProjectsStore fingerprints", () => {
+    it("should store and retrieve asset fingerprints", () => {
+      const { updateAssetFingerprints, getAssetFingerprint } = useProjectsStore.getState();
+      updateAssetFingerprints({ "storyboards/scene_E1S01.png": 1710288000 });
+      expect(getAssetFingerprint("storyboards/scene_E1S01.png")).toBe(1710288000);
+    });
+
+    it("should merge fingerprints on update", () => {
+      const { updateAssetFingerprints, getAssetFingerprint } = useProjectsStore.getState();
+      updateAssetFingerprints({ "a.png": 100 });
+      updateAssetFingerprints({ "b.png": 200 });
+      expect(getAssetFingerprint("a.png")).toBe(100);
+      expect(getAssetFingerprint("b.png")).toBe(200);
+    });
+
+    it("should return null for unknown paths", () => {
+      expect(useProjectsStore.getState().getAssetFingerprint("unknown")).toBeNull();
+    });
+
+    it("should set fingerprints from project API response", () => {
+      useProjectsStore.getState().setCurrentProject("demo", {} as any, {}, { "storyboards/x.png": 999 });
+      expect(useProjectsStore.getState().getAssetFingerprint("storyboards/x.png")).toBe(999);
+    });
+  });
+
   it("updates usage store filters, pagination and result payloads", () => {
     const usage = useUsageStore.getState();
 

@@ -28,6 +28,7 @@ export function useProjectAssetSync(projectName?: string | null): void {
         projectName,
         res.project,
         res.scripts ?? {},
+        res.asset_fingerprints,
       );
       useAppStore.getState().invalidateAllEntities();
     } catch {

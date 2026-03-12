@@ -20,6 +20,7 @@ from starlette.background import BackgroundTask
 logger = logging.getLogger(__name__)
 
 from lib import PROJECT_ROOT
+from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator
@@ -296,9 +297,14 @@ async def get_project(name: str, _user: Annotated[dict, Depends(get_current_user
                 except FileNotFoundError:
                     pass
 
+        # 计算媒体文件指纹（用于前端内容寻址缓存）
+        project_path = manager.get_project_path(name)
+        fingerprints = compute_asset_fingerprints(project_path)
+
         return {
             "project": project,
-            "scripts": scripts
+            "scripts": scripts,
+            "asset_fingerprints": fingerprints,
         }
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")

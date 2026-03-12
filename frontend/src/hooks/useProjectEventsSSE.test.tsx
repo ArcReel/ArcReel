@@ -391,4 +391,41 @@ describe("useProjectEventsSSE", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/characters");
     expect(useAppStore.getState().scrollTarget).toBeNull();
   });
+
+  it("extracts asset_fingerprints from SSE changes and updates store", async () => {
+    let capturedOptions: ProjectEventStreamOptions | undefined;
+    vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+      capturedOptions = options;
+      return { close: vi.fn() } as unknown as EventSource;
+    });
+
+    renderHarness("/");
+
+    act(() => {
+      capturedOptions?.onChanges?.(
+        {
+          project_name: "demo",
+          batch_id: "batch-fp",
+          fingerprint: "fp-fp",
+          generated_at: "2026-03-01T00:00:00Z",
+          source: "worker",
+          changes: [
+            {
+              entity_type: "segment",
+              action: "storyboard_ready",
+              entity_id: "E1S01",
+              label: "分镜「E1S01」",
+              focus: null,
+              important: true,
+              asset_fingerprints: { "storyboards/scene_E1S01.png": 1710288000 },
+            },
+          ],
+        },
+        new MessageEvent("changes"),
+      );
+    });
+
+    // fingerprints 应立即（同步）写入 store，无需等待 getProject
+    expect(useProjectsStore.getState().getAssetFingerprint("storyboards/scene_E1S01.png")).toBe(1710288000);
+  });
 });

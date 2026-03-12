@@ -2,8 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { User } from "lucide-react";
 import { API } from "@/api";
 import { Popover } from "@/components/ui/Popover";
-import { useAppStore } from "@/stores/app-store";
-import { buildEntityRevisionKey } from "@/utils/project-changes";
+import { useProjectsStore } from "@/stores/projects-store";
 import type { Character } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -44,8 +43,8 @@ function AvatarPopover({
   projectName: string;
   anchorRef: RefObject<HTMLElement | null>;
 }) {
-  const mediaRevision = useAppStore((s) =>
-    s.getEntityRevision(buildEntityRevisionKey("character", name)),
+  const sheetFp = useProjectsStore(
+    (s) => character.character_sheet ? s.getAssetFingerprint(character.character_sheet) : null,
   );
 
   const firstLine = character.description?.split("\n")[0] ?? "";
@@ -63,7 +62,7 @@ function AvatarPopover({
       <div className="flex items-start gap-2.5">
         {character.character_sheet ? (
           <img
-            src={API.getFileUrl(projectName, character.character_sheet, mediaRevision)}
+            src={API.getFileUrl(projectName, character.character_sheet, sheetFp)}
             alt={name}
             className="h-[120px] w-[90px] shrink-0 rounded object-cover"
           />
@@ -98,19 +97,19 @@ function SingleAvatar({
   character: Character | undefined;
   projectName: string;
 }) {
-  const mediaRevision = useAppStore((s) =>
-    s.getEntityRevision(buildEntityRevisionKey("character", name)),
-  );
   const [imgError, setImgError] = useState(false);
   const [hovered, setHovered] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
 
   const sheetPath = character?.character_sheet;
+  const sheetFp = useProjectsStore(
+    (s) => sheetPath ? s.getAssetFingerprint(sheetPath) : null,
+  );
   const showImage = sheetPath && !imgError;
 
   useEffect(() => {
     setImgError(false);
-  }, [mediaRevision, sheetPath]);
+  }, [sheetFp, sheetPath]);
 
   return (
     <>
@@ -122,7 +121,7 @@ function SingleAvatar({
       >
         {showImage ? (
           <img
-            src={API.getFileUrl(projectName, sheetPath, mediaRevision)}
+            src={API.getFileUrl(projectName, sheetPath, sheetFp)}
             alt={name}
             className="h-7 w-7 rounded-full border-2 border-gray-900 object-cover"
             onError={() => setImgError(true)}

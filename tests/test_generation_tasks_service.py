@@ -135,7 +135,8 @@ class TestGenerationTasks:
         assert generation_tasks.normalize_veo_duration_seconds(5) == "6"
         assert generation_tasks.normalize_veo_duration_seconds(9) == "8"
 
-        mode_items = generation_tasks._get_items_from_script({"content_mode": "drama", "scenes": []})
+        from lib.storyboard_sequence import get_storyboard_items
+        mode_items = get_storyboard_items({"content_mode": "drama", "scenes": []})
         assert mode_items[1] == "scene_id"
 
         prompt = generation_tasks._normalize_storyboard_prompt("text", "Anime")
@@ -238,27 +239,76 @@ class TestGenerationTasks:
             }
         )
         assert dispatch["resource_type"] == "storyboards"
-        assert emitted_batches == [
-            {
-                "project_name": "demo",
-                "source": "worker",
-                "changes": [
-                    {
-                        "entity_type": "segment",
-                        "action": "storyboard_ready",
-                        "entity_id": "E1S02",
-                        "label": "分镜「E1S02」",
-                        "script_file": "episode_1.json",
-                        "episode": None,
-                        "focus": None,
-                        "important": True,
-                    }
-                ],
-            }
-        ]
+        assert len(emitted_batches) == 1
+        emitted_change = emitted_batches[0]["changes"][0]
+        assert emitted_change["entity_type"] == "segment"
+        assert emitted_change["action"] == "storyboard_ready"
+        assert emitted_change["entity_id"] == "E1S02"
+        assert "asset_fingerprints" in emitted_change
 
         with pytest.raises(ValueError):
             await generation_tasks.execute_generation_task({"task_type": "unknown", "project_name": "demo", "resource_id": "x", "payload": {}})
+
+    async def test_execute_video_task_generates_thumbnail(self, monkeypatch, tmp_path):
+        """视频生成后应自动提取首帧缩略图"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        thumbnail_path = project_path / "thumbnails" / "scene_E1S01.jpg"
+
+        async def fake_extract(video_path, out_path):
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(b"thumb")
+            return out_path
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", lambda _: fake_generator)
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", fake_extract)
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        result = await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+        )
+
+        assert result["resource_type"] == "videos"
+        # 验证 update_scene_asset 被调用，其中包含 video_thumbnail
+        asset_types = [call["asset_type"] for call in fake_pm.updated_assets]
+        assert "video_thumbnail" in asset_types
+        assert thumbnail_path.exists()
+
+    def test_emit_success_batch_includes_fingerprints(self, monkeypatch, tmp_path):
+        """生成成功事件应携带 asset_fingerprints"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes, source: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        (project_path / "storyboards").mkdir()
+        sb = project_path / "storyboards" / "scene_E1S01.png"
+        sb.write_bytes(b"img")
+
+        fake_pm = _FakePM(project_path)
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+
+        generation_tasks._emit_generation_success_batch(
+            task_type="storyboard",
+            project_name="demo",
+            resource_id="E1S01",
+            payload={"script_file": "ep01.json"},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert "asset_fingerprints" in change
+        assert "storyboards/scene_E1S01.png" in change["asset_fingerprints"]
+        assert isinstance(change["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
     async def test_execute_task_validation_errors(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

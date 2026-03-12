@@ -62,6 +62,7 @@ export interface VideoPrompt {
 export interface GeneratedAssets {
   storyboard_image: string | null;
   video_clip: string | null;
+  video_thumbnail: string | null;
   video_uri: string | null;
   status: AssetStatus;
 }

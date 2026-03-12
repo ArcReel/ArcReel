@@ -151,10 +151,16 @@ async def restore_version(
                         logger.warning("同步分镜元数据失败: %s", exc)
                         continue
 
+        # 计算还原后文件的 fingerprint
+        asset_fingerprints: dict[str, int] = {}
+        if current_file.exists():
+            asset_fingerprints[file_path] = current_file.stat().st_mtime_ns
+
         return {
             "success": True,
             **result,
             "file_path": file_path,
+            "asset_fingerprints": asset_fingerprints,
         }
 
     except ValueError as e:

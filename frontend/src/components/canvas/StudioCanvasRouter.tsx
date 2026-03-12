@@ -63,6 +63,7 @@ export function StudioCanvasRouter() {
         currentProjectName,
         res.project,
         res.scripts ?? {},
+        res.asset_fingerprints,
       );
       if (invalidateKeys.length > 0) {
         useAppStore.getState().invalidateEntities(invalidateKeys);

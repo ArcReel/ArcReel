@@ -6,8 +6,7 @@ import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
-import { useAppStore } from "@/stores/app-store";
-import { buildEntityRevisionKey } from "@/utils/project-changes";
+import { useProjectsStore } from "@/stores/projects-store";
 import type { Character } from "@/types";
 
 interface CharacterSavePayload {
@@ -35,8 +34,12 @@ export function CharacterCard({
   onRestoreVersion,
   generating = false,
 }: CharacterCardProps) {
-  const entityRevisionKey = buildEntityRevisionKey("character", name);
-  const mediaRevision = useAppStore((s) => s.getEntityRevision(entityRevisionKey));
+  const sheetFp = useProjectsStore(
+    (s) => character.character_sheet ? s.getAssetFingerprint(character.character_sheet) : null,
+  );
+  const referenceFp = useProjectsStore(
+    (s) => character.reference_image ? s.getAssetFingerprint(character.reference_image) : null,
+  );
   const [description, setDescription] = useState(character.description);
   const [voiceStyle, setVoiceStyle] = useState(character.voice_style ?? "");
   const [imgError, setImgError] = useState(false);
@@ -54,7 +57,7 @@ export function CharacterCard({
 
   useEffect(() => {
     setImgError(false);
-  }, [character.character_sheet, mediaRevision]);
+  }, [character.character_sheet, sheetFp]);
 
   useEffect(() => {
     setReferenceFile(null);
@@ -126,11 +129,11 @@ export function CharacterCard({
   };
 
   const sheetUrl = character.character_sheet
-    ? API.getFileUrl(projectName, character.character_sheet, mediaRevision)
+    ? API.getFileUrl(projectName, character.character_sheet, sheetFp)
     : null;
 
   const savedReferenceUrl = character.reference_image
-    ? API.getFileUrl(projectName, character.reference_image, mediaRevision)
+    ? API.getFileUrl(projectName, character.reference_image, referenceFp)
     : null;
 
   const displayedReferenceUrl = referencePreview ?? savedReferenceUrl;

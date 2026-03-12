@@ -21,6 +21,7 @@ export interface ProjectChange {
   episode?: number;
   focus?: ProjectChangeFocus | null;
   important: boolean;
+  asset_fingerprints?: Record<string, number>;
 }
 
 export interface ProjectChangeBatchPayload {

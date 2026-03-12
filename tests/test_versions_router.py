@@ -124,6 +124,28 @@ class TestVersionsRouter:
 
         assert sorted(fake_pm.update_calls) == ["a.json", "b.json", "c.json"]
 
+    def test_restore_returns_asset_fingerprints(self, monkeypatch, tmp_path):
+        """版本还原应返回受影响文件的 fingerprint"""
+        fake_pm = _FakePM()
+        fake_pm.get_project_path = lambda name: tmp_path
+
+        (tmp_path / "storyboards").mkdir()
+        (tmp_path / "storyboards" / "scene_E1S01.png").write_bytes(b"restored")
+
+        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(versions, "get_version_manager", lambda name: _FakeVM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
+        app.include_router(versions.router, prefix="/api/v1")
+        with TestClient(app) as client:
+            resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "asset_fingerprints" in data
+            assert "storyboards/scene_E1S01.png" in data["asset_fingerprints"]
+            assert isinstance(data["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
+
     def test_get_versions_unexpected_error_maps_to_500(self, monkeypatch):
         fake_pm = _FakePM()
         monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)

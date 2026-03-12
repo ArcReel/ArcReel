@@ -5,7 +5,7 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
-import { buildEntityRevisionKey } from "@/utils/project-changes";
+
 import { WelcomeCanvas } from "./WelcomeCanvas";
 
 interface OverviewCanvasProps {
@@ -14,8 +14,9 @@ interface OverviewCanvasProps {
 }
 
 export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps) {
-  const projectRevisionKey = buildEntityRevisionKey("project", "project");
-  const mediaRevision = useAppStore((s) => s.getEntityRevision(projectRevisionKey));
+  const styleImageFp = useProjectsStore(
+    (s) => projectData?.style_image ? s.getAssetFingerprint(projectData.style_image) : null,
+  );
   const [regenerating, setRegenerating] = useState(false);
   const [uploadingStyleImage, setUploadingStyleImage] = useState(false);
   const [deletingStyleImage, setDeletingStyleImage] = useState(false);
@@ -26,18 +27,16 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const styleInputRef = useRef<HTMLInputElement>(null);
 
   const refreshProject = useCallback(
-    async (invalidateProjectMedia: boolean = false) => {
+    async () => {
       const res = await API.getProject(projectName);
       useProjectsStore.getState().setCurrentProject(
         projectName,
         res.project,
         res.scripts ?? {},
+        res.asset_fingerprints,
       );
-      if (invalidateProjectMedia) {
-        useAppStore.getState().invalidateEntities([projectRevisionKey]);
-      }
     },
-    [projectName, projectRevisionKey],
+    [projectName],
   );
 
   useEffect(() => {
@@ -81,7 +80,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
       setUploadingStyleImage(true);
       try {
         await API.uploadStyleImage(projectName, file);
-        await refreshProject(true);
+        await refreshProject();
         useAppStore.getState().pushToast("风格参考图已更新", "success");
       } catch (err) {
         useAppStore
@@ -101,7 +100,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     setDeletingStyleImage(true);
     try {
       await API.deleteStyleImage(projectName);
-      await refreshProject(true);
+      await refreshProject();
       useAppStore.getState().pushToast("风格参考图已删除", "success");
     } catch (err) {
       useAppStore
@@ -139,7 +138,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const status = projectData.status;
   const overview = projectData.overview;
   const styleImageUrl = projectData.style_image
-    ? API.getFileUrl(projectName, projectData.style_image, mediaRevision)
+    ? API.getFileUrl(projectName, projectData.style_image, styleImageFp)
     : null;
   const styleDescriptionDirty =
     styleDescriptionDraft !== (projectData.style_description ?? "");
