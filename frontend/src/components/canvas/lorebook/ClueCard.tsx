@@ -5,8 +5,7 @@ import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMach
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
-import { useAppStore } from "@/stores/app-store";
-import { buildEntityRevisionKey } from "@/utils/project-changes";
+import { useProjectsStore } from "@/stores/projects-store";
 import type { Clue } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -45,8 +44,9 @@ export function ClueCard({
   onRestoreVersion,
   generating = false,
 }: ClueCardProps) {
-  const entityRevisionKey = buildEntityRevisionKey("clue", name);
-  const mediaRevision = useAppStore((s) => s.getEntityRevision(entityRevisionKey));
+  const sheetFp = useProjectsStore(
+    (s) => clue.clue_sheet ? s.getAssetFingerprint(clue.clue_sheet) : null,
+  );
   const [description, setDescription] = useState(clue.description);
   const [imgError, setImgError] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -59,7 +59,7 @@ export function ClueCard({
 
   useEffect(() => {
     setImgError(false);
-  }, [clue.clue_sheet, mediaRevision]);
+  }, [clue.clue_sheet, sheetFp]);
 
   // Auto-resize textarea.
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -81,7 +81,7 @@ export function ClueCard({
   };
 
   const sheetUrl = clue.clue_sheet
-    ? API.getFileUrl(projectName, clue.clue_sheet, mediaRevision)
+    ? API.getFileUrl(projectName, clue.clue_sheet, sheetFp)
     : null;
 
   return (

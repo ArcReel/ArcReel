@@ -1,5 +1,4 @@
 import time
-from pathlib import Path
 
 from lib.asset_fingerprints import compute_asset_fingerprints
 
@@ -59,3 +58,20 @@ class TestComputeAssetFingerprints:
         f.write_bytes(b"v2")
         fp2 = compute_asset_fingerprints(tmp_path)["storyboards/scene_E1S01.png"]
         assert fp2 != fp1
+
+    def test_scans_characters_refs_subdirectory(self, tmp_path):
+        refs_dir = tmp_path / "characters" / "refs"
+        refs_dir.mkdir(parents=True)
+        (refs_dir / "Hero.png").write_bytes(b"ref")
+
+        result = compute_asset_fingerprints(tmp_path)
+        assert "characters/refs/Hero.png" in result
+        assert isinstance(result["characters/refs/Hero.png"], int)
+
+    def test_ignores_versions_subdirectory(self, tmp_path):
+        versions_dir = tmp_path / "storyboards" / "versions"
+        versions_dir.mkdir(parents=True)
+        (versions_dir / "v1.png").write_bytes(b"old")
+
+        result = compute_asset_fingerprints(tmp_path)
+        assert not any("versions" in k for k in result)

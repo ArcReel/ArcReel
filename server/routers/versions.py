@@ -5,6 +5,7 @@
 """
 
 import logging
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,6 +23,13 @@ router = APIRouter()
 # 初始化项目管理器
 pm = ProjectManager(PROJECT_ROOT / "projects")
 
+_RESOURCE_FILE_PATTERNS: dict[str, tuple[str, str]] = {
+    "storyboards": ("storyboards", "scene_{id}.png"),
+    "videos":      ("videos",      "scene_{id}.mp4"),
+    "characters":  ("characters",  "{id}.png"),
+    "clues":       ("clues",       "{id}.png"),
+}
+
 
 def get_project_manager() -> ProjectManager:
     return pm
@@ -31,6 +39,70 @@ def get_version_manager(project_name: str) -> VersionManager:
     """获取项目的版本管理器"""
     project_path = get_project_manager().get_project_path(project_name)
     return VersionManager(project_path)
+
+
+def _resolve_resource_path(
+    resource_type: str,
+    resource_id: str,
+    project_path: Path,
+) -> tuple[Path, str]:
+    """返回 (current_file_absolute, relative_file_path)，资源类型无效时抛出 HTTPException。"""
+    pattern = _RESOURCE_FILE_PATTERNS.get(resource_type)
+    if pattern is None:
+        raise HTTPException(status_code=400, detail=f"不支持的资源类型: {resource_type}")
+    subdir, name_tpl = pattern
+    name = name_tpl.format(id=resource_id)
+    return project_path / subdir / name, f"{subdir}/{name}"
+
+
+def _sync_storyboard_metadata(
+    project_name: str,
+    resource_id: str,
+    file_path: str,
+    project_path: Path,
+) -> None:
+    scripts_dir = project_path / "scripts"
+    if not scripts_dir.exists():
+        return
+    for script_file in scripts_dir.glob("*.json"):
+        try:
+            with project_change_source("webui"):
+                get_project_manager().update_scene_asset(
+                    project_name=project_name,
+                    script_filename=script_file.name,
+                    scene_id=resource_id,
+                    asset_type="storyboard_image",
+                    asset_path=file_path,
+                )
+        except KeyError:
+            continue
+        except Exception as exc:
+            logger.warning("同步分镜元数据失败: %s", exc)
+            continue
+
+
+def _sync_metadata(
+    resource_type: str,
+    project_name: str,
+    resource_id: str,
+    file_path: str,
+    project_path: Path,
+) -> None:
+    """还原后同步元数据，确保引用指向统一文件路径。"""
+    if resource_type == "characters":
+        try:
+            with project_change_source("webui"):
+                get_project_manager().update_project_character_sheet(project_name, resource_id, file_path)
+        except KeyError:
+            pass
+    elif resource_type == "clues":
+        try:
+            with project_change_source("webui"):
+                get_project_manager().update_clue_sheet(project_name, resource_id, file_path)
+        except KeyError:
+            pass
+    elif resource_type == "storyboards":
+        _sync_storyboard_metadata(project_name, resource_id, file_path, project_path)
 
 
 # ==================== 版本查询 ====================
@@ -92,69 +164,29 @@ async def restore_version(
     """
     try:
         vm = get_version_manager(project_name)
-        manager = get_project_manager()
-        project_path = manager.get_project_path(project_name)
+        project_path = get_project_manager().get_project_path(project_name)
+        current_file, file_path = _resolve_resource_path(resource_type, resource_id, project_path)
 
-        # 确定当前文件路径
-        if resource_type == "storyboards":
-            current_file = project_path / "storyboards" / f"scene_{resource_id}.png"
-            file_path = f"storyboards/scene_{resource_id}.png"
-        elif resource_type == "videos":
-            current_file = project_path / "videos" / f"scene_{resource_id}.mp4"
-            file_path = f"videos/scene_{resource_id}.mp4"
-        elif resource_type == "characters":
-            current_file = project_path / "characters" / f"{resource_id}.png"
-            file_path = f"characters/{resource_id}.png"
-        elif resource_type == "clues":
-            current_file = project_path / "clues" / f"{resource_id}.png"
-            file_path = f"clues/{resource_id}.png"
-        else:
-            raise HTTPException(status_code=400, detail=f"不支持的资源类型: {resource_type}")
-
-        # 执行还原
         result = vm.restore_version(
             resource_type=resource_type,
             resource_id=resource_id,
             version=version,
-            current_file=current_file
+            current_file=current_file,
         )
 
-        # 同步元数据，确保引用指向统一的 PNG（避免 jpg/png 不一致导致 UI 仍显示旧图）
-        if resource_type == "characters":
-            try:
-                with project_change_source("webui"):
-                    get_project_manager().update_project_character_sheet(project_name, resource_id, file_path)
-            except KeyError:
-                pass
-        elif resource_type == "clues":
-            try:
-                with project_change_source("webui"):
-                    get_project_manager().update_clue_sheet(project_name, resource_id, file_path)
-            except KeyError:
-                pass
-        elif resource_type == "storyboards":
-            scripts_dir = project_path / "scripts"
-            if scripts_dir.exists():
-                for script_file in scripts_dir.glob("*.json"):
-                    try:
-                        with project_change_source("webui"):
-                            get_project_manager().update_scene_asset(
-                                project_name=project_name,
-                                script_filename=script_file.name,
-                                scene_id=resource_id,
-                                asset_type="storyboard_image",
-                                asset_path=file_path,
-                            )
-                    except KeyError:
-                        continue
-                    except Exception as exc:
-                        logger.warning("同步分镜元数据失败: %s", exc)
-                        continue
+        _sync_metadata(resource_type, project_name, resource_id, file_path, project_path)
 
-        # 计算还原后文件的 fingerprint
+        # 计算还原后文件的 fingerprint；视频还原时同步删除缩略图（内容已失效）
         asset_fingerprints: dict[str, int] = {}
         if current_file.exists():
             asset_fingerprints[file_path] = current_file.stat().st_mtime_ns
+
+        if resource_type == "videos":
+            thumbnail_path = project_path / "thumbnails" / f"scene_{resource_id}.jpg"
+            thumbnail_key = f"thumbnails/scene_{resource_id}.jpg"
+            thumbnail_path.unlink(missing_ok=True)
+            # fingerprint=0 通知前端该文件已失效（poster 消失直到重新生成）
+            asset_fingerprints[thumbnail_key] = 0
 
         return {
             "success": True,

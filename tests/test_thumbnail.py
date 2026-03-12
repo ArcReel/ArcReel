@@ -1,6 +1,5 @@
 import asyncio
 import shutil
-from pathlib import Path
 
 import pytest
 

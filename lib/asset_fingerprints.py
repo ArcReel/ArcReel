@@ -9,6 +9,18 @@ _MEDIA_SUBDIRS = ("storyboards", "videos", "thumbnails", "characters", "clues")
 _ROOT_MEDIA_SUFFIXES = frozenset((".png", ".jpg", ".jpeg", ".webp", ".mp4"))
 
 
+def _scan_subdir(prefix: str, dir_path: Path, fingerprints: dict[str, int]) -> None:
+    """扫描单个媒体子目录及其一级子目录（跳过 versions/ 目录）。"""
+    for entry in dir_path.iterdir():
+        if entry.is_file():
+            fingerprints[f"{prefix}/{entry.name}"] = entry.stat().st_mtime_ns
+        elif entry.is_dir() and entry.name != "versions":
+            sub_prefix = f"{prefix}/{entry.name}"
+            for sub_entry in entry.iterdir():
+                if sub_entry.is_file():
+                    fingerprints[f"{sub_prefix}/{sub_entry.name}"] = sub_entry.stat().st_mtime_ns
+
+
 def compute_asset_fingerprints(project_path: Path) -> dict[str, int]:
     """
     扫描项目目录下所有媒体文件，返回 {相对路径: mtime_ns_int} 映射。
@@ -20,11 +32,8 @@ def compute_asset_fingerprints(project_path: Path) -> dict[str, int]:
 
     for subdir in _MEDIA_SUBDIRS:
         dir_path = project_path / subdir
-        if not dir_path.is_dir():
-            continue
-        for f in dir_path.iterdir():
-            if f.is_file():
-                fingerprints[f"{subdir}/{f.name}"] = f.stat().st_mtime_ns
+        if dir_path.is_dir():
+            _scan_subdir(subdir, dir_path, fingerprints)
 
     # 根目录下的媒体文件（如 style_reference.png）
     for f in project_path.iterdir():
