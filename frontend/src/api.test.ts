@@ -511,6 +511,10 @@ describe("API", () => {
               },
               warnings: [],
               conflict_resolution: "none",
+              diagnostics: {
+                auto_fixed: [],
+                warnings: [],
+              },
             },
           }),
         )
@@ -522,6 +526,18 @@ describe("API", () => {
               detail: "导入包校验失败",
               errors: ["缺少 project.json", "缺少 scripts/episode_1.json"],
               warnings: ["发现未识别的附加文件/目录: extra"],
+              diagnostics: {
+                blocking: [
+                  { code: "validation_error", message: "缺少 project.json" },
+                  { code: "validation_error", message: "缺少 scripts/episode_1.json" },
+                ],
+                auto_fixable: [
+                  { code: "missing_clues_field", message: "segments[0]: 补全缺失字段 clues_in_segment" },
+                ],
+                warnings: [
+                  { code: "validation_warning", message: "发现未识别的附加文件/目录: extra" },
+                ],
+              },
             },
           }),
         );
@@ -536,6 +552,18 @@ describe("API", () => {
         detail: "导入包校验失败",
         errors: ["缺少 project.json", "缺少 scripts/episode_1.json"],
         warnings: ["发现未识别的附加文件/目录: extra"],
+        diagnostics: {
+          blocking: [
+            { code: "validation_error", message: "缺少 project.json" },
+            { code: "validation_error", message: "缺少 scripts/episode_1.json" },
+          ],
+          auto_fixable: [
+            { code: "missing_clues_field", message: "segments[0]: 补全缺失字段 clues_in_segment" },
+          ],
+          warnings: [
+            { code: "validation_warning", message: "发现未识别的附加文件/目录: extra" },
+          ],
+        },
       });
 
       expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/projects/import");
@@ -554,6 +582,11 @@ describe("API", () => {
             errors: ["项目编号 'demo' 已存在"],
             warnings: [],
             conflict_project_name: "demo",
+            diagnostics: {
+              blocking: [],
+              auto_fixable: [],
+              warnings: [],
+            },
           },
         }),
       );

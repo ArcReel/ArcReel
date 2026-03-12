@@ -8,19 +8,20 @@ import shutil
 import stat
 import tempfile
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from lib.data_validator import DataValidator
+from lib.data_validator import DataValidator, ValidationResult
 from lib.project_change_hints import emit_project_change_hint
 from lib.project_manager import ProjectManager
 
 logger = logging.getLogger(__name__)
 
 ARCHIVE_MANIFEST_NAME = "arcreel-export.json"
-ARCHIVE_FORMAT_VERSION = 1
+ARCHIVE_FORMAT_VERSION = 2
+ARCHIVE_SCRIPT_SCHEMA_VERSION = 2
 DEFAULT_IMPORT_FILENAME = "imported-project.zip"
 
 
@@ -32,11 +33,92 @@ class ArchiveMember:
 
 
 @dataclass(frozen=True)
+class ArchiveDiagnostic:
+    code: str
+    message: str
+    location: Optional[str] = None
+
+    def to_payload(self) -> dict[str, Any]:
+        payload = {
+            "code": self.code,
+            "message": self.message,
+        }
+        if self.location:
+            payload["location"] = self.location
+        return payload
+
+
+@dataclass
+class ArchiveDiagnostics:
+    blocking: list[ArchiveDiagnostic] = field(default_factory=list)
+    auto_fixed: list[ArchiveDiagnostic] = field(default_factory=list)
+    warnings: list[ArchiveDiagnostic] = field(default_factory=list)
+    _seen: set[tuple[str, str, str, Optional[str]]] = field(
+        default_factory=set,
+        init=False,
+        repr=False,
+    )
+
+    def add(
+        self,
+        bucket: str,
+        code: str,
+        message: str,
+        *,
+        location: Optional[str] = None,
+    ) -> None:
+        key = (bucket, code, message, location)
+        if key in self._seen:
+            return
+        self._seen.add(key)
+        getattr(self, bucket).append(
+            ArchiveDiagnostic(
+                code=code,
+                message=message,
+                location=location,
+            )
+        )
+
+    def extend_validation(self, validation: ValidationResult) -> None:
+        for error in validation.errors:
+            self.add("blocking", "validation_error", error)
+        for warning in validation.warnings:
+            self.add("warnings", "validation_warning", warning)
+
+    def to_export_payload(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "blocking": [item.to_payload() for item in self.blocking],
+            "auto_fixed": [item.to_payload() for item in self.auto_fixed],
+            "warnings": [item.to_payload() for item in self.warnings],
+        }
+
+    def to_import_success_payload(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "auto_fixed": [item.to_payload() for item in self.auto_fixed],
+            "warnings": [item.to_payload() for item in self.warnings],
+        }
+
+    def to_import_error_payload(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "blocking": [item.to_payload() for item in self.blocking],
+            "auto_fixable": [item.to_payload() for item in self.auto_fixed],
+            "warnings": [item.to_payload() for item in self.warnings],
+        }
+
+    def blocking_messages(self) -> list[str]:
+        return [item.message for item in self.blocking]
+
+    def warning_messages(self) -> list[str]:
+        return [item.message for item in self.warnings]
+
+
+@dataclass(frozen=True)
 class ProjectImportResult:
     project_name: str
     project: dict[str, Any]
     warnings: list[str]
     conflict_resolution: str
+    diagnostics: dict[str, list[dict[str, Any]]]
 
 
 class ProjectArchiveValidationError(ValueError):
@@ -47,6 +129,7 @@ class ProjectArchiveValidationError(ValueError):
         status_code: int = 400,
         errors: Optional[list[str]] = None,
         warnings: Optional[list[str]] = None,
+        diagnostics: Optional[dict[str, Any]] = None,
         extra: Optional[dict[str, Any]] = None,
     ):
         super().__init__(detail)
@@ -54,26 +137,50 @@ class ProjectArchiveValidationError(ValueError):
         self.status_code = status_code
         self.errors = errors or []
         self.warnings = warnings or []
-        self.extra = extra or {}
+        merged_extra = dict(extra or {})
+        if diagnostics is not None:
+            merged_extra["diagnostics"] = diagnostics
+        self.extra = merged_extra
 
 
 class ProjectArchiveService:
+    _VERSION_HISTORY_DIRS = frozenset({
+        "storyboards",
+        "videos",
+        "characters",
+        "clues",
+    })
+    _RESOURCE_EXTENSIONS = {
+        "storyboards": ".png",
+        "videos": ".mp4",
+        "characters": ".png",
+        "clues": ".png",
+    }
+    _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES)
+    _PLACEHOLDER_CHARACTER_DESCRIPTION = "Imported placeholder character"
+
     def __init__(self, project_manager: ProjectManager):
         self.project_manager = project_manager
         self.validator = DataValidator(projects_root=str(project_manager.projects_root))
 
-    # scope=current 时需跳过的 versions 子目录
-    _VERSION_HISTORY_DIRS = frozenset({
-        "storyboards", "videos", "characters", "clues",
-    })
-
-    def export_project(self, project_name: str, *, scope: str = "full") -> tuple[Path, str]:
+    def get_export_diagnostics(
+        self,
+        project_name: str,
+        *,
+        scope: str = "full",
+    ) -> dict[str, list[dict[str, Any]]]:
+        self._validate_scope(scope)
         if not self.project_manager.project_exists(project_name):
             raise FileNotFoundError(f"项目 '{project_name}' 不存在或未初始化")
 
-        project_dir = self.project_manager.get_project_path(project_name)
-        project = self.project_manager.load_project(project_name)
-        is_current = scope == "current"
+        temp_dir, _, _, diagnostics = self._prepare_export_snapshot(project_name, scope=scope)
+        temp_dir.cleanup()
+        return diagnostics.to_export_payload()
+
+    def export_project(self, project_name: str, *, scope: str = "full") -> tuple[Path, str]:
+        self._validate_scope(scope)
+        if not self.project_manager.project_exists(project_name):
+            raise FileNotFoundError(f"项目 '{project_name}' 不存在或未初始化")
 
         fd, archive_path_str = tempfile.mkstemp(
             prefix=f"{project_name}-",
@@ -82,7 +189,12 @@ class ProjectArchiveService:
         os.close(fd)
         archive_path = Path(archive_path_str)
 
+        temp_dir: Optional[tempfile.TemporaryDirectory[str]] = None
         try:
+            temp_dir, snapshot_dir, manifest, _ = self._prepare_export_snapshot(
+                project_name,
+                scope=scope,
+            )
             with zipfile.ZipFile(
                 archive_path,
                 mode="w",
@@ -92,91 +204,26 @@ class ProjectArchiveService:
                 archive.writestr(
                     f"{project_name}/{ARCHIVE_MANIFEST_NAME}",
                     json.dumps(
-                        self._build_archive_manifest(project_name, project, scope=scope),
+                        manifest,
                         ensure_ascii=False,
                         indent=2,
                     ),
                 )
-
-                for current_dir, dirnames, filenames in os.walk(project_dir):
-                    current_path = Path(current_dir)
-
-                    dirnames[:] = [
-                        name
-                        for name in sorted(dirnames)
-                        if not name.startswith(".")
-                        and not (current_path / name).is_symlink()
-                    ]
-
-                    # scope=current: 跳过 versions/ 下的历史资源子目录
-                    if is_current:
-                        relative_dir = current_path.relative_to(project_dir)
-                        if relative_dir.parts == ("versions",):
-                            dirnames[:] = [
-                                d for d in dirnames
-                                if d not in self._VERSION_HISTORY_DIRS
-                            ]
-
-                    visible_files = [
-                        name
-                        for name in sorted(filenames)
-                        if not name.startswith(".")
-                        and not (current_path / name).is_symlink()
-                    ]
-
-                    relative_dir = current_path.relative_to(project_dir)
-                    if relative_dir != Path("."):
-                        self._write_directory_entry(
-                            archive,
-                            (project_name, *relative_dir.parts),
-                        )
-
-                    for filename in visible_files:
-                        source_path = current_path / filename
-
-                        # scope=current: 裁剪 versions/versions.json
-                        if (
-                            is_current
-                            and relative_dir.parts == ("versions",)
-                            and filename == "versions.json"
-                        ):
-                            trimmed = self._trim_versions_json(source_path)
-                            archive_name = Path(project_name, relative_dir, filename).as_posix()
-                            archive.writestr(archive_name, trimmed)
-                            continue
-
-                        archive_name = Path(project_name, relative_dir, filename).as_posix()
-                        archive.write(source_path, arcname=archive_name)
+                self._write_snapshot_members(
+                    archive,
+                    snapshot_dir,
+                    project_name=project_name,
+                    scope=scope,
+                )
         except Exception:
             archive_path.unlink(missing_ok=True)
             raise
+        finally:
+            if temp_dir is not None:
+                temp_dir.cleanup()
 
-        download_name = (
-            f"{project_name}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
-        )
+        download_name = f"{project_name}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
         return archive_path, download_name
-
-    @staticmethod
-    def _trim_versions_json(versions_path: Path) -> str:
-        """裁剪 versions.json，每个资源只保留 current_version 对应的版本记录。"""
-        with open(versions_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        for resource_type_data in data.values():
-            if not isinstance(resource_type_data, dict):
-                continue
-            for resource_id, resource_info in resource_type_data.items():
-                if not isinstance(resource_info, dict):
-                    continue
-                current_ver = resource_info.get("current_version")
-                versions_list = resource_info.get("versions", [])
-                if current_ver is not None and isinstance(versions_list, list):
-                    resource_info["versions"] = [
-                        v for v in versions_list
-                        if isinstance(v, dict) and v.get("version") == current_ver
-                    ]
-
-        return json.dumps(data, ensure_ascii=False, indent=2)
 
     def import_project_archive(
         self,
@@ -188,7 +235,10 @@ class ProjectArchiveService:
         if conflict_policy not in {"prompt", "rename", "overwrite"}:
             raise ProjectArchiveValidationError(
                 "无效的冲突策略",
-                errors=[f"conflict_policy 仅支持 prompt、rename 或 overwrite，收到: {conflict_policy}"],
+                errors=[
+                    "conflict_policy 仅支持 prompt、rename 或 overwrite，"
+                    f"收到: {conflict_policy}"
+                ],
             )
 
         try:
@@ -207,12 +257,16 @@ class ProjectArchiveService:
                         staging_dir,
                     )
 
-                    validation = self.validator.validate_project_tree(staging_dir)
-                    if not validation.valid:
+                    diagnostics = self._repair_project_tree(staging_dir)
+                    diagnostics.extend_validation(
+                        self.validator.validate_project_tree(staging_dir)
+                    )
+                    if diagnostics.blocking:
                         raise ProjectArchiveValidationError(
                             "导入包校验失败",
-                            errors=validation.errors,
-                            warnings=validation.warnings,
+                            errors=diagnostics.blocking_messages(),
+                            warnings=diagnostics.warning_messages(),
+                            diagnostics=diagnostics.to_import_error_payload(),
                         )
 
                     project = self._load_project_file(
@@ -237,7 +291,6 @@ class ProjectArchiveService:
                         overwrite=(conflict_policy == "overwrite"),
                     )
 
-                    # Create .claude symlink for agent runtime isolation
                     target_dir = self.project_manager.projects_root / target_name
                     self.project_manager.repair_claude_symlink(target_dir)
 
@@ -251,8 +304,9 @@ class ProjectArchiveService:
                     return ProjectImportResult(
                         project_name=target_name,
                         project=imported_project,
-                        warnings=validation.warnings,
+                        warnings=diagnostics.warning_messages(),
                         conflict_resolution=conflict_resolution,
+                        diagnostics=diagnostics.to_import_success_payload(),
                     )
         except zipfile.BadZipFile as exc:
             raise ProjectArchiveValidationError(
@@ -260,20 +314,50 @@ class ProjectArchiveService:
                 errors=[str(exc)],
             ) from exc
 
+    def _prepare_export_snapshot(
+        self,
+        project_name: str,
+        *,
+        scope: str,
+    ) -> tuple[tempfile.TemporaryDirectory[str], Path, dict[str, Any], ArchiveDiagnostics]:
+        source_dir = self.project_manager.get_project_path(project_name)
+        temp_dir = tempfile.TemporaryDirectory(prefix="arcreel-export-")
+        snapshot_dir = Path(temp_dir.name) / project_name
+        self._copy_visible_tree(source_dir, snapshot_dir)
+
+        diagnostics = self._repair_project_tree(snapshot_dir)
+        diagnostics.extend_validation(self.validator.validate_project_tree(snapshot_dir))
+
+        snapshot_project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE)
+        manifest = self._build_archive_manifest(
+            project_name,
+            snapshot_project,
+            scope=scope,
+            diagnostics=diagnostics.to_export_payload(),
+            pass_through_entries=self._collect_pass_through_entries(snapshot_dir),
+        )
+        return temp_dir, snapshot_dir, manifest, diagnostics
+
     def _build_archive_manifest(
         self,
         project_name: str,
-        project: dict[str, Any],
+        project: Optional[dict[str, Any]],
         *,
-        scope: str = "full",
+        scope: str,
+        diagnostics: dict[str, Any],
+        pass_through_entries: list[str],
     ) -> dict[str, Any]:
+        project_payload = project or {}
         return {
             "format_version": ARCHIVE_FORMAT_VERSION,
+            "script_schema_version": ARCHIVE_SCRIPT_SCHEMA_VERSION,
             "project_name": project_name,
-            "project_title": project.get("title", project_name),
-            "content_mode": project.get("content_mode", ""),
+            "project_title": project_payload.get("title", project_name),
+            "content_mode": project_payload.get("content_mode", ""),
             "scope": scope,
             "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "export_diagnostics": diagnostics,
+            "pass_through_entries": pass_through_entries,
         }
 
     @staticmethod
@@ -285,6 +369,712 @@ class ProjectArchiveService:
         info = zipfile.ZipInfo(dirname)
         info.external_attr = (0o40755 & 0xFFFF) << 16
         archive.writestr(info, b"")
+
+    def _write_snapshot_members(
+        self,
+        archive: zipfile.ZipFile,
+        snapshot_dir: Path,
+        *,
+        project_name: str,
+        scope: str,
+    ) -> None:
+        is_current = scope == "current"
+
+        for current_dir, dirnames, filenames in os.walk(snapshot_dir):
+            current_path = Path(current_dir)
+            dirnames[:] = [
+                name
+                for name in sorted(dirnames)
+                if not name.startswith(".")
+                and not (current_path / name).is_symlink()
+            ]
+
+            relative_dir = current_path.relative_to(snapshot_dir)
+            if is_current and relative_dir.parts == ("versions",):
+                dirnames[:] = [
+                    name
+                    for name in dirnames
+                    if name not in self._VERSION_HISTORY_DIRS
+                ]
+
+            visible_files = [
+                name
+                for name in sorted(filenames)
+                if not name.startswith(".")
+                and not (current_path / name).is_symlink()
+            ]
+
+            if relative_dir != Path("."):
+                self._write_directory_entry(
+                    archive,
+                    (project_name, *relative_dir.parts),
+                )
+
+            for filename in visible_files:
+                source_path = current_path / filename
+                archive_name = Path(project_name, relative_dir, filename).as_posix()
+
+                if (
+                    is_current
+                    and relative_dir.parts == ("versions",)
+                    and filename == "versions.json"
+                ):
+                    payload = self._load_json_file(source_path) or {}
+                    archive.writestr(
+                        archive_name,
+                        json.dumps(
+                            self._trim_versions_payload(payload),
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                    )
+                    continue
+
+                archive.write(source_path, arcname=archive_name)
+
+    @staticmethod
+    def _trim_versions_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        trimmed = json.loads(json.dumps(payload))
+        for resource_type_data in trimmed.values():
+            if not isinstance(resource_type_data, dict):
+                continue
+            for resource_info in resource_type_data.values():
+                if not isinstance(resource_info, dict):
+                    continue
+                current_ver = resource_info.get("current_version")
+                versions_list = resource_info.get("versions", [])
+                if current_ver is not None and isinstance(versions_list, list):
+                    resource_info["versions"] = [
+                        version
+                        for version in versions_list
+                        if isinstance(version, dict)
+                        and version.get("version") == current_ver
+                    ]
+        return trimmed
+
+    def _copy_visible_tree(self, source_dir: Path, target_dir: Path) -> None:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for current_dir, dirnames, filenames in os.walk(source_dir):
+            current_path = Path(current_dir)
+            dirnames[:] = [
+                name
+                for name in sorted(dirnames)
+                if not name.startswith(".")
+                and not (current_path / name).is_symlink()
+            ]
+            relative_dir = current_path.relative_to(source_dir)
+            destination_dir = target_dir / relative_dir
+            destination_dir.mkdir(parents=True, exist_ok=True)
+
+            for filename in sorted(filenames):
+                source_path = current_path / filename
+                if filename.startswith(".") or source_path.is_symlink():
+                    continue
+                destination_path = destination_dir / filename
+                destination_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, destination_path)
+
+    def _repair_project_tree(self, project_dir: Path) -> ArchiveDiagnostics:
+        diagnostics = ArchiveDiagnostics()
+        project_path = project_dir / self.project_manager.PROJECT_FILE
+        project = self._load_json_file(project_path)
+        if project is None:
+            diagnostics.add(
+                "blocking",
+                "invalid_project_json",
+                f"无法解析 {self.project_manager.PROJECT_FILE}: {project_path}",
+                location=self.project_manager.PROJECT_FILE,
+            )
+            return diagnostics
+
+        basename_index = self._build_basename_index(project_dir)
+        versions_payload = self._load_versions_payload(project_dir)
+        project_changed = False
+
+        if self._repair_path_to_canonical(
+            project_dir,
+            project,
+            field_name="style_image",
+            canonical_rel="style_reference.png",
+            location="project.style_image",
+            diagnostics=diagnostics,
+        ):
+            project_changed = True
+
+        characters = project.get("characters")
+        if isinstance(characters, dict):
+            for char_name, char_data in characters.items():
+                if not isinstance(char_data, dict):
+                    continue
+                if self._repair_path_to_canonical(
+                    project_dir,
+                    char_data,
+                    field_name="character_sheet",
+                    canonical_rel=f"characters/{char_name}.png",
+                    location=f"characters[{char_name}].character_sheet",
+                    diagnostics=diagnostics,
+                    resource_type="characters",
+                    resource_id=char_name,
+                    versions_payload=versions_payload,
+                ):
+                    project_changed = True
+                if self._repair_path_to_canonical(
+                    project_dir,
+                    char_data,
+                    field_name="reference_image",
+                    canonical_rel=f"characters/refs/{char_name}.png",
+                    location=f"characters[{char_name}].reference_image",
+                    diagnostics=diagnostics,
+                ):
+                    project_changed = True
+
+        clues = project.get("clues")
+        if isinstance(clues, dict):
+            for clue_name, clue_data in clues.items():
+                if not isinstance(clue_data, dict):
+                    continue
+                if self._repair_path_to_canonical(
+                    project_dir,
+                    clue_data,
+                    field_name="clue_sheet",
+                    canonical_rel=f"clues/{clue_name}.png",
+                    location=f"clues[{clue_name}].clue_sheet",
+                    diagnostics=diagnostics,
+                    resource_type="clues",
+                    resource_id=clue_name,
+                    versions_payload=versions_payload,
+                ):
+                    project_changed = True
+
+        project_characters = {
+            name
+            for name, payload in (characters or {}).items()
+            if isinstance(payload, dict)
+        }
+        project_clues = {
+            name
+            for name, payload in (clues or {}).items()
+            if isinstance(payload, dict)
+        }
+
+        episodes = project.get("episodes")
+        if isinstance(episodes, list):
+            for index, episode_meta in enumerate(episodes):
+                if not isinstance(episode_meta, dict):
+                    continue
+
+                script_location = f"episodes[{index}].script_file"
+                script_file = episode_meta.get("script_file")
+                if isinstance(script_file, str) and script_file.strip():
+                    repaired_script = self._repair_relative_reference(
+                        project_dir,
+                        script_file,
+                        default_dir="scripts",
+                        basename_index=basename_index,
+                        preferred_prefix="scripts/",
+                    )
+                    if repaired_script and repaired_script != script_file.replace("\\", "/"):
+                        episode_meta["script_file"] = repaired_script
+                        project_changed = True
+                        diagnostics.add(
+                            "auto_fixed",
+                            "script_file_repaired",
+                            f"{script_location}: 自动修复为 {repaired_script}",
+                            location=script_location,
+                        )
+                    script_path_rel = repaired_script or script_file.replace("\\", "/")
+                else:
+                    script_path_rel = None
+
+                if not script_path_rel:
+                    continue
+
+                script_path = project_dir / script_path_rel
+                if not script_path.exists():
+                    diagnostics.add(
+                        "blocking",
+                        "missing_script_file",
+                        f"{script_location}: 引用的文件不存在: {script_path_rel}",
+                        location=script_location,
+                    )
+                    continue
+
+                script_payload = self._load_json_file(script_path)
+                if script_payload is None:
+                    diagnostics.add(
+                        "blocking",
+                        "invalid_script_json",
+                        f"无法解析剧本文件: {script_path_rel}",
+                        location=script_location,
+                    )
+                    continue
+
+                script_changed, project_changed_from_script = self._repair_script_payload(
+                    project_dir,
+                    script_path_rel=script_path_rel,
+                    script_payload=script_payload,
+                    project_payload=project,
+                    project_characters=project_characters,
+                    project_clues=project_clues,
+                    versions_payload=versions_payload,
+                    diagnostics=diagnostics,
+                    basename_index=basename_index,
+                )
+                if script_changed:
+                    self._write_json_file(script_path, script_payload)
+                if project_changed_from_script:
+                    project_changed = True
+
+        if project_changed:
+            self._write_json_file(project_path, project)
+
+        return diagnostics
+
+    def _repair_script_payload(
+        self,
+        project_dir: Path,
+        *,
+        script_path_rel: str,
+        script_payload: dict[str, Any],
+        project_payload: dict[str, Any],
+        project_characters: set[str],
+        project_clues: set[str],
+        versions_payload: dict[str, Any],
+        diagnostics: ArchiveDiagnostics,
+        basename_index: dict[str, list[str]],
+    ) -> tuple[bool, bool]:
+        script_changed = False
+        project_changed = False
+
+        novel = script_payload.get("novel")
+        if isinstance(novel, dict):
+            source_file = novel.get("source_file")
+            if isinstance(source_file, str) and source_file.strip():
+                repaired_source = self._repair_relative_reference(
+                    project_dir,
+                    source_file,
+                    default_dir="source",
+                    basename_index=basename_index,
+                    preferred_prefix="source/",
+                    allow_single_preferred_candidate=True,
+                )
+                if repaired_source and repaired_source != source_file.replace("\\", "/"):
+                    novel["source_file"] = repaired_source
+                    script_changed = True
+                    diagnostics.add(
+                        "auto_fixed",
+                        "novel_source_repaired",
+                        f"novel.source_file: 自动修复为 {repaired_source}",
+                        location=f"{script_path_rel}:novel.source_file",
+                    )
+
+        content_mode = str(
+            script_payload.get("content_mode")
+            or project_payload.get("content_mode")
+            or "narration"
+        )
+        items_key = "segments" if content_mode == "narration" else "scenes"
+        id_field = "segment_id" if content_mode == "narration" else "scene_id"
+        chars_field = (
+            "characters_in_segment"
+            if content_mode == "narration"
+            else "characters_in_scene"
+        )
+        clues_field = (
+            "clues_in_segment"
+            if content_mode == "narration"
+            else "clues_in_scene"
+        )
+
+        raw_items = script_payload.get(items_key)
+        if not isinstance(raw_items, list):
+            return script_changed, project_changed
+
+        for index, item in enumerate(raw_items):
+            if not isinstance(item, dict):
+                continue
+
+            location_prefix = f"{script_path_rel}:{items_key}[{index}]"
+            resource_id = str(item.get(id_field) or "").strip()
+
+            if clues_field not in item:
+                item[clues_field] = []
+                script_changed = True
+                diagnostics.add(
+                    "auto_fixed",
+                    "missing_clues_field",
+                    f"{items_key}[{index}]: 补全缺失字段 {clues_field}",
+                    location=f"{location_prefix}.{clues_field}",
+                )
+
+            assets = item.get("generated_assets")
+            if assets is None:
+                item["generated_assets"] = self.project_manager.create_generated_assets(
+                    content_mode
+                )
+                script_changed = True
+                diagnostics.add(
+                    "auto_fixed",
+                    "missing_generated_assets",
+                    f"{items_key}[{index}]: 补全缺失字段 generated_assets",
+                    location=f"{location_prefix}.generated_assets",
+                )
+                assets = item["generated_assets"]
+            elif isinstance(assets, dict):
+                template = self.project_manager.create_generated_assets(content_mode)
+                missing_keys = [key for key in template if key not in assets]
+                if missing_keys:
+                    for key in missing_keys:
+                        assets[key] = template[key]
+                    script_changed = True
+                    diagnostics.add(
+                        "auto_fixed",
+                        "generated_assets_defaults",
+                        (
+                            f"{items_key}[{index}].generated_assets: "
+                            f"补全默认字段 {', '.join(sorted(missing_keys))}"
+                        ),
+                        location=f"{location_prefix}.generated_assets",
+                    )
+
+            characters = item.get(chars_field)
+            if isinstance(characters, list):
+                for character_name in characters:
+                    if not isinstance(character_name, str):
+                        continue
+                    if character_name in project_characters:
+                        continue
+                    project_payload.setdefault("characters", {})
+                    if not isinstance(project_payload.get("characters"), dict):
+                        continue
+                    project_payload["characters"][character_name] = {
+                        "description": self._PLACEHOLDER_CHARACTER_DESCRIPTION,
+                    }
+                    project_characters.add(character_name)
+                    project_changed = True
+                    diagnostics.add(
+                        "auto_fixed",
+                        "placeholder_character_added",
+                        f"自动补充缺失角色定义: {character_name}",
+                        location=f"characters[{character_name}]",
+                    )
+
+            clues = item.get(clues_field)
+            if isinstance(clues, list):
+                missing_clues = sorted(
+                    {
+                        clue_name
+                        for clue_name in clues
+                        if isinstance(clue_name, str)
+                        and clue_name not in project_clues
+                    }
+                )
+                if missing_clues:
+                    diagnostics.add(
+                        "blocking",
+                        "missing_clue_definition",
+                        (
+                            f"{items_key}[{index}]: {clues_field} 引用了不存在于 "
+                            f"project.json 的线索: {set(missing_clues)}"
+                        ),
+                        location=f"{location_prefix}.{clues_field}",
+                    )
+
+            if isinstance(assets, dict) and resource_id:
+                for field_name, resource_type in (
+                    ("storyboard_image", "storyboards"),
+                    ("video_clip", "videos"),
+                ):
+                    if self._repair_path_to_canonical(
+                        project_dir,
+                        assets,
+                        field_name=field_name,
+                        canonical_rel=self._canonical_resource_path(
+                            resource_type,
+                            resource_id,
+                        ),
+                        location=f"{location_prefix}.generated_assets.{field_name}",
+                        diagnostics=diagnostics,
+                        resource_type=resource_type,
+                        resource_id=resource_id,
+                        versions_payload=versions_payload,
+                    ):
+                        script_changed = True
+
+        return script_changed, project_changed
+
+    def _repair_path_to_canonical(
+        self,
+        project_dir: Path,
+        payload: dict[str, Any],
+        *,
+        field_name: str,
+        canonical_rel: str,
+        location: str,
+        diagnostics: ArchiveDiagnostics,
+        resource_type: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        versions_payload: Optional[dict[str, Any]] = None,
+    ) -> bool:
+        raw_value = payload.get(field_name)
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            return False
+
+        normalized_value = raw_value.strip().replace("\\", "/")
+        canonical_path = project_dir / canonical_rel
+        resolved_raw = self._resolve_existing_relative(project_dir, normalized_value)
+
+        if canonical_path.exists():
+            if normalized_value != canonical_rel:
+                payload[field_name] = canonical_rel
+                diagnostics.add(
+                    "auto_fixed",
+                    "canonical_path_normalized",
+                    f"{location}: 规范化为 {canonical_rel}",
+                    location=location,
+                )
+                return True
+            return False
+
+        if resolved_raw:
+            if (
+                resource_type
+                and resource_id
+                and resolved_raw.startswith(f"versions/{resource_type}/")
+                and Path(resolved_raw).name.startswith(f"{resource_id}_v")
+            ):
+                if self._materialize_current_file(
+                    project_dir / resolved_raw,
+                    canonical_path,
+                ):
+                    payload[field_name] = canonical_rel
+                    diagnostics.add(
+                        "auto_fixed",
+                        "current_asset_materialized",
+                        f"{location}: 从 {resolved_raw} 恢复当前文件 {canonical_rel}",
+                        location=location,
+                    )
+                    return True
+            return False
+
+        if resource_type and resource_id and versions_payload is not None:
+            version_rel = self._resolve_version_file(
+                project_dir,
+                versions_payload,
+                resource_type=resource_type,
+                resource_id=resource_id,
+            )
+            if version_rel:
+                if self._materialize_current_file(
+                    project_dir / version_rel,
+                    canonical_path,
+                ):
+                    payload[field_name] = canonical_rel
+                    diagnostics.add(
+                        "auto_fixed",
+                        "current_asset_restored_from_version",
+                        f"{location}: 从 {version_rel} 恢复当前文件 {canonical_rel}",
+                        location=location,
+                    )
+                    return True
+
+        return False
+
+    def _resolve_version_file(
+        self,
+        project_dir: Path,
+        versions_payload: dict[str, Any],
+        *,
+        resource_type: str,
+        resource_id: str,
+    ) -> Optional[str]:
+        resource_info = versions_payload.get(resource_type, {}).get(resource_id)
+        if isinstance(resource_info, dict):
+            current_version = resource_info.get("current_version")
+            versions = resource_info.get("versions", [])
+            if current_version is not None and isinstance(versions, list):
+                for version in versions:
+                    if (
+                        isinstance(version, dict)
+                        and version.get("version") == current_version
+                        and isinstance(version.get("file"), str)
+                    ):
+                        rel_path = version["file"].replace("\\", "/")
+                        if self._resolve_existing_relative(project_dir, rel_path):
+                            return rel_path
+
+        version_dir = project_dir / "versions" / resource_type
+        if not version_dir.exists():
+            return None
+
+        prefix = f"{resource_id}_v"
+        extension = self._RESOURCE_EXTENSIONS[resource_type]
+        candidates: list[str] = []
+        for candidate in sorted(version_dir.iterdir(), key=lambda path: path.name):
+            if (
+                candidate.is_file()
+                and candidate.name.startswith(prefix)
+                and candidate.suffix == extension
+            ):
+                candidates.append(candidate.relative_to(project_dir).as_posix())
+
+        if len(candidates) == 1:
+            return candidates[0]
+        return None
+
+    def _repair_relative_reference(
+        self,
+        project_dir: Path,
+        raw_value: str,
+        *,
+        default_dir: str,
+        basename_index: dict[str, list[str]],
+        preferred_prefix: Optional[str] = None,
+        allow_single_preferred_candidate: bool = False,
+    ) -> Optional[str]:
+        normalized = raw_value.strip().replace("\\", "/")
+        if not normalized:
+            return None
+
+        resolved = self._resolve_existing_relative(
+            project_dir,
+            normalized,
+            default_dir=default_dir,
+        )
+        if resolved:
+            return resolved
+
+        if "/" not in normalized:
+            basename = Path(normalized).name
+            preferred_matches = [
+                candidate
+                for candidate in basename_index.get(basename, [])
+                if candidate.startswith(preferred_prefix or "")
+            ]
+            if len(preferred_matches) == 1:
+                return preferred_matches[0]
+
+            all_matches = basename_index.get(basename, [])
+            if len(all_matches) == 1:
+                return all_matches[0]
+
+        if allow_single_preferred_candidate and preferred_prefix:
+            preferred_candidates = sorted(
+                {
+                    candidate
+                    for candidates in basename_index.values()
+                    for candidate in candidates
+                    if candidate.startswith(preferred_prefix)
+                }
+            )
+            if len(preferred_candidates) == 1:
+                return preferred_candidates[0]
+
+        return None
+
+    def _build_basename_index(self, project_dir: Path) -> dict[str, list[str]]:
+        index: dict[str, list[str]] = {}
+        for item in sorted(project_dir.rglob("*")):
+            if not item.is_file() or item.is_symlink():
+                continue
+            relative = item.relative_to(project_dir)
+            if self._is_hidden_path(relative):
+                continue
+            index.setdefault(item.name, []).append(relative.as_posix())
+        return index
+
+    def _load_versions_payload(self, project_dir: Path) -> dict[str, Any]:
+        versions_path = project_dir / "versions" / "versions.json"
+        payload = self._load_json_file(versions_path)
+        if payload is None:
+            return {
+                "storyboards": {},
+                "videos": {},
+                "characters": {},
+                "clues": {},
+            }
+        return payload
+
+    def _collect_pass_through_entries(self, project_dir: Path) -> list[str]:
+        entries: list[str] = []
+        if not project_dir.exists():
+            return entries
+
+        for child in sorted(project_dir.iterdir(), key=lambda item: item.name):
+            if self._is_hidden_path(Path(child.name)):
+                continue
+            if child.name not in self._ROOT_VISIBLE_ENTRIES:
+                entries.append(child.name)
+        return entries
+
+    @staticmethod
+    def _is_hidden_path(path: Path) -> bool:
+        return any(part.startswith(".") or part == "__MACOSX" for part in path.parts)
+
+    def _materialize_current_file(self, source_path: Path, target_path: Path) -> bool:
+        if not source_path.exists() or source_path.resolve() == target_path.resolve():
+            return False
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, target_path)
+        return True
+
+    def _resolve_existing_relative(
+        self,
+        project_dir: Path,
+        raw_path: str,
+        *,
+        default_dir: Optional[str] = None,
+    ) -> Optional[str]:
+        normalized = raw_path.strip().replace("\\", "/")
+        if not normalized:
+            return None
+
+        candidates = [Path(normalized)]
+        if default_dir and len(candidates[0].parts) == 1:
+            candidates.append(Path(default_dir) / candidates[0])
+
+        project_root = project_dir.resolve()
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = candidate.as_posix()
+            if key in seen:
+                continue
+            seen.add(key)
+
+            try:
+                resolved = (project_dir / candidate).resolve(strict=False)
+                resolved.relative_to(project_root)
+            except ValueError:
+                continue
+
+            if resolved.exists():
+                return candidate.as_posix()
+
+        return None
+
+    @classmethod
+    def _canonical_resource_path(cls, resource_type: str, resource_id: str) -> str:
+        extension = cls._RESOURCE_EXTENSIONS[resource_type]
+        if resource_type in {"storyboards", "videos"}:
+            return f"{resource_type}/scene_{resource_id}{extension}"
+        return f"{resource_type}/{resource_id}{extension}"
+
+    def _load_json_file(self, path: Path) -> Optional[dict[str, Any]]:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return None
+
+    def _write_json_file(self, path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+    @staticmethod
+    def _validate_scope(scope: str) -> None:
+        if scope not in {"full", "current"}:
+            raise ValueError(f"scope 仅支持 full 或 current，收到: {scope}")
 
     def _scan_archive_members(self, archive: zipfile.ZipFile) -> list[ArchiveMember]:
         members: list[ArchiveMember] = []

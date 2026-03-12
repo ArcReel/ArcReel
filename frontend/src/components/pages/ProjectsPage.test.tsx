@@ -123,6 +123,10 @@ describe("ProjectsPage", () => {
       },
       warnings: ["发现未识别的附加文件/目录: extras"],
       conflict_resolution: "none",
+      diagnostics: {
+        auto_fixed: [{ code: "missing_clues_field", message: "segments[0]: 补全缺失字段 clues_in_segment" }],
+        warnings: [{ code: "validation_warning", message: "发现未识别的附加文件/目录: extras" }],
+      },
     });
 
     const { container, location } = renderPage();
@@ -146,9 +150,28 @@ describe("ProjectsPage", () => {
     const error = new Error("导入包校验失败") as Error & {
       detail?: string;
       errors?: string[];
+      warnings?: string[];
+      diagnostics?: {
+        blocking: { code: string; message: string }[];
+        auto_fixable: { code: string; message: string }[];
+        warnings: { code: string; message: string }[];
+      };
     };
     error.detail = "导入包校验失败";
     error.errors = ["缺少 project.json", "缺少 scripts/episode_1.json", "缺少角色图"];
+    error.warnings = ["发现未识别的附加文件/目录: extras"];
+    error.diagnostics = {
+      blocking: [
+        { code: "validation_error", message: "缺少 project.json" },
+        { code: "validation_error", message: "缺少 scripts/episode_1.json" },
+      ],
+      auto_fixable: [
+        { code: "missing_clues_field", message: "segments[0]: 补全缺失字段 clues_in_segment" },
+      ],
+      warnings: [
+        { code: "validation_warning", message: "发现未识别的附加文件/目录: extras" },
+      ],
+    };
     vi.spyOn(API, "importProject").mockRejectedValue(error);
 
     const { container } = renderPage();
@@ -160,10 +183,12 @@ describe("ProjectsPage", () => {
     });
 
     await waitFor(() => {
-      expect(useAppStore.getState().toast?.text).toContain("缺少 project.json");
+      expect(useAppStore.getState().toast?.text).toContain("导入包校验失败");
     });
-    expect(useAppStore.getState().toast?.text).toContain("缺少 scripts/episode_1.json");
-    expect(useAppStore.getState().toast?.text).not.toContain("缺少角色图");
+    expect(screen.getByText("导入诊断")).toBeInTheDocument();
+    expect(screen.getByText("缺少 project.json")).toBeInTheDocument();
+    expect(screen.getByText("缺少 scripts/episode_1.json")).toBeInTheDocument();
+    expect(screen.getByText("segments[0]: 补全缺失字段 clues_in_segment")).toBeInTheDocument();
   });
 
   it("opens a secondary confirmation when import hits a duplicate project id", async () => {
@@ -212,6 +237,10 @@ describe("ProjectsPage", () => {
         },
         warnings: [],
         conflict_resolution: "renamed",
+        diagnostics: {
+          auto_fixed: [],
+          warnings: [],
+        },
       });
 
     const { container, location } = renderPage();

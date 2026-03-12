@@ -128,6 +128,7 @@ class TestProjectArchiveRoutes:
         assert response.status_code == 400
         assert response.json()["detail"] == "导入包校验失败"
         assert any("project.json" in error for error in response.json()["errors"])
+        assert "diagnostics" in response.json()
 
     def test_import_route_returns_conflict_payload_for_secondary_confirmation(
         self,
@@ -174,6 +175,7 @@ class TestProjectArchiveRoutes:
         data = response.json()
         assert "download_token" in data
         assert data["expires_in"] == 300
+        assert "diagnostics" in data
 
     def test_export_token_endpoint_project_not_found(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
@@ -224,8 +226,13 @@ class TestProjectArchiveRoutes:
         client = _client(monkeypatch, pm)
 
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
-            download_token = create_download_token("admin", "demo")
             with client:
+                token_response = client.post(
+                    "/api/v1/projects/demo/export/token?scope=current",
+                    headers={"Authorization": f"Bearer {create_token('admin')}"},
+                )
+                assert token_response.status_code == 200
+                download_token = token_response.json()["download_token"]
                 response = client.get(
                     f"/api/v1/projects/demo/export?download_token={download_token}&scope=current",
                 )

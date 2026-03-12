@@ -86,7 +86,7 @@ class GeneratedAssets(BaseModel):
 class NarrationSegment(BaseModel):
     """说书模式的片段"""
 
-    segment_id: str = Field(description="片段 ID，格式 E{集}S{序号}")
+    segment_id: str = Field(description="片段 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     episode: int = Field(description="所属剧集")
     duration_seconds: Literal[4, 6, 8] = Field(description="片段时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
@@ -136,7 +136,7 @@ class NarrationEpisodeScript(BaseModel):
 class DramaScene(BaseModel):
     """剧集动画模式的场景"""
 
-    scene_id: str = Field(description="场景 ID，格式 E{集}S{序号}")
+    scene_id: str = Field(description="场景 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     duration_seconds: Literal[4, 6, 8] = Field(default=8, description="场景时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     scene_type: str = Field(default="剧情", description="场景类型")

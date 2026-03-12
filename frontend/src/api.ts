@@ -10,6 +10,8 @@ import type {
   ProjectSummary,
   ImportConflictPolicy,
   ImportProjectResponse,
+  ExportDiagnostics,
+  ImportFailureDiagnostics,
   EpisodeScript,
   TaskItem,
   TaskStats,
@@ -108,6 +110,43 @@ export interface DraftInfo {
   step: number;
   filename: string;
   modified_at: string;
+}
+
+function normalizeDiagnosticsBucket(value: unknown): { code: string; message: string; location?: string }[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter(
+      (item): item is { code: string; message: string; location?: string } =>
+        Boolean(item)
+        && typeof item === "object"
+        && typeof (item as { code?: unknown }).code === "string"
+        && typeof (item as { message?: unknown }).message === "string"
+    )
+    .map((item) => ({
+      code: item.code,
+      message: item.message,
+      ...(typeof item.location === "string" ? { location: item.location } : {}),
+    }));
+}
+
+function normalizeImportFailureDiagnostics(value: unknown): ImportFailureDiagnostics {
+  const payload = (value && typeof value === "object") ? value as Record<string, unknown> : {};
+  return {
+    blocking: normalizeDiagnosticsBucket(payload.blocking),
+    auto_fixable: normalizeDiagnosticsBucket(payload.auto_fixable),
+    warnings: normalizeDiagnosticsBucket(payload.warnings),
+  };
+}
+
+function normalizeExportDiagnostics(value: unknown): ExportDiagnostics {
+  const payload = (value && typeof value === "object") ? value as Record<string, unknown> : {};
+  return {
+    blocking: normalizeDiagnosticsBucket(payload.blocking),
+    auto_fixed: normalizeDiagnosticsBucket(payload.auto_fixed),
+    warnings: normalizeDiagnosticsBucket(payload.warnings),
+  };
 }
 
 // ==================== API class ====================
@@ -276,11 +315,24 @@ class API {
   }
 
   static async requestExportToken(
-    projectName: string
-  ): Promise<{ download_token: string; expires_in: number }> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/export/token`, {
-      method: "POST",
-    });
+    projectName: string,
+    scope: "full" | "current" = "full"
+  ): Promise<{ download_token: string; expires_in: number; diagnostics: ExportDiagnostics }> {
+    const payload = await this.request<{
+      download_token: string;
+      expires_in: number;
+      diagnostics?: unknown;
+    }>(
+      `/projects/${encodeURIComponent(projectName)}/export/token?scope=${encodeURIComponent(scope)}`,
+      {
+        method: "POST",
+      }
+    );
+    return {
+      download_token: payload.download_token,
+      expires_in: payload.expires_in,
+      diagnostics: normalizeExportDiagnostics(payload.diagnostics),
+    };
   }
 
   static getExportDownloadUrl(
@@ -321,6 +373,7 @@ class API {
         errors?: string[];
         warnings?: string[];
         conflict_project_name?: string;
+        diagnostics?: ImportFailureDiagnostics;
       };
       error.status = response.status;
       error.detail = typeof payload.detail === "string" ? payload.detail : "导入失败";
@@ -329,10 +382,18 @@ class API {
       if (typeof payload.conflict_project_name === "string") {
         error.conflict_project_name = payload.conflict_project_name;
       }
+      error.diagnostics = normalizeImportFailureDiagnostics(payload.diagnostics);
       throw error;
     }
 
-    return response.json();
+    const payload = await response.json();
+    return {
+      ...payload,
+      diagnostics: {
+        auto_fixed: normalizeDiagnosticsBucket(payload?.diagnostics?.auto_fixed),
+        warnings: normalizeDiagnosticsBucket(payload?.diagnostics?.warnings),
+      },
+    };
   }
 
   // ==================== 人物管理 ====================

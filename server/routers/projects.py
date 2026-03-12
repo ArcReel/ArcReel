@@ -99,14 +99,20 @@ async def import_project_archive(
             "project": result.project,
             "warnings": result.warnings,
             "conflict_resolution": result.conflict_resolution,
+            "diagnostics": result.diagnostics,
         }
     except ProjectArchiveValidationError as exc:
+        diagnostics = exc.extra.get(
+            "diagnostics",
+            {"blocking": [], "auto_fixable": [], "warnings": []},
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content={
                 "detail": exc.detail,
                 "errors": exc.errors,
                 "warnings": exc.warnings,
+                "diagnostics": diagnostics,
                 **exc.extra,
             },
         )
@@ -126,15 +132,23 @@ async def import_project_archive(
 async def create_export_token(
     name: str,
     current_user: Annotated[dict, Depends(get_current_user)],
+    scope: str = Query("full"),
 ):
     """签发短时效下载 token，用于浏览器原生下载认证。"""
     try:
         if not get_project_manager().project_exists(name):
             raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在或未初始化")
+        if scope not in ("full", "current"):
+            raise HTTPException(status_code=422, detail="scope 必须为 full 或 current")
 
         username = current_user["sub"]
         download_token = create_download_token(username, name)
-        return {"download_token": download_token, "expires_in": 300}
+        diagnostics = get_archive_service().get_export_diagnostics(name, scope=scope)
+        return {
+            "download_token": download_token,
+            "expires_in": 300,
+            "diagnostics": diagnostics,
+        }
     except HTTPException:
         raise
     except Exception as e:

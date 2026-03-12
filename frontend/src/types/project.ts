@@ -110,10 +110,34 @@ export interface ProjectSummary {
 
 export type ImportConflictPolicy = "prompt" | "rename" | "overwrite";
 
+export interface ArchiveDiagnostic {
+  code: string;
+  message: string;
+  location?: string;
+}
+
+export interface ImportSuccessDiagnostics {
+  auto_fixed: ArchiveDiagnostic[];
+  warnings: ArchiveDiagnostic[];
+}
+
+export interface ImportFailureDiagnostics {
+  blocking: ArchiveDiagnostic[];
+  auto_fixable: ArchiveDiagnostic[];
+  warnings: ArchiveDiagnostic[];
+}
+
+export interface ExportDiagnostics {
+  blocking: ArchiveDiagnostic[];
+  auto_fixed: ArchiveDiagnostic[];
+  warnings: ArchiveDiagnostic[];
+}
+
 export interface ImportProjectResponse {
   success: boolean;
   project_name: string;
   project: ProjectData;
   warnings: string[];
   conflict_resolution: "none" | "renamed" | "overwritten";
+  diagnostics: ImportSuccessDiagnostics;
 }

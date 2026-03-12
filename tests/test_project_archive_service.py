@@ -254,6 +254,8 @@ class TestProjectArchiveService:
         service = ProjectArchiveService(pm)
         project_dir = pm.get_project_path("demo")
         (project_dir.joinpath(*target_path)).unlink()
+        if field_name == "segments[0].generated_assets.storyboard_image":
+            (project_dir / "versions" / "storyboards" / "E1S01_v1.png").unlink()
 
         archive_path = tmp_path / f"{field_name}.zip"
         _make_manual_zip(project_dir, archive_path)
@@ -415,6 +417,198 @@ class TestProjectArchiveService:
 
         monkeypatch.setattr(project_archive_module.shutil, "move", original_move)
         assert pm.load_project("demo")["style"] == "Stale"
+
+    def test_import_repairs_legacy_narration_payload(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        project = pm.load_project("demo")
+        project["characters"] = {}
+        pm.save_project("demo", project)
+
+        source_dir = project_dir / "source"
+        (source_dir / "chapter.txt").unlink()
+        _write_text(source_dir / "1-7-0227.txt", "source")
+
+        _write_json(
+            project_dir / "versions" / "versions.json",
+            {
+                "videos": {
+                    "E1S01_1": {
+                        "current_version": 1,
+                        "versions": [
+                            {
+                                "version": 1,
+                                "file": "versions/videos/E1S01_1_v1.mp4",
+                                "prompt": "vp1",
+                                "created_at": "2024-01-01",
+                            }
+                        ],
+                    }
+                }
+            },
+        )
+        _write_bytes(project_dir / "versions" / "videos" / "E1S01_1_v1.mp4", b"mp4-v1")
+
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "novel": {
+                    "title": "Demo",
+                    "chapter": "第一章",
+                    "source_file": "novel_text.txt",
+                },
+                "segments": [
+                    {
+                        "segment_id": "E1S01_1",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": ["Ghost"],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                        "generated_assets": {
+                            "storyboard_image": "storyboards/scene_E1S01.png",
+                            "video_clip": "versions/videos/E1S01_1_v9.mp4",
+                            "video_uri": None,
+                            "status": "completed",
+                        },
+                    }
+                ],
+            },
+        )
+
+        archive_path = tmp_path / "legacy.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="legacy.zip",
+        )
+
+        imported_project = pm.load_project(result.project_name)
+        imported_script = json.loads(
+            (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        assert "Ghost" in imported_project["characters"]
+        assert imported_script["novel"]["source_file"] == "source/1-7-0227.txt"
+        assert imported_script["segments"][0]["clues_in_segment"] == []
+        assert imported_script["segments"][0]["generated_assets"]["video_clip"] == "videos/scene_E1S01_1.mp4"
+        assert result.diagnostics["auto_fixed"]
+
+    def test_import_blocks_missing_clue_definition(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "novel": {
+                    "title": "Demo",
+                    "chapter": "第一章",
+                    "source_file": "source/chapter.txt",
+                },
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": ["Hero"],
+                        "clues_in_segment": ["Missing"],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                ],
+            },
+        )
+
+        archive_path = tmp_path / "missing-clue.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="missing-clue.zip")
+
+        assert any("不存在于 project.json 的线索" in error for error in exc_info.value.errors)
+        assert exc_info.value.extra["diagnostics"]["blocking"]
+
+    def test_export_dirty_project_emits_diagnostics_and_repairs_snapshot(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        _write_text(project_dir / "run_video_gen.py", "print('helper')")
+        _write_json(
+            project_dir / "versions" / "versions.json",
+            {
+                "videos": {
+                    "E1S01": {
+                        "current_version": 1,
+                        "versions": [
+                            {
+                                "version": 1,
+                                "file": "versions/videos/E1S01_v1.mp4",
+                                "prompt": "vp1",
+                                "created_at": "2024-01-01",
+                            }
+                        ],
+                    }
+                }
+            },
+        )
+        _write_bytes(project_dir / "versions" / "videos" / "E1S01_v1.mp4", b"mp4-v1")
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "novel": {
+                    "title": "Demo",
+                    "chapter": "第一章",
+                    "source_file": "source/chapter.txt",
+                },
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": ["Hero"],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                        "generated_assets": {
+                            "storyboard_image": "storyboards/scene_E1S01.png",
+                            "video_clip": "versions/videos/E1S01_v9.mp4",
+                            "video_uri": None,
+                            "status": "completed",
+                        },
+                    }
+                ],
+            },
+        )
+
+        archive_path, _ = service.export_project("demo", scope="full")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            exported_script = json.loads(archive.read("demo/scripts/episode_1.json"))
+
+        assert manifest["format_version"] == 2
+        assert manifest["script_schema_version"] == 2
+        assert "run_video_gen.py" in manifest["pass_through_entries"]
+        assert manifest["export_diagnostics"]["auto_fixed"]
+        assert exported_script["segments"][0]["clues_in_segment"] == []
+        assert exported_script["segments"][0]["generated_assets"]["video_clip"] == "videos/scene_E1S01.mp4"
 
 
 class TestExportScope:

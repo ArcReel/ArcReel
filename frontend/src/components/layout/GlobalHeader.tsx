@@ -169,10 +169,17 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     setExportDialogOpen(false);
     setExportingProject(true);
     try {
-      const { download_token } = await API.requestExportToken(currentProjectName);
+      const { download_token, diagnostics } = await API.requestExportToken(currentProjectName, scope);
       const url = API.getExportDownloadUrl(currentProjectName, download_token, scope);
       window.open(url, "_blank");
-      useAppStore.getState().pushToast("项目 ZIP 已开始下载", "success");
+      const diagnosticCount =
+        diagnostics.blocking.length + diagnostics.auto_fixed.length + diagnostics.warnings.length;
+      useAppStore.getState().pushToast(
+        diagnosticCount > 0
+          ? `项目 ZIP 已开始下载，导出包包含 ${diagnosticCount} 条诊断`
+          : "项目 ZIP 已开始下载",
+        diagnosticCount > 0 ? "warning" : "success",
+      );
     } catch (err) {
       useAppStore
         .getState()

@@ -47,7 +47,7 @@ class DataValidator:
     VALID_CLUE_TYPES = {"prop", "location"}
     VALID_CLUE_IMPORTANCE = {"major", "minor"}
     VALID_SCENE_TYPES = {"剧情", "空镜"}
-    ID_PATTERN = re.compile(r"^E\d+S\d+$")
+    ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
     ALLOWED_ROOT_ENTRIES = {
         "project.json",
@@ -340,7 +340,7 @@ class DataValidator:
 
             clues_in_segment = segment.get("clues_in_segment")
             if clues_in_segment is None:
-                errors.append(f"{prefix}: 缺少必填字段 clues_in_segment")
+                warnings.append(f"{prefix}: 缺少 clues_in_segment，将使用默认空数组")
             elif not isinstance(clues_in_segment, list):
                 errors.append(f"{prefix}: clues_in_segment 必须是数组")
             else:
@@ -419,7 +419,7 @@ class DataValidator:
 
             clues_in_scene = scene.get("clues_in_scene")
             if clues_in_scene is None:
-                errors.append(f"{prefix}: 缺少必填字段 clues_in_scene")
+                warnings.append(f"{prefix}: 缺少 clues_in_scene，将使用默认空数组")
             elif not isinstance(clues_in_scene, list):
                 errors.append(f"{prefix}: clues_in_scene 必须是数组")
             else:

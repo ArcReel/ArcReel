@@ -133,6 +133,11 @@ describe("GlobalHeader", () => {
     vi.spyOn(API, "requestExportToken").mockResolvedValue({
       download_token: "test-download-token",
       expires_in: 300,
+      diagnostics: {
+        blocking: [],
+        auto_fixed: [{ code: "current_asset_restored_from_version", message: "修复视频引用" }],
+        warnings: [],
+      },
     });
     const windowOpen = vi.spyOn(window, "open").mockImplementation(() => null);
 
@@ -157,13 +162,13 @@ describe("GlobalHeader", () => {
     scopeBtn.click();
 
     await waitFor(() => {
-      expect(API.requestExportToken).toHaveBeenCalledWith("demo");
+      expect(API.requestExportToken).toHaveBeenCalledWith("demo", "current");
     });
     expect(windowOpen).toHaveBeenCalledWith(
       expect.stringContaining("download_token=test-download-token"),
       "_blank",
     );
-    expect(useAppStore.getState().toast?.text).toContain("开始下载");
+    expect(useAppStore.getState().toast?.text).toContain("包含 1 条诊断");
   });
 
   it("shows an error toast when exporting fails", async () => {

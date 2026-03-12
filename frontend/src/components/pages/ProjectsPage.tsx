@@ -7,7 +7,12 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
-import type { ImportConflictPolicy, ProjectSummary, ProjectStatus } from "@/types";
+import type {
+  ImportConflictPolicy,
+  ImportFailureDiagnostics,
+  ProjectSummary,
+  ProjectStatus,
+} from "@/types";
 
 interface ImportConflictDialogProps {
   projectName: string;
@@ -84,6 +89,103 @@ function ImportConflictDialog({
           >
             取消
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function fallbackDiagnostics(error: {
+  errors?: string[];
+  warnings?: string[];
+  diagnostics?: ImportFailureDiagnostics;
+}): ImportFailureDiagnostics {
+  if (error.diagnostics) {
+    return error.diagnostics;
+  }
+  return {
+    blocking: (error.errors ?? []).map((message) => ({
+      code: "legacy_error",
+      message,
+    })),
+    auto_fixable: [],
+    warnings: (error.warnings ?? []).map((message) => ({
+      code: "legacy_warning",
+      message,
+    })),
+  };
+}
+
+interface ImportDiagnosticsDialogProps {
+  diagnostics: ImportFailureDiagnostics;
+  onClose: () => void;
+}
+
+function ImportDiagnosticsDialog({
+  diagnostics,
+  onClose,
+}: ImportDiagnosticsDialogProps) {
+  const sections = [
+    {
+      key: "blocking",
+      title: "阻断问题",
+      tone: "border-red-400/25 bg-red-500/10 text-red-100",
+      items: diagnostics.blocking,
+    },
+    {
+      key: "auto_fixable",
+      title: "已自动修复",
+      tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100",
+      items: diagnostics.auto_fixable,
+    },
+    {
+      key: "warnings",
+      title: "警告",
+      tone: "border-amber-400/25 bg-amber-500/10 text-amber-100",
+      items: diagnostics.warnings,
+    },
+  ].filter((section) => section.items.length > 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-4">
+      <div className="w-full max-w-2xl rounded-2xl border border-gray-800 bg-gray-900 p-6 shadow-2xl shadow-black/40">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="rounded-full bg-amber-400/10 p-2 text-amber-300">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <h2 className="text-lg font-semibold text-gray-100">导入诊断</h2>
+            </div>
+            <p className="text-sm leading-6 text-gray-400">
+              导入已完成预检查。以下问题按严重程度分组展示，阻断问题解决前不会继续导入。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white"
+          >
+            关闭
+          </button>
+        </div>
+
+        <div className="mt-5 max-h-[60vh] space-y-4 overflow-y-auto pr-1">
+          {sections.map((section) => (
+            <section key={section.key} className={`rounded-xl border p-4 ${section.tone}`}>
+              <h3 className="text-sm font-semibold">{section.title}</h3>
+              <ul className="mt-3 space-y-2 text-sm leading-6">
+                {section.items.map((item, index) => (
+                  <li key={`${section.key}-${item.code}-${item.location ?? index}`} className="rounded-lg bg-black/15 px-3 py-2">
+                    <p>{item.message}</p>
+                    {item.location && (
+                      <p className="mt-1 font-mono text-xs text-current/70">{item.location}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
         </div>
       </div>
     </div>
@@ -198,6 +300,7 @@ export function ProjectsPage() {
   const [importingProject, setImportingProject] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [conflictProjectName, setConflictProjectName] = useState<string | null>(null);
+  const [importDiagnostics, setImportDiagnostics] = useState<ImportFailureDiagnostics | null>(null);
   const [showOpenClaw, setShowOpenClaw] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
@@ -241,15 +344,20 @@ export function ProjectsPage() {
         const result = await API.importProject(file, policy);
         setPendingImportFile(null);
         setConflictProjectName(null);
+        setImportDiagnostics(null);
         await loadProjects();
 
+        const autoFixedCount = result.diagnostics.auto_fixed.length;
+        const warningCount = result.diagnostics.warnings.length;
         useAppStore.getState().pushToast(
-          `项目 "${result.project.title || result.project_name}" 已导入`,
+          autoFixedCount > 0
+            ? `项目 "${result.project.title || result.project_name}" 已导入，自动修复 ${autoFixedCount} 项`
+            : `项目 "${result.project.title || result.project_name}" 已导入`,
           "success"
         );
-        if (result.warnings.length > 0) {
+        if (warningCount > 0) {
           useAppStore.getState().pushToast(
-            `导入警告: ${result.warnings[0]}`,
+            `导入警告: ${warningCount} 条`,
             "warning"
           );
         }
@@ -260,6 +368,8 @@ export function ProjectsPage() {
           status?: number;
           detail?: string;
           errors?: string[];
+          warnings?: string[];
+          diagnostics?: ImportFailureDiagnostics;
           conflict_project_name?: string;
         };
 
@@ -278,14 +388,19 @@ export function ProjectsPage() {
           setConflictProjectName(null);
         }
 
-        const fragments = [
-          error.detail || error.message || "导入失败",
-          ...(error.errors ?? []).slice(0, 2),
-        ].filter(Boolean);
+        const diagnostics = fallbackDiagnostics(error);
+        setImportDiagnostics(diagnostics);
+        const blockingCount = diagnostics.blocking.length;
+        const autoFixableCount = diagnostics.auto_fixable.length;
 
         useAppStore
           .getState()
-          .pushToast(`导入失败: ${fragments.join("；")}`, "error");
+          .pushToast(
+            `导入失败: ${error.detail || error.message || "导入失败"}`
+            + (blockingCount > 0 ? `（${blockingCount} 个阻断问题` : "（0 个阻断问题")
+            + (autoFixableCount > 0 ? `，${autoFixableCount} 个已自动修复）` : "）"),
+            "error"
+          );
       } finally {
         setImportingProject(false);
       }
@@ -299,6 +414,7 @@ export function ProjectsPage() {
       event.target.value = "";
       if (!file || importingProject) return;
 
+      setImportDiagnostics(null);
       await finishImport(file, "prompt");
     },
     [finishImport, importingProject],
@@ -416,6 +532,12 @@ export function ProjectsPage() {
           importing={importingProject}
           onCancel={handleCancelConflict}
           onConfirm={handleResolveConflict}
+        />
+      )}
+      {importDiagnostics !== null && (
+        <ImportDiagnosticsDialog
+          diagnostics={importDiagnostics}
+          onClose={() => setImportDiagnostics(null)}
         />
       )}
       {showOpenClaw && <OpenClawModal onClose={() => setShowOpenClaw(false)} />}
