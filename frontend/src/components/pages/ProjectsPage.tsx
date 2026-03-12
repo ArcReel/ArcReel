@@ -356,8 +356,9 @@ export function ProjectsPage() {
           "success"
         );
         if (warningCount > 0) {
+          const warningMessages = result.diagnostics.warnings.map((w) => w.message).join("；");
           useAppStore.getState().pushToast(
-            `导入警告: ${warningCount} 条`,
+            `导入警告: ${warningMessages}`,
             "warning"
           );
         }
