@@ -435,3 +435,68 @@ class TestSessionManagerMore:
         assert result.get("continue_") is True
 
         await engine.dispose()
+
+
+class TestJsonValidationHook:
+    """Tests for the PostToolUse JSON validation hook."""
+
+    def _make_manager(self, tmp_path):
+        """Build a SessionManager with minimal fakes (SDK not required)."""
+        from server.agent_runtime.session_manager import SessionManager
+        from server.agent_runtime.session_store import SessionMetaStore
+        return SessionManager(
+            project_root=tmp_path,
+            data_dir=tmp_path / "data",
+            meta_store=SessionMetaStore(),
+        )
+
+    async def _call_hook(self, manager, file_path: str, tool_name: str = "Edit"):
+        """Helper: invoke the JSON validation hook callback directly."""
+        hook_fn = manager._build_json_validation_hook()
+        input_data = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": tool_name,
+            "tool_input": {"file_path": file_path},
+        }
+        return await hook_fn(input_data, None, None)
+
+    async def test_valid_json_returns_empty(self, tmp_path):
+        """Hook returns {} for valid JSON — no systemMessage injected."""
+        json_file = tmp_path / "episode_1.json"
+        json_file.write_text('{"segments": []}')
+        manager = self._make_manager(tmp_path)
+
+        result = await self._call_hook(manager, str(json_file))
+        assert result == {}
+
+    async def test_invalid_json_injects_system_message(self, tmp_path):
+        """Hook returns systemMessage when JSON is invalid."""
+        json_file = tmp_path / "episode_2.json"
+        json_file.write_text('{"a": 1,,}')  # double comma
+        manager = self._make_manager(tmp_path)
+
+        result = await self._call_hook(manager, str(json_file))
+        assert "systemMessage" in result
+        assert str(json_file) in result["systemMessage"]
+        assert "无效 JSON" in result["systemMessage"] or "invalid" in result["systemMessage"].lower()
+
+    async def test_non_json_file_returns_empty(self, tmp_path):
+        """Hook ignores non-.json files."""
+        md_file = tmp_path / "notes.md"
+        md_file.write_text("not json at all {{{{")
+        manager = self._make_manager(tmp_path)
+
+        result = await self._call_hook(manager, str(md_file))
+        assert result == {}
+
+    async def test_missing_file_returns_empty(self, tmp_path):
+        """Hook silently skips if the file doesn't exist."""
+        manager = self._make_manager(tmp_path)
+        result = await self._call_hook(manager, str(tmp_path / "ghost.json"))
+        assert result == {}
+
+    async def test_non_write_tool_returns_empty(self, tmp_path):
+        """Hook ignores tools other than Write/Edit (e.g. Bash)."""
+        manager = self._make_manager(tmp_path)
+        result = await self._call_hook(manager, "/some/file.json", tool_name="Bash")
+        assert result == {}

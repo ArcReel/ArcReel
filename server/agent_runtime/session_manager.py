@@ -381,7 +381,10 @@ class SessionManager:
             hooks = {
                 "PreToolUse": [
                     HookMatcher(matcher=None, hooks=hook_callbacks),
-                ]
+                ],
+                "PostToolUse": [
+                    HookMatcher(matcher="Write|Edit", hooks=[self._build_json_validation_hook()]),
+                ],
             }
 
         return ClaudeAgentOptions(
@@ -444,6 +447,48 @@ class SessionManager:
             return {"continue_": True}
 
         return _file_access_hook
+
+    def _build_json_validation_hook(self) -> Callable[..., Any]:
+        """Build a PostToolUse hook that validates JSON files after Write/Edit.
+
+        When Edit or Write produces an invalid JSON file, injects a systemMessage
+        so the agent immediately knows to read and fix the file.
+        """
+
+        async def _json_validation_hook(
+            input_data: dict[str, Any],
+            _tool_use_id: str | None,
+            _context: Any,
+        ) -> dict[str, Any]:
+            tool_name = input_data.get("tool_name", "")
+            if tool_name not in ("Write", "Edit"):
+                return {}
+
+            file_path = input_data.get("tool_input", {}).get("file_path", "")
+            if not file_path or not file_path.endswith(".json"):
+                return {}
+
+            try:
+                content = Path(file_path).read_text(encoding="utf-8")
+                json.loads(content)
+                return {}
+            except OSError:
+                return {}
+            except json.JSONDecodeError as exc:
+                logger.warning(
+                    "Agent 写入了无效 JSON file=%s error=%s",
+                    file_path, exc,
+                )
+                return {
+                    "systemMessage": (
+                        f"⚠️ 警告：你刚才操作的文件 {file_path} 现在包含无效 JSON。"
+                        f"错误：{exc}。"
+                        "请立即用 Read 工具读取该文件，定位问题（例如多余的逗号 ,, "
+                        "或缺少引号），然后用 Edit 工具修复，确保文件是合法 JSON 后再继续。"
+                    )
+                }
+
+        return _json_validation_hook
 
     def _resolve_project_cwd(self, project_name: str) -> Path:
         """Resolve and validate per-session project working directory."""
