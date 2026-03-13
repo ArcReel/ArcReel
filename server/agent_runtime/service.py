@@ -6,9 +6,13 @@ import asyncio
 import copy
 import logging
 import os
+from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Optional
+from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
+
+if TYPE_CHECKING:
+    from server.routers.assistant import ImageAttachment
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +175,14 @@ class AssistantService:
 
         return snapshot
 
-    async def send_message(self, session_id: str, content: str, *, meta: Optional[SessionMeta] = None) -> dict[str, Any]:
+    async def send_message(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        images: Optional[list["ImageAttachment"]] = None,
+        meta: Optional[SessionMeta] = None,
+    ) -> dict[str, Any]:
         """Send a message to the session."""
         text = content.strip()
         if not text:
@@ -184,8 +195,59 @@ class AssistantService:
 
         logger.info("发送消息到会话 session_id=%s", session_id)
         self._snapshot_cache.pop(session_id, None)
-        await self.session_manager.send_message(session_id, text, meta=meta)
+
+        if images:
+            sdk_prompt = self._build_multimodal_prompt(text, images)
+            echo_blocks: list[dict[str, Any]] = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": img.media_type,
+                        "data": img.data,
+                    },
+                }
+                for img in images
+            ] + [{"type": "text", "text": text}]
+            await self.session_manager.send_message(
+                session_id, sdk_prompt, echo_text=text, echo_content=echo_blocks, meta=meta
+            )
+        else:
+            await self.session_manager.send_message(session_id, text, meta=meta)
+
         return {"status": "accepted", "session_id": session_id}
+
+    @staticmethod
+    def _build_multimodal_prompt(
+        text: str,
+        images: list["ImageAttachment"],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Build an async generator yielding a single multimodal user message for Claude SDK.
+
+        The SDK's query() method writes each item from the AsyncIterable directly to the
+        transport as a wire protocol message. So we must yield one complete user message
+        dict (with type/message/parent_tool_use_id fields), not individual content blocks.
+        """
+        async def _gen() -> AsyncGenerator[dict[str, Any], None]:
+            content: list[dict[str, Any]] = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": img.media_type,
+                        "data": img.data,
+                    },
+                }
+                for img in images
+            ]
+            content.append({"type": "text", "text": text})
+            yield {
+                "type": "user",
+                "message": {"role": "user", "content": content},
+                "parent_tool_use_id": None,
+            }
+
+        return _gen()
 
     async def answer_user_question(
         self,

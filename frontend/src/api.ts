@@ -1127,13 +1127,14 @@ class API {
   static async sendAssistantMessage(
     projectName: string,
     sessionId: string,
-    content: string
+    content: string,
+    images?: Array<{ data: string; media_type: string }>
   ): Promise<SuccessResponse> {
     return this.request(
       `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/messages`,
       {
         method: "POST",
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, images: images ?? [] }),
       }
     );
   }

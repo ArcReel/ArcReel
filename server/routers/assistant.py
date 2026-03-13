@@ -50,8 +50,14 @@ class CreateSessionRequest(BaseModel):
     title: Optional[str] = ""
 
 
+class ImageAttachment(BaseModel):
+    data: str
+    media_type: str
+
+
 class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1)
+    images: list[ImageAttachment] = Field(default_factory=list, max_length=5)
 
 
 class AnswerQuestionRequest(BaseModel):
@@ -173,7 +179,7 @@ async def send_message(project_name: str, session_id: str, req: SendMessageReque
     try:
         service = get_assistant_service()
         meta = await _validate_session_ownership(service, session_id, project_name)
-        result = await service.send_message(session_id, req.content, meta=meta)
+        result = await service.send_message(session_id, req.content, images=req.images, meta=meta)
         return result
     except HTTPException:
         raise

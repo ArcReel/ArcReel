@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRightClose } from "lucide-react";
+import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRightClose, Paperclip, X } from "lucide-react";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
+import type { AttachedImage } from "@/hooks/useAssistantSession";
 import { Popover } from "@/components/ui/Popover";
 import { ContextBanner } from "./ContextBanner";
 import { PendingQuestionWizard } from "./PendingQuestionWizard";
@@ -11,6 +12,9 @@ import { SlashCommandMenu } from "./SlashCommandMenu";
 import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 import { TodoListPanel } from "./TodoListPanel";
 import { ChatMessage } from "./chat/ChatMessage";
+
+const MAX_IMAGES = 5;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -138,28 +142,95 @@ export function AgentCopilot() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const slashMenuRef = useRef<SlashCommandMenuHandle>(null);
   const [localInput, setLocalInput] = useState("");
   const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
   const allTurns = draftTurn ? [...turns, draftTurn] : turns;
   const isRunning = sessionStatus === "running";
   const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
+  const attachDisabled = inputDisabled || attachedImages.length >= MAX_IMAGES;
   const inputPlaceholder = pendingQuestion
     ? "请先回答上方问题"
     : isRunning
       ? "助手正在生成中，可点击停止中断"
       : "输入消息，输入 / 查看可用技能";
 
+  const addImages = useCallback((files: File[]) => {
+    setAttachError(null);
+    const toAdd: AttachedImage[] = [];
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) continue;
+      if (file.size > MAX_IMAGE_BYTES) {
+        setAttachError(`图片 "${file.name}" 超过 5MB，已跳过`);
+        continue;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        setAttachedImages((prev) => {
+          if (prev.length >= MAX_IMAGES) return prev;
+          return [...prev, { id: crypto.randomUUID(), dataUrl, mimeType: file.type }];
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+    return toAdd;
+  }, []);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items);
+    const imageItems = items.filter((item) => item.type.startsWith("image/"));
+    if (imageItems.length === 0) return;
+    e.preventDefault();
+    const files = imageItems.map((item) => item.getAsFile()).filter(Boolean) as File[];
+    addImages(files);
+  }, [addImages]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    const hasFiles = Array.from(e.dataTransfer.items).some((i) => i.kind === "file");
+    if (!hasFiles) return;
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    if (files.length > 0) addImages(files);
+  }, [addImages]);
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) addImages(files);
+    e.target.value = "";
+  }, [addImages]);
+
+  const removeImage = useCallback((id: string) => {
+    setAttachedImages((prev) => prev.filter((img) => img.id !== id));
+    setAttachError(null);
+  }, []);
+
   const handleSend = useCallback(() => {
-    if (inputDisabled || !localInput.trim()) return;
-    sendMessage(localInput.trim());
+    if (inputDisabled || (!localInput.trim() && attachedImages.length === 0)) return;
+    sendMessage(localInput.trim(), attachedImages.length > 0 ? attachedImages : undefined);
     setLocalInput("");
+    setAttachedImages([]);
+    setAttachError(null);
     setShowSlashMenu(false);
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [inputDisabled, localInput, sendMessage]);
+  }, [inputDisabled, localInput, attachedImages, sendMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // Delegate to slash menu when open
@@ -307,15 +378,45 @@ export function AgentCopilot() {
 
       <TodoListPanel turns={turns} draftTurn={draftTurn} />
 
-      {!pendingQuestion && error && (
+      {!pendingQuestion && (error || attachError) && (
         <div className="border-t border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-          {error}
+          {error || attachError}
         </div>
       )}
 
       {/* Input area */}
       <div className="border-t border-gray-800 p-3">
-        <div className="relative flex items-end gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2">
+        {/* Thumbnail strip */}
+        {attachedImages.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {attachedImages.map((img) => (
+              <div key={img.id} className="relative">
+                <img
+                  src={img.dataUrl}
+                  alt="附件预览"
+                  className="h-16 w-16 rounded-md object-cover border border-gray-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeImage(img.id)}
+                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gray-900 text-gray-300 hover:bg-red-500 hover:text-white"
+                  aria-label="移除图片"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div
+          className={`relative flex items-end gap-2 rounded-lg border bg-gray-800 px-3 py-2 transition-colors ${
+            isDragOver ? "border-indigo-500 bg-indigo-500/10" : "border-gray-700"
+          }`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
           {showSlashMenu && (
             <SlashCommandMenu
               ref={slashMenuRef}
@@ -329,6 +430,7 @@ export function AgentCopilot() {
             value={localInput}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={inputPlaceholder}
             rows={1}
             aria-label="助手输入"
@@ -339,6 +441,19 @@ export function AgentCopilot() {
             style={{ maxHeight: `${MAX_TEXTAREA_HEIGHT_VH}vh` }}
             disabled={inputDisabled}
           />
+
+          {/* Attachment button */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={attachDisabled}
+            className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:opacity-30"
+            title={attachedImages.length >= MAX_IMAGES ? `最多附加 ${MAX_IMAGES} 张图片` : "附加图片"}
+            aria-label="附加图片"
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
+
           {isRunning ? (
             <button
               onClick={interrupt}
@@ -351,7 +466,7 @@ export function AgentCopilot() {
           ) : (
             <button
               onClick={handleSend}
-              disabled={!localInput.trim() || inputDisabled}
+              disabled={(!localInput.trim() && attachedImages.length === 0) || inputDisabled}
               className="shrink-0 rounded p-1.5 text-indigo-400 hover:bg-gray-700 disabled:opacity-30"
               title="发送消息"
               aria-label="发送消息"
@@ -360,6 +475,16 @@ export function AgentCopilot() {
             </button>
           )}
         </div>
+
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          className="hidden"
+          onChange={handleFileSelect}
+        />
       </div>
     </div>
   );

@@ -9,6 +9,12 @@ import type {
   Turn,
 } from "@/types";
 
+export interface AttachedImage {
+  id: string;
+  dataUrl: string;
+  mimeType: string;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers — 从旧 use-assistant-state.js 移植
 // ---------------------------------------------------------------------------
@@ -386,7 +392,7 @@ export function useAssistantSession(projectName: string | null) {
 
   // 发送消息
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, images?: AttachedImage[]) => {
       if (!content.trim() || store.getState().sending) return;
 
       const sendVersion = pendingSendVersionRef.current + 1;
@@ -425,9 +431,20 @@ export function useAssistantSession(projectName: string | null) {
         if (!sessionId) throw new Error("无法创建会话");
 
         // 乐观更新：立即在 UI 上显示用户消息，不等后端返回
+        const optimisticContent: import("@/types").ContentBlock[] = [
+          ...(images ?? []).map((img) => ({
+            type: "image" as const,
+            source: {
+              type: "base64" as const,
+              media_type: img.mimeType,
+              data: img.dataUrl.split(",")[1] ?? "",
+            },
+          })),
+          { type: "text" as const, text: content.trim() },
+        ];
         const optimisticTurn: Turn = {
           type: "user",
-          content: [{ type: "text", text: content.trim() }],
+          content: optimisticContent,
           uuid: `${OPTIMISTIC_PREFIX}${crypto.randomUUID()}`,
           timestamp: new Date().toISOString(),
         };
@@ -436,11 +453,14 @@ export function useAssistantSession(projectName: string | null) {
         statusRef.current = "running";
         store.getState().setSessionStatus("running");
 
+        // 组装图片请求体
+        const imagePayload = images?.map((img) => ({
+          data: img.dataUrl.split(",")[1] ?? "",
+          media_type: img.mimeType,
+        }));
+
         // 先发送消息，再建立 SSE 连接。
-        // 这样 SSE 连接时后端已将 session 设为 "running"，避免连接到旧
-        // "completed/idle" session 导致立即关闭并需要 3 秒重连。
-        // local echo 在后端 buffer 中，SSE 连接时的 snapshot 会包含它。
-        await API.sendAssistantMessage(projectName!, sessionId, content);
+        await API.sendAssistantMessage(projectName!, sessionId, content, imagePayload);
         if (pendingSendVersionRef.current !== sendVersion) return;
         if (store.getState().currentSessionId !== sessionId) return;
         connectStream(sessionId);

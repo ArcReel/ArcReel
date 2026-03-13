@@ -6,10 +6,11 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import AsyncIterable
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -552,7 +553,15 @@ class SessionManager:
             self.sessions[session_id] = managed
             return managed
 
-    async def send_message(self, session_id: str, content: str, *, meta: Optional["SessionMeta"] = None) -> None:
+    async def send_message(
+        self,
+        session_id: str,
+        prompt: Union[str, AsyncIterable[dict]],
+        *,
+        echo_text: Optional[str] = None,
+        echo_content: Optional[list[dict[str, Any]]] = None,
+        meta: Optional["SessionMeta"] = None,
+    ) -> None:
         """Send a message and start background consumer."""
         managed = await self.get_or_connect(session_id, meta=meta)
 
@@ -563,13 +572,17 @@ class SessionManager:
 
         self._prune_transient_buffer(managed)
 
+        # Determine the display text for echo dedup (pending_user_echoes)
+        display_text = echo_text or (prompt if isinstance(prompt, str) else "")
+
         # Update in-memory status and echo user input immediately so live SSE
         # shows it even when SDK stream doesn't replay user messages in real time.
         managed.status = "running"
-        managed.pending_user_echoes.append(content)
-        if len(managed.pending_user_echoes) > 20:
-            managed.pending_user_echoes.pop(0)
-        managed.add_message(self._build_user_echo_message(content))
+        if display_text:
+            managed.pending_user_echoes.append(display_text)
+            if len(managed.pending_user_echoes) > 20:
+                managed.pending_user_echoes.pop(0)
+        managed.add_message(self._build_user_echo_message(display_text, echo_content))
 
         # Persist status asynchronously — don't block the echo broadcast
         await self.meta_store.update_status(session_id, "running")
@@ -577,7 +590,7 @@ class SessionManager:
         # Send the query — restore status on failure so the session is not
         # permanently stuck in "running" without an active consumer.
         try:
-            await managed.client.query(content)
+            await managed.client.query(prompt)
         except Exception:
             logger.exception("会话消息处理失败")
             managed.pending_user_echoes.clear()
@@ -612,6 +625,13 @@ class SessionManager:
         managed.cancel_pending_questions("session interrupted by user")
 
         await managed.client.interrupt()
+
+        # If the consumer task is still alive, cancel it. This handles cases where
+        # the CLI hangs (e.g. malformed input) and never sends a ResultMessage in
+        # response to the interrupt signal.
+        if managed.consumer_task and not managed.consumer_task.done():
+            managed.consumer_task.cancel()
+
         return managed.status
 
     async def _consume_messages(self, managed: ManagedSession) -> None:
@@ -838,8 +858,17 @@ class SessionManager:
         return msg_dict
 
     @staticmethod
-    def _build_user_echo_message(content: str) -> dict[str, Any]:
-        """Build a synthetic user message for real-time UI echo."""
+    def _build_user_echo_message(
+        text: str,
+        content_blocks: Optional[list[dict[str, Any]]] = None,
+    ) -> dict[str, Any]:
+        """Build a synthetic user message for real-time UI echo.
+
+        When content_blocks is provided (e.g. image + text blocks), the echo
+        content is a list of blocks so the UI can render image thumbnails in
+        the bubble.  If no blocks are provided, content is the plain text string.
+        """
+        content: Any = content_blocks if content_blocks is not None else text
         return {
             "type": "user",
             "content": content,

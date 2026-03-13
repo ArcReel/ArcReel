@@ -89,6 +89,8 @@ def normalize_block(block: Any) -> dict[str, Any]:
     elif block_type == "tool_use":
         if not isinstance(normalized.get("input"), dict):
             normalized["input"] = {}
+    elif block_type == "image":
+        pass  # image blocks pass through as-is (source field preserved by deepcopy)
 
     return normalized
 

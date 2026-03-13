@@ -84,6 +84,19 @@ export function ContentBlockRenderer({ block, index }: ContentBlockRendererProps
         />
       );
 
+    case "image":
+      if (block.source?.data && block.source?.media_type) {
+        return (
+          <img
+            key={block.id ?? `block-${index}`}
+            src={`data:${block.source.media_type};base64,${block.source.data}`}
+            alt="附件图片"
+            className="max-w-full max-h-64 rounded-lg mt-1"
+          />
+        );
+      }
+      return null;
+
     default: {
       // Fallback: render as text
       const text = block.text || block.content || JSON.stringify(block);
