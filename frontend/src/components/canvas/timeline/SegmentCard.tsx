@@ -45,22 +45,23 @@ function getSegmentId(segment: Segment, mode: "narration" | "drama"): string {
     : (segment as DramaScene).scene_id;
 }
 
-function getCharacterNames(
+function getSegmentField(
   segment: Segment,
-  mode: "narration" | "drama"
+  mode: "narration" | "drama",
+  narrationKey: keyof NarrationSegment,
+  dramaKey: keyof DramaScene,
 ): string[] {
   return mode === "narration"
-    ? ((segment as NarrationSegment).characters_in_segment ?? [])
-    : ((segment as DramaScene).characters_in_scene ?? []);
+    ? (((segment as NarrationSegment)[narrationKey] as string[] | undefined) ?? [])
+    : (((segment as DramaScene)[dramaKey] as string[] | undefined) ?? []);
 }
 
-function getClueNames(
-  segment: Segment,
-  mode: "narration" | "drama"
-): string[] {
-  return mode === "narration"
-    ? ((segment as NarrationSegment).clues_in_segment ?? [])
-    : ((segment as DramaScene).clues_in_scene ?? []);
+function getCharacterNames(segment: Segment, mode: "narration" | "drama"): string[] {
+  return getSegmentField(segment, mode, "characters_in_segment", "characters_in_scene");
+}
+
+function getClueNames(segment: Segment, mode: "narration" | "drama"): string[] {
+  return getSegmentField(segment, mode, "clues_in_segment", "clues_in_scene");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

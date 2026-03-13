@@ -16,15 +16,14 @@ function CluePopover({
   clue,
   projectName,
   anchorRef,
+  sheetFp,
 }: {
   name: string;
   clue: Clue;
   projectName: string;
   anchorRef: RefObject<HTMLElement | null>;
+  sheetFp: number | null;
 }) {
-  const sheetFp = useProjectsStore(
-    (s) => clue.clue_sheet ? s.getAssetFingerprint(clue.clue_sheet) : null,
-  );
 
   const firstLine = clue.description?.split("\n")[0] ?? "";
   const typeLabel = clue.type === "location" ? "场景" : "道具";
@@ -99,8 +98,8 @@ function SingleClue({
   const showImage = sheetPath && !imgError;
 
   useEffect(() => {
-    setImgError(false);
-  }, [sheetFp, sheetPath]);
+    if (imgError) setImgError(false);
+  }, [sheetFp, sheetPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -131,6 +130,7 @@ function SingleClue({
           clue={clue}
           projectName={projectName}
           anchorRef={ref}
+          sheetFp={sheetFp}
         />
       )}
     </>

@@ -92,8 +92,8 @@ function SingleAvatar({
   const showImage = sheetPath && !imgError;
 
   useEffect(() => {
-    setImgError(false);
-  }, [sheetFp, sheetPath]);
+    if (imgError) setImgError(false);
+  }, [sheetFp, sheetPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
