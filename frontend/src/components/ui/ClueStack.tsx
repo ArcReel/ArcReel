@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { User } from "lucide-react";
+import { Puzzle } from "lucide-react";
 import { API } from "@/api";
 import { Popover } from "@/components/ui/Popover";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { Character } from "@/types";
+import type { Clue } from "@/types";
 
 // ---------------------------------------------------------------------------
-// Color assignment for fallback avatars (deterministic based on name)
+// Color assignment for fallback thumbnails (deterministic based on name)
 // ---------------------------------------------------------------------------
 
 const FALLBACK_COLORS = [
@@ -29,25 +29,30 @@ function colorForName(name: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// AvatarPopover — shows character detail on hover
+// CluePopover — shows clue detail on hover
 // ---------------------------------------------------------------------------
 
-function AvatarPopover({
+function CluePopover({
   name,
-  character,
+  clue,
   projectName,
   anchorRef,
 }: {
   name: string;
-  character: Character;
+  clue: Clue;
   projectName: string;
   anchorRef: RefObject<HTMLElement | null>;
 }) {
   const sheetFp = useProjectsStore(
-    (s) => character.character_sheet ? s.getAssetFingerprint(character.character_sheet) : null,
+    (s) => clue.clue_sheet ? s.getAssetFingerprint(clue.clue_sheet) : null,
   );
 
-  const firstLine = character.description?.split("\n")[0] ?? "";
+  const firstLine = clue.description?.split("\n")[0] ?? "";
+  const typeLabel = clue.type === "location" ? "场景" : "道具";
+  const typeBadgeClass =
+    clue.type === "location"
+      ? "bg-amber-800/60 text-amber-300"
+      : "bg-emerald-800/60 text-emerald-300";
 
   return (
     <Popover
@@ -60,22 +65,24 @@ function AvatarPopover({
       className="pointer-events-none max-w-[calc(100vw-1.5rem)] rounded-lg border border-gray-700 p-2 shadow-xl"
     >
       <div className="flex items-start gap-2.5">
-        {character.character_sheet ? (
+        {clue.clue_sheet ? (
           <img
-            src={API.getFileUrl(projectName, character.character_sheet, sheetFp)}
+            src={API.getFileUrl(projectName, clue.clue_sheet, sheetFp)}
             alt={name}
             className="h-[120px] w-[90px] shrink-0 rounded object-cover"
           />
         ) : (
           <div className="flex h-[120px] w-[90px] shrink-0 items-center justify-center rounded bg-gray-800">
-            <User className="h-8 w-8 text-gray-600" />
+            <Puzzle className="h-8 w-8 text-gray-600" />
           </div>
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <p className="truncate text-sm font-medium text-white">{name}</p>
-            <span className="shrink-0 rounded bg-indigo-800/60 px-1 py-0.5 text-[10px] font-semibold text-indigo-300">
-              人物
+            <span
+              className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${typeBadgeClass}`}
+            >
+              {typeLabel}
             </span>
           </div>
           {firstLine && (
@@ -90,23 +97,23 @@ function AvatarPopover({
 }
 
 // ---------------------------------------------------------------------------
-// SingleAvatar — one circular thumbnail with hover popover
+// SingleClue — one rounded-square thumbnail with hover popover
 // ---------------------------------------------------------------------------
 
-function SingleAvatar({
+function SingleClue({
   name,
-  character,
+  clue,
   projectName,
 }: {
   name: string;
-  character: Character | undefined;
+  clue: Clue | undefined;
   projectName: string;
 }) {
   const [imgError, setImgError] = useState(false);
   const [hovered, setHovered] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
 
-  const sheetPath = character?.character_sheet;
+  const sheetPath = clue?.clue_sheet;
   const sheetFp = useProjectsStore(
     (s) => sheetPath ? s.getAssetFingerprint(sheetPath) : null,
   );
@@ -128,21 +135,21 @@ function SingleAvatar({
           <img
             src={API.getFileUrl(projectName, sheetPath, sheetFp)}
             alt={name}
-            className="h-7 w-7 rounded-full border-2 border-gray-900 object-cover"
+            className="h-7 w-7 rounded border-2 border-gray-900 object-cover"
             onError={() => setImgError(true)}
           />
         ) : (
           <span
-            className={`flex h-7 w-7 items-center justify-center rounded-full border-2 border-gray-900 text-[10px] font-semibold text-white ${colorForName(name)}`}
+            className={`flex h-7 w-7 items-center justify-center rounded border-2 border-gray-900 text-[10px] font-semibold text-white ${colorForName(name)}`}
           >
             {name.charAt(0)}
           </span>
         )}
       </span>
-      {hovered && character && (
-        <AvatarPopover
+      {hovered && clue && (
+        <CluePopover
           name={name}
-          character={character}
+          clue={clue}
           projectName={projectName}
           anchorRef={ref}
         />
@@ -152,22 +159,22 @@ function SingleAvatar({
 }
 
 // ---------------------------------------------------------------------------
-// AvatarStack
+// ClueStack
 // ---------------------------------------------------------------------------
 
-interface AvatarStackProps {
+interface ClueStackProps {
   names: string[];
-  characters: Record<string, Character>;
+  clues: Record<string, Clue>;
   projectName: string;
   maxShow?: number;
 }
 
-export function AvatarStack({
+export function ClueStack({
   names,
-  characters,
+  clues,
   projectName,
   maxShow = 4,
-}: AvatarStackProps) {
+}: ClueStackProps) {
   if (names.length === 0) return null;
 
   const visible = names.slice(0, maxShow);
@@ -176,15 +183,15 @@ export function AvatarStack({
   return (
     <div className="flex -space-x-2">
       {visible.map((name) => (
-        <SingleAvatar
+        <SingleClue
           key={name}
           name={name}
-          character={characters[name]}
+          clue={clues[name]}
           projectName={projectName}
         />
       ))}
       {overflow > 0 && (
-        <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-gray-900 bg-gray-700 text-[10px] font-semibold text-gray-300">
+        <span className="flex h-7 w-7 items-center justify-center rounded border-2 border-gray-900 bg-gray-700 text-[10px] font-semibold text-gray-300">
           +{overflow}
         </span>
       )}
