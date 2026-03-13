@@ -185,7 +185,7 @@ class AssistantService:
     ) -> dict[str, Any]:
         """Send a message to the session."""
         text = content.strip()
-        if not text:
+        if not text and not images:
             raise ValueError("消息内容不能为空")
 
         if meta is None:
@@ -208,7 +208,9 @@ class AssistantService:
                     },
                 }
                 for img in images
-            ] + [{"type": "text", "text": text}]
+            ]
+            if text:
+                echo_blocks.append({"type": "text", "text": text})
             await self.session_manager.send_message(
                 session_id, sdk_prompt, echo_text=text, echo_content=echo_blocks, meta=meta
             )
@@ -240,7 +242,8 @@ class AssistantService:
                 }
                 for img in images
             ]
-            content.append({"type": "text", "text": text})
+            if text:
+                content.append({"type": "text", "text": text})
             yield {
                 "type": "user",
                 "message": {"role": "user", "content": content},

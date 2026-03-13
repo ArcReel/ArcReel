@@ -393,7 +393,7 @@ export function useAssistantSession(projectName: string | null) {
   // 发送消息
   const sendMessage = useCallback(
     async (content: string, images?: AttachedImage[]) => {
-      if (!content.trim() || store.getState().sending) return;
+      if ((!content.trim() && (!images || images.length === 0)) || store.getState().sending) return;
 
       const sendVersion = pendingSendVersionRef.current + 1;
       pendingSendVersionRef.current = sendVersion;
@@ -406,7 +406,7 @@ export function useAssistantSession(projectName: string | null) {
       try {
         // 如果没有会话，创建一个（懒创建：以首条消息作为标题）
         if (!sessionId && projectName) {
-          const title = content.trim().slice(0, 30);
+          const title = content.trim().slice(0, 30) || "图片消息";
           const res = await API.createAssistantSession(projectName, title);
           const raw = res as Record<string, unknown>;
           const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
@@ -440,7 +440,7 @@ export function useAssistantSession(projectName: string | null) {
               data: img.dataUrl.split(",")[1] ?? "",
             },
           })),
-          { type: "text" as const, text: content.trim() },
+          ...(content.trim() ? [{ type: "text" as const, text: content.trim() }] : []),
         ];
         const optimisticTurn: Turn = {
           type: "user",

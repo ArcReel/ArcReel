@@ -161,7 +161,6 @@ export function AgentCopilot() {
 
   const addImages = useCallback((files: File[]) => {
     setAttachError(null);
-    const toAdd: AttachedImage[] = [];
     for (const file of files) {
       if (!file.type.startsWith("image/")) continue;
       if (file.size > MAX_IMAGE_BYTES) {
@@ -178,7 +177,6 @@ export function AgentCopilot() {
       };
       reader.readAsDataURL(file);
     }
-    return toAdd;
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
