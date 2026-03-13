@@ -698,19 +698,19 @@ export function SegmentCard({
             />
           </div>
 
-          {/* Right: ClueStack + AvatarStack */}
+          {/* Right: AvatarStack + ClueStack */}
           <div className="flex items-center gap-2">
-            <ClueStack
-              names={clueNames}
-              clues={clues}
-              projectName={projectName}
-            />
-            {clueNames.length > 0 && charNames.length > 0 && (
-              <div className="border-l border-gray-700 self-stretch" />
-            )}
             <AvatarStack
               names={charNames}
               characters={characters}
+              projectName={projectName}
+            />
+            {charNames.length > 0 && clueNames.length > 0 && (
+              <div className="border-l border-gray-700 self-stretch" />
+            )}
+            <ClueStack
+              names={clueNames}
+              clues={clues}
               projectName={projectName}
             />
           </div>
