@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { ContentBlock } from "@/types";
+import { ImageLightbox } from "@/components/ui/ImageLightbox";
 import { TextBlock } from "./TextBlock";
 import { ToolCallWithResult } from "./ToolCallWithResult";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -87,11 +89,9 @@ export function ContentBlockRenderer({ block, index }: ContentBlockRendererProps
     case "image":
       if (block.source?.data && block.source?.media_type) {
         return (
-          <img
+          <ChatImageBlock
             key={block.id ?? `block-${index}`}
             src={`data:${block.source.media_type};base64,${block.source.data}`}
-            alt="附件图片"
-            className="max-w-full max-h-64 rounded-lg mt-1"
           />
         );
       }
@@ -103,4 +103,27 @@ export function ContentBlockRenderer({ block, index }: ContentBlockRendererProps
       return <TextBlock key={block.id ?? `block-${index}`} text={text} />;
     }
   }
+}
+
+function ChatImageBlock({ src }: Readonly<{ src: string }>) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className="mt-1 cursor-pointer border-0 bg-transparent p-0"
+        onClick={() => setOpen(true)}
+        aria-label="点击放大图片"
+      >
+        <img
+          src={src}
+          alt="附件图片"
+          className="max-w-full max-h-64 rounded-lg"
+        />
+      </button>
+      {open && (
+        <ImageLightbox src={src} alt="附件图片" onClose={() => setOpen(false)} />
+      )}
+    </>
+  );
 }

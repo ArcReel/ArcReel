@@ -44,3 +44,9 @@
 - [x] 8.6 实现缩略图条：`attachedImages` 非空时在 textarea 上方渲染 64×64 缩略图 + 右上角 × 移除按钮
 - [x] 8.7 超出 5 张时禁用附件按钮；单张 > 5MB 时显示错误提示并拒绝添加
 - [x] 8.8 `handleSend` 调用 `sendMessage(text, attachedImages)`，发送后执行 `setAttachedImages([])`
+
+## 9. 图片放大查看（Lightbox）
+
+- [x] 9.1 新建 `ImageLightbox.tsx` 组件：全屏遮罩展示原图，点击遮罩或按 Esc 关闭
+- [x] 9.2 在 `ContentBlockRenderer.tsx` 的 `case "image"` 中，图片加上 `cursor-pointer`，点击触发 lightbox
+- [x] 9.3 在 `AgentCopilot.tsx` 的附件缩略图上，点击触发同一 lightbox（共用组件）

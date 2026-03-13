@@ -1,7 +1,7 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 同步 Agent 对话端点
-系统 SHALL 提供 `POST /api/v1/agent/chat` 同步端点，接收用户消息并返回完整的 Agent 回复。
+系统 SHALL 提供 `POST /api/v1/agent/chat` 同步端点，接收用户消息（含可选图片附件）并返回完整的 Agent 回复。
 
 #### Scenario: 新会话对话
 - **WHEN** 已认证用户调用 `POST /api/v1/agent/chat`，提供 `project_name` 和 `message`，不传 `session_id`
@@ -19,9 +19,6 @@
 - **WHEN** Agent 处理超过 120 秒
 - **THEN** 系统返回已收集的部分响应，`status` 为 `"timeout"`
 
-### Requirement: 对话内容格式
-响应 SHALL 包含 Agent 生成的纯文本回复，去除内部工具调用细节，仅保留面向用户的回复内容。
-
-#### Scenario: Agent 使用工具后回复
-- **WHEN** Agent 内部调用了工具（如生成剧本）并产生文本回复
-- **THEN** 响应的 `reply` 字段仅包含面向用户的文本，不暴露工具调用细节
+#### Scenario: 携带图片附件发送消息
+- **WHEN** 已认证用户调用 `POST /api/v1/assistant/sessions/{id}/messages`，请求体包含 `content`（文字）和 `images`（最多 5 个 base64 图片对象）
+- **THEN** 系统将文字与图片组合为 multimodal 消息传递给 Agent，Agent 可感知图片内容并作出回复

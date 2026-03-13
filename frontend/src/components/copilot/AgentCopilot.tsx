@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRightClose, Paperclip, X } from "lucide-react";
+import { ImageLightbox } from "@/components/ui/ImageLightbox";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
@@ -150,6 +151,7 @@ export function AgentCopilot() {
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const allTurns = draftTurn ? [...turns, draftTurn] : turns;
   const isRunning = sessionStatus === "running";
   const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
@@ -393,11 +395,18 @@ export function AgentCopilot() {
           <div className="mb-2 flex flex-wrap gap-2">
             {attachedImages.map((img) => (
               <div key={img.id} className="relative">
-                <img
-                  src={img.dataUrl}
-                  alt="附件预览"
-                  className="h-16 w-16 rounded-md object-cover border border-gray-600"
-                />
+                <button
+                  type="button"
+                  className="h-16 w-16 cursor-pointer border-0 bg-transparent p-0"
+                  onClick={() => setLightboxSrc(img.dataUrl)}
+                  aria-label="点击放大图片"
+                >
+                  <img
+                    src={img.dataUrl}
+                    alt="附件预览"
+                    className="h-16 w-16 rounded-md object-cover border border-gray-600"
+                  />
+                </button>
                 <button
                   type="button"
                   onClick={() => removeImage(img.id)}
@@ -488,6 +497,14 @@ export function AgentCopilot() {
           onChange={handleFileSelect}
         />
       </div>
+
+      {lightboxSrc && (
+        <ImageLightbox
+          src={lightboxSrc}
+          alt="附件预览"
+          onClose={() => setLightboxSrc(null)}
+        />
+      )}
     </div>
   );
 }
