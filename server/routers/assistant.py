@@ -56,7 +56,7 @@ class ImageAttachment(BaseModel):
 
 
 class SendMessageRequest(BaseModel):
-    content: str = Field(min_length=1)
+    content: str = ""
     images: list[ImageAttachment] = Field(default_factory=list, max_length=5)
 
 

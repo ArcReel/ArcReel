@@ -199,15 +199,7 @@ class AssistantService:
         if images:
             sdk_prompt = self._build_multimodal_prompt(text, images)
             echo_blocks: list[dict[str, Any]] = [
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": img.media_type,
-                        "data": img.data,
-                    },
-                }
-                for img in images
+                self._image_block(img) for img in images
             ]
             if text:
                 echo_blocks.append({"type": "text", "text": text})
@@ -218,6 +210,18 @@ class AssistantService:
             await self.session_manager.send_message(session_id, text, meta=meta)
 
         return {"status": "accepted", "session_id": session_id}
+
+    @staticmethod
+    def _image_block(img: "ImageAttachment") -> dict[str, Any]:
+        """Build a single image content block dict."""
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": img.media_type,
+                "data": img.data,
+            },
+        }
 
     @staticmethod
     def _build_multimodal_prompt(
@@ -232,15 +236,7 @@ class AssistantService:
         """
         async def _gen() -> AsyncGenerator[dict[str, Any], None]:
             content: list[dict[str, Any]] = [
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": img.media_type,
-                        "data": img.data,
-                    },
-                }
-                for img in images
+                AssistantService._image_block(img) for img in images
             ]
             if text:
                 content.append({"type": "text", "text": text})

@@ -430,14 +430,20 @@ export function useAssistantSession(projectName: string | null) {
 
         if (!sessionId) throw new Error("无法创建会话");
 
+        // 提取 base64 数据（每张图片只 split 一次）
+        const imagePayload = images?.map((img) => ({
+          data: img.dataUrl.split(",")[1] ?? "",
+          media_type: img.mimeType,
+        }));
+
         // 乐观更新：立即在 UI 上显示用户消息，不等后端返回
         const optimisticContent: import("@/types").ContentBlock[] = [
-          ...(images ?? []).map((img) => ({
+          ...(imagePayload ?? []).map((img) => ({
             type: "image" as const,
             source: {
               type: "base64" as const,
-              media_type: img.mimeType,
-              data: img.dataUrl.split(",")[1] ?? "",
+              media_type: img.media_type,
+              data: img.data,
             },
           })),
           ...(content.trim() ? [{ type: "text" as const, text: content.trim() }] : []),
@@ -452,12 +458,6 @@ export function useAssistantSession(projectName: string | null) {
         store.getState().setTurns([...store.getState().turns, optimisticTurn]);
         statusRef.current = "running";
         store.getState().setSessionStatus("running");
-
-        // 组装图片请求体
-        const imagePayload = images?.map((img) => ({
-          data: img.dataUrl.split(",")[1] ?? "",
-          media_type: img.mimeType,
-        }));
 
         // 先发送消息，再建立 SSE 连接。
         await API.sendAssistantMessage(projectName!, sessionId, content, imagePayload);
