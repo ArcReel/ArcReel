@@ -5,8 +5,12 @@
 配合 ProjectManager 使用，在 API 响应时注入计算字段。
 """
 
+import json
+import logging
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class StatusCalculator:
@@ -105,6 +109,12 @@ class StatusCalculator:
                 return 'none', None
             draft_file = project_dir / f'drafts/episode_{safe_num}/step1_segments.md'
             return ('segmented' if draft_file.exists() else 'none'), None
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "剧本 JSON 损坏，跳过状态计算 project=%s file=%s: %s",
+                project_name, script_file, e,
+            )
+            return 'generated', None
 
     def calculate_current_phase(self, project: Dict, episodes_stats: List[Dict]) -> str:
         """根据项目和集状态推断当前阶段"""

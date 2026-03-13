@@ -243,3 +243,16 @@ class TestStatusCalculator:
         assert enriched_script["metadata"]["estimated_duration_seconds"] == 6
         assert enriched_script["characters_in_episode"] == ["A", "B"]
         assert enriched_script["clues_in_episode"] == ["C"]
+
+    def test_load_episode_script_corrupted_json(self, tmp_path):
+        """JSON 损坏时应降级返回 ('generated', None)，而不是上抛异常。"""
+        import json
+
+        class _CorruptPM(_FakePM):
+            def load_script(self, project_name, filename):
+                raise json.JSONDecodeError("Expecting value", "doc", 0)
+
+        calc = StatusCalculator(_CorruptPM(tmp_path / "projects", {}, {}))
+        status, script = calc._load_episode_script("demo", 1, "scripts/episode_1.json")
+        assert status == "generated"
+        assert script is None
