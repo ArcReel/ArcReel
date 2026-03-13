@@ -450,9 +450,10 @@ class TestJsonValidationHook:
             meta_store=SessionMetaStore(),
         )
 
-    async def _call_hook(self, manager, file_path: str, tool_name: str = "Edit"):
+    async def _call_hook(self, manager, file_path: str, tool_name: str = "Edit", project_cwd=None):
         """Helper: invoke the JSON validation hook callback directly."""
-        hook_fn = manager._build_json_validation_hook()
+        from pathlib import Path
+        hook_fn = manager._build_json_validation_hook(Path(project_cwd) if project_cwd else Path("/tmp"))
         input_data = {
             "hook_event_name": "PostToolUse",
             "tool_name": tool_name,

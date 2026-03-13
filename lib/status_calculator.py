@@ -109,9 +109,9 @@ class StatusCalculator:
                 return 'none', None
             draft_file = project_dir / f'drafts/episode_{safe_num}/step1_segments.md'
             return ('segmented' if draft_file.exists() else 'none'), None
-        except json.JSONDecodeError as e:
+        except ValueError as e:
             logger.warning(
-                "剧本 JSON 损坏，跳过状态计算 project=%s file=%s: %s",
+                "剧本 JSON 损坏或路径无效，跳过状态计算 project=%s file=%s: %s",
                 project_name, script_file, e,
             )
             return 'generated', None

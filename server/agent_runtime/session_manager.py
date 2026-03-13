@@ -383,7 +383,7 @@ class SessionManager:
                     HookMatcher(matcher=None, hooks=hook_callbacks),
                 ],
                 "PostToolUse": [
-                    HookMatcher(matcher="Write|Edit", hooks=[self._build_json_validation_hook()]),
+                    HookMatcher(matcher="Write|Edit", hooks=[self._build_json_validation_hook(project_cwd)]),
                 ],
             }
 
@@ -448,11 +448,13 @@ class SessionManager:
 
         return _file_access_hook
 
-    def _build_json_validation_hook(self) -> Callable[..., Any]:
+    def _build_json_validation_hook(self, project_cwd: Path) -> Callable[..., Any]:
         """Build a PostToolUse hook that validates JSON files after Write/Edit.
 
         When Edit or Write produces an invalid JSON file, injects a systemMessage
         so the agent immediately knows to read and fix the file.
+        Relative file_path values are resolved against project_cwd (same as
+        _is_path_allowed) so the hook works even if the agent uses a relative path.
         """
 
         async def _json_validation_hook(
@@ -468,8 +470,11 @@ class SessionManager:
             if not file_path or not file_path.endswith(".json"):
                 return {}
 
+            p = Path(file_path)
+            resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
+
             try:
-                content = Path(file_path).read_text(encoding="utf-8")
+                content = resolved.read_text(encoding="utf-8")
                 json.loads(content)
                 return {}
             except OSError:
