@@ -262,6 +262,7 @@ class StatusCalculator:
 
         script['metadata']['total_scenes'] = len(items)
         script['metadata']['estimated_duration_seconds'] = total_duration
+        script['duration_seconds'] = total_duration  # 读时注入，与 metadata 保持同步
 
         # 聚合 characters_in_episode 和 clues_in_episode（仅用于 API 响应，不存储）
         chars_set = set()
