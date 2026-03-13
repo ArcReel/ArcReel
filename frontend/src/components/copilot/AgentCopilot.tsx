@@ -143,6 +143,7 @@ export function AgentCopilot() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageGenRef = useRef(0);
   const slashMenuRef = useRef<SlashCommandMenuHandle>(null);
   const [localInput, setLocalInput] = useState("");
   const [showSlashMenu, setShowSlashMenu] = useState(false);
@@ -161,6 +162,7 @@ export function AgentCopilot() {
 
   const addImages = useCallback((files: File[]) => {
     setAttachError(null);
+    const gen = imageGenRef.current;
     for (const file of files) {
       if (!file.type.startsWith("image/")) continue;
       if (file.size > MAX_IMAGE_BYTES) {
@@ -169,6 +171,7 @@ export function AgentCopilot() {
       }
       const reader = new FileReader();
       reader.onload = (e) => {
+        if (imageGenRef.current !== gen) return; // stale — message already sent
         const dataUrl = e.target?.result as string;
         setAttachedImages((prev) => {
           if (prev.length >= MAX_IMAGES) return prev;
@@ -219,6 +222,7 @@ export function AgentCopilot() {
 
   const handleSend = useCallback(() => {
     if (inputDisabled || (!localInput.trim() && attachedImages.length === 0)) return;
+    imageGenRef.current += 1; // invalidate pending FileReader callbacks
     sendMessage(localInput.trim(), attachedImages.length > 0 ? attachedImages : undefined);
     setLocalInput("");
     setAttachedImages([]);

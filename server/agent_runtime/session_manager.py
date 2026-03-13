@@ -216,6 +216,11 @@ class SessionManager:
     }
     _WRITE_TOOLS = {"Write", "Edit"}
 
+    # Sentinel used in pending_user_echoes for image-only messages (no text).
+    # The SDK parser drops image blocks, so the replayed UserMessage arrives
+    # with empty content; this sentinel lets _is_duplicate_user_echo match it.
+    _IMAGE_ONLY_SENTINEL = "__image_only__"
+
     # SDK message class name to type mapping
     _MESSAGE_TYPE_MAP = {
         "UserMessage": "user",
@@ -572,14 +577,19 @@ class SessionManager:
 
         self._prune_transient_buffer(managed)
 
-        # Determine the display text for echo dedup (pending_user_echoes)
+        # Determine the display text for echo dedup (pending_user_echoes).
+        # For image-only messages display_text is empty; use a sentinel so the
+        # SDK-replayed empty-content user message can still be deduplicated.
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
+        dedup_key = display_text or (
+            self._IMAGE_ONLY_SENTINEL if echo_content else ""
+        )
 
         # Update in-memory status and echo user input immediately so live SSE
         # shows it even when SDK stream doesn't replay user messages in real time.
         managed.status = "running"
-        if display_text:
-            managed.pending_user_echoes.append(display_text)
+        if dedup_key:
+            managed.pending_user_echoes.append(dedup_key)
             if len(managed.pending_user_echoes) > 20:
                 managed.pending_user_echoes.pop(0)
         managed.add_message(self._build_user_echo_message(display_text, echo_content))
@@ -927,9 +937,16 @@ class SessionManager:
         if not managed.pending_user_echoes:
             return False
         incoming = self._extract_plain_user_content(message)
-        if not incoming:
-            return False
         expected = managed.pending_user_echoes[0].strip()
+
+        # Image-only sentinel: the SDK parser drops image blocks, so the
+        # replayed UserMessage arrives with empty content (incoming is None).
+        if not incoming:
+            if message.get("type") != "user" or expected != self._IMAGE_ONLY_SENTINEL:
+                return False
+            managed.pending_user_echoes.pop(0)
+            return True
+
         if incoming != expected:
             return False
         managed.pending_user_echoes.pop(0)
