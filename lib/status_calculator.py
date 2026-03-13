@@ -5,7 +5,6 @@
 配合 ProjectManager 使用，在 API 响应时注入计算字段。
 """
 
-import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
