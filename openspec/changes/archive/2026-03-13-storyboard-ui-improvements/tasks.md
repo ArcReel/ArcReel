@@ -26,7 +26,7 @@
 ## 5. SegmentCard 头部集成
 
 - [x] 5.1 在 `SegmentCard.tsx` 中获取关联线索名称（从 `clues_in_segment` / `clues_in_scene` 读取，与 `getCharacterNames` 同模式）
-- [x] 5.2 将 `_clues` 参数重命名为 `clues`，在头部渲染 `ClueStack`，置于 `AvatarStack` 左侧，两者之间用竖线（`border-l border-gray-700`）分隔
+- [x] 5.2 将 `_clues` 参数重命名为 `clues`，在头部渲染 `ClueStack`，头部右侧布局为 AvatarStack（左）+ 竖线 + ClueStack（右），两者之间用竖线（`border-l border-gray-700`）分隔
 - [x] 5.3 将 `DurationBadge` 替换为 `DurationSelector`，接入 `onUpdatePrompt` 回调
 
 ## 6. 验证
