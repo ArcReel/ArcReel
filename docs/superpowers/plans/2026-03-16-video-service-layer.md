@@ -555,12 +555,17 @@ Run: `uv run alembic revision --autogenerate -m "add provider currency usage_tok
 
 Run: `rg "cost_usd" --type py`
 
-确认所有引用都在以下文件中，并在对应任务中更新：
+确认所有引用并一并更新（前后端同步改，不做向后兼容）：
 - `lib/db/models/api_call.py` — 本任务已修改
 - `lib/db/repositories/usage_repo.py` — Task 5 修改
 - `tests/test_usage_repo.py` — Task 5 修改
+- `tests/test_usage_tracker.py` — `cost_usd` → `cost_amount`
+- `frontend/src/stores/usage-store.ts` — `cost_usd` → `cost_amount`
+- `frontend/src/components/layout/UsageDrawer.tsx` — `cost_usd` → `cost_amount`
+- `frontend/src/stores/stores.test.ts` — `cost_usd` → `cost_amount`
+- `scripts/migrate_sqlite_to_orm.py` — `cost_usd` → `cost_amount`
 
-若发现其他文件引用 `cost_usd`，在此步骤中一并标记并修复。
+在本步骤中直接对以上 4 个非 Task 5 覆盖的文件执行全局替换。
 
 - [ ] **Step 3: 运行迁移**
 
@@ -678,7 +683,7 @@ Expected: FAIL
 
 更新 `lib/db/repositories/usage_repo.py`:
 
-1. `_row_to_dict`: 将 `cost_usd` 改为 `cost_amount`，同时保留 `"cost_usd": row.cost_amount` 别名以向后兼容前端，新增 `currency`、`provider`、`usage_tokens` 字段
+1. `_row_to_dict`: 将 `cost_usd` 改为 `cost_amount`，新增 `currency`、`provider`、`usage_tokens` 字段
 2. `start_call`: 新增 `provider: str = "gemini"` 参数，写入 `ApiCall.provider`
 3. `finish_call`: 新增 `usage_tokens`、`provider`、`service_tier` 可选参数；根据 provider 分派计费逻辑：
    - `provider == "gemini"` → 现有 `cost_calculator.calculate_video_cost()`，`currency = "USD"`
