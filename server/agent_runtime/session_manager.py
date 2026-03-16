@@ -780,15 +780,18 @@ class SessionManager:
         if resolved.is_relative_to(self.project_root):
             return True
 
-        # 4. Read tools: allow SDK session directory for THIS project only.
+        # 4. Read tools: allow SDK tool-results for THIS project only.
         #    When tool output exceeds the inline limit, the SDK saves the
         #    full result to ~/.claude/projects/{encoded-cwd}/{session}/
         #    tool-results/{id}.txt and instructs the agent to Read it.
-        #    Scoped to the current project's encoded path so agents cannot
-        #    read other projects' SDK session data.
+        #    Only tool-results/ subdirectories are allowed — other SDK
+        #    session data (transcripts, etc.) remains inaccessible.
         encoded = self._encode_sdk_project_path(project_cwd)
         sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
-        if resolved.is_relative_to(sdk_project_dir):
+        if (
+            resolved.is_relative_to(sdk_project_dir)
+            and "tool-results" in resolved.parts
+        ):
             return True
 
         return False
