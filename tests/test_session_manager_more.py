@@ -436,6 +436,127 @@ class TestSessionManagerMore:
 
         await engine.dispose()
 
+    @pytest.mark.asyncio
+    async def test_file_access_hook_allows_read_sdk_tool_results(self, tmp_path, monkeypatch):
+        """Hook allows Read for SDK tool-results of the CURRENT project only."""
+        # Use separate roots so SDK dir is NOT under project_root
+        app_root = tmp_path / "app"
+        own_project = app_root / "projects" / "alpha"
+        own_project.mkdir(parents=True)
+
+        claude_home = tmp_path / "claude_home" / "projects"
+        encoded = str(own_project).replace("/", "-").replace(".", "-")
+        tool_results_dir = claude_home / encoded / "abc-session" / "tool-results"
+        tool_results_dir.mkdir(parents=True)
+        result_file = tool_results_dir / "toolu_01Abc.txt"
+        result_file.write_text("full bash output here")
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        meta_store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+
+        mgr = sm_mod.SessionManager(
+            project_root=app_root,
+            data_dir=app_root,
+            meta_store=meta_store,
+        )
+        monkeypatch.setattr(sm_mod.SessionManager, "_CLAUDE_PROJECTS_DIR", claude_home)
+
+        hook = mgr._build_file_access_hook(own_project)
+
+        # Read own project's SDK tool-results — allowed
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": str(result_file)}},
+            None, None,
+        )
+        assert result.get("continue_") is True
+
+        # Write to SDK tool-results — still denied (write tools only allow project_cwd)
+        result = await hook(
+            {"tool_name": "Write", "tool_input": {"file_path": str(result_file)}},
+            None, None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_file_access_hook_denies_read_other_project_sdk_data(self, tmp_path, monkeypatch):
+        """Hook denies Read for ANOTHER project's SDK session data."""
+        app_root = tmp_path / "app"
+        own_project = app_root / "projects" / "alpha"
+        own_project.mkdir(parents=True)
+        other_project = app_root / "projects" / "beta"
+        other_project.mkdir(parents=True)
+
+        # Build SDK directory for the OTHER project (outside app_root)
+        claude_home = tmp_path / "claude_home" / "projects"
+        other_encoded = str(other_project).replace("/", "-").replace(".", "-")
+        other_tool_results = claude_home / other_encoded / "xyz-session" / "tool-results"
+        other_tool_results.mkdir(parents=True)
+        other_file = other_tool_results / "toolu_other.txt"
+        other_file.write_text("other project output")
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        meta_store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+
+        mgr = sm_mod.SessionManager(
+            project_root=app_root,
+            data_dir=app_root,
+            meta_store=meta_store,
+        )
+        monkeypatch.setattr(sm_mod.SessionManager, "_CLAUDE_PROJECTS_DIR", claude_home)
+
+        hook = mgr._build_file_access_hook(own_project)
+
+        # Read OTHER project's SDK data — denied (cross-project isolation)
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": str(other_file)}},
+            None, None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_file_access_hook_denies_read_outside_all_allowed_paths(self, tmp_path, monkeypatch):
+        """Hook denies Read for paths outside project_root AND SDK directory."""
+        app_root = tmp_path / "app"
+        own_project = app_root / "projects" / "alpha"
+        own_project.mkdir(parents=True)
+
+        claude_home = tmp_path / "claude_home" / "projects"
+        claude_home.mkdir(parents=True)
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        meta_store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+
+        mgr = sm_mod.SessionManager(
+            project_root=app_root,
+            data_dir=app_root,
+            meta_store=meta_store,
+        )
+        monkeypatch.setattr(sm_mod.SessionManager, "_CLAUDE_PROJECTS_DIR", claude_home)
+
+        hook = mgr._build_file_access_hook(own_project)
+
+        # Path completely outside all allowed zones
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": "/etc/passwd"}},
+            None, None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+        await engine.dispose()
+
 
 class TestJsonValidationHook:
     """Tests for the PostToolUse JSON validation hook."""

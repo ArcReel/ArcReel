@@ -372,9 +372,9 @@ class SessionManager:
         project_cwd = self._resolve_project_cwd(project_name)
 
         # Build PreToolUse hooks — file access control MUST use hooks because
-        # can_use_tool is only invoked for tools that require permission approval
-        # (e.g. Write, Edit, Bash).  Read-only tools (Read, Glob, Grep) are
-        # auto-approved by the CLI and never trigger can_use_tool.
+        # Read/Glob/Grep are matched by allow rules (step 4 in the SDK
+        # permission chain) before reaching can_use_tool (step 5).  Hooks
+        # (step 1) fire for ALL tool calls and can override allow rules.
         hooks = None
         if HookMatcher is not None:
             hook_callbacks: list[Any] = [
@@ -419,9 +419,9 @@ class SessionManager:
     ) -> Callable[..., Any]:
         """Build a PreToolUse hook callback that enforces file access control.
 
-        Unlike can_use_tool (which is only invoked for tools that require
-        permission approval), PreToolUse hooks fire for **every** tool call
-        including auto-approved read-only tools like Read, Glob, and Grep.
+        PreToolUse hooks are step 1 in the SDK permission chain and fire for
+        **every** tool call, including Read/Glob/Grep which would otherwise
+        be auto-approved by allow rules at step 4.
         """
 
         async def _file_access_hook(
@@ -737,6 +737,18 @@ class SessionManager:
             return "error"
         return "completed"
 
+    # Base directory where the SDK stores per-project session data.
+    _CLAUDE_PROJECTS_DIR: Path = Path.home() / ".claude" / "projects"
+
+    @staticmethod
+    def _encode_sdk_project_path(project_cwd: Path) -> str:
+        """Encode a project cwd the same way the SDK does for session storage.
+
+        Uses the same scheme as transcript_reader.py and the SDK itself:
+        replace ``/`` and ``.`` with ``-``.
+        """
+        return str(project_cwd).replace("/", "-").replace(".", "-")
+
     def _is_path_allowed(
         self,
         file_path: str,
@@ -746,8 +758,8 @@ class SessionManager:
         """Check if file_path is allowed for the given tool.
 
         Write tools: only project_cwd.
-        Read tools: project_cwd + entire project_root (sensitive files
-        protected by settings.json deny rules).
+        Read tools: project_cwd + project_root + SDK session dir for
+        this project (sensitive files protected by settings.json deny rules).
         """
         try:
             p = Path(file_path)
@@ -766,6 +778,17 @@ class SessionManager:
         # 3. Read tools: allow entire project_root for shared resources
         #    Sensitive files protected by settings.json deny rules
         if resolved.is_relative_to(self.project_root):
+            return True
+
+        # 4. Read tools: allow SDK session directory for THIS project only.
+        #    When tool output exceeds the inline limit, the SDK saves the
+        #    full result to ~/.claude/projects/{encoded-cwd}/{session}/
+        #    tool-results/{id}.txt and instructs the agent to Read it.
+        #    Scoped to the current project's encoded path so agents cannot
+        #    read other projects' SDK session data.
+        encoded = self._encode_sdk_project_path(project_cwd)
+        sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
+        if resolved.is_relative_to(sdk_project_dir):
             return True
 
         return False
@@ -809,11 +832,16 @@ class SessionManager:
     async def _build_can_use_tool_callback(self, session_id: str):
         """Create per-session can_use_tool callback (default-deny).
 
-        File access control is handled by the PreToolUse hook
-        (_build_file_access_hook) which fires for ALL tool calls including
-        auto-approved read-only tools.  This callback handles
-        AskUserQuestion (async user interaction) and denies everything else
-        as a whitelist fallback.
+        This is step 5 (final fallback) in the SDK permission chain:
+        Hooks → Deny rules → Permission mode → Allow rules → canUseTool.
+        Only reached when prior steps don't resolve the decision.
+
+        File access control uses the PreToolUse hook (step 1) because it
+        fires for ALL tool calls.  Read/Glob/Grep are resolved by allow
+        rules (step 4) and never reach this callback.
+
+        This callback handles AskUserQuestion (async user interaction) and
+        denies everything else as a whitelist fallback.
         """
 
         async def _can_use_tool(
