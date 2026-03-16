@@ -1,29 +1,19 @@
 ---
 name: compose-video
-description: 使用 ffmpeg 进行视频后期处理。使用场景：(1) 用户运行 /compose-video 命令，(2) 需要添加背景音乐、片头片尾，(3) 需要合并多个 episode 的视频。主要用于后期处理，视频连贯性由 generate-video 的连续模式保证。
+description: 视频后期处理与合成。当用户说"加背景音乐"、"合并视频"、"加片头片尾"、想为成片添加 BGM、或需要将多集视频拼接时使用。
 ---
 
 # 合成视频
 
 使用 ffmpeg 进行视频后期处理和多片段合成。
 
-## 定位说明
-
-**重要**：视频的连贯性现在由 `/generate-video --continuous` 模式保证。本 skill 主要用于：
-
-1. **添加背景音乐** - 为连续视频添加 BGM
-2. **多集合成** - 将多个 episode 的视频合并
-3. **添加片头片尾** - 插入 intro/outro
-4. **后备方案** - 当连续生成失败时，拼接独立场景视频
-
 ## 使用场景
 
 ### 1. 添加背景音乐
 
 ```bash
-python .claude/skills/compose-video/scripts/compose_video.py \
-    script.json \
-    --input output/episode_01.mp4 \
+cd projects/{project_name} && python ../../.claude/skills/compose-video/scripts/compose_video.py \
+    --episode {N} \
     --music background_music.mp3 \
     --music-volume 0.3
 ```
@@ -31,8 +21,7 @@ python .claude/skills/compose-video/scripts/compose_video.py \
 ### 2. 合并多集视频
 
 ```bash
-python .claude/skills/compose-video/scripts/compose_video.py \
-    script.json \
+cd projects/{project_name} && python ../../.claude/skills/compose-video/scripts/compose_video.py \
     --merge-episodes 1 2 3 \
     --output final_movie.mp4
 ```
@@ -40,41 +29,27 @@ python .claude/skills/compose-video/scripts/compose_video.py \
 ### 3. 添加片头片尾
 
 ```bash
-python .claude/skills/compose-video/scripts/compose_video.py \
-    script.json \
+cd projects/{project_name} && python ../../.claude/skills/compose-video/scripts/compose_video.py \
+    --episode {N} \
     --intro intro.mp4 \
-    --outro outro.mp4 \
-    --output final_with_intro.mp4
+    --outro outro.mp4
 ```
 
-### 4. 后备拼接（不推荐）
+### 4. 后备拼接
 
-当连续生成不可用时，拼接独立场景视频：
+正常流程中视频由 Veo 3.1 逐场景独立生成，最终需要拼接成完整剧集。当标准的转场拼接（xfade 滤镜）因编码参数不一致而失败时，后备模式使用 ffmpeg concat demuxer 做无转场的快速拼接，确保至少能输出完整视频：
 
 ```bash
-python .claude/skills/compose-video/scripts/compose_video.py \
-    script.json \
-    --fallback-mode \
-    --output chapter_01_final.mp4
+cd projects/{project_name} && python ../../.claude/skills/compose-video/scripts/compose_video.py \
+    --episode {N} \
+    --fallback-mode
 ```
 
 ## 工作流程
 
-1. **加载项目和剧本**
-   - 如未指定项目名称，询问用户
-   - 从 `projects/{项目名}/scripts/` 加载剧本
-   - 检查 `output/` 目录中的连续视频
-
-2. **选择处理模式**
-   - 添加 BGM
-   - 合并多集
-   - 添加片头片尾
-   - 后备拼接
-
-3. **执行处理**
-   - 使用 ffmpeg 进行相应处理
-   - 保持原始视频不变
-   - 输出到 `projects/{项目名}/output/`
+1. **加载项目和剧本** — 检查视频文件是否存在
+2. **选择处理模式** — 添加 BGM / 合并多集 / 添加片头片尾 / 后备拼接
+3. **执行处理** — 使用 ffmpeg 处理，保持原始视频不变，输出到 `output/`
 
 ## 转场类型（后备模式）
 
@@ -87,27 +62,9 @@ python .claude/skills/compose-video/scripts/compose_video.py \
 | dissolve | `xfade=transition=dissolve:duration=0.5` |
 | wipe | `xfade=transition=wipeleft:duration=0.5` |
 
-## 环境要求
-
-- ffmpeg 已安装并在 PATH 中
-- 连续视频或场景视频已生成
-- 视频分辨率一致（9:16 竖屏）
-
-## 输出选项
-
-1. **添加 BGM** - 混合原音频和背景音乐
-2. **合并视频** - 多个视频拼接为一个
-3. **添加片头片尾** - 在视频首尾插入素材
-
 ## 处理前检查
 
-- [ ] 连续视频或场景视频存在且可播放
-- [ ] 视频分辨率一致（9:16 竖屏）
-- [ ] 背景音乐文件存在（如需要）
-- [ ] 片头片尾文件存在（如需要）
-
-## 推荐工作流
-
-1. 使用 `/generate-video --continuous --episode N` 生成连贯视频
-2. 使用 `/compose-video` 添加 BGM（可选）
-3. 使用 `/compose-video` 添加片头片尾（可选）
+- [ ] 场景视频存在且可播放
+- [ ] 视频分辨率一致（由 content_mode 决定画面比例）
+- [ ] 背景音乐 / 片头片尾文件存在（如需要）
+- [ ] ffmpeg 已安装并在 PATH 中

@@ -1,0 +1,74 @@
+[
+  {
+    "query": "我有一部都市悬疑小说，大概5万字，想做成竖屏短视频发抖音，从头开始帮我弄吧",
+    "should_trigger": true
+  },
+  {
+    "query": "继续，角色应该提取完了，接下来该干嘛",
+    "should_trigger": true
+  },
+  {
+    "query": "帮我把 source 目录里那个仙侠小说做成视频吧，说书模式，每集大概1000字",
+    "should_trigger": true
+  },
+  {
+    "query": "我上次做到一半的那个项目 my_novel_01，帮我看看进度到哪了",
+    "should_trigger": true
+  },
+  {
+    "query": "下一步",
+    "should_trigger": true
+  },
+  {
+    "query": "开个新项目叫 test_romance，我待会上传小说文本",
+    "should_trigger": true
+  },
+  {
+    "query": "帮我看看现在有哪些项目，以及各自做到什么进度了",
+    "should_trigger": true
+  },
+  {
+    "query": "把我那个古装剧本拆成每集800字，然后自动跑完后面所有流程",
+    "should_trigger": true
+  },
+  {
+    "query": "第3集的分镜图有几张人物脸不对，帮我单独重新生成 E3S02 和 E3S05",
+    "should_trigger": false
+  },
+  {
+    "query": "视频生成到一半中断了，帮我用 --resume 继续第2集",
+    "should_trigger": false
+  },
+  {
+    "query": "帮我给最终视频加一段片头和片尾",
+    "should_trigger": false
+  },
+  {
+    "query": "project.json 里的 content_mode 字段是什么意思？narration 和 drama 有什么区别",
+    "should_trigger": false
+  },
+  {
+    "query": "帮我修一下 lib/script_generator.py 里的 _parse_response 方法，JSON 解析有 bug",
+    "should_trigger": false
+  },
+  {
+    "query": "帮我看看 generate_storyboard.py 脚本的 --scene-ids 参数是怎么实现的",
+    "should_trigger": false
+  },
+  {
+    "query": "数据库迁移报错了，alembic upgrade head 执行失败",
+    "should_trigger": false
+  },
+  {
+    "query": "前端 zustand store 里的 useProjectStore 状态更新有延迟，帮我看看",
+    "should_trigger": false
+  },
+  {
+    "query": "帮我写个新的 API endpoint，让用户可以批量删除项目",
+    "should_trigger": false
+  },
+  {
+    "query": "给第1集所有角色重新画设计图，上次生成的风格不统一",
+    "should_trigger": false
+  }
+]

@@ -119,17 +119,82 @@ def generate_character(
     return output_path
 
 
+def list_pending_characters() -> None:
+    """列出待生成设计图的角色"""
+    pm, project_name = ProjectManager.from_cwd()
+    pending = pm.get_pending_characters(project_name)
+
+    if not pending:
+        print(f"✅ 项目 '{project_name}' 中所有角色都已有设计图")
+        return
+
+    print(f"\n📋 待生成的角色 ({len(pending)} 个):\n")
+    for char in pending:
+        print(f"  🧑 {char['name']}")
+        desc = char.get("description", "")
+        print(f"     描述: {desc[:60]}..." if len(desc) > 60 else f"     描述: {desc}")
+        print()
+
+
+def generate_all_characters() -> tuple:
+    """
+    生成所有待处理的角色设计图
+
+    Returns:
+        (成功数, 失败数)
+    """
+    pm, project_name = ProjectManager.from_cwd()
+    pending = pm.get_pending_characters(project_name)
+
+    if not pending:
+        print(f"✅ 项目 '{project_name}' 中所有角色都已有设计图")
+        return (0, 0)
+
+    print(f"\n🚀 开始生成 {len(pending)} 个人物设计图...\n")
+
+    success_count = 0
+    fail_count = 0
+
+    for char in pending:
+        try:
+            generate_character(char["name"])
+            success_count += 1
+            print()
+        except Exception as e:
+            print(f"❌ 生成 '{char['name']}' 失败: {e}")
+            fail_count += 1
+            print()
+
+    print(f"\n{'=' * 40}")
+    print(f"生成完成!")
+    print(f"   ✅ 成功: {success_count}")
+    print(f"   ❌ 失败: {fail_count}")
+    print(f"{'=' * 40}")
+
+    return (success_count, fail_count)
+
+
 def main():
     parser = argparse.ArgumentParser(description="生成人物设计图")
-    parser.add_argument("character", help="人物名称")
+    parser.add_argument("--character", help="指定人物名称")
+    parser.add_argument("--all", action="store_true", help="生成所有待处理的角色")
+    parser.add_argument("--list", action="store_true", help="列出待生成的角色")
 
     args = parser.parse_args()
 
     try:
-        output_path = generate_character(
-            args.character,
-        )
-        print(f"\n🖼️  请查看生成的图片: {output_path}")
+        if args.list:
+            list_pending_characters()
+        elif args.all:
+            success, fail = generate_all_characters()
+            sys.exit(0 if fail == 0 else 1)
+        elif args.character:
+            output_path = generate_character(args.character)
+            print(f"\n🖼️  请查看生成的图片: {output_path}")
+        else:
+            parser.print_help()
+            print("\n❌ 请指定 --all、--character 或 --list")
+            sys.exit(1)
 
     except Exception as e:
         print(f"❌ 错误: {e}")

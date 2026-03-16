@@ -1254,6 +1254,27 @@ class ProjectManager:
 
         return project["clues"][name]
 
+    def get_pending_characters(self, project_name: str) -> List[Dict]:
+        """
+        获取待生成设计图的角色列表
+
+        Args:
+            project_name: 项目名称
+
+        Returns:
+            待处理角色列表（无 character_sheet 或文件不存在）
+        """
+        project = self.load_project(project_name)
+        project_dir = self.get_project_path(project_name)
+
+        pending = []
+        for name, char in project.get("characters", {}).items():
+            sheet = char.get("character_sheet")
+            if not sheet or not (project_dir / sheet).exists():
+                pending.append({"name": name, **char})
+
+        return pending
+
     def get_pending_clues(self, project_name: str) -> List[Dict]:
         """
         获取待生成设计图的线索列表

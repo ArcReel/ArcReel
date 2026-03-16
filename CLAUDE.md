@@ -113,6 +113,23 @@ cd frontend && pnpm check                              # typecheck + test
 智能体专用配置（skills、agents、系统 prompt）位于 `agent_runtime_profile/` 目录，
 与开发态 `.claude/` 物理分离。
 
+### Skill 维护
+
+```bash
+# 触发率评估（需要 anthropic SDK：uv pip install anthropic）
+PYTHONPATH=~/.claude/plugins/cache/claude-plugins-official/skill-creator/*/skills/skill-creator:$PYTHONPATH \
+  uv run python -m scripts.run_eval \
+  --eval-set <eval-set.json> \
+  --skill-path agent_runtime_profile/.claude/skills/<skill-name> \
+  --model sonnet --runs-per-query 2 --verbose
+```
+
+#### Gotchas
+
+- **SKILL.md 是规格文档**：compose-video 等 skill 的 SKILL.md 描述的 CLI 可能超前于脚本实现（如 `--episode`、`--fallback-mode` 等），修改脚本时需对照 SKILL.md 补齐
+- **触发率测试的局限**：`run_eval.py` 用 `claude -p` 跑独立查询（无对话历史），依赖上下文的短指令（如"继续"、"下一步"）在隔离测试中必然失败，不代表实际触发率
+- **CLI 接口一致性**：generate-characters 和 generate-clues 的脚本现在都支持 `--all`/`--list`/`--character|--clue` 三种模式，新增资产类 skill 应遵循此模式
+
 ## 环境配置
 
 复制 `.env.example` 到 `.env`，设置 `GEMINI_API_KEY` 和 `ANTHROPIC_API_KEY`。
