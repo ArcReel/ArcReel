@@ -3,10 +3,9 @@
 Character Generator - 使用 Gemini API 生成人物设计图
 
 Usage:
-    python generate_character.py <character_name>
-
-Example:
-    python generate_character.py 张三
+    python generate_character.py --character "张三"
+    python generate_character.py --all
+    python generate_character.py --list
 
 Note:
     参考图会自动从 project.json 中的 reference_image 字段读取
@@ -166,7 +165,7 @@ def generate_all_characters() -> tuple:
             print()
 
     print(f"\n{'=' * 40}")
-    print(f"生成完成!")
+    print("生成完成!")
     print(f"   ✅ 成功: {success_count}")
     print(f"   ❌ 失败: {fail_count}")
     print(f"{'=' * 40}")
@@ -186,7 +185,7 @@ def main():
         if args.list:
             list_pending_characters()
         elif args.all:
-            success, fail = generate_all_characters()
+            _, fail = generate_all_characters()
             sys.exit(0 if fail == 0 else 1)
         elif args.character:
             output_path = generate_character(args.character)
