@@ -1210,29 +1210,15 @@ Expected: PASS
 
 - [ ] **Step 6: 注册 Backend**
 
-在 `lib/video_backends/__init__.py` 追加自动注册。**使用惰性导入**避免未安装 Seedance SDK 时 import 失败：
+在 `lib/video_backends/__init__.py` 追加自动注册：
 
 ```python
+from lib.video_backends.gemini import GeminiVideoBackend
 from lib.video_backends.registry import register_backend
+from lib.video_backends.seedance import SeedanceVideoBackend
 
-
-def _create_gemini_backend(**kwargs):
-    from lib.video_backends.gemini import GeminiVideoBackend
-    return GeminiVideoBackend(**kwargs)
-
-
-def _create_seedance_backend(**kwargs):
-    from lib.video_backends.seedance import SeedanceVideoBackend
-    return SeedanceVideoBackend(**kwargs)
-
-
-register_backend("gemini", _create_gemini_backend)
-
-try:
-    import volcenginesdkarkruntime  # noqa: F401
-    register_backend("seedance", _create_seedance_backend)
-except ImportError:
-    pass  # Seedance SDK 未安装时跳过注册
+register_backend("gemini", lambda **kw: GeminiVideoBackend(**kw))
+register_backend("seedance", lambda **kw: SeedanceVideoBackend(**kw))
 ```
 
 - [ ] **Step 7: 提交**
