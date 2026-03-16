@@ -747,7 +747,7 @@ class SessionManager:
         Uses the same scheme as transcript_reader.py and the SDK itself:
         replace ``/`` and ``.`` with ``-``.
         """
-        return str(project_cwd).replace("/", "-").replace(".", "-")
+        return project_cwd.as_posix().replace("/", "-").replace(".", "-")
 
     def _is_path_allowed(
         self,
