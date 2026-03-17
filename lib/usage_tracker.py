@@ -36,6 +36,7 @@ class UsageTracker:
         duration_seconds: Optional[int] = None,
         aspect_ratio: Optional[str] = None,
         generate_audio: bool = True,
+        provider: str = "gemini",
     ) -> int:
         await self._ensure_db()
         async with self._session_factory() as session:
@@ -49,6 +50,7 @@ class UsageTracker:
                 duration_seconds=duration_seconds,
                 aspect_ratio=aspect_ratio,
                 generate_audio=generate_audio,
+                provider=provider,
             )
 
     async def finish_call(
@@ -58,6 +60,9 @@ class UsageTracker:
         output_path: Optional[str] = None,
         error_message: Optional[str] = None,
         retry_count: int = 0,
+        usage_tokens: Optional[int] = None,
+        provider: Optional[str] = None,
+        service_tier: str = "default",
     ) -> None:
         await self._ensure_db()
         async with self._session_factory() as session:
@@ -68,6 +73,9 @@ class UsageTracker:
                 output_path=output_path,
                 error_message=error_message,
                 retry_count=retry_count,
+                usage_tokens=usage_tokens,
+                provider=provider,
+                service_tier=service_tier,
             )
 
     async def get_stats(

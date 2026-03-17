@@ -265,7 +265,7 @@ describe("stores", () => {
           call_type: "image",
           model: "model-x",
           status: "succeeded",
-          cost_usd: 0.5,
+          cost_amount: 0.5,
           output_path: "/tmp/out.png",
           resolution: "1080x1920",
           duration_seconds: null,

@@ -176,7 +176,7 @@ async def _migrate(dry_run: bool) -> dict[str, int]:
                 finished_at=row.get("finished_at"),
                 duration_ms=row.get("duration_ms"),
                 retry_count=row.get("retry_count", 0),
-                cost_usd=row.get("cost_usd", 0.0),
+                cost_amount=row.get("cost_usd", 0.0),
                 created_at=row.get("created_at"),
             ))
 
