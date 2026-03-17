@@ -13,6 +13,7 @@ import { SlashCommandMenu } from "./SlashCommandMenu";
 import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 import { TodoListPanel } from "./TodoListPanel";
 import { ChatMessage } from "./chat/ChatMessage";
+import { uid } from "@/utils/id";
 
 const MAX_IMAGES = 5;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
@@ -177,7 +178,7 @@ export function AgentCopilot() {
         const dataUrl = e.target?.result as string;
         setAttachedImages((prev) => {
           if (prev.length >= MAX_IMAGES) return prev;
-          return [...prev, { id: crypto.randomUUID(), dataUrl, mimeType: file.type }];
+          return [...prev, { id: uid(), dataUrl, mimeType: file.type }];
         });
       };
       reader.readAsDataURL(file);
