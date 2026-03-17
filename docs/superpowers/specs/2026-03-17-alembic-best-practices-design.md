@@ -81,23 +81,39 @@ if not _is_sqlite:
 
 #### SQLite 路径
 
-`render_as_batch=True` 下，Alembic 通过重建表实现列类型变更。SQLite 原生支持 ISO 8601 字符串 → DateTime 的隐式转换。
+`render_as_batch=True` 下，Alembic 通过重建表实现列类型变更。流程：创建新表 → `INSERT INTO new SELECT * FROM old` → 删旧表 → 重命名。SQLite 没有原生 DateTime 类型，ISO 字符串会原样复制到新列中（仍为 TEXT 存储）。aiosqlite + SQLAlchemy 在读取 DateTime 列时会自动做 `fromisoformat` 解析，所以运行时不受影响。
 
 #### PostgreSQL 路径
 
-直接 `ALTER COLUMN col TYPE TIMESTAMP WITH TIME ZONE USING col::timestamptz`。
+使用防御性 USING 子句处理可能的脏数据：
+
+```sql
+ALTER COLUMN col TYPE TIMESTAMP WITH TIME ZONE
+USING CASE WHEN col IS NOT NULL AND col != '' THEN col::timestamptz END
+```
+
+三种现存 ISO 格式（`2026-03-17T12:00:00Z`、`...000+00:00`、`...+00:00`）PostgreSQL 都能正确解析。
 
 #### 外键约束
 
 `task_events.task_id` 添加 `ForeignKey("tasks.task_id", ondelete="CASCADE")`。
 
+**孤立数据清理**：迁移 upgrade 中，在添加外键约束之前，先清理可能存在的孤立记录：
+
+```sql
+DELETE FROM task_events WHERE task_id NOT IN (SELECT task_id FROM tasks)
+```
+
 #### server_default 修正
 
-`api_calls.generate_audio` 的 `server_default="1"` 改为 `server_default=sa.text("true")`。
+`api_calls.generate_audio` 的 `server_default="1"` 改为 `server_default=sa.true_()`。`sa.true_()` 是 SQLAlchemy 提供的跨后端布尔字面量（PostgreSQL 生成 `true`，SQLite 生成 `1`），避免 `sa.text("true")` 在 SQLite 上存储字符串 "true" 的问题。
 
 #### downgrade
 
-- DateTime 列改回 String（PostgreSQL 用 `USING to_char()`，SQLite 用 batch mode）
+- DateTime 列改回 String
+  - PostgreSQL 用 `USING to_char(col AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
+  - SQLite 用 batch mode 重建表
+  - **注意**：downgrade 后时间戳格式统一为 `YYYY-MM-DDTHH:MM:SSZ`（无毫秒），与原始三种不同格式不完全一致。这是可接受的退化，已记录在案
 - 删除 task_events 外键
 - `server_default` 改回 `"1"`
 
@@ -132,6 +148,9 @@ task_id: Mapped[str] = mapped_column(
 
 - `_utc_now_iso()` → `_utc_now()`，删除 strftime
 - 所有 `queued_at=now`、`started_at=now` 等写入点直接赋 datetime 对象
+- **`_task_to_dict()` 和 `_event_to_dict()`**：datetime 字段必须显式调用 `.isoformat()` 转为字符串。原因：
+  1. `_task_to_dict()` 结果被传入 `json.dumps()`（存入 `TaskEvent.data_json`），datetime 对象会导致 `TypeError: Object of type datetime is not JSON serializable`
+  2. `_event_to_dict()` 结果被传入 SSE 事件流，同样需要字符串
 
 #### `lib/db/repositories/usage_repo.py`（~8 处）
 
@@ -139,47 +158,75 @@ task_id: Mapped[str] = mapped_column(
 - `_utc_now_iso()` → `_utc_now()`
 - 删除 `datetime.fromisoformat()` 解析（`finish_call` 中计算 duration_ms 直接用 datetime 减法）
 - 过滤条件 `ApiCall.started_at >= _iso_millis(start)` 改为 `ApiCall.started_at >= start`（直接传 datetime）
+- **`_row_to_dict()`**：datetime 字段显式 `.isoformat()` 以保证 API 返回格式一致
 
 #### `lib/db/repositories/session_repo.py`（~6 处）
 
 - `_utc_now_iso()` → `_utc_now()`
 - 所有写入点同上
+- **`_row_to_dict()`**：datetime 字段显式 `.isoformat()` 以保证 API 返回格式一致
 
-### 5. 周边代码适配
+### 5. Pydantic 模型适配
+
+#### `server/agent_runtime/models.py` — SessionMeta
+
+`created_at` 和 `updated_at` 从 `str` 改为 `datetime` 类型：
+
+```python
+# 之前
+created_at: str
+updated_at: str
+
+# 之后
+created_at: datetime
+updated_at: datetime
+```
+
+原因：当 `session_repo._row_to_dict()` 返回 datetime 对象时，Pydantic 用 `str()` 强转 datetime 会产生 `2026-03-17 12:00:00+00:00`（注意空格而非 T），破坏下游 `_parse_iso_datetime()` 的解析。改为 datetime 类型后 Pydantic 正确处理。
+
+### 6. 周边代码适配
 
 #### `server/auth.py`
 
 删除 `datetime.fromisoformat(expires_at.replace("Z", "+00:00"))` 字符串解析。`ApiKey.expires_at` 从数据库读出即 datetime 对象，直接比较。
 
-#### `server/agent_runtime/service.py`
+#### `server/agent_runtime/service.py` — **不改**
 
-检查 `_parse_iso_datetime()` 是否仅用于解析数据库字段。若是，简化；若也解析外部输入，保留。
+`_parse_iso_datetime()` 仅用于解析 SSE buffer 消息的 timestamp 字段（来自 session_manager 的 `_utc_now_iso()` 和 SDK 原始消息流），完全不涉及数据库字段。保持不变。
 
-#### `server/agent_runtime/session_manager.py`
+#### `server/agent_runtime/session_manager.py` — **不改**
 
-`_utc_now_iso()` 如果仅用于写数据库，改为返回 datetime。如果也用于 SSE 事件 payload 等非数据库场景，需分开：数据库用 `_utc_now()`，序列化用 `.isoformat()`。
+`_utc_now_iso()` 仅用于构造 SSE buffer 中的 `"timestamp"` 字段值（第 817、917、957 行），不涉及数据库写入。保持不变。
 
-### 6. 不改的部分
+### 7. 不改的部分
 
 - `lib/project_manager.py` — 写 JSON 文件的 `.isoformat()` 不变
 - `lib/script_generator.py` — 同上
 - `server/services/project_archive.py` — 同上
+- `server/agent_runtime/service.py` — SSE 解析，不涉及数据库
+- `server/agent_runtime/session_manager.py` — SSE 时间戳，不涉及数据库
 
-### 7. 测试适配
+### 8. 测试适配
 
 - `tests/conftest.py`、`tests/factories.py`、`tests/fakes.py` 中的时间戳字符串 fixture 改为 datetime 对象
 - `tests/test_app_module.py` 及其他测试中的时间戳断言适配
+- `SessionMeta` 相关测试适配新的 datetime 类型
 - 确保 `pytest` 全部通过
 
 ## API 兼容性
 
-FastAPI JSON 序列化默认将 `datetime` 输出为 ISO 8601 字符串。**API 响应格式不变，前端无需改动**。
+FastAPI JSON 序列化默认将 `datetime` 输出为 ISO 8601 字符串（`datetime.isoformat()` 格式，即 `+00:00` 后缀而非 `Z`）。
+
+**格式细微差异**：原来 task_repo 输出 `Z` 后缀，改后统一为 `+00:00` 后缀。JavaScript 的 `new Date()` / `Date.parse()` 对两种格式都能正确解析，前端大概率不受影响。
+
+**降低风险措施**：在 `*_to_dict()` 中统一用 `.isoformat()` 显式序列化，确保输出格式可控。如需保持 `Z` 后缀兼容性，可用 `.isoformat().replace("+00:00", "Z")`。
 
 ## 验证计划
 
 1. `python -m pytest` — 全部测试通过
 2. `alembic upgrade head` → `alembic downgrade -1` → `alembic upgrade head` — 往返验证
-3. 检查 API 响应中时间戳格式未变
+3. 检查 API 响应中时间戳格式（确认 JavaScript Date.parse 兼容）
+4. 检查前端代码中对时间戳字段的解析方式，确认无硬编码 `Z` 后缀匹配
 
 ## 文件清单
 
@@ -196,8 +243,7 @@ FastAPI JSON 序列化默认将 `datetime` 输出为 ISO 8601 字符串。**API 
 | `lib/db/repositories/usage_repo.py` | 同上 + 删除解析逻辑 |
 | `lib/db/repositories/session_repo.py` | 同上 |
 | `server/auth.py` | 删除字符串解析 |
-| `server/agent_runtime/service.py` | 可能简化 |
-| `server/agent_runtime/session_manager.py` | 可能拆分 |
+| `server/agent_runtime/models.py` | SessionMeta 时间戳 str → datetime |
 | `tests/conftest.py` | fixture 适配 |
 | `tests/factories.py` | fixture 适配 |
 | `tests/fakes.py` | fixture 适配 |
