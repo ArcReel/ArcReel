@@ -144,9 +144,11 @@ class SeedanceVideoBackend:
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
 
         async with httpx.AsyncClient() as http_client:
-            response = await http_client.get(video_url, timeout=120)
-            response.raise_for_status()
-            request.output_path.write_bytes(response.content)
+            async with http_client.stream("GET", video_url, timeout=120) as response:
+                response.raise_for_status()
+                with open(request.output_path, "wb") as f:
+                    async for chunk in response.aiter_bytes(chunk_size=65536):
+                        f.write(chunk)
 
         # 6. Extract result metadata
         seed = getattr(result, "seed", None)

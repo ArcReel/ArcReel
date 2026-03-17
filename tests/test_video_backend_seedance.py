@@ -33,6 +33,30 @@ def backend(mock_ark_client):
     return b
 
 
+def _mock_httpx_stream(data: bytes = b"fake-mp4-data"):
+    """Create a patched httpx mock that supports async stream context manager."""
+    patcher = patch("lib.video_backends.seedance.httpx")
+    mock_httpx = patcher.start()
+
+    mock_stream_response = MagicMock()
+    mock_stream_response.raise_for_status = MagicMock()
+
+    async def _aiter_bytes(chunk_size=65536):
+        yield data
+
+    mock_stream_response.aiter_bytes = _aiter_bytes
+    mock_stream_response.__aenter__ = AsyncMock(return_value=mock_stream_response)
+    mock_stream_response.__aexit__ = AsyncMock(return_value=None)
+
+    mock_http_client = AsyncMock()
+    mock_http_client.stream = MagicMock(return_value=mock_stream_response)
+    mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
+    mock_http_client.__aexit__ = AsyncMock(return_value=None)
+    mock_httpx.AsyncClient.return_value = mock_http_client
+
+    return patcher
+
+
 class TestSeedanceProperties:
     def test_name(self, backend):
         assert backend.name == "seedance"
@@ -52,14 +76,12 @@ class TestSeedanceGenerate:
         """文生视频：无 start_image。"""
         output = tmp_path / "out.mp4"
 
-        # Mock create -> task_id
         create_result = MagicMock()
         create_result.id = "cgt-20250101-test"
         backend._client.content_generation.tasks.create = MagicMock(
             return_value=create_result
         )
 
-        # Mock get -> succeeded immediately
         get_result = MagicMock()
         get_result.status = "succeeded"
         get_result.content = MagicMock()
@@ -71,24 +93,16 @@ class TestSeedanceGenerate:
             return_value=get_result
         )
 
-        # Mock video download
-        with patch("lib.video_backends.seedance.httpx") as mock_httpx:
-            mock_http_client = AsyncMock()
-            mock_response = MagicMock()
-            mock_response.content = b"fake-mp4-data"
-            mock_response.raise_for_status = MagicMock()
-            mock_http_client.get = AsyncMock(return_value=mock_response)
-            mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
-            mock_http_client.__aexit__ = AsyncMock(return_value=None)
-            mock_httpx.AsyncClient.return_value = mock_http_client
-
+        patcher = _mock_httpx_stream()
+        try:
             request = VideoGenerationRequest(
                 prompt="a flower field",
                 output_path=output,
                 duration_seconds=5,
             )
-
             result = await backend.generate(request)
+        finally:
+            patcher.stop()
 
         assert isinstance(result, VideoGenerationResult)
         assert result.provider == "seedance"
@@ -120,27 +134,19 @@ class TestSeedanceGenerate:
             return_value=get_result
         )
 
-        with patch("lib.video_backends.seedance.httpx") as mock_httpx:
-            mock_http_client = AsyncMock()
-            mock_response = MagicMock()
-            mock_response.content = b"fake-mp4-data"
-            mock_response.raise_for_status = MagicMock()
-            mock_http_client.get = AsyncMock(return_value=mock_response)
-            mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
-            mock_http_client.__aexit__ = AsyncMock(return_value=None)
-            mock_httpx.AsyncClient.return_value = mock_http_client
-
+        patcher = _mock_httpx_stream()
+        try:
             request = VideoGenerationRequest(
                 prompt="girl opens eyes",
                 output_path=output,
                 start_image=frame,
                 generate_audio=True,
             )
-
             result = await backend.generate(request)
+        finally:
+            patcher.stop()
 
         assert result.provider == "seedance"
-        # Verify create was called with image_url content
         create_call = backend._client.content_generation.tasks.create
         call_kwargs = create_call.call_args
         content_arg = call_kwargs.kwargs.get("content") or call_kwargs[1].get(
@@ -189,26 +195,18 @@ class TestSeedanceGenerate:
             return_value=get_result
         )
 
-        with patch("lib.video_backends.seedance.httpx") as mock_httpx:
-            mock_http_client = AsyncMock()
-            mock_response = MagicMock()
-            mock_response.content = b"fake-mp4-data"
-            mock_response.raise_for_status = MagicMock()
-            mock_http_client.get = AsyncMock(return_value=mock_response)
-            mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
-            mock_http_client.__aexit__ = AsyncMock(return_value=None)
-            mock_httpx.AsyncClient.return_value = mock_http_client
-
+        patcher = _mock_httpx_stream()
+        try:
             request = VideoGenerationRequest(
                 prompt="test",
                 output_path=output,
                 seed=42,
                 service_tier="flex",
             )
-
             result = await backend.generate(request)
+        finally:
+            patcher.stop()
 
-        # Verify seed and service_tier were passed
         create_call = backend._client.content_generation.tasks.create
         call_kwargs = create_call.call_args
         assert call_kwargs.kwargs.get("seed") == 42 or call_kwargs[1].get("seed") == 42

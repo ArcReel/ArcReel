@@ -16,6 +16,7 @@ from lib.video_backends.base import (
 def mock_rate_limiter():
     rl = MagicMock()
     rl.acquire = MagicMock()
+    rl.acquire_async = AsyncMock()
     return rl
 
 
@@ -225,7 +226,7 @@ class TestGeminiVideoBackendGenerate:
         )
 
         await backend.generate(request)
-        mock_rate_limiter.acquire.assert_called_once_with(backend._video_model)
+        mock_rate_limiter.acquire_async.assert_called_once_with(backend._video_model)
 
     async def test_default_negative_prompt(self, backend, tmp_path):
         """未指定 negative_prompt 时使用默认值。"""

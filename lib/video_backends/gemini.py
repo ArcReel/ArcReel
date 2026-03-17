@@ -133,7 +133,7 @@ class GeminiVideoBackend:
         """生成视频（仅生成模式，不含延长模式）。"""
         # 1. 限流
         if self._rate_limiter:
-            self._rate_limiter.acquire(self._video_model)
+            await self._rate_limiter.acquire_async(self._video_model)
 
         # 2. duration 标准化为 Veo 支持的离散值并转字符串
         duration_str = self._normalize_duration(request.duration_seconds)
