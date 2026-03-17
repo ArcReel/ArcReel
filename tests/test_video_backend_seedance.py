@@ -114,7 +114,10 @@ class TestSeedanceGenerate:
     async def test_image_to_video(self, backend, tmp_path):
         """图生视频：有 start_image。"""
         output = tmp_path / "out.mp4"
-        frame = tmp_path / "frame.png"
+        # 模拟真实项目路径结构: .../projects/<name>/storyboards/<file>.png
+        project_dir = tmp_path / "projects" / "demo" / "storyboards"
+        project_dir.mkdir(parents=True)
+        frame = project_dir / "scene_E1S01.png"
         frame.write_bytes(b"fake-png")
 
         create_result = MagicMock()
@@ -203,7 +206,7 @@ class TestSeedanceGenerate:
                 seed=42,
                 service_tier="flex",
             )
-            result = await backend.generate(request)
+            await backend.generate(request)
         finally:
             patcher.stop()
 

@@ -48,6 +48,7 @@ class GenerateVideoRequest(BaseModel):
     prompt: Union[str, dict]
     script_file: str
     duration_seconds: Optional[int] = 4
+    seed: Optional[int] = None
 
 
 class GenerateCharacterRequest(BaseModel):
@@ -165,6 +166,12 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
         elif not isinstance(req.prompt, str):
             raise HTTPException(status_code=400, detail="prompt 必须是字符串或对象")
 
+        # 快照视频供应商配置到 payload，确保任务执行时用入队时的设置
+        import os
+        project = get_project_manager().load_project(project_name)
+        video_provider = project.get("video_provider") or os.environ.get("DEFAULT_VIDEO_PROVIDER", "gemini")
+        video_provider_settings = project.get("video_provider_settings", {}).get(video_provider, {})
+
         # 入队
         queue = get_generation_queue()
         result = await queue.enqueue_task(
@@ -177,6 +184,9 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
                 "prompt": req.prompt,
                 "script_file": req.script_file,
                 "duration_seconds": req.duration_seconds,
+                "seed": req.seed,
+                "video_provider": video_provider,
+                "video_provider_settings": video_provider_settings,
             },
             source="webui",
         )

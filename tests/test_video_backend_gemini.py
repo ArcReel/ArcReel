@@ -1,6 +1,5 @@
 """GeminiVideoBackend 单元测试 — mock genai SDK。"""
 
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,7 +22,7 @@ def mock_rate_limiter():
 @pytest.fixture
 def backend(mock_rate_limiter):
     """创建 aistudio 模式的 GeminiVideoBackend（mock genai SDK）。"""
-    with patch("lib.video_backends.gemini.genai"):
+    with patch("google.genai"), patch("google.genai.types"):
         from lib.video_backends.gemini import GeminiVideoBackend
 
         b = GeminiVideoBackend(
@@ -57,7 +56,7 @@ class TestGeminiVideoBackendProperties:
         creds_file.write_text('{"project_id": "test-project"}')
 
         with (
-            patch("lib.video_backends.gemini.genai"),
+            patch("google.genai"), patch("google.genai.types"),
             patch(
                 "lib.video_backends.gemini.resolve_vertex_credentials_path",
                 return_value=creds_file,
@@ -245,10 +244,9 @@ class TestGeminiVideoBackendGenerate:
 
         await backend.generate(request)
 
-        # 验证调用参数中的 config 包含默认 negative_prompt
-        call_kwargs = backend._client.aio.models.generate_videos.call_args
-        config = call_kwargs.kwargs.get("config") or call_kwargs[1].get("config")
-        assert "music" in config.negative_prompt
+        # 验证 GenerateVideosConfig 被调用时包含默认 negative_prompt
+        config_call = backend._types.GenerateVideosConfig.call_args
+        assert "music" in config_call.kwargs.get("negative_prompt", "")
 
 
 # ── _prepare_image_param 测试 ─────────────────────────────

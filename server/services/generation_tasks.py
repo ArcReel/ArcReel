@@ -63,27 +63,23 @@ def _create_video_backend(provider_name: str, provider_settings: dict):
 
 
 def get_media_generator(project_name: str, payload: dict | None = None) -> MediaGenerator:
+    """创建 MediaGenerator。仅当 payload 包含视频配置时才初始化视频后端。"""
     import os
 
     project_path = get_project_manager().get_project_path(project_name)
 
-    # Determine video provider: payload snapshot > project.json > env default
-    provider_name = None
-    provider_settings = {}
-
-    if payload:
-        provider_name = payload.get("video_provider")
+    # 仅在有 payload（即视频任务）时创建 VideoBackend，避免图片任务因视频配置缺失而报错
+    video_backend = None
+    if payload and payload.get("video_provider"):
+        provider_name = payload["video_provider"]
         provider_settings = payload.get("video_provider_settings", {})
-
-    if not provider_name:
+        video_backend = _create_video_backend(provider_name, provider_settings)
+    elif payload:
+        # payload 存在但无 video_provider → 从 project.json / env 读取
         project = get_project_manager().load_project(project_name)
-        provider_name = project.get("video_provider")
-        if not provider_name:
-            provider_name = os.environ.get("DEFAULT_VIDEO_PROVIDER", "gemini")
+        provider_name = project.get("video_provider") or os.environ.get("DEFAULT_VIDEO_PROVIDER", "gemini")
         provider_settings = project.get("video_provider_settings", {}).get(provider_name, {})
-
-    # Create VideoBackend
-    video_backend = _create_video_backend(provider_name, provider_settings)
+        video_backend = _create_video_backend(provider_name, provider_settings)
 
     return MediaGenerator(project_path, rate_limiter=rate_limiter, video_backend=video_backend)
 

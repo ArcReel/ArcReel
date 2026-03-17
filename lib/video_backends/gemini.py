@@ -21,12 +21,6 @@ from lib.video_backends.base import (
 
 logger = logging.getLogger(__name__)
 
-try:
-    from google import genai
-    from google.genai import types
-except ImportError:
-    genai = None  # type: ignore
-    types = None  # type: ignore
 
 
 class GeminiVideoBackend:

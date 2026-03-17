@@ -171,13 +171,23 @@ class SeedanceVideoBackend:
         """将本地图片路径转换为公网可访问的 URL。
 
         通过项目文件服务的静态资源路径构建 URL。
+        文件服务路由为 /api/v1/files/{project_name}/{path}，
+        image_path 是绝对路径如 .../projects/<project>/storyboards/<file>.png，
+        需要从中提取 project_name 和相对路径。
         """
         if not self._file_service_base_url:
             raise ValueError(
                 "使用 Seedance 供应商的图生视频功能需要设置 FILE_SERVICE_BASE_URL 环境变量\n"
                 "部署环境必须可公网访问"
             )
-        # Construct URL from the project file path
-        # The file service serves files from the projects directory
-        # image_path is typically like: projects/<project>/storyboards/<file>.png
-        return f"{self._file_service_base_url}/api/v1/files/{image_path}"
+        # Extract project_name and relative path from absolute path
+        # e.g. /workspace/projects/demo/storyboards/scene_E1S01.png
+        #   → project_name="demo", rel="storyboards/scene_E1S01.png"
+        parts = Path(image_path).parts
+        try:
+            projects_idx = parts.index("projects")
+            project_name = parts[projects_idx + 1]
+            rel_path = "/".join(parts[projects_idx + 2:])
+        except (ValueError, IndexError):
+            raise ValueError(f"无法从路径中提取项目名: {image_path}")
+        return f"{self._file_service_base_url}/api/v1/files/{project_name}/{rel_path}"
