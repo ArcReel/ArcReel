@@ -71,6 +71,43 @@ class CostCalculator:
 
     DEFAULT_VIDEO_MODEL = "veo-3.1-generate-001"
 
+    # Seedance 视频费用（元/百万 token），按 (service_tier, generate_audio) 查表
+    SEEDANCE_VIDEO_COST = {
+        "doubao-seedance-1-5-pro-251215": {
+            ("default", True): 16.00,
+            ("default", False): 8.00,
+            ("flex", True): 8.00,
+            ("flex", False): 4.00,
+        },
+    }
+
+    DEFAULT_SEEDANCE_MODEL = "doubao-seedance-1-5-pro-251215"
+
+    def calculate_seedance_video_cost(
+        self,
+        usage_tokens: int,
+        service_tier: str = "default",
+        generate_audio: bool = True,
+        model: str | None = None,
+    ) -> tuple[float, str]:
+        """
+        计算 Seedance 视频生成费用。
+
+        Returns:
+            (amount, currency) — 金额和币种 (CNY)
+        """
+        model = model or self.DEFAULT_SEEDANCE_MODEL
+        model_costs = self.SEEDANCE_VIDEO_COST.get(
+            model, self.SEEDANCE_VIDEO_COST[self.DEFAULT_SEEDANCE_MODEL]
+        )
+        key = (service_tier, generate_audio)
+        price_per_million = model_costs.get(
+            key,
+            model_costs.get(("default", True), 16.00),
+        )
+        amount = usage_tokens / 1_000_000 * price_per_million
+        return amount, "CNY"
+
     def calculate_image_cost(self, resolution: str = "1K", model: str = None) -> float:
         """
         计算图片生成费用

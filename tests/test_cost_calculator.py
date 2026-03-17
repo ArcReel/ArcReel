@@ -40,3 +40,67 @@ class TestCostCalculator:
 
     def test_singleton_instance(self):
         assert isinstance(cost_calculator, CostCalculator)
+
+
+class TestSeedanceCost:
+    def test_online_with_audio(self):
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_seedance_video_cost(
+            usage_tokens=246840,
+            service_tier="default",
+            generate_audio=True,
+            model="doubao-seedance-1-5-pro-251215",
+        )
+        assert currency == "CNY"
+        assert amount == pytest.approx(3.9494, rel=1e-3)
+
+    def test_online_no_audio(self):
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_seedance_video_cost(
+            usage_tokens=246840,
+            service_tier="default",
+            generate_audio=False,
+        )
+        assert currency == "CNY"
+        assert amount == pytest.approx(1.9747, rel=1e-3)
+
+    def test_flex_with_audio(self):
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_seedance_video_cost(
+            usage_tokens=246840,
+            service_tier="flex",
+            generate_audio=True,
+        )
+        assert currency == "CNY"
+        assert amount == pytest.approx(1.9747, rel=1e-3)
+
+    def test_flex_no_audio(self):
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_seedance_video_cost(
+            usage_tokens=246840,
+            service_tier="flex",
+            generate_audio=False,
+        )
+        assert currency == "CNY"
+        assert amount == pytest.approx(0.9874, rel=1e-3)
+
+    def test_zero_tokens(self):
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_seedance_video_cost(
+            usage_tokens=0,
+            service_tier="default",
+            generate_audio=True,
+        )
+        assert amount == pytest.approx(0.0)
+        assert currency == "CNY"
+
+    def test_unknown_model_uses_default(self):
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_seedance_video_cost(
+            usage_tokens=1_000_000,
+            service_tier="default",
+            generate_audio=True,
+            model="unknown-model",
+        )
+        assert currency == "CNY"
+        assert amount == pytest.approx(16.0)
