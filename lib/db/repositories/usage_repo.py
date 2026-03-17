@@ -12,15 +12,13 @@ from lib.cost_calculator import cost_calculator
 from lib.db.models.api_call import ApiCall
 
 
-def _iso_millis(value: datetime) -> str:
-    try:
-        return value.isoformat(timespec="milliseconds")
-    except TypeError:
-        return value.isoformat()
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-def _utc_now_iso() -> str:
-    return _iso_millis(datetime.now(timezone.utc))
+def _dt_to_iso(val: Optional[datetime]) -> Optional[str]:
+    """Convert datetime to ISO string for JSON serialization."""
+    return val.isoformat() if val else None
 
 
 def _row_to_dict(row: ApiCall) -> dict[str, Any]:
@@ -37,12 +35,12 @@ def _row_to_dict(row: ApiCall) -> dict[str, Any]:
         "status": row.status,
         "error_message": row.error_message,
         "output_path": row.output_path,
-        "started_at": row.started_at,
-        "finished_at": row.finished_at,
+        "started_at": _dt_to_iso(row.started_at),
+        "finished_at": _dt_to_iso(row.finished_at),
         "duration_ms": row.duration_ms,
         "retry_count": row.retry_count,
         "cost_usd": row.cost_usd,
-        "created_at": row.created_at,
+        "created_at": _dt_to_iso(row.created_at),
     }
 
 
@@ -62,7 +60,7 @@ class UsageRepository:
         aspect_ratio: Optional[str] = None,
         generate_audio: bool = True,
     ) -> int:
-        now = _utc_now_iso()
+        now = _utc_now()
         prompt_truncated = prompt[:500] if prompt else None
 
         row = ApiCall(
@@ -91,7 +89,7 @@ class UsageRepository:
         error_message: Optional[str] = None,
         retry_count: int = 0,
     ) -> None:
-        finished_at = _utc_now_iso()
+        finished_at = _utc_now()
 
         result = await self.session.execute(
             select(ApiCall).where(ApiCall.id == call_id)
@@ -102,9 +100,7 @@ class UsageRepository:
 
         # Calculate duration
         try:
-            start = datetime.fromisoformat(row.started_at)
-            end = datetime.fromisoformat(finished_at)
-            duration_ms = int((end - start).total_seconds() * 1000)
+            duration_ms = int((finished_at - row.started_at).total_seconds() * 1000)
         except (ValueError, TypeError):
             duration_ms = 0
 
@@ -152,11 +148,11 @@ class UsageRepository:
             if project_name:
                 filters.append(ApiCall.project_name == project_name)
             if start_date:
-                start = datetime(start_date.year, start_date.month, start_date.day)
-                filters.append(ApiCall.started_at >= _iso_millis(start))
+                start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+                filters.append(ApiCall.started_at >= start)
             if end_date:
-                end_exclusive = datetime(end_date.year, end_date.month, end_date.day) + timedelta(days=1)
-                filters.append(ApiCall.started_at < _iso_millis(end_exclusive))
+                end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=timezone.utc) + timedelta(days=1)
+                filters.append(ApiCall.started_at < end_exclusive)
             return filters
 
         filters = _base_filters()
@@ -199,11 +195,11 @@ class UsageRepository:
         if status:
             filters.append(ApiCall.status == status)
         if start_date:
-            start = datetime(start_date.year, start_date.month, start_date.day)
-            filters.append(ApiCall.started_at >= _iso_millis(start))
+            start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+            filters.append(ApiCall.started_at >= start)
         if end_date:
-            end_exclusive = datetime(end_date.year, end_date.month, end_date.day) + timedelta(days=1)
-            filters.append(ApiCall.started_at < _iso_millis(end_exclusive))
+            end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=timezone.utc) + timedelta(days=1)
+            filters.append(ApiCall.started_at < end_exclusive)
 
         # Total count
         count_stmt = select(func.count()).select_from(ApiCall).where(*filters)
