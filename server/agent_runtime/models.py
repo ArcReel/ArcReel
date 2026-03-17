@@ -1,5 +1,6 @@
 """Agent runtime data models."""
 
+from datetime import datetime
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -8,14 +9,14 @@ SessionStatus = Literal["idle", "running", "completed", "error", "interrupted"]
 
 
 class SessionMeta(BaseModel):
-    """Session metadata stored in SQLite."""
+    """Session metadata stored in database."""
     id: str
     sdk_session_id: Optional[str] = None
     project_name: str
     title: str = ""
     status: SessionStatus = "idle"
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
 
 class AssistantSnapshotV2(BaseModel):
