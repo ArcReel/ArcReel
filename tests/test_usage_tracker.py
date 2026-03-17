@@ -16,7 +16,7 @@ async def tracker():
         await conn.run_sync(Base.metadata.create_all)
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    t = UsageTracker(session_factory=factory, _skip_init_db=True)
+    t = UsageTracker(session_factory=factory)
     yield t
     await engine.dispose()
 

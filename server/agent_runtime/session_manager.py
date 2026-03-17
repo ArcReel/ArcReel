@@ -387,8 +387,6 @@ class SessionManager:
             hooks = {
                 "PreToolUse": [
                     HookMatcher(matcher=None, hooks=hook_callbacks),
-                ],
-                "PostToolUse": [
                     HookMatcher(matcher="Write|Edit", hooks=[self._build_json_validation_hook(project_cwd)]),
                 ],
             }
@@ -455,12 +453,15 @@ class SessionManager:
         return _file_access_hook
 
     def _build_json_validation_hook(self, project_cwd: Path) -> Callable[..., Any]:
-        """Build a PostToolUse hook that validates JSON files after Write/Edit.
+        """Build a PreToolUse hook that blocks Write/Edit when the result would
+        produce invalid JSON.
 
-        When Edit or Write produces an invalid JSON file, injects a systemMessage
-        so the agent immediately knows to read and fix the file.
-        Relative file_path values are resolved against project_cwd (same as
-        _is_path_allowed) so the hook works even if the agent uses a relative path.
+        For Edit: reads the current file, simulates the string replacement, and
+        validates the result with ``json.loads()``.
+        For Write: validates the ``content`` parameter directly.
+
+        Returns ``permissionDecision: "deny"`` to block the operation before it
+        executes, giving the agent a chance to fix its input and retry.
         """
 
         async def _json_validation_hook(
@@ -469,34 +470,66 @@ class SessionManager:
             _context: Any,
         ) -> dict[str, Any]:
             tool_name = input_data.get("tool_name", "")
-            if tool_name not in ("Write", "Edit"):
-                return {}
+            tool_input = input_data.get("tool_input", {})
 
-            file_path = input_data.get("tool_input", {}).get("file_path", "")
+            file_path = tool_input.get("file_path", "")
             if not file_path or not file_path.endswith(".json"):
                 return {}
 
-            p = Path(file_path)
-            resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
+            # --- Simulate the result without touching the file ---
+            simulated: str | None = None
+
+            if tool_name == "Write":
+                simulated = tool_input.get("content")
+            elif tool_name == "Edit":
+                old_string = tool_input.get("old_string", "")
+                new_string = tool_input.get("new_string", "")
+                if not old_string:
+                    return {}
+
+                p = Path(file_path)
+                resolved = (
+                    (project_cwd / p).resolve()
+                    if not p.is_absolute()
+                    else p.resolve()
+                )
+                try:
+                    current = resolved.read_text(encoding="utf-8")
+                except OSError:
+                    return {}
+
+                if old_string not in current:
+                    # Edit tool will fail on its own; no need to intervene.
+                    return {}
+
+                replace_all = tool_input.get("replace_all", False)
+                if replace_all:
+                    simulated = current.replace(old_string, new_string)
+                else:
+                    simulated = current.replace(old_string, new_string, 1)
+
+            if simulated is None:
+                return {}
 
             try:
-                content = resolved.read_text(encoding="utf-8")
-                json.loads(content)
-                return {}
-            except OSError:
+                json.loads(simulated)
                 return {}
             except json.JSONDecodeError as exc:
                 logger.warning(
-                    "Agent 写入了无效 JSON file=%s error=%s",
-                    file_path, exc,
+                    "PreToolUse JSON 校验拦截: file=%s tool=%s error=%s",
+                    file_path, tool_name, exc,
                 )
                 return {
-                    "systemMessage": (
-                        f"⚠️ 警告：你刚才操作的文件 {file_path} 现在包含无效 JSON。"
-                        f"错误：{exc}。"
-                        "请立即用 Read 工具读取该文件，定位问题（例如多余的逗号 ,, "
-                        "或缺少引号），然后用 Edit 工具修复，确保文件是合法 JSON 后再继续。"
-                    )
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": (
+                            f"操作被阻止：此次 {tool_name} 会导致 {file_path} "
+                            f"变成无效 JSON。错误：{exc}。"
+                            "请检查你的输入内容中是否包含未转义的双引号或其他"
+                            "JSON 语法问题，修正后重试。"
+                        ),
+                    },
                 }
 
         return _json_validation_hook

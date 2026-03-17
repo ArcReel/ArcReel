@@ -48,7 +48,7 @@ async def meta_store():
         await conn.run_sync(Base.metadata.create_all)
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+    store = SessionMetaStore(session_factory=factory)
     yield store
     await engine.dispose()
 
@@ -78,7 +78,7 @@ async def generation_queue():
         await conn.run_sync(Base.metadata.create_all)
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    queue = generation_queue_module.GenerationQueue(session_factory=factory, _skip_init_db=True)
+    queue = generation_queue_module.GenerationQueue(session_factory=factory)
     generation_queue_module._QUEUE_INSTANCE = queue
     yield queue
     generation_queue_module._QUEUE_INSTANCE = None

@@ -21,8 +21,12 @@ async def init_db() -> None:
     Handles the transition from create_all to Alembic: if tables already exist
     but no alembic_version table is present, stamps the current head revision
     before running upgrade so existing databases migrate smoothly.
+
+    使用 Config() 空构造 + set_main_option 编程式调用 alembic，
+    而非 Config("alembic.ini")，避免 env.py 的 fileConfig() 覆盖应用日志配置。
     """
     import asyncio
+    from pathlib import Path
     from sqlalchemy import inspect as sa_inspect, text
 
     # Detect pre-Alembic databases (tables exist but no version tracking)
@@ -40,7 +44,11 @@ async def init_db() -> None:
     from alembic import command
 
     def _run_alembic():
-        cfg = Config("alembic.ini")
+        # 编程式构造 Config，不读 alembic.ini，
+        # 从而跳过 env.py 的 fileConfig()，保护应用日志配置
+        project_root = Path(__file__).parent.parent.parent
+        cfg = Config()
+        cfg.set_main_option("script_location", str(project_root / "alembic"))
         if need_stamp:
             _log.info("Detected pre-Alembic database, stamping current head")
             command.stamp(cfg, "head")

@@ -297,7 +297,7 @@ class TestSessionManagerMore:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         factory = async_sessionmaker(engine, expire_on_commit=False)
-        meta_store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+        meta_store = SessionMetaStore(session_factory=factory)
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
@@ -349,7 +349,7 @@ class TestSessionManagerMore:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         factory = async_sessionmaker(engine, expire_on_commit=False)
-        meta_store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+        meta_store = SessionMetaStore(session_factory=factory)
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
@@ -385,7 +385,7 @@ class TestSessionManagerMore:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         factory = async_sessionmaker(engine, expire_on_commit=False)
-        meta_store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+        meta_store = SessionMetaStore(session_factory=factory)
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
@@ -417,7 +417,7 @@ class TestSessionManagerMore:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         factory = async_sessionmaker(engine, expire_on_commit=False)
-        meta_store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+        meta_store = SessionMetaStore(session_factory=factory)
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
@@ -449,7 +449,7 @@ class TestSessionManagerMore:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         factory = async_sessionmaker(engine, expire_on_commit=False)
-        meta_store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+        meta_store = SessionMetaStore(session_factory=factory)
 
         mgr = sm_mod.SessionManager(
             project_root=app_root,
@@ -539,7 +539,7 @@ class TestSessionManagerMore:
 
 
 class TestJsonValidationHook:
-    """Tests for the PostToolUse JSON validation hook."""
+    """Tests for the PreToolUse JSON validation hook."""
 
     def _make_manager(self, tmp_path):
         """Build a SessionManager with minimal fakes (SDK not required)."""
@@ -551,54 +551,135 @@ class TestJsonValidationHook:
             meta_store=SessionMetaStore(),
         )
 
-    async def _call_hook(self, manager, file_path: str, tool_name: str = "Edit", project_cwd=None):
+    async def _call_hook(
+        self, manager, tool_input: dict, tool_name: str = "Edit", project_cwd=None,
+    ):
         """Helper: invoke the JSON validation hook callback directly."""
         from pathlib import Path
-        hook_fn = manager._build_json_validation_hook(Path(project_cwd) if project_cwd else Path("/tmp"))
+        hook_fn = manager._build_json_validation_hook(
+            Path(project_cwd) if project_cwd else Path("/tmp"),
+        )
         input_data = {
-            "hook_event_name": "PostToolUse",
+            "hook_event_name": "PreToolUse",
             "tool_name": tool_name,
-            "tool_input": {"file_path": file_path},
+            "tool_input": tool_input,
         }
         return await hook_fn(input_data, None, None)
 
-    async def test_valid_json_returns_empty(self, tmp_path):
-        """Hook returns {} for valid JSON — no systemMessage injected."""
-        json_file = tmp_path / "episode_1.json"
-        json_file.write_text('{"segments": []}')
+    # --- Edit: valid replacement keeps JSON valid → allow ---
+
+    async def test_edit_valid_replacement_returns_empty(self, tmp_path):
+        """Edit that keeps JSON valid is allowed."""
+        json_file = tmp_path / "ep.json"
+        json_file.write_text('{"title": "old"}')
         manager = self._make_manager(tmp_path)
 
-        result = await self._call_hook(manager, str(json_file))
+        result = await self._call_hook(manager, {
+            "file_path": str(json_file),
+            "old_string": '"old"',
+            "new_string": '"new"',
+        })
         assert result == {}
 
-    async def test_invalid_json_injects_system_message(self, tmp_path):
-        """Hook returns systemMessage when JSON is invalid."""
-        json_file = tmp_path / "episode_2.json"
-        json_file.write_text('{"a": 1,,}')  # double comma
+    # --- Edit: replacement breaks JSON → deny ---
+
+    async def test_edit_breaking_replacement_denies(self, tmp_path):
+        """Edit that would produce invalid JSON is denied."""
+        json_file = tmp_path / "ep.json"
+        json_file.write_text('{"title": "old value"}')
         manager = self._make_manager(tmp_path)
 
-        result = await self._call_hook(manager, str(json_file))
-        assert "systemMessage" in result
-        assert str(json_file) in result["systemMessage"]
-        assert "无效 JSON" in result["systemMessage"] or "invalid" in result["systemMessage"].lower()
+        result = await self._call_hook(manager, {
+            "file_path": str(json_file),
+            "old_string": '"old value"',
+            "new_string": '"has "quotes" inside"',  # unescaped quotes
+        })
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert "无效 JSON" in result["hookSpecificOutput"]["permissionDecisionReason"] or \
+               "JSON" in result["hookSpecificOutput"]["permissionDecisionReason"]
+
+    # --- Edit: replace_all ---
+
+    async def test_edit_replace_all_breaking_denies(self, tmp_path):
+        """Edit with replace_all that breaks JSON is denied."""
+        json_file = tmp_path / "ep.json"
+        json_file.write_text('{"a": "x", "b": "x"}')
+        manager = self._make_manager(tmp_path)
+
+        result = await self._call_hook(manager, {
+            "file_path": str(json_file),
+            "old_string": '"x"',
+            "new_string": '"y",',  # trailing comma on last occurrence
+            "replace_all": True,
+        })
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    # --- Write: valid content → allow ---
+
+    async def test_write_valid_json_returns_empty(self, tmp_path):
+        """Write with valid JSON content is allowed."""
+        manager = self._make_manager(tmp_path)
+        result = await self._call_hook(manager, {
+            "file_path": str(tmp_path / "new.json"),
+            "content": '{"segments": []}',
+        }, tool_name="Write")
+        assert result == {}
+
+    # --- Write: invalid content → deny ---
+
+    async def test_write_invalid_json_denies(self, tmp_path):
+        """Write with invalid JSON content is denied."""
+        manager = self._make_manager(tmp_path)
+        result = await self._call_hook(manager, {
+            "file_path": str(tmp_path / "bad.json"),
+            "content": '{"a": 1,,}',
+        }, tool_name="Write")
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    # --- Non-.json file → skip ---
 
     async def test_non_json_file_returns_empty(self, tmp_path):
         """Hook ignores non-.json files."""
-        md_file = tmp_path / "notes.md"
-        md_file.write_text("not json at all {{{{")
         manager = self._make_manager(tmp_path)
-
-        result = await self._call_hook(manager, str(md_file))
+        result = await self._call_hook(manager, {
+            "file_path": str(tmp_path / "notes.md"),
+            "content": "not json {{{{",
+        }, tool_name="Write")
         assert result == {}
 
-    async def test_missing_file_returns_empty(self, tmp_path):
-        """Hook silently skips if the file doesn't exist."""
+    # --- Edit: file not found → skip (let Edit handle the error) ---
+
+    async def test_edit_missing_file_returns_empty(self, tmp_path):
+        """Hook skips if the target file doesn't exist yet."""
         manager = self._make_manager(tmp_path)
-        result = await self._call_hook(manager, str(tmp_path / "ghost.json"))
+        result = await self._call_hook(manager, {
+            "file_path": str(tmp_path / "ghost.json"),
+            "old_string": "x",
+            "new_string": "y",
+        })
         assert result == {}
 
-    async def test_non_write_tool_returns_empty(self, tmp_path):
-        """Hook ignores tools other than Write/Edit (e.g. Bash)."""
+    # --- Non-Write/Edit tool → skip ---
+
+    async def test_non_write_edit_tool_returns_empty(self, tmp_path):
+        """Hook ignores tools other than Write/Edit."""
         manager = self._make_manager(tmp_path)
-        result = await self._call_hook(manager, "/some/file.json", tool_name="Bash")
+        result = await self._call_hook(manager, {
+            "file_path": "/some/file.json",
+        }, tool_name="Read")
+        assert result == {}
+
+    # --- Edit: old_string not in file → skip (Edit will fail on its own) ---
+
+    async def test_edit_old_string_not_found_returns_empty(self, tmp_path):
+        """Hook skips if old_string is not in the file."""
+        json_file = tmp_path / "ep.json"
+        json_file.write_text('{"title": "hello"}')
+        manager = self._make_manager(tmp_path)
+
+        result = await self._call_hook(manager, {
+            "file_path": str(json_file),
+            "old_string": "not found",
+            "new_string": "replacement",
+        })
         assert result == {}

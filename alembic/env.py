@@ -21,7 +21,8 @@ from lib.db.engine import get_database_url
 # Alembic Config object
 config = context.config
 
-# Set up loggers from alembic.ini
+# Set up loggers from alembic.ini (仅 CLI 直接运行 alembic 时生效；
+# init_db() 使用 Config() 空构造，config_file_name 为 None，自动跳过)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 

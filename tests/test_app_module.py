@@ -3,7 +3,6 @@ from types import SimpleNamespace
 import pytest
 
 import lib.db
-import server.agent_runtime.session_store as session_store_module
 import server.app as app_module
 from server.routers import assistant as assistant_router
 
@@ -38,7 +37,6 @@ class TestAppModule:
         monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")
         monkeypatch.setattr(app_module, "init_db", _noop_async)
         monkeypatch.setattr(lib.db, "init_db", _noop_async)
-        monkeypatch.setattr(session_store_module, "init_db", _noop_async)
         monkeypatch.setattr(assistant_router.assistant_service, "startup", _noop_async)
         monkeypatch.setattr(assistant_router.assistant_service, "shutdown", _noop_async)
 
