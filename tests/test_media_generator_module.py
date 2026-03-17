@@ -67,7 +67,8 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen.project_name = "demo"
     gen._rate_limiter = None
     gen.image_backend = "aistudio"
-    gen.video_backend = "aistudio"
+    gen._gemini_video_backend_type = "aistudio"
+    gen._video_backend = None
     fake = _FakeGemini()
     gen._gemini_image = fake
     gen._gemini_video = fake

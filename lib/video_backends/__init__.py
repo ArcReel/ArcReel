@@ -17,3 +17,16 @@ __all__ = [
     "get_registered_backends",
     "register_backend",
 ]
+
+# Auto-register backends
+try:
+    from lib.video_backends.gemini import GeminiVideoBackend
+    register_backend("gemini", lambda **kw: GeminiVideoBackend(**kw))
+except ImportError:
+    pass
+
+try:
+    from lib.video_backends.seedance import SeedanceVideoBackend
+    register_backend("seedance", lambda **kw: SeedanceVideoBackend(**kw))
+except ImportError:
+    pass

@@ -43,7 +43,8 @@ class MediaGenerator:
     def __init__(
         self,
         project_path: Path,
-        rate_limiter: Optional[RateLimiter] = None
+        rate_limiter: Optional[RateLimiter] = None,
+        video_backend=None,
     ):
         """
         初始化 MediaGenerator
@@ -51,6 +52,7 @@ class MediaGenerator:
         Args:
             project_path: 项目根目录路径
             rate_limiter: 可选的限流器实例
+            video_backend: 可选的 VideoBackend 实例（注入后将替代 GeminiClient 生成视频）
         """
         self.project_path = Path(project_path)
         self.project_name = self.project_path.name
@@ -59,10 +61,11 @@ class MediaGenerator:
             (os.environ.get("GEMINI_IMAGE_BACKEND") or "").strip().lower()
             or "aistudio"
         )
-        self.video_backend = (
+        self._gemini_video_backend_type = (
             (os.environ.get("GEMINI_VIDEO_BACKEND") or "").strip().lower()
             or "aistudio"
         )
+        self._video_backend = video_backend
         self._gemini_image: Optional[GeminiClient] = None
         self._gemini_video: Optional[GeminiClient] = None
         self.versions = VersionManager(project_path)
@@ -96,7 +99,7 @@ class MediaGenerator:
         if self._gemini_video is None:
             self._gemini_video = GeminiClient(
                 rate_limiter=self._rate_limiter,
-                backend=self.video_backend,
+                backend=self._gemini_video_backend_type,
             )
         return self._gemini_video
 
@@ -371,44 +374,82 @@ class MediaGenerator:
         except (ValueError, TypeError):
             duration_int = 8
 
-        video_client = self._get_gemini_video()
-        configured_generate_audio = self._read_bool_env(
-            "GEMINI_VIDEO_GENERATE_AUDIO", True
-        )
-        effective_generate_audio = (
-            configured_generate_audio if self.video_backend == "vertex" else True
-        )
+        if self._video_backend:
+            model_name = getattr(self._video_backend, '_model', None) or getattr(self._video_backend, '_video_model', None) or "unknown"
+            provider_name = self._video_backend.name
+            effective_generate_audio = True
+        else:
+            video_client = self._get_gemini_video()
+            model_name = video_client.VIDEO_MODEL
+            provider_name = "gemini"
+            configured_generate_audio = self._read_bool_env(
+                "GEMINI_VIDEO_GENERATE_AUDIO", True
+            )
+            effective_generate_audio = (
+                configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
+            )
 
         call_id = self._sync(self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="video",
-            model=video_client.VIDEO_MODEL,
+            model=model_name,
             prompt=prompt,
             resolution=resolution,
             duration_seconds=duration_int,
             aspect_ratio=aspect_ratio,
             generate_audio=effective_generate_audio,
+            provider=provider_name,
         ))
 
         try:
-            # 3. 调用 GeminiClient 生成新视频
-            _, video_ref, video_uri = video_client.generate_video(
-                prompt=prompt,
-                start_image=start_image,
-                aspect_ratio=aspect_ratio,
-                duration_seconds=duration_seconds,
-                resolution=resolution,
-                negative_prompt=negative_prompt,
-                generate_audio=effective_generate_audio,
-                output_path=output_path
-            )
+            if self._video_backend:
+                from lib.video_backends.base import VideoGenerationRequest
 
-            # 4. 记录调用成功
-            self._sync(self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="success",
-                output_path=str(output_path),
-            ))
+                request = VideoGenerationRequest(
+                    prompt=prompt,
+                    output_path=output_path,
+                    aspect_ratio=aspect_ratio,
+                    duration_seconds=duration_int,
+                    resolution=resolution,
+                    start_image=start_image if isinstance(start_image, Path) else None,
+                    generate_audio=effective_generate_audio,
+                    negative_prompt=negative_prompt,
+                    service_tier=version_metadata.get("service_tier", "default"),
+                    seed=version_metadata.get("seed"),
+                )
+
+                result = self._sync(self._video_backend.generate(request))
+                video_ref = None
+                video_uri = result.video_uri
+
+                # Track usage with provider info
+                self._sync(self.usage_tracker.finish_call(
+                    call_id=call_id,
+                    status="success",
+                    output_path=str(output_path),
+                    provider=result.provider,
+                    usage_tokens=result.usage_tokens,
+                    service_tier=version_metadata.get("service_tier", "default"),
+                ))
+            else:
+                # Original GeminiClient path
+                _, video_ref, video_uri = video_client.generate_video(
+                    prompt=prompt,
+                    start_image=start_image,
+                    aspect_ratio=aspect_ratio,
+                    duration_seconds=duration_seconds,
+                    resolution=resolution,
+                    negative_prompt=negative_prompt,
+                    generate_audio=effective_generate_audio,
+                    output_path=output_path
+                )
+
+                # 4. 记录调用成功
+                self._sync(self.usage_tracker.finish_call(
+                    call_id=call_id,
+                    status="success",
+                    output_path=str(output_path),
+                ))
         except Exception as e:
             # 记录调用失败
             logger.exception("生成失败 (%s)", "video")
@@ -480,44 +521,82 @@ class MediaGenerator:
         except (ValueError, TypeError):
             duration_int = 8
 
-        video_client = self._get_gemini_video()
-        configured_generate_audio = self._read_bool_env(
-            "GEMINI_VIDEO_GENERATE_AUDIO", True
-        )
-        effective_generate_audio = (
-            configured_generate_audio if self.video_backend == "vertex" else True
-        )
+        if self._video_backend:
+            model_name = getattr(self._video_backend, '_model', None) or getattr(self._video_backend, '_video_model', None) or "unknown"
+            provider_name = self._video_backend.name
+            effective_generate_audio = True
+        else:
+            video_client = self._get_gemini_video()
+            model_name = video_client.VIDEO_MODEL
+            provider_name = "gemini"
+            configured_generate_audio = self._read_bool_env(
+                "GEMINI_VIDEO_GENERATE_AUDIO", True
+            )
+            effective_generate_audio = (
+                configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
+            )
 
         call_id = await self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="video",
-            model=video_client.VIDEO_MODEL,
+            model=model_name,
             prompt=prompt,
             resolution=resolution,
             duration_seconds=duration_int,
             aspect_ratio=aspect_ratio,
             generate_audio=effective_generate_audio,
+            provider=provider_name,
         )
 
         try:
-            # 3. 调用 GeminiClient 异步生成新视频
-            _, video_ref, video_uri = await video_client.generate_video_async(
-                prompt=prompt,
-                start_image=start_image,
-                aspect_ratio=aspect_ratio,
-                duration_seconds=duration_seconds,
-                resolution=resolution,
-                negative_prompt=negative_prompt,
-                generate_audio=effective_generate_audio,
-                output_path=output_path
-            )
+            if self._video_backend:
+                from lib.video_backends.base import VideoGenerationRequest
 
-            # 4. 记录调用成功
-            await self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="success",
-                output_path=str(output_path),
-            )
+                request = VideoGenerationRequest(
+                    prompt=prompt,
+                    output_path=output_path,
+                    aspect_ratio=aspect_ratio,
+                    duration_seconds=duration_int,
+                    resolution=resolution,
+                    start_image=start_image if isinstance(start_image, Path) else None,
+                    generate_audio=effective_generate_audio,
+                    negative_prompt=negative_prompt,
+                    service_tier=version_metadata.get("service_tier", "default"),
+                    seed=version_metadata.get("seed"),
+                )
+
+                result = await self._video_backend.generate(request)
+                video_ref = None
+                video_uri = result.video_uri
+
+                # Track usage with provider info
+                await self.usage_tracker.finish_call(
+                    call_id=call_id,
+                    status="success",
+                    output_path=str(output_path),
+                    provider=result.provider,
+                    usage_tokens=result.usage_tokens,
+                    service_tier=version_metadata.get("service_tier", "default"),
+                )
+            else:
+                # Original GeminiClient path
+                _, video_ref, video_uri = await video_client.generate_video_async(
+                    prompt=prompt,
+                    start_image=start_image,
+                    aspect_ratio=aspect_ratio,
+                    duration_seconds=duration_seconds,
+                    resolution=resolution,
+                    negative_prompt=negative_prompt,
+                    generate_audio=effective_generate_audio,
+                    output_path=output_path
+                )
+
+                # 4. 记录调用成功
+                await self.usage_tracker.finish_call(
+                    call_id=call_id,
+                    status="success",
+                    output_path=str(output_path),
+                )
         except Exception as e:
             # 记录调用失败
             logger.exception("生成失败 (%s)", "video")
