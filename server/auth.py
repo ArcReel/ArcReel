@@ -301,11 +301,7 @@ async def _verify_api_key(token: str) -> Optional[dict]:
     if expires_at:
         from datetime import datetime, timezone
         try:
-            # get_by_hash 返回 ORM 原生 datetime 对象；兼容旧式 ISO 字符串路径
-            if isinstance(expires_at, str):
-                exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-            else:
-                exp_dt = expires_at
+            exp_dt = expires_at
             if exp_dt.tzinfo is None:
                 exp_dt = exp_dt.replace(tzinfo=timezone.utc)
             if datetime.now(timezone.utc) >= exp_dt:
