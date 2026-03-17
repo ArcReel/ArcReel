@@ -165,7 +165,7 @@ class TestGenerationTasks:
         emitted_batches = []
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", lambda _p: fake_generator)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", lambda _p, **kw: fake_generator)
         monkeypatch.setattr(generation_tasks, "GeminiClient", _FakeGeminiClient)
         monkeypatch.setattr(
             generation_tasks,
@@ -263,7 +263,7 @@ class TestGenerationTasks:
             return out_path
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", lambda _: fake_generator)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", lambda _, **kw: fake_generator)
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", fake_extract)
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
 
@@ -314,7 +314,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", lambda _p: _FakeGenerator())
+        monkeypatch.setattr(generation_tasks, "get_media_generator", lambda _p, **kw: _FakeGenerator())
 
         with pytest.raises(ValueError):
             await generation_tasks.execute_storyboard_task("demo", "E1S01", {"prompt": "x"})
