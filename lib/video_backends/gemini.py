@@ -102,6 +102,10 @@ class GeminiVideoBackend:
         return "gemini"
 
     @property
+    def model(self) -> str:
+        return self._video_model
+
+    @property
     def capabilities(self) -> Set[VideoCapability]:
         caps = {
             VideoCapability.TEXT_TO_VIDEO,
@@ -113,6 +117,15 @@ class GeminiVideoBackend:
             caps.add(VideoCapability.GENERATE_AUDIO)
         return caps
 
+    @staticmethod
+    def _normalize_duration(duration_seconds: int) -> str:
+        """标准化为 Veo 支持的离散时长值: '4', '6', '8'。"""
+        if duration_seconds <= 4:
+            return "4"
+        if duration_seconds <= 6:
+            return "6"
+        return "8"
+
     @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
     async def generate(
         self, request: VideoGenerationRequest
@@ -122,8 +135,8 @@ class GeminiVideoBackend:
         if self._rate_limiter:
             self._rate_limiter.acquire(self._video_model)
 
-        # 2. duration 转为字符串（genai SDK 要求）
-        duration_str = str(request.duration_seconds)
+        # 2. duration 标准化为 Veo 支持的离散值并转字符串
+        duration_str = self._normalize_duration(request.duration_seconds)
 
         # 3. 构建配置
         config_params: dict = {

@@ -19,12 +19,11 @@ __all__ = [
 ]
 
 # Auto-register backends
-try:
-    from lib.video_backends.gemini import GeminiVideoBackend
-    register_backend("gemini", lambda **kw: GeminiVideoBackend(**kw))
-except ImportError:
-    pass
+# Gemini: google-genai is a core dependency, import failure is a real error
+from lib.video_backends.gemini import GeminiVideoBackend
+register_backend("gemini", lambda **kw: GeminiVideoBackend(**kw))
 
+# Seedance: volcengine SDK is optional, skip if not installed
 try:
     from lib.video_backends.seedance import SeedanceVideoBackend
     register_backend("seedance", lambda **kw: SeedanceVideoBackend(**kw))

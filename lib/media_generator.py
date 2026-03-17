@@ -375,9 +375,9 @@ class MediaGenerator:
             duration_int = 8
 
         if self._video_backend:
-            model_name = getattr(self._video_backend, '_model', None) or getattr(self._video_backend, '_video_model', None) or "unknown"
+            model_name = self._video_backend.model
             provider_name = self._video_backend.name
-            effective_generate_audio = True
+            effective_generate_audio = version_metadata.get("generate_audio", True)
         else:
             video_client = self._get_gemini_video()
             model_name = video_client.VIDEO_MODEL
@@ -411,7 +411,7 @@ class MediaGenerator:
                     aspect_ratio=aspect_ratio,
                     duration_seconds=duration_int,
                     resolution=resolution,
-                    start_image=start_image if isinstance(start_image, Path) else None,
+                    start_image=Path(start_image) if isinstance(start_image, (str, Path)) else None,
                     generate_audio=effective_generate_audio,
                     negative_prompt=negative_prompt,
                     service_tier=version_metadata.get("service_tier", "default"),
@@ -522,9 +522,9 @@ class MediaGenerator:
             duration_int = 8
 
         if self._video_backend:
-            model_name = getattr(self._video_backend, '_model', None) or getattr(self._video_backend, '_video_model', None) or "unknown"
+            model_name = self._video_backend.model
             provider_name = self._video_backend.name
-            effective_generate_audio = True
+            effective_generate_audio = version_metadata.get("generate_audio", True)
         else:
             video_client = self._get_gemini_video()
             model_name = video_client.VIDEO_MODEL
@@ -558,7 +558,7 @@ class MediaGenerator:
                     aspect_ratio=aspect_ratio,
                     duration_seconds=duration_int,
                     resolution=resolution,
-                    start_image=start_image if isinstance(start_image, Path) else None,
+                    start_image=Path(start_image) if isinstance(start_image, (str, Path)) else None,
                     generate_audio=effective_generate_audio,
                     negative_prompt=negative_prompt,
                     service_tier=version_metadata.get("service_tier", "default"),

@@ -63,6 +63,10 @@ class SeedanceVideoBackend:
         return "seedance"
 
     @property
+    def model(self) -> str:
+        return self._model
+
+    @property
     def capabilities(self) -> Set[VideoCapability]:
         return {
             VideoCapability.TEXT_TO_VIDEO,
