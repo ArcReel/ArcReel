@@ -89,10 +89,12 @@ graph TD
 
 ## 快速开始
 
+### 默认部署（SQLite）
+
 ```bash
 # 1. 克隆项目
 git clone https://github.com/ArcReel/ArcReel.git
-cd ArcReel
+cd ArcReel/deploy
 
 # 2. 配置环境变量
 cp .env.example .env
@@ -101,6 +103,17 @@ cp .env.example .env
 docker compose up -d
 
 # 访问 http://localhost:1241
+```
+
+### 生产部署（PostgreSQL）
+
+```bash
+cd ArcReel/deploy/production
+
+# 配置环境变量（需设置 POSTGRES_PASSWORD）
+cp .env.example .env
+
+docker compose up -d
 ```
 
 首次启动后，前往 **设置页**（`/settings`）配置 Gemini API Key 等参数即可开始使用。
@@ -143,7 +156,7 @@ flowchart TB
 | **后端** | FastAPI, Python 3.12+, SQLAlchemy 2.0 (async), Alembic, uvicorn, Pydantic 2 |
 | **AI & 媒体** | Claude Agent SDK, Gemini API (Nano Banana 2 + Veo 3.1), FFmpeg, Pillow |
 | **数据库** | SQLite (默认) / PostgreSQL (生产) |
-| **部署** | Docker, Docker Compose |
+| **部署** | Docker, Docker Compose（`deploy/` 默认, `deploy/production/` 含 PostgreSQL） |
 
 ## 文档
 

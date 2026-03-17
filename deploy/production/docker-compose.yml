@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: arcreel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: arcreel
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arcreel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  arcreel:
+    image: ghcr.io/arcreel/arcreel:latest
+    # build: ../../  # 本地构建时取消注释，注释掉 image 行
+    ports:
+      - "1241:1241"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://arcreel:${POSTGRES_PASSWORD}@postgres:5432/arcreel
+    volumes:
+      - ./projects:/app/projects
+      - ./vertex_keys:/app/vertex_keys
+      - ./claude_data:/root/.claude
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1241/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:
