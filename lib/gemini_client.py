@@ -13,6 +13,7 @@ import os
 import random
 import threading
 import time
+import warnings
 from collections import deque
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type, Union
@@ -814,6 +815,11 @@ class GeminiClient:
                 output_path="output_extended2.mp4"
             )
         """
+        warnings.warn(
+            "GeminiClient.generate_video() is deprecated, use GeminiVideoBackend.generate() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         # 应用限流
         if self.rate_limiter:
             self.rate_limiter.acquire(self.VIDEO_MODEL)
@@ -1100,6 +1106,11 @@ class GeminiClient:
         Returns:
             (output_path, video_ref, video_uri) 三元组
         """
+        warnings.warn(
+            "GeminiClient.generate_video_async() is deprecated, use GeminiVideoBackend.generate() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         # 应用限流
         if self.rate_limiter:
             await self.rate_limiter.acquire_async(self.VIDEO_MODEL)
