@@ -21,7 +21,9 @@ interface UsageCall {
   call_type: string;
   model: string;
   status: string;
-  cost_usd: number;
+  cost_amount: number;
+  currency: string;
+  provider: string;
   output_path: string | null;
   resolution: string | null;
   duration_seconds: number | null;
@@ -43,6 +45,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
       .then((res) => {
         setStats(res as {
           total_cost: number;
+          cost_by_currency: Record<string, number>;
           image_count: number;
           video_count: number;
           failed_count: number;
@@ -74,7 +77,11 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
   }, [open, loadCalls]);
 
   const totalPages = Math.ceil(total / pageSize);
-  const totalCost = stats?.total_cost ?? 0;
+  const costByCurrency = stats?.cost_by_currency ?? {};
+  const costSummary = Object.entries(costByCurrency)
+    .filter(([, v]) => v > 0)
+    .map(([currency, amount]) => `${currency === "CNY" ? "¥" : "$"}${amount.toFixed(2)}`)
+    .join(" + ") || "$0.00";
 
   return (
     <Popover
@@ -101,7 +108,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
 
       {/* Stats summary */}
       <div className="grid grid-cols-4 gap-2 border-b border-gray-800 px-4 py-3">
-        <StatBlock label="总费用" value={`$${totalCost.toFixed(2)}`} accent />
+        <StatBlock label="总费用" value={costSummary} accent />
         <StatBlock label="图片" value={String(stats?.image_count ?? 0)} icon={<Image className="h-3 w-3 text-blue-400" />} />
         <StatBlock label="视频" value={String(stats?.video_count ?? 0)} icon={<Video className="h-3 w-3 text-purple-400" />} />
         <StatBlock label="失败" value={String(stats?.failed_count ?? 0)} icon={<AlertCircle className="h-3 w-3 text-red-400" />} />
@@ -137,8 +144,8 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
                       {filename || typeLabel}
                     </span>
                     <StatusBadge status={call.status} />
-                    <span className={`shrink-0 text-xs font-mono ${call.cost_usd > 0 ? "text-gray-200" : "text-gray-500"}`}>
-                      ${call.cost_usd.toFixed(4)}
+                    <span className={`shrink-0 text-xs font-mono ${call.cost_amount > 0 ? "text-gray-200" : "text-gray-500"}`}>
+                      {call.currency === "CNY" ? "¥" : "$"}{call.cost_amount.toFixed(4)}
                     </span>
                   </div>
                   {/* Row 2: model + resolution + duration + time */}

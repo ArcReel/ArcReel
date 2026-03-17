@@ -123,6 +123,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       .then((res) => {
         setUsageStats(res as {
           total_cost: number;
+          cost_by_currency: Record<string, number>;
           image_count: number;
           video_count: number;
           failed_count: number;

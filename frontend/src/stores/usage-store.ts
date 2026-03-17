@@ -8,6 +8,7 @@ interface UsageFilters {
 
 interface UsageStats {
   total_cost: number;
+  cost_by_currency: Record<string, number>;
   image_count: number;
   video_count: number;
   failed_count: number;
@@ -20,7 +21,9 @@ interface UsageCall {
   call_type: string;
   model: string;
   status: string;
-  cost_usd: number;
+  cost_amount: number;
+  currency: string;
+  provider: string;
   output_path: string | null;
   resolution: string | null;
   duration_seconds: number | null;

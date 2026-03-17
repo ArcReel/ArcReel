@@ -252,6 +252,7 @@ describe("stores", () => {
     usage.setFilters({ project_name: "demo", media_type: "image", status: "ok" });
     usage.setStats({
       total_cost: 12.34,
+      cost_by_currency: { USD: 12.34 },
       image_count: 5,
       video_count: 2,
       failed_count: 1,
@@ -266,6 +267,8 @@ describe("stores", () => {
           model: "model-x",
           status: "succeeded",
           cost_amount: 0.5,
+          currency: "USD",
+          provider: "gemini",
           output_path: "/tmp/out.png",
           resolution: "1080x1920",
           duration_seconds: null,
