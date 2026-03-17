@@ -105,6 +105,8 @@ docker compose up -d
 
 首次启动后，前往 **设置页**（`/settings`）配置 Gemini API Key 等参数即可开始使用。
 
+> **部署提示**：若使用 Seedance (火山方舟) 作为视频供应商，部署环境必须是公网可访问的，因为 Seedance 图片上传需要在公网地址上进行访问。
+
 ## 使用方式
 
 通过 Web UI 工作台完成所有操作：
@@ -148,7 +150,7 @@ flowchart TB
 ## 文档
 
 - 📖 [完整入门教程](docs/getting-started.md) — 从零开始的手把手指南
-- 💰 [费用说明](docs/视频&图片生成费用表.md) — API 调用费用参考
+- 💰 [Google GenAI费用说明](docs/Google视频&图片生成费用参考.md) — API 调用费用参考
 
 ## 贡献
 
