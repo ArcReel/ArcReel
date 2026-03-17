@@ -44,8 +44,7 @@ async def init_db() -> None:
         if need_stamp:
             _log.info("Detected pre-Alembic database, stamping current head")
             command.stamp(cfg, "head")
-        else:
-            command.upgrade(cfg, "head")
+        command.upgrade(cfg, "head")
 
     await asyncio.get_event_loop().run_in_executor(None, _run_alembic)
     _log.info("Database schema is up to date")
