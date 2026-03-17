@@ -6,6 +6,7 @@ services:
       - "1241:1241"
     env_file: .env
     volumes:
+      - ./.env:/app/.env
       - ./projects:/app/projects
       - ./vertex_keys:/app/vertex_keys
       - ./claude_data:/root/.claude
