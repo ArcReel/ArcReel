@@ -243,6 +243,7 @@ def _options_payload() -> dict[str, list[str]]:
     return {
         "image_models": list(cost_calculator.IMAGE_COST.keys()),
         "video_models": list(cost_calculator.SELECTABLE_VIDEO_MODELS),
+        "video_providers": ["gemini", "seedance"],
     }
 
 
@@ -301,6 +302,9 @@ def _config_payload(project_root: Path) -> dict[str, Any]:
             overrides, "vertex_gcs_bucket", "VERTEX_GCS_BUCKET"
         ),
         "vertex_credentials": _vertex_credentials_status(project_root),
+        "video_provider": _text_view(overrides, "video_provider", "DEFAULT_VIDEO_PROVIDER"),
+        "ark_api_key": _secret_view(overrides, "ark_api_key", "ARK_API_KEY"),
+        "file_service_base_url": _text_view(overrides, "file_service_base_url", "FILE_SERVICE_BASE_URL"),
     }
 
 
@@ -329,6 +333,9 @@ class SystemConfigPatchRequest(BaseModel):
     image_max_workers: Optional[int] = None
     video_max_workers: Optional[int] = None
     vertex_gcs_bucket: Optional[str] = None
+    video_provider: Optional[str] = None
+    ark_api_key: Optional[str] = None
+    file_service_base_url: Optional[str] = None
 
 
 class SystemConnectionTestRequest(BaseModel):
@@ -401,6 +408,16 @@ async def patch_system_config(req: SystemConfigPatchRequest, request: Request, _
 
     if "vertex_gcs_bucket" in patch and patch["vertex_gcs_bucket"] not in (None, ""):
         patch["vertex_gcs_bucket"] = str(patch["vertex_gcs_bucket"]).strip()
+
+    if "video_provider" in patch and patch["video_provider"] not in (None, ""):
+        allowed_providers = {"gemini", "seedance"}
+        value = str(patch["video_provider"]).strip().lower()
+        if value not in allowed_providers:
+            raise HTTPException(status_code=400, detail=f"video_provider 必须是 {', '.join(allowed_providers)} 之一")
+        patch["video_provider"] = value
+
+    if "file_service_base_url" in patch and patch["file_service_base_url"] not in (None, ""):
+        patch["file_service_base_url"] = str(patch["file_service_base_url"]).strip()
 
     for key, min_value in (
         ("gemini_image_rpm", 0),

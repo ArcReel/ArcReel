@@ -175,6 +175,9 @@ class SystemConfigManager:
         "IMAGE_MAX_WORKERS",
         "VIDEO_MAX_WORKERS",
         "VERTEX_GCS_BUCKET",
+        "DEFAULT_VIDEO_PROVIDER",
+        "ARK_API_KEY",
+        "FILE_SERVICE_BASE_URL",
     )
 
     def __init__(self, project_root: Path):
@@ -415,6 +418,24 @@ class SystemConfigManager:
             self._set_env("VERTEX_GCS_BUCKET", overrides.get("vertex_gcs_bucket"))
         else:
             self._restore_or_unset("VERTEX_GCS_BUCKET")
+
+        # Video provider
+        if "video_provider" in overrides:
+            self._set_env("DEFAULT_VIDEO_PROVIDER", overrides.get("video_provider"))
+        else:
+            self._restore_or_unset("DEFAULT_VIDEO_PROVIDER")
+
+        # Ark API key (Seedance)
+        if "ark_api_key" in overrides:
+            self._set_env("ARK_API_KEY", overrides.get("ark_api_key"))
+        else:
+            self._restore_or_unset("ARK_API_KEY")
+
+        # File service base URL
+        if "file_service_base_url" in overrides:
+            self._set_env("FILE_SERVICE_BASE_URL", overrides.get("file_service_base_url"))
+        else:
+            self._restore_or_unset("FILE_SERVICE_BASE_URL")
 
         # Rate limiting / performance
         for override_key, env_key, cast in (
