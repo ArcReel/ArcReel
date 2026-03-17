@@ -36,7 +36,7 @@ class TestUsageTracker:
         item = result["items"][0]
         assert item["id"] == call_id
         assert item["status"] == "success"
-        assert item["cost_usd"] == 0.067
+        assert item["cost_amount"] == 0.067
         assert len(item["prompt"]) == 500
 
     async def test_finish_video_and_failed_call(self, tracker):
@@ -66,7 +66,7 @@ class TestUsageTracker:
 
         failed = (await tracker.get_calls(status="failed"))["items"][0]
         assert len(failed["error_message"]) == 500
-        assert failed["cost_usd"] == 0
+        assert failed["cost_amount"] == 0
 
     async def test_stats_with_date_range_and_project_filter(self, tracker):
         await tracker.finish_call(

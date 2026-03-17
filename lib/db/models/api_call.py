@@ -29,7 +29,10 @@ class ApiCall(Base):
     finished_at: Mapped[Optional[str]] = mapped_column(String)
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
     retry_count: Mapped[int] = mapped_column(Integer, server_default="0")
-    cost_usd: Mapped[float] = mapped_column(Float, server_default="0.0")
+    cost_amount: Mapped[float] = mapped_column(Float, server_default="0.0")
+    currency: Mapped[str] = mapped_column(String, server_default="USD")
+    provider: Mapped[str] = mapped_column(String, server_default="gemini")
+    usage_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[Optional[str]] = mapped_column(String)
 
     __table_args__ = (
