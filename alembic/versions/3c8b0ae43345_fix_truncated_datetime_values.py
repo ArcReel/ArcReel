@@ -53,9 +53,9 @@ def upgrade() -> None:
             # typeof() returns 'integer' for the corrupted rows
             op.execute(
                 sa.text(
-                    f"UPDATE {table} SET {col} = '{PLACEHOLDER}' "
+                    f"UPDATE {table} SET {col} = :placeholder "
                     f"WHERE typeof({col}) = 'integer'"
-                )
+                ).bindparams(placeholder=PLACEHOLDER)
             )
 
 
