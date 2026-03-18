@@ -178,6 +178,7 @@ class SystemConfigManager:
         "DEFAULT_VIDEO_PROVIDER",
         "ARK_API_KEY",
         "FILE_SERVICE_BASE_URL",
+        "XAI_API_KEY",
     )
 
     def __init__(self, project_root: Path):
@@ -436,6 +437,12 @@ class SystemConfigManager:
             self._set_env("FILE_SERVICE_BASE_URL", overrides.get("file_service_base_url"))
         else:
             self._restore_or_unset("FILE_SERVICE_BASE_URL")
+
+        # xAI API key (Grok)
+        if "xai_api_key" in overrides:
+            self._set_env("XAI_API_KEY", overrides.get("xai_api_key"))
+        else:
+            self._restore_or_unset("XAI_API_KEY")
 
         # Rate limiting / performance
         for override_key, env_key, cast in (
