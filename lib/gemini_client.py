@@ -9,7 +9,6 @@ import base64
 import functools
 import io
 import logging
-import os
 import random
 import threading
 import time
@@ -170,16 +169,6 @@ _shared_rate_limiter: Optional["RateLimiter"] = None
 _shared_rate_limiter_lock = threading.Lock()
 
 
-def _read_int_env(name: str, default: int) -> int:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
 def _rate_limiter_limits_from_env(
     *,
     image_rpm: Optional[int] = None,
@@ -188,13 +177,13 @@ def _rate_limiter_limits_from_env(
     video_model: Optional[str] = None,
 ) -> Dict[str, int]:
     if image_rpm is None:
-        image_rpm = _read_int_env("GEMINI_IMAGE_RPM", 15)
+        image_rpm = 15
     if video_rpm is None:
-        video_rpm = _read_int_env("GEMINI_VIDEO_RPM", 10)
+        video_rpm = 10
     if image_model is None:
-        image_model = os.environ.get("GEMINI_IMAGE_MODEL", _SHARED_IMAGE_MODEL_NAME)
+        image_model = _SHARED_IMAGE_MODEL_NAME
     if video_model is None:
-        video_model = os.environ.get("GEMINI_VIDEO_MODEL", _SHARED_VIDEO_MODEL_NAME)
+        video_model = _SHARED_VIDEO_MODEL_NAME
 
     limits: Dict[str, int] = {}
     if image_rpm > 0:
@@ -235,7 +224,7 @@ def get_shared_rate_limiter(
             video_model=video_model,
         )
         if request_gap is None:
-            request_gap = float(os.environ.get("GEMINI_REQUEST_GAP", 3.1))
+            request_gap = 3.1
         _shared_rate_limiter = RateLimiter(limits, request_gap=request_gap)
         return _shared_rate_limiter
 
@@ -486,7 +475,7 @@ class GeminiClient:
                 raise ValueError(f"凭证文件 {credentials_file} 中未找到 project_id")
 
             # 读取 GCS bucket 配置
-            self.gcs_bucket = gcs_bucket or os.environ.get("VERTEX_GCS_BUCKET")
+            self.gcs_bucket = gcs_bucket
 
             # 加载服务账号凭证并添加必要的 scopes
             VERTEX_SCOPES = [
@@ -506,16 +495,13 @@ class GeminiClient:
             logger.info("使用 Vertex AI 后端（凭证: %s）", credentials_file.name)
         else:
             # AI Studio 模式（默认）
-            self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+            self.api_key = api_key
             if not self.api_key:
                 raise ValueError(
-                    "GEMINI_API_KEY 环境变量未设置\n"
-                    "请在 .env 文件中添加：GEMINI_API_KEY=your-api-key"
+                    "Gemini API Key 未提供。请在系统配置中设置 API Key。"
                 )
 
             effective_base_url = base_url
-            if effective_base_url is None:
-                effective_base_url = os.environ.get("GEMINI_BASE_URL", "").strip() or None
             http_options = {"base_url": effective_base_url} if effective_base_url else None
             self.client = genai.Client(api_key=self.api_key, http_options=http_options)
             if effective_base_url:
@@ -524,12 +510,8 @@ class GeminiClient:
                 logger.info("使用 AI Studio 后端")
 
         # 模型配置（两种后端使用相同的模型名）
-        self.IMAGE_MODEL = image_model or os.environ.get(
-            "GEMINI_IMAGE_MODEL", cost_calculator.DEFAULT_IMAGE_MODEL
-        )
-        self.VIDEO_MODEL = video_model or os.environ.get(
-            "GEMINI_VIDEO_MODEL", cost_calculator.DEFAULT_VIDEO_MODEL
-        )
+        self.IMAGE_MODEL = image_model or cost_calculator.DEFAULT_IMAGE_MODEL
+        self.VIDEO_MODEL = video_model or cost_calculator.DEFAULT_VIDEO_MODEL
 
     @staticmethod
     def _load_image_detached(image_path: Union[str, Path]) -> Image.Image:

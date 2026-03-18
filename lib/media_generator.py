@@ -13,7 +13,6 @@ MediaGenerator 中间层
 
 import asyncio
 import logging
-import os
 from pathlib import Path
 from typing import Optional, List, Union, Tuple
 from PIL import Image
@@ -61,9 +60,9 @@ class MediaGenerator:
             project_path: 项目根目录路径
             rate_limiter: 可选的限流器实例
             video_backend: 可选的 VideoBackend 实例（注入后将替代 GeminiClient 生成视频）
-            image_backend_type: 图片后端类型（aistudio/vertex），None 时从环境变量读取
-            video_backend_type: 视频后端类型（aistudio/vertex），None 时从环境变量读取
-            video_generate_audio: 是否生成音频（Vertex 模式），None 时从环境变量读取
+            image_backend_type: 图片后端类型（aistudio/vertex），默认 aistudio
+            video_backend_type: 视频后端类型（aistudio/vertex），默认 aistudio
+            video_generate_audio: 是否生成音频（Vertex 模式），默认 True
             gemini_api_key: Gemini API Key（透传给 GeminiClient）
             gemini_base_url: Gemini Base URL（透传给 GeminiClient）
             gemini_image_model: 图片模型名称（透传给 GeminiClient）
@@ -74,12 +73,10 @@ class MediaGenerator:
         self._rate_limiter = rate_limiter
         self.image_backend = (
             (image_backend_type or "").strip().lower()
-            or (os.environ.get("GEMINI_IMAGE_BACKEND") or "").strip().lower()
             or "aistudio"
         )
         self._gemini_video_backend_type = (
             (video_backend_type or "").strip().lower()
-            or (os.environ.get("GEMINI_VIDEO_BACKEND") or "").strip().lower()
             or "aistudio"
         )
         self._video_generate_audio = video_generate_audio
@@ -133,27 +130,14 @@ class MediaGenerator:
             )
         return self._gemini_video
 
-    @staticmethod
-    def _read_bool_env(name: str, default: bool) -> bool:
-        raw = os.environ.get(name)
-        if raw is None:
-            return default
-        normalized = str(raw).strip().lower()
-        if normalized in {"1", "true", "t", "yes", "y", "on"}:
-            return True
-        if normalized in {"0", "false", "f", "no", "n", "off"}:
-            return False
-        return default
-
     def _resolve_video_generate_audio(self) -> bool:
         """Resolve whether to generate audio for video.
 
-        Uses the explicit constructor param if provided, otherwise falls back
-        to the GEMINI_VIDEO_GENERATE_AUDIO environment variable.
+        Uses the explicit constructor param if provided, otherwise defaults to True.
         """
         if self._video_generate_audio is not None:
             return self._video_generate_audio
-        return self._read_bool_env("GEMINI_VIDEO_GENERATE_AUDIO", True)
+        return True
 
     def _get_output_path(self, resource_type: str, resource_id: str) -> Path:
         """

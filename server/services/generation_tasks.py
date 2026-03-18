@@ -5,7 +5,6 @@ Task execution service for queued generation jobs.
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -77,7 +76,7 @@ async def _load_provider_config(provider_id: str) -> dict[str, str]:
             svc = ConfigService(session)
             return await svc.get_provider_config(provider_id)
     except Exception:
-        logger.debug("从 DB 加载 provider %s 配置失败，回退到环境变量", provider_id)
+        logger.debug("从 DB 加载 provider %s 配置失败", provider_id)
         return {}
 
 
@@ -91,7 +90,7 @@ async def _load_default_video_backend() -> tuple[str, str]:
             svc = ConfigService(session)
             return await svc.get_default_video_backend()
     except Exception:
-        logger.debug("从 DB 加载 default_video_backend 失败，回退到环境变量")
+        logger.debug("从 DB 加载 default_video_backend 失败")
         return "gemini-aistudio", ""
 
 
@@ -105,7 +104,7 @@ async def _load_default_image_backend() -> tuple[str, str]:
             svc = ConfigService(session)
             return await svc.get_default_image_backend()
     except Exception:
-        logger.debug("从 DB 加载 default_image_backend 失败，回退到环境变量")
+        logger.debug("从 DB 加载 default_image_backend 失败")
         return "gemini-aistudio", ""
 
 
@@ -131,22 +130,21 @@ async def _get_or_create_video_backend(provider_name: str, provider_settings: di
         elif provider_name == "gemini-aistudio":
             kwargs["backend_type"] = "aistudio"
         else:
-            kwargs["backend_type"] = (os.environ.get("GEMINI_VIDEO_BACKEND") or "aistudio").strip().lower()
+            kwargs["backend_type"] = "aistudio"
 
-        # 从 DB 加载配置，回退到环境变量
         config_provider_id = "gemini-vertex" if kwargs["backend_type"] == "vertex" else "gemini-aistudio"
         db_config = await _load_provider_config(config_provider_id)
-        kwargs["api_key"] = db_config.get("api_key") or os.environ.get("GEMINI_API_KEY")
+        kwargs["api_key"] = db_config.get("api_key")
         kwargs["rate_limiter"] = rate_limiter
-        kwargs["video_model"] = provider_settings.get("model") or os.environ.get("GEMINI_VIDEO_MODEL")
+        kwargs["video_model"] = provider_settings.get("model")
     elif backend_name == PROVIDER_SEEDANCE:
         db_config = await _load_provider_config("seedance")
-        kwargs["api_key"] = db_config.get("api_key") or os.environ.get("ARK_API_KEY")
-        kwargs["file_service_base_url"] = db_config.get("file_service_base_url") or os.environ.get("FILE_SERVICE_BASE_URL", "")
+        kwargs["api_key"] = db_config.get("api_key")
+        kwargs["file_service_base_url"] = db_config.get("file_service_base_url", "")
         kwargs["model"] = provider_settings.get("model")
     elif backend_name == PROVIDER_GROK:
         db_config = await _load_provider_config("grok")
-        kwargs["api_key"] = db_config.get("api_key") or os.environ.get("XAI_API_KEY")
+        kwargs["api_key"] = db_config.get("api_key")
         kwargs["model"] = provider_settings.get("model")
 
     backend = create_backend(backend_name, **kwargs)
@@ -157,7 +155,7 @@ async def _get_or_create_video_backend(provider_name: str, provider_settings: di
 async def get_media_generator(project_name: str, payload: dict | None = None) -> MediaGenerator:
     """创建 MediaGenerator。仅当 payload 包含视频配置时才初始化视频后端。
 
-    从 ConfigService (DB) 加载供应商配置，回退到环境变量。
+    从 ConfigService (DB) 加载供应商配置。
     """
     project_path = get_project_manager().get_project_path(project_name)
 
@@ -171,8 +169,8 @@ async def get_media_generator(project_name: str, payload: dict | None = None) ->
         gemini_config_id = "gemini-aistudio"
 
     gemini_config = await _load_provider_config(gemini_config_id)
-    gemini_api_key = gemini_config.get("api_key") or os.environ.get("GEMINI_API_KEY")
-    gemini_base_url = gemini_config.get("base_url") or os.environ.get("GEMINI_BASE_URL")
+    gemini_api_key = gemini_config.get("api_key")
+    gemini_base_url = gemini_config.get("base_url")
 
     # 仅在有 payload（即视频任务）时创建 VideoBackend，避免图片任务因视频配置缺失而报错
     video_backend = None

@@ -223,18 +223,14 @@ class TestGeminiClientMore:
         await limiter2.acquire_async("m")
         assert async_waits and async_waits[0] > 0
 
-        monkeypatch.setenv("GEMINI_IMAGE_RPM", "12")
-        monkeypatch.setenv("GEMINI_VIDEO_RPM", "8")
-        monkeypatch.delenv("GEMINI_IMAGE_MODEL", raising=False)
-        monkeypatch.delenv("GEMINI_VIDEO_MODEL", raising=False)
         gemini_module._shared_rate_limiter = None
-        shared_1 = get_shared_rate_limiter()
+        shared_1 = get_shared_rate_limiter(image_rpm=12, video_rpm=8)
         shared_2 = get_shared_rate_limiter()
         assert shared_1 is shared_2
         assert shared_1.limits[gemini_module._SHARED_IMAGE_MODEL_NAME] == 12
         assert shared_1.limits[gemini_module._SHARED_VIDEO_MODEL_NAME] == 8
 
-        monkeypatch.setenv("GEMINI_IMAGE_RPM", "bad")
+        # When no params passed, defaults are used (15 for image)
         gemini_module._shared_rate_limiter = None
         shared_3 = get_shared_rate_limiter()
         assert shared_3.limits[gemini_module._SHARED_IMAGE_MODEL_NAME] == 15
