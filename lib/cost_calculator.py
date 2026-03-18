@@ -83,6 +83,14 @@ class CostCalculator:
 
     DEFAULT_SEEDANCE_MODEL = "doubao-seedance-1-5-pro-251215"
 
+    # Grok 视频费用（美元/秒），不区分分辨率
+    # 注意：此为参考值，需核实 xAI 官方定价
+    GROK_VIDEO_COST = {
+        "grok-imagine-video": 0.050,
+    }
+
+    DEFAULT_GROK_MODEL = "grok-imagine-video"
+
     def calculate_seedance_video_cost(
         self,
         usage_tokens: int,
@@ -151,6 +159,27 @@ class CostCalculator:
             model_costs.get(("1080p", True)) or self.VIDEO_COST[self.DEFAULT_VIDEO_MODEL][("1080p", True)],
         )
         return duration_seconds * cost_per_second
+
+    def calculate_grok_video_cost(
+        self,
+        duration_seconds: int,
+        model: str | None = None,
+    ) -> float:
+        """
+        计算 Grok 视频生成费用。
+
+        Args:
+            duration_seconds: 视频时长（秒）
+            model: 模型名称
+
+        Returns:
+            费用（美元）
+        """
+        model = model or self.DEFAULT_GROK_MODEL
+        per_second = self.GROK_VIDEO_COST.get(
+            model, self.GROK_VIDEO_COST[self.DEFAULT_GROK_MODEL]
+        )
+        return duration_seconds * per_second
 
 
 # 单例实例，方便使用

@@ -104,3 +104,45 @@ class TestSeedanceCost:
         )
         assert currency == "CNY"
         assert amount == pytest.approx(16.0)
+
+
+class TestGrokCost:
+    def test_default_model_per_second(self):
+        calculator = CostCalculator()
+        cost = calculator.calculate_grok_video_cost(
+            duration_seconds=10,
+            model="grok-imagine-video",
+        )
+        assert cost == pytest.approx(0.50)
+
+    def test_short_video(self):
+        calculator = CostCalculator()
+        cost = calculator.calculate_grok_video_cost(
+            duration_seconds=1,
+            model="grok-imagine-video",
+        )
+        assert cost == pytest.approx(0.050)
+
+    def test_max_duration(self):
+        calculator = CostCalculator()
+        cost = calculator.calculate_grok_video_cost(
+            duration_seconds=15,
+            model="grok-imagine-video",
+        )
+        assert cost == pytest.approx(0.75)
+
+    def test_zero_duration(self):
+        calculator = CostCalculator()
+        cost = calculator.calculate_grok_video_cost(
+            duration_seconds=0,
+            model="grok-imagine-video",
+        )
+        assert cost == pytest.approx(0.0)
+
+    def test_unknown_model_uses_default(self):
+        calculator = CostCalculator()
+        cost = calculator.calculate_grok_video_cost(
+            duration_seconds=10,
+            model="unknown-grok-model",
+        )
+        assert cost == pytest.approx(0.50)
