@@ -5,8 +5,8 @@ import { API } from "@/api";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 
 const PROVIDER_NAMES: Record<string, string> = {
-  "gemini-aistudio": "Gemini AI Studio",
-  "gemini-vertex": "Gemini Vertex AI",
+  "gemini-aistudio": "AI Studio",
+  "gemini-vertex": "Vertex AI",
   "seedance": "Seedance",
   "grok": "Grok",
 };

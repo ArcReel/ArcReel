@@ -15,7 +15,7 @@ class ProviderMeta:
 
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     "gemini-aistudio": ProviderMeta(
-        display_name="Gemini AI Studio",
+        display_name="AI Studio",
         media_types=["video", "image"],
         required_keys=["api_key"],
         optional_keys=["base_url", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
@@ -23,7 +23,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         capabilities=["text_to_video", "image_to_video", "text_to_image", "negative_prompt", "video_extend"],
     ),
     "gemini-vertex": ProviderMeta(
-        display_name="Gemini Vertex AI",
+        display_name="Vertex AI",
         media_types=["video", "image"],
         required_keys=["credentials_path"],
         optional_keys=["gcs_bucket", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],

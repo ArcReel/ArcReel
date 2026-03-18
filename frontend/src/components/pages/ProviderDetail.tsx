@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
-import { ChevronRight, Eye, EyeOff, Loader2, X } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { ChevronRight, Eye, EyeOff, Loader2, Upload, X } from "lucide-react";
 import GeminiColor from "@lobehub/icons/es/Gemini/components/Color";
 import GrokMono from "@lobehub/icons/es/Grok/components/Mono";
 import VertexAIColor from "@lobehub/icons/es/VertexAI/components/Color";
+import { Jimeng } from "@lobehub/icons";
 import { API } from "@/api";
 import type { ProviderConfigDetail, ProviderField, ProviderTestResult } from "@/types";
 
@@ -12,9 +13,10 @@ import type { ProviderConfigDetail, ProviderField, ProviderTestResult } from "@/
 
 function ProviderIcon({ providerId, className }: { providerId: string; className?: string }) {
   const cls = className ?? "h-6 w-6";
+  if (providerId === "gemini-vertex") return <VertexAIColor className={cls} />;
   if (providerId.startsWith("gemini")) return <GeminiColor className={cls} />;
   if (providerId.startsWith("grok")) return <GrokMono className={cls} />;
-  if (providerId.startsWith("vertex")) return <VertexAIColor className={cls} />;
+  if (providerId === "seedance") return <Jimeng className={cls} />;
   // Fallback: first letter badge
   return (
     <span className={`inline-flex items-center justify-center rounded bg-gray-700 text-xs font-bold uppercase text-gray-300 ${cls}`}>
@@ -38,6 +40,78 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
       {label}
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Credentials file upload field
+// ---------------------------------------------------------------------------
+
+interface CredentialsUploadProps {
+  field: ProviderField;
+  providerId: string;
+  onUploaded: () => void;
+}
+
+function CredentialsUploadField({ field, providerId, onUploaded }: CredentialsUploadProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      await API.uploadVertexCredentialsForProvider(providerId, file);
+      setUploadResult({ ok: true, msg: `已上传: ${file.name}` });
+      onUploaded();
+    } catch (err) {
+      setUploadResult({ ok: false, msg: String(err) });
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  return (
+    <div>
+      <label className="mb-1.5 block text-sm text-gray-400">
+        {field.label}
+        {field.required && <span className="ml-1 text-red-400">*</span>}
+      </label>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-50"
+        >
+          {uploading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Upload className="h-4 w-4" />
+          )}
+          {uploading ? "上传中…" : "选择 JSON 凭证文件"}
+        </button>
+        {field.is_set && !uploadResult && (
+          <span className="text-xs text-gray-500">已设置凭证文件</span>
+        )}
+        {uploadResult && (
+          <span className={`text-xs ${uploadResult.ok ? "text-green-400" : "text-red-400"}`}>
+            {uploadResult.msg}
+          </span>
+        )}
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={(e) => void handleFileChange(e)}
+      />
+    </div>
   );
 }
 
@@ -233,9 +307,22 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
 
       {/* Basic fields */}
       <div className="space-y-4">
-        {basicFields.map((field) => (
-          <FieldEditor key={field.key} field={field} draft={draft} setDraft={setDraft} />
-        ))}
+        {basicFields.map((field) =>
+          field.key === "credentials_path" ? (
+            <CredentialsUploadField
+              key={field.key}
+              field={field}
+              providerId={providerId}
+              onUploaded={async () => {
+                const updated = await API.getProviderConfig(providerId);
+                setDetail(updated);
+                onSaved?.();
+              }}
+            />
+          ) : (
+            <FieldEditor key={field.key} field={field} draft={draft} setDraft={setDraft} />
+          )
+        )}
       </div>
 
       {/* Advanced section */}

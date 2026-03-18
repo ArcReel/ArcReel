@@ -10,7 +10,7 @@ def test_all_providers_registered():
 def test_provider_meta_fields():
     meta = PROVIDER_REGISTRY["gemini-aistudio"]
     assert isinstance(meta, ProviderMeta)
-    assert meta.display_name == "Gemini AI Studio"
+    assert meta.display_name == "AI Studio"
     assert "video" in meta.media_types
     assert "image" in meta.media_types
     assert "api_key" in meta.required_keys
