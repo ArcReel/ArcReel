@@ -95,7 +95,7 @@ elif provider_name == PROVIDER_GROK:
 
 ```python
 GROK_VIDEO_COST = {
-    "grok-imagine-video": 0.050,  # USD/秒，不区分分辨率（待确认实际定价）
+    "grok-imagine-video": 0.050,  # USD/秒，不区分分辨率（来源：docs/grok-docs/models.md）
 }
 
 def calculate_grok_video_cost(self, duration_seconds: int, model: str) -> float:

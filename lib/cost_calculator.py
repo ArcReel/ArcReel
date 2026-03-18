@@ -84,7 +84,7 @@ class CostCalculator:
     DEFAULT_SEEDANCE_MODEL = "doubao-seedance-1-5-pro-251215"
 
     # Grok 视频费用（美元/秒），不区分分辨率
-    # 注意：此为参考值，需核实 xAI 官方定价
+    # 来源：docs/grok-docs/models.md — $0.050/sec
     GROK_VIDEO_COST = {
         "grok-imagine-video": 0.050,
     }
