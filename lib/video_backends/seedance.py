@@ -173,13 +173,20 @@ class SeedanceVideoBackend:
             )
         if not project_name:
             raise ValueError("project_name is required for image URL generation")
-        # Extract relative path within project directory
-        # e.g. /workspace/projects/demo/storyboards/scene_E1S01.png
-        #   → find "demo" in parts, take everything after it as rel_path
-        parts = Path(image_path).parts
-        try:
-            project_idx = parts.index(project_name)
-            rel_path = "/".join(parts[project_idx + 1:])
-        except ValueError:
+        # Walk up from the image to find the project directory,
+        # avoiding false matches when project_name appears elsewhere in the path
+        # (e.g. /home/demo/projects/demo/storyboards/scene_E1S01.png)
+        image_path = Path(image_path)
+        project_dir = None
+        p = image_path.parent
+        while p != p.parent:
+            if p.name == project_name:
+                project_dir = p
+                break
+            p = p.parent
+
+        if not project_dir:
             raise ValueError(f"无法从路径中定位项目 '{project_name}': {image_path}")
+
+        rel_path = image_path.relative_to(project_dir).as_posix()
         return f"{self._file_service_base_url}/api/v1/files/{project_name}/{rel_path}"
