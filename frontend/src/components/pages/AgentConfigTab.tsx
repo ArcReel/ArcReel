@@ -4,9 +4,8 @@ import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
+import type { GetSystemConfigResponseNew, SystemConfigPatchNew } from "@/types";
 import { TabSaveFooter } from "./TabSaveFooter";
-import { mergeServerDraftPreservingDirty } from "./system-config-draft-utils";
 
 // ---------------------------------------------------------------------------
 // Draft types
@@ -22,16 +21,16 @@ interface AgentDraft {
   subagentModel: string;
 }
 
-function buildDraft(data: GetSystemConfigResponse): AgentDraft {
-  const cfg = data.config;
+function buildDraft(data: GetSystemConfigResponseNew): AgentDraft {
+  const s = data.settings;
   return {
     anthropicKey: "",
-    anthropicBaseUrl: cfg.anthropic_base_url.value ?? "",
-    anthropicModel: cfg.anthropic_model.value ?? "",
-    haikuModel: cfg.anthropic_default_haiku_model.value ?? "",
-    opusModel: cfg.anthropic_default_opus_model.value ?? "",
-    sonnetModel: cfg.anthropic_default_sonnet_model.value ?? "",
-    subagentModel: cfg.claude_code_subagent_model.value ?? "",
+    anthropicBaseUrl: s.anthropic_base_url ?? "",
+    anthropicModel: s.anthropic_model ?? "",
+    haikuModel: s.anthropic_default_haiku_model ?? "",
+    opusModel: s.anthropic_default_opus_model ?? "",
+    sonnetModel: s.anthropic_default_sonnet_model ?? "",
+    subagentModel: s.claude_code_subagent_model ?? "",
   };
 }
 
@@ -47,8 +46,8 @@ function deepEqual(a: AgentDraft, b: AgentDraft): boolean {
   );
 }
 
-function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
-  const patch: SystemConfigPatch = {};
+function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatchNew {
+  const patch: SystemConfigPatchNew = {};
   if (draft.anthropicKey.trim()) patch.anthropic_api_key = draft.anthropicKey.trim();
   if (draft.anthropicBaseUrl !== saved.anthropicBaseUrl)
     patch.anthropic_base_url = draft.anthropicBaseUrl || "";
@@ -75,7 +74,7 @@ const inputClassName =
 const vendorIconFrameClassName =
   "rounded-2xl border border-gray-800 bg-gray-900 px-3 py-3 shadow-inner shadow-white/5";
 
-// Small inline clear button shown next to "当前：" when a value is overridden
+// Small inline clear button shown next to "当前：" when a value is set
 const inlineClearClassName =
   "ml-1.5 inline-flex items-center rounded p-0.5 text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -84,31 +83,53 @@ const inlineClearClassName =
 // ---------------------------------------------------------------------------
 
 interface AgentConfigTabProps {
-  data: GetSystemConfigResponse;
-  onSaved: (updated: GetSystemConfigResponse) => void;
-  onDirtyChange: (dirty: boolean) => void;
   visible: boolean;
 }
 
-export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentConfigTabProps) {
-  const initialDraft = buildDraft(data);
-  const [draft, setDraft] = useState<AgentDraft>(initialDraft);
-  const savedRef = useRef<AgentDraft>(initialDraft);
+export function AgentConfigTab({ visible }: AgentConfigTabProps) {
+  const [remoteData, setRemoteData] = useState<GetSystemConfigResponseNew | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<AgentDraft>({
+    anthropicKey: "",
+    anthropicBaseUrl: "",
+    anthropicModel: "",
+    haikuModel: "",
+    opusModel: "",
+    sonnetModel: "",
+    subagentModel: "",
+  });
+  const savedRef = useRef<AgentDraft>({
+    anthropicKey: "",
+    anthropicBaseUrl: "",
+    anthropicModel: "",
+    haikuModel: "",
+    opusModel: "",
+    sonnetModel: "",
+    subagentModel: "",
+  });
   const [saving, setSaving] = useState(false);
   const [clearingField, setClearingField] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
   const [modelRoutingExpanded, setModelRoutingExpanded] = useState(false);
 
-  const isDirty = !deepEqual(draft, savedRef.current);
+  // Load config on mount
+  const load = useCallback(async () => {
+    setLoadError(null);
+    try {
+      const res = await API.getSystemConfigNew();
+      setRemoteData(res);
+      const d = buildDraft(res);
+      savedRef.current = d;
+      setDraft(d);
+    } catch (err) {
+      setLoadError((err as Error).message);
+    }
+  }, []);
 
-  // Notify parent when dirty state changes
-  const prevDirtyRef = useRef(isDirty);
-  useEffect(() => {
-    if (prevDirtyRef.current === isDirty) return;
-    prevDirtyRef.current = isDirty;
-    onDirtyChange(isDirty);
-  }, [isDirty, onDirtyChange]);
+  useEffect(() => { void load(); }, [load]);
+
+  const isDirty = !deepEqual(draft, savedRef.current);
 
   const updateDraft = useCallback(
     <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]) => {
@@ -124,11 +145,11 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await API.updateSystemConfig(patch);
+      const res = await API.updateSystemConfigNew(patch);
+      setRemoteData(res);
       const newDraft = buildDraft(res);
       savedRef.current = newDraft;
       setDraft(newDraft);
-      onSaved(res);
       useConfigStatusStore.getState().refresh();
       useAppStore.getState().pushToast("ArcReel 智能体配置已保存", "success");
     } catch (err) {
@@ -136,26 +157,23 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
     } finally {
       setSaving(false);
     }
-  }, [draft, onSaved]);
+  }, [draft]);
 
   const handleReset = useCallback(() => {
     setDraft(savedRef.current);
     setSaveError(null);
   }, []);
 
-  // Generic: immediately PATCH a single field to empty (""), used by inline clear buttons
+  // Clear a single field immediately via PATCH
   const handleClearField = useCallback(
-    async (fieldId: string, patch: SystemConfigPatch, label: string) => {
+    async (fieldId: string, patch: SystemConfigPatchNew, label: string) => {
       setClearingField(fieldId);
       try {
-        const res = await API.updateSystemConfig(patch);
-        const previousSavedDraft = savedRef.current;
+        const res = await API.updateSystemConfigNew(patch);
+        setRemoteData(res);
         const nextSavedDraft = buildDraft(res);
         savedRef.current = nextSavedDraft;
-        setDraft((prev) =>
-          mergeServerDraftPreservingDirty(prev, previousSavedDraft, nextSavedDraft),
-        );
-        onSaved(res);
+        setDraft(nextSavedDraft);
         useConfigStatusStore.getState().refresh();
         useAppStore.getState().pushToast(`${label} 已清除`, "success");
       } catch (err) {
@@ -164,11 +182,38 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
         setClearingField(null);
       }
     },
-    [onSaved],
+    [],
   );
 
-  const cfg = data.config;
   const isBusy = saving || clearingField !== null;
+
+  // Loading / error states
+  if (loadError) {
+    return (
+      <div className={visible ? "px-6 py-8" : "hidden"}>
+        <div className="text-sm text-rose-400">加载失败: {loadError}</div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-300 hover:border-gray-600 hover:bg-gray-800/50"
+        >
+          <Loader2 className="h-4 w-4" />
+          重试
+        </button>
+      </div>
+    );
+  }
+
+  if (!remoteData) {
+    return (
+      <div className={visible ? "flex items-center gap-2 px-6 py-8 text-gray-400" : "hidden"}>
+        <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
+        加载中…
+      </div>
+    );
+  }
+
+  const settings = remoteData.settings;
 
   return (
     <div className={visible ? undefined : "hidden"}>
@@ -184,15 +229,12 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
               <div className="mt-1 text-xs text-gray-400">
                 驱动 ArcReel 智能体的核心 AI 能力。
               </div>
-              {/* 当前值行 — 内联清除按钮仅在 override 时显示 */}
+              {/* 当前值行 */}
               <div className="mt-1 flex items-center text-xs text-gray-500">
                 <span className="truncate">
-                  当前：{cfg.anthropic_api_key.masked ?? "未设置"}
-                  {cfg.anthropic_api_key.source === "env" && (
-                    <> · <span className="text-gray-400">.env</span></>
-                  )}
+                  当前：{settings.anthropic_api_key.masked ?? "未设置"}
                 </span>
-                {cfg.anthropic_api_key.source === "override" && cfg.anthropic_api_key.is_set && (
+                {settings.anthropic_api_key.is_set && (
                   <button
                     type="button"
                     onClick={() =>
@@ -254,7 +296,7 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
           <div className="mt-4 border-t border-gray-800 pt-4">
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium text-gray-100">Base URL</div>
-              {cfg.anthropic_base_url.source === "override" && cfg.anthropic_base_url.value && (
+              {settings.anthropic_base_url && (
                 <button
                   type="button"
                   onClick={() =>
@@ -309,7 +351,7 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
           <div className="mt-4 border-t border-gray-800 pt-4">
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium text-gray-100">模型配置</div>
-              {cfg.anthropic_model.source === "override" && cfg.anthropic_model.value && (
+              {settings.anthropic_model && (
                 <button
                   type="button"
                   onClick={() =>
@@ -385,42 +427,42 @@ export function AgentConfigTab({ data, onSaved, onDirtyChange, visible }: AgentC
                       key: "haikuModel" as const,
                       label: "Haiku 模型",
                       placeholder: "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-                      cfgField: cfg.anthropic_default_haiku_model,
+                      settingsValue: settings.anthropic_default_haiku_model,
                       patchKey: "anthropic_default_haiku_model" as const,
                     },
                     {
                       key: "opusModel" as const,
                       label: "Opus 模型",
                       placeholder: "ANTHROPIC_DEFAULT_OPUS_MODEL",
-                      cfgField: cfg.anthropic_default_opus_model,
+                      settingsValue: settings.anthropic_default_opus_model,
                       patchKey: "anthropic_default_opus_model" as const,
                     },
                     {
                       key: "sonnetModel" as const,
                       label: "Sonnet 模型",
                       placeholder: "ANTHROPIC_DEFAULT_SONNET_MODEL",
-                      cfgField: cfg.anthropic_default_sonnet_model,
+                      settingsValue: settings.anthropic_default_sonnet_model,
                       patchKey: "anthropic_default_sonnet_model" as const,
                     },
                     {
                       key: "subagentModel" as const,
                       label: "子 Agent 模型",
                       placeholder: "CLAUDE_CODE_SUBAGENT_MODEL",
-                      cfgField: cfg.claude_code_subagent_model,
+                      settingsValue: settings.claude_code_subagent_model,
                       patchKey: "claude_code_subagent_model" as const,
                     },
                   ] as const
-                ).map(({ key, label, placeholder, cfgField, patchKey }) => (
+                ).map(({ key, label, placeholder, settingsValue, patchKey }) => (
                   <div key={key} className={cardClassName}>
                     <div className="flex items-center justify-between">
                       <div className="text-sm font-medium text-gray-100">{label}</div>
-                      {cfgField.source === "override" && cfgField.value && (
+                      {settingsValue && (
                         <button
                           type="button"
                           onClick={() =>
                             void handleClearField(
                               patchKey,
-                              { [patchKey]: "" } as SystemConfigPatch,
+                              { [patchKey]: "" } as SystemConfigPatchNew,
                               label,
                             )
                           }

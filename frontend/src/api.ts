@@ -23,6 +23,8 @@ import type {
   ProjectEventSnapshotPayload,
   GetSystemConfigResponse,
   SystemConfigPatch,
+  GetSystemConfigResponseNew,
+  SystemConfigPatchNew,
   SystemConnectionTestRequest,
   SystemConnectionTestResponse,
   ApiKeyInfo,
@@ -236,6 +238,21 @@ class API {
   static async updateSystemConfig(
     patch: SystemConfigPatch,
   ): Promise<GetSystemConfigResponse> {
+    return this.request("/system/config", {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /** 获取系统配置（新版 provider-management API，返回 settings 结构） */
+  static async getSystemConfigNew(): Promise<GetSystemConfigResponseNew> {
+    return this.request("/system/config");
+  }
+
+  /** 更新系统配置（新版 provider-management API） */
+  static async updateSystemConfigNew(
+    patch: SystemConfigPatchNew,
+  ): Promise<GetSystemConfigResponseNew> {
     return this.request("/system/config", {
       method: "PATCH",
       body: JSON.stringify(patch),
