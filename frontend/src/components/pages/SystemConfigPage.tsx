@@ -7,8 +7,7 @@ import { useConfigStatusStore } from "@/stores/config-status-store";
 import type { GetSystemConfigResponse } from "@/types";
 import { ApiKeysTab } from "./ApiKeysTab";
 import { AgentConfigTab } from "./AgentConfigTab";
-import { AdvancedConfigTab } from "./AdvancedConfigTab";
-import { MediaConfigTab } from "./MediaConfigTab";
+import { MediaModelSection } from "./settings/MediaModelSection";
 import { ProviderSection } from "./ProviderSection";
 
 // ---------------------------------------------------------------------------
@@ -93,8 +92,6 @@ export function SystemConfigPage() {
 
   // Stable callbacks (won't change on re-render)
   const onAgentDirty = useRef(makeOnDirtyChange("agent")).current;
-  const onMediaDirty = useRef(makeOnDirtyChange("media")).current;
-  const onAdvancedDirty = useRef(makeOnDirtyChange("advanced")).current;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -281,14 +278,7 @@ export function SystemConfigPage() {
             />
           )}
           {activeSection === "providers" && <ProviderSection />}
-          {activeSection === "media" && (
-            <MediaConfigTab
-              data={data}
-              onSaved={handleSaved}
-              onDirtyChange={onMediaDirty}
-              visible={true}
-            />
-          )}
+          {activeSection === "media" && <MediaModelSection />}
           {activeSection === "usage" && (
             <div className="px-6 py-8 text-gray-400">用量统计 (placeholder)</div>
           )}
