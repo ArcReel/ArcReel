@@ -348,7 +348,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           aria-label="设置"
         >
           <Settings className="h-4 w-4" />
-          {!isConfigComplete && (
+          {!isConfigComplete && !currentProjectName && (
             <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500" aria-label="配置不完整" />
           )}
         </button>
