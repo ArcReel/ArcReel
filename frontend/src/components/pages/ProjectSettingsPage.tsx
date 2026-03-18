@@ -29,6 +29,7 @@ export function ProjectSettingsPage() {
   // "" means "follow global default"
   const [videoBackend, setVideoBackend] = useState<string>("");
   const [imageBackend, setImageBackend] = useState<string>("");
+  const [audioOverride, setAudioOverride] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
@@ -51,6 +52,8 @@ export function ProjectSettingsPage() {
       const project = res.project as unknown as Record<string, unknown>;
       setVideoBackend((project.video_backend as string | undefined) ?? "");
       setImageBackend((project.image_backend as string | undefined) ?? "");
+      const rawAudio = project.video_generate_audio;
+      setAudioOverride(typeof rawAudio === "boolean" ? rawAudio : null);
     });
   }, [projectName]);
 
@@ -67,6 +70,7 @@ export function ProjectSettingsPage() {
       await API.updateProject(projectName, {
         video_backend: videoBackend || undefined,
         image_backend: imageBackend || undefined,
+        video_generate_audio: audioOverride,
       } as any);
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 2000);
@@ -75,7 +79,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [videoBackend, imageBackend, projectName]);
+  }, [videoBackend, imageBackend, audioOverride, projectName]);
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 overflow-y-auto">
@@ -131,6 +135,28 @@ export function ProjectSettingsPage() {
                   globalDefaults.image ? `当前全局: ${globalDefaults.image}` : undefined
                 }
               />
+            </div>
+
+            {/* Audio override */}
+            <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
+              <div className="mb-3 text-sm font-medium text-gray-100">生成音频</div>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 text-sm text-gray-300">
+                  <input type="radio" name="audio" value="" checked={audioOverride === null}
+                    onChange={() => setAudioOverride(null)} />
+                  跟随全局默认
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-300">
+                  <input type="radio" name="audio" value="true" checked={audioOverride === true}
+                    onChange={() => setAudioOverride(true)} />
+                  开启
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-300">
+                  <input type="radio" name="audio" value="false" checked={audioOverride === false}
+                    onChange={() => setAudioOverride(false)} />
+                  关闭
+                </label>
+              </div>
             </div>
           </>
         )}

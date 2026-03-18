@@ -61,6 +61,9 @@ class UpdateProjectRequest(BaseModel):
     style: Optional[str] = None
     content_mode: Optional[str] = None
     aspect_ratio: Optional[dict] = None
+    video_backend: Optional[str] = None
+    image_backend: Optional[str] = None
+    video_generate_audio: Optional[bool] = None
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -346,6 +349,21 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: Annotated[
             project["title"] = req.title
         if req.style is not None:
             project["style"] = req.style
+        if "video_backend" in req.model_fields_set:
+            if req.video_backend:
+                project["video_backend"] = req.video_backend
+            else:
+                project.pop("video_backend", None)
+        if "image_backend" in req.model_fields_set:
+            if req.image_backend:
+                project["image_backend"] = req.image_backend
+            else:
+                project.pop("image_backend", None)
+        if "video_generate_audio" in req.model_fields_set:
+            if req.video_generate_audio is None:
+                project.pop("video_generate_audio", None)
+            else:
+                project["video_generate_audio"] = req.video_generate_audio
 
         with project_change_source("webui"):
             manager.save_project(name, project)
