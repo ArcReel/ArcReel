@@ -10,6 +10,7 @@ from typing import Optional, Protocol, Set
 
 PROVIDER_GEMINI = "gemini"
 PROVIDER_SEEDANCE = "seedance"
+PROVIDER_GROK = "grok"
 
 
 class VideoCapability(str, Enum):
