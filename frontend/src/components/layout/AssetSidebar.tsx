@@ -10,7 +10,6 @@ import {
   Circle,
   User,
   LayoutDashboard,
-  Settings,
   Upload,
   X,
 } from "lucide-react";
@@ -444,20 +443,6 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
           </ul>
         )}
       </CollapsibleSection>
-
-      {/* ---- Spacer ---- */}
-      <div className="flex-1" />
-
-      {/* ---- Project Settings ---- */}
-      <div className="mx-3 border-t border-gray-800" />
-      <button
-        type="button"
-        onClick={() => setLocation(`~/app/projects/${encodeURIComponent(projectName)}/settings`)}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-gray-400 transition-colors hover:bg-gray-800/50 hover:text-gray-200"
-      >
-        <Settings className="h-4 w-4 shrink-0" />
-        <span>项目设置</span>
-      </button>
     </aside>
   );
 }
