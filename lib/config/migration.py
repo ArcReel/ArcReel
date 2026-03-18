@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
+from lib.system_config import resolve_vertex_credentials_path
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,12 @@ async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
         value = overrides.get(json_key)
         if value is not None:
             await provider_repo.set(provider, config_key, str(value), is_secret=is_secret)
+
+    # 1b. Vertex credentials — detect existing file
+    project_root = json_path.parent.parent  # projects/.system_config.json → project root
+    vertex_cred_path = resolve_vertex_credentials_path(project_root)
+    if vertex_cred_path and vertex_cred_path.exists():
+        await provider_repo.set("gemini-vertex", "credentials_path", str(vertex_cred_path), is_secret=False)
 
     # 2. Gemini rate limit keys → both aistudio and vertex
     for json_key, config_key in _GEMINI_RATE_KEYS:
