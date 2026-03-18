@@ -18,7 +18,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from lib import PROJECT_ROOT
-from lib.db import init_db, close_db
+from lib.db import init_db, close_db, async_session_factory
 from lib.logging_config import setup_logging
 
 from lib.generation_worker import GenerationWorker
@@ -54,6 +54,15 @@ async def lifespan(app: FastAPI):
 
     # Run Alembic migrations (auto-creates tables on first start)
     await init_db()
+
+    # Migrate legacy .system_config.json → DB (no-op if file doesn't exist or already migrated)
+    try:
+        from lib.config.migration import migrate_json_to_db
+        json_path = PROJECT_ROOT / "projects" / ".system_config.json"
+        async with async_session_factory() as session:
+            await migrate_json_to_db(session, json_path)
+    except Exception as exc:
+        logger.warning("JSON→DB config migration failed (non-fatal): %s", exc)
 
     # 修复存量项目的 agent_runtime 软连接
     from lib.project_manager import ProjectManager

@@ -1,9 +1,12 @@
 """
 Global system configuration manager.
 
-Stores WebUI-managed overrides in projects/.system_config.json (gitignored) and
-applies them to process environment variables so changes take effect without
-restarting services.
+.. deprecated::
+    SystemConfigManager and related functions are deprecated. Configuration is
+    now stored in the database via lib.config (ConfigService + repositories).
+    JSON migration is handled automatically at startup by lib.config.migration.
+    This module is retained for utility functions (parse_bool_env,
+    resolve_vertex_credentials_path) and for test backward-compatibility only.
 
 This module intentionally avoids importing lib/__init__.py to prevent circular
 imports during early environment initialization.
@@ -36,7 +39,17 @@ def _project_root_key(project_root: Path) -> str:
 
 
 def get_system_config_manager(project_root: Path) -> "SystemConfigManager":
-    """Return a cached SystemConfigManager for *project_root*."""
+    """Return a cached SystemConfigManager for *project_root*.
+
+    .. deprecated::
+        Use lib.config.service.ConfigService with a DB session instead.
+    """
+    import warnings
+    warnings.warn(
+        "get_system_config_manager() is deprecated. Use lib.config.service.ConfigService instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     key = _project_root_key(project_root)
     with _MANAGERS_LOCK:
         existing = _MANAGERS.get(key)
@@ -48,10 +61,27 @@ def get_system_config_manager(project_root: Path) -> "SystemConfigManager":
 
 
 def init_and_apply_system_config(project_root: Path) -> "SystemConfigManager":
-    """Initialize (cached) manager and apply overrides to the process env."""
-    manager = get_system_config_manager(project_root)
-    manager.apply()
-    return manager
+    """Initialize (cached) manager and apply overrides to the process env.
+
+    .. deprecated::
+        Use lib.config.migration.migrate_json_to_db() at startup instead.
+        The app lifespan in server/app.py handles this automatically.
+    """
+    import warnings
+    warnings.warn(
+        "init_and_apply_system_config() is deprecated. JSON→DB migration is now "
+        "handled automatically at app startup via lib.config.migration.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    key = _project_root_key(project_root)
+    with _MANAGERS_LOCK:
+        existing = _MANAGERS.get(key)
+        if existing is None:
+            existing = SystemConfigManager(project_root=project_root)
+            _MANAGERS[key] = existing
+    existing.apply()
+    return existing
 
 
 def _iso_now_millis() -> str:
@@ -152,7 +182,12 @@ def resolve_vertex_credentials_path(project_root: Path) -> Optional[Path]:
 
 
 class SystemConfigManager:
-    """Manages global system configuration overrides and env application."""
+    """Manages global system configuration overrides and env application.
+
+    .. deprecated::
+        Use lib.config.service.ConfigService with a DB session instead.
+        This class is retained for backward-compatibility with existing tests only.
+    """
 
     _ENV_KEYS = (
         "GEMINI_IMAGE_BACKEND",
