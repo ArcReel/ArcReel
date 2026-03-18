@@ -144,6 +144,7 @@ class TestSeedanceGenerate:
                 output_path=output,
                 start_image=frame,
                 generate_audio=True,
+                project_name="demo",
             )
             result = await backend.generate(request)
         finally:
@@ -227,4 +228,4 @@ class TestSeedanceGenerate:
     def test_missing_file_service_url_raises(self, backend):
         backend._file_service_base_url = ""
         with pytest.raises(ValueError, match="FILE_SERVICE_BASE_URL"):
-            backend._get_image_url(Path("/tmp/test.png"))
+            backend._get_image_url(Path("/tmp/test.png"), "demo")

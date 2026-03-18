@@ -414,6 +414,7 @@ class MediaGenerator:
                     start_image=Path(start_image) if isinstance(start_image, (str, Path)) else None,
                     generate_audio=effective_generate_audio,
                     negative_prompt=negative_prompt,
+                    project_name=self.project_name,
                     service_tier=version_metadata.get("service_tier", "default"),
                     seed=version_metadata.get("seed"),
                 )
@@ -561,6 +562,7 @@ class MediaGenerator:
                     start_image=Path(start_image) if isinstance(start_image, (str, Path)) else None,
                     generate_audio=effective_generate_audio,
                     negative_prompt=negative_prompt,
+                    project_name=self.project_name,
                     service_tier=version_metadata.get("service_tier", "default"),
                     seed=version_metadata.get("seed"),
                 )

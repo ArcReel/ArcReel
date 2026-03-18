@@ -33,6 +33,9 @@ class VideoGenerationRequest:
     # Veo 特有
     negative_prompt: Optional[str] = None
 
+    # 项目上下文（用于构建文件服务 URL 等）
+    project_name: Optional[str] = None
+
     # Seedance 特有
     service_tier: str = "default"
     seed: Optional[int] = None
