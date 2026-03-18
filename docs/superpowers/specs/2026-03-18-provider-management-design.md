@@ -24,28 +24,28 @@ PROVIDER_REGISTRY = {
         display_name="Gemini AI Studio",
         media_types=["video", "image"],
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_rpm", "video_rpm", "request_gap"],
+        optional_keys=["base_url", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
         secret_keys=["api_key"],
     ),
     "gemini-vertex": ProviderMeta(
         display_name="Gemini Vertex AI",
         media_types=["video", "image"],
         required_keys=["credentials_path"],
-        optional_keys=["gcs_bucket", "image_rpm", "video_rpm", "request_gap"],
+        optional_keys=["gcs_bucket", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
         secret_keys=[],
     ),
     "seedance": ProviderMeta(
         display_name="Seedance",
         media_types=["video"],
         required_keys=["api_key"],
-        optional_keys=["file_service_base_url"],
+        optional_keys=["file_service_base_url", "video_rpm", "request_gap", "video_max_workers"],
         secret_keys=["api_key"],
     ),
     "grok": ProviderMeta(
         display_name="Grok",
         media_types=["video"],
         required_keys=["api_key"],
-        optional_keys=[],
+        optional_keys=["video_rpm", "request_gap", "video_max_workers"],
         secret_keys=["api_key"],
     ),
 }
@@ -165,11 +165,11 @@ class ProviderStatus:
 | `anthropic_default_opus_model` | system_setting | anthropic_default_opus_model |
 | `anthropic_default_sonnet_model` | system_setting | anthropic_default_sonnet_model |
 | `claude_code_subagent_model` | system_setting | claude_code_subagent_model |
-| `gemini_image_rpm` | provider_config | gemini-aistudio / image_rpm 及 gemini-vertex / image_rpm（Gemini 专属限流） |
-| `gemini_video_rpm` | provider_config | gemini-aistudio / video_rpm 及 gemini-vertex / video_rpm（Gemini 专属限流） |
-| `gemini_request_gap` | provider_config | gemini-aistudio / request_gap 及 gemini-vertex / request_gap（Gemini 专属最小请求间隔） |
-| `image_max_workers` | system_setting | image_max_workers（全局并发通道数，不区分供应商） |
-| `video_max_workers` | system_setting | video_max_workers（全局并发通道数，不区分供应商） |
+| `gemini_image_rpm` | provider_config | gemini-aistudio / image_rpm 及 gemini-vertex / image_rpm |
+| `gemini_video_rpm` | provider_config | gemini-aistudio / video_rpm 及 gemini-vertex / video_rpm |
+| `gemini_request_gap` | provider_config | gemini-aistudio / request_gap 及 gemini-vertex / request_gap |
+| `image_max_workers` | provider_config | gemini-aistudio / image_max_workers 及 gemini-vertex / image_max_workers |
+| `video_max_workers` | provider_config | gemini-aistudio / video_max_workers 及 gemini-vertex / video_max_workers |
 | 其他未列出的 override 键 | system_setting | 原键名直接写入 |
 
 ### 2.3 迁移完成
@@ -324,7 +324,7 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 | 路由 | 职责 | 对应前端栏位 |
 |---|---|---|
 | `/api/v1/providers` | 供应商 CRUD、连接测试 | 供应商 |
-| `/api/v1/system/config` | 全局默认设置 | 智能体 + 图片/视频 + 高级设置 |
+| `/api/v1/system/config` | 全局默认设置 | 智能体 + 图片/视频 |
 | `/api/v1/usage/stats` | 用量统计查询 | 用量统计 |
 
 ## 4. 前端设计
@@ -341,7 +341,6 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 │ 🔌 供应商 │                                  │
 │ 🎬 图片/视频│                                │
 │ 📊 用量统计│                                 │
-│ ⚙️ 高级设置│                                 │
 │          │                                  │
 └──────────┴──────────────────────────────────┘
 ```
@@ -360,7 +359,6 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 │ 🎬 图片/  │ Seedance   🟢│                   │
 │    视频   │ Grok       🔴│ API Key [*****]    │
 │ 📊 用量   │              │ Base URL [     ]   │
-│ ⚙️ 高级   │              │                   │
 │          │              │ [测试连接]          │
 └──────────┴──────────────┴───────────────────┘
 ```
@@ -369,6 +367,7 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 - 状态指示器：🟢 ready / 🔴 unconfigured / 🟡 error
 - 敏感字段掩码显示，支持显示/隐藏切换
 - 连接测试按钮内联在详情底部
+- 高级配置区（折叠）：并发数（image_max_workers, video_max_workers）、限流（rpm, request_gap），按该供应商支持的 media_types 动态展示
 
 ### 4.3 图片/视频栏位 — 分组下拉选择
 
@@ -400,11 +399,7 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 
 保留现有 `AgentConfigTab` 内容（Anthropic API Key、Base URL），适配新的 API 响应结构（从 system_setting 读取）。
 
-### 4.6 高级设置栏位
-
-保留现有 `AdvancedConfigTab` 内容，适配新的 API 响应结构。
-
-### 4.7 通用组件
+### 4.6 通用组件
 
 **`ProviderModelSelect`** — 分组下拉选择组件
 
@@ -459,7 +454,7 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 | `server/routers/generate.py` | 生成入队时的配置读取改走 ConfigService |
 | `server/auth.py` | 认证相关配置改走 ConfigService |
 | `server/agent_runtime/session_manager.py` | Agent 相关配置改走 ConfigService |
-| `lib/generation_worker.py` | Worker 初始化时的速率限制 / 并发配置改走 ConfigService |
+| `lib/generation_worker.py` | **架构重构**：从全局 2 通道（image/video 各 N workers）改为按供应商分池调度，每个供应商独立并发数和限流。任务入队时携带 provider_id，Worker 根据 provider 分配到对应池 |
 | `lib/usage_tracker.py` / `server/routers/usage.py` | 扩展筛选参数 |
 
 ### 6.2 前端
@@ -469,7 +464,7 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 | `SystemConfigPage.tsx` | Tab → 侧边栏布局 |
 | `MediaConfigTab.tsx` | 废弃，拆分为 `ProviderSection.tsx` + `MediaModelSection.tsx` |
 | `AgentConfigTab.tsx` | 保留，适配新 API |
-| `AdvancedConfigTab.tsx` | 保留，适配新 API |
+| `AdvancedConfigTab.tsx` | 废弃，并发/限流配置移入供应商详情 |
 | `ApiKeysTab.tsx` | 废弃，合并到供应商配置 |
 | `config-status-store.ts` | 改用 `/api/v1/providers` 判断配置状态 |
 | 新增 `UsageStatsSection.tsx` | 用量统计栏位 |
