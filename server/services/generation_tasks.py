@@ -422,7 +422,8 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
     }
     provider_name = payload.get("video_provider") or project.get("video_provider") or os.environ.get("DEFAULT_VIDEO_PROVIDER", PROVIDER_GEMINI)
     provider_settings = payload.get("video_provider_settings", {})
-    model_name = provider_settings.get("model") or (generator._video_backend.model if generator._video_backend else None)
+    video_backend = getattr(generator, "_video_backend", None)
+    model_name = provider_settings.get("model") or (video_backend.model if video_backend else None)
     video_model_settings = project.get("video_model_settings", {})
     model_settings = video_model_settings.get(model_name, {}) if model_name else {}
     resolution = model_settings.get("resolution") or _DEFAULT_RESOLUTION.get(provider_name, "1080p")
