@@ -35,7 +35,7 @@ def backend(mock_ark_client):
 
 def _mock_httpx_stream(data: bytes = b"fake-mp4-data"):
     """Create a patched httpx mock that supports async stream context manager."""
-    patcher = patch("lib.video_backends.seedance.httpx")
+    patcher = patch("lib.video_backends.base.httpx")
     mock_httpx = patcher.start()
 
     mock_stream_response = MagicMock()
