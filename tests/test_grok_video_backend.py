@@ -79,7 +79,7 @@ class TestGrokVideoBackend:
             mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
             mock_http_client.__aexit__ = AsyncMock(return_value=False)
 
-            with patch("lib.video_backends.grok.httpx.AsyncClient", return_value=mock_http_client):
+            with patch("lib.video_backends.base.httpx.AsyncClient", return_value=mock_http_client):
                 request = VideoGenerationRequest(
                     prompt="A cat walking",
                     output_path=output_path,
@@ -134,7 +134,7 @@ class TestGrokVideoBackend:
             mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
             mock_http_client.__aexit__ = AsyncMock(return_value=False)
 
-            with patch("lib.video_backends.grok.httpx.AsyncClient", return_value=mock_http_client):
+            with patch("lib.video_backends.base.httpx.AsyncClient", return_value=mock_http_client):
                 request = VideoGenerationRequest(
                     prompt="Animate this scene",
                     output_path=output_path,

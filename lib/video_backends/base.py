@@ -7,10 +7,32 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional, Protocol, Set
 
+import httpx
+
 
 PROVIDER_GEMINI = "gemini"
 PROVIDER_SEEDANCE = "seedance"
 PROVIDER_GROK = "grok"
+
+# 图片后缀 → MIME 类型映射（多个后端共用）
+IMAGE_MIME_TYPES: dict[str, str] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
+async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> None:
+    """从 URL 流式下载视频到本地文件。"""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    async with httpx.AsyncClient() as http_client:
+        async with http_client.stream("GET", url, timeout=timeout) as resp:
+            resp.raise_for_status()
+            with open(output_path, "wb") as f:
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    f.write(chunk)
 
 
 class VideoCapability(str, Enum):

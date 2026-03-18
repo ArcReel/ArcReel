@@ -8,25 +8,18 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Optional, Set
 
-import httpx
 import xai_sdk
 
 from lib.video_backends.base import (
+    IMAGE_MIME_TYPES,
     PROVIDER_GROK,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
+    download_video,
 )
 
 logger = logging.getLogger(__name__)
-
-_MIME_TYPES = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-}
 
 
 class GrokVideoBackend:
@@ -80,7 +73,7 @@ class GrokVideoBackend:
         if request.start_image and Path(request.start_image).exists():
             image_path = Path(request.start_image)
             suffix = image_path.suffix.lower()
-            mime_type = _MIME_TYPES.get(suffix, "image/png")
+            mime_type = IMAGE_MIME_TYPES.get(suffix, "image/png")
             image_data = image_path.read_bytes()
             b64 = base64.b64encode(image_data).decode("ascii")
             generate_kwargs["image_url"] = f"data:{mime_type};base64,{b64}"
@@ -91,14 +84,7 @@ class GrokVideoBackend:
         video_url = response.url
         actual_duration = getattr(response, "duration", request.duration_seconds)
 
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        async with httpx.AsyncClient() as http_client:
-            async with http_client.stream("GET", video_url, timeout=120) as resp:
-                resp.raise_for_status()
-                with open(request.output_path, "wb") as f:
-                    async for chunk in resp.aiter_bytes(chunk_size=65536):
-                        f.write(chunk)
+        await download_video(video_url, request.output_path)
 
         logger.info("Grok 视频下载完成: %s", request.output_path)
 

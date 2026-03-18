@@ -5,6 +5,7 @@ Task execution service for queued generation jobs.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -37,6 +38,13 @@ logger = logging.getLogger(__name__)
 # 按 (provider_name, model) 缓存 VideoBackend 实例，避免每次任务重建 API 客户端
 _backend_cache: dict[tuple[str, str | None], Any] = {}
 
+# 各供应商默认视频分辨率
+_DEFAULT_VIDEO_RESOLUTION: dict[str, str] = {
+    PROVIDER_GEMINI: "1080p",
+    PROVIDER_SEEDANCE: "720p",
+    PROVIDER_GROK: "720p",
+}
+
 
 def get_project_manager() -> ProjectManager:
     return pm
@@ -44,7 +52,6 @@ def get_project_manager() -> ProjectManager:
 
 def _get_or_create_video_backend(provider_name: str, provider_settings: dict):
     """获取或创建 VideoBackend 实例（带缓存）。"""
-    import os
     from lib.video_backends import create_backend
 
     cache_key = (provider_name, provider_settings.get("model"))
@@ -72,8 +79,6 @@ def _get_or_create_video_backend(provider_name: str, provider_settings: dict):
 
 def get_media_generator(project_name: str, payload: dict | None = None) -> MediaGenerator:
     """创建 MediaGenerator。仅当 payload 包含视频配置时才初始化视频后端。"""
-    import os
-
     project_path = get_project_manager().get_project_path(project_name)
 
     # 仅在有 payload（即视频任务）时创建 VideoBackend，避免图片任务因视频配置缺失而报错
@@ -414,18 +419,12 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
     # 模型级分辨率：从 video_model_settings.{model}.resolution 读取
-    import os
-    _DEFAULT_RESOLUTION = {
-        PROVIDER_GEMINI: "1080p",
-        PROVIDER_SEEDANCE: "720p",
-        PROVIDER_GROK: "720p",
-    }
     provider_name = payload.get("video_provider") or project.get("video_provider") or os.environ.get("DEFAULT_VIDEO_PROVIDER", PROVIDER_GEMINI)
     provider_settings = payload.get("video_provider_settings", {})
     model_name = provider_settings.get("model")
     video_model_settings = project.get("video_model_settings", {})
     model_settings = video_model_settings.get(model_name, {}) if model_name else {}
-    resolution = model_settings.get("resolution") or _DEFAULT_RESOLUTION.get(provider_name, "1080p")
+    resolution = model_settings.get("resolution") or _DEFAULT_VIDEO_RESOLUTION.get(provider_name, "1080p")
 
     _, version, _, video_uri = await generator.generate_video_async(
         prompt=prompt_text,

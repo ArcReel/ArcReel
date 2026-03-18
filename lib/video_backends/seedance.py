@@ -8,13 +8,12 @@ import os
 from pathlib import Path
 from typing import Optional, Set
 
-import httpx
-
 from lib.video_backends.base import (
     PROVIDER_SEEDANCE,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
+    download_video,
 )
 
 logger = logging.getLogger(__name__)
@@ -134,14 +133,7 @@ class SeedanceVideoBackend:
 
         # 5. Download video
         video_url = result.content.video_url
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        async with httpx.AsyncClient() as http_client:
-            async with http_client.stream("GET", video_url, timeout=120) as response:
-                response.raise_for_status()
-                with open(request.output_path, "wb") as f:
-                    async for chunk in response.aiter_bytes(chunk_size=65536):
-                        f.write(chunk)
+        await download_video(video_url, request.output_path)
 
         # 6. Extract result metadata
         seed = getattr(result, "seed", None)
