@@ -27,7 +27,7 @@ from lib.storyboard_sequence import (
     resolve_previous_storyboard_path,
 )
 from lib.thumbnail import extract_video_thumbnail
-from lib.video_backends.base import PROVIDER_GEMINI, PROVIDER_SEEDANCE
+from lib.video_backends.base import PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_SEEDANCE
 
 
 pm = ProjectManager(PROJECT_ROOT / "projects")
@@ -60,6 +60,9 @@ def _get_or_create_video_backend(provider_name: str, provider_settings: dict):
     elif provider_name == PROVIDER_SEEDANCE:
         kwargs["api_key"] = os.environ.get("ARK_API_KEY")
         kwargs["file_service_base_url"] = os.environ.get("FILE_SERVICE_BASE_URL", "")
+        kwargs["model"] = provider_settings.get("model")
+    elif provider_name == PROVIDER_GROK:
+        kwargs["api_key"] = os.environ.get("XAI_API_KEY")
         kwargs["model"] = provider_settings.get("model")
 
     backend = create_backend(provider_name, **kwargs)
@@ -410,6 +413,20 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
     seed = payload.get("seed")
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
+    # 模型级分辨率：从 video_model_settings.{model}.resolution 读取
+    import os
+    _DEFAULT_RESOLUTION = {
+        PROVIDER_GEMINI: "1080p",
+        PROVIDER_SEEDANCE: "720p",
+        PROVIDER_GROK: "720p",
+    }
+    provider_name = payload.get("video_provider") or project.get("video_provider") or os.environ.get("DEFAULT_VIDEO_PROVIDER", PROVIDER_GEMINI)
+    provider_settings = payload.get("video_provider_settings", {})
+    model_name = provider_settings.get("model") or (generator._video_backend.model if generator._video_backend else None)
+    video_model_settings = project.get("video_model_settings", {})
+    model_settings = video_model_settings.get(model_name, {}) if model_name else {}
+    resolution = model_settings.get("resolution") or _DEFAULT_RESOLUTION.get(provider_name, "1080p")
+
     _, version, _, video_uri = await generator.generate_video_async(
         prompt=prompt_text,
         resource_type="videos",
@@ -417,6 +434,7 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
         start_image=storyboard_file,
         aspect_ratio=aspect_ratio,
         duration_seconds=duration_seconds,
+        resolution=resolution,
         seed=seed,
         service_tier=service_tier,
     )
