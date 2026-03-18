@@ -50,7 +50,7 @@ class TestListProviders:
             return_value=[
                 ProviderStatus(
                     name="gemini-aistudio",
-                    display_name="Gemini AI Studio",
+                    display_name="AI Studio",
                     status="ready",
                     media_types=["video", "image"],
                     capabilities=["text_to_video", "image_to_video"],
@@ -94,7 +94,7 @@ class TestListProviders:
             resp = client.get("/api/v1/providers")
         first = resp.json()["providers"][0]
         assert first["id"] == "gemini-aistudio"
-        assert first["display_name"] == "Gemini AI Studio"
+        assert first["display_name"] == "AI Studio"
         assert first["status"] == "ready"
         assert "video" in first["media_types"]
         assert first["missing_keys"] == []
@@ -142,7 +142,7 @@ class TestGetProviderConfig:
             resp = client.get("/api/v1/providers/gemini-aistudio/config")
         body = resp.json()
         assert body["id"] == "gemini-aistudio"
-        assert body["display_name"] == "Gemini AI Studio"
+        assert body["display_name"] == "AI Studio"
         assert body["status"] == "ready"
         assert isinstance(body["fields"], list)
 

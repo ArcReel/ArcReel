@@ -6,16 +6,25 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import os
+from pathlib import Path
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
+from lib import PROJECT_ROOT
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService
 from lib.db import get_async_session
+
+logger = logging.getLogger(__name__)
+
+MAX_VERTEX_CREDENTIALS_BYTES = 1024 * 1024  # 1 MiB
 
 router = APIRouter(prefix="/providers", tags=["供应商管理"])
 
@@ -207,6 +216,51 @@ async def patch_provider_config(
 
     await session.commit()
     return Response(status_code=204)
+
+
+@router.post("/gemini-vertex/credentials")
+async def upload_vertex_credentials(
+    session: AsyncSession = Depends(get_async_session),
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    """上传 Vertex AI 服务账号 JSON 凭证文件。"""
+    try:
+        contents = await file.read(MAX_VERTEX_CREDENTIALS_BYTES + 1)
+    except Exception:
+        raise HTTPException(status_code=400, detail="读取上传文件失败")
+
+    if len(contents) > MAX_VERTEX_CREDENTIALS_BYTES:
+        raise HTTPException(status_code=413, detail="凭证文件过大")
+
+    try:
+        payload = json.loads(contents.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="无效的 JSON 凭证文件")
+
+    if not isinstance(payload, dict) or not payload.get("project_id"):
+        raise HTTPException(status_code=400, detail="凭证文件缺少 project_id")
+
+    # Save credentials file
+    dest = PROJECT_ROOT / "vertex_keys" / "vertex_credentials.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = dest.with_suffix(".tmp")
+    tmp_path.write_bytes(contents)
+    try:
+        os.chmod(tmp_path, 0o600)
+    except OSError:
+        pass
+    os.replace(tmp_path, dest)
+    try:
+        os.chmod(dest, 0o600)
+    except OSError:
+        pass
+
+    # Also store the path in provider_config so status becomes "ready"
+    svc = ConfigService(session)
+    await svc.set_provider_config("gemini-vertex", "credentials_path", str(dest))
+    await session.commit()
+
+    return {"ok": True, "filename": dest.name, "project_id": payload.get("project_id")}
 
 
 @router.post("/{provider_id}/test", response_model=ConnectionTestResponse)
