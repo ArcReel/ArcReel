@@ -1299,7 +1299,7 @@ class API {
 
   /** 获取指定 provider 的配置详情（含字段列表）。 */
   static async getProviderConfig(id: string): Promise<ProviderConfigDetail> {
-    return this.request(`/providers/${encodeURIComponent(id)}`);
+    return this.request(`/providers/${encodeURIComponent(id)}/config`);
   }
 
   /** 更新指定 provider 的配置字段。 */
@@ -1307,7 +1307,7 @@ class API {
     id: string,
     patch: Record<string, string | null>
   ): Promise<void> {
-    return this.request(`/providers/${encodeURIComponent(id)}`, {
+    return this.request(`/providers/${encodeURIComponent(id)}/config`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     });

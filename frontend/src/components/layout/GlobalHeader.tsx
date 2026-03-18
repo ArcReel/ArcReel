@@ -338,7 +338,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
         {/* Settings (placeholder) */}
         <button
           type="button"
-          onClick={() => setLocation("/app/settings")}
+          onClick={() => setLocation("~/app/settings")}
           className="relative rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
           title="设置"
           aria-label="设置"
