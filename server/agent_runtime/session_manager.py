@@ -254,9 +254,27 @@ class SessionManager:
         self._load_config()
 
     def _load_config(self) -> None:
-        """Load configuration from environment."""
+        """Load configuration from environment (sync fallback)."""
         max_turns_env = os.environ.get("ASSISTANT_MAX_TURNS", "").strip()
         self.max_turns = int(max_turns_env) if max_turns_env else None
+
+    async def refresh_config(self) -> None:
+        """Reload configuration from ConfigService (DB), falling back to env."""
+        try:
+            from lib.db import async_session_factory
+            from lib.config.service import ConfigService
+
+            async with async_session_factory() as session:
+                svc = ConfigService(session)
+                raw = await svc.get_setting("assistant_max_turns", "")
+                raw = raw.strip()
+                if raw:
+                    self.max_turns = int(raw)
+                    return
+        except Exception:
+            pass
+        # Fallback to env var
+        self._load_config()
 
     _PERSONA_PROMPT = """\
 ## 身份

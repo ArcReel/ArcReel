@@ -45,6 +45,14 @@ class MediaGenerator:
         project_path: Path,
         rate_limiter: Optional[RateLimiter] = None,
         video_backend=None,
+        *,
+        image_backend_type: Optional[str] = None,
+        video_backend_type: Optional[str] = None,
+        video_generate_audio: Optional[bool] = None,
+        gemini_api_key: Optional[str] = None,
+        gemini_base_url: Optional[str] = None,
+        gemini_image_model: Optional[str] = None,
+        gemini_video_model: Optional[str] = None,
     ):
         """
         初始化 MediaGenerator
@@ -53,18 +61,32 @@ class MediaGenerator:
             project_path: 项目根目录路径
             rate_limiter: 可选的限流器实例
             video_backend: 可选的 VideoBackend 实例（注入后将替代 GeminiClient 生成视频）
+            image_backend_type: 图片后端类型（aistudio/vertex），None 时从环境变量读取
+            video_backend_type: 视频后端类型（aistudio/vertex），None 时从环境变量读取
+            video_generate_audio: 是否生成音频（Vertex 模式），None 时从环境变量读取
+            gemini_api_key: Gemini API Key（透传给 GeminiClient）
+            gemini_base_url: Gemini Base URL（透传给 GeminiClient）
+            gemini_image_model: 图片模型名称（透传给 GeminiClient）
+            gemini_video_model: 视频模型名称（透传给 GeminiClient）
         """
         self.project_path = Path(project_path)
         self.project_name = self.project_path.name
         self._rate_limiter = rate_limiter
         self.image_backend = (
-            (os.environ.get("GEMINI_IMAGE_BACKEND") or "").strip().lower()
+            (image_backend_type or "").strip().lower()
+            or (os.environ.get("GEMINI_IMAGE_BACKEND") or "").strip().lower()
             or "aistudio"
         )
         self._gemini_video_backend_type = (
-            (os.environ.get("GEMINI_VIDEO_BACKEND") or "").strip().lower()
+            (video_backend_type or "").strip().lower()
+            or (os.environ.get("GEMINI_VIDEO_BACKEND") or "").strip().lower()
             or "aistudio"
         )
+        self._video_generate_audio = video_generate_audio
+        self._gemini_api_key = gemini_api_key
+        self._gemini_base_url = gemini_base_url
+        self._gemini_image_model = gemini_image_model
+        self._gemini_video_model = gemini_video_model
         self._video_backend = video_backend
         self._gemini_image: Optional[GeminiClient] = None
         self._gemini_video: Optional[GeminiClient] = None
@@ -90,16 +112,24 @@ class MediaGenerator:
     def _get_gemini_image(self) -> GeminiClient:
         if self._gemini_image is None:
             self._gemini_image = GeminiClient(
+                api_key=self._gemini_api_key,
                 rate_limiter=self._rate_limiter,
                 backend=self.image_backend,
+                base_url=self._gemini_base_url,
+                image_model=self._gemini_image_model,
+                video_model=self._gemini_video_model,
             )
         return self._gemini_image
 
     def _get_gemini_video(self) -> GeminiClient:
         if self._gemini_video is None:
             self._gemini_video = GeminiClient(
+                api_key=self._gemini_api_key,
                 rate_limiter=self._rate_limiter,
                 backend=self._gemini_video_backend_type,
+                base_url=self._gemini_base_url,
+                image_model=self._gemini_image_model,
+                video_model=self._gemini_video_model,
             )
         return self._gemini_video
 
@@ -114,6 +144,16 @@ class MediaGenerator:
         if normalized in {"0", "false", "f", "no", "n", "off"}:
             return False
         return default
+
+    def _resolve_video_generate_audio(self) -> bool:
+        """Resolve whether to generate audio for video.
+
+        Uses the explicit constructor param if provided, otherwise falls back
+        to the GEMINI_VIDEO_GENERATE_AUDIO environment variable.
+        """
+        if self._video_generate_audio is not None:
+            return self._video_generate_audio
+        return self._read_bool_env("GEMINI_VIDEO_GENERATE_AUDIO", True)
 
     def _get_output_path(self, resource_type: str, resource_id: str) -> Path:
         """
@@ -382,9 +422,7 @@ class MediaGenerator:
             video_client = self._get_gemini_video()
             model_name = video_client.VIDEO_MODEL
             provider_name = "gemini"
-            configured_generate_audio = self._read_bool_env(
-                "GEMINI_VIDEO_GENERATE_AUDIO", True
-            )
+            configured_generate_audio = self._resolve_video_generate_audio()
             effective_generate_audio = (
                 configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
             )
@@ -530,9 +568,7 @@ class MediaGenerator:
             video_client = self._get_gemini_video()
             model_name = video_client.VIDEO_MODEL
             provider_name = "gemini"
-            configured_generate_audio = self._read_bool_env(
-                "GEMINI_VIDEO_GENERATE_AUDIO", True
-            )
+            configured_generate_audio = self._resolve_video_generate_audio()
             effective_generate_audio = (
                 configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
             )

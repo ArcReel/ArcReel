@@ -201,8 +201,7 @@ class TestGeminiClientMore:
 
     @pytest.mark.asyncio
     async def test_rate_limiter_and_shared_limiter(self, monkeypatch):
-        limiter = RateLimiter({"m": 1})
-        monkeypatch.setenv("GEMINI_REQUEST_GAP", "0")
+        limiter = RateLimiter({"m": 1}, request_gap=0)
         time_values = iter([0.0, 0.0, 61.0, 61.0])
         monkeypatch.setattr(gemini_module.time, "time", lambda: next(time_values))
         monkeypatch.setattr(gemini_module.time, "sleep", lambda _s: None)
@@ -210,9 +209,8 @@ class TestGeminiClientMore:
         limiter.acquire("m")
         assert len(limiter.request_logs["m"]) == 1
 
-        limiter2 = RateLimiter({"m": 2})
+        limiter2 = RateLimiter({"m": 2}, request_gap=1)
         limiter2.request_logs["m"] = deque([0.0])
-        monkeypatch.setenv("GEMINI_REQUEST_GAP", "1")
         async_time_values = iter([0.2, 1.2])
         monkeypatch.setattr(gemini_module.time, "time", lambda: next(async_time_values))
 

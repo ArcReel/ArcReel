@@ -55,12 +55,14 @@ class RateLimiter:
     多模型滑动窗口限流器
     """
 
-    def __init__(self, limits_dict: Dict[str, int] = None):
+    def __init__(self, limits_dict: Dict[str, int] = None, *, request_gap: float = 3.1):
         """
         Args:
             limits_dict: {model_name: rpm} 字典。例如 {"gemini-3-pro-image-preview": 20}
+            request_gap: 最小请求间隔（秒），默认 3.1
         """
         self.limits = limits_dict or {}
+        self.request_gap = request_gap
         # 存储请求时间戳：{model_name: deque([timestamp1, timestamp2, ...])}
         self.request_logs: Dict[str, deque] = {}
         self.lock = threading.Lock()
@@ -92,7 +94,7 @@ class RateLimiter:
                 # 强制增加请求间隔（用户要求 > 3s）
                 # 即使获得了令牌，也要确保距离上一次请求至少 3s
                 # 获取最新的请求时间（可能是其他线程刚刚写入的）
-                min_gap = float(os.environ.get("GEMINI_REQUEST_GAP", 3.1))
+                min_gap = self.request_gap
                 if log:
                     last_request = log[-1]
                     gap = time.time() - last_request
@@ -136,7 +138,7 @@ class RateLimiter:
                 while log and now - log[0] > 60:
                     log.popleft()
 
-                min_gap = float(os.environ.get("GEMINI_REQUEST_GAP", 3.1))
+                min_gap = self.request_gap
                 wait_needed = 0
                 if log:
                     last_request = log[-1]
@@ -178,12 +180,21 @@ def _read_int_env(name: str, default: int) -> int:
         return default
 
 
-def _rate_limiter_limits_from_env() -> Dict[str, int]:
-    image_rpm = _read_int_env("GEMINI_IMAGE_RPM", 15)
-    video_rpm = _read_int_env("GEMINI_VIDEO_RPM", 10)
-
-    image_model = os.environ.get("GEMINI_IMAGE_MODEL", _SHARED_IMAGE_MODEL_NAME)
-    video_model = os.environ.get("GEMINI_VIDEO_MODEL", _SHARED_VIDEO_MODEL_NAME)
+def _rate_limiter_limits_from_env(
+    *,
+    image_rpm: Optional[int] = None,
+    video_rpm: Optional[int] = None,
+    image_model: Optional[str] = None,
+    video_model: Optional[str] = None,
+) -> Dict[str, int]:
+    if image_rpm is None:
+        image_rpm = _read_int_env("GEMINI_IMAGE_RPM", 15)
+    if video_rpm is None:
+        video_rpm = _read_int_env("GEMINI_VIDEO_RPM", 10)
+    if image_model is None:
+        image_model = os.environ.get("GEMINI_IMAGE_MODEL", _SHARED_IMAGE_MODEL_NAME)
+    if video_model is None:
+        video_model = os.environ.get("GEMINI_VIDEO_MODEL", _SHARED_VIDEO_MODEL_NAME)
 
     limits: Dict[str, int] = {}
     if image_rpm > 0:
@@ -193,13 +204,21 @@ def _rate_limiter_limits_from_env() -> Dict[str, int]:
     return limits
 
 
-def get_shared_rate_limiter() -> "RateLimiter":
+def get_shared_rate_limiter(
+    *,
+    image_rpm: Optional[int] = None,
+    video_rpm: Optional[int] = None,
+    image_model: Optional[str] = None,
+    video_model: Optional[str] = None,
+    request_gap: Optional[float] = None,
+) -> "RateLimiter":
     """
-    获取进程内共享的 RateLimiter（从环境变量读取配置）
+    获取进程内共享的 RateLimiter
 
-    - GEMINI_IMAGE_RPM / GEMINI_VIDEO_RPM：每分钟请求数限制
-    - 若 rpm <= 0：视为禁用该模型限流
-    - GEMINI_REQUEST_GAP：最小请求间隔（由 RateLimiter 在 acquire 时读取）
+    首次调用时根据参数或环境变量创建实例，后续调用返回同一实例。
+
+    - image_rpm / video_rpm：每分钟请求数限制（None 时从环境变量读取）
+    - request_gap：最小请求间隔（None 时从环境变量 GEMINI_REQUEST_GAP 读取，默认 3.1）
     """
     global _shared_rate_limiter
     if _shared_rate_limiter is not None:
@@ -209,24 +228,43 @@ def get_shared_rate_limiter() -> "RateLimiter":
         if _shared_rate_limiter is not None:
             return _shared_rate_limiter
 
-        limits = _rate_limiter_limits_from_env()
-        _shared_rate_limiter = RateLimiter(limits)
+        limits = _rate_limiter_limits_from_env(
+            image_rpm=image_rpm,
+            video_rpm=video_rpm,
+            image_model=image_model,
+            video_model=video_model,
+        )
+        if request_gap is None:
+            request_gap = float(os.environ.get("GEMINI_REQUEST_GAP", 3.1))
+        _shared_rate_limiter = RateLimiter(limits, request_gap=request_gap)
         return _shared_rate_limiter
 
 
-def refresh_shared_rate_limiter() -> "RateLimiter":
+def refresh_shared_rate_limiter(
+    *,
+    image_rpm: Optional[int] = None,
+    video_rpm: Optional[int] = None,
+    image_model: Optional[str] = None,
+    video_model: Optional[str] = None,
+    request_gap: Optional[float] = None,
+) -> "RateLimiter":
     """
     Refresh the process-wide shared RateLimiter in-place.
 
-    Updates model keys based on current environment variables:
-    - GEMINI_IMAGE_MODEL / GEMINI_VIDEO_MODEL
-    - GEMINI_IMAGE_RPM / GEMINI_VIDEO_RPM
+    Updates model keys and request_gap. Parameters default to env vars when None.
     """
     limiter = get_shared_rate_limiter()
-    new_limits = _rate_limiter_limits_from_env()
+    new_limits = _rate_limiter_limits_from_env(
+        image_rpm=image_rpm,
+        video_rpm=video_rpm,
+        image_model=image_model,
+        video_model=video_model,
+    )
 
     with limiter.lock:
         limiter.limits = new_limits
+        if request_gap is not None:
+            limiter.request_gap = request_gap
 
     return limiter
 
@@ -390,21 +428,27 @@ class GeminiClient:
         api_key: Optional[str] = None,
         rate_limiter: Optional[RateLimiter] = None,
         backend: Optional[str] = None,
+        *,
+        base_url: Optional[str] = None,
+        gcs_bucket: Optional[str] = None,
+        image_model: Optional[str] = None,
+        video_model: Optional[str] = None,
     ):
         """
         初始化 Gemini 客户端
 
         支持两种后端：
-        - AI Studio（默认）：使用 GEMINI_API_KEY
-        - Vertex AI：使用 GCP 项目和应用默认凭据
-
-        通过环境变量切换（或通过参数 backend 显式覆盖）：
-        - GEMINI_IMAGE_BACKEND / GEMINI_VIDEO_BACKEND（由配置页管理）
+        - AI Studio（默认）：使用 api_key
+        - Vertex AI：使用 GCP 项目和服务账号凭据
 
         Args:
             api_key: API 密钥（仅 AI Studio 模式），默认从环境变量 GEMINI_API_KEY 读取
             rate_limiter: 可选的限流器实例
-            backend: 可选的后端覆盖（aistudio/vertex）。
+            backend: 后端类型（aistudio/vertex），默认 aistudio
+            base_url: AI Studio 自定义 base URL（None 时从 GEMINI_BASE_URL 环境变量读取）
+            gcs_bucket: Vertex AI GCS bucket（None 时从 VERTEX_GCS_BUCKET 环境变量读取）
+            image_model: 图片模型名称（None 时从 GEMINI_IMAGE_MODEL 环境变量读取）
+            video_model: 视频模型名称（None 时从 GEMINI_VIDEO_MODEL 环境变量读取）
         """
         from google import genai
         from google.genai import types
@@ -441,8 +485,8 @@ class GeminiClient:
             if not self.project_id:
                 raise ValueError(f"凭证文件 {credentials_file} 中未找到 project_id")
 
-            # 读取 GCS bucket 配置（用于视频延长）
-            self.gcs_bucket = os.environ.get("VERTEX_GCS_BUCKET")
+            # 读取 GCS bucket 配置
+            self.gcs_bucket = gcs_bucket or os.environ.get("VERTEX_GCS_BUCKET")
 
             # 加载服务账号凭证并添加必要的 scopes
             VERTEX_SCOPES = [
@@ -469,19 +513,21 @@ class GeminiClient:
                     "请在 .env 文件中添加：GEMINI_API_KEY=your-api-key"
                 )
 
-            base_url = os.environ.get("GEMINI_BASE_URL", "").strip() or None
-            http_options = {"base_url": base_url} if base_url else None
+            effective_base_url = base_url
+            if effective_base_url is None:
+                effective_base_url = os.environ.get("GEMINI_BASE_URL", "").strip() or None
+            http_options = {"base_url": effective_base_url} if effective_base_url else None
             self.client = genai.Client(api_key=self.api_key, http_options=http_options)
-            if base_url:
-                logger.info("使用 AI Studio 后端（Base URL: %s）", base_url)
+            if effective_base_url:
+                logger.info("使用 AI Studio 后端（Base URL: %s）", effective_base_url)
             else:
                 logger.info("使用 AI Studio 后端")
 
         # 模型配置（两种后端使用相同的模型名）
-        self.IMAGE_MODEL = os.environ.get(
+        self.IMAGE_MODEL = image_model or os.environ.get(
             "GEMINI_IMAGE_MODEL", cost_calculator.DEFAULT_IMAGE_MODEL
         )
-        self.VIDEO_MODEL = os.environ.get(
+        self.VIDEO_MODEL = video_model or os.environ.get(
             "GEMINI_VIDEO_MODEL", cost_calculator.DEFAULT_VIDEO_MODEL
         )
 

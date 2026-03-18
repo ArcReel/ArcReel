@@ -3,6 +3,13 @@ from pathlib import Path
 import pytest
 
 from server.services import generation_tasks
+
+
+def _async_return(value):
+    """Create an async function that always returns the given value (ignoring args)."""
+    async def _inner(*args, **kwargs):
+        return value
+    return _inner
 from lib.storyboard_sequence import (
     PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
     PREVIOUS_STORYBOARD_REFERENCE_LABEL,
@@ -153,7 +160,7 @@ class TestGenerationTasks:
         emitted_batches = []
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", lambda _p, **kw: fake_generator)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
         monkeypatch.setattr(
             generation_tasks,
             "emit_project_change_batch",
@@ -250,7 +257,7 @@ class TestGenerationTasks:
             return out_path
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", lambda _, **kw: fake_generator)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", fake_extract)
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
 
@@ -301,7 +308,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "get_media_generator", lambda _p, **kw: _FakeGenerator())
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(_FakeGenerator()))
 
         with pytest.raises(ValueError):
             await generation_tasks.execute_storyboard_task("demo", "E1S01", {"prompt": "x"})
