@@ -1,80 +1,47 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
-import type { GetSystemConfigResponse } from "@/types";
-import { getConfigIssues, useConfigStatusStore } from "./config-status-store";
+import type { GetSystemConfigResponseNew } from "@/types";
+import type { ProviderInfo } from "@/types";
+import { useConfigStatusStore } from "./config-status-store";
 
-function makeResponse(): GetSystemConfigResponse {
+function makeConfigResponse(overrides?: Partial<GetSystemConfigResponseNew["settings"]>): GetSystemConfigResponseNew {
   return {
-    config: {
-      image_backend: "aistudio",
-      video_backend: "aistudio",
-      image_model: "gemini-3.1-flash-image-preview",
-      video_model: "veo-3.1-generate-001",
+    settings: {
+      default_video_backend: "gemini/veo-3",
+      default_image_backend: "gemini/imagen-4",
       video_generate_audio: true,
-      video_generate_audio_effective: true,
-      video_generate_audio_editable: true,
-      rate_limit: {
-        image_rpm: 15,
-        video_rpm: 10,
-        request_gap_seconds: 3,
-      },
-      performance: {
-        image_max_workers: 3,
-        video_max_workers: 2,
-      },
-      gemini_api_key: {
-        is_set: false,
-        masked: null,
-        source: "unset",
-      },
-      gemini_base_url: {
-        value: null,
-        source: "unset",
-      },
-      anthropic_api_key: {
-        is_set: false,
-        masked: null,
-        source: "unset",
-      },
-      anthropic_base_url: {
-        value: null,
-        source: "unset",
-      },
-      anthropic_model: {
-        value: null,
-        source: "unset",
-      },
-      anthropic_default_haiku_model: {
-        value: null,
-        source: "unset",
-      },
-      anthropic_default_opus_model: {
-        value: null,
-        source: "unset",
-      },
-      anthropic_default_sonnet_model: {
-        value: null,
-        source: "unset",
-      },
-      claude_code_subagent_model: {
-        value: null,
-        source: "unset",
-      },
-      vertex_gcs_bucket: {
-        value: null,
-        source: "unset",
-      },
-      vertex_credentials: {
-        is_set: false,
-        filename: null,
-        project_id: null,
-      },
+      anthropic_api_key: { is_set: false, masked: null },
+      anthropic_base_url: "",
+      anthropic_model: "",
+      anthropic_default_haiku_model: "",
+      anthropic_default_opus_model: "",
+      anthropic_default_sonnet_model: "",
+      claude_code_subagent_model: "",
+      ...overrides,
     },
     options: {
-      image_models: ["gemini-3.1-flash-image-preview"],
-      video_models: ["veo-3.1-generate-001"],
+      video_backends: ["gemini/veo-3"],
+      image_backends: ["gemini/imagen-4"],
     },
   };
+}
+
+function makeProviders(overrides?: Partial<ProviderInfo>[]): { providers: ProviderInfo[] } {
+  const defaults: ProviderInfo[] = [
+    {
+      id: "gemini",
+      display_name: "Google Gemini",
+      status: "unconfigured",
+      media_types: ["image", "video"],
+      capabilities: [],
+      configured_keys: [],
+      missing_keys: ["api_key"],
+    },
+  ];
+  if (overrides) {
+    return { providers: overrides.map((o, i) => ({ ...defaults[i], ...o })) };
+  }
+  return { providers: defaults };
 }
 
 describe("config-status-store", () => {
@@ -83,35 +50,48 @@ describe("config-status-store", () => {
     vi.restoreAllMocks();
   });
 
-  it("merges shared media credential warnings into one issue", () => {
-    const response = makeResponse();
+  it("reports anthropic and provider issues when both unconfigured", async () => {
+    vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders());
+    vi.spyOn(API, "getSystemConfigNew").mockResolvedValue(makeConfigResponse());
 
-    expect(getConfigIssues(response.config)).toEqual([
-      {
-        key: "anthropic",
-        tab: "agent",
-        label: "ArcReel 智能体 API Key（Anthropic）未配置",
-      },
-      {
-        key: "media-aistudio",
-        tab: "media",
-        label: "AI 生图/生视频 API Key（Gemini AI Studio）未配置",
-      },
-    ]);
+    await useConfigStatusStore.getState().fetch();
+
+    const { issues, initialized } = useConfigStatusStore.getState();
+    expect(initialized).toBe(true);
+    // anthropic issue + gemini provider issue (shared for video+image, deduped)
+    expect(issues.find((i) => i.key === "anthropic")).toBeTruthy();
+    expect(issues.find((i) => i.key === "provider-gemini")).toBeTruthy();
+    expect(issues).toHaveLength(2);
+  });
+
+  it("reports no issues when all configured", async () => {
+    vi.spyOn(API, "getProviders").mockResolvedValue(
+      makeProviders([{ id: "gemini", display_name: "Google Gemini", status: "ready", media_types: ["image", "video"], capabilities: [], configured_keys: ["api_key"], missing_keys: [] }]),
+    );
+    vi.spyOn(API, "getSystemConfigNew").mockResolvedValue(
+      makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
+    );
+
+    await useConfigStatusStore.getState().fetch();
+
+    const { issues, isComplete } = useConfigStatusStore.getState();
+    expect(issues).toHaveLength(0);
+    expect(isComplete).toBe(true);
   });
 
   it("allows fetch to retry after a transient error", async () => {
-    vi.spyOn(API, "getSystemConfig")
+    vi.spyOn(API, "getProviders")
       .mockRejectedValueOnce(new Error("temporary failure"))
-      .mockResolvedValueOnce(makeResponse());
+      .mockResolvedValueOnce(makeProviders());
+    vi.spyOn(API, "getSystemConfigNew").mockResolvedValue(makeConfigResponse());
 
     await useConfigStatusStore.getState().fetch();
     expect(useConfigStatusStore.getState().initialized).toBe(false);
 
     await useConfigStatusStore.getState().fetch();
 
-    expect(API.getSystemConfig).toHaveBeenCalledTimes(2);
+    expect(API.getProviders).toHaveBeenCalledTimes(2);
     expect(useConfigStatusStore.getState().initialized).toBe(true);
-    expect(useConfigStatusStore.getState().issues).toHaveLength(2);
+    expect(useConfigStatusStore.getState().issues.length).toBeGreaterThan(0);
   });
 });

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { API } from "@/api";
-import type { SystemBackend, SystemConfigView } from "@/types";
+import type { ProviderInfo } from "@/types";
 
 // ---------------------------------------------------------------------------
 // ConfigIssue
@@ -8,63 +8,56 @@ import type { SystemBackend, SystemConfigView } from "@/types";
 
 export interface ConfigIssue {
   key: string;
-  tab: "agent" | "media";
+  tab: "agent" | "providers" | "media" | "usage";
   label: string;
 }
 
-function checkBackendCredential(backend: SystemBackend, config: SystemConfigView): boolean {
-  return backend === "aistudio" ? config.gemini_api_key.is_set : config.vertex_credentials.is_set;
-}
-
-export function getConfigIssues(config: SystemConfigView): ConfigIssue[] {
+async function getConfigIssues(): Promise<ConfigIssue[]> {
   const issues: ConfigIssue[] = [];
-  if (!config.anthropic_api_key.is_set) {
+
+  const [{ providers }, configRes] = await Promise.all([
+    API.getProviders(),
+    API.getSystemConfigNew(),
+  ]);
+
+  const settings = configRes.settings;
+
+  // 1. Check anthropic key
+  if (!settings.anthropic_api_key?.is_set) {
     issues.push({
       key: "anthropic",
       tab: "agent",
       label: "ArcReel 智能体 API Key（Anthropic）未配置",
     });
   }
-  const imageCredentialMissing = !checkBackendCredential(config.image_backend, config);
-  const videoCredentialMissing = !checkBackendCredential(config.video_backend, config);
-  const sharedMediaBackendMissing =
-    imageCredentialMissing &&
-    videoCredentialMissing &&
-    config.image_backend === config.video_backend;
 
-  if (sharedMediaBackendMissing) {
-    issues.push({
-      key: `media-${config.image_backend}`,
-      tab: "media",
-      label:
-        config.image_backend === "aistudio"
-          ? "AI 生图/生视频 API Key（Gemini AI Studio）未配置"
-          : "AI 生图/生视频 Vertex AI 凭证未上传",
-    });
-    return issues;
+  // 2. Check default backends' providers are ready
+  const videoBackend = settings.default_video_backend || "";
+  const imageBackend = settings.default_image_backend || "";
+  const videoProvider = videoBackend.split("/")[0];
+  const imageProvider = imageBackend.split("/")[0];
+
+  const checked = new Set<string>();
+
+  for (const [providerName, label] of [
+    [videoProvider, "视频"],
+    [imageProvider, "图片"],
+  ] as [string, string][]) {
+    if (!providerName || checked.has(providerName)) continue;
+    checked.add(providerName);
+
+    const pInfo: ProviderInfo | undefined = providers.find(
+      (p) => p.id === providerName,
+    );
+    if (pInfo && pInfo.status !== "ready") {
+      issues.push({
+        key: `provider-${pInfo.id}`,
+        tab: "providers",
+        label: `默认${label}供应商 ${pInfo.display_name} 未配置完成`,
+      });
+    }
   }
 
-  if (imageCredentialMissing) {
-    issues.push({
-      key: "image",
-      tab: "media",
-      label:
-        config.image_backend === "aistudio"
-          ? "AI 生图 API Key（Gemini AI Studio）未配置"
-          : "AI 生图 Vertex AI 凭证未上传",
-    });
-  }
-
-  if (videoCredentialMissing) {
-    issues.push({
-      key: "video",
-      tab: "media",
-      label:
-        config.video_backend === "aistudio"
-          ? "AI 生视频 API Key（Gemini AI Studio）未配置"
-          : "AI 生视频 Vertex AI 凭证未上传",
-    });
-  }
   return issues;
 }
 
@@ -96,8 +89,7 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => ({
     if (get().loading) return;
     set({ loading: true });
     try {
-      const res = await API.getSystemConfig();
-      const issues = getConfigIssues(res.config);
+      const issues = await getConfigIssues();
       set({ issues, isComplete: issues.length === 0, loading: false, initialized: true });
     } catch {
       set({ loading: false });
