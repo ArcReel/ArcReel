@@ -168,6 +168,7 @@ class UsageRepository:
         self,
         *,
         project_name: Optional[str] = None,
+        provider: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
     ) -> dict[str, Any]:
@@ -175,6 +176,8 @@ class UsageRepository:
             filters = []
             if project_name:
                 filters.append(ApiCall.project_name == project_name)
+            if provider:
+                filters.append(ApiCall.provider == provider)
             if start_date:
                 start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
                 filters.append(ApiCall.started_at >= start)
@@ -215,6 +218,68 @@ class UsageRepository:
             "video_count": row.video_count,
             "failed_count": row.failed_count,
             "total_count": row.total_count,
+        }
+
+    async def get_stats_grouped_by_provider(
+        self,
+        *,
+        project_name: Optional[str] = None,
+        provider: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> dict[str, Any]:
+        filters = []
+        if project_name:
+            filters.append(ApiCall.project_name == project_name)
+        if provider:
+            filters.append(ApiCall.provider == provider)
+        if start_date:
+            start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+            filters.append(ApiCall.started_at >= start)
+        if end_date:
+            end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=timezone.utc) + timedelta(days=1)
+            filters.append(ApiCall.started_at < end_exclusive)
+
+        stmt = (
+            select(
+                ApiCall.provider,
+                ApiCall.call_type,
+                func.count().label("total_calls"),
+                func.count(case((ApiCall.status == "success", 1))).label("success_calls"),
+                func.coalesce(func.sum(
+                    case((ApiCall.currency == "USD", ApiCall.cost_amount), else_=0)
+                ), 0).label("total_cost_usd"),
+                func.coalesce(func.sum(ApiCall.duration_ms), 0).label("total_duration_ms"),
+            )
+            .select_from(ApiCall)
+            .where(*filters)
+            .group_by(ApiCall.provider, ApiCall.call_type)
+            .order_by(ApiCall.provider, ApiCall.call_type)
+        )
+        rows = (await self.session.execute(stmt)).all()
+
+        stats = [
+            {
+                "provider": row.provider,
+                "call_type": row.call_type,
+                "total_calls": row.total_calls,
+                "success_calls": row.success_calls,
+                "total_cost_usd": round(row.total_cost_usd, 4),
+                "total_duration_seconds": round(row.total_duration_ms / 1000, 1) if row.total_duration_ms else 0,
+            }
+            for row in rows
+        ]
+
+        period_start: Optional[str] = None
+        period_end: Optional[str] = None
+        if start_date:
+            period_start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc).isoformat()
+        if end_date:
+            period_end = datetime(end_date.year, end_date.month, end_date.day, tzinfo=timezone.utc).isoformat()
+
+        return {
+            "stats": stats,
+            "period": {"start": period_start, "end": period_end},
         }
 
     async def get_calls(

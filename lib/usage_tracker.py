@@ -73,6 +73,7 @@ class UsageTracker:
     async def get_stats(
         self,
         project_name: Optional[str] = None,
+        provider: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
     ) -> Dict[str, Any]:
@@ -81,6 +82,24 @@ class UsageTracker:
             repo = UsageRepository(session)
             return await repo.get_stats(
                 project_name=project_name,
+                provider=provider,
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+    async def get_stats_grouped_by_provider(
+        self,
+        project_name: Optional[str] = None,
+        provider: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+
+        async with self._session_factory() as session:
+            repo = UsageRepository(session)
+            return await repo.get_stats_grouped_by_provider(
+                project_name=project_name,
+                provider=provider,
                 start_date=start_date,
                 end_date=end_date,
             )

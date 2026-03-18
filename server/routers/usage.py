@@ -21,17 +21,28 @@ _tracker = UsageTracker()
 async def get_stats(
     _user: Annotated[dict, Depends(get_current_user)],
     project_name: Optional[str] = Query(None, description="项目名称（可选）"),
+    provider: Optional[str] = Query(None, description="按供应商筛选"),
     start_date: Optional[str] = Query(None, description="开始日期 (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="结束日期 (YYYY-MM-DD)"),
+    group_by: Optional[str] = Query(None, description="分组方式: provider"),
 ):
     start = datetime.fromisoformat(start_date) if start_date else None
     end = datetime.fromisoformat(end_date) if end_date else None
 
-    stats = await _tracker.get_stats(
-        project_name=project_name,
-        start_date=start,
-        end_date=end,
-    )
+    if group_by == "provider":
+        stats = await _tracker.get_stats_grouped_by_provider(
+            project_name=project_name,
+            provider=provider,
+            start_date=start,
+            end_date=end,
+        )
+    else:
+        stats = await _tracker.get_stats(
+            project_name=project_name,
+            provider=provider,
+            start_date=start,
+            end_date=end,
+        )
     return stats
 
 
