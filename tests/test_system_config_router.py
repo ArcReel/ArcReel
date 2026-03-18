@@ -1,366 +1,310 @@
+"""
+Tests for the refactored system_config router.
+
+Uses an in-memory SQLite database and dependency overrides to test
+GET/PATCH /api/v1/system/config without real providers.
+"""
+
 from __future__ import annotations
 
-import json
-import os
-from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-import lib.gemini_client as gemini_client_module
+from lib.config.service import ConfigService, ProviderStatus
+from lib.db import get_async_session
+from lib.db.base import Base
 from server.auth import get_current_user
 from server.routers import system_config as system_config_router
 
 
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
 @pytest.fixture()
-def env_guard():
-    keys = [
-        "GEMINI_IMAGE_BACKEND",
-        "GEMINI_VIDEO_BACKEND",
-        "GEMINI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_BASE_URL",
-        "GEMINI_IMAGE_MODEL",
-        "GEMINI_VIDEO_MODEL",
-        "GEMINI_VIDEO_GENERATE_AUDIO",
-        "GEMINI_IMAGE_RPM",
-        "GEMINI_VIDEO_RPM",
-        "GEMINI_REQUEST_GAP",
-        "IMAGE_MAX_WORKERS",
-        "VIDEO_MAX_WORKERS",
-        "VERTEX_GCS_BUCKET",
-    ]
-    snapshot = {k: os.environ.get(k) for k in keys}
-    for k in keys:
-        os.environ.pop(k, None)
-    gemini_client_module._shared_rate_limiter = None
-    yield
-    for key, value in snapshot.items():
-        if value is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = value
-    gemini_client_module._shared_rate_limiter = None
+async def db_session():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    sm = async_sessionmaker(engine, expire_on_commit=False)
+    async with sm() as session:
+        yield session
+    await engine.dispose()
 
 
-class _FakeWorker:
-    def __init__(self):
-        self.reload_calls = 0
-
-    def reload_limits_from_env(self) -> None:
-        self.reload_calls += 1
-
-
-def _client(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(system_config_router, "PROJECT_ROOT", tmp_path)
+def _make_app_with_mock(mock_svc: ConfigService) -> FastAPI:
+    """App with a fully mocked ConfigService (no DB needed)."""
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
+    app.dependency_overrides[system_config_router._get_config_service] = lambda: mock_svc
     app.include_router(system_config_router.router, prefix="/api/v1")
-    app.state.generation_worker = _FakeWorker()
-    return TestClient(app)
+    return app
 
 
-class TestSystemConfigRouter:
-    def test_get_returns_options_from_cost_calculator(self, tmp_path, monkeypatch, env_guard):
-        client = _client(tmp_path, monkeypatch)
-        with client:
+def _make_mock_svc(
+    *,
+    settings: dict[str, str] | None = None,
+    ready_providers: list[str] | None = None,
+) -> ConfigService:
+    """Create a mock ConfigService with configurable settings and provider statuses."""
+    _settings = dict(settings or {})
+    svc = MagicMock(spec=ConfigService)
+
+    async def _get_setting(key: str, default: str = "") -> str:
+        return _settings.get(key, default)
+
+    async def _set_setting(key: str, value: str) -> None:
+        _settings[key] = value
+
+    svc.get_setting = AsyncMock(side_effect=_get_setting)
+    svc.set_setting = AsyncMock(side_effect=_set_setting)
+
+    ready = set(ready_providers or [])
+
+    async def _get_all_providers_status():
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        statuses = []
+        for name, meta in PROVIDER_REGISTRY.items():
+            status = "ready" if name in ready else "unconfigured"
+            statuses.append(
+                ProviderStatus(
+                    name=name,
+                    display_name=meta.display_name,
+                    status=status,
+                    media_types=list(meta.media_types),
+                    capabilities=list(meta.capabilities),
+                    required_keys=list(meta.required_keys),
+                    configured_keys=list(meta.required_keys) if name in ready else [],
+                    missing_keys=[] if name in ready else list(meta.required_keys),
+                )
+            )
+        return statuses
+
+    svc.get_all_providers_status = AsyncMock(side_effect=_get_all_providers_status)
+    return svc
+
+
+# ---------------------------------------------------------------------------
+# GET /system/config
+# ---------------------------------------------------------------------------
+
+
+class TestGetSystemConfig:
+    def test_returns_200(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
             res = client.get("/api/v1/system/config")
-            assert res.status_code == 200
-            payload = res.json()
-            assert "config" in payload
-            assert payload["options"]["image_models"] == list(
-                system_config_router.cost_calculator.IMAGE_COST.keys()
-            )
-            assert payload["options"]["video_models"] == list(
-                system_config_router.cost_calculator.SELECTABLE_VIDEO_MODELS
-            )
+        assert res.status_code == 200
 
-    def test_patch_validates_models_and_refreshes_rate_limiter(self, tmp_path, monkeypatch, env_guard):
-        client = _client(tmp_path, monkeypatch)
-        with client:
-            bad = client.patch(
-                "/api/v1/system/config",
-                json={"image_model": "not-a-model"},
-            )
-            assert bad.status_code == 400
+    def test_response_has_settings_and_options(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        body = res.json()
+        assert "settings" in body
+        assert "options" in body
 
-            ok = client.patch(
-                "/api/v1/system/config",
-                json={
-                    "image_model": "gemini-3-pro-image-preview",
-                    "gemini_image_rpm": 12,
-                },
-            )
-            assert ok.status_code == 200
+    def test_settings_keys(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        settings = res.json()["settings"]
+        expected_keys = {
+            "default_video_backend",
+            "default_image_backend",
+            "video_generate_audio",
+            "anthropic_api_key",
+            "anthropic_base_url",
+            "anthropic_model",
+            "anthropic_default_haiku_model",
+            "anthropic_default_opus_model",
+            "anthropic_default_sonnet_model",
+            "claude_code_subagent_model",
+        }
+        assert set(settings.keys()) == expected_keys
 
-            limiter = gemini_client_module.get_shared_rate_limiter()
-            assert limiter.limits["gemini-3-pro-image-preview"] == 12
+    def test_options_contain_backend_lists(self):
+        mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio"])
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        options = res.json()["options"]
+        assert "video_backends" in options
+        assert "image_backends" in options
+        assert "gemini-aistudio/veo-3.1-generate-001" in options["video_backends"]
+        assert "gemini-aistudio/gemini-3.1-flash-image-preview" in options["image_backends"]
 
-    def test_vertex_credentials_upload_and_backend_validation(self, tmp_path, monkeypatch, env_guard):
-        client = _client(tmp_path, monkeypatch)
-        with client:
-            missing = client.patch(
-                "/api/v1/system/config",
-                json={"video_backend": "vertex"},
-            )
-            assert missing.status_code == 400
+    def test_options_exclude_unconfigured_providers(self):
+        mock_svc = _make_mock_svc(ready_providers=[])
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        options = res.json()["options"]
+        assert options["video_backends"] == []
+        assert options["image_backends"] == []
 
-            payload = {"project_id": "demo-project", "type": "service_account"}
-            upload = client.post(
-                "/api/v1/system/config/vertex-credentials",
-                files={"file": ("vertex_credentials.json", json.dumps(payload), "application/json")},
-            )
-            assert upload.status_code == 200
-            assert upload.json()["config"]["vertex_credentials"]["is_set"] is True
-            assert upload.json()["config"]["vertex_credentials"]["project_id"] == "demo-project"
+    def test_options_include_multiple_ready_providers(self):
+        mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio", "seedance"])
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        options = res.json()["options"]
+        assert "gemini-aistudio/veo-3.1-generate-001" in options["video_backends"]
+        assert "seedance/doubao-seedance-1-5-pro-251215" in options["video_backends"]
 
-            ok = client.patch(
-                "/api/v1/system/config",
-                json={"video_backend": "vertex"},
-            )
-            assert ok.status_code == 200
-            assert ok.json()["config"]["video_backend"] == "vertex"
+    def test_anthropic_key_masked(self):
+        mock_svc = _make_mock_svc(settings={"anthropic_api_key": "sk-ant-test-secret-123456"})
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        ak = res.json()["settings"]["anthropic_api_key"]
+        assert ak["is_set"] is True
+        assert ak["masked"] is not None
+        assert "sk-a" in ak["masked"]
+        assert "test-secret-123456" not in ak["masked"]
 
-    def test_vertex_credentials_upload_rejects_large_payload(self, tmp_path, monkeypatch, env_guard):
-        client = _client(tmp_path, monkeypatch)
-        with client:
-            too_large = b"0" * (system_config_router.MAX_VERTEX_CREDENTIALS_BYTES + 1)
-            upload = client.post(
-                "/api/v1/system/config/vertex-credentials",
-                files={"file": ("vertex_credentials.json", too_large, "application/json")},
-            )
-            assert upload.status_code == 413
+    def test_anthropic_key_unset(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        ak = res.json()["settings"]["anthropic_api_key"]
+        assert ak["is_set"] is False
+        assert ak["masked"] is None
 
-    def test_audio_toggle_effective_only_on_vertex(self, tmp_path, monkeypatch, env_guard):
-        client = _client(tmp_path, monkeypatch)
-        with client:
-            # Store a "disabled" choice while on AI Studio.
+    def test_settings_reflect_stored_values(self):
+        mock_svc = _make_mock_svc(
+            settings={
+                "default_video_backend": "gemini-vertex/veo-3.1-fast-generate-001",
+                "video_generate_audio": "true",
+                "anthropic_base_url": "https://proxy.example.com",
+            }
+        )
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        settings = res.json()["settings"]
+        assert settings["default_video_backend"] == "gemini-vertex/veo-3.1-fast-generate-001"
+        assert settings["video_generate_audio"] is True
+        assert settings["anthropic_base_url"] == "https://proxy.example.com"
+
+
+# ---------------------------------------------------------------------------
+# PATCH /system/config
+# ---------------------------------------------------------------------------
+
+
+class TestPatchSystemConfig:
+    def _make_patch_app(self, mock_svc: ConfigService) -> FastAPI:
+        """App for PATCH tests - needs session override for commit()."""
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
+        app.dependency_overrides[system_config_router._get_config_service] = lambda: mock_svc
+
+        mock_session = AsyncMock()
+        mock_session.commit = AsyncMock()
+
+        async def _override_session():
+            yield mock_session
+
+        app.dependency_overrides[get_async_session] = _override_session
+        app.include_router(system_config_router.router, prefix="/api/v1")
+        return app
+
+    def test_patch_returns_200(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
                 "/api/v1/system/config",
-                json={"video_backend": "aistudio", "video_generate_audio": False},
+                json={"video_generate_audio": True},
             )
-            assert res.status_code == 200
-            cfg = res.json()["config"]
-            assert cfg["video_backend"] == "aistudio"
-            assert cfg["video_generate_audio"] is False
-            assert cfg["video_generate_audio_editable"] is False
-            assert cfg["video_generate_audio_effective"] is True
+        assert res.status_code == 200
 
-            # Upload creds, then switch to Vertex - stored preference becomes effective.
-            payload = {"project_id": "demo-project", "type": "service_account"}
-            upload = client.post(
-                "/api/v1/system/config/vertex-credentials",
-                files={"file": ("vertex_credentials.json", json.dumps(payload), "application/json")},
-            )
-            assert upload.status_code == 200
-
-            res2 = client.patch(
-                "/api/v1/system/config",
-                json={"video_backend": "vertex"},
-            )
-            assert res2.status_code == 200
-            cfg2 = res2.json()["config"]
-            assert cfg2["video_backend"] == "vertex"
-            assert cfg2["video_generate_audio_editable"] is True
-            assert cfg2["video_generate_audio_effective"] is False
-
-    def test_patch_triggers_worker_reload(self, tmp_path, monkeypatch, env_guard):
-        client = _client(tmp_path, monkeypatch)
-        with client:
-            app = client.app
-            worker = app.state.generation_worker
-            assert worker.reload_calls == 0
-
+    def test_patch_sets_backend(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
                 "/api/v1/system/config",
-                json={"video_max_workers": 5},
+                json={"default_video_backend": "seedance/doubao-seedance-1-5-pro-251215"},
             )
-            assert res.status_code == 200
-            assert worker.reload_calls == 1
+        assert res.status_code == 200
+        settings = res.json()["settings"]
+        assert settings["default_video_backend"] == "seedance/doubao-seedance-1-5-pro-251215"
 
-    def test_secrets_are_masked_in_response(self, tmp_path, monkeypatch, env_guard):
-        client = _client(tmp_path, monkeypatch)
-        with client:
-            secret = "AIza-test-secret-123456"
+    def test_patch_rejects_invalid_backend_format(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
                 "/api/v1/system/config",
-                json={"gemini_api_key": secret},
+                json={"default_video_backend": "invalid-no-slash"},
             )
-            assert res.status_code == 200
-            cfg = res.json()["config"]
-            assert cfg["gemini_api_key"]["is_set"] is True
-            assert secret not in json.dumps(cfg)
-            assert cfg["gemini_api_key"]["masked"] is not None
+        assert res.status_code == 400
 
-    def test_patch_updates_and_clears_anthropic_base_url(self, tmp_path, monkeypatch, env_guard):
-        client = _client(tmp_path, monkeypatch)
-        with client:
+    def test_patch_sets_anthropic_key(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"anthropic_api_key": "sk-ant-new-key-12345678"},
+            )
+        assert res.status_code == 200
+        ak = res.json()["settings"]["anthropic_api_key"]
+        assert ak["is_set"] is True
+
+    def test_patch_clears_anthropic_key(self):
+        mock_svc = _make_mock_svc(settings={"anthropic_api_key": "sk-ant-old"})
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"anthropic_api_key": ""},
+            )
+        assert res.status_code == 200
+        ak = res.json()["settings"]["anthropic_api_key"]
+        assert ak["is_set"] is False
+
+    def test_patch_sets_anthropic_base_url(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
                 "/api/v1/system/config",
                 json={"anthropic_base_url": "https://proxy.example.com/v1"},
             )
-            assert res.status_code == 200
-            cfg = res.json()["config"]
-            assert cfg["anthropic_base_url"] == {
-                "value": "https://proxy.example.com/v1",
-                "source": "override",
-            }
-            assert os.environ["ANTHROPIC_BASE_URL"] == "https://proxy.example.com/v1"
+        assert res.status_code == 200
+        settings = res.json()["settings"]
+        assert settings["anthropic_base_url"] == "https://proxy.example.com/v1"
 
-            cleared = client.patch(
+    def test_patch_sets_audio_toggle(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
                 "/api/v1/system/config",
-                json={"anthropic_base_url": ""},
+                json={"video_generate_audio": False},
             )
-            assert cleared.status_code == 200
-            cleared_cfg = cleared.json()["config"]
-            assert cleared_cfg["anthropic_base_url"] == {
-                "value": None,
-                "source": "unset",
-            }
-            assert "ANTHROPIC_BASE_URL" not in os.environ
+        assert res.status_code == 200
+        assert res.json()["settings"]["video_generate_audio"] is False
 
-    def test_connection_test_uses_ai_studio_override_key_and_active_model(
-        self, tmp_path, monkeypatch, env_guard
-    ):
-        client = _client(tmp_path, monkeypatch)
-
-        class _FakeModels:
-            def __init__(self):
-                self.calls = []
-
-            def list(self, *, config=None):
-                self.calls.append(config)
-                return [
-                    type("Model", (), {"name": "models/gemini-3.1-flash-image-preview"})(),
-                    type("Model", (), {"name": "models/veo-3.1-generate-001"})(),
-                ]
-
-        fake_models = _FakeModels()
-        captured = {}
-
-        class _FakeGeminiClient:
-            def __init__(self, api_key=None, backend=None, **kwargs):
-                captured["api_key"] = api_key
-                captured["backend"] = backend
-                self.client = type("Client", (), {"models": fake_models})()
-
-        monkeypatch.setattr(system_config_router, "GeminiClient", _FakeGeminiClient)
-
-        with client:
-            res = client.post(
-                "/api/v1/system/config/connection-test",
+    def test_patch_sets_model_fields(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
                 json={
-                    "provider": "aistudio",
-                    "image_backend": "aistudio",
-                    "video_backend": "vertex",
-                    "image_model": "gemini-3.1-flash-image-preview",
-                    "video_model": "veo-3.1-generate-001",
-                    "gemini_api_key": "AIza-override",
+                    "anthropic_model": "claude-sonnet-4-20250514",
+                    "claude_code_subagent_model": "claude-haiku-4-20250514",
                 },
             )
-            assert res.status_code == 200
-            payload = res.json()
-            assert payload["provider"] == "aistudio"
-            assert payload["checked_models"] == [
-                {"media_type": "image", "model": "gemini-3.1-flash-image-preview"}
-            ]
-            assert payload["missing_models"] == []
-            assert captured["api_key"] == "AIza-override"
-            assert captured["backend"] == "aistudio"
-            assert fake_models.calls == [{"page_size": 200}]
+        assert res.status_code == 200
+        settings = res.json()["settings"]
+        assert settings["anthropic_model"] == "claude-sonnet-4-20250514"
+        assert settings["claude_code_subagent_model"] == "claude-haiku-4-20250514"
 
-    def test_connection_test_uses_vertex_for_both_active_models(
-        self, tmp_path, monkeypatch, env_guard
-    ):
-        client = _client(tmp_path, monkeypatch)
-
-        class _FakeModels:
-            def __init__(self):
-                self.calls = []
-
-            def list(self, *, config=None):
-                self.calls.append(config)
-                return [
-                    type("Model", (), {"name": "models/gemini-3.1-flash-image-preview"})(),
-                    type("Model", (), {"name": "models/veo-3.1-generate-001"})(),
-                ]
-
-        fake_models = _FakeModels()
-
-        class _FakeGeminiClient:
-            def __init__(self, api_key=None, backend=None, **kwargs):
-                self.client = type("Client", (), {"models": fake_models})()
-
-        monkeypatch.setattr(system_config_router, "GeminiClient", _FakeGeminiClient)
-        monkeypatch.setattr(
-            system_config_router,
-            "_vertex_credentials_status",
-            lambda root: {
-                "is_set": True,
-                "filename": "vertex_credentials.json",
-                "project_id": "demo-project",
-            },
-        )
-
-        with client:
-            res = client.post(
-                "/api/v1/system/config/connection-test",
-                json={
-                    "provider": "vertex",
-                    "image_backend": "vertex",
-                    "video_backend": "vertex",
-                    "image_model": "gemini-3.1-flash-image-preview",
-                    "video_model": "veo-3.1-generate-001",
-                },
+    def test_patch_returns_full_response(self):
+        mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio"])
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"video_generate_audio": True},
             )
-            assert res.status_code == 200
-            payload = res.json()
-            assert payload["provider"] == "vertex"
-            assert payload["project_id"] == "demo-project"
-            assert payload["checked_models"] == [
-                {"media_type": "image", "model": "gemini-3.1-flash-image-preview"},
-                {"media_type": "video", "model": "veo-3.1-generate-001"},
-            ]
-            assert payload["missing_models"] == []
-            assert fake_models.calls == [{"page_size": 200}]
-
-    def test_connection_test_treats_missing_vertex_preview_model_as_warning(
-        self, tmp_path, monkeypatch, env_guard
-    ):
-        client = _client(tmp_path, monkeypatch)
-
-        class _FakeModels:
-            def list(self, *, config=None):
-                return [type("Model", (), {"name": "publishers/google/models/gemini-3.1-flash-image-preview"})()]
-
-        class _FakeGeminiClient:
-            def __init__(self, api_key=None, backend=None, **kwargs):
-                self.client = type("Client", (), {"models": _FakeModels()})()
-
-        monkeypatch.setattr(system_config_router, "GeminiClient", _FakeGeminiClient)
-        monkeypatch.setattr(
-            system_config_router,
-            "_vertex_credentials_status",
-            lambda root: {
-                "is_set": True,
-                "filename": "vertex_credentials.json",
-                "project_id": "demo-project",
-            },
-        )
-
-        with client:
-            res = client.post(
-                "/api/v1/system/config/connection-test",
-                json={
-                    "provider": "vertex",
-                    "image_backend": "vertex",
-                    "video_backend": "vertex",
-                    "image_model": "gemini-3.1-flash-image-preview",
-                    "video_model": "veo-3.1-generate-001",
-                },
-            )
-            assert res.status_code == 200
-            payload = res.json()
-            assert payload["missing_models"] == ["veo-3.1-generate-001"]
-            assert "models.list" in payload["message"]
+        body = res.json()
+        assert "settings" in body
+        assert "options" in body
