@@ -30,7 +30,7 @@ def _clean_registry():
 
 class TestRegistry:
     def test_register_and_create(self):
-        register_backend("fake", lambda **kw: _FakeBackend(**kw))
+        register_backend("fake", _FakeBackend)
         backend = create_backend("fake", api_key="test-key")
         assert backend.name == "fake"
         assert backend.api_key == "test-key"
@@ -40,11 +40,11 @@ class TestRegistry:
             create_backend("nonexistent")
 
     def test_get_registered_backends(self):
-        register_backend("fake", lambda **kw: _FakeBackend(**kw))
+        register_backend("fake", _FakeBackend)
         assert "fake" in get_registered_backends()
 
     def test_register_overwrites(self):
-        register_backend("fake", lambda **kw: _FakeBackend(**kw))
+        register_backend("fake", _FakeBackend)
         register_backend("fake", lambda **kw: _FakeBackend(api_key="overwritten"))
         backend = create_backend("fake")
         assert backend.api_key == "overwritten"
