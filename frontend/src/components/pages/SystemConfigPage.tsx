@@ -9,6 +9,7 @@ import { ApiKeysTab } from "./ApiKeysTab";
 import { AgentConfigTab } from "./AgentConfigTab";
 import { AdvancedConfigTab } from "./AdvancedConfigTab";
 import { MediaConfigTab } from "./MediaConfigTab";
+import { ProviderSection } from "./ProviderSection";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -279,9 +280,7 @@ export function SystemConfigPage() {
               visible={true}
             />
           )}
-          {activeSection === "providers" && (
-            <div className="px-6 py-8 text-gray-400">供应商 (placeholder)</div>
-          )}
+          {activeSection === "providers" && <ProviderSection />}
           {activeSection === "media" && (
             <MediaConfigTab
               data={data}
