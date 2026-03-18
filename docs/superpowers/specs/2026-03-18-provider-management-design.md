@@ -51,6 +51,16 @@ PROVIDER_REGISTRY = {
 }
 ```
 
+每个 `ProviderMeta` 还包含 `capabilities` 字段，静态定义该供应商支持的能力列表（如 `text_to_video`, `image_to_video`, `generate_audio` 等）。这些值直接对应 `VideoBackend.capabilities` / `ImageBackend` 的能力枚举，但在 registry 中静态维护，无需实例化后端即可获取。
+
+```python
+# capabilities 示例（包含在 ProviderMeta 中）
+# gemini-aistudio: [text_to_video, image_to_video, text_to_image, negative_prompt, video_extend]
+# gemini-vertex:   [text_to_video, image_to_video, text_to_image, generate_audio, negative_prompt, video_extend]
+# seedance:        [text_to_video, image_to_video, generate_audio, seed_control, flex_tier]
+# grok:            [text_to_video, image_to_video]
+```
+
 ### 1.2 数据库表
 
 **`provider_config` — 供应商配置**
@@ -150,6 +160,17 @@ class ProviderStatus:
 | `video_generate_audio` | system_setting | video_generate_audio |
 | `anthropic_api_key` | system_setting | anthropic_api_key |
 | `anthropic_base_url` | system_setting | anthropic_base_url |
+| `anthropic_model` | system_setting | anthropic_model |
+| `anthropic_default_haiku_model` | system_setting | anthropic_default_haiku_model |
+| `anthropic_default_opus_model` | system_setting | anthropic_default_opus_model |
+| `anthropic_default_sonnet_model` | system_setting | anthropic_default_sonnet_model |
+| `claude_code_subagent_model` | system_setting | claude_code_subagent_model |
+| `gemini_image_rpm` | system_setting | gemini_image_rpm |
+| `gemini_video_rpm` | system_setting | gemini_video_rpm |
+| `gemini_request_gap` | system_setting | gemini_request_gap |
+| `image_max_workers` | system_setting | image_max_workers |
+| `video_max_workers` | system_setting | video_max_workers |
+| 其他未列出的 override 键 | system_setting | 原键名直接写入 |
 
 ### 2.3 迁移完成
 
@@ -220,7 +241,9 @@ class ProviderStatus:
 
 **POST /api/v1/providers/{id}/test**
 
-连接测试，返回可用模型列表。
+连接测试，返回可用模型列表。各供应商测试策略不同：
+- **gemini-aistudio / gemini-vertex**: 调用 list models API 验证凭证和连接
+- **seedance / grok**: 若 API 不支持 list models，则发送轻量级验证请求（如获取账户信息或发送最小参数请求），返回成功/失败即可，`available_models` 为该供应商在 registry 中注册的模型列表
 
 ```json
 {
@@ -433,6 +456,10 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 | `lib/media_generator.py` | 接收 provider_id/model 参数，不再自行读 env |
 | `lib/video_backends/*.py` | 构造参数不变，由上层从 ConfigService 取出后传入 |
 | `server/routers/assistant.py` | `os.environ.get("ANTHROPIC_*")` → `config_service.get_setting()` |
+| `server/routers/generate.py` | 生成入队时的配置读取改走 ConfigService |
+| `server/auth.py` | 认证相关配置改走 ConfigService |
+| `server/agent_runtime/session_manager.py` | Agent 相关配置改走 ConfigService |
+| `lib/generation_worker.py` | Worker 初始化时的速率限制 / 并发配置改走 ConfigService |
 | `lib/usage_tracker.py` / `server/routers/usage.py` | 扩展筛选参数 |
 
 ### 6.2 前端
