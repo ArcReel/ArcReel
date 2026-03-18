@@ -1,99 +1,59 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
-import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
-import type { GetSystemConfigResponse } from "@/types";
+import type { GetSystemConfigResponseNew, ProviderInfo } from "@/types";
 
-function makeConfigResponse(): GetSystemConfigResponse {
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeConfigResponse(
+  overrides?: Partial<GetSystemConfigResponseNew["settings"]>,
+): GetSystemConfigResponseNew {
   return {
-    config: {
-      image_backend: "aistudio" as const,
-      video_backend: "vertex" as const,
-      image_model: "gemini-3.1-flash-image-preview",
-      video_model: "veo-3.1-generate-001",
+    settings: {
+      default_video_backend: "gemini/veo-3",
+      default_image_backend: "gemini/imagen-4",
       video_generate_audio: true,
-      video_generate_audio_effective: true,
-      video_generate_audio_editable: true,
-      rate_limit: {
-        image_rpm: 15,
-        video_rpm: 10,
-        request_gap_seconds: 3.1,
-      },
-      performance: {
-        image_max_workers: 3,
-        video_max_workers: 2,
-      },
-      gemini_api_key: {
-        is_set: false,
-        masked: null,
-        source: "unset" as const,
-      },
-      gemini_base_url: {
-        value: null,
-        source: "unset" as const,
-      },
-      anthropic_api_key: {
-        is_set: false,
-        masked: null,
-        source: "unset" as const,
-      },
-      anthropic_base_url: {
-        value: null,
-        source: "unset" as const,
-      },
-      anthropic_model: {
-        value: null,
-        source: "unset" as const,
-      },
-      anthropic_default_haiku_model: {
-        value: null,
-        source: "unset" as const,
-      },
-      anthropic_default_opus_model: {
-        value: null,
-        source: "unset" as const,
-      },
-      anthropic_default_sonnet_model: {
-        value: null,
-        source: "unset" as const,
-      },
-      claude_code_subagent_model: {
-        value: null,
-        source: "unset" as const,
-      },
-      vertex_gcs_bucket: {
-        value: null,
-        source: "unset" as const,
-      },
-      vertex_credentials: {
-        is_set: true,
-        filename: "vertex_credentials.json",
-        project_id: "demo-project",
-      },
+      anthropic_api_key: { is_set: true, masked: "sk-ant-***" },
+      anthropic_base_url: "",
+      anthropic_model: "",
+      anthropic_default_haiku_model: "",
+      anthropic_default_opus_model: "",
+      anthropic_default_sonnet_model: "",
+      claude_code_subagent_model: "",
+      ...overrides,
     },
     options: {
-      image_models: ["gemini-3.1-flash-image-preview"],
-      video_models: ["veo-3.1-generate-001"],
+      video_backends: ["gemini/veo-3"],
+      image_backends: ["gemini/imagen-4"],
     },
   };
 }
 
-function createDeferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
+function makeProviders(overrides?: Partial<ProviderInfo>): { providers: ProviderInfo[] } {
+  return {
+    providers: [
+      {
+        id: "gemini",
+        display_name: "Google Gemini",
+        status: "ready",
+        media_types: ["image", "video"],
+        capabilities: [],
+        configured_keys: ["api_key"],
+        missing_keys: [],
+        ...overrides,
+      },
+    ],
+  };
 }
 
-function renderPage() {
-  const location = memoryLocation({ path: "/app/settings", record: true });
+function renderPage(path = "/app/settings") {
+  const location = memoryLocation({ path, record: true });
   return render(
     <Router hook={location.hook}>
       <SystemConfigPage />
@@ -101,297 +61,135 @@ function renderPage() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 describe("SystemConfigPage", () => {
   beforeEach(() => {
-    useAppStore.setState(useAppStore.getInitialState(), true);
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
     vi.restoreAllMocks();
-  });
 
-  it("shows an error state and allows retry when the initial load fails", async () => {
-    vi.spyOn(API, "getSystemConfig")
-      .mockRejectedValueOnce(new Error("network down"))
-      .mockResolvedValue(makeConfigResponse());
-
-    renderPage();
-
-    expect(await screen.findByText("配置加载失败")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "重试加载" }));
-
-    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
-  });
-
-  it("tests vertex connection from the page", async () => {
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
-    vi.spyOn(API, "testSystemConnection").mockResolvedValue({
-      ok: true,
-      provider: "vertex",
-      filename: "vertex_credentials.json",
-      project_id: "demo-project",
-      checked_models: [{ media_type: "video", model: "veo-3.1-generate-001" }],
-      missing_models: [],
-      message: "Vertex 可用，models.list 已返回目标模型：video:veo-3.1-generate-001",
-    });
-
-    renderPage();
-
-    expect(await screen.findByText("Vertex AI 凭证")).toBeInTheDocument();
-    const testButtons = screen.getAllByRole("button", { name: "测试连接" });
-    fireEvent.click(testButtons[1]);
-
-    await waitFor(() => {
-      expect(API.testSystemConnection).toHaveBeenCalledWith({
-        provider: "vertex",
+    // Default: silence child section network calls so tests don't hang
+    vi.spyOn(API, "getSystemConfigNew").mockResolvedValue(makeConfigResponse());
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      config: {
         image_backend: "aistudio",
         video_backend: "vertex",
         image_model: "gemini-3.1-flash-image-preview",
         video_model: "veo-3.1-generate-001",
-        gemini_api_key: null,
-      });
+        video_generate_audio: true,
+        video_generate_audio_effective: true,
+        video_generate_audio_editable: true,
+        rate_limit: { image_rpm: 15, video_rpm: 10, request_gap_seconds: 3 },
+        performance: { image_max_workers: 3, video_max_workers: 2 },
+        gemini_api_key: { is_set: false, masked: null, source: "unset" },
+        gemini_base_url: { value: null, source: "unset" },
+        anthropic_api_key: { is_set: false, masked: null, source: "unset" },
+        anthropic_base_url: { value: null, source: "unset" },
+        anthropic_model: { value: null, source: "unset" },
+        anthropic_default_haiku_model: { value: null, source: "unset" },
+        anthropic_default_opus_model: { value: null, source: "unset" },
+        anthropic_default_sonnet_model: { value: null, source: "unset" },
+        claude_code_subagent_model: { value: null, source: "unset" },
+        vertex_gcs_bucket: { value: null, source: "unset" },
+        vertex_credentials: { is_set: false, filename: null, project_id: null },
+      },
+      options: {
+        image_models: ["gemini-3.1-flash-image-preview"],
+        video_models: ["veo-3.1-generate-001"],
+      },
     });
-    expect(await screen.findByText(/models\.list 已返回目标模型/)).toBeInTheDocument();
+    vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders());
+    vi.spyOn(API, "getProviderConfig").mockResolvedValue({
+      id: "gemini",
+      display_name: "Google Gemini",
+      status: "ready",
+      media_types: ["image", "video"],
+      capabilities: [],
+      fields: [],
+    } as never);
+    vi.spyOn(API, "getUsageStatsGrouped").mockResolvedValue({ stats: [] });
   });
 
-  it("tests ai studio using the input key override", async () => {
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
-    vi.spyOn(API, "testSystemConnection").mockResolvedValue({
-      ok: true,
-      provider: "aistudio",
-      filename: null,
-      project_id: null,
-      checked_models: [{ media_type: "image", model: "gemini-3.1-flash-image-preview" }],
-      missing_models: [],
-      message: "AI Studio 可用，models.list 已返回目标模型：image:gemini-3.1-flash-image-preview",
-    });
-
+  it("renders the page header", () => {
     renderPage();
+    expect(screen.getByText("设置")).toBeInTheDocument();
+    expect(screen.getByText("系统配置与 API 访问管理")).toBeInTheDocument();
+  });
 
-    expect(await screen.findByText("Gemini API Key")).toBeInTheDocument();
-    fireEvent.change(
-      screen.getByPlaceholderText("AIza…"),
-      { target: { value: "AIza-override" } },
+  it("renders all 4 sidebar sections", () => {
+    renderPage();
+    expect(screen.getByRole("button", { name: /智能体/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /供应商/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /图片\/视频/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /用量统计/ })).toBeInTheDocument();
+  });
+
+  it("defaults to the 智能体 section", () => {
+    renderPage();
+    const agentButton = screen.getByRole("button", { name: /智能体/ });
+    // Active sidebar item has the indigo border class applied
+    expect(agentButton.className).toContain("border-indigo-500");
+  });
+
+  it("clicking 供应商 makes it the active section", async () => {
+    renderPage();
+    const providersButton = screen.getByRole("button", { name: /供应商/ });
+    fireEvent.click(providersButton);
+    await waitFor(() => {
+      expect(providersButton.className).toContain("border-indigo-500");
+    });
+  });
+
+  it("clicking 图片/视频 makes it the active section", async () => {
+    renderPage();
+    const mediaButton = screen.getByRole("button", { name: /图片\/视频/ });
+    fireEvent.click(mediaButton);
+    await waitFor(() => {
+      expect(mediaButton.className).toContain("border-indigo-500");
+    });
+  });
+
+  it("clicking 用量统计 makes it the active section", async () => {
+    renderPage();
+    const usageButton = screen.getByRole("button", { name: /用量统计/ });
+    fireEvent.click(usageButton);
+    await waitFor(() => {
+      expect(usageButton.className).toContain("border-indigo-500");
+    });
+  });
+
+  it("shows config warning banner when there are config issues", async () => {
+    // Simulate unconfigured anthropic key to trigger an issue
+    vi.spyOn(API, "getSystemConfigNew").mockResolvedValue(
+      makeConfigResponse({ anthropic_api_key: { is_set: false, masked: null } }),
     );
-    const testButtons = screen.getAllByRole("button", { name: "测试连接" });
-    fireEvent.click(testButtons[0]);
+    vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders({ status: "ready" }));
+
+    renderPage();
 
     await waitFor(() => {
-      expect(API.testSystemConnection).toHaveBeenCalledWith({
-        provider: "aistudio",
-        image_backend: "aistudio",
-        video_backend: "vertex",
-        image_model: "gemini-3.1-flash-image-preview",
-        video_model: "veo-3.1-generate-001",
-        gemini_api_key: "AIza-override",
-      });
+      expect(screen.getByText("以下必填配置尚未完成：")).toBeInTheDocument();
     });
-    expect(await screen.findByText(/models\.list 已返回目标模型/)).toBeInTheDocument();
-  });
-
-  it("hides override source labels and advanced config helper copy", async () => {
-    const response = makeConfigResponse();
-    response.config.gemini_api_key = {
-      is_set: true,
-      masked: "AIza...1234",
-      source: "override" as const,
-    };
-    response.config.anthropic_api_key = {
-      is_set: true,
-      masked: "sk-ant...5678",
-      source: "override" as const,
-    };
-
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(response);
-
-    renderPage();
-
-    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
-    expect(screen.getByText(/当前：sk-ant\.\.\.5678/)).toBeInTheDocument();
-    expect(screen.getByText(/当前：AIza\.\.\.1234/)).toBeInTheDocument();
-    expect(screen.queryByText("UI 覆盖")).not.toBeInTheDocument();
-    expect(screen.queryByText("STORYBOARD/VIDEO workers")).not.toBeInTheDocument();
-  });
-
-  it("saves anthropic base url from the top key card", async () => {
-    const updated = makeConfigResponse();
-    updated.config.anthropic_base_url = {
-      value: "https://proxy.example.com/v1",
-      source: "override",
-    };
-
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
-    vi.spyOn(API, "updateSystemConfig").mockResolvedValue(updated);
-
-    renderPage();
-
-    const anthropicHeading = await screen.findByText("Anthropic API Key");
-    const geminiHeading = screen.getByText("Gemini API Key");
     expect(
-      Boolean(anthropicHeading.compareDocumentPosition(geminiHeading) & Node.DOCUMENT_POSITION_FOLLOWING),
-    ).toBe(true);
-    expect(
-      screen
-        .getAllByRole("button", { name: "保存" })
-        .every((button) => (button as HTMLButtonElement).disabled),
-    ).toBe(true);
-
-    fireEvent.change(screen.getByPlaceholderText("https://anthropic-proxy.example.com"), {
-      target: { value: "https://proxy.example.com/v1" },
-    });
-    expect(API.updateSystemConfig).not.toHaveBeenCalled();
-    const saveButton = screen
-      .getAllByRole("button", { name: "保存" })
-      .find((button) => !(button as HTMLButtonElement).disabled);
-    expect(saveButton).toBeDefined();
-    fireEvent.click(saveButton as HTMLButtonElement);
-
-    await waitFor(() => {
-      expect(API.updateSystemConfig).toHaveBeenCalledWith({
-        anthropic_base_url: "https://proxy.example.com/v1",
-      });
-    });
-    expect(screen.getByDisplayValue("https://proxy.example.com/v1")).toBeInTheDocument();
+      screen.getByRole("button", { name: /ArcReel 智能体 API Key/ }),
+    ).toBeInTheDocument();
   });
 
-  it("preserves unsaved agent edits when clearing a saved field", async () => {
-    const response = makeConfigResponse();
-    response.config.anthropic_api_key = {
-      is_set: true,
-      masked: "sk-ant...5678",
-      source: "override",
-    };
-    const cleared = makeConfigResponse();
-
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(response);
-    vi.spyOn(API, "updateSystemConfig").mockResolvedValue(cleared);
-
+  it("does not show warning banner when config is complete", async () => {
     renderPage();
 
-    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText("https://anthropic-proxy.example.com"), {
-      target: { value: "https://proxy.example.com/v1" },
-    });
-    expect(screen.getByDisplayValue("https://proxy.example.com/v1")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "清除已保存的 Anthropic API Key" }));
-
+    // Give time for config status to load
     await waitFor(() => {
-      expect(API.updateSystemConfig).toHaveBeenCalledWith({ anthropic_api_key: "" });
+      expect(API.getProviders).toHaveBeenCalled();
     });
-    expect(screen.getByDisplayValue("https://proxy.example.com/v1")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(
-        screen
-          .getAllByRole("button", { name: "保存" })
-          .some((button) => !(button as HTMLButtonElement).disabled),
-      ).toBe(true);
-    });
+
+    expect(screen.queryByText("以下必填配置尚未完成：")).not.toBeInTheDocument();
   });
 
-  it("disables agent save while a clear request is pending", async () => {
-    const response = makeConfigResponse();
-    response.config.anthropic_api_key = {
-      is_set: true,
-      masked: "sk-ant...5678",
-      source: "override",
-    };
-    const cleared = makeConfigResponse();
-    const clearRequest = createDeferred<GetSystemConfigResponse>();
-
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(response);
-    vi.spyOn(API, "updateSystemConfig").mockImplementation(() => clearRequest.promise);
-
+  it("renders the back button that links to projects", () => {
     renderPage();
-
-    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText("https://anthropic-proxy.example.com"), {
-      target: { value: "https://proxy.example.com/v1" },
-    });
-
-    const saveButton = screen
-      .getAllByRole("button", { name: "保存" })
-      .find((button) => !(button as HTMLButtonElement).disabled);
-    expect(saveButton).toBeDefined();
-
-    fireEvent.click(screen.getByRole("button", { name: "清除已保存的 Anthropic API Key" }));
-
-    await waitFor(() => {
-      expect(saveButton).toBeDisabled();
-    });
-
-    await act(async () => {
-      clearRequest.resolve(cleared);
-      await clearRequest.promise;
-    });
-
-    await waitFor(() => {
-      expect(saveButton).not.toBeDisabled();
-    });
-  });
-
-  it("clamps advanced worker inputs to their minimum before saving", async () => {
-    const updated = makeConfigResponse();
-    updated.config.performance.image_max_workers = 1;
-
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
-    vi.spyOn(API, "updateSystemConfig").mockResolvedValue(updated);
-
-    renderPage();
-
-    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "高级配置" }));
-
-    const imageWorkersInput = screen.getByRole("spinbutton", { name: "图片最大并发" });
-    fireEvent.change(imageWorkersInput, { target: { value: "" } });
-
-    expect((imageWorkersInput as HTMLInputElement).value).toBe("1");
-
-    const saveButton = screen
-      .getAllByRole("button", { name: "保存" })
-      .find((button) => !(button as HTMLButtonElement).disabled);
-    expect(saveButton).toBeDefined();
-    fireEvent.click(saveButton as HTMLButtonElement);
-
-    await waitFor(() => {
-      expect(API.updateSystemConfig).toHaveBeenCalledWith({ image_max_workers: 1 });
-    });
-  });
-
-  it("disables media save while a Vertex upload is pending", async () => {
-    const response = makeConfigResponse();
-    const uploaded = makeConfigResponse();
-    const uploadRequest = createDeferred<GetSystemConfigResponse>();
-
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(response);
-    vi.spyOn(API, "uploadVertexCredentials").mockImplementation(() => uploadRequest.promise);
-
-    renderPage();
-
-    expect(await screen.findByText("Anthropic API Key")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "AI 生图/生视频配置" }));
-    fireEvent.change(screen.getByPlaceholderText("https://gemini-proxy.example.com"), {
-      target: { value: "https://proxy.example.com/v1" },
-    });
-
-    const saveButton = screen
-      .getAllByRole("button", { name: "保存" })
-      .find((button) => !(button as HTMLButtonElement).disabled);
-    expect(saveButton).toBeDefined();
-
-    const uploadInput = screen.getByLabelText("上传 Vertex AI JSON 凭证文件");
-    const file = new File(["{}"], "vertex.json", { type: "application/json" });
-    fireEvent.change(uploadInput, { target: { files: [file] } });
-
-    await waitFor(() => {
-      expect(saveButton).toBeDisabled();
-    });
-
-    await act(async () => {
-      uploadRequest.resolve(uploaded);
-      await uploadRequest.promise;
-    });
-
-    await waitFor(() => {
-      expect(saveButton).not.toBeDisabled();
-    });
+    expect(screen.getByRole("button", { name: "返回项目大厅" })).toBeInTheDocument();
   });
 });
