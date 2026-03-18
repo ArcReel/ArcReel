@@ -1,6 +1,7 @@
 """Unit tests for shared turn grouper."""
 
 from server.agent_runtime.turn_grouper import (
+    _extract_task_notification,
     build_turn_patch,
     group_messages_into_turns,
 )
@@ -464,3 +465,125 @@ class TestTurnGrouper:
         assert turns[0]["type"] == "user"
         assert turns[1]["type"] == "system"
         assert turns[1]["content"][0]["type"] == "task_progress"
+
+    def test_task_notification_user_message_converted_to_task_progress(self):
+        """SDK-injected <task-notification> user message becomes task_progress block."""
+        xml_content = (
+            '<task-notification>\n'
+            '<task-id>bdgaof0ba</task-id>\n'
+            '<tool-use-id>toolu_016arH6Ny81xuwipeci3ic5e</tool-use-id>\n'
+            '<output-file>/tmp/claude-0/tasks/bdgaof0ba.output</output-file>\n'
+            '<status>failed</status>\n'
+            '<summary>Background command failed with exit code 2</summary>\n'
+            '</task-notification>\n'
+            'Read the output file to retrieve the result.'
+        )
+        raw_messages = [
+            {"type": "user", "content": "run this in background"},
+            {
+                "type": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "agent-1", "name": "Agent", "input": {}},
+                ],
+            },
+            {
+                "type": "system",
+                "subtype": "task_started",
+                "description": "Running command",
+                "task_id": "bdgaof0ba",
+                "tool_use_id": "agent-1",
+            },
+            # SDK transcript stores the notification as a user message
+            {"type": "user", "content": xml_content},
+        ]
+        turns = group_messages_into_turns(raw_messages)
+        assert [turn["type"] for turn in turns] == ["user", "assistant"]
+        assistant_content = turns[1]["content"]
+        task_blocks = [b for b in assistant_content if b.get("type") == "task_progress"]
+        assert len(task_blocks) == 1
+        assert task_blocks[0]["status"] == "task_notification"
+        assert task_blocks[0]["task_status"] == "failed"
+        assert task_blocks[0]["summary"] == "Background command failed with exit code 2"
+
+    def test_task_notification_user_message_list_content(self):
+        """Task notification in list-of-blocks content format is also detected."""
+        xml_text = (
+            '<task-notification>\n'
+            '<task-id>abc123</task-id>\n'
+            '<tool-use-id>toolu_xyz</tool-use-id>\n'
+            '<output-file>/tmp/claude-0/tasks/abc123.output</output-file>\n'
+            '<status>completed</status>\n'
+            '<summary>Task finished successfully</summary>\n'
+            '</task-notification>'
+        )
+        raw_messages = [
+            {"type": "user", "content": "start"},
+            {
+                "type": "assistant",
+                "content": [{"type": "text", "text": "working on it"}],
+            },
+            # Content as list of text blocks (SDK format)
+            {
+                "type": "user",
+                "content": [{"type": "text", "text": xml_text}],
+            },
+        ]
+        turns = group_messages_into_turns(raw_messages)
+        # Should NOT appear as a user turn
+        user_turns = [t for t in turns if t["type"] == "user"]
+        assert len(user_turns) == 1  # only the initial "start"
+        # The task_progress block should be on the assistant turn
+        assistant_content = turns[1]["content"]
+        task_blocks = [b for b in assistant_content if b.get("type") == "task_progress"]
+        assert len(task_blocks) == 1
+        assert task_blocks[0]["task_status"] == "completed"
+
+    def test_task_notification_without_prior_turn_creates_system_turn(self):
+        """Task notification user message without assistant turn creates system turn."""
+        xml_content = (
+            '<task-notification>\n'
+            '<task-id>solo-task</task-id>\n'
+            '<tool-use-id>toolu_solo</tool-use-id>\n'
+            '<output-file>/tmp/tasks/solo-task.output</output-file>\n'
+            '<status>completed</status>\n'
+            '<summary>Done</summary>\n'
+            '</task-notification>'
+        )
+        raw_messages = [
+            {"type": "user", "content": xml_content},
+        ]
+        turns = group_messages_into_turns(raw_messages)
+        assert len(turns) == 1
+        assert turns[0]["type"] == "system"
+        assert turns[0]["content"][0]["type"] == "task_progress"
+
+
+class TestExtractTaskNotification:
+    """Tests for _extract_task_notification helper."""
+
+    def test_extracts_all_fields(self):
+        xml = (
+            '<task-notification>\n'
+            '<task-id>abc</task-id>\n'
+            '<tool-use-id>toolu_1</tool-use-id>\n'
+            '<output-file>/tmp/out.txt</output-file>\n'
+            '<status>completed</status>\n'
+            '<summary>All good</summary>\n'
+            '</task-notification>'
+        )
+        result = _extract_task_notification(xml)
+        assert result is not None
+        assert result["task_id"] == "abc"
+        assert result["tool_use_id"] == "toolu_1"
+        assert result["output_file"] == "/tmp/out.txt"
+        assert result["status"] == "completed"
+        assert result["summary"] == "All good"
+
+    def test_returns_none_for_normal_text(self):
+        assert _extract_task_notification("hello world") is None
+
+    def test_handles_list_content(self):
+        blocks = [{"type": "text", "text": "<task-notification><task-id>x</task-id><status>ok</status></task-notification>"}]
+        result = _extract_task_notification(blocks)
+        assert result is not None
+        assert result["task_id"] == "x"

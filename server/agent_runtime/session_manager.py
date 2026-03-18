@@ -827,6 +827,16 @@ class SessionManager:
         ):
             return True
 
+        # 5. Read tools: allow SDK task output files.
+        #    Background tasks (Agent/Bash run_in_background) write their
+        #    output to /tmp/claude-{N}/{encoded-cwd}/tasks/{id}.output.
+        #    The SDK instructs the agent to Read the file after the task
+        #    completes.  Only the tasks/ subdirectory is allowed.
+        _SDK_TMP_PREFIX = "/tmp/claude-"
+        resolved_str = str(resolved)
+        if resolved_str.startswith(_SDK_TMP_PREFIX) and "tasks" in resolved.parts:
+            return True
+
         return False
 
     async def _handle_ask_user_question(

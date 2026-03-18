@@ -537,6 +537,36 @@ class TestSessionManagerMore:
 
         await engine.dispose()
 
+    @pytest.mark.asyncio
+    async def test_file_access_hook_allows_read_sdk_task_output(self, tmp_path, monkeypatch):
+        """Hook allows Read for SDK task output files under /tmp/claude-*."""
+        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path, monkeypatch)
+
+        # SDK task output path pattern: /tmp/claude-{N}/{encoded}/tasks/{id}.output
+        task_output = "/tmp/claude-0/-app-projects-alpha-abc123/tasks/bdgaof0ba.output"
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": task_output}},
+            None, None,
+        )
+        assert result.get("continue_") is True
+
+        # Write to task output — denied (write tools only allow project_cwd)
+        result = await hook(
+            {"tool_name": "Write", "tool_input": {"file_path": task_output}},
+            None, None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+        # /tmp/claude-* path WITHOUT tasks/ segment — denied
+        non_task_path = "/tmp/claude-0/-app-projects-alpha/sessions/abc.jsonl"
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": non_task_path}},
+            None, None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+        await engine.dispose()
+
 
 class TestJsonValidationHook:
     """Tests for the PreToolUse JSON validation hook."""

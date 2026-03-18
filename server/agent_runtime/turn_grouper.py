@@ -5,6 +5,7 @@ Conversation turn grouping shared by history loading and live SSE streaming.
 from __future__ import annotations
 
 import copy
+import re
 from typing import Any, Optional
 
 from server.agent_runtime.turn_schema import (
@@ -35,6 +36,52 @@ _SUBAGENT_CONTEXT_KEYS = (
     "agent_id",
 )
 _SUBAGENT_BOOLEAN_KEYS = ("isSidechain", "is_sidechain")
+
+
+# Regex for SDK-injected task notification user messages.
+_TASK_NOTIFICATION_RE = re.compile(
+    r"<task-notification>\s*.*?</task-notification>", re.DOTALL
+)
+
+
+def _extract_task_notification(content: Any) -> Optional[dict[str, str]]:
+    """Extract task notification fields from SDK-injected user message.
+
+    The SDK injects task completion/failure notifications as plain user
+    messages with ``<task-notification>`` XML.  This helper detects them
+    and returns parsed fields, or *None* if the content is not a task
+    notification.
+    """
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                texts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                texts.append(block)
+        text = "\n".join(texts)
+    elif isinstance(content, str):
+        text = content
+    else:
+        return None
+
+    match = _TASK_NOTIFICATION_RE.search(text)
+    if not match:
+        return None
+
+    xml = match.group(0)
+
+    def _tag(name: str) -> str:
+        m = re.search(rf"<{name}>(.*?)</{name}>", xml, re.DOTALL)
+        return m.group(1).strip() if m else ""
+
+    return {
+        "task_id": _tag("task-id"),
+        "tool_use_id": _tag("tool-use-id"),
+        "status": _tag("status"),
+        "summary": _tag("summary"),
+        "output_file": _tag("output-file"),
+    }
 
 
 def _is_skill_content_text(text: str) -> bool:
@@ -315,6 +362,48 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
 
         if msg_type == "user":
             content = msg.get("content", "")
+
+            # SDK injects task notifications as user messages in the
+            # transcript; convert to task_progress blocks so they render
+            # identically to live TaskNotificationMessage events.
+            task_info = _extract_task_notification(content)
+            if task_info is not None:
+                task_id = task_info["task_id"]
+                task_block = {
+                    "type": "task_progress",
+                    "task_id": task_id,
+                    "status": "task_notification",
+                    "description": "",
+                    "summary": task_info["summary"] or None,
+                    "task_status": task_info["status"] or None,
+                    "tool_use_id": task_info["tool_use_id"] or None,
+                }
+                if task_id:
+                    existing = (
+                        _find_task_block(current_turn, task_id)
+                        if current_turn
+                        else None
+                    )
+                    if existing is not None:
+                        existing["status"] = "task_notification"
+                        if task_block.get("summary"):
+                            existing["summary"] = task_block["summary"]
+                        if task_block.get("task_status"):
+                            existing["task_status"] = task_block["task_status"]
+                        continue
+                if current_turn and current_turn.get("type") == "assistant":
+                    current_turn.get("content", []).append(task_block)
+                else:
+                    if current_turn:
+                        turns.append(current_turn)
+                    current_turn = {
+                        "type": "system",
+                        "content": [task_block],
+                        "uuid": msg.get("uuid"),
+                        "timestamp": msg.get("timestamp"),
+                    }
+                continue
+
             has_subagent_metadata = _has_subagent_user_metadata(msg)
             is_system_injected = (
                 _is_system_injected_user_message(content)
