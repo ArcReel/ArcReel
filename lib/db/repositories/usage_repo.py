@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.cost_calculator import cost_calculator
 from lib.db.models.api_call import ApiCall
+from lib.video_backends.base import PROVIDER_GEMINI, PROVIDER_SEEDANCE
 
 
 def _utc_now() -> datetime:
@@ -62,7 +63,7 @@ class UsageRepository:
         duration_seconds: Optional[int] = None,
         aspect_ratio: Optional[str] = None,
         generate_audio: bool = True,
-        provider: str = "gemini",
+        provider: str = PROVIDER_GEMINI,
     ) -> int:
         now = _utc_now()
         prompt_truncated = prompt[:500] if prompt else None
@@ -94,7 +95,6 @@ class UsageRepository:
         error_message: Optional[str] = None,
         retry_count: int = 0,
         usage_tokens: Optional[int] = None,
-        provider: Optional[str] = None,
         service_tier: str = "default",
     ) -> None:
         finished_at = _utc_now()
@@ -115,10 +115,10 @@ class UsageRepository:
         # Calculate cost (failed = 0)
         cost_amount = 0.0
         currency = row.currency or "USD"
-        effective_provider = provider or row.provider or "gemini"
+        effective_provider = row.provider or PROVIDER_GEMINI
 
         if status == "success":
-            if effective_provider == "seedance" and row.call_type == "video":
+            if effective_provider == PROVIDER_SEEDANCE and row.call_type == "video":
                 cost_amount, currency = cost_calculator.calculate_seedance_video_cost(
                     usage_tokens=usage_tokens or 0,
                     service_tier=service_tier,

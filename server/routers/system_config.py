@@ -25,6 +25,7 @@ from lib.system_config import (
     parse_bool_env,
     resolve_vertex_credentials_path,
 )
+from lib.video_backends.base import PROVIDER_GEMINI, PROVIDER_SEEDANCE
 from server.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -243,7 +244,7 @@ def _options_payload() -> dict[str, list[str]]:
     return {
         "image_models": list(cost_calculator.IMAGE_COST.keys()),
         "video_models": list(cost_calculator.SELECTABLE_VIDEO_MODELS),
-        "video_providers": ["gemini", "seedance"],
+        "video_providers": [PROVIDER_GEMINI, PROVIDER_SEEDANCE],
     }
 
 
@@ -410,7 +411,7 @@ async def patch_system_config(req: SystemConfigPatchRequest, request: Request, _
         patch["vertex_gcs_bucket"] = str(patch["vertex_gcs_bucket"]).strip()
 
     if "video_provider" in patch and patch["video_provider"] not in (None, ""):
-        allowed_providers = {"gemini", "seedance"}
+        allowed_providers = {PROVIDER_GEMINI, PROVIDER_SEEDANCE}
         value = str(patch["video_provider"]).strip().lower()
         if value not in allowed_providers:
             raise HTTPException(status_code=400, detail=f"video_provider 必须是 {', '.join(allowed_providers)} 之一")

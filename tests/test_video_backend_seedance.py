@@ -24,7 +24,7 @@ def mock_ark_client():
 
 @pytest.fixture
 def backend(mock_ark_client):
-    with patch("lib.video_backends.seedance.Ark", return_value=mock_ark_client):
+    with patch("volcenginesdkarkruntime.Ark", return_value=mock_ark_client):
         b = SeedanceVideoBackend(
             api_key="test-ark-key",
             file_service_base_url="https://example.com",
@@ -221,7 +221,7 @@ class TestSeedanceGenerate:
 
     def test_missing_api_key_raises(self):
         with patch.dict(os.environ, {}, clear=True):
-            with patch("lib.video_backends.seedance.Ark"):
+            with patch("volcenginesdkarkruntime.Ark"):
                 with pytest.raises(ValueError, match="ARK_API_KEY"):
                     SeedanceVideoBackend(api_key=None)
 

@@ -14,6 +14,7 @@ from PIL import Image
 from lib.gemini_client import RateLimiter, get_shared_rate_limiter, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
 from lib.video_backends.base import (
+    PROVIDER_GEMINI,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -91,9 +92,19 @@ class GeminiVideoBackend:
                 api_key=_api_key, http_options=http_options
             )
 
+        # 缓存 capabilities，避免每次访问创建新 set
+        self._capabilities: Set[VideoCapability] = {
+            VideoCapability.TEXT_TO_VIDEO,
+            VideoCapability.IMAGE_TO_VIDEO,
+            VideoCapability.NEGATIVE_PROMPT,
+            VideoCapability.VIDEO_EXTEND,
+        }
+        if self._backend_type == "vertex":
+            self._capabilities.add(VideoCapability.GENERATE_AUDIO)
+
     @property
     def name(self) -> str:
-        return "gemini"
+        return PROVIDER_GEMINI
 
     @property
     def model(self) -> str:
@@ -101,15 +112,7 @@ class GeminiVideoBackend:
 
     @property
     def capabilities(self) -> Set[VideoCapability]:
-        caps = {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-            VideoCapability.NEGATIVE_PROMPT,
-            VideoCapability.VIDEO_EXTEND,
-        }
-        if self._backend_type == "vertex":
-            caps.add(VideoCapability.GENERATE_AUDIO)
-        return caps
+        return self._capabilities
 
     @staticmethod
     def _normalize_duration(duration_seconds: int) -> str:
@@ -183,11 +186,11 @@ class GeminiVideoBackend:
         video_uri = video_ref.uri if video_ref else None
 
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        self._download_video(video_ref, request.output_path)
+        await asyncio.to_thread(self._download_video, video_ref, request.output_path)
 
         return VideoGenerationResult(
             video_path=request.output_path,
-            provider="gemini",
+            provider=PROVIDER_GEMINI,
             model=self._video_model,
             duration_seconds=request.duration_seconds,
             video_uri=video_uri,

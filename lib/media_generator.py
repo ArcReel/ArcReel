@@ -428,7 +428,7 @@ class MediaGenerator:
                     call_id=call_id,
                     status="success",
                     output_path=str(output_path),
-                    provider=result.provider,
+
                     usage_tokens=result.usage_tokens,
                     service_tier=version_metadata.get("service_tier", "default"),
                 ))
@@ -576,7 +576,7 @@ class MediaGenerator:
                     call_id=call_id,
                     status="success",
                     output_path=str(output_path),
-                    provider=result.provider,
+
                     usage_tokens=result.usage_tokens,
                     service_tier=version_metadata.get("service_tier", "default"),
                 )

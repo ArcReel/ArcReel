@@ -11,14 +11,13 @@ from typing import Optional, Set
 import httpx
 
 from lib.video_backends.base import (
+    PROVIDER_SEEDANCE,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
 
 logger = logging.getLogger(__name__)
-
-from volcenginesdkarkruntime import Ark
 
 
 class SeedanceVideoBackend:
@@ -40,6 +39,8 @@ class SeedanceVideoBackend:
                 "请在 .env 文件中添加：ARK_API_KEY=your-api-key"
             )
 
+        from volcenginesdkarkruntime import Ark
+
         self._client = Ark(
             base_url="https://ark.cn-beijing.volces.com/api/v3",
             api_key=self._api_key,
@@ -48,10 +49,17 @@ class SeedanceVideoBackend:
         self._file_service_base_url = file_service_base_url or os.environ.get(
             "FILE_SERVICE_BASE_URL", ""
         )
+        self._capabilities: Set[VideoCapability] = {
+            VideoCapability.TEXT_TO_VIDEO,
+            VideoCapability.IMAGE_TO_VIDEO,
+            VideoCapability.GENERATE_AUDIO,
+            VideoCapability.SEED_CONTROL,
+            VideoCapability.FLEX_TIER,
+        }
 
     @property
     def name(self) -> str:
-        return "seedance"
+        return PROVIDER_SEEDANCE
 
     @property
     def model(self) -> str:
@@ -59,13 +67,7 @@ class SeedanceVideoBackend:
 
     @property
     def capabilities(self) -> Set[VideoCapability]:
-        return {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-            VideoCapability.GENERATE_AUDIO,
-            VideoCapability.SEED_CONTROL,
-            VideoCapability.FLEX_TIER,
-        }
+        return self._capabilities
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。"""
@@ -149,7 +151,7 @@ class SeedanceVideoBackend:
 
         return VideoGenerationResult(
             video_path=request.output_path,
-            provider="seedance",
+            provider=PROVIDER_SEEDANCE,
             model=self._model,
             duration_seconds=request.duration_seconds,
             video_uri=video_url,

@@ -108,7 +108,6 @@ class TestMultiProviderUsage:
             call_id,
             status="success",
             usage_tokens=246840,
-            provider="seedance",
             service_tier="default",
         )
 
@@ -154,7 +153,7 @@ class TestMultiProviderUsage:
             model="doubao-seedance-1-5-pro-251215", duration_seconds=5,
             resolution="1080p", generate_audio=True, provider="seedance",
         )
-        await repo.finish_call(c2, status="success", usage_tokens=246840, provider="seedance", service_tier="default")
+        await repo.finish_call(c2, status="success", usage_tokens=246840, service_tier="default")
 
         stats = await repo.get_stats(project_name="demo")
         assert stats["total_count"] == 2

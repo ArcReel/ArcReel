@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Optional, Protocol, Set
 
 
+PROVIDER_GEMINI = "gemini"
+PROVIDER_SEEDANCE = "seedance"
+
+
 class VideoCapability(str, Enum):
     """视频后端支持的能力枚举。"""
     TEXT_TO_VIDEO = "text_to_video"
