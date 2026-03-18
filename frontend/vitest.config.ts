@@ -2,12 +2,20 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
+const mockIconsPath = path.resolve(__dirname, "src/__mocks__/@lobehub/icons.tsx");
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "src") },
+      // Mock @lobehub/icons and all its subpath imports to avoid
+      // @lobehub/fluent-emoji ESM directory import errors in tests.
+      {
+        find: /^@lobehub\/icons(\/.*)?$/,
+        replacement: mockIconsPath,
+      },
+    ],
   },
   test: {
     environment: "jsdom",
