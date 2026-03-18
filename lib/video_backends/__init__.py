@@ -23,9 +23,6 @@ __all__ = [
 from lib.video_backends.gemini import GeminiVideoBackend
 register_backend("gemini", GeminiVideoBackend)
 
-# Seedance: volcengine SDK is optional, skip if not installed
-try:
-    from lib.video_backends.seedance import SeedanceVideoBackend
-    register_backend("seedance", SeedanceVideoBackend)
-except ImportError:
-    pass
+# Seedance: volcengine-python-sdk[ark] is a project dependency
+from lib.video_backends.seedance import SeedanceVideoBackend
+register_backend("seedance", SeedanceVideoBackend)

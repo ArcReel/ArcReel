@@ -1,7 +1,7 @@
 """add provider currency usage_tokens rename cost_usd to cost_amount
 
 Revision ID: 6cb95261c2b7
-Revises: ecbb53758daa
+Revises: b942e8c5d545
 Create Date: 2026-03-17 14:37:08.585442
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '6cb95261c2b7'
-down_revision: Union[str, Sequence[str], None] = 'ecbb53758daa'
+down_revision: Union[str, Sequence[str], None] = 'b942e8c5d545'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

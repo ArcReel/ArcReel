@@ -18,10 +18,7 @@ from lib.video_backends.base import (
 
 logger = logging.getLogger(__name__)
 
-try:
-    from volcenginesdkarkruntime import Ark
-except ImportError:
-    Ark = None  # type: ignore
+from volcenginesdkarkruntime import Ark
 
 
 class SeedanceVideoBackend:
@@ -36,12 +33,6 @@ class SeedanceVideoBackend:
         model: Optional[str] = None,
         file_service_base_url: Optional[str] = None,
     ):
-        if Ark is None:
-            raise ImportError(
-                "volcenginesdkarkruntime 未安装\n"
-                "请运行：uv add volcenginesdkarkruntime"
-            )
-
         self._api_key = api_key or os.environ.get("ARK_API_KEY")
         if not self._api_key:
             raise ValueError(

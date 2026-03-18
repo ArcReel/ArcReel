@@ -24,6 +24,8 @@ dependencies = [
     "asyncpg>=0.31.0",
     "alembic>=1.18.4",
     "pwdlib[argon2]>=0.3.0",
+    "volcengine-python-sdk[ark]>=5.0.17",
+    "openai>=2.29.0",
 ]
 
 [build-system]
