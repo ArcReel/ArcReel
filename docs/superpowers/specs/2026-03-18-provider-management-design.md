@@ -165,11 +165,11 @@ class ProviderStatus:
 | `anthropic_default_opus_model` | system_setting | anthropic_default_opus_model |
 | `anthropic_default_sonnet_model` | system_setting | anthropic_default_sonnet_model |
 | `claude_code_subagent_model` | system_setting | claude_code_subagent_model |
-| `gemini_image_rpm` | provider_config | gemini-aistudio / image_rpm 及 gemini-vertex / image_rpm |
-| `gemini_video_rpm` | provider_config | gemini-aistudio / video_rpm 及 gemini-vertex / video_rpm |
-| `gemini_request_gap` | provider_config | gemini-aistudio / request_gap 及 gemini-vertex / request_gap |
-| `image_max_workers` | provider_config | gemini-aistudio / image_max_workers 及 gemini-vertex / image_max_workers |
-| `video_max_workers` | provider_config | gemini-aistudio / video_max_workers 及 gemini-vertex / video_max_workers |
+| `gemini_image_rpm` | provider_config | gemini-aistudio / image_rpm 及 gemini-vertex / image_rpm（Gemini 专属，其他供应商不写入） |
+| `gemini_video_rpm` | provider_config | gemini-aistudio / video_rpm 及 gemini-vertex / video_rpm（Gemini 专属，其他供应商不写入） |
+| `gemini_request_gap` | provider_config | gemini-aistudio / request_gap 及 gemini-vertex / request_gap（Gemini 专属，其他供应商不写入） |
+| `image_max_workers` | provider_config | 写入所有已配置且支持 image 的供应商的 image_max_workers（迁移旧全局值） |
+| `video_max_workers` | provider_config | 写入所有已配置且支持 video 的供应商的 video_max_workers（迁移旧全局值） |
 | 其他未列出的 override 键 | system_setting | 原键名直接写入 |
 
 ### 2.3 迁移完成
