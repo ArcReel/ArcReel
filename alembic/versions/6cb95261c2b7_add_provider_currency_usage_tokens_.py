@@ -18,16 +18,28 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _get_column_names(table_name: str) -> set[str]:
+    """Return the set of column names for *table_name* using the current connection."""
+    conn = op.get_bind()
+    insp = sa.inspect(conn)
+    return {c["name"] for c in insp.get_columns(table_name)}
+
+
 def upgrade() -> None:
     """Upgrade schema."""
-    # SQLite requires batch mode for column rename
+    cols = _get_column_names("api_calls")
+
     with op.batch_alter_table('api_calls') as batch_op:
-        # Rename cost_usd → cost_amount
-        batch_op.alter_column('cost_usd', new_column_name='cost_amount')
-        # Add new columns
-        batch_op.add_column(sa.Column('currency', sa.String(), server_default='USD', nullable=False))
-        batch_op.add_column(sa.Column('provider', sa.String(), server_default='gemini', nullable=False))
-        batch_op.add_column(sa.Column('usage_tokens', sa.Integer(), nullable=True))
+        # Rename cost_usd → cost_amount (skip if already renamed)
+        if "cost_usd" in cols:
+            batch_op.alter_column('cost_usd', new_column_name='cost_amount')
+        # Add new columns (skip if already present)
+        if "currency" not in cols:
+            batch_op.add_column(sa.Column('currency', sa.String(), server_default='USD', nullable=False))
+        if "provider" not in cols:
+            batch_op.add_column(sa.Column('provider', sa.String(), server_default='gemini', nullable=False))
+        if "usage_tokens" not in cols:
+            batch_op.add_column(sa.Column('usage_tokens', sa.Integer(), nullable=True))
 
 
 def downgrade() -> None:
