@@ -8,7 +8,7 @@ lib.db.engine.get_database_url(), falling back to SQLite in projects/.arcreel.db
 import asyncio
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import DateTime, String, pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
@@ -39,10 +39,27 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         render_as_batch=True,
+        compare_type=_compare_type,
     )
 
     with context.begin_transaction():
         context.run_migrations()
+
+
+def _compare_type(context, inspected_column, metadata_column, inspected_type, metadata_type):
+    """Suppress VARCHAR ↔ DateTime drift on SQLite.
+
+    We intentionally keep datetime columns as VARCHAR in SQLite DDL to avoid
+    Alembic batch_alter_table's CAST truncation bug (see b942e8c5d545).
+    SQLAlchemy handles str↔datetime conversion at the Python level.
+    """
+    if context.dialect.name == "sqlite":
+        if isinstance(inspected_type, String) and isinstance(metadata_type, DateTime):
+            return False
+        if isinstance(inspected_type, DateTime) and isinstance(metadata_type, String):
+            return False
+    # Return None to let Alembic use its default comparison for all other cases
+    return None
 
 
 def do_run_migrations(connection) -> None:
@@ -51,6 +68,7 @@ def do_run_migrations(connection) -> None:
         target_metadata=target_metadata,
         render_as_batch=True,
         transaction_per_migration=True,
+        compare_type=_compare_type,
     )
     with context.begin_transaction():
         context.run_migrations()

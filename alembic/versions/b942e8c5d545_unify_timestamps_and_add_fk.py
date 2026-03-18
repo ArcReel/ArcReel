@@ -52,6 +52,12 @@ def upgrade() -> None:
     )
 
     # 2. Convert String timestamp columns → DateTime(timezone=True)
+    #    SQLite: skip column type change — SQLAlchemy's DateTime type processor
+    #    handles str↔datetime conversion at the Python level regardless of the
+    #    underlying column DDL type.  Alembic's batch_alter_table on SQLite uses
+    #    CAST(col AS DATETIME) during data copy, and SQLite's DATETIME has
+    #    NUMERIC affinity, which truncates ISO strings like "2026-03-17T..."
+    #    to the integer 2026.
     if is_pg:
         for table, columns in TIMESTAMP_COLUMNS.items():
             for col in columns:
@@ -63,17 +69,6 @@ def upgrade() -> None:
                         f"THEN {col}::timestamptz END"
                     )
                 )
-    else:
-        for table, columns in TIMESTAMP_COLUMNS.items():
-            with op.batch_alter_table(table) as batch_op:
-                for col in columns:
-                    nullable = (table, col) in NULLABLE_COLUMNS
-                    batch_op.alter_column(
-                        col,
-                        type_=sa.DateTime(timezone=True),
-                        existing_type=sa.String(),
-                        nullable=nullable,
-                    )
 
     # 2b. Rebuild expression-based partial index lost during batch rebuild
     #     (SQLAlchemy cannot reflect expression indexes on SQLite)
@@ -115,6 +110,7 @@ def downgrade() -> None:
         batch_op.alter_column("generate_audio", server_default="1")
 
     # 3. Revert DateTime(timezone=True) → String
+    #    SQLite: no-op (column type was never changed; see upgrade comment).
     if is_pg:
         for table, columns in TIMESTAMP_COLUMNS.items():
             for col in columns:
@@ -126,23 +122,3 @@ def downgrade() -> None:
                         f"'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
                     )
                 )
-    else:
-        for table, columns in TIMESTAMP_COLUMNS.items():
-            with op.batch_alter_table(table) as batch_op:
-                for col in columns:
-                    nullable = (table, col) in NULLABLE_COLUMNS
-                    batch_op.alter_column(
-                        col,
-                        type_=sa.String(),
-                        existing_type=sa.DateTime(timezone=True),
-                        nullable=nullable,
-                    )
-
-        # Rebuild expression-based partial index lost during batch rebuild
-        op.execute(
-            sa.text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_dedupe_active "
-                "ON tasks(project_name, task_type, resource_id, COALESCE(script_file, '')) "
-                "WHERE status IN ('queued', 'running')"
-            )
-        )
