@@ -24,14 +24,14 @@ PROVIDER_REGISTRY = {
         display_name="Gemini AI Studio",
         media_types=["video", "image"],
         required_keys=["api_key"],
-        optional_keys=["base_url"],
+        optional_keys=["base_url", "image_rpm", "video_rpm", "request_gap"],
         secret_keys=["api_key"],
     ),
     "gemini-vertex": ProviderMeta(
         display_name="Gemini Vertex AI",
         media_types=["video", "image"],
         required_keys=["credentials_path"],
-        optional_keys=["gcs_bucket"],
+        optional_keys=["gcs_bucket", "image_rpm", "video_rpm", "request_gap"],
         secret_keys=[],
     ),
     "seedance": ProviderMeta(
@@ -165,11 +165,11 @@ class ProviderStatus:
 | `anthropic_default_opus_model` | system_setting | anthropic_default_opus_model |
 | `anthropic_default_sonnet_model` | system_setting | anthropic_default_sonnet_model |
 | `claude_code_subagent_model` | system_setting | claude_code_subagent_model |
-| `gemini_image_rpm` | system_setting | gemini_image_rpm |
-| `gemini_video_rpm` | system_setting | gemini_video_rpm |
-| `gemini_request_gap` | system_setting | gemini_request_gap |
-| `image_max_workers` | system_setting | image_max_workers |
-| `video_max_workers` | system_setting | video_max_workers |
+| `gemini_image_rpm` | provider_config | gemini-aistudio / image_rpm 及 gemini-vertex / image_rpm（Gemini 专属限流） |
+| `gemini_video_rpm` | provider_config | gemini-aistudio / video_rpm 及 gemini-vertex / video_rpm（Gemini 专属限流） |
+| `gemini_request_gap` | provider_config | gemini-aistudio / request_gap 及 gemini-vertex / request_gap（Gemini 专属最小请求间隔） |
+| `image_max_workers` | system_setting | image_max_workers（全局并发通道数，不区分供应商） |
+| `video_max_workers` | system_setting | video_max_workers（全局并发通道数，不区分供应商） |
 | 其他未列出的 override 键 | system_setting | 原键名直接写入 |
 
 ### 2.3 迁移完成
