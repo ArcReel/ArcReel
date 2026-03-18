@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
     # Startup
     ensure_auth_password()
 
-    # Initialize database tables (dev convenience; production uses Alembic)
+    # Run Alembic migrations (auto-creates tables on first start)
     await init_db()
 
     # 修复存量项目的 agent_runtime 软连接

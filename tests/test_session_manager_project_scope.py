@@ -29,7 +29,7 @@ async def _make_store():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    store = SessionMetaStore(session_factory=factory, _skip_init_db=True)
+    store = SessionMetaStore(session_factory=factory)
     return store, engine
 
 

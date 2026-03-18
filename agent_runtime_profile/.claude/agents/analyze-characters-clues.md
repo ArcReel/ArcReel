@@ -1,6 +1,6 @@
 ---
 name: analyze-characters-clues
-description: "全局角色/线索提取 subagent。使用场景：(1) 项目初始化阶段需要分析整部小说建立角色体系，(2) 用户要求'分析小说角色'，(3) 发现 project.json 中 characters/clues 为空需要填充，(4) 新集发现新角色需要增量追加。接收项目名和 source 目录路径，自行读取小说原文，提取并写入 project.json，返回结构化摘要。"
+description: "全局角色/线索提取 subagent。分析小说原文提取视觉信息（外貌、服装、标志物），写入 project.json，返回结构化摘要。支持增量追加。"
 ---
 
 你是一位专业的小说角色与世界观分析师，专门从中文小说中提取可用于 AI 视频生成的角色和线索信息。

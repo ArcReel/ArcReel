@@ -1,6 +1,7 @@
 """Tests for ORM model definitions — verify tables can be created."""
 
 import pytest
+from datetime import datetime, timezone
 from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
@@ -37,6 +38,7 @@ class TestModelsCreateTables:
         assert "agent_sessions" in table_names
 
     async def test_task_round_trip(self, session):
+        now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         task = Task(
             task_id="abc123",
             project_name="demo",
@@ -44,8 +46,8 @@ class TestModelsCreateTables:
             media_type="image",
             resource_id="E1S01",
             status="queued",
-            queued_at="2026-01-01T00:00:00Z",
-            updated_at="2026-01-01T00:00:00Z",
+            queued_at=now,
+            updated_at=now,
         )
         session.add(task)
         await session.commit()
@@ -57,12 +59,13 @@ class TestModelsCreateTables:
         assert loaded.status == "queued"
 
     async def test_agent_session_round_trip(self, session):
+        now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         s = AgentSession(
             id="sess123",
             project_name="demo",
             status="idle",
-            created_at="2026-01-01T00:00:00Z",
-            updated_at="2026-01-01T00:00:00Z",
+            created_at=now,
+            updated_at=now,
         )
         session.add(s)
         await session.commit()

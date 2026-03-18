@@ -3,6 +3,7 @@
  * 提示词区域（可复制，含动态 skill.md URL）、3 步使用说明、"获取 API 令牌"按钮
  */
 import { useCallback, useMemo, useState } from "react";
+import { copyText } from "@/utils/clipboard";
 import { Check, Copy, ExternalLink, X } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -54,7 +55,7 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
   );
 
   const handleCopyPrompt = useCallback(async () => {
-    await navigator.clipboard.writeText(systemPrompt);
+    await copyText(systemPrompt);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [systemPrompt]);

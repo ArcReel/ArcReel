@@ -19,10 +19,11 @@ import type { WorkspaceNotification } from "@/types";
 // ---------------------------------------------------------------------------
 
 const PHASES = [
-  { key: "characters", label: "角色/线索" },
-  { key: "storyboard", label: "剧本分镜" },
-  { key: "video", label: "视频合成" },
-  { key: "compose", label: "后期处理" },
+  { key: "setup", label: "准备中" },
+  { key: "worldbuilding", label: "世界观" },
+  { key: "scripting", label: "剧本创作" },
+  { key: "production", label: "制作中" },
+  { key: "completed", label: "已完成" },
 ] as const;
 
 type PhaseKey = (typeof PHASES)[number]["key"];

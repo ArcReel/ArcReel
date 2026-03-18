@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { API } from "@/api";
+import { uid } from "@/utils/id";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type {
   AssistantSnapshot,
@@ -451,7 +452,7 @@ export function useAssistantSession(projectName: string | null) {
         const optimisticTurn: Turn = {
           type: "user",
           content: optimisticContent,
-          uuid: `${OPTIMISTIC_PREFIX}${crypto.randomUUID()}`,
+          uuid: `${OPTIMISTIC_PREFIX}${uid()}`,
           timestamp: new Date().toISOString(),
         };
         optimisticUuid = optimisticTurn.uuid ?? "";

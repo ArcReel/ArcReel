@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 ACTIVE_TASK_STATUSES = ("queued", "running")
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _json_dumps(value: Any) -> str:
@@ -35,6 +35,11 @@ def _json_loads(value: Optional[str], default: Any) -> Any:
         return json.loads(value)
     except Exception:
         return default
+
+
+def _dt_to_iso(val: Optional[datetime]) -> Optional[str]:
+    """Convert datetime to ISO string for JSON serialization."""
+    return val.isoformat() if val else None
 
 
 def _task_to_dict(row: Task) -> dict[str, Any]:
@@ -53,10 +58,10 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "dependency_task_id": row.dependency_task_id,
         "dependency_group": row.dependency_group,
         "dependency_index": row.dependency_index,
-        "queued_at": row.queued_at,
-        "started_at": row.started_at,
-        "finished_at": row.finished_at,
-        "updated_at": row.updated_at,
+        "queued_at": _dt_to_iso(row.queued_at),
+        "started_at": _dt_to_iso(row.started_at),
+        "finished_at": _dt_to_iso(row.finished_at),
+        "updated_at": _dt_to_iso(row.updated_at),
     }
 
 
@@ -68,7 +73,7 @@ def _event_to_dict(row: TaskEvent) -> dict[str, Any]:
         "event_type": row.event_type,
         "status": row.status,
         "data": _json_loads(row.data_json, {}),
-        "created_at": row.created_at,
+        "created_at": _dt_to_iso(row.created_at),
     }
 
 
@@ -85,7 +90,7 @@ class TaskRepository:
         status: str,
         data: Optional[dict] = None,
     ) -> int:
-        now = _utc_now_iso()
+        now = _utc_now()
         event = TaskEvent(
             task_id=task_id,
             project_name=project_name,
@@ -112,7 +117,7 @@ class TaskRepository:
         dependency_group: Optional[str] = None,
         dependency_index: Optional[int] = None,
     ) -> dict[str, Any]:
-        now = _utc_now_iso()
+        now = _utc_now()
 
         task_id = uuid.uuid4().hex
         task = Task(
@@ -175,7 +180,7 @@ class TaskRepository:
         }
 
     async def claim_next(self, media_type: str) -> Optional[dict[str, Any]]:
-        now = _utc_now_iso()
+        now = _utc_now()
 
         # Use raw SQL for the dependency join (clearer than ORM for self-join)
         raw_stmt = text("""
@@ -236,7 +241,7 @@ class TaskRepository:
     async def mark_succeeded(
         self, task_id: str, result: Optional[dict[str, Any]] = None
     ) -> Optional[dict[str, Any]]:
-        now = _utc_now_iso()
+        now = _utc_now()
 
         await self.session.execute(
             update(Task)
@@ -306,7 +311,7 @@ class TaskRepository:
         if task.status not in allowed_statuses:
             return _task_to_dict(task), False
 
-        now = _utc_now_iso()
+        now = _utc_now()
         await self.session.execute(
             update(Task)
             .where(Task.task_id == task_id)
@@ -367,7 +372,7 @@ class TaskRepository:
         return cascaded
 
     async def requeue_running(self, *, limit: int = 1000) -> int:
-        now = _utc_now_iso()
+        now = _utc_now()
         limit = max(1, min(5000, limit))
 
         # Step 1: collect task_ids to requeue
@@ -403,7 +408,7 @@ class TaskRepository:
         requeued_tasks = rows.scalars().all()
 
         # Step 4: bulk-insert all requeue events
-        event_now = _utc_now_iso()
+        event_now = _utc_now()
         events = [
             TaskEvent(
                 task_id=t.task_id,
@@ -546,7 +551,7 @@ class TaskRepository:
     ) -> bool:
         now_epoch = time.time()
         lease_until = now_epoch + max(1.0, float(ttl))
-        updated_at = _utc_now_iso()
+        updated_at = _utc_now()
 
         # Fast path: renew existing lease only when we own it or it's expired.
         update_result = await self.session.execute(
@@ -613,6 +618,6 @@ class TaskRepository:
             "name": row.name,
             "owner_id": row.owner_id,
             "lease_until": row.lease_until,
-            "updated_at": row.updated_at,
+            "updated_at": _dt_to_iso(row.updated_at),
             "is_online": row.lease_until > time.time(),
         }

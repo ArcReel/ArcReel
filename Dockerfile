@@ -32,6 +32,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
+# 禁用 Python 输出缓冲，确保日志实时输出到 Docker logs
+ENV PYTHONUNBUFFERED=1
+
 # 先复制依赖和包元数据文件，利用缓存
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --no-dev --no-install-project

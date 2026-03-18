@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Float, Index, Integer, String, Text
+import sqlalchemy as sa
+from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base
@@ -21,19 +23,19 @@ class ApiCall(Base):
     resolution: Mapped[Optional[str]] = mapped_column(String)
     duration_seconds: Mapped[Optional[int]] = mapped_column(Integer)
     aspect_ratio: Mapped[Optional[str]] = mapped_column(String)
-    generate_audio: Mapped[Optional[bool]] = mapped_column(Boolean, server_default="1")
+    generate_audio: Mapped[Optional[bool]] = mapped_column(Boolean, server_default=sa.true())
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     error_message: Mapped[Optional[str]] = mapped_column(Text)
     output_path: Mapped[Optional[str]] = mapped_column(Text)
-    started_at: Mapped[str] = mapped_column(String, nullable=False)
-    finished_at: Mapped[Optional[str]] = mapped_column(String)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
     retry_count: Mapped[int] = mapped_column(Integer, server_default="0")
     cost_amount: Mapped[float] = mapped_column(Float, server_default="0.0")
     currency: Mapped[str] = mapped_column(String, server_default="USD")
     provider: Mapped[str] = mapped_column(String, server_default="gemini")
     usage_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[Optional[str]] = mapped_column(String)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         Index("idx_api_calls_project_name", "project_name"),

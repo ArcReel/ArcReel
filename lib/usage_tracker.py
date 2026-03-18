@@ -9,22 +9,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from lib.db import init_db, safe_session_factory
+from lib.db import safe_session_factory
 from lib.db.repositories.usage_repo import UsageRepository
 
 
 class UsageTracker:
     """Async API 调用记录追踪器，wrapping UsageRepository."""
 
-    def __init__(self, *, session_factory=None, _skip_init_db: bool = False):
+    def __init__(self, *, session_factory=None):
         self._session_factory = session_factory or safe_session_factory
-        self._skip_init_db = _skip_init_db
-        self._db_initialized = _skip_init_db
-
-    async def _ensure_db(self) -> None:
-        if not self._db_initialized:
-            await init_db()
-            self._db_initialized = True
 
     async def start_call(
         self,
@@ -38,7 +31,7 @@ class UsageTracker:
         generate_audio: bool = True,
         provider: str = "gemini",
     ) -> int:
-        await self._ensure_db()
+
         async with self._session_factory() as session:
             repo = UsageRepository(session)
             return await repo.start_call(
@@ -64,7 +57,7 @@ class UsageTracker:
         provider: Optional[str] = None,
         service_tier: str = "default",
     ) -> None:
-        await self._ensure_db()
+
         async with self._session_factory() as session:
             repo = UsageRepository(session)
             await repo.finish_call(
@@ -84,7 +77,7 @@ class UsageTracker:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
     ) -> Dict[str, Any]:
-        await self._ensure_db()
+
         async with self._session_factory() as session:
             repo = UsageRepository(session)
             return await repo.get_stats(
@@ -103,7 +96,7 @@ class UsageTracker:
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
-        await self._ensure_db()
+
         async with self._session_factory() as session:
             repo = UsageRepository(session)
             return await repo.get_calls(
@@ -117,7 +110,7 @@ class UsageTracker:
             )
 
     async def get_projects_list(self) -> List[str]:
-        await self._ensure_db()
+
         async with self._session_factory() as session:
             repo = UsageRepository(session)
             return await repo.get_projects_list()

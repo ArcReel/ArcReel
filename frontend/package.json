@@ -1,6 +1,6 @@
 {
   "name": "arcreel-frontend",
-  "version": "0.1.8",
+  "version": "0.1.10",
   "private": true,
   "type": "module",
   "engines": {
@@ -39,12 +39,12 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
-    "@vitest/coverage-v8": "^4.0.18",
-    "jsdom": "^28.1.0",
+    "@vitest/coverage-v8": "^4.1.0",
+    "jsdom": "^29.0.0",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

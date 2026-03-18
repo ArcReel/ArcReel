@@ -4,5 +4,39 @@
     "skill-creator@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(uv run python -m pytest:*)",
+      "Bash(uv sync:*)",
+      "Bash(pnpm build:*)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm typecheck:*)",
+      "Bash(pnpm install:*)",
+      "Bash(git status:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git worktree:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr status:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(openspec:*)",
+      "Bash(command -v openspec)",
+      "Bash(bash scripts/new-worktree.sh:*)",
+      "Skill(commit-commands:commit)",
+      "Skill(commit-commands:commit-push-pr)",
+      "Skill(claude-api)",
+      "mcp__github__issue_read",
+      "mcp__github__pull_request_read",
+      "mcp__github__list_pull_requests",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:docs.claude.com)"
+    ]
   }
 }

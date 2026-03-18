@@ -17,7 +17,7 @@ async def queue():
         await conn.run_sync(Base.metadata.create_all)
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    q = GenerationQueue(session_factory=factory, _skip_init_db=True)
+    q = GenerationQueue(session_factory=factory)
     yield q
     await engine.dispose()
 

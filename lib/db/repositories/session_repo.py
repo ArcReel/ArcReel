@@ -12,8 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.db.models.session import AgentSession
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _dt_to_iso(val: Optional[datetime]) -> Optional[str]:
+    """Convert datetime to ISO string for JSON serialization."""
+    return val.isoformat() if val else None
 
 
 def _row_to_dict(row: AgentSession) -> dict[str, Any]:
@@ -23,8 +28,8 @@ def _row_to_dict(row: AgentSession) -> dict[str, Any]:
         "project_name": row.project_name,
         "title": row.title or "",
         "status": row.status,
-        "created_at": row.created_at,
-        "updated_at": row.updated_at,
+        "created_at": _dt_to_iso(row.created_at),
+        "updated_at": _dt_to_iso(row.updated_at),
     }
 
 
@@ -33,7 +38,7 @@ class SessionRepository:
         self.session = session
 
     async def create(self, project_name: str, title: str = "") -> dict[str, Any]:
-        now = _utc_now_iso()
+        now = _utc_now()
         row = AgentSession(
             id=uuid.uuid4().hex,
             project_name=project_name,
@@ -74,7 +79,7 @@ class SessionRepository:
         return [_row_to_dict(row) for row in result.scalars().all()]
 
     async def update_status(self, session_id: str, status: str) -> bool:
-        now = _utc_now_iso()
+        now = _utc_now()
         result = await self.session.execute(
             update(AgentSession)
             .where(AgentSession.id == session_id)
@@ -84,7 +89,7 @@ class SessionRepository:
         return result.rowcount > 0
 
     async def update_sdk_session_id(self, session_id: str, sdk_session_id: str) -> bool:
-        now = _utc_now_iso()
+        now = _utc_now()
         result = await self.session.execute(
             update(AgentSession)
             .where(AgentSession.id == session_id)
@@ -94,7 +99,7 @@ class SessionRepository:
         return result.rowcount > 0
 
     async def update_title(self, session_id: str, title: str) -> bool:
-        now = _utc_now_iso()
+        now = _utc_now()
         result = await self.session.execute(
             update(AgentSession)
             .where(AgentSession.id == session_id)
@@ -111,7 +116,7 @@ class SessionRepository:
         return result.rowcount > 0
 
     async def interrupt_running(self) -> int:
-        now = _utc_now_iso()
+        now = _utc_now()
         result = await self.session.execute(
             update(AgentSession)
             .where(AgentSession.status == "running")

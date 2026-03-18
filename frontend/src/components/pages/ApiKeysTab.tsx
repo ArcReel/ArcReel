@@ -3,6 +3,7 @@
  * 列表展示、创建（弹窗显示完整 key）、删除（确认弹窗）
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { copyText } from "@/utils/clipboard";
 import {
   AlertTriangle,
   Check,
@@ -80,7 +81,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
 
   const handleCopy = useCallback(async () => {
     if (!created?.key) return;
-    await navigator.clipboard.writeText(created.key);
+    await copyText(created.key);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [created?.key]);

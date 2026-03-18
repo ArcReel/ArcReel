@@ -1,6 +1,6 @@
 [project]
 name = "arcreel"
-version = "0.1.8"
+version = "0.1.10"
 description = "AI video generation workspace"
 readme = "README.md"
 requires-python = ">=3.12"
