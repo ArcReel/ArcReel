@@ -6,6 +6,7 @@ import { StudioLayout } from "@/components/layout";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
+import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
@@ -120,6 +121,13 @@ export function AppRoutes() {
         <Route path="/app/settings">
           <AuthGuard>
             <SystemConfigPage />
+          </AuthGuard>
+        </Route>
+
+        {/* Project settings — full-screen, must be before the nested workspace route */}
+        <Route path="/app/projects/:projectName/settings">
+          <AuthGuard>
+            <ProjectSettingsPage />
           </AuthGuard>
         </Route>
 
