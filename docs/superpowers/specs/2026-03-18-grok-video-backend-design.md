@@ -41,9 +41,9 @@ def __init__(self, *, api_key: str | None = None, model: str | None = None):
 
 ### generate() 流程
 
-1. 构建参数：prompt、aspect_ratio、duration（1-15 秒连续值，直接传入）
+1. 构建参数：prompt、aspect_ratio、duration（1-15 秒整数值，直接传入）
 2. 若有 `start_image`：读取本地文件，base64 编码为 `data:image/{ext};base64,{data}`
-3. 调用 `client.video.generate(prompt=..., image_url=..., aspect_ratio=..., duration=...)`
+3. 调用 `client.video.generate(...)`（具体参数名以 `xai_sdk` 实际 API 为准，实现时参考 `docs/grok-docs/video-generation.md`）
 4. SDK 自动处理轮询，返回结果包含临时视频 URL
 5. 用 `httpx.AsyncClient` 异步下载视频到 `output_path`
 6. 返回 `VideoGenerationResult(video_path=output_path, provider="grok", model=model, duration_seconds=...)`
@@ -91,24 +91,27 @@ elif provider_name == PROVIDER_GROK:
 
 ### CostCalculator
 
-新增 Grok 计费字典和方法：
+新增 Grok 计费字典和实例方法（与现有 `calculate_video_cost` / `calculate_seedance_video_cost` 模式一致）：
 
 ```python
 GROK_VIDEO_COST = {
-    "grok-imagine-video": 0.050,  # USD/秒，不区分分辨率
+    "grok-imagine-video": 0.050,  # USD/秒，不区分分辨率（待确认实际定价）
 }
 
-def calculate_grok_video_cost(duration_seconds: int, model: str) -> float:
+def calculate_grok_video_cost(self, duration_seconds: int, model: str) -> float:
     per_second = GROK_VIDEO_COST.get(model, 0.050)
     return duration_seconds * per_second
 ```
 
 货币：USD（与 Gemini 一致）。
 
+> **注意**：$0.050/秒为参考值，实现时需核实 xAI 官方定价页面。
+
 ### UsageRepository
 
 `finish_call()` 新增 `PROVIDER_GROK` 分支：
 
+- 通过 `row.provider` 判断路由到 `calculate_grok_video_cost()`
 - 使用 `duration_seconds`（从 `VideoGenerationResult` 提取）× 单价计算费用
 - 不依赖 `usage_tokens`（Grok 按秒计费）
 
@@ -116,11 +119,13 @@ def calculate_grok_video_cost(duration_seconds: int, model: str) -> float:
 
 ### SystemConfigManager
 
-`_ENV_KEYS` 新增：
+**`_ENV_KEYS`** 新增：
 
 ```python
 "XAI_API_KEY"
 ```
+
+**`_apply_to_env()`** 新增 `xai_api_key` → `XAI_API_KEY` 的映射（与 `ark_api_key` → `ARK_API_KEY` 模式一致），确保 WebUI 配置写入后能正确应用到环境变量。
 
 `DEFAULT_VIDEO_PROVIDER` 合法值扩展为 `gemini | seedance | grok`。
 
@@ -146,7 +151,7 @@ def calculate_grok_video_cost(duration_seconds: int, model: str) -> float:
 }
 ```
 
-`generation_tasks.py` 构建 `VideoGenerationRequest` 时，根据当前选中模型名从 `video_model_settings` 取对应分辨率并注入 `request.resolution`。各模型默认值：
+**分辨率注入点**：`server/services/generation_tasks.py` 的 `execute_video_task()` 中，在构建 `VideoGenerationRequest` 前，根据当前选中的模型名从 `video_model_settings` 取对应分辨率，设置到 `request.resolution`。各模型默认值：
 
 | 模型 | 默认分辨率 |
 |------|-----------|
@@ -184,7 +189,9 @@ def calculate_grok_video_cost(duration_seconds: int, model: str) -> float:
 | `lib/video_backends/base.py` | 修改（新增 `PROVIDER_GROK`） |
 | `lib/video_backends/__init__.py` | 修改（注册 Grok） |
 | `lib/cost_calculator.py` | 修改（新增 Grok 计费） |
-| `lib/system_config.py` | 修改（新增 `XAI_API_KEY`） |
+| `lib/db/repositories/usage_repo.py` | 修改（`finish_call()` 新增 Grok 分支） |
+| `lib/system_config.py` | 修改（`_ENV_KEYS` + `_apply_to_env`） |
 | `server/services/generation_tasks.py` | 修改（工厂 + 分辨率注入） |
+| `pyproject.toml` | 修改（新增 `xai_sdk` 依赖） |
 | `tests/test_grok_video_backend.py` | 新增 |
 | `tests/test_cost_calculator.py` | 修改（新增用例） |
