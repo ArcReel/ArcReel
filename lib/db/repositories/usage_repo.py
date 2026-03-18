@@ -127,7 +127,7 @@ class UsageRepository:
                 )
             elif effective_provider == PROVIDER_GROK and row.call_type == "video":
                 cost_amount = cost_calculator.calculate_grok_video_cost(
-                    duration_seconds=row.duration_seconds or 5,
+                    duration_seconds=row.duration_seconds or 8,
                     model=row.model,
                 )
                 currency = "USD"
