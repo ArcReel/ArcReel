@@ -5,3 +5,4 @@ export * from "./assistant";
 export * from "./workspace";
 export * from "./system";
 export * from "./api-key";
+export * from "./provider";

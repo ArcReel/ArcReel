@@ -27,6 +27,10 @@ import type {
   SystemConnectionTestResponse,
   ApiKeyInfo,
   CreateApiKeyResponse,
+  ProviderInfo,
+  ProviderConfigDetail,
+  ProviderTestResult,
+  UsageStatsResponse,
 } from "@/types";
 import { getToken, clearToken } from "@/utils/auth";
 
@@ -1267,6 +1271,72 @@ class API {
   /** 删除（吊销）指定 API Key。 */
   static async deleteApiKey(keyId: number): Promise<void> {
     return this.request(`/api-keys/${keyId}`, { method: "DELETE" });
+  }
+
+  // ==================== Provider 管理 API ====================
+
+  /** 获取所有 provider 列表及状态。 */
+  static async getProviders(): Promise<{ providers: ProviderInfo[] }> {
+    return this.request("/providers");
+  }
+
+  /** 获取指定 provider 的配置详情（含字段列表）。 */
+  static async getProviderConfig(id: string): Promise<ProviderConfigDetail> {
+    return this.request(`/providers/${encodeURIComponent(id)}`);
+  }
+
+  /** 更新指定 provider 的配置字段。 */
+  static async patchProviderConfig(
+    id: string,
+    patch: Record<string, string | null>
+  ): Promise<void> {
+    return this.request(`/providers/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /** 测试指定 provider 的连接。 */
+  static async testProviderConnection(id: string): Promise<ProviderTestResult> {
+    return this.request(`/providers/${encodeURIComponent(id)}/test`, {
+      method: "POST",
+    });
+  }
+
+  /** 上传 Vertex AI 服务账号凭证文件。 */
+  static async uploadVertexCredentialsForProvider(
+    id: string,
+    file: File
+  ): Promise<void> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(
+      `${API_BASE}/providers/${encodeURIComponent(id)}/credentials`,
+      withAuth({
+        method: "POST",
+        body: formData,
+      })
+    );
+
+    await throwIfNotOk(response, "上传凭证失败");
+  }
+
+  // ==================== 用量统计（按 provider 分组）API ====================
+
+  /**
+   * 获取按 provider 分组的用量统计。
+   * @param params - 可选筛选：provider、start、end（ISO 日期字符串）
+   */
+  static async getUsageStatsGrouped(
+    params: { provider?: string; start?: string; end?: string } = {}
+  ): Promise<UsageStatsResponse> {
+    const searchParams = new URLSearchParams();
+    if (params.provider) searchParams.append("provider", params.provider);
+    if (params.start) searchParams.append("start", params.start);
+    if (params.end) searchParams.append("end", params.end);
+    const query = searchParams.toString();
+    return this.request(`/usage/stats/grouped${query ? "?" + query : ""}`);
   }
 }
 
