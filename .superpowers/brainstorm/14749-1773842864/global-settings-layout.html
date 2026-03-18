@@ -1,0 +1,223 @@
+<h2>全局设置页 — 侧边栏布局总览</h2>
+<p class="subtitle">五个栏位的整体结构 mockup</p>
+
+<div class="mockup" style="margin-top:16px">
+  <div class="mockup-header">系统设置</div>
+  <div class="mockup-body" style="display:flex;padding:0;min-height:520px">
+
+    <!-- Sidebar -->
+    <div style="width:200px;border-right:1px solid #333;flex-shrink:0;padding:12px 0;background:#0d1117">
+      <!-- Nav items -->
+      <div style="padding:10px 20px;color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">设置</div>
+
+      <div style="padding:10px 20px;background:#1e293b;border-left:3px solid #3b82f6;color:#e0e0e0;font-size:14px;display:flex;align-items:center;gap:8px;cursor:pointer">
+        <span style="font-size:16px">🤖</span> 智能体
+      </div>
+      <div style="padding:10px 20px;color:#9ca3af;font-size:14px;display:flex;align-items:center;gap:8px;cursor:pointer">
+        <span style="font-size:16px">🔌</span> 供应商
+      </div>
+      <div style="padding:10px 20px;color:#9ca3af;font-size:14px;display:flex;align-items:center;gap:8px;cursor:pointer">
+        <span style="font-size:16px">🎬</span> 图片 / 视频
+      </div>
+      <div style="padding:10px 20px;color:#9ca3af;font-size:14px;display:flex;align-items:center;gap:8px;cursor:pointer">
+        <span style="font-size:16px">📊</span> 用量统计
+      </div>
+      <div style="padding:10px 20px;color:#9ca3af;font-size:14px;display:flex;align-items:center;gap:8px;cursor:pointer">
+        <span style="font-size:16px">⚙️</span> 高级设置
+      </div>
+    </div>
+
+    <!-- Main content: 智能体 (active) -->
+    <div style="flex:1;padding:24px;overflow-y:auto">
+      <h3 style="color:#e0e0e0;margin:0 0 4px 0;font-size:18px">智能体配置</h3>
+      <p style="color:#6b7280;font-size:13px;margin:0 0 20px 0">配置 AI 助手的 API 连接</p>
+
+      <div style="background:#1a1a2e;border:1px solid #2d3748;border-radius:8px;padding:16px;margin-bottom:16px">
+        <div style="font-size:13px;color:#d1d5db;font-weight:500;margin-bottom:8px">Anthropic API Key</div>
+        <div style="display:flex;gap:8px">
+          <div style="flex:1;background:#1f2937;border:1px solid #374151;border-radius:6px;padding:8px 12px;color:#9ca3af;font-size:13px">sk-…••••••••</div>
+          <button style="background:#374151;border:none;border-radius:6px;padding:8px 12px;color:#d1d5db;font-size:12px;cursor:pointer">清除</button>
+        </div>
+        <div style="font-size:11px;color:#6b7280;margin-top:6px">来源: 数据库配置</div>
+      </div>
+
+      <div style="background:#1a1a2e;border:1px solid #2d3748;border-radius:8px;padding:16px">
+        <div style="font-size:13px;color:#d1d5db;font-weight:500;margin-bottom:8px">Anthropic Base URL（可选）</div>
+        <div style="background:#1f2937;border:1px solid #374151;border-radius:6px;padding:8px 12px;color:#9ca3af;font-size:13px">https://xxx.com</div>
+        <div style="font-size:11px;color:#6b7280;margin-top:6px">自定义代理地址</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="height:24px"></div>
+
+<!-- Provider section mockup -->
+<div class="mockup" style="margin-top:8px">
+  <div class="mockup-header">系统设置 → 供应商</div>
+  <div class="mockup-body" style="display:flex;padding:0;min-height:520px">
+
+    <!-- Sidebar (供应商 active) -->
+    <div style="width:200px;border-right:1px solid #333;flex-shrink:0;padding:12px 0;background:#0d1117">
+      <div style="padding:10px 20px;color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">设置</div>
+      <div style="padding:10px 20px;color:#9ca3af;font-size:14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">🤖</span> 智能体
+      </div>
+      <div style="padding:10px 20px;background:#1e293b;border-left:3px solid #3b82f6;color:#e0e0e0;font-size:14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">🔌</span> 供应商
+      </div>
+      <div style="padding:10px 20px;color:#9ca3af;font-size:14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">🎬</span> 图片 / 视频
+      </div>
+      <div style="padding:10px 20px;color:#9ca3af;font-size:14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">📊</span> 用量统计
+      </div>
+      <div style="padding:10px 20px;color:#9ca3af;font-size:14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">⚙️</span> 高级设置
+      </div>
+    </div>
+
+    <!-- Main: Provider list + detail -->
+    <div style="flex:1;display:flex;padding:0">
+
+      <!-- Provider list -->
+      <div style="width:200px;border-right:1px solid #2d3748;padding:16px 0;flex-shrink:0">
+        <div style="padding:6px 16px;color:#9ca3af;font-size:11px;text-transform:uppercase;margin-bottom:4px">供应商列表</div>
+
+        <div style="padding:10px 16px;background:#1e293b;border-left:3px solid #3b82f6;display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+          <span style="font-size:13px;color:#e0e0e0;font-weight:500">Gemini AI Studio</span>
+          <span style="width:8px;height:8px;background:#4ade80;border-radius:50%"></span>
+        </div>
+        <div style="padding:10px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+          <span style="font-size:13px;color:#9ca3af">Gemini Vertex AI</span>
+          <span style="width:8px;height:8px;background:#f87171;border-radius:50%"></span>
+        </div>
+        <div style="padding:10px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+          <span style="font-size:13px;color:#9ca3af">Seedance</span>
+          <span style="width:8px;height:8px;background:#4ade80;border-radius:50%"></span>
+        </div>
+        <div style="padding:10px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+          <span style="font-size:13px;color:#9ca3af">Grok</span>
+          <span style="width:8px;height:8px;background:#f87171;border-radius:50%"></span>
+        </div>
+      </div>
+
+      <!-- Provider detail -->
+      <div style="flex:1;padding:24px;overflow-y:auto">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+          <h3 style="color:#e0e0e0;margin:0;font-size:18px">Gemini AI Studio</h3>
+          <span style="background:#2d5a2d;color:#4ade80;padding:2px 10px;border-radius:10px;font-size:11px;font-weight:500">已就绪</span>
+        </div>
+        <p style="color:#6b7280;font-size:13px;margin:0 0 20px 0">支持: 文生视频 · 图生视频 · 文生图 · 负向提示词 · 视频延伸</p>
+
+        <!-- API Key -->
+        <div style="background:#1a1a2e;border:1px solid #2d3748;border-radius:8px;padding:16px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:13px;color:#d1d5db;font-weight:500">API Key <span style="color:#ef4444;font-size:11px">必需</span></div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <div style="flex:1;background:#1f2937;border:1px solid #374151;border-radius:6px;padding:8px 12px;color:#9ca3af;font-size:13px">AIza…••••••••</div>
+            <button style="background:#374151;border:none;border-radius:6px;padding:8px 12px;color:#d1d5db;font-size:12px;cursor:pointer">清除</button>
+          </div>
+        </div>
+
+        <!-- Base URL -->
+        <div style="background:#1a1a2e;border:1px solid #2d3748;border-radius:8px;padding:16px;margin-bottom:20px">
+          <div style="font-size:13px;color:#d1d5db;font-weight:500;margin-bottom:8px">Base URL <span style="color:#6b7280;font-size:11px">可选</span></div>
+          <div style="background:#1f2937;border:1px solid #374151;border-radius:6px;padding:8px 12px;color:#666;font-size:13px;font-style:italic">默认官方地址</div>
+        </div>
+
+        <!-- Test connection -->
+        <button style="background:#1d4ed8;border:none;border-radius:8px;padding:10px 20px;color:white;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px">
+          <span>🔗</span> 测试连接
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="height:24px"></div>
+
+<!-- Image/Video model selection mockup -->
+<div class="mockup" style="margin-top:8px">
+  <div class="mockup-header">系统设置 → 图片 / 视频</div>
+  <div class="mockup-body" style="display:flex;padding:0;min-height:400px">
+
+    <!-- Sidebar (图片/视频 active) -->
+    <div style="width:200px;border-right:1px solid #333;flex-shrink:0;padding:12px 0;background:#0d1117">
+      <div style="padding:10px 20px;color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">设置</div>
+      <div style="padding:10px 20px;color:#9ca3af;font-size:14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">🤖</span> 智能体
+      </div>
+      <div style="padding:10px 20px;color:#9ca3af;font-size:14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">🔌</span> 供应商
+      </div>
+      <div style="padding:10px 20px;background:#1e293b;border-left:3px solid #3b82f6;color:#e0e0e0;font-size:14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">🎬</span> 图片 / 视频
+      </div>
+      <div style="padding:10px 20px;color:#9ca3af;font-size:14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">📊</span> 用量统计
+      </div>
+      <div style="padding:10px 20px;color:#9ca3af;font-size:14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">⚙️</span> 高级设置
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div style="flex:1;padding:24px;overflow-y:auto">
+      <h3 style="color:#e0e0e0;margin:0 0 4px 0;font-size:18px">图片 / 视频模型</h3>
+      <p style="color:#6b7280;font-size:13px;margin:0 0 24px 0">设置全局默认的生成模型，项目内可单独覆盖</p>
+
+      <!-- Video backend -->
+      <div style="background:#1a1a2e;border:1px solid #2d3748;border-radius:8px;padding:16px;margin-bottom:16px">
+        <div style="font-size:13px;color:#d1d5db;font-weight:500;margin-bottom:10px">默认视频模型</div>
+
+        <!-- Grouped dropdown mockup -->
+        <div style="background:#1f2937;border:1px solid #374151;border-radius:6px;overflow:hidden">
+          <!-- Current selection -->
+          <div style="padding:10px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #374151">
+            <div>
+              <span style="color:#6b7280;font-size:11px">Gemini Vertex AI</span>
+              <span style="color:#4b5563;margin:0 4px">·</span>
+              <span style="color:#e0e0e0;font-size:13px">veo-3.1-fast-generate-001</span>
+            </div>
+            <span style="color:#6b7280;font-size:10px">▼</span>
+          </div>
+          <!-- Dropdown expanded preview -->
+          <div style="border-top:1px solid #374151">
+            <div style="padding:6px 14px;color:#6b7280;font-size:11px;text-transform:uppercase;background:#111827">Gemini AI Studio</div>
+            <div style="padding:8px 14px 8px 28px;color:#9ca3af;font-size:13px">veo-3.1-generate-001</div>
+            <div style="padding:8px 14px 8px 28px;color:#9ca3af;font-size:13px">veo-3.1-fast-generate-001</div>
+            <div style="padding:6px 14px;color:#6b7280;font-size:11px;text-transform:uppercase;background:#111827">Gemini Vertex AI</div>
+            <div style="padding:8px 14px 8px 28px;color:#9ca3af;font-size:13px">veo-3.1-generate-001</div>
+            <div style="padding:8px 14px 8px 28px;color:#e0e0e0;font-size:13px;background:#1e293b">✓ veo-3.1-fast-generate-001</div>
+            <div style="padding:6px 14px;color:#6b7280;font-size:11px;text-transform:uppercase;background:#111827">Seedance</div>
+            <div style="padding:8px 14px 8px 28px;color:#9ca3af;font-size:13px">doubao-seedance-1-5-pro-251215</div>
+          </div>
+        </div>
+
+        <!-- Audio toggle -->
+        <div style="margin-top:12px;display:flex;align-items:center;gap:8px">
+          <div style="width:36px;height:20px;background:#374151;border-radius:10px;position:relative">
+            <div style="width:16px;height:16px;background:#9ca3af;border-radius:50%;position:absolute;top:2px;left:2px"></div>
+          </div>
+          <span style="color:#9ca3af;font-size:13px">生成音频</span>
+          <span style="color:#6b7280;font-size:11px">（仅部分供应商支持）</span>
+        </div>
+      </div>
+
+      <!-- Image backend -->
+      <div style="background:#1a1a2e;border:1px solid #2d3748;border-radius:8px;padding:16px">
+        <div style="font-size:13px;color:#d1d5db;font-weight:500;margin-bottom:10px">默认图片模型</div>
+        <div style="background:#1f2937;border:1px solid #374151;border-radius:6px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <span style="color:#6b7280;font-size:11px">Gemini AI Studio</span>
+            <span style="color:#4b5563;margin:0 4px">·</span>
+            <span style="color:#e0e0e0;font-size:13px">gemini-3.1-flash-image-preview</span>
+          </div>
+          <span style="color:#6b7280;font-size:10px">▼</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

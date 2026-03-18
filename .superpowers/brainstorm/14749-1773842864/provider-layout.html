@@ -1,0 +1,187 @@
+<h2>供应商配置栏位 — 布局方案</h2>
+<p class="subtitle">三种布局方案的 wireframe 对比，点击选择你偏好的方案</p>
+
+<div class="options">
+  <!-- Option A: Accordion -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>手风琴 / 折叠面板</h3>
+      <p>默认收起只显示状态，展开编辑</p>
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">供应商配置</div>
+        <div class="mockup-body" style="padding:0">
+          <!-- Gemini - expanded -->
+          <div style="border-bottom:1px solid #333">
+            <div style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;background:#1a1a2e">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-weight:600;color:#e0e0e0">🔷 Gemini</span>
+                <span style="background:#2d5a2d;color:#4ade80;padding:2px 8px;border-radius:10px;font-size:11px">已配置</span>
+              </div>
+              <span style="color:#888;font-size:12px">▼</span>
+            </div>
+            <div style="padding:16px;background:#111827">
+              <div style="margin-bottom:12px">
+                <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:4px">API Key</div>
+                <div style="display:flex;gap:8px">
+                  <div style="flex:1;background:#1f2937;border:1px solid #374151;border-radius:6px;padding:8px 12px;color:#9ca3af;font-size:13px">AIza…••••••••</div>
+                  <button style="background:#374151;border:none;border-radius:6px;padding:8px 12px;color:#d1d5db;font-size:12px;cursor:pointer">测试连接</button>
+                </div>
+              </div>
+              <div style="margin-bottom:12px">
+                <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:4px">Vertex AI 凭证</div>
+                <div style="background:#1f2937;border:1px solid #374151;border-radius:6px;padding:8px 12px;color:#9ca3af;font-size:13px">vertex_credentials.json (project: my-project)</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:4px">Base URL (可选)</div>
+                <div style="background:#1f2937;border:1px solid #374151;border-radius:6px;padding:8px 12px;color:#666;font-size:13px">https://generativelanguage.googleapis.com</div>
+              </div>
+            </div>
+          </div>
+          <!-- Seedance - collapsed -->
+          <div style="border-bottom:1px solid #333">
+            <div style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-weight:600;color:#e0e0e0">🌱 Seedance</span>
+                <span style="background:#2d5a2d;color:#4ade80;padding:2px 8px;border-radius:10px;font-size:11px">已配置</span>
+              </div>
+              <span style="color:#888;font-size:12px">▶</span>
+            </div>
+          </div>
+          <!-- Grok - collapsed -->
+          <div>
+            <div style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-weight:600;color:#e0e0e0">⚡ Grok</span>
+                <span style="background:#5a2d2d;color:#f87171;padding:2px 8px;border-radius:10px;font-size:11px">未配置</span>
+              </div>
+              <span style="color:#888;font-size:12px">▶</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros"><h4>优点</h4><ul><li>节省纵向空间</li><li>供应商多时不会拥挤</li><li>状态一目了然</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>一次只能看一个供应商的详情</li><li>展开收起操作较多</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B: Flat Cards -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>平铺卡片</h3>
+      <p>所有供应商同时可见，每张卡片完整表单</p>
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">供应商配置</div>
+        <div class="mockup-body" style="display:flex;flex-direction:column;gap:16px">
+          <!-- Gemini card -->
+          <div style="background:#1a1a2e;border:1px solid #2d3748;border-radius:8px;padding:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-weight:600;color:#e0e0e0;font-size:15px">🔷 Gemini</span>
+                <span style="background:#2d5a2d;color:#4ade80;padding:2px 8px;border-radius:10px;font-size:11px">已配置</span>
+              </div>
+              <button style="background:#374151;border:none;border-radius:6px;padding:6px 12px;color:#d1d5db;font-size:12px;cursor:pointer">测试连接</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div>
+                <div style="font-size:11px;color:#888;margin-bottom:4px">API Key</div>
+                <div style="background:#1f2937;border:1px solid #374151;border-radius:4px;padding:6px 10px;color:#9ca3af;font-size:12px">AIza…••••</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:#888;margin-bottom:4px">Base URL</div>
+                <div style="background:#1f2937;border:1px solid #374151;border-radius:4px;padding:6px 10px;color:#666;font-size:12px">默认</div>
+              </div>
+            </div>
+          </div>
+          <!-- Seedance card -->
+          <div style="background:#1a1a2e;border:1px solid #2d3748;border-radius:8px;padding:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-weight:600;color:#e0e0e0;font-size:15px">🌱 Seedance</span>
+                <span style="background:#2d5a2d;color:#4ade80;padding:2px 8px;border-radius:10px;font-size:11px">已配置</span>
+              </div>
+              <button style="background:#374151;border:none;border-radius:6px;padding:6px 12px;color:#d1d5db;font-size:12px;cursor:pointer">测试连接</button>
+            </div>
+            <div>
+              <div style="font-size:11px;color:#888;margin-bottom:4px">ARK API Key</div>
+              <div style="background:#1f2937;border:1px solid #374151;border-radius:4px;padding:6px 10px;color:#9ca3af;font-size:12px">ark-…••••</div>
+            </div>
+          </div>
+          <!-- Grok card -->
+          <div style="background:#1a1a2e;border:1px solid #374151;border-radius:8px;padding:16px;border-color:#5a2d2d">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-weight:600;color:#e0e0e0;font-size:15px">⚡ Grok</span>
+                <span style="background:#5a2d2d;color:#f87171;padding:2px 8px;border-radius:10px;font-size:11px">未配置</span>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:#888;margin-bottom:4px">XAI API Key</div>
+              <div style="background:#1f2937;border:1px solid #374151;border-radius:4px;padding:6px 10px;color:#666;font-size:12px;font-style:italic">点击配置...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros"><h4>优点</h4><ul><li>所有供应商一览无余</li><li>无需展开收起</li><li>对比配置方便</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>供应商多时页面较长</li><li>Gemini 配置项多(Vertex)，卡片大小不均</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option C: List + Detail -->
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>列表 + 侧面详情</h3>
+      <p>左侧供应商列表，右侧详细配置</p>
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">供应商配置</div>
+        <div class="mockup-body" style="display:flex;padding:0;min-height:200px">
+          <!-- Left list -->
+          <div style="width:180px;border-right:1px solid #333;flex-shrink:0">
+            <div style="padding:10px 14px;background:#1e293b;border-left:3px solid #3b82f6;display:flex;align-items:center;gap:8px">
+              <span style="font-size:13px;color:#e0e0e0;font-weight:500">🔷 Gemini</span>
+              <span style="width:8px;height:8px;background:#4ade80;border-radius:50%;margin-left:auto"></span>
+            </div>
+            <div style="padding:10px 14px;display:flex;align-items:center;gap:8px">
+              <span style="font-size:13px;color:#9ca3af">🌱 Seedance</span>
+              <span style="width:8px;height:8px;background:#4ade80;border-radius:50%;margin-left:auto"></span>
+            </div>
+            <div style="padding:10px 14px;display:flex;align-items:center;gap:8px">
+              <span style="font-size:13px;color:#9ca3af">⚡ Grok</span>
+              <span style="width:8px;height:8px;background:#f87171;border-radius:50%;margin-left:auto"></span>
+            </div>
+          </div>
+          <!-- Right detail -->
+          <div style="flex:1;padding:16px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+              <span style="font-weight:600;color:#e0e0e0;font-size:16px">Gemini</span>
+              <span style="background:#2d5a2d;color:#4ade80;padding:2px 8px;border-radius:10px;font-size:11px">已配置</span>
+              <button style="margin-left:auto;background:#374151;border:none;border-radius:6px;padding:6px 12px;color:#d1d5db;font-size:12px;cursor:pointer">测试连接</button>
+            </div>
+            <div style="margin-bottom:12px">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:4px">API Key</div>
+              <div style="background:#1f2937;border:1px solid #374151;border-radius:6px;padding:8px 12px;color:#9ca3af;font-size:13px">AIza…••••••••</div>
+            </div>
+            <div style="margin-bottom:12px">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:4px">Vertex AI 凭证</div>
+              <div style="background:#1f2937;border:1px solid #374151;border-radius:6px;padding:8px 12px;color:#9ca3af;font-size:13px">vertex_credentials.json</div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:#888;text-transform:uppercase;margin-bottom:4px">Base URL</div>
+              <div style="background:#1f2937;border:1px solid #374151;border-radius:6px;padding:8px 12px;color:#666;font-size:13px">默认</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros"><h4>优点</h4><ul><li>空间利用高效</li><li>快速切换供应商</li><li>Gemini 的复杂配置有足够空间</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>已经在侧边栏布局里再嵌套列表+详情，可能层级过深</li><li>供应商数量少(3个)时列表显得空</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>

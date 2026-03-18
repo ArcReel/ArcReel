@@ -109,7 +109,7 @@ describe("SystemConfigPage", () => {
       capabilities: [],
       fields: [],
     } as never);
-    vi.spyOn(API, "getUsageStatsGrouped").mockResolvedValue({ stats: [] });
+    vi.spyOn(API, "getUsageStatsGrouped").mockResolvedValue({ stats: [], period: { start: "", end: "" } });
   });
 
   it("renders the page header", () => {
