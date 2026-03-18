@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.cost_calculator import cost_calculator
 from lib.db.models.api_call import ApiCall
-from lib.video_backends.base import PROVIDER_GEMINI, PROVIDER_SEEDANCE
+from lib.video_backends.base import PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_SEEDANCE
 
 
 def _utc_now() -> datetime:
@@ -125,6 +125,12 @@ class UsageRepository:
                     generate_audio=bool(row.generate_audio),
                     model=row.model,
                 )
+            elif effective_provider == PROVIDER_GROK and row.call_type == "video":
+                cost_amount = cost_calculator.calculate_grok_video_cost(
+                    duration_seconds=row.duration_seconds or 5,
+                    model=row.model,
+                )
+                currency = "USD"
             elif row.call_type == "image":
                 cost_amount = cost_calculator.calculate_image_cost(
                     row.resolution or "1K", model=row.model
