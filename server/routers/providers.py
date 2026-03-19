@@ -22,6 +22,7 @@ from lib import PROJECT_ROOT
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService
 from lib.db import get_async_session
+from lib.gemini_client import VERTEX_SCOPES
 from server.dependencies import get_config_service
 
 logger = logging.getLogger(__name__)
@@ -319,10 +320,6 @@ def _test_gemini_vertex(config: dict[str, str]) -> ConnectionTestResponse:
             message="凭证文件缺少 project_id",
         )
 
-    VERTEX_SCOPES = [
-        "https://www.googleapis.com/auth/cloud-platform",
-        "https://www.googleapis.com/auth/generative-language",
-    ]
     credentials = service_account.Credentials.from_service_account_file(
         credentials_path, scopes=VERTEX_SCOPES,
     )

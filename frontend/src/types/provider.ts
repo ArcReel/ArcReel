@@ -24,7 +24,7 @@ export interface ProviderConfigDetail {
   id: string;
   display_name: string;
   description: string;
-  status: string;
+  status: "ready" | "unconfigured" | "error";
   media_types?: string[];
   fields: ProviderField[];
 }

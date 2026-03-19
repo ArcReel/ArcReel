@@ -3,13 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ArrowLeft } from "lucide-react";
 import { API } from "@/api";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
-
-const PROVIDER_NAMES: Record<string, string> = {
-  "gemini-aistudio": "AI Studio",
-  "gemini-vertex": "Vertex AI",
-  "seedance": "Seedance",
-  "grok": "Grok",
-};
+import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 
 export function ProjectSettingsPage() {
   const params = useParams<{ projectName: string }>();

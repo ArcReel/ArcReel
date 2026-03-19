@@ -11,7 +11,7 @@ from typing import Optional, Set, Union
 
 from PIL import Image
 
-from lib.gemini_client import RateLimiter, get_shared_rate_limiter, with_retry_async
+from lib.gemini_client import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
 from lib.video_backends.base import (
     PROVIDER_GEMINI,
@@ -65,10 +65,6 @@ class GeminiVideoBackend:
                 creds_data = json_module.load(f)
             self._project_id = creds_data.get("project_id")
 
-            VERTEX_SCOPES = [
-                "https://www.googleapis.com/auth/cloud-platform",
-                "https://www.googleapis.com/auth/generative-language",
-            ]
             self._credentials = (
                 service_account.Credentials.from_service_account_file(
                     str(credentials_file), scopes=VERTEX_SCOPES

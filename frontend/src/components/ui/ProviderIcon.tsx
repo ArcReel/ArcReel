@@ -3,6 +3,13 @@ import GrokMono from "@lobehub/icons/es/Grok/components/Mono";
 import VertexAIColor from "@lobehub/icons/es/VertexAI/components/Color";
 import JimengColor from "@lobehub/icons/es/Jimeng/components/Color";
 
+export const PROVIDER_NAMES: Record<string, string> = {
+  "gemini-aistudio": "AI Studio",
+  "gemini-vertex": "Vertex AI",
+  seedance: "Seedance",
+  grok: "Grok",
+};
+
 /**
  * 根据 providerId 渲染对应的供应商图标。
  * 支持 gemini-aistudio、gemini-vertex、grok、seedance，其余显示首字母。

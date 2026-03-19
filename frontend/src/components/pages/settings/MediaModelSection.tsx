@@ -2,18 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { API } from "@/api";
 import type { SystemConfigSettings, SystemConfigOptions, SystemConfigPatch } from "@/types/system";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
+import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
-
-// ---------------------------------------------------------------------------
-// Provider display names
-// ---------------------------------------------------------------------------
-
-const PROVIDER_NAMES: Record<string, string> = {
-  "gemini-aistudio": "AI Studio",
-  "gemini-vertex": "Vertex AI",
-  seedance: "Seedance",
-  grok: "Grok",
-};
 
 // ---------------------------------------------------------------------------
 // Component

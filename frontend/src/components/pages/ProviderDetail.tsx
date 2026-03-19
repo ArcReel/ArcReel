@@ -8,13 +8,14 @@ import type { ProviderConfigDetail, ProviderField, ProviderTestResult } from "@/
 // Status badge
 // ---------------------------------------------------------------------------
 
+const STATUS_BADGE_MAP: Record<string, { label: string; cls: string }> = {
+  ready: { label: "已就绪", cls: "bg-green-900/30 text-green-400 border border-green-800/50" },
+  unconfigured: { label: "未配置", cls: "bg-gray-800 text-gray-400 border border-gray-700" },
+  error: { label: "异常", cls: "bg-red-900/30 text-red-400 border border-red-800/50" },
+};
+
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    ready: { label: "已就绪", cls: "bg-green-900/30 text-green-400 border border-green-800/50" },
-    unconfigured: { label: "未配置", cls: "bg-gray-800 text-gray-400 border border-gray-700" },
-    error: { label: "异常", cls: "bg-red-900/30 text-red-400 border border-red-800/50" },
-  };
-  const { label, cls } = map[status] ?? { label: status, cls: "bg-gray-800 text-gray-400 border border-gray-700" };
+  const { label, cls } = STATUS_BADGE_MAP[status] ?? STATUS_BADGE_MAP.unconfigured;
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
       {label}
@@ -106,6 +107,7 @@ interface FieldEditorProps {
 
 function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
   const [showSecret, setShowSecret] = useState(false);
+  const [confirmingClear, setConfirmingClear] = useState(false);
 
   const currentValue = draft[field.key] ?? field.value ?? "";
 
@@ -114,8 +116,12 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
   };
 
   const handleClear = () => {
-    if (!confirm("确定要清除此密钥吗？")) return;
+    if (!confirmingClear) {
+      setConfirmingClear(true);
+      return;
+    }
     setDraft((prev) => ({ ...prev, [field.key]: "" }));
+    setConfirmingClear(false);
   };
 
   const fieldId = `field-${field.key}`;
@@ -152,7 +158,7 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
               {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-          {field.is_set && (
+          {field.is_set && !confirmingClear && (
             <button
               type="button"
               onClick={handleClear}
@@ -162,6 +168,24 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
               <X className="h-3 w-3" />
               清除
             </button>
+          )}
+          {confirmingClear && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleClear}
+                className="rounded-lg border border-red-800 bg-red-900/30 px-3 py-2 text-xs text-red-400 hover:bg-red-900/50"
+              >
+                确认清除
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingClear(false)}
+                className="rounded-lg border border-gray-700 px-3 py-2 text-xs text-gray-400 hover:border-gray-600 hover:text-gray-200"
+              >
+                取消
+              </button>
+            </div>
           )}
         </div>
         {field.is_set && !(field.key in draft) && (

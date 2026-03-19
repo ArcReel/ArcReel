@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 ReferenceImageValue = Union[str, Path, Image.Image]
 ReferenceImageInput = Union[ReferenceImageValue, Dict[str, object]]
 
+# Vertex AI 服务账号所需 OAuth scopes（共享常量，供 gemini_client / video_backends / providers 复用）
+VERTEX_SCOPES = [
+    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/generative-language",
+]
+
 # 可重试的错误类型
 RETRYABLE_ERRORS: Tuple[Type[Exception], ...] = (
     ConnectionError,
@@ -478,10 +484,6 @@ class GeminiClient:
             self.gcs_bucket = gcs_bucket
 
             # 加载服务账号凭证并添加必要的 scopes
-            VERTEX_SCOPES = [
-                "https://www.googleapis.com/auth/cloud-platform",
-                "https://www.googleapis.com/auth/generative-language",
-            ]
             self.credentials = service_account.Credentials.from_service_account_file(
                 str(credentials_file), scopes=VERTEX_SCOPES
             )
@@ -498,7 +500,7 @@ class GeminiClient:
             self.api_key = api_key
             if not self.api_key:
                 raise ValueError(
-                    "Gemini API Key 未提供。请在系统配置中设置 API Key。"
+                    "Gemini API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。"
                 )
 
             effective_base_url = base_url

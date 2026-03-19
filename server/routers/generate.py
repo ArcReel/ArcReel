@@ -176,8 +176,9 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
             video_provider = project_video_backend
             video_model = ""
         else:
-            from server.services.generation_tasks import _load_default_video_backend
-            video_provider, video_model = await _load_default_video_backend()
+            from server.services.generation_tasks import _load_all_config
+            bulk = await _load_all_config()
+            video_provider, video_model = bulk.default_video_backend
         video_provider_settings = {"model": video_model} if video_model else {}
 
         # 入队

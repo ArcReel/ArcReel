@@ -5,6 +5,7 @@ Task execution service for queued generation jobs.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -63,55 +64,50 @@ def invalidate_backend_cache() -> None:
     _backend_cache.clear()
 
 
-async def _load_provider_config(provider_id: str) -> dict[str, str]:
-    """从 ConfigService 加载供应商配置。
+@dataclass
+class _BulkConfig:
+    """单次 DB session 批量加载的配置快照。"""
+    provider_configs: dict[str, dict[str, str]]
+    default_image_backend: tuple[str, str]
+    default_video_backend: tuple[str, str]
 
-    使用独立的 DB session 以避免与调用方的 session 冲突。
-    """
+    def get_provider_config(self, provider_id: str) -> dict[str, str]:
+        return self.provider_configs.get(provider_id, {})
+
+
+async def _load_all_config() -> _BulkConfig:
+    """单次 DB session 批量加载所有供应商配置和系统设置。"""
     from lib.db import async_session_factory
     from lib.config.service import ConfigService
 
     try:
         async with async_session_factory() as session:
             svc = ConfigService(session)
-            return await svc.get_provider_config(provider_id)
+            provider_configs = await svc.get_all_provider_configs()
+            image_backend = await svc.get_default_image_backend()
+            video_backend = await svc.get_default_video_backend()
     except Exception:
-        logger.debug("从 DB 加载 provider %s 配置失败", provider_id)
-        return {}
+        logger.debug("从 DB 批量加载配置失败")
+        return _BulkConfig(
+            provider_configs={},
+            default_image_backend=("gemini-aistudio", ""),
+            default_video_backend=("gemini-aistudio", ""),
+        )
+
+    return _BulkConfig(
+        provider_configs=provider_configs,
+        default_image_backend=image_backend,
+        default_video_backend=video_backend,
+    )
 
 
-async def _load_default_video_backend() -> tuple[str, str]:
-    """从 ConfigService 加载默认视频后端设置。"""
-    from lib.db import async_session_factory
-    from lib.config.service import ConfigService
-
-    try:
-        async with async_session_factory() as session:
-            svc = ConfigService(session)
-            return await svc.get_default_video_backend()
-    except Exception:
-        logger.debug("从 DB 加载 default_video_backend 失败")
-        return "gemini-aistudio", ""
-
-
-async def _load_default_image_backend() -> tuple[str, str]:
-    """从 ConfigService 加载默认图片后端设置。"""
-    from lib.db import async_session_factory
-    from lib.config.service import ConfigService
-
-    try:
-        async with async_session_factory() as session:
-            svc = ConfigService(session)
-            return await svc.get_default_image_backend()
-    except Exception:
-        logger.debug("从 DB 加载 default_image_backend 失败")
-        return "gemini-aistudio", ""
-
-
-async def _get_or_create_video_backend(provider_name: str, provider_settings: dict):
+def _get_or_create_video_backend(
+    provider_name: str, provider_settings: dict, bulk: _BulkConfig,
+):
     """获取或创建 VideoBackend 实例（带缓存）。
 
     provider_name 可以是旧格式（gemini/seedance/grok）或新格式（gemini-aistudio/gemini-vertex）。
+    使用预加载的 bulk 配置，避免额外 DB 查询。
     """
     from lib.video_backends import create_backend
 
@@ -133,17 +129,17 @@ async def _get_or_create_video_backend(provider_name: str, provider_settings: di
             kwargs["backend_type"] = "aistudio"
 
         config_provider_id = "gemini-vertex" if kwargs["backend_type"] == "vertex" else "gemini-aistudio"
-        db_config = await _load_provider_config(config_provider_id)
+        db_config = bulk.get_provider_config(config_provider_id)
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["rate_limiter"] = rate_limiter
         kwargs["video_model"] = provider_settings.get("model")
     elif backend_name == PROVIDER_SEEDANCE:
-        db_config = await _load_provider_config("seedance")
+        db_config = bulk.get_provider_config("seedance")
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["file_service_base_url"] = db_config.get("file_service_base_url", "")
         kwargs["model"] = provider_settings.get("model")
     elif backend_name == PROVIDER_GROK:
-        db_config = await _load_provider_config("grok")
+        db_config = bulk.get_provider_config("grok")
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["model"] = provider_settings.get("model")
 
@@ -155,12 +151,15 @@ async def _get_or_create_video_backend(provider_name: str, provider_settings: di
 async def get_media_generator(project_name: str, payload: dict | None = None) -> MediaGenerator:
     """创建 MediaGenerator。仅当 payload 包含视频配置时才初始化视频后端。
 
-    从 ConfigService (DB) 加载供应商配置。
+    通过单次 DB session 批量加载所有供应商配置和系统设置。
     """
     project_path = get_project_manager().get_project_path(project_name)
 
-    # 加载 Gemini 图片后端配置
-    image_provider_id, image_model = await _load_default_image_backend()
+    # 单次 DB 查询加载所有配置
+    bulk = await _load_all_config()
+
+    # 解析图片后端
+    image_provider_id, image_model = bulk.default_image_backend
     if image_provider_id == "gemini-vertex":
         image_backend_type = "vertex"
         gemini_config_id = "gemini-vertex"
@@ -168,7 +167,7 @@ async def get_media_generator(project_name: str, payload: dict | None = None) ->
         image_backend_type = "aistudio"
         gemini_config_id = "gemini-aistudio"
 
-    gemini_config = await _load_provider_config(gemini_config_id)
+    gemini_config = bulk.get_provider_config(gemini_config_id)
     gemini_api_key = gemini_config.get("api_key")
     gemini_base_url = gemini_config.get("base_url")
 
@@ -178,19 +177,19 @@ async def get_media_generator(project_name: str, payload: dict | None = None) ->
     if payload and payload.get("video_provider"):
         provider_name = payload["video_provider"]
         provider_settings = payload.get("video_provider_settings", {})
-        video_backend = await _get_or_create_video_backend(provider_name, provider_settings)
+        video_backend = _get_or_create_video_backend(provider_name, provider_settings, bulk)
     elif payload:
         # payload 存在但无 video_provider → 从 project.json / DB / env 读取
         project = get_project_manager().load_project(project_name)
         provider_name = project.get("video_provider")
         if not provider_name:
-            default_video_provider_id, _ = await _load_default_video_backend()
+            default_video_provider_id, _ = bulk.default_video_backend
             # 将新 provider_id 映射到旧 provider_name 以兼容 project.json 格式
             provider_name = _PROVIDER_ID_TO_BACKEND.get(default_video_provider_id, default_video_provider_id)
             if provider_name == PROVIDER_GEMINI:
                 video_backend_type = "vertex" if default_video_provider_id == "gemini-vertex" else "aistudio"
         provider_settings = project.get("video_provider_settings", {}).get(provider_name, {})
-        video_backend = await _get_or_create_video_backend(provider_name, provider_settings)
+        video_backend = _get_or_create_video_backend(provider_name, provider_settings, bulk)
 
     return MediaGenerator(
         project_path,
@@ -528,7 +527,8 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
     # 模型级分辨率：从 video_model_settings.{model}.resolution 读取
     provider_name = payload.get("video_provider") or project.get("video_provider")
     if not provider_name:
-        default_provider_id, _ = await _load_default_video_backend()
+        bulk = await _load_all_config()
+        default_provider_id, _ = bulk.default_video_backend
         provider_name = _PROVIDER_ID_TO_BACKEND.get(default_provider_id, default_provider_id)
     # 将新 provider_id 映射为旧名称以查找分辨率
     resolution_key = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
