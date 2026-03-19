@@ -289,7 +289,9 @@ class TestProjectManagerMore:
         content = pm._read_source_files("demo", max_chars=15)
         assert "1.txt" in content
 
-        monkeypatch.setattr("lib.gemini_client.GeminiClient", _FakeGeminiClient)
+        async def _fake_create_text_client():
+            return _FakeGeminiClient()
+        monkeypatch.setattr("lib.text_client.create_text_client", _fake_create_text_client)
         overview = await pm.generate_overview("demo")
         assert overview["genre"] == "悬疑"
         assert "generated_at" in overview
