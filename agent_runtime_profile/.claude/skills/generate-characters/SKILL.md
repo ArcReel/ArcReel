@@ -25,8 +25,7 @@ description: 生成人物设计参考图（三视图）。当用户说"生成人
 cd projects/{project_name} && python ../../.claude/skills/generate-characters/scripts/generate_character.py --all
 
 # 生成指定人物
-cd projects/{project_name} && python ../../.claude/skills/generate-characters/scripts/generate_character.py \
-    --character "{角色名}"
+cd projects/{project_name} && python ../../.claude/skills/generate-characters/scripts/generate_character.py --character "{角色名}"
 
 # 列出待生成的角色
 cd projects/{project_name} && python ../../.claude/skills/generate-characters/scripts/generate_character.py --list

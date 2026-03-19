@@ -354,6 +354,7 @@ class SessionManager:
         parts.append(f"- 项目目录（即当前工作目录 cwd）：{project_cwd}")
         parts.append("- Read/Edit/Write 等工具的 file_path 参数必须使用绝对路径，不要使用相对路径，也不要把项目标题当成目录名。")
         parts.append("- Bash 调用 skill 脚本时必须使用相对路径（如 `python .claude/skills/.../script.py`），不要转换为绝对路径。")
+        parts.append("- Bash 命令必须写在单行，禁止使用 `\\` 换行，JSON 参数使用紧凑格式。")
 
         self._append_overview_section(parts, config.get("overview", {}))
 

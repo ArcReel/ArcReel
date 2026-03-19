@@ -23,8 +23,7 @@ user-invocable: false
 ### Step 1: 探测切分点
 
 ```bash
-cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts/peek_split_point.py \
-  --source {源文件} --target {目标字数}
+cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts/peek_split_point.py --source {源文件} --target {目标字数}
 ```
 
 **参数**：
@@ -42,12 +41,10 @@ cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts
 
 ```bash
 # Dry run（仅预览）
-cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts/split_episode.py \
-  --source {源文件} --episode {N} --target {目标字数} --anchor "{锚点文本}" --dry-run
+cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts/split_episode.py --source {源文件} --episode {N} --target {目标字数} --anchor "{锚点文本}" --dry-run
 
 # 实际执行
-cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts/split_episode.py \
-  --source {源文件} --episode {N} --target {目标字数} --anchor "{锚点文本}"
+cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts/split_episode.py --source {源文件} --episode {N} --target {目标字数} --anchor "{锚点文本}"
 ```
 
 **参数**：
@@ -67,14 +64,11 @@ cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts
 ## 角色/线索批量写入
 
 ```bash
-# 通过命令行参数
-python .claude/skills/manage-project/scripts/add_characters_clues.py {project_name} \
-  --characters '{"角色名": {"description": "...", "voice_style": "..."}}' \
-  --clues '{"线索名": {"type": "prop", "description": "...", "importance": "major"}}'
+# 通过命令行参数（⚠️ 必须单行，JSON 使用紧凑格式，不可用 \ 换行）
+python .claude/skills/manage-project/scripts/add_characters_clues.py {project_name} --characters '{"角色名": {"description": "...", "voice_style": "..."}}' --clues '{"线索名": {"type": "prop", "description": "...", "importance": "major"}}'
 
-# 通过 stdin
-echo '{"characters": {...}, "clues": {...}}' | \
-  python .claude/skills/manage-project/scripts/add_characters_clues.py {project_name} --stdin
+# 通过 stdin（推荐用于大量角色/线索）
+echo '{"characters": {...}, "clues": {...}}' | python .claude/skills/manage-project/scripts/add_characters_clues.py {project_name} --stdin
 ```
 
 ## 字数统计规则
