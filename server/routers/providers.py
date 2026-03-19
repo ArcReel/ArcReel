@@ -6,11 +6,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -259,12 +260,137 @@ async def upload_vertex_credentials(
     return {"ok": True, "filename": dest.name, "project_id": payload.get("project_id")}
 
 
+# ---------------------------------------------------------------------------
+# 连接测试：各供应商实现
+# ---------------------------------------------------------------------------
+
+_CONNECTION_TEST_TIMEOUT = 15  # 秒
+
+
+def _test_gemini_aistudio(config: dict[str, str]) -> ConnectionTestResponse:
+    """通过 models.list() 验证 Gemini AI Studio API Key。"""
+    from google import genai
+
+    api_key = config["api_key"]
+    base_url = config.get("base_url", "").strip() or None
+    http_options = {"base_url": base_url} if base_url else None
+    client = genai.Client(api_key=api_key, http_options=http_options)
+
+    pager = client.models.list()
+    available = _extract_gemini_models(pager)
+    return ConnectionTestResponse(
+        success=True,
+        available_models=available,
+        message="连接成功",
+    )
+
+
+def _test_gemini_vertex(config: dict[str, str]) -> ConnectionTestResponse:
+    """通过 Vertex AI 凭证验证连通性。"""
+    from google import genai
+    from google.oauth2 import service_account
+
+    credentials_path = config.get("credentials_path", "")
+    if not credentials_path or not Path(credentials_path).is_file():
+        return ConnectionTestResponse(
+            success=False,
+            available_models=[],
+            message=f"凭证文件不存在: {credentials_path}",
+        )
+
+    with open(credentials_path) as f:
+        creds_data = json.load(f)
+
+    project_id = creds_data.get("project_id")
+    if not project_id:
+        return ConnectionTestResponse(
+            success=False,
+            available_models=[],
+            message="凭证文件缺少 project_id",
+        )
+
+    VERTEX_SCOPES = [
+        "https://www.googleapis.com/auth/cloud-platform",
+        "https://www.googleapis.com/auth/generative-language",
+    ]
+    credentials = service_account.Credentials.from_service_account_file(
+        credentials_path, scopes=VERTEX_SCOPES,
+    )
+    client = genai.Client(
+        vertexai=True,
+        project=project_id,
+        location="global",
+        credentials=credentials,
+    )
+
+    pager = client.models.list()
+    available = _extract_gemini_models(pager)
+    return ConnectionTestResponse(
+        success=True,
+        available_models=available,
+        message="连接成功",
+    )
+
+
+def _extract_gemini_models(pager) -> list[str]:
+    """从 Gemini models.list() 结果中提取视频/图像相关模型，去除路径前缀。"""
+    keywords = ("veo", "imagen", "image")
+    models: set[str] = set()
+    for m in pager:
+        name = m.name or ""
+        if not any(k in name.lower() for k in keywords):
+            continue
+        # 去掉 "models/" 或 "publishers/google/models/" 前缀
+        short = name.rsplit("/", 1)[-1]
+        models.add(short)
+    return sorted(models)
+
+
+def _test_seedance(config: dict[str, str]) -> ConnectionTestResponse:
+    """通过 tasks.list 验证 Seedance (Ark) API Key。"""
+    from volcenginesdkarkruntime import Ark
+
+    client = Ark(
+        base_url="https://ark.cn-beijing.volces.com/api/v3",
+        api_key=config["api_key"],
+    )
+    # 轻量级调用验证连通性，不创建任何资源
+    client.content_generation.tasks.list(page_size=1)
+    return ConnectionTestResponse(
+        success=True,
+        available_models=[],
+        message="连接成功",
+    )
+
+
+def _test_grok(config: dict[str, str]) -> ConnectionTestResponse:
+    """通过 models.list_language_models() 验证 xAI API Key。"""
+    import xai_sdk
+
+    client = xai_sdk.Client(api_key=config["api_key"])
+    models = client.models.list_language_models()
+    available = sorted(m.name for m in models if m.name)
+    return ConnectionTestResponse(
+        success=True,
+        available_models=available,
+        message="连接成功",
+    )
+
+
+_TEST_DISPATCH: dict[str, Callable[[dict[str, str]], ConnectionTestResponse]] = {
+    "gemini-aistudio": _test_gemini_aistudio,
+    "gemini-vertex": _test_gemini_vertex,
+    "seedance": _test_seedance,
+    "grok": _test_grok,
+}
+
+
 @router.post("/{provider_id}/test", response_model=ConnectionTestResponse)
 async def test_provider_connection(
     provider_id: str,
     svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> ConnectionTestResponse:
-    """连接测试（目前为占位实现，仅校验供应商存在且必填键已配置）。"""
+    """调用供应商 API 验证连通性，返回可用模型列表。"""
     if provider_id not in PROVIDER_REGISTRY:
         raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
 
@@ -279,8 +405,37 @@ async def test_provider_connection(
             message=f"缺少必填配置项：{', '.join(missing)}",
         )
 
-    return ConnectionTestResponse(
-        success=True,
-        available_models=[],
-        message="连接测试暂未实现",
-    )
+    test_fn = _TEST_DISPATCH.get(provider_id)
+    if test_fn is None:
+        return ConnectionTestResponse(
+            success=False,
+            available_models=[],
+            message=f"供应商 {provider_id} 暂不支持连接测试",
+        )
+
+    config = await svc.get_provider_config(provider_id)
+
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(test_fn, config),
+            timeout=_CONNECTION_TEST_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        return ConnectionTestResponse(
+            success=False,
+            available_models=[],
+            message="连接超时，请检查网络或 API 配置",
+        )
+    except Exception as exc:
+        err_msg = str(exc)
+        # 截断过长的错误信息
+        if len(err_msg) > 200:
+            err_msg = err_msg[:200] + "..."
+        logger.warning("连接测试失败 [%s]: %s", provider_id, err_msg)
+        return ConnectionTestResponse(
+            success=False,
+            available_models=[],
+            message=f"连接失败: {err_msg}",
+        )
+
+    return result

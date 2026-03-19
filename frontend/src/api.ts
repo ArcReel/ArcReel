@@ -25,8 +25,6 @@ import type {
   SystemConfigPatch,
   GetSystemConfigResponseNew,
   SystemConfigPatchNew,
-  SystemConnectionTestRequest,
-  SystemConnectionTestResponse,
   ApiKeyInfo,
   CreateApiKeyResponse,
   ProviderInfo,
@@ -275,15 +273,6 @@ class API {
 
     await throwIfNotOk(response, "上传失败");
     return response.json();
-  }
-
-  static async testSystemConnection(
-    payload: SystemConnectionTestRequest,
-  ): Promise<SystemConnectionTestResponse> {
-    return this.request("/system/config/connection-test", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
   }
 
   // ==================== 项目管理 ====================

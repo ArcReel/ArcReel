@@ -313,6 +313,9 @@ class TestTestProviderConnection:
         svc.get_provider_config_masked = AsyncMock(
             return_value={"api_key": {"is_set": True, "masked": "AIza…abcd"}}
         )
+        svc.get_provider_config = AsyncMock(
+            return_value={"api_key": "AIzaSyFAKE"}
+        )
         return svc
 
     def _mock_svc_unconfigured(self) -> ConfigService:
@@ -320,9 +323,17 @@ class TestTestProviderConnection:
         svc.get_provider_config_masked = AsyncMock(return_value={})
         return svc
 
+    def _fake_test_fn(self, config: dict) -> providers.ConnectionTestResponse:
+        return providers.ConnectionTestResponse(
+            success=True,
+            available_models=["model-a"],
+            message="连接成功",
+        )
+
     def test_returns_200(self):
-        with _make_client(self._mock_svc_configured()) as client:
-            resp = client.post("/api/v1/providers/gemini-aistudio/test")
+        with patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}):
+            with _make_client(self._mock_svc_configured()) as client:
+                resp = client.post("/api/v1/providers/gemini-aistudio/test")
         assert resp.status_code == 200
 
     def test_returns_404_for_unknown_provider(self):
@@ -331,12 +342,13 @@ class TestTestProviderConnection:
         assert resp.status_code == 404
 
     def test_success_true_when_configured(self):
-        with _make_client(self._mock_svc_configured()) as client:
-            resp = client.post("/api/v1/providers/gemini-aistudio/test")
+        with patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}):
+            with _make_client(self._mock_svc_configured()) as client:
+                resp = client.post("/api/v1/providers/gemini-aistudio/test")
         body = resp.json()
         assert body["success"] is True
-        assert body["available_models"] == []
-        assert "message" in body
+        assert body["available_models"] == ["model-a"]
+        assert body["message"] == "连接成功"
 
     def test_success_false_when_missing_required_keys(self):
         with _make_client(self._mock_svc_unconfigured()) as client:
@@ -346,9 +358,21 @@ class TestTestProviderConnection:
         assert "api_key" in body["message"]
 
     def test_response_has_required_fields(self):
-        with _make_client(self._mock_svc_configured()) as client:
-            resp = client.post("/api/v1/providers/gemini-aistudio/test")
+        with patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}):
+            with _make_client(self._mock_svc_configured()) as client:
+                resp = client.post("/api/v1/providers/gemini-aistudio/test")
         body = resp.json()
         assert "success" in body
         assert "available_models" in body
         assert "message" in body
+
+    def test_connection_failure_returns_error(self):
+        def _failing_fn(config: dict) -> providers.ConnectionTestResponse:
+            raise RuntimeError("API key invalid")
+
+        with patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": _failing_fn}):
+            with _make_client(self._mock_svc_configured()) as client:
+                resp = client.post("/api/v1/providers/gemini-aistudio/test")
+        body = resp.json()
+        assert body["success"] is False
+        assert "API key invalid" in body["message"]

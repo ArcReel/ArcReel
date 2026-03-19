@@ -61,30 +61,6 @@ export interface GetSystemConfigResponse {
   options: SystemConfigOptions;
 }
 
-export interface SystemConnectionTestTarget {
-  media_type: string;
-  model: string;
-}
-
-export interface SystemConnectionTestRequest {
-  provider: SystemBackend;
-  image_backend?: SystemBackend;
-  video_backend?: SystemBackend;
-  image_model?: string;
-  video_model?: string;
-  gemini_api_key?: string | null;
-}
-
-export interface SystemConnectionTestResponse {
-  ok: boolean;
-  provider: SystemBackend;
-  filename: string | null;
-  project_id: string | null;
-  checked_models: SystemConnectionTestTarget[];
-  missing_models: string[];
-  message: string;
-}
-
 export type SystemConfigPatch = Partial<{
   image_backend: SystemBackend | "" | null;
   video_backend: SystemBackend | "" | null;
