@@ -16,15 +16,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from lib.generation_queue_client import (
-    TaskFailedError,
-    WorkerOfflineError,
-    enqueue_and_wait_sync as enqueue_and_wait,
-    is_worker_online_sync as is_worker_online,
-)
-from lib.media_generator import MediaGenerator
+from lib.generation_queue_client import enqueue_and_wait_sync as enqueue_and_wait
 from lib.project_manager import ProjectManager
-from lib.prompt_builders import build_clue_prompt
 
 
 def generate_clue(
@@ -42,11 +35,6 @@ def generate_clue(
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
 
-    # 获取项目信息和风格
-    project = pm.load_project(project_name)
-    style = project.get('style', '')
-    style_description = project.get('style_description', '')
-
     # 获取线索信息
     clue = pm.get_clue(project_name, clue_name)
     clue_type = clue.get('type', 'prop')
@@ -55,52 +43,24 @@ def generate_clue(
     if not description:
         raise ValueError(f"线索 '{clue_name}' 的描述为空，请先添加描述")
 
-    # 使用共享库构建 prompt（确保与 WebUI 侧一致）
-    prompt = build_clue_prompt(clue_name, description, clue_type, style, style_description)
-
     print(f"🎨 正在生成线索设计图: {clue_name}")
     print(f"   类型: {clue_type}")
     print(f"   描述: {description[:50]}..." if len(description) > 50 else f"   描述: {description}")
 
-    # 优先走队列（worker 在线）
-    if is_worker_online():
-        try:
-            queued = enqueue_and_wait(
-                project_name=project_name,
-                task_type="clue",
-                media_type="image",
-                resource_id=clue_name,
-                payload={"prompt": description},
-                source="skill",
-            )
-            result = queued.get("result") or {}
-            relative_path = result.get("file_path") or f"clues/{clue_name}.png"
-            output_path = project_dir / relative_path
-            version = result.get("version")
-            version_text = f" (版本 v{version})" if version is not None else ""
-            print(f"✅ 线索设计图已保存: {output_path}{version_text}")
-            return output_path
-        except WorkerOfflineError:
-            print("ℹ️  未检测到队列 worker，回退直连生成")
-        except TaskFailedError as exc:
-            raise RuntimeError(f"队列任务执行失败: {exc}") from exc
-
-    # 回退直连生成
-    generator = MediaGenerator(project_dir)
-    output_path, version = generator.generate_image(
-        prompt=prompt,
-        resource_type="clues",
+    queued = enqueue_and_wait(
+        project_name=project_name,
+        task_type="clue",
+        media_type="image",
         resource_id=clue_name,
-        aspect_ratio="16:9"
+        payload={"prompt": description},
+        source="skill",
     )
-
-    print(f"✅ 线索设计图已保存: {output_path} (版本 v{version})")
-
-    # 更新 project.json 中的 clue_sheet 路径
-    relative_path = f"clues/{clue_name}.png"
-    pm.update_clue_sheet(project_name, clue_name, relative_path)
-    print("✅ 项目元数据已更新")
-
+    result = queued.get("result") or {}
+    relative_path = result.get("file_path") or f"clues/{clue_name}.png"
+    output_path = project_dir / relative_path
+    version = result.get("version")
+    version_text = f" (版本 v{version})" if version is not None else ""
+    print(f"✅ 线索设计图已保存: {output_path}{version_text}")
     return output_path
 
 

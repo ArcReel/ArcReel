@@ -117,6 +117,17 @@ class _SafeSessionContext:
 safe_session_factory = _SafeSessionFactory()
 
 
+def dispose_pool() -> None:
+    """Dispose the connection pool so a fresh event loop gets fresh connections.
+
+    ``asyncio.run()`` creates a new event loop each time, but the module-level
+    ``async_engine`` persists.  Stale pool connections may hold Futures bound
+    to a now-closed loop, causing "Future attached to a different loop".
+    Call this before ``asyncio.run()`` in sync wrappers.
+    """
+    async_engine.sync_engine.dispose()
+
+
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI Depends generator for per-request AsyncSession."""
     async with async_session_factory() as session:

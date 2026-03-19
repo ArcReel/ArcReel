@@ -189,6 +189,14 @@ async def enqueue_task_only(
 # Sync wrappers for skill scripts running outside an event loop
 # ---------------------------------------------------------------------------
 
+def _run_in_fresh_loop(coro):
+    """Run *coro* with ``asyncio.run()``, disposing stale pool connections first."""
+    from lib.db.engine import dispose_pool
+
+    dispose_pool()
+    return asyncio.run(coro)
+
+
 def _run_sync(coro):
     """Run an async coroutine from synchronous code."""
     try:
@@ -200,13 +208,8 @@ def _run_sync(coro):
         # Already inside an event loop — create a new thread to run the coroutine.
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            return pool.submit(asyncio.run, coro).result()
-    return asyncio.run(coro)
-
-
-def is_worker_online_sync(lease_name: str = "default") -> bool:
-    """Sync wrapper for is_worker_online()."""
-    return _run_sync(is_worker_online(lease_name))
+            return pool.submit(_run_in_fresh_loop, coro).result()
+    return _run_in_fresh_loop(coro)
 
 
 def enqueue_task_only_sync(**kwargs) -> Dict[str, Any]:
