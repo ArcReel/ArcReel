@@ -83,10 +83,9 @@ def main():
         sys.exit(1)
 
     try:
-        generator = ScriptGenerator(project_path)
-
         if args.dry_run:
-            # 仅显示 Prompt
+            # dry-run 不需要 client
+            generator = ScriptGenerator(project_path)
             print("=" * 60)
             print("DRY RUN - 以下是将发送给 Gemini 的 Prompt:")
             print("=" * 60)
@@ -95,12 +94,18 @@ def main():
             print("=" * 60)
             return
 
-        # 实际生成
-        output_path = Path(args.output) if args.output else None
-        result_path = generator.generate(
-            episode=args.episode,
-            output_path=output_path,
-        )
+        # 实际生成（异步）
+        import asyncio
+
+        async def _run():
+            generator = await ScriptGenerator.create(project_path)
+            output_path = Path(args.output) if args.output else None
+            return await generator.generate(
+                episode=args.episode,
+                output_path=output_path,
+            )
+
+        result_path = asyncio.run(_run())
 
         print(f"\n✅ 剧本生成完成: {result_path}")
 

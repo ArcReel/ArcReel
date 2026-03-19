@@ -22,7 +22,7 @@ PROJECT_ROOT = (
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from lib.gemini_client import GeminiClient
+from lib.text_client import create_text_client_sync
 from lib.project_manager import ProjectManager
 
 MODEL = "gemini-3.1-pro-preview"
@@ -169,7 +169,7 @@ def main():
 
     # 调用 Gemini API
     print(f"正在使用 {MODEL} 生成规范化剧本...")
-    client = GeminiClient()
+    client = create_text_client_sync()
     response = client.generate_text(prompt=prompt, model=MODEL)
 
     # 保存文件
