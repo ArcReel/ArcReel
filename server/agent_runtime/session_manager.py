@@ -850,9 +850,10 @@ class SessionManager:
         #    output to /tmp/claude-{N}/{encoded-cwd}/tasks/{id}.output.
         #    The SDK instructs the agent to Read the file after the task
         #    completes.  Only the tasks/ subdirectory is allowed.
-        _SDK_TMP_PREFIX = "/tmp/claude-"
+        #    macOS: /tmp → /private/tmp symlink, so check both prefixes.
+        _SDK_TMP_PREFIXES = ("/tmp/claude-", "/private/tmp/claude-")
         resolved_str = str(resolved)
-        if resolved_str.startswith(_SDK_TMP_PREFIX) and "tasks" in resolved.parts:
+        if resolved_str.startswith(_SDK_TMP_PREFIXES) and "tasks" in resolved.parts:
             return True
 
         return False
