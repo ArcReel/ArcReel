@@ -34,27 +34,36 @@ class ScriptGenerator:
 
     MODEL = "gemini-3-flash-preview"
 
-    def __init__(self, project_path: Union[str, Path]):
+    def __init__(self, project_path: Union[str, Path], client: Optional[GeminiClient] = None):
         """
         初始化生成器
 
         Args:
             project_path: 项目目录路径，如 projects/test0205
+            client: GeminiClient 实例（可选）。若为 None 则仅支持 build_prompt() dry-run。
         """
         self.project_path = Path(project_path)
-        self.client = GeminiClient()
+        self.client = client
 
         # 加载 project.json
         self.project_json = self._load_project_json()
         self.content_mode = self.project_json.get("content_mode", "narration")
 
-    def generate(
+    @classmethod
+    async def create(cls, project_path: Union[str, Path]) -> "ScriptGenerator":
+        """异步工厂方法，自动从 DB 加载供应商配置创建 client。"""
+        from lib.text_client import create_text_client
+
+        client = await create_text_client()
+        return cls(project_path, client)
+
+    async def generate(
         self,
         episode: int,
         output_path: Optional[Path] = None,
     ) -> Path:
         """
-        生成剧集剧本
+        异步生成剧集剧本
 
         Args:
             episode: 剧集编号
@@ -63,6 +72,11 @@ class ScriptGenerator:
         Returns:
             生成的 JSON 文件路径
         """
+        if self.client is None:
+            raise RuntimeError(
+                "GeminiClient 未初始化，请使用 ScriptGenerator.create() 工厂方法"
+            )
+
         # 1. 加载中间文件
         step1_md = self._load_step1(episode)
 
@@ -94,7 +108,7 @@ class ScriptGenerator:
 
         # 4. 调用 Gemini API
         logger.info("正在生成第 %d 集剧本...", episode)
-        response_text = self.client.generate_text(
+        response_text = await self.client.generate_text_async(
             prompt=prompt,
             model=self.MODEL,
             response_schema=schema,

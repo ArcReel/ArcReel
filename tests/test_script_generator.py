@@ -62,9 +62,14 @@ class _FakeGeminiClient:
         self.calls.append((prompt, model, response_schema))
         return self._response_text
 
+    async def generate_text_async(self, prompt, model, response_schema):
+        self.calls.append((prompt, model, response_schema))
+        return self._response_text
+
 
 class TestScriptGenerator:
-    def test_build_prompt_uses_step1_content(self, tmp_path, monkeypatch):
+    async def test_build_prompt_uses_step1_content(self, tmp_path):
+        """build_prompt 无需 client 即可使用（dry-run 模式）。"""
         project_path = tmp_path / "demo"
         _write_json(
             project_path / "project.json",
@@ -80,16 +85,13 @@ class TestScriptGenerator:
         )
         _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "E1S01 | 片段")
 
-        fake = _FakeGeminiClient(json.dumps(_valid_narration_response(), ensure_ascii=False))
-        monkeypatch.setattr("lib.script_generator.GeminiClient", lambda: fake)
-
-        generator = ScriptGenerator(project_path)
+        generator = ScriptGenerator(project_path)  # 无 client
         prompt = generator.build_prompt(1)
 
         assert "E1S01 | 片段" in prompt
         assert "姜月茴" in prompt
 
-    def test_load_step1_falls_back_when_primary_missing(self, tmp_path, monkeypatch):
+    async def test_load_step1_falls_back_when_primary_missing(self, tmp_path):
         project_path = tmp_path / "demo"
         _write_json(
             project_path / "project.json",
@@ -103,34 +105,27 @@ class TestScriptGenerator:
         )
         _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "fallback")
 
-        fake = _FakeGeminiClient(json.dumps(_valid_narration_response(), ensure_ascii=False))
-        monkeypatch.setattr("lib.script_generator.GeminiClient", lambda: fake)
-
         generator = ScriptGenerator(project_path)
         content = generator._load_step1(1)
         assert content == "fallback"
 
-    def test_parse_response_invalid_json_raises(self, tmp_path, monkeypatch):
+    async def test_parse_response_invalid_json_raises(self, tmp_path):
         project_path = tmp_path / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
-        fake = _FakeGeminiClient("{}")
-        monkeypatch.setattr("lib.script_generator.GeminiClient", lambda: fake)
 
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError):
             generator._parse_response("not-json", 1)
 
-    def test_parse_response_validation_error_returns_raw_data(self, tmp_path, monkeypatch):
+    async def test_parse_response_validation_error_returns_raw_data(self, tmp_path):
         project_path = tmp_path / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
-        fake = _FakeGeminiClient("{}")
-        monkeypatch.setattr("lib.script_generator.GeminiClient", lambda: fake)
 
         generator = ScriptGenerator(project_path)
         parsed = generator._parse_response('{"foo": "bar"}', 1)
         assert parsed == {"foo": "bar"}
 
-    def test_generate_writes_script_and_metadata(self, tmp_path, monkeypatch):
+    async def test_generate_writes_script_and_metadata(self, tmp_path):
         project_path = tmp_path / "demo"
         _write_json(
             project_path / "project.json",
@@ -147,10 +142,8 @@ class TestScriptGenerator:
         _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "E1S01 | 片段")
 
         fake = _FakeGeminiClient(json.dumps(_valid_narration_response(), ensure_ascii=False))
-        monkeypatch.setattr("lib.script_generator.GeminiClient", lambda: fake)
-
-        generator = ScriptGenerator(project_path)
-        output = generator.generate(1)
+        generator = ScriptGenerator(project_path, client=fake)
+        output = await generator.generate(1)
 
         payload = json.loads(output.read_text(encoding="utf-8"))
         assert output == project_path / "scripts" / "episode_1.json"
@@ -158,3 +151,13 @@ class TestScriptGenerator:
         assert payload["duration_seconds"] == 4
         assert payload["metadata"]["generator"] == ScriptGenerator.MODEL
         assert "created_at" in payload["metadata"]
+
+    async def test_generate_without_client_raises(self, tmp_path):
+        """未注入 client 时调用 generate() 应抛 RuntimeError。"""
+        project_path = tmp_path / "demo"
+        _write_json(project_path / "project.json", {"title": "项目"})
+        _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "content")
+
+        generator = ScriptGenerator(project_path)  # 无 client
+        with pytest.raises(RuntimeError, match="GeminiClient 未初始化"):
+            await generator.generate(1)
