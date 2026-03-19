@@ -1304,11 +1304,11 @@ class API {
     params: { provider?: string; start?: string; end?: string } = {}
   ): Promise<UsageStatsResponse> {
     const searchParams = new URLSearchParams();
+    searchParams.append("group_by", "provider");
     if (params.provider) searchParams.append("provider", params.provider);
-    if (params.start) searchParams.append("start", params.start);
-    if (params.end) searchParams.append("end", params.end);
-    const query = searchParams.toString();
-    return this.request(`/usage/stats/grouped${query ? "?" + query : ""}`);
+    if (params.start) searchParams.append("start_date", params.start);
+    if (params.end) searchParams.append("end_date", params.end);
+    return this.request(`/usage/stats?${searchParams.toString()}`);
   }
 }
 
