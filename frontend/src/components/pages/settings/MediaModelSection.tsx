@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { API } from "@/api";
+import type { SystemConfigSettings, SystemConfigOptions, SystemConfigPatch } from "@/types/system";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { useAppStore } from "@/stores/app-store";
 
@@ -19,20 +20,15 @@ const PROVIDER_NAMES: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 export function MediaModelSection() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [settings, setSettings] = useState<Record<string, any> | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [options, setOptions] = useState<Record<string, any> | null>(null);
-  const [draft, setDraft] = useState<Record<string, unknown>>({});
+  const [settings, setSettings] = useState<SystemConfigSettings | null>(null);
+  const [options, setOptions] = useState<SystemConfigOptions | null>(null);
+  const [draft, setDraft] = useState<SystemConfigPatch>({});
   const [saving, setSaving] = useState(false);
 
   const fetchConfig = useCallback(async () => {
-    // The new API returns { settings: {...}, options: {...} }
-    // The old API returns { config: {...}, options: {...} }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = (await API.getSystemConfig()) as any;
-    setSettings(res.settings ?? res.config ?? null);
-    setOptions(res.options ?? null);
+    const res = await API.getSystemConfig();
+    setSettings(res.settings);
+    setOptions(res.options);
     setDraft({});
   }, []);
 
@@ -44,8 +40,7 @@ export function MediaModelSection() {
     if (Object.keys(draft).length === 0) return;
     setSaving(true);
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (API.updateSystemConfig as any)(draft);
+      await API.updateSystemConfig(draft);
       await fetchConfig();
       useAppStore.getState().pushToast("媒体模型配置已保存", "success");
     } catch (err) {
@@ -64,15 +59,9 @@ export function MediaModelSection() {
   const videoBackends: string[] = options.video_backends ?? [];
   const imageBackends: string[] = options.image_backends ?? [];
 
-  const currentVideo = (draft.default_video_backend as string | undefined) ??
-    (settings.default_video_backend as string | null | undefined) ??
-    "";
-  const currentImage = (draft.default_image_backend as string | undefined) ??
-    (settings.default_image_backend as string | null | undefined) ??
-    "";
-  const currentAudio = (draft.video_generate_audio as boolean | undefined) ??
-    (settings.video_generate_audio as boolean | undefined) ??
-    false;
+  const currentVideo = draft.default_video_backend ?? settings.default_video_backend ?? "";
+  const currentImage = draft.default_image_backend ?? settings.default_image_backend ?? "";
+  const currentAudio = draft.video_generate_audio ?? settings.video_generate_audio ?? false;
 
   return (
     <div className="space-y-6 p-6">

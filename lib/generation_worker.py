@@ -364,6 +364,10 @@ class GenerationWorker:
                 if not has_room:
                     # Provider pool is full — requeue the task and stop
                     # claiming this media_type (FIFO means we'd get it again).
+                    logger.info(
+                        "供应商 %s 的 %s 池已满，任务 %s 放回队列",
+                        provider_id, media_type, task["task_id"],
+                    )
                     await self._requeue_single_task(task["task_id"])
                     break
 

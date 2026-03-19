@@ -23,8 +23,6 @@ import type {
   ProjectEventSnapshotPayload,
   GetSystemConfigResponse,
   SystemConfigPatch,
-  GetSystemConfigResponseNew,
-  SystemConfigPatchNew,
   ApiKeyInfo,
   CreateApiKeyResponse,
   ProviderInfo,
@@ -242,38 +240,6 @@ class API {
     });
   }
 
-  /** 获取系统配置（新版 provider-management API，返回 settings 结构） */
-  static async getSystemConfigNew(): Promise<GetSystemConfigResponseNew> {
-    return this.request("/system/config");
-  }
-
-  /** 更新系统配置（新版 provider-management API） */
-  static async updateSystemConfigNew(
-    patch: SystemConfigPatchNew,
-  ): Promise<GetSystemConfigResponseNew> {
-    return this.request("/system/config", {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    });
-  }
-
-  static async uploadVertexCredentials(
-    file: File,
-  ): Promise<GetSystemConfigResponse> {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const response = await fetch(
-      `${API_BASE}/system/config/vertex-credentials`,
-      withAuth({
-        method: "POST",
-        body: formData,
-      }),
-    );
-
-    await throwIfNotOk(response, "上传失败");
-    return response.json();
-  }
 
   // ==================== 项目管理 ====================
 

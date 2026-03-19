@@ -224,7 +224,6 @@ class TestGenerationWorker:
     @pytest.mark.asyncio
     async def test_claim_tasks_dispatches_to_correct_pool(self, monkeypatch):
         """Tasks are dispatched to the correct provider pool."""
-        claim_count = 0
 
         class _ClaimableQueue(_FakeQueue):
             def __init__(self):

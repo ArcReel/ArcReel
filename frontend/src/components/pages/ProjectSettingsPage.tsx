@@ -38,7 +38,7 @@ export function ProjectSettingsPage() {
     let disposed = false;
 
     Promise.all([
-      API.getSystemConfigNew(),
+      API.getSystemConfig(),
       API.getProject(projectName),
     ]).then(([configRes, projectRes]) => {
       if (disposed) return;
@@ -67,16 +67,11 @@ export function ProjectSettingsPage() {
     setSaveError(null);
     setSavedOk(false);
     try {
-      // TODO: video_backend / image_backend are not yet in the ProjectData type
-      // because the backend endpoint doesn't officially support them yet.
-      // We cast to `any` here until the backend PATCH /projects/:name is updated
-      // to accept and persist these fields in project.json.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await API.updateProject(projectName, {
         video_backend: videoBackend || undefined,
         image_backend: imageBackend || undefined,
         video_generate_audio: audioOverride,
-      } as any);
+      });
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 2000);
     } catch (e: unknown) {

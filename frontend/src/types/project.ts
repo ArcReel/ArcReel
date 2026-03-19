@@ -88,6 +88,9 @@ export interface ProjectData {
   clues: Record<string, Clue>;
   /** Injected by StatusCalculator.enrich_project at read time */
   status?: ProjectStatus;
+  video_backend?: string;
+  image_backend?: string;
+  video_generate_audio?: boolean | null;
   metadata?: {
     created_at: string;
     updated_at: string;

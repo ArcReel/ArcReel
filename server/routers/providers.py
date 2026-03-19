@@ -255,12 +255,12 @@ async def upload_vertex_credentials(
     try:
         os.chmod(tmp_path, 0o600)
     except OSError:
-        pass
+        logger.warning("无法设置临时凭证文件权限: %s", tmp_path, exc_info=True)
     os.replace(tmp_path, dest)
     try:
         os.chmod(dest, 0o600)
     except OSError:
-        pass
+        logger.warning("无法设置凭证文件权限: %s", dest, exc_info=True)
 
     # Also store the path in provider_config so status becomes "ready"
     svc = ConfigService(session)

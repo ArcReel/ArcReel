@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
-import type { GetSystemConfigResponseNew } from "@/types";
-import type { ProviderInfo } from "@/types";
+import type { GetSystemConfigResponse, ProviderInfo } from "@/types";
 import { useConfigStatusStore } from "./config-status-store";
 
-function makeConfigResponse(overrides?: Partial<GetSystemConfigResponseNew["settings"]>): GetSystemConfigResponseNew {
+function makeConfigResponse(overrides?: Partial<GetSystemConfigResponse["settings"]>): GetSystemConfigResponse {
   return {
     settings: {
       default_video_backend: "gemini/veo-3",
@@ -53,7 +52,7 @@ describe("config-status-store", () => {
 
   it("reports anthropic and provider issues when both unconfigured", async () => {
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders());
-    vi.spyOn(API, "getSystemConfigNew").mockResolvedValue(makeConfigResponse());
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
 
     await useConfigStatusStore.getState().fetch();
 
@@ -69,7 +68,7 @@ describe("config-status-store", () => {
     vi.spyOn(API, "getProviders").mockResolvedValue(
       makeProviders([{ id: "gemini", display_name: "Google Gemini", status: "ready", media_types: ["image", "video"], capabilities: [], configured_keys: ["api_key"], missing_keys: [] }]),
     );
-    vi.spyOn(API, "getSystemConfigNew").mockResolvedValue(
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
       makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
     );
 
@@ -84,7 +83,7 @@ describe("config-status-store", () => {
     vi.spyOn(API, "getProviders")
       .mockRejectedValueOnce(new Error("temporary failure"))
       .mockResolvedValueOnce(makeProviders());
-    vi.spyOn(API, "getSystemConfigNew").mockResolvedValue(makeConfigResponse());
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
 
     await useConfigStatusStore.getState().fetch();
     expect(useConfigStatusStore.getState().initialized).toBe(false);

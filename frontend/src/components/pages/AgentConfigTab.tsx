@@ -4,7 +4,7 @@ import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import type { GetSystemConfigResponseNew, SystemConfigPatchNew } from "@/types";
+import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
 import { TabSaveFooter } from "./TabSaveFooter";
 
 // ---------------------------------------------------------------------------
@@ -21,7 +21,7 @@ interface AgentDraft {
   subagentModel: string;
 }
 
-function buildDraft(data: GetSystemConfigResponseNew): AgentDraft {
+function buildDraft(data: GetSystemConfigResponse): AgentDraft {
   const s = data.settings;
   return {
     anthropicKey: "",
@@ -46,8 +46,8 @@ function deepEqual(a: AgentDraft, b: AgentDraft): boolean {
   );
 }
 
-function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatchNew {
-  const patch: SystemConfigPatchNew = {};
+function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
+  const patch: SystemConfigPatch = {};
   if (draft.anthropicKey.trim()) patch.anthropic_api_key = draft.anthropicKey.trim();
   if (draft.anthropicBaseUrl !== saved.anthropicBaseUrl)
     patch.anthropic_base_url = draft.anthropicBaseUrl || "";
@@ -98,7 +98,7 @@ interface AgentConfigTabProps {
 }
 
 export function AgentConfigTab({ visible }: AgentConfigTabProps) {
-  const [remoteData, setRemoteData] = useState<GetSystemConfigResponseNew | null>(null);
+  const [remoteData, setRemoteData] = useState<GetSystemConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<AgentDraft>({
     anthropicKey: "",
@@ -128,7 +128,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const res = await API.getSystemConfigNew();
+      const res = await API.getSystemConfig();
       setRemoteData(res);
       const d = buildDraft(res);
       savedRef.current = d;
@@ -156,7 +156,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await API.updateSystemConfigNew(patch);
+      const res = await API.updateSystemConfig(patch);
       setRemoteData(res);
       const newDraft = buildDraft(res);
       savedRef.current = newDraft;
@@ -177,10 +177,10 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
 
   // Clear a single field immediately via PATCH
   const handleClearField = useCallback(
-    async (fieldId: string, patch: SystemConfigPatchNew, label: string) => {
+    async (fieldId: string, patch: SystemConfigPatch, label: string) => {
       setClearingField(fieldId);
       try {
-        const res = await API.updateSystemConfigNew(patch);
+        const res = await API.updateSystemConfig(patch);
         setRemoteData(res);
         const nextSavedDraft = buildDraft(res);
         savedRef.current = nextSavedDraft;
@@ -524,7 +524,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                           onClick={() =>
                             void handleClearField(
                               patchKey,
-                              { [patchKey]: "" } as SystemConfigPatchNew,
+                              { [patchKey]: "" } as SystemConfigPatch,
                               label,
                             )
                           }

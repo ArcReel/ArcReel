@@ -5,15 +5,15 @@ import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
-import type { GetSystemConfigResponseNew, ProviderInfo } from "@/types";
+import type { GetSystemConfigResponse, ProviderInfo } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function makeConfigResponse(
-  overrides?: Partial<GetSystemConfigResponseNew["settings"]>,
-): GetSystemConfigResponseNew {
+  overrides?: Partial<GetSystemConfigResponse["settings"]>,
+): GetSystemConfigResponse {
   return {
     settings: {
       default_video_backend: "gemini/veo-3",
@@ -72,35 +72,7 @@ describe("SystemConfigPage", () => {
     vi.restoreAllMocks();
 
     // Default: silence child section network calls so tests don't hang
-    vi.spyOn(API, "getSystemConfigNew").mockResolvedValue(makeConfigResponse());
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
-      config: {
-        image_backend: "aistudio",
-        video_backend: "vertex",
-        image_model: "gemini-3.1-flash-image-preview",
-        video_model: "veo-3.1-generate-001",
-        video_generate_audio: true,
-        video_generate_audio_effective: true,
-        video_generate_audio_editable: true,
-        rate_limit: { image_rpm: 15, video_rpm: 10, request_gap_seconds: 3 },
-        performance: { image_max_workers: 3, video_max_workers: 2 },
-        gemini_api_key: { is_set: false, masked: null, source: "unset" },
-        gemini_base_url: { value: null, source: "unset" },
-        anthropic_api_key: { is_set: false, masked: null, source: "unset" },
-        anthropic_base_url: { value: null, source: "unset" },
-        anthropic_model: { value: null, source: "unset" },
-        anthropic_default_haiku_model: { value: null, source: "unset" },
-        anthropic_default_opus_model: { value: null, source: "unset" },
-        anthropic_default_sonnet_model: { value: null, source: "unset" },
-        claude_code_subagent_model: { value: null, source: "unset" },
-        vertex_gcs_bucket: { value: null, source: "unset" },
-        vertex_credentials: { is_set: false, filename: null, project_id: null },
-      },
-      options: {
-        image_models: ["gemini-3.1-flash-image-preview"],
-        video_models: ["veo-3.1-generate-001"],
-      },
-    });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders());
     vi.spyOn(API, "getProviderConfig").mockResolvedValue({
       id: "gemini",
@@ -163,7 +135,7 @@ describe("SystemConfigPage", () => {
 
   it("shows config warning banner when there are config issues", async () => {
     // Simulate unconfigured anthropic key to trigger an issue
-    vi.spyOn(API, "getSystemConfigNew").mockResolvedValue(
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
       makeConfigResponse({ anthropic_api_key: { is_set: false, masked: null } }),
     );
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders({ status: "ready" }));

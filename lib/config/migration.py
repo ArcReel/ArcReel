@@ -122,6 +122,7 @@ async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
     # 6. Catch-all: remaining override keys → system_setting
     for key, value in overrides.items():
         if key not in _HANDLED_KEYS:
+            logger.warning("迁移未知配置项: %s=%s", key, value)
             await setting_repo.set(key, str(value))
 
     await session.commit()

@@ -17,7 +17,7 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
 
   const [{ providers }, configRes] = await Promise.all([
     API.getProviders(),
-    API.getSystemConfigNew(),
+    API.getSystemConfig(),
   ]);
 
   const settings = configRes.settings;

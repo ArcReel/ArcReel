@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
+from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService
 from lib.db import get_async_session
 from server.auth import get_current_user
@@ -156,23 +157,21 @@ async def patch_system_config(
         patch[field_name] = getattr(req, field_name)
 
     # Validate backend references
-    if "default_video_backend" in patch and patch["default_video_backend"]:
-        value = str(patch["default_video_backend"]).strip()
-        if "/" not in value:
-            raise HTTPException(
-                status_code=400,
-                detail="default_video_backend 格式应为 provider/model",
-            )
-        await svc.set_setting("default_video_backend", value)
-
-    if "default_image_backend" in patch and patch["default_image_backend"]:
-        value = str(patch["default_image_backend"]).strip()
-        if "/" not in value:
-            raise HTTPException(
-                status_code=400,
-                detail="default_image_backend 格式应为 provider/model",
-            )
-        await svc.set_setting("default_image_backend", value)
+    for backend_key in ("default_video_backend", "default_image_backend"):
+        if backend_key in patch and patch[backend_key]:
+            value = str(patch[backend_key]).strip()
+            if "/" not in value:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{backend_key} 格式应为 provider/model",
+                )
+            provider_id = value.split("/", 1)[0]
+            if provider_id not in PROVIDER_REGISTRY:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"未知供应商: {provider_id}",
+                )
+            await svc.set_setting(backend_key, value)
 
     # Boolean settings
     if "video_generate_audio" in patch and patch["video_generate_audio"] is not None:

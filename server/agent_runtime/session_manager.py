@@ -272,7 +272,7 @@ class SessionManager:
                     self.max_turns = int(raw)
                     return
         except Exception:
-            pass
+            logger.warning("从 DB 加载 assistant 配置失败，回退到环境变量", exc_info=True)
         # Fallback to env var
         self._load_config()
 
