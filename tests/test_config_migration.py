@@ -85,6 +85,22 @@ async def test_migrate_max_workers_to_all_configured_providers(
     assert "video_max_workers" not in grok
 
 
+async def test_migrate_aistudio_001_to_preview(session: AsyncSession, tmp_path: Path):
+    """AI Studio 的 001 后缀应迁移为 preview。"""
+    data = {
+        "overrides": {
+            "video_backend": "aistudio",
+            "video_model": "veo-3.1-generate-001",
+        },
+    }
+    p = tmp_path / ".system_config.json"
+    p.write_text(json.dumps(data))
+    await migrate_json_to_db(session, p)
+    repo = SystemSettingRepository(session)
+    val = await repo.get("default_video_backend")
+    assert val == "gemini-aistudio/veo-3.1-generate-preview"
+
+
 async def test_migrate_noop_if_no_file(session: AsyncSession, tmp_path: Path):
     nonexistent = tmp_path / ".system_config.json"
     await migrate_json_to_db(session, nonexistent)  # should not raise

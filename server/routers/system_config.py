@@ -31,7 +31,7 @@ router = APIRouter()
 
 _PROVIDER_MODELS: dict[str, dict[str, list[str]]] = {
     "gemini-aistudio": {
-        "video": ["veo-3.1-generate-001", "veo-3.1-fast-generate-001"],
+        "video": ["veo-3.1-generate-preview", "veo-3.1-fast-generate-preview"],
         "image": ["gemini-3.1-flash-image-preview"],
     },
     "gemini-vertex": {

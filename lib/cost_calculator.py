@@ -65,11 +65,11 @@ class CostCalculator:
     }
 
     SELECTABLE_VIDEO_MODELS = [
-        "veo-3.1-generate-001",
-        "veo-3.1-fast-generate-001",
+        "veo-3.1-generate-preview",
+        "veo-3.1-fast-generate-preview",
     ]
 
-    DEFAULT_VIDEO_MODEL = "veo-3.1-generate-001"
+    DEFAULT_VIDEO_MODEL = "veo-3.1-generate-preview"
 
     # Seedance 视频费用（元/百万 token），按 (service_tier, generate_audio) 查表
     SEEDANCE_VIDEO_COST = {

@@ -86,6 +86,13 @@ async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
 
     video_backend = overrides.get("video_backend", "aistudio")
     video_model = overrides.get("video_model", "veo-3.1-generate-001")
+    # AI Studio 使用 preview 后缀，Vertex 使用 001 后缀
+    if video_backend == "aistudio":
+        _model_fix = {
+            "veo-3.1-generate-001": "veo-3.1-generate-preview",
+            "veo-3.1-fast-generate-001": "veo-3.1-fast-generate-preview",
+        }
+        video_model = _model_fix.get(video_model, video_model)
     await setting_repo.set("default_video_backend", f"gemini-{video_backend}/{video_model}")
 
     # 4. System setting keys

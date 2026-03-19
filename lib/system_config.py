@@ -271,10 +271,10 @@ class SystemConfigManager:
             overrides.pop("storyboard_max_workers", None)
             migrated = True
 
-        # Migration: preview model names -> stable 001
+        # Migration: AI Studio 旧 001 后缀 -> preview（001 仅 Vertex 使用）
         _model_migration = {
-            "veo-3.1-generate-preview": "veo-3.1-generate-001",
-            "veo-3.1-fast-generate-preview": "veo-3.1-fast-generate-001",
+            "veo-3.1-generate-001": "veo-3.1-generate-preview",
+            "veo-3.1-fast-generate-001": "veo-3.1-fast-generate-preview",
         }
         for key in ("image_model", "video_model"):
             old_val = overrides.get(key)

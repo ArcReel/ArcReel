@@ -97,8 +97,7 @@ export function ProjectSettingsPage() {
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-lg font-semibold text-gray-100">{projectName}</h1>
-        <span className="text-gray-500">/ 设置</span>
+        <h1 className="text-lg font-semibold text-gray-100">项目设置</h1>
       </div>
 
       {/* Content */}

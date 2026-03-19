@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 from typing import Annotated, Any, Callable, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
@@ -198,6 +198,7 @@ async def get_provider_config(
 async def patch_provider_config(
     provider_id: str,
     body: dict[str, Optional[str]],
+    request: Request,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     """更新供应商配置。值为 null 表示删除该键。"""
@@ -212,6 +213,15 @@ async def patch_provider_config(
             await svc.set_provider_config(provider_id, key, value, flush=False)
 
     await session.commit()
+
+    # 配置变更后刷新缓存和并发池
+    from server.services.generation_tasks import invalidate_backend_cache
+    invalidate_backend_cache()
+
+    worker = getattr(request.app.state, "generation_worker", None)
+    if worker:
+        await worker.reload_limits()
+
     return Response(status_code=204)
 
 

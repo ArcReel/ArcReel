@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
 
-_DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-generate-001"
+_DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-generate-preview"
 _DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image-preview"
 
 

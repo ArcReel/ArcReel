@@ -142,7 +142,7 @@ class TestGetSystemConfig:
         options = res.json()["options"]
         assert "video_backends" in options
         assert "image_backends" in options
-        assert "gemini-aistudio/veo-3.1-generate-001" in options["video_backends"]
+        assert "gemini-aistudio/veo-3.1-generate-preview" in options["video_backends"]
         assert "gemini-aistudio/gemini-3.1-flash-image-preview" in options["image_backends"]
 
     def test_options_exclude_unconfigured_providers(self):
@@ -158,7 +158,7 @@ class TestGetSystemConfig:
         with TestClient(_make_app_with_mock(mock_svc)) as client:
             res = client.get("/api/v1/system/config")
         options = res.json()["options"]
-        assert "gemini-aistudio/veo-3.1-generate-001" in options["video_backends"]
+        assert "gemini-aistudio/veo-3.1-generate-preview" in options["video_backends"]
         assert "seedance/doubao-seedance-1-5-pro-251215" in options["video_backends"]
 
     def test_anthropic_key_masked(self):

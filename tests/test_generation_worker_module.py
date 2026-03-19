@@ -132,8 +132,8 @@ class TestBuildDefaultPools:
         monkeypatch.delenv("VIDEO_MAX_WORKERS", raising=False)
         pools = _build_default_pools()
         assert DEFAULT_PROVIDER in pools
-        assert pools[DEFAULT_PROVIDER].image_max == 3
-        assert pools[DEFAULT_PROVIDER].video_max == 2
+        assert pools[DEFAULT_PROVIDER].image_max == 5
+        assert pools[DEFAULT_PROVIDER].video_max == 3
 
     def test_reads_env(self, monkeypatch):
         monkeypatch.setenv("IMAGE_MAX_WORKERS", "5")

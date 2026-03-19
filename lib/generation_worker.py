@@ -106,12 +106,12 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
             supports_image = "image" in meta.media_types
             supports_video = "video" in meta.media_types
             image_max = (
-                int(config.get("image_max_workers", "3"))
+                int(config.get("image_max_workers", "5"))
                 if supports_image
                 else 0
             )
             video_max = (
-                int(config.get("video_max_workers", "2"))
+                int(config.get("video_max_workers", "3"))
                 if supports_video
                 else 0
             )
@@ -124,16 +124,24 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
 
 
 def _build_default_pools() -> dict[str, ProviderPool]:
-    """Build pools from env vars / defaults (used before DB is available or in tests)."""
-    image_max = _read_int_env("IMAGE_MAX_WORKERS", 3, minimum=1)
-    video_max = _read_int_env("VIDEO_MAX_WORKERS", 2, minimum=1)
-    return {
-        DEFAULT_PROVIDER: ProviderPool(
-            provider_id=DEFAULT_PROVIDER,
-            image_max=image_max,
-            video_max=video_max,
-        ),
-    }
+    """Build pools from env vars / defaults (used before DB is available or in tests).
+
+    为 PROVIDER_REGISTRY 中所有供应商创建默认池，避免 DB 加载前的任务
+    因供应商未知而降级到 1 并发的 fallback 池。
+    """
+    from lib.config.registry import PROVIDER_REGISTRY
+
+    image_max = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
+    video_max = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
+
+    pools: dict[str, ProviderPool] = {}
+    for provider_id, meta in PROVIDER_REGISTRY.items():
+        pools[provider_id] = ProviderPool(
+            provider_id=provider_id,
+            image_max=image_max if "image" in meta.media_types else 0,
+            video_max=video_max if "video" in meta.media_types else 0,
+        )
+    return pools
 
 
 class GenerationWorker:
