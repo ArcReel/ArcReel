@@ -118,7 +118,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     currentProjectData?.title?.trim() || currentProjectName || "未选择项目";
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
 
-  // 加载费用统计数据
+  // 加载费用统计数据（任务完成时自动刷新）
+  const completedTaskCount = stats.succeeded + stats.failed;
   useEffect(() => {
     API.getUsageStats(currentProjectName ? { projectName: currentProjectName } : {})
       .then((res) => {
@@ -132,7 +133,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
         });
       })
       .catch(() => {});
-  }, [currentProjectName, setUsageStats]);
+  }, [currentProjectName, completedTaskCount, setUsageStats]);
 
   useEffect(() => {
     void fetchConfigStatus();
