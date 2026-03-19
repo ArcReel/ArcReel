@@ -34,20 +34,25 @@ class ConfigService:
         self._validate_provider(provider)
         return await self._provider_repo.get_all(provider)
 
-    async def set_provider_config(self, provider: str, key: str, value: str) -> None:
+    async def set_provider_config(
+        self, provider: str, key: str, value: str, *, flush: bool = True,
+    ) -> None:
         self._validate_provider(provider)
         meta = PROVIDER_REGISTRY[provider]
         is_secret = key in meta.secret_keys
-        await self._provider_repo.set(provider, key, value, is_secret=is_secret)
+        await self._provider_repo.set(provider, key, value, is_secret=is_secret, flush=flush)
 
-    async def delete_provider_config(self, provider: str, key: str) -> None:
+    async def delete_provider_config(
+        self, provider: str, key: str, *, flush: bool = True,
+    ) -> None:
         self._validate_provider(provider)
-        await self._provider_repo.delete(provider, key)
+        await self._provider_repo.delete(provider, key, flush=flush)
 
     async def get_all_providers_status(self) -> list[ProviderStatus]:
+        all_configured = await self._provider_repo.get_all_configured_keys_bulk()
         statuses = []
         for name, meta in PROVIDER_REGISTRY.items():
-            configured = await self._provider_repo.get_configured_keys(name)
+            configured = all_configured.get(name, [])
             missing = [k for k in meta.required_keys if k not in configured]
             status: Literal["ready", "unconfigured", "error"] = (
                 "ready" if not missing else "unconfigured"
@@ -67,12 +72,20 @@ class ConfigService:
             )
         return statuses
 
+    async def get_all_provider_configs(self) -> dict[str, dict[str, str]]:
+        """Get raw config for ALL providers in a single query."""
+        return await self._provider_repo.get_all_configs_bulk()
+
     async def get_provider_config_masked(self, provider: str) -> dict[str, dict]:
         self._validate_provider(provider)
         return await self._provider_repo.get_all_masked(provider)
 
     async def get_setting(self, key: str, default: str = "") -> str:
         return await self._setting_repo.get(key, default)
+
+    async def get_all_settings(self) -> dict[str, str]:
+        """Get all system settings in a single query."""
+        return await self._setting_repo.get_all()
 
     async def set_setting(self, key: str, value: str) -> None:
         await self._setting_repo.set(key, value)

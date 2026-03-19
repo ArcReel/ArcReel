@@ -8,11 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.db.models.config import ProviderConfig, SystemSetting
 
 
-def _mask_value(value: str) -> str:
+def mask_secret(value: str) -> str:
     """Mask a secret value, showing first 4 and last 4 chars."""
-    if len(value) <= 8:
+    raw = value.strip()
+    if len(raw) <= 8:
         return "••••"
-    return f"{value[:4]}…{value[-4:]}"
+    return f"{raw[:4]}…{raw[-4:]}"
 
 
 class ProviderConfigRepository:
@@ -20,7 +21,8 @@ class ProviderConfigRepository:
         self.session = session
 
     async def set(
-        self, provider: str, key: str, value: str, *, is_secret: bool = False
+        self, provider: str, key: str, value: str, *, is_secret: bool = False,
+        flush: bool = True,
     ) -> None:
         stmt = select(ProviderConfig).where(
             ProviderConfig.provider == provider, ProviderConfig.key == key
@@ -37,14 +39,16 @@ class ProviderConfigRepository:
                     provider=provider, key=key, value=value, is_secret=is_secret
                 )
             )
-        await self.session.flush()
+        if flush:
+            await self.session.flush()
 
-    async def delete(self, provider: str, key: str) -> None:
+    async def delete(self, provider: str, key: str, *, flush: bool = True) -> None:
         stmt = delete(ProviderConfig).where(
             ProviderConfig.provider == provider, ProviderConfig.key == key
         )
         await self.session.execute(stmt)
-        await self.session.flush()
+        if flush:
+            await self.session.flush()
 
     async def get_all(self, provider: str) -> dict[str, str]:
         stmt = select(ProviderConfig).where(ProviderConfig.provider == provider)
@@ -57,7 +61,7 @@ class ProviderConfigRepository:
         out: dict[str, dict] = {}
         for row in result.scalars():
             if row.is_secret:
-                out[row.key] = {"is_set": True, "masked": _mask_value(row.value)}
+                out[row.key] = {"is_set": True, "masked": mask_secret(row.value)}
             else:
                 out[row.key] = {"is_set": True, "value": row.value}
         return out
@@ -65,7 +69,25 @@ class ProviderConfigRepository:
     async def get_configured_keys(self, provider: str) -> list[str]:
         stmt = select(ProviderConfig.key).where(ProviderConfig.provider == provider)
         result = await self.session.execute(stmt)
-        return [row for row in result.scalars()]
+        return list(result.scalars())
+
+    async def get_all_configured_keys_bulk(self) -> dict[str, list[str]]:
+        """Fetch configured keys for ALL providers in a single query."""
+        stmt = select(ProviderConfig.provider, ProviderConfig.key)
+        result = await self.session.execute(stmt)
+        out: dict[str, list[str]] = {}
+        for provider, key in result:
+            out.setdefault(provider, []).append(key)
+        return out
+
+    async def get_all_configs_bulk(self) -> dict[str, dict[str, str]]:
+        """Fetch all config key-value pairs for ALL providers in a single query."""
+        stmt = select(ProviderConfig)
+        result = await self.session.execute(stmt)
+        out: dict[str, dict[str, str]] = {}
+        for row in result.scalars():
+            out.setdefault(row.provider, {})[row.key] = row.value
+        return out
 
 
 class SystemSettingRepository:

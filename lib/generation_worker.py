@@ -100,8 +100,9 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
     pools: dict[str, ProviderPool] = {}
     async with safe_session_factory() as session:
         svc = ConfigService(session)
+        all_configs = await svc.get_all_provider_configs()
         for provider_id, meta in PROVIDER_REGISTRY.items():
-            config = await svc.get_provider_config(provider_id)
+            config = all_configs.get(provider_id, {})
             supports_image = "image" in meta.media_types
             supports_video = "video" in meta.media_types
             image_max = (

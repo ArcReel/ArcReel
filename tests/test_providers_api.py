@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
+from server.dependencies import get_config_service
 from server.routers import providers
 
 
@@ -27,8 +28,8 @@ def _make_app(mock_svc: ConfigService) -> FastAPI:
     """创建绑定 mock ConfigService 的最小 FastAPI 应用。"""
     app = FastAPI()
 
-    # 覆盖 _get_config_service，直接注入 mock 服务
-    app.dependency_overrides[providers._get_config_service] = lambda: mock_svc
+    # 覆盖 get_config_service，直接注入 mock 服务
+    app.dependency_overrides[get_config_service] = lambda: mock_svc
 
     app.include_router(providers.router, prefix="/api/v1")
     return app
@@ -273,7 +274,7 @@ class TestPatchProviderConfig:
 
         assert resp.status_code == 204
         mock_svc.delete_provider_config.assert_awaited_once_with(
-            "gemini-aistudio", "base_url"
+            "gemini-aistudio", "base_url", flush=False
         )
 
     def test_non_null_value_calls_set(self):
@@ -297,7 +298,7 @@ class TestPatchProviderConfig:
 
         assert resp.status_code == 204
         mock_svc.set_provider_config.assert_awaited_once_with(
-            "gemini-aistudio", "api_key", "AIza-test"
+            "gemini-aistudio", "api_key", "AIza-test", flush=False
         )
 
 

@@ -18,6 +18,7 @@ from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
 from lib.db.base import Base
 from server.auth import get_current_user
+from server.dependencies import get_config_service
 from server.routers import system_config as system_config_router
 
 
@@ -41,7 +42,7 @@ def _make_app_with_mock(mock_svc: ConfigService) -> FastAPI:
     """App with a fully mocked ConfigService (no DB needed)."""
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
-    app.dependency_overrides[system_config_router._get_config_service] = lambda: mock_svc
+    app.dependency_overrides[get_config_service] = lambda: mock_svc
     app.include_router(system_config_router.router, prefix="/api/v1")
     return app
 
@@ -61,7 +62,11 @@ def _make_mock_svc(
     async def _set_setting(key: str, value: str) -> None:
         _settings[key] = value
 
+    async def _get_all_settings() -> dict[str, str]:
+        return dict(_settings)
+
     svc.get_setting = AsyncMock(side_effect=_get_setting)
+    svc.get_all_settings = AsyncMock(side_effect=_get_all_settings)
     svc.set_setting = AsyncMock(side_effect=_set_setting)
 
     ready = set(ready_providers or [])
@@ -76,6 +81,7 @@ def _make_mock_svc(
                 ProviderStatus(
                     name=name,
                     display_name=meta.display_name,
+                    description=meta.description,
                     status=status,
                     media_types=list(meta.media_types),
                     capabilities=list(meta.capabilities),
@@ -199,7 +205,7 @@ class TestPatchSystemConfig:
         """App for PATCH tests - needs session override for commit()."""
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
-        app.dependency_overrides[system_config_router._get_config_service] = lambda: mock_svc
+        app.dependency_overrides[get_config_service] = lambda: mock_svc
 
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()

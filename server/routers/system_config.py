@@ -15,9 +15,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.config.repository import mask_secret
 from lib.config.service import ConfigService
 from lib.db import get_async_session
 from server.auth import get_current_user
+from server.dependencies import get_config_service
 
 logger = logging.getLogger(__name__)
 
@@ -47,26 +49,8 @@ _PROVIDER_MODELS: dict[str, dict[str, list[str]]] = {
 }
 
 # ---------------------------------------------------------------------------
-# Dependency injection
-# ---------------------------------------------------------------------------
-
-
-def _get_config_service(
-    session: AsyncSession = Depends(get_async_session),
-) -> ConfigService:
-    return ConfigService(session)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _mask_secret(value: str) -> str:
-    raw = value.strip()
-    if len(raw) <= 8:
-        return "••••"
-    return f"{raw[:4]}…{raw[-4:]}"
 
 
 async def _build_options(svc: ConfigService) -> dict[str, list[str]]:
@@ -126,37 +110,28 @@ _STRING_SETTINGS = (
 @router.get("/system/config")
 async def get_system_config(
     _user: Annotated[dict, Depends(get_current_user)],
-    svc: Annotated[ConfigService, Depends(_get_config_service)],
+    svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> dict[str, Any]:
-    # Read settings from DB
-    default_video_backend = await svc.get_setting("default_video_backend", "")
-    default_image_backend = await svc.get_setting("default_image_backend", "")
-    video_generate_audio_raw = await svc.get_setting("video_generate_audio", "false")
+    # Read all settings in a single query
+    all_s = await svc.get_all_settings()
+    video_generate_audio_raw = all_s.get("video_generate_audio", "false")
     video_generate_audio = video_generate_audio_raw.lower() in ("true", "1", "yes")
-
-    # Anthropic settings
-    anthropic_key = await svc.get_setting("anthropic_api_key", "")
-    anthropic_base_url = await svc.get_setting("anthropic_base_url", "")
-    anthropic_model = await svc.get_setting("anthropic_model", "")
-    anthropic_default_haiku = await svc.get_setting("anthropic_default_haiku_model", "")
-    anthropic_default_opus = await svc.get_setting("anthropic_default_opus_model", "")
-    anthropic_default_sonnet = await svc.get_setting("anthropic_default_sonnet_model", "")
-    claude_code_subagent = await svc.get_setting("claude_code_subagent_model", "")
+    anthropic_key = all_s.get("anthropic_api_key", "")
 
     settings: dict[str, Any] = {
-        "default_video_backend": default_video_backend or None,
-        "default_image_backend": default_image_backend or None,
+        "default_video_backend": all_s.get("default_video_backend") or None,
+        "default_image_backend": all_s.get("default_image_backend") or None,
         "video_generate_audio": video_generate_audio,
         "anthropic_api_key": {
             "is_set": bool(anthropic_key),
-            "masked": _mask_secret(anthropic_key) if anthropic_key else None,
+            "masked": mask_secret(anthropic_key) if anthropic_key else None,
         },
-        "anthropic_base_url": anthropic_base_url or None,
-        "anthropic_model": anthropic_model or None,
-        "anthropic_default_haiku_model": anthropic_default_haiku or None,
-        "anthropic_default_opus_model": anthropic_default_opus or None,
-        "anthropic_default_sonnet_model": anthropic_default_sonnet or None,
-        "claude_code_subagent_model": claude_code_subagent or None,
+        "anthropic_base_url": all_s.get("anthropic_base_url") or None,
+        "anthropic_model": all_s.get("anthropic_model") or None,
+        "anthropic_default_haiku_model": all_s.get("anthropic_default_haiku_model") or None,
+        "anthropic_default_opus_model": all_s.get("anthropic_default_opus_model") or None,
+        "anthropic_default_sonnet_model": all_s.get("anthropic_default_sonnet_model") or None,
+        "claude_code_subagent_model": all_s.get("claude_code_subagent_model") or None,
     }
 
     options = await _build_options(svc)
@@ -173,7 +148,7 @@ async def get_system_config(
 async def patch_system_config(
     req: SystemConfigPatchRequest,
     _user: Annotated[dict, Depends(get_current_user)],
-    svc: Annotated[ConfigService, Depends(_get_config_service)],
+    svc: Annotated[ConfigService, Depends(get_config_service)],
     session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     patch: dict[str, Any] = {}

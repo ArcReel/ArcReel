@@ -21,6 +21,7 @@ from lib import PROJECT_ROOT
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService
 from lib.db import get_async_session
+from server.dependencies import get_config_service
 
 logger = logging.getLogger(__name__)
 
@@ -44,17 +45,6 @@ _FIELD_META: dict[str, dict[str, str]] = {
     "image_max_workers": {"label": "图片最大并发", "type": "number"},
     "video_max_workers": {"label": "视频最大并发", "type": "number"},
 }
-
-
-# ---------------------------------------------------------------------------
-# 依赖注入
-# ---------------------------------------------------------------------------
-
-
-def _get_config_service(
-    session: AsyncSession = Depends(get_async_session),
-) -> ConfigService:
-    return ConfigService(session)
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +139,7 @@ def _build_field(
 
 @router.get("", response_model=ProvidersListResponse)
 async def list_providers(
-    svc: Annotated[ConfigService, Depends(_get_config_service)],
+    svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> ProvidersListResponse:
     """返回所有供应商及其状态。"""
     statuses = await svc.get_all_providers_status()
@@ -172,7 +162,7 @@ async def list_providers(
 @router.get("/{provider_id}/config", response_model=ProviderConfigResponse)
 async def get_provider_config(
     provider_id: str,
-    svc: Annotated[ConfigService, Depends(_get_config_service)],
+    svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> ProviderConfigResponse:
     """返回单个供应商的配置字段（registry 元数据与 DB 值合并）。"""
     if provider_id not in PROVIDER_REGISTRY:
@@ -216,9 +206,9 @@ async def patch_provider_config(
     svc = ConfigService(session)
     for key, value in body.items():
         if value is None:
-            await svc.delete_provider_config(provider_id, key)
+            await svc.delete_provider_config(provider_id, key, flush=False)
         else:
-            await svc.set_provider_config(provider_id, key, value)
+            await svc.set_provider_config(provider_id, key, value, flush=False)
 
     await session.commit()
     return Response(status_code=204)
@@ -272,7 +262,7 @@ async def upload_vertex_credentials(
 @router.post("/{provider_id}/test", response_model=ConnectionTestResponse)
 async def test_provider_connection(
     provider_id: str,
-    svc: Annotated[ConfigService, Depends(_get_config_service)],
+    svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> ConnectionTestResponse:
     """连接测试（目前为占位实现，仅校验供应商存在且必填键已配置）。"""
     if provider_id not in PROVIDER_REGISTRY:
