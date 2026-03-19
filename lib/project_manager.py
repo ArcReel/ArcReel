@@ -1540,15 +1540,15 @@ class ProjectManager:
         Returns:
             生成的 overview 字典，包含 synopsis, genre, theme, world_setting, generated_at
         """
-        from .gemini_client import GeminiClient
+        from .text_client import create_text_client
 
         # 读取源文件内容
         source_content = self._read_source_files(project_name)
         if not source_content:
             raise ValueError("source 目录为空，无法生成概述")
 
-        # 复用 GeminiClient（自动处理后端切换和 OAuth scopes）
-        client = GeminiClient()
+        # 从 DB 加载供应商配置创建 client（Vertex > AI Studio）
+        client = await create_text_client()
 
         # 调用 Gemini API（Structured Outputs）
         prompt = f"请分析以下小说内容，提取关键信息：\n\n{source_content}"
