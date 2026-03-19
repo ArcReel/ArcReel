@@ -19,7 +19,6 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from server.auth import get_current_user
 
 from lib import PROJECT_ROOT
-from lib.gemini_client import GeminiClient
 from lib.image_utils import convert_image_bytes_to_png
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
@@ -525,7 +524,8 @@ async def upload_style_image(project_name: str, _user: Annotated[dict, Depends(g
             f.write(png_content)
 
         # 调用 Gemini API 分析风格
-        client = GeminiClient()
+        from lib.text_client import create_text_client
+        client = await create_text_client()
         style_description = client.analyze_style_image(output_path)
 
         # 更新 project.json
