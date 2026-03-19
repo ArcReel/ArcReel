@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Literal
 
@@ -10,6 +11,31 @@ from lib.config.repository import ProviderConfigRepository, SystemSettingReposit
 
 _DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-generate-preview"
 _DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image-preview"
+
+# DB setting key → environment variable name
+_ANTHROPIC_ENV_MAP: dict[str, str] = {
+    "anthropic_api_key": "ANTHROPIC_API_KEY",
+    "anthropic_base_url": "ANTHROPIC_BASE_URL",
+    "anthropic_model": "ANTHROPIC_MODEL",
+    "anthropic_default_haiku_model": "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "anthropic_default_opus_model": "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "anthropic_default_sonnet_model": "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "claude_code_subagent_model": "CLAUDE_CODE_SUBAGENT_MODEL",
+}
+
+
+def sync_anthropic_env(all_settings: dict[str, str]) -> None:
+    """Sync Anthropic-related DB settings to environment variables.
+
+    The Claude Agent SDK reads config from os.environ, so DB values
+    must be mirrored to env vars for the SDK to pick them up.
+    """
+    for db_key, env_key in _ANTHROPIC_ENV_MAP.items():
+        value = all_settings.get(db_key, "").strip()
+        if value:
+            os.environ[env_key] = value
+        else:
+            os.environ.pop(env_key, None)
 
 
 @dataclass
