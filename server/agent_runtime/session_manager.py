@@ -771,6 +771,20 @@ class SessionManager:
         managed.interrupt_requested = False
         self._prune_transient_buffer(managed)
 
+        # For interrupted sessions, broadcast a synthetic interrupt echo so the
+        # SSE projector generates an interrupt_notice turn.  This keeps the live
+        # path consistent with the historical path where the SDK transcript
+        # contains the CLI-injected interrupt echo that the turn_grouper converts.
+        # The consumer task is already cancelled at this point so the SDK's own
+        # echo will never arrive through the normal message pipeline.
+        if status == "interrupted":
+            managed._broadcast_to_subscribers({
+                "type": "user",
+                "content": "[Request interrupted by user]",
+                "uuid": f"interrupt-echo-{uuid4().hex}",
+                "timestamp": _utc_now_iso(),
+            })
+
         # Broadcast terminal status so SSE subscribers unblock immediately
         # instead of waiting for the heartbeat timeout.
         managed._broadcast_to_subscribers({

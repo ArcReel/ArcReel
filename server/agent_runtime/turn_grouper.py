@@ -158,6 +158,14 @@ def _is_interrupt_echo(content: Any) -> bool:
     return text.startswith(_INTERRUPT_ECHO_PREFIX)
 
 
+def _last_turn_is_interrupt_notice(turn: Optional[dict[str, Any]]) -> bool:
+    """Check whether *turn* is already an interrupt_notice system turn."""
+    if turn is None or turn.get("type") != "system":
+        return False
+    blocks = turn.get("content", [])
+    return bool(blocks and blocks[-1].get("type") == "interrupt_notice")
+
+
 def _is_system_injected_user_message(content: Any) -> bool:
     """Check whether a user message is SDK-injected system payload."""
     if isinstance(content, str):
@@ -426,8 +434,16 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
                     }
                 continue
 
-            # CLI-injected interrupt echo → convert to a system indicator
+            # CLI-injected interrupt echo → convert to a system indicator.
+            # Dedup only *adjacent* echoes: the SDK echo and our synthetic
+            # echo may both arrive for the same interrupt (race between
+            # consumer processing and consumer_task.cancel()).  We only
+            # skip when current_turn is already an interrupt_notice — a
+            # new interrupt in a later round will have user/assistant turns
+            # in between, so current_turn will differ and dedup won't fire.
             if _is_interrupt_echo(content):
+                if _last_turn_is_interrupt_notice(current_turn):
+                    continue
                 if current_turn:
                     turns.append(current_turn)
                 current_turn = {

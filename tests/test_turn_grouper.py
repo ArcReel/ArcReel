@@ -624,6 +624,17 @@ class TestInterruptEcho:
         assert len(turns) == 1
         assert turns[0]["type"] == "system"
 
+    def test_duplicate_interrupt_echoes_deduplicated(self):
+        """Race between SDK echo and synthetic echo should produce only one notice."""
+        raw = [
+            {"type": "user", "content": "[Request interrupted by user for tool use]"},
+            {"type": "user", "content": "[Request interrupted by user]"},
+        ]
+        turns = group_messages_into_turns(raw)
+        interrupt_turns = [t for t in turns if t["type"] == "system"
+                          and t["content"][0].get("type") == "interrupt_notice"]
+        assert len(interrupt_turns) == 1
+
     def test_normal_user_message_not_affected(self):
         raw = [
             {"type": "user", "content": "hello world"},
