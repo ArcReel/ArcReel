@@ -17,7 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.service import ConfigService
+from lib.config.service import (
+    ConfigService,
+    _DEFAULT_IMAGE_BACKEND,
+    _DEFAULT_VIDEO_BACKEND,
+)
 from lib.db import get_async_session
 from server.auth import get_current_user
 from server.dependencies import get_config_service
@@ -120,8 +124,8 @@ async def get_system_config(
     anthropic_key = all_s.get("anthropic_api_key", "")
 
     settings: dict[str, Any] = {
-        "default_video_backend": all_s.get("default_video_backend") or None,
-        "default_image_backend": all_s.get("default_image_backend") or None,
+        "default_video_backend": all_s.get("default_video_backend") or _DEFAULT_VIDEO_BACKEND,
+        "default_image_backend": all_s.get("default_image_backend") or _DEFAULT_IMAGE_BACKEND,
         "video_generate_audio": video_generate_audio,
         "anthropic_api_key": {
             "is_set": bool(anthropic_key),

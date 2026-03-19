@@ -4,6 +4,7 @@ import type { SystemConfigSettings, SystemConfigOptions, SystemConfigPatch } fro
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
+import { useConfigStatusStore } from "@/stores/config-status-store";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -32,6 +33,7 @@ export function MediaModelSection() {
     try {
       await API.updateSystemConfig(draft);
       await fetchConfig();
+      void useConfigStatusStore.getState().refresh();
       useAppStore.getState().pushToast("媒体模型配置已保存", "success");
     } catch (err) {
       useAppStore.getState().pushToast(`保存失败: ${(err as Error).message}`, "error");
