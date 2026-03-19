@@ -4,6 +4,7 @@ Character Generator - 使用 Gemini API 生成人物设计图
 
 Usage:
     python generate_character.py --character "张三"
+    python generate_character.py --characters "张三" "李四"
     python generate_character.py --all
     python generate_character.py --list
 
@@ -14,8 +15,14 @@ Note:
 import argparse
 import sys
 from pathlib import Path
+from typing import List, Optional, Tuple
 
-from lib.generation_queue_client import enqueue_and_wait_sync as enqueue_and_wait
+from lib.generation_queue_client import (
+    BatchTaskSpec,
+    BatchTaskResult,
+    batch_enqueue_and_wait_sync,
+    enqueue_and_wait_sync as enqueue_and_wait,
+)
 from lib.project_manager import ProjectManager
 
 
@@ -23,7 +30,7 @@ def generate_character(
     character_name: str,
 ) -> Path:
     """
-    生成人物设计图
+    生成单个人物设计图
 
     Args:
         character_name: 人物名称
@@ -84,47 +91,81 @@ def list_pending_characters() -> None:
         print()
 
 
-def generate_all_characters() -> tuple:
+def generate_batch_characters(
+    character_names: Optional[List[str]] = None,
+) -> Tuple[int, int]:
     """
-    生成所有待处理的角色设计图
+    批量生成人物设计图（全部入队，由 Worker 并行处理）
+
+    Args:
+        character_names: 指定的角色名称列表。None 表示所有待处理角色。
 
     Returns:
         (成功数, 失败数)
     """
     pm, project_name = ProjectManager.from_cwd()
-    pending = pm.get_pending_characters(project_name)
+    project = pm.load_project(project_name)
 
-    if not pending:
-        print(f"✅ 项目 '{project_name}' 中所有角色都已有设计图")
+    if character_names:
+        chars = project.get("characters", {})
+        names_to_process = []
+        for name in character_names:
+            if name not in chars:
+                print(f"⚠️  角色 '{name}' 不存在于 project.json 中，跳过")
+                continue
+            if not chars[name].get("description"):
+                print(f"⚠️  角色 '{name}' 缺少描述，跳过")
+                continue
+            names_to_process.append(name)
+    else:
+        pending = pm.get_pending_characters(project_name)
+        names_to_process = [c["name"] for c in pending]
+
+    if not names_to_process:
+        print("✅ 没有需要生成的角色")
         return (0, 0)
 
-    print(f"\n🚀 开始生成 {len(pending)} 个人物设计图...\n")
+    specs = [
+        BatchTaskSpec(
+            task_type="character",
+            media_type="image",
+            resource_id=name,
+            payload={"prompt": project["characters"][name]["description"]},
+        )
+        for name in names_to_process
+    ]
 
-    success_count = 0
-    fail_count = 0
+    total = len(specs)
+    print(f"\n🚀 批量提交 {total} 个人物设计图到生成队列...\n")
 
-    for char in pending:
-        try:
-            generate_character(char["name"])
-            success_count += 1
-            print()
-        except Exception as e:
-            print(f"❌ 生成 '{char['name']}' 失败: {e}")
-            fail_count += 1
-            print()
+    def on_success(br: BatchTaskResult) -> None:
+        version = (br.result or {}).get("version")
+        version_text = f" (版本 v{version})" if version is not None else ""
+        print(f"✅ 人物设计图: {br.resource_id} 完成{version_text}")
+
+    def on_failure(br: BatchTaskResult) -> None:
+        print(f"❌ 人物设计图: {br.resource_id} 失败 - {br.error}")
+
+    successes, failures = batch_enqueue_and_wait_sync(
+        project_name=project_name,
+        specs=specs,
+        on_success=on_success,
+        on_failure=on_failure,
+    )
 
     print(f"\n{'=' * 40}")
     print("生成完成!")
-    print(f"   ✅ 成功: {success_count}")
-    print(f"   ❌ 失败: {fail_count}")
+    print(f"   ✅ 成功: {len(successes)}")
+    print(f"   ❌ 失败: {len(failures)}")
     print(f"{'=' * 40}")
 
-    return (success_count, fail_count)
+    return (len(successes), len(failures))
 
 
 def main():
     parser = argparse.ArgumentParser(description="生成人物设计图")
-    parser.add_argument("--character", help="指定人物名称")
+    parser.add_argument("--character", help="指定单个人物名称")
+    parser.add_argument("--characters", nargs="+", help="指定多个人物名称")
     parser.add_argument("--all", action="store_true", help="生成所有待处理的角色")
     parser.add_argument("--list", action="store_true", help="列出待生成的角色")
 
@@ -134,14 +175,17 @@ def main():
         if args.list:
             list_pending_characters()
         elif args.all:
-            _, fail = generate_all_characters()
+            _, fail = generate_batch_characters()
+            sys.exit(0 if fail == 0 else 1)
+        elif args.characters:
+            _, fail = generate_batch_characters(args.characters)
             sys.exit(0 if fail == 0 else 1)
         elif args.character:
             output_path = generate_character(args.character)
             print(f"\n🖼️  请查看生成的图片: {output_path}")
         else:
             parser.print_help()
-            print("\n❌ 请指定 --all、--character 或 --list")
+            print("\n❌ 请指定 --all、--characters、--character 或 --list")
             sys.exit(1)
 
     except Exception as e:

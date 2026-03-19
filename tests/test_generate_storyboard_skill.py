@@ -46,7 +46,7 @@ def test_main_supports_scene_flag(monkeypatch):
 
     monkeypatch.setattr(module, "ProjectManager", _FakeProjectManager)
 
-    def _fake_generate(script_filename, segment_ids=None, max_workers=0):
+    def _fake_generate(script_filename, segment_ids=None):
         captured["script_filename"] = script_filename
         captured["segment_ids"] = segment_ids
         return [], []
@@ -110,7 +110,7 @@ def test_generate_storyboard_direct_requires_online_worker(monkeypatch):
     def _raise_worker_offline(**kwargs):
         raise WorkerOfflineError("queue worker is offline")
 
-    monkeypatch.setattr(module, "enqueue_task_only", _raise_worker_offline)
+    monkeypatch.setattr(module, "batch_enqueue_and_wait_sync", _raise_worker_offline)
 
     with pytest.raises(WorkerOfflineError):
         module.generate_storyboard_direct(

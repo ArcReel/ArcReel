@@ -28,7 +28,7 @@ cd projects/{project_name} && python ../../.claude/skills/generate-video/scripts
 cd projects/{project_name} && python ../../.claude/skills/generate-video/scripts/generate_video.py episode_{N}.json --all
 ```
 
-> 并发数由环境变量 `VIDEO_MAX_WORKERS`（默认 2）控制，也可用 `--max-workers` 覆盖。
+> 所有任务一次性提交到生成队列，由 Worker 按 per-provider 并发配置自动调度。
 
 ## 工作流程
 

@@ -37,7 +37,7 @@ def test_main_scene_dispatch_uses_script_and_scene_only(monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["generate_video.py", "demo-project", "episode_1.json", "--scene", "E1S05"],
+        ["generate_video.py", "episode_1.json", "--scene", "E1S05"],
     )
 
     module.main()
@@ -52,11 +52,10 @@ def test_main_scenes_dispatch_uses_script_once(monkeypatch):
     module = _load_module()
     captured = {}
 
-    def _fake_generate(script_filename, scene_ids, resume=False, max_workers=1):
+    def _fake_generate(script_filename, scene_ids, resume=False):
         captured["script_filename"] = script_filename
         captured["scene_ids"] = scene_ids
         captured["resume"] = resume
-        captured["max_workers"] = max_workers
 
     monkeypatch.setattr(module, "generate_selected_videos", _fake_generate)
     monkeypatch.setattr(
@@ -64,13 +63,10 @@ def test_main_scenes_dispatch_uses_script_once(monkeypatch):
         "argv",
         [
             "generate_video.py",
-            "demo-project",
             "episode_1.json",
             "--scenes",
             "E1S01,E1S05",
             "--resume",
-            "--max-workers",
-            "3",
         ],
     )
 
@@ -80,7 +76,6 @@ def test_main_scenes_dispatch_uses_script_once(monkeypatch):
         "script_filename": "episode_1.json",
         "scene_ids": ["E1S01", "E1S05"],
         "resume": True,
-        "max_workers": 3,
     }
 
 
@@ -88,22 +83,20 @@ def test_main_all_dispatch_uses_script_once(monkeypatch):
     module = _load_module()
     captured = {}
 
-    def _fake_generate(script_filename, max_workers=1):
+    def _fake_generate(script_filename):
         captured["script_filename"] = script_filename
-        captured["max_workers"] = max_workers
 
     monkeypatch.setattr(module, "generate_all_videos", _fake_generate)
     monkeypatch.setattr(
         sys,
         "argv",
-        ["generate_video.py", "demo-project", "episode_1.json", "--all", "--max-workers", "4"],
+        ["generate_video.py", "episode_1.json", "--all"],
     )
 
     module.main()
 
     assert captured == {
         "script_filename": "episode_1.json",
-        "max_workers": 4,
     }
 
 
@@ -111,11 +104,10 @@ def test_main_episode_dispatch_uses_script_once(monkeypatch):
     module = _load_module()
     captured = {}
 
-    def _fake_generate(script_filename, episode, resume=False, max_workers=1):
+    def _fake_generate(script_filename, episode, resume=False):
         captured["script_filename"] = script_filename
         captured["episode"] = episode
         captured["resume"] = resume
-        captured["max_workers"] = max_workers
 
     monkeypatch.setattr(module, "generate_episode_video", _fake_generate)
     monkeypatch.setattr(
@@ -123,13 +115,10 @@ def test_main_episode_dispatch_uses_script_once(monkeypatch):
         "argv",
         [
             "generate_video.py",
-            "demo-project",
             "episode_1.json",
             "--episode",
             "2",
             "--resume",
-            "--max-workers",
-            "5",
         ],
     )
 
@@ -139,5 +128,4 @@ def test_main_episode_dispatch_uses_script_once(monkeypatch):
         "script_filename": "episode_1.json",
         "episode": 2,
         "resume": True,
-        "max_workers": 5,
     }

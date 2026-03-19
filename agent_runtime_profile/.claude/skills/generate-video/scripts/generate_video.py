@@ -4,33 +4,36 @@ Video Generator - 使用 Veo 3.1 API 生成视频分镜
 
 Usage:
     # 按 episode 生成（推荐）
-    python generate_video.py <script_file> --episode N
+    python generate_video.py episode_N.json --episode N
 
     # 断点续传
-    python generate_video.py <script_file> --episode N --resume
+    python generate_video.py episode_N.json --episode N --resume
 
     # 单场景模式
-    python generate_video.py <script_file> --scene SCENE_ID
+    python generate_video.py episode_N.json --scene SCENE_ID
 
     # 批量模式（独立生成每个场景）
-    python generate_video.py <script_file> --all
+    python generate_video.py episode_N.json --all
 
 每个场景独立生成视频，使用分镜图作为起始帧，然后使用 ffmpeg 拼接。
 """
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 import tempfile
 import threading
-from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
-from lib.generation_queue_client import enqueue_and_wait_sync as enqueue_and_wait
+from lib.generation_queue_client import (
+    BatchTaskSpec,
+    BatchTaskResult,
+    batch_enqueue_and_wait_sync,
+    enqueue_and_wait_sync as enqueue_and_wait,
+)
 from lib.project_manager import ProjectManager
 from lib.prompt_utils import (
     video_prompt_to_yaml,
@@ -127,92 +130,6 @@ def validate_duration(duration: int) -> str:
         if d >= duration:
             return str(d)
     return "8"  # 最大值
-
-
-def get_default_max_workers() -> int:
-    """读取默认视频并发数（来自环境变量 VIDEO_MAX_WORKERS，默认 2，最小 1）"""
-    try:
-        value = int(os.environ.get("VIDEO_MAX_WORKERS", "2"))
-    except (TypeError, ValueError):
-        value = 2
-    return max(1, value)
-
-
-def run_fail_fast_tasks(tasks: list, task_fn, max_workers: int):
-    """
-    有界并发执行任务（fail-fast）
-
-    - 同时最多 in-flight = max_workers
-    - 任意任务失败 → 停止提交新任务，尽量取消未开始任务，并抛出异常
-    """
-    if not tasks:
-        return []
-
-    max_workers = max(1, int(max_workers))
-    results = []
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        pending = {}
-        tasks_iter = iter(tasks)
-
-        for _ in range(min(max_workers, len(tasks))):
-            task = next(tasks_iter)
-            pending[executor.submit(task_fn, task)] = task
-
-        while pending:
-            done, _ = wait(pending, return_when=FIRST_COMPLETED)
-            for future in done:
-                pending.pop(future, None)
-                try:
-                    results.append(future.result())
-                except Exception:
-                    # 尽量取消未开始的任务
-                    for f in pending:
-                        f.cancel()
-                    raise
-
-                try:
-                    next_task = next(tasks_iter)
-                except StopIteration:
-                    continue
-                pending[executor.submit(task_fn, next_task)] = next_task
-
-    return results
-
-
-def run_collect_tasks(tasks: list, task_fn, max_workers: int):
-    """有界并发执行任务（收集全部结果，不 fail-fast）"""
-    if not tasks:
-        return [], []
-
-    max_workers = max(1, int(max_workers))
-    successes = []
-    failures = []
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        pending = {}
-        tasks_iter = iter(tasks)
-
-        for _ in range(min(max_workers, len(tasks))):
-            task = next(tasks_iter)
-            pending[executor.submit(task_fn, task)] = task
-
-        while pending:
-            done, _ = wait(pending, return_when=FIRST_COMPLETED)
-            for future in done:
-                task = pending.pop(future, None)
-                try:
-                    successes.append(future.result())
-                except Exception as e:
-                    failures.append((task, str(e)))
-
-                try:
-                    next_task = next(tasks_iter)
-                except StopIteration:
-                    continue
-                pending[executor.submit(task_fn, next_task)] = next_task
-
-    return successes, failures
 
 
 # ============================================================================
@@ -313,125 +230,58 @@ def concatenate_videos(video_paths: list, output_path: Path) -> Path:
 
 
 # ============================================================================
-# Episode 视频生成（每个场景独立生成）
+# 批量任务构建辅助
 # ============================================================================
 
-def generate_episode_video(
+def _build_video_specs(
+    *,
+    items: list,
+    id_field: str,
+    content_mode: str,
     script_filename: str,
-    episode: int,
-    resume: bool = False,
-    max_workers: int = 1
-) -> Path:
+    project_dir: Path,
+    skip_ids: Optional[List[str]] = None,
+) -> tuple[list[BatchTaskSpec], dict[str, int]]:
     """
-    为指定 episode 生成视频
+    从场景/片段列表构建 BatchTaskSpec 和 resource_id -> order_index 映射。
 
-    每个场景独立生成视频，使用分镜图作为起始帧，
-    最后用 ffmpeg 拼接成完整视频。
-
-    Args:
-        script_filename: 剧本文件名
-        episode: 集数编号
-        resume: 是否从上次中断处继续
+    跳过缺少分镜图或 prompt 无效的项，并打印警告。
 
     Returns:
-        最终视频路径
+        (specs, order_map)  order_map: resource_id -> 原始 items 中的索引
     """
-    pm, project_name = ProjectManager.from_cwd()
-    project_dir = pm.get_project_path(project_name)
-
-    # 加载剧本
-    script = pm.load_script(project_name, script_filename)
-    content_mode = script.get('content_mode', 'narration')
-
-    # 根据内容模式选择数据源
-    all_items, id_field, _, _ = get_items_from_script(script)
-
-    # 筛选指定 episode 的场景/片段
-    episode_items = [
-        s for s in all_items
-        if s.get('episode', 1) == episode
-    ]
-
-    if not episode_items:
-        raise ValueError(f"未找到第 {episode} 集的场景/片段")
-
     item_type = "片段" if content_mode == 'narration' else "场景"
-    print(f"📋 第 {episode} 集共 {len(episode_items)} 个{item_type}")
-
-    # 加载或初始化 checkpoint
-    completed_scenes = []
-    started_at = datetime.now().isoformat()
-
-    if resume:
-        checkpoint = load_checkpoint(project_dir, episode)
-        if checkpoint:
-            completed_scenes = checkpoint.get('completed_scenes', [])
-            started_at = checkpoint.get('started_at', started_at)
-            print(f"🔄 从 checkpoint 恢复，已完成 {len(completed_scenes)} 个场景")
-        else:
-            print("⚠️  未找到 checkpoint，从头开始")
-
-    # 确保 videos 目录存在
-    videos_dir = project_dir / 'videos'
-    videos_dir.mkdir(parents=True, exist_ok=True)
-
-    # 生成每个场景/片段的视频
-    ordered_video_paths: list[Optional[Path]] = [None] * len(episode_items)
-    tasks = []
-
-    # 默认时长：说书模式 4 秒，剧集动画模式 8 秒
     default_duration = 4 if content_mode == 'narration' else 8
+    skip_set = set(skip_ids or [])
 
-    checkpoint_lock = threading.Lock()
+    specs: list[BatchTaskSpec] = []
+    order_map: dict[str, int] = {}
 
-    for idx, item in enumerate(episode_items):
-        item_id = item.get(id_field, item.get('scene_id', f'item_{idx}'))
-        video_output = videos_dir / f"scene_{item_id}.mp4"
+    for idx, item in enumerate(items):
+        item_id = item.get(id_field) or item.get('scene_id') or item.get('segment_id') or f'item_{idx}'
 
-        # 检查是否已完成
-        if item_id in completed_scenes:
-            if video_output.exists():
-                print(f"  [{idx + 1}/{len(episode_items)}] {item_type} {item_id} ✓ 已完成")
-                ordered_video_paths[idx] = video_output
-                continue
-            else:
-                # 标记为完成但文件不存在，需要重新生成
-                completed_scenes.remove(item_id)
-
-        print(f"  [{idx + 1}/{len(episode_items)}] {item_type} {item_id}")
-
-        # 检查分镜图
-        storyboard_image = item.get('generated_assets', {}).get('storyboard_image')
-        if not storyboard_image:
-            print(f"    ⚠️  {item_type} {item_id} 没有分镜图，跳过")
+        if item_id in skip_set:
             continue
 
+        storyboard_image = (item.get('generated_assets') or {}).get('storyboard_image')
+        if not storyboard_image:
+            print(f"⚠️  {item_type} {item_id} 没有分镜图，跳过")
+            continue
         storyboard_path = project_dir / storyboard_image
         if not storyboard_path.exists():
-            print(f"    ⚠️  分镜图不存在: {storyboard_path}，跳过")
+            print(f"⚠️  分镜图不存在: {storyboard_path}，跳过")
             continue
 
-        # 直接使用 video_prompt 字段
-        prompt = get_video_prompt(item)
+        try:
+            prompt = get_video_prompt(item)
+        except Exception as e:
+            print(f"⚠️  {item_type} {item_id} 的 video_prompt 无效，跳过: {e}")
+            continue
+
         duration = item.get('duration_seconds', default_duration)
         duration_str = validate_duration(duration)
 
-        tasks.append({
-            "order_index": idx,
-            "item_id": item_id,
-            "prompt": prompt,
-            "duration_str": duration_str,
-        })
-
-    def generate_single_item(task: dict) -> tuple[int, Path]:
-        item_id = task["item_id"]
-        prompt = task["prompt"]
-        duration_str = task["duration_str"]
-
-        print(f"    🎥 生成视频（{duration_str}秒）... {item_id}")
-
-        queued = enqueue_and_wait(
-            project_name=project_name,
+        specs.append(BatchTaskSpec(
             task_type="video",
             media_type="video",
             resource_id=item_id,
@@ -441,53 +291,150 @@ def generate_episode_video(
                 "duration_seconds": int(duration_str),
             },
             script_file=script_filename,
-            source="skill",
-        )
-        result = queued.get("result") or {}
-        relative_path = result.get("file_path") or f"videos/scene_{item_id}.mp4"
-        video_output = project_dir / relative_path
+        ))
+        order_map[item_id] = idx
 
-        # 保存 checkpoint（线程安全）
+    return specs, order_map
+
+
+def _scan_completed_items(
+    items: list,
+    id_field: str,
+    item_type: str,
+    completed_scenes: list[str],
+    videos_dir: Path,
+) -> tuple[list[Optional[Path]], list[str]]:
+    """Scan items for already-completed videos; return ordered paths and done IDs."""
+    ordered_paths: list[Optional[Path]] = [None] * len(items)
+    already_done: list[str] = []
+    for idx, item in enumerate(items):
+        item_id = item.get(id_field, item.get('scene_id', f'item_{idx}'))
+        video_output = videos_dir / f"scene_{item_id}.mp4"
+        if item_id in completed_scenes and video_output.exists():
+            print(f"  [{idx + 1}/{len(items)}] {item_type} {item_id} ✓ 已完成")
+            ordered_paths[idx] = video_output
+            already_done.append(item_id)
+        elif item_id in completed_scenes:
+            completed_scenes.remove(item_id)
+    return ordered_paths, already_done
+
+
+def _submit_and_wait_with_checkpoint(
+    *,
+    project_name: str,
+    project_dir: Path,
+    specs: list[BatchTaskSpec],
+    order_map: dict[str, int],
+    ordered_paths: list[Optional[Path]],
+    completed_scenes: list[str],
+    save_fn: callable,
+    item_type: str,
+) -> list[BatchTaskResult]:
+    """Submit specs via batch_enqueue_and_wait_sync with checkpoint on each success."""
+    print(f"\n🚀 批量提交 {len(specs)} 个视频到生成队列...\n")
+    checkpoint_lock = threading.Lock()
+
+    def on_success(br: BatchTaskResult) -> None:
+        result = br.result or {}
+        relative_path = result.get("file_path") or f"videos/scene_{br.resource_id}.mp4"
+        output_path = project_dir / relative_path
+        ordered_paths[order_map[br.resource_id]] = output_path
         with checkpoint_lock:
-            completed_scenes.append(item_id)
-            save_checkpoint(project_dir, episode, completed_scenes, started_at)
+            completed_scenes.append(br.resource_id)
+            save_fn()
+        print(f"    ✅ 完成: {output_path.name}")
 
-        print(f"    ✅ 完成: {video_output.name}")
-        return task["order_index"], video_output
+    def on_failure(br: BatchTaskResult) -> None:
+        print(f"    ❌ {br.resource_id} 失败: {br.error}")
 
-    results, failures = run_collect_tasks(tasks, generate_single_item, max_workers=max_workers)
-    for order_index, output_path in results:
-        ordered_video_paths[order_index] = output_path
+    _, failures = batch_enqueue_and_wait_sync(
+        project_name=project_name,
+        specs=specs,
+        on_success=on_success,
+        on_failure=on_failure,
+    )
 
     if failures:
         print(f"\n⚠️  {len(failures)} 个{item_type}生成失败:")
-        for task, error in failures:
-            task_id = task.get("item_id") if isinstance(task, dict) else str(task)
-            print(f"   - {task_id}: {error}")
+        for f in failures:
+            print(f"   - {f.resource_id}: {f.error}")
         print("    💡 使用 --resume 参数可从此处继续")
         raise RuntimeError(f"{len(failures)} 个{item_type}生成失败")
+
+    return failures
+
+
+# ============================================================================
+# Episode 视频生成（每个场景独立生成）
+# ============================================================================
+
+def generate_episode_video(
+    script_filename: str,
+    episode: int,
+    resume: bool = False,
+) -> list[Path]:
+    """
+    为指定 episode 生成视频
+
+    每个场景独立生成视频，使用分镜图作为起始帧，
+    最后用 ffmpeg 拼接成完整视频。
+    """
+    pm, project_name = ProjectManager.from_cwd()
+    project_dir = pm.get_project_path(project_name)
+    script = pm.load_script(project_name, script_filename)
+    content_mode = script.get('content_mode', 'narration')
+    all_items, id_field, _, _ = get_items_from_script(script)
+
+    episode_items = [s for s in all_items if s.get('episode', 1) == episode]
+    if not episode_items:
+        raise ValueError(f"未找到第 {episode} 集的场景/片段")
+
+    item_type = "片段" if content_mode == 'narration' else "场景"
+    print(f"📋 第 {episode} 集共 {len(episode_items)} 个{item_type}")
+
+    # Checkpoint
+    completed_scenes: list[str] = []
+    started_at = datetime.now().isoformat()
+    if resume:
+        checkpoint = load_checkpoint(project_dir, episode)
+        if checkpoint:
+            completed_scenes = checkpoint.get('completed_scenes', [])
+            started_at = checkpoint.get('started_at', started_at)
+            print(f"🔄 从 checkpoint 恢复，已完成 {len(completed_scenes)} 个场景")
+        else:
+            print("⚠️  未找到 checkpoint，从头开始")
+
+    videos_dir = project_dir / 'videos'
+    videos_dir.mkdir(parents=True, exist_ok=True)
+
+    ordered_video_paths, already_done_ids = _scan_completed_items(
+        episode_items, id_field, item_type, completed_scenes, videos_dir,
+    )
+    specs, order_map = _build_video_specs(
+        items=episode_items, id_field=id_field, content_mode=content_mode,
+        script_filename=script_filename, project_dir=project_dir,
+        skip_ids=already_done_ids,
+    )
+
+    if not specs and not any(ordered_video_paths):
+        raise RuntimeError("没有可生成的视频片段")
+
+    if specs:
+        _submit_and_wait_with_checkpoint(
+            project_name=project_name, project_dir=project_dir,
+            specs=specs, order_map=order_map, ordered_paths=ordered_video_paths,
+            completed_scenes=completed_scenes,
+            save_fn=lambda: save_checkpoint(project_dir, episode, completed_scenes, started_at),
+            item_type=item_type,
+        )
 
     scene_videos = [p for p in ordered_video_paths if p is not None]
     if not scene_videos:
         raise RuntimeError("没有生成任何视频片段")
 
-    # 拼接所有场景视频
-    final_output = project_dir / 'output' / f'episode_{episode:02d}.mp4'
-
-    if len(scene_videos) > 1:
-        print(f"\n🔧 拼接 {len(scene_videos)} 个场景视频...")
-        concatenate_videos(scene_videos, final_output)
-    else:
-        import shutil
-        final_output.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(scene_videos[0], final_output)
-        print(f"✅ 视频已保存: {final_output}")
-
-    # 清除 checkpoint
     clear_checkpoint(project_dir, episode)
-
-    print(f"\n🎉 第 {episode} 集视频生成完成: {final_output}")
-    return final_output
+    print(f"\n🎉 第 {episode} 集视频生成完成，共 {len(scene_videos)} 个片段")
+    return scene_videos
 
 
 # ============================================================================
@@ -567,7 +514,7 @@ def generate_scene_video(
     return output_path
 
 
-def generate_all_videos(script_filename: str, max_workers: int = 1) -> list:
+def generate_all_videos(script_filename: str) -> list:
     """
     生成所有待处理场景的视频（独立模式）
 
@@ -596,84 +543,52 @@ def generate_all_videos(script_filename: str, max_workers: int = 1) -> list:
     print("⚠️  每个视频可能需要 1-6 分钟，请耐心等待")
     print("💡 推荐使用 --episode N 模式生成并自动拼接")
 
-    # 默认时长：说书模式 4 秒，剧集动画模式 8 秒
-    default_duration = 4 if content_mode == 'narration' else 8
+    specs, _ = _build_video_specs(
+        items=pending_items,
+        id_field=id_field,
+        content_mode=content_mode,
+        script_filename=script_filename,
+        project_dir=project_dir,
+    )
 
-    tasks = []
-    for item in pending_items:
-        item_id = item.get(id_field) or item.get('scene_id') or item.get('segment_id')
-        storyboard_image = (item.get('generated_assets') or {}).get('storyboard_image')
-        if not storyboard_image:
-            print(f"⚠️  {item_type} {item_id} 没有分镜图，跳过")
-            continue
-
-        storyboard_path = project_dir / storyboard_image
-        if not storyboard_path.exists():
-            print(f"⚠️  分镜图不存在: {storyboard_path}，跳过")
-            continue
-
-        try:
-            prompt = get_video_prompt(item)
-        except Exception as e:
-            print(f"⚠️  {item_type} {item_id} 的 video_prompt 无效，跳过: {e}")
-            continue
-
-        duration = item.get('duration_seconds', default_duration)
-        duration_str = validate_duration(duration)
-
-        tasks.append({
-            "item_id": item_id,
-            "prompt": prompt,
-            "duration_str": duration_str,
-        })
-
-    if not tasks:
+    if not specs:
         print("⚠️  没有任何可生成的视频任务（可能缺少分镜图或 prompt）")
         return []
 
-    def generate_single_item(task: dict) -> Path:
-        item_id = task["item_id"]
-        prompt = task["prompt"]
-        duration_str = task["duration_str"]
+    print(f"\n🚀 批量提交 {len(specs)} 个视频到生成队列...\n")
 
-        print(f"🎥 生成视频（{duration_str}秒）... {item_id}")
-        queued = enqueue_and_wait(
-            project_name=project_name,
-            task_type="video",
-            media_type="video",
-            resource_id=item_id,
-            payload={
-                "prompt": prompt,
-                "script_file": script_filename,
-                "duration_seconds": int(duration_str),
-            },
-            script_file=script_filename,
-            source="skill",
-        )
-        result = queued.get("result") or {}
-        relative_path = result.get("file_path") or f"videos/scene_{item_id}.mp4"
+    result_paths: list[Path] = []
+
+    def on_success(br: BatchTaskResult) -> None:
+        result = br.result or {}
+        relative_path = result.get("file_path") or f"videos/scene_{br.resource_id}.mp4"
         output_path = project_dir / relative_path
-
+        result_paths.append(output_path)
         print(f"✅ 完成: {output_path.name}")
-        return output_path
 
-    successes, failures = run_collect_tasks(tasks, generate_single_item, max_workers=max_workers)
+    def on_failure(br: BatchTaskResult) -> None:
+        print(f"❌ {br.resource_id} 失败: {br.error}")
+
+    _, failures = batch_enqueue_and_wait_sync(
+        project_name=project_name,
+        specs=specs,
+        on_success=on_success,
+        on_failure=on_failure,
+    )
 
     if failures:
         print(f"\n⚠️  {len(failures)} 个{item_type}生成失败:")
-        for task, error in failures:
-            item_id = task.get("item_id") if isinstance(task, dict) else str(task)
-            print(f"   - {item_id}: {error}")
+        for f in failures:
+            print(f"   - {f.resource_id}: {f.error}")
 
-    print(f"\n🎉 批量视频生成完成，共 {len(successes)} 个")
-    return successes
+    print(f"\n🎉 批量视频生成完成，共 {len(result_paths)} 个")
+    return result_paths
 
 
 def generate_selected_videos(
     script_filename: str,
     scene_ids: list,
     resume: bool = False,
-    max_workers: int = 1
 ) -> list:
     """
     生成指定的多个场景视频
@@ -690,22 +605,22 @@ def generate_selected_videos(
 
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
-
-    # 加载剧本
     script = pm.load_script(project_name, script_filename)
     content_mode = script.get('content_mode', 'narration')
     all_items, id_field, _, _ = get_items_from_script(script)
 
     # 筛选指定的场景
+    items_by_id = {}
+    for item in all_items:
+        items_by_id[item.get(id_field, '')] = item
+        if 'scene_id' in item:
+            items_by_id[item['scene_id']] = item
+
     selected_items = []
     for scene_id in scene_ids:
-        found = False
-        for item in all_items:
-            if item.get(id_field) == scene_id or item.get('scene_id') == scene_id:
-                selected_items.append(item)
-                found = True
-                break
-        if not found:
+        if scene_id in items_by_id:
+            selected_items.append(items_by_id[scene_id])
+        else:
             print(f"⚠️  场景/片段 '{scene_id}' 不存在，跳过")
 
     if not selected_items:
@@ -714,11 +629,10 @@ def generate_selected_videos(
     item_type = "片段" if content_mode == 'narration' else "场景"
     print(f"📋 共选择 {len(selected_items)} 个{item_type}")
 
-    # Checkpoint 管理（使用场景列表的 hash 作为标识）
+    # Checkpoint
     scenes_hash = hashlib.md5(','.join(scene_ids).encode()).hexdigest()[:8]
     checkpoint_path = project_dir / 'videos' / f'.checkpoint_selected_{scenes_hash}.json'
-
-    completed_scenes = []
+    completed_scenes: list[str] = []
     started_at = datetime.now().isoformat()
 
     if resume and checkpoint_path.exists():
@@ -728,108 +642,37 @@ def generate_selected_videos(
             started_at = checkpoint.get('started_at', started_at)
             print(f"🔄 从 checkpoint 恢复，已完成 {len(completed_scenes)} 个场景")
 
-    # 确保 videos 目录存在
     videos_dir = project_dir / 'videos'
     videos_dir.mkdir(parents=True, exist_ok=True)
 
-    # 默认时长
-    default_duration = 4 if content_mode == 'narration' else 8
+    ordered_results, already_done_ids = _scan_completed_items(
+        selected_items, id_field, item_type, completed_scenes, videos_dir,
+    )
+    specs, order_map = _build_video_specs(
+        items=selected_items, id_field=id_field, content_mode=content_mode,
+        script_filename=script_filename, project_dir=project_dir,
+        skip_ids=already_done_ids,
+    )
 
-    ordered_results: list[Optional[Path]] = [None] * len(selected_items)
-    tasks = []
+    if specs:
+        def _save():
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(checkpoint_path, 'w', encoding='utf-8') as f_ckpt:
+                json.dump({
+                    "scene_ids": scene_ids,
+                    "completed_scenes": completed_scenes,
+                    "started_at": started_at,
+                    "updated_at": datetime.now().isoformat(),
+                }, f_ckpt, ensure_ascii=False, indent=2)
 
-    checkpoint_lock = threading.Lock()
-
-    def save_selected_checkpoint():
-        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(checkpoint_path, 'w', encoding='utf-8') as f:
-            json.dump({
-                "scene_ids": scene_ids,
-                "completed_scenes": completed_scenes,
-                "started_at": started_at,
-                "updated_at": datetime.now().isoformat()
-            }, f, ensure_ascii=False, indent=2)
-
-    for idx, item in enumerate(selected_items):
-        item_id = item.get(id_field, item.get('scene_id', f'item_{idx}'))
-        video_output = videos_dir / f"scene_{item_id}.mp4"
-
-        # 检查是否已完成
-        if item_id in completed_scenes:
-            if video_output.exists():
-                print(f"  [{idx + 1}/{len(selected_items)}] {item_type} {item_id} ✓ 已完成")
-                ordered_results[idx] = video_output
-                continue
-            else:
-                completed_scenes.remove(item_id)
-
-        print(f"  [{idx + 1}/{len(selected_items)}] {item_type} {item_id}")
-
-        # 检查分镜图
-        storyboard_image = item.get('generated_assets', {}).get('storyboard_image')
-        if not storyboard_image:
-            print(f"    ⚠️  {item_type} {item_id} 没有分镜图，跳过")
-            continue
-
-        storyboard_path = project_dir / storyboard_image
-        if not storyboard_path.exists():
-            print(f"    ⚠️  分镜图不存在: {storyboard_path}，跳过")
-            continue
-
-        prompt = get_video_prompt(item)
-        duration = item.get('duration_seconds', default_duration)
-        duration_str = validate_duration(duration)
-
-        tasks.append({
-            "order_index": idx,
-            "item_id": item_id,
-            "prompt": prompt,
-            "duration_str": duration_str,
-        })
-
-    def generate_single_item(task: dict) -> tuple[int, Path]:
-        item_id = task["item_id"]
-        prompt = task["prompt"]
-        duration_str = task["duration_str"]
-
-        print(f"    🎥 生成视频（{duration_str}秒）... {item_id}")
-        queued = enqueue_and_wait(
-            project_name=project_name,
-            task_type="video",
-            media_type="video",
-            resource_id=item_id,
-            payload={
-                "prompt": prompt,
-                "script_file": script_filename,
-                "duration_seconds": int(duration_str),
-            },
-            script_file=script_filename,
-            source="skill",
+        _submit_and_wait_with_checkpoint(
+            project_name=project_name, project_dir=project_dir,
+            specs=specs, order_map=order_map, ordered_paths=ordered_results,
+            completed_scenes=completed_scenes, save_fn=_save,
+            item_type=item_type,
         )
-        result = queued.get("result") or {}
-        relative_path = result.get("file_path") or f"videos/scene_{item_id}.mp4"
-        video_output = project_dir / relative_path
-
-        with checkpoint_lock:
-            completed_scenes.append(item_id)
-            save_selected_checkpoint()
-
-        print(f"    ✅ 完成: {video_output.name}")
-        return task["order_index"], video_output
-
-    results, failures = run_collect_tasks(tasks, generate_single_item, max_workers=max_workers)
-    for order_index, output_path in results:
-        ordered_results[order_index] = output_path
 
     final_results = [p for p in ordered_results if p is not None]
-
-    if failures:
-        print(f"\n⚠️  {len(failures)} 个{item_type}生成失败:")
-        for task, error in failures:
-            task_id = task.get("item_id") if isinstance(task, dict) else str(task)
-            print(f"   - {task_id}: {error}")
-        print("    💡 使用 --resume 参数可从此处继续")
-        raise RuntimeError(f"{len(failures)} 个{item_type}生成失败")
 
     # 全部完成后清除 checkpoint
     if checkpoint_path.exists():
@@ -850,22 +693,21 @@ def main():
         epilog="""
 示例:
   # 按 episode 生成（推荐）
-  python generate_video.py my_novel script.json --episode 1
+  python generate_video.py episode_1.json --episode 1
 
   # 断点续传
-  python generate_video.py my_novel script.json --episode 1 --resume
+  python generate_video.py episode_1.json --episode 1 --resume
 
   # 单场景模式
-  python generate_video.py my_novel script.json --scene E1S1
+  python generate_video.py episode_1.json --scene E1S1
 
   # 批量自选模式
-  python generate_video.py my_novel script.json --scenes E1S01,E1S05,E1S10
+  python generate_video.py episode_1.json --scenes E1S01,E1S05,E1S10
 
   # 批量模式（独立生成）
-  python generate_video.py my_novel script.json --all
+  python generate_video.py episode_1.json --all
         """
     )
-    parser.add_argument('project', help='项目名称')
     parser.add_argument('script', help='剧本文件名')
 
     # 模式选择
@@ -877,12 +719,6 @@ def main():
 
     # 其他选项
     parser.add_argument('--resume', action='store_true', help='从上次中断处继续')
-    parser.add_argument(
-        '--max-workers',
-        type=int,
-        default=get_default_max_workers(),
-        help='视频生成最大并发数（默认来自 VIDEO_MAX_WORKERS，最小 1）'
-    )
 
     args = parser.parse_args()
 
@@ -895,16 +731,14 @@ def main():
                 args.script,
                 scene_ids,
                 resume=args.resume,
-                max_workers=args.max_workers
             )
         elif args.all:
-            generate_all_videos(args.script, max_workers=args.max_workers)
+            generate_all_videos(args.script)
         elif args.episode:
             generate_episode_video(
                 args.script,
                 args.episode,
                 resume=args.resume,
-                max_workers=args.max_workers
             )
         else:
             print("请指定模式: --scene, --scenes, --all, 或 --episode")

@@ -5,6 +5,7 @@ Clue Generator - 使用 Gemini API 生成线索设计图
 Usage:
     python generate_clue.py --all
     python generate_clue.py --clue "玉佩"
+    python generate_clue.py --clues "玉佩" "老槐树"
     python generate_clue.py --list
 
 Example:
@@ -15,8 +16,14 @@ Example:
 import argparse
 import sys
 from pathlib import Path
+from typing import List, Optional, Tuple
 
-from lib.generation_queue_client import enqueue_and_wait_sync as enqueue_and_wait
+from lib.generation_queue_client import (
+    BatchTaskSpec,
+    BatchTaskResult,
+    batch_enqueue_and_wait_sync,
+    enqueue_and_wait_sync as enqueue_and_wait,
+)
 from lib.project_manager import ProjectManager
 
 
@@ -24,7 +31,7 @@ def generate_clue(
     clue_name: str
 ) -> Path:
     """
-    生成线索设计图
+    生成单个线索设计图
 
     Args:
         clue_name: 线索名称
@@ -85,48 +92,83 @@ def list_pending_clues() -> None:
         print()
 
 
-def generate_all_clues() -> tuple:
+def generate_batch_clues(
+    clue_names: Optional[List[str]] = None,
+) -> Tuple[int, int]:
     """
-    生成所有待处理的线索
+    批量生成线索设计图（全部入队，由 Worker 并行处理）
+
+    Args:
+        clue_names: 指定的线索名称列表。None 表示所有待处理线索。
 
     Returns:
         (成功数, 失败数)
     """
     pm, project_name = ProjectManager.from_cwd()
-    pending = pm.get_pending_clues(project_name)
+    project = pm.load_project(project_name)
 
-    if not pending:
-        print(f"✅ 项目 '{project_name}' 中所有重要线索都已有设计图")
+    if clue_names:
+        clues_dict = project.get("clues", {})
+        names_to_process = []
+        for name in clue_names:
+            if name not in clues_dict:
+                print(f"⚠️  线索 '{name}' 不存在于 project.json 中，跳过")
+                continue
+            if not clues_dict[name].get("description"):
+                print(f"⚠️  线索 '{name}' 缺少描述，跳过")
+                continue
+            names_to_process.append(name)
+    else:
+        pending = pm.get_pending_clues(project_name)
+        names_to_process = [c["name"] for c in pending]
+
+    if not names_to_process:
+        print("✅ 没有需要生成的线索")
         return (0, 0)
 
-    print(f"\n🚀 开始生成 {len(pending)} 个线索设计图...\n")
+    clues_dict = project.get("clues", {})
+    specs = [
+        BatchTaskSpec(
+            task_type="clue",
+            media_type="image",
+            resource_id=name,
+            payload={"prompt": clues_dict[name]["description"]},
+        )
+        for name in names_to_process
+    ]
 
-    success_count = 0
-    fail_count = 0
+    total = len(specs)
+    print(f"\n🚀 批量提交 {total} 个线索设计图到生成队列...\n")
 
-    for clue in pending:
-        try:
-            generate_clue(clue['name'])
-            success_count += 1
-            print()
-        except Exception as e:
-            print(f"❌ 生成 '{clue['name']}' 失败: {e}")
-            fail_count += 1
-            print()
+    def on_success(br: BatchTaskResult) -> None:
+        version = (br.result or {}).get("version")
+        version_text = f" (版本 v{version})" if version is not None else ""
+        print(f"✅ 线索设计图: {br.resource_id} 完成{version_text}")
+
+    def on_failure(br: BatchTaskResult) -> None:
+        print(f"❌ 线索设计图: {br.resource_id} 失败 - {br.error}")
+
+    successes, failures = batch_enqueue_and_wait_sync(
+        project_name=project_name,
+        specs=specs,
+        on_success=on_success,
+        on_failure=on_failure,
+    )
 
     print(f"\n{'=' * 40}")
-    print(f"生成完成!")
-    print(f"   ✅ 成功: {success_count}")
-    print(f"   ❌ 失败: {fail_count}")
+    print("生成完成!")
+    print(f"   ✅ 成功: {len(successes)}")
+    print(f"   ❌ 失败: {len(failures)}")
     print(f"{'=' * 40}")
 
-    return (success_count, fail_count)
+    return (len(successes), len(failures))
 
 
 def main():
     parser = argparse.ArgumentParser(description='生成线索设计图')
     parser.add_argument('--all', action='store_true', help='生成所有待处理的线索')
-    parser.add_argument('--clue', help='指定线索名称')
+    parser.add_argument('--clue', help='指定单个线索名称')
+    parser.add_argument('--clues', nargs='+', help='指定多个线索名称')
     parser.add_argument('--list', action='store_true', help='列出待生成的线索')
 
     args = parser.parse_args()
@@ -135,14 +177,17 @@ def main():
         if args.list:
             list_pending_clues()
         elif args.all:
-            success, fail = generate_all_clues()
+            _, fail = generate_batch_clues()
+            sys.exit(0 if fail == 0 else 1)
+        elif args.clues:
+            _, fail = generate_batch_clues(args.clues)
             sys.exit(0 if fail == 0 else 1)
         elif args.clue:
             output_path = generate_clue(args.clue)
             print(f"\n🖼️  请查看生成的图片: {output_path}")
         else:
             parser.print_help()
-            print("\n❌ 请指定 --all、--clue 或 --list")
+            print("\n❌ 请指定 --all、--clues、--clue 或 --list")
             sys.exit(1)
 
     except Exception as e:

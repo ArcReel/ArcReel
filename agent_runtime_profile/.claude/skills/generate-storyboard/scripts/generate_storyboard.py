@@ -19,19 +19,17 @@ Usage:
 """
 
 import argparse
-import sys
-import os
 import json
+import sys
 import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from lib.generation_queue_client import (
-    TaskFailedError,
-    enqueue_task_only_sync as enqueue_task_only,
-    wait_for_task_sync as wait_for_task,
+    BatchTaskSpec,
+    BatchTaskResult,
+    batch_enqueue_and_wait_sync,
 )
 from lib.project_manager import ProjectManager
 from lib.prompt_utils import (
@@ -126,20 +124,6 @@ def build_storyboard_prompt(
     构建分镜图任务 prompt（通用，适用于 narration 和 drama 模式）
 
     支持结构化 prompt 格式：如果 image_prompt 是 dict，则转换为 YAML 格式。
-
-    Args:
-        segment: 片段/场景字典
-        characters: 人物字典（保留参数以兼容调用）
-        clues: 线索字典（保留参数以兼容调用）
-        style: 项目风格（用于 YAML 转换）
-        style_description: AI 分析的风格描述
-        id_field: ID 字段名
-        char_field: 人物字段名（保留参数以兼容调用）
-        clue_field: 线索字段名（保留参数以兼容调用）
-        content_mode: 内容模式（'narration' 或 'drama'）
-
-    Returns:
-        image_prompt 字符串（可能是 YAML 格式或普通字符串）
     """
     image_prompt = segment.get('image_prompt', '')
     if not image_prompt:
@@ -156,7 +140,6 @@ def build_storyboard_prompt(
     # narration 模式追加竖屏构图后缀，drama 模式通过 API aspect_ratio 参数控制
     composition_suffix = ""
     if content_mode == 'narration':
-        # 结构化 prompt 使用换行，普通字符串使用空格，以保证格式正确
         if is_structured_image_prompt(image_prompt):
             composition_suffix = "\n竖屏构图。"
         else:
@@ -164,7 +147,6 @@ def build_storyboard_prompt(
 
     # 检测是否为结构化格式
     if is_structured_image_prompt(image_prompt):
-        # 转换为 YAML 格式
         yaml_prompt = image_prompt_to_yaml(image_prompt, style)
         return f"{style_prefix}{yaml_prompt}{composition_suffix}"
 
@@ -186,10 +168,8 @@ def _select_storyboard_items(
     ]
 
 
-def _enqueue_storyboard_batch(
+def _build_storyboard_specs(
     *,
-    project_name: str,
-    script_filename: str,
     plans: List[StoryboardTaskPlan],
     items_by_id: Dict[str, dict],
     characters: Dict[str, dict],
@@ -200,103 +180,65 @@ def _enqueue_storyboard_batch(
     char_field: str,
     clue_field: str,
     content_mode: str,
-) -> Dict[str, str]:
-    task_ids_by_resource: Dict[str, str] = {}
-
+    script_filename: str,
+) -> List[BatchTaskSpec]:
+    """Build BatchTaskSpec list from dependency plans, with prompts and dependency_resource_id."""
+    specs: List[BatchTaskSpec] = []
     for plan in plans:
         item = items_by_id[plan.resource_id]
         prompt = build_storyboard_prompt(
-            item,
-            characters,
-            clues,
-            style,
-            style_description,
-            id_field,
-            char_field,
-            clue_field,
-            content_mode=content_mode,
+            item, characters, clues, style, style_description,
+            id_field, char_field, clue_field, content_mode=content_mode,
         )
-
-        dependency_task_id = None
-        if plan.dependency_resource_id:
-            dependency_task_id = task_ids_by_resource.get(plan.dependency_resource_id)
-
-        enqueue_result = enqueue_task_only(
-            project_name=project_name,
+        specs.append(BatchTaskSpec(
             task_type="storyboard",
             media_type="image",
             resource_id=plan.resource_id,
-            payload={
-                "prompt": prompt,
-                "script_file": script_filename,
-            },
+            payload={"prompt": prompt, "script_file": script_filename},
             script_file=script_filename,
-            source="skill",
-            dependency_task_id=dependency_task_id,
+            dependency_resource_id=plan.dependency_resource_id,
             dependency_group=plan.dependency_group,
             dependency_index=plan.dependency_index,
-        )
-        task_ids_by_resource[plan.resource_id] = enqueue_result["task_id"]
-
-    return task_ids_by_resource
+        ))
+    return specs
 
 
-def _wait_for_storyboard_tasks(
-    *,
-    project_dir: Path,
+def _load_project_metadata(pm: ProjectManager, project_name: str) -> Optional[dict]:
+    """Load project.json if available."""
+    if not pm.project_exists(project_name):
+        return None
+    try:
+        data = pm.load_project(project_name)
+        print("📁 已加载项目元数据 (project.json)")
+        return data
+    except Exception as e:
+        print(f"⚠️  无法加载项目元数据: {e}")
+        return None
+
+
+def _collect_ordered_paths(
+    successes: List[BatchTaskResult],
     plans: List[StoryboardTaskPlan],
-    task_ids_by_resource: Dict[str, str],
-    max_workers: int,
-) -> Tuple[Dict[str, Path], List[Tuple[str, str]]]:
-    results: Dict[str, Path] = {}
-    failures: List[Tuple[str, str]] = []
-    total = len(plans)
-    completed = 0
-    lock = threading.Lock()
-
-    if not plans:
-        return results, failures
-
-    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, total))) as executor:
-        future_to_plan = {
-            executor.submit(wait_for_task, task_ids_by_resource[plan.resource_id]): plan
-            for plan in plans
-        }
-
-        for future in as_completed(future_to_plan):
-            plan = future_to_plan[future]
-            with lock:
-                completed += 1
-                index = completed
-            try:
-                task = future.result()
-                if task.get("status") == "failed":
-                    raise TaskFailedError(task.get("error_message") or "task failed")
-
-                result = task.get("result") or {}
-                relative_path = result.get("file_path") or f"storyboards/scene_{plan.resource_id}.png"
-                output_path = project_dir / relative_path
-                results[plan.resource_id] = output_path
-                print(f"✅ [{index}/{total}] 分镜图生成: {plan.resource_id} 完成")
-            except Exception as exc:
-                failures.append((plan.resource_id, str(exc)))
-                print(f"❌ [{index}/{total}] 分镜图生成: {plan.resource_id} 失败 - {exc}")
-
-    return results, failures
+    project_dir: Path,
+) -> List[Path]:
+    """Map successes back to plan order and return file paths."""
+    success_map = {s.resource_id: s for s in successes}
+    paths: List[Path] = []
+    for plan in plans:
+        br = success_map.get(plan.resource_id)
+        if br:
+            result = br.result or {}
+            relative = result.get("file_path") or f"storyboards/scene_{plan.resource_id}.png"
+            paths.append(project_dir / relative)
+    return paths
 
 
 def generate_storyboard_direct(
     script_filename: str,
     segment_ids: Optional[List[str]] = None,
-    max_workers: int = 10,
 ) -> Tuple[List[Path], List[Tuple[str, str]]]:
     """
     通过生成队列提交分镜图任务（narration 和 drama 模式通用）。
-
-    Args:
-        script_filename: 剧本文件名
-        segment_ids: 可选的片段/场景 ID 列表
-        max_workers: 最大并发数
 
     Returns:
         (成功路径列表, 失败列表) 元组
@@ -304,89 +246,60 @@ def generate_storyboard_direct(
     pm, project_name = ProjectManager.from_cwd()
     script = pm.load_script(project_name, script_filename)
     project_dir = pm.get_project_path(project_name)
-
     content_mode = script.get('content_mode', 'narration')
+    project_data = _load_project_metadata(pm, project_name)
 
-    # 加载项目元数据
-    project_data = None
-    if pm.project_exists(project_name):
-        try:
-            project_data = pm.load_project(project_name)
-            print("📁 已加载项目元数据 (project.json)")
-        except Exception as e:
-            print(f"⚠️  无法加载项目元数据: {e}")
-
-    # 获取字段配置
     items, id_field, char_field, clue_field = get_items_from_script(script)
-
-    # 筛选需要生成的片段/场景
     segments_to_process = _select_storyboard_items(items, id_field, segment_ids)
 
     if not segments_to_process:
         print("✨ 所有片段的分镜图都已生成")
         return [], []
 
-    # 获取人物和线索数据
     characters = project_data.get('characters', {}) if project_data else {}
     clues = project_data.get('clues', {}) if project_data else {}
     style = project_data.get('style', '') if project_data else ''
     style_description = project_data.get('style_description', '') if project_data else ''
     items_by_id = {
-        str(item[id_field]): item
-        for item in items
-        if item.get(id_field)
+        str(item[id_field]): item for item in items if item.get(id_field)
     }
     dependency_plans = build_storyboard_dependency_plan(
-        items,
-        id_field,
+        items, id_field,
         [str(item[id_field]) for item in segments_to_process],
         script_filename,
     )
 
-    print(f"📷 提交 {len(segments_to_process)} 个分镜图到生成队列...")
-    print("🧵 任务模式: 队列入队并等待")
+    specs = _build_storyboard_specs(
+        plans=dependency_plans, items_by_id=items_by_id,
+        characters=characters, clues=clues,
+        style=style, style_description=style_description,
+        id_field=id_field, char_field=char_field, clue_field=clue_field,
+        content_mode=content_mode, script_filename=script_filename,
+    )
 
-    # 创建失败记录器
+    print(f"📷 批量提交 {len(specs)} 个分镜图到生成队列...")
+
     recorder = FailureRecorder(project_dir / 'storyboards')
-    task_ids_by_resource = _enqueue_storyboard_batch(
-        project_name=project_name,
-        script_filename=script_filename,
-        plans=dependency_plans,
-        items_by_id=items_by_id,
-        characters=characters,
-        clues=clues,
-        style=style,
-        style_description=style_description,
-        id_field=id_field,
-        char_field=char_field,
-        clue_field=clue_field,
-        content_mode=content_mode,
-    )
-    result_map, failures = _wait_for_storyboard_tasks(
-        project_dir=project_dir,
-        plans=dependency_plans,
-        task_ids_by_resource=task_ids_by_resource,
-        max_workers=max_workers,
-    )
 
-    # 记录失败
-    for segment_id, error in failures:
+    def on_success(br: BatchTaskResult) -> None:
+        print(f"✅ 分镜图生成: {br.resource_id} 完成")
+
+    def on_failure(br: BatchTaskResult) -> None:
         recorder.record_failure(
-            scene_id=segment_id,
-            failure_type="scene",
-            error=error,
-            attempts=3
+            scene_id=br.resource_id, failure_type="scene",
+            error=br.error or "unknown", attempts=3,
         )
+        print(f"❌ 分镜图生成: {br.resource_id} 失败 - {br.error}")
 
-    # 保存失败记录
+    successes, failures = batch_enqueue_and_wait_sync(
+        project_name=project_name, specs=specs,
+        on_success=on_success, on_failure=on_failure,
+    )
     recorder.save()
 
-    ordered_results = [
-        result_map[plan.resource_id]
-        for plan in dependency_plans
-        if plan.resource_id in result_map
-    ]
-    return ordered_results, failures
+    ordered_results = _collect_ordered_paths(successes, dependency_plans, project_dir)
+    failure_tuples = [(f.resource_id, f.error or "unknown") for f in failures]
+    return ordered_results, failure_tuples
 
 
 def main():
@@ -399,9 +312,6 @@ def main():
     parser.add_argument('--segment-ids', nargs='+', help='指定片段 ID（narration 模式别名）')
 
     args = parser.parse_args()
-
-    # 从环境变量读取最大并发数，默认 3
-    max_workers = int(os.environ.get('IMAGE_MAX_WORKERS', 3))
 
     try:
         # 检测 content_mode
@@ -420,7 +330,6 @@ def main():
         results, failed = generate_storyboard_direct(
             args.script,
             segment_ids=segment_ids,
-            max_workers=max_workers,
         )
         print(f"\n📊 生成完成: {len(results)} 个分镜图")
         if failed:
