@@ -64,6 +64,17 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("JSON→DB config migration failed (non-fatal): %s", exc)
 
+    # Sync Anthropic DB settings to env vars (Claude Agent SDK reads from os.environ)
+    try:
+        from server.routers.system_config import _sync_anthropic_env
+        async with async_session_factory() as session:
+            from lib.config.service import ConfigService
+            svc = ConfigService(session)
+            all_settings = await svc.get_all_settings()
+            _sync_anthropic_env(all_settings)
+    except Exception as exc:
+        logger.warning("DB→env Anthropic config sync failed (non-fatal): %s", exc)
+
     # 修复存量项目的 agent_runtime 软连接
     from lib.project_manager import ProjectManager
     _pm = ProjectManager(PROJECT_ROOT / "projects")

@@ -9,6 +9,7 @@ is managed by the providers router.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -107,6 +108,31 @@ _STRING_SETTINGS = (
     "claude_code_subagent_model",
 )
 
+# DB setting key → environment variable name
+_ANTHROPIC_ENV_MAP: dict[str, str] = {
+    "anthropic_api_key": "ANTHROPIC_API_KEY",
+    "anthropic_base_url": "ANTHROPIC_BASE_URL",
+    "anthropic_model": "ANTHROPIC_MODEL",
+    "anthropic_default_haiku_model": "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "anthropic_default_opus_model": "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "anthropic_default_sonnet_model": "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "claude_code_subagent_model": "CLAUDE_CODE_SUBAGENT_MODEL",
+}
+
+
+def _sync_anthropic_env(all_settings: dict[str, str]) -> None:
+    """Sync Anthropic-related DB settings to environment variables.
+
+    The Claude Agent SDK reads config from os.environ, so DB values
+    must be mirrored to env vars for the SDK to pick them up.
+    """
+    for db_key, env_key in _ANTHROPIC_ENV_MAP.items():
+        value = all_settings.get(db_key, "").strip()
+        if value:
+            os.environ[env_key] = value
+        else:
+            os.environ.pop(env_key, None)
+
 # ---------------------------------------------------------------------------
 # GET /system/config
 # ---------------------------------------------------------------------------
@@ -198,6 +224,10 @@ async def patch_system_config(
             await svc.set_setting(key, str(value).strip() if value else "")
 
     await session.commit()
+
+    # Sync Anthropic settings to env vars so Claude Agent SDK picks them up
+    all_settings = await svc.get_all_settings()
+    _sync_anthropic_env(all_settings)
 
     # Return updated config
     return await get_system_config(_user=_user, svc=svc)
