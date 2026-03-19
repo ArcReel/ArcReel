@@ -771,6 +771,14 @@ class SessionManager:
         managed.interrupt_requested = False
         self._prune_transient_buffer(managed)
 
+        # Broadcast terminal status so SSE subscribers unblock immediately
+        # instead of waiting for the heartbeat timeout.
+        managed._broadcast_to_subscribers({
+            "type": "runtime_status",
+            "status": status,
+            "reason": reason,
+        })
+
     @staticmethod
     def _resolve_result_status(
         result_message: dict[str, Any],

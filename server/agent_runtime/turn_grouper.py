@@ -43,6 +43,11 @@ _TASK_NOTIFICATION_RE = re.compile(
     r"<task-notification>\s*.*?</task-notification>", re.DOTALL
 )
 
+# Pattern for CLI-injected interrupt echo messages.
+# The exact text is an internal CLI implementation detail (not a stable API),
+# so we use a loose prefix match rather than exact string comparison.
+_INTERRUPT_ECHO_PREFIX = "[Request interrupted"
+
 
 def _extract_task_notification(content: Any) -> Optional[dict[str, str]]:
     """Extract task notification fields from SDK-injected user message.
@@ -134,6 +139,23 @@ def _all_blocks_are_system_injected(blocks: list[Any]) -> bool:
             return False
         return False
     return True
+
+
+def _is_interrupt_echo(content: Any) -> bool:
+    """Detect CLI-injected interrupt echo user message.
+
+    When the user interrupts a running tool, the CLI injects a user message
+    like ``[Request interrupted by user for tool use]``.  The exact wording
+    is an internal CLI implementation detail, so we match by prefix.
+    """
+    text = ""
+    if isinstance(content, str):
+        text = content.strip()
+    elif isinstance(content, list):
+        blocks = _normalize_content(content)
+        if len(blocks) == 1 and blocks[0].get("type") == "text":
+            text = (blocks[0].get("text") or "").strip()
+    return text.startswith(_INTERRUPT_ECHO_PREFIX)
 
 
 def _is_system_injected_user_message(content: Any) -> bool:
@@ -402,6 +424,20 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
                         "uuid": msg.get("uuid"),
                         "timestamp": msg.get("timestamp"),
                     }
+                continue
+
+            # CLI-injected interrupt echo → convert to a system indicator
+            if _is_interrupt_echo(content):
+                if current_turn:
+                    turns.append(current_turn)
+                current_turn = {
+                    "type": "system",
+                    "content": [{
+                        "type": "interrupt_notice",
+                    }],
+                    "uuid": msg.get("uuid"),
+                    "timestamp": msg.get("timestamp"),
+                }
                 continue
 
             has_subagent_metadata = _has_subagent_user_metadata(msg)

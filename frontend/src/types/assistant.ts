@@ -20,7 +20,7 @@ export interface SessionMeta {
 }
 
 export interface ContentBlock {
-  type: "text" | "thinking" | "tool_use" | "tool_result" | "skill_content" | "task_progress" | "image";
+  type: "text" | "thinking" | "tool_use" | "tool_result" | "skill_content" | "task_progress" | "interrupt_notice" | "image";
   text?: string;
   thinking?: string;
   id?: string;

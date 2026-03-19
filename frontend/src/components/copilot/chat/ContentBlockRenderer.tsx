@@ -86,6 +86,17 @@ export function ContentBlockRenderer({ block, index }: ContentBlockRendererProps
         />
       );
 
+    case "interrupt_notice":
+      return (
+        <div
+          key={block.id ?? `block-${index}`}
+          className="my-1 flex items-center gap-1.5 text-xs text-amber-400"
+        >
+          <span>{"\u25A0"}</span>
+          <span>用户中断了会话</span>
+        </div>
+      );
+
     case "image":
       if (block.source?.data && block.source?.media_type) {
         return (

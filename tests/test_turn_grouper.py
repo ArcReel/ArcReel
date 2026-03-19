@@ -587,3 +587,47 @@ class TestExtractTaskNotification:
         result = _extract_task_notification(blocks)
         assert result is not None
         assert result["task_id"] == "x"
+
+
+class TestInterruptEcho:
+    """CLI-injected interrupt echo messages should become system turns."""
+
+    def test_string_content_interrupt_echo(self):
+        raw = [
+            {"type": "user", "content": "[Request interrupted by user for tool use]"},
+        ]
+        turns = group_messages_into_turns(raw)
+        assert len(turns) == 1
+        assert turns[0]["type"] == "system"
+        assert turns[0]["content"][0]["type"] == "interrupt_notice"
+
+    def test_list_content_interrupt_echo(self):
+        raw = [
+            {
+                "type": "user",
+                "content": [
+                    {"type": "text", "text": "[Request interrupted by user for tool use]"}
+                ],
+            },
+        ]
+        turns = group_messages_into_turns(raw)
+        assert len(turns) == 1
+        assert turns[0]["type"] == "system"
+        assert turns[0]["content"][0]["type"] == "interrupt_notice"
+
+    def test_variant_wording_still_matches(self):
+        """Prefix-based matching should handle minor CLI wording changes."""
+        raw = [
+            {"type": "user", "content": "[Request interrupted by the user]"},
+        ]
+        turns = group_messages_into_turns(raw)
+        assert len(turns) == 1
+        assert turns[0]["type"] == "system"
+
+    def test_normal_user_message_not_affected(self):
+        raw = [
+            {"type": "user", "content": "hello world"},
+        ]
+        turns = group_messages_into_turns(raw)
+        assert len(turns) == 1
+        assert turns[0]["type"] == "user"
