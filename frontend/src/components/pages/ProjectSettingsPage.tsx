@@ -35,26 +35,31 @@ export function ProjectSettingsPage() {
   const [savedOk, setSavedOk] = useState(false);
 
   useEffect(() => {
-    // Fetch global system config for available options and global defaults
-    API.getSystemConfigNew().then((res) => {
+    let disposed = false;
+
+    Promise.all([
+      API.getSystemConfigNew(),
+      API.getProject(projectName),
+    ]).then(([configRes, projectRes]) => {
+      if (disposed) return;
+
       setOptions({
-        video_backends: res.options?.video_backends ?? [],
-        image_backends: res.options?.image_backends ?? [],
+        video_backends: configRes.options?.video_backends ?? [],
+        image_backends: configRes.options?.image_backends ?? [],
       });
       setGlobalDefaults({
-        video: res.settings?.default_video_backend ?? "",
-        image: res.settings?.default_image_backend ?? "",
+        video: configRes.settings?.default_video_backend ?? "",
+        image: configRes.settings?.default_image_backend ?? "",
       });
-    });
 
-    // Fetch project settings to pre-populate any existing overrides
-    API.getProject(projectName).then((res) => {
-      const project = res.project as unknown as Record<string, unknown>;
+      const project = projectRes.project as unknown as Record<string, unknown>;
       setVideoBackend((project.video_backend as string | undefined) ?? "");
       setImageBackend((project.image_backend as string | undefined) ?? "");
       const rawAudio = project.video_generate_audio;
       setAudioOverride(typeof rawAudio === "boolean" ? rawAudio : null);
     });
+
+    return () => { disposed = true; };
   }, [projectName]);
 
   const handleSave = useCallback(async () => {
@@ -140,7 +145,8 @@ export function ProjectSettingsPage() {
             {/* Audio override */}
             <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
               <div className="mb-3 text-sm font-medium text-gray-100">生成音频</div>
-              <div className="flex gap-4">
+              <fieldset className="flex gap-4">
+                <legend className="sr-only">生成音频设置</legend>
                 <label className="flex items-center gap-2 text-sm text-gray-300">
                   <input type="radio" name="audio" value="" checked={audioOverride === null}
                     onChange={() => setAudioOverride(null)} />
@@ -156,13 +162,13 @@ export function ProjectSettingsPage() {
                     onChange={() => setAudioOverride(false)} />
                   关闭
                 </label>
-              </div>
+              </fieldset>
             </div>
           </>
         )}
 
         {!options && (
-          <div className="text-sm text-gray-500">加载配置中...</div>
+          <div className="text-sm text-gray-500">加载配置中…</div>
         )}
 
         {/* Error / success feedback */}
@@ -180,7 +186,7 @@ export function ProjectSettingsPage() {
             disabled={saving}
             className="rounded-lg bg-indigo-600 px-6 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
           >
-            {saving ? "保存中..." : "保存"}
+            {saving ? "保存中…" : "保存"}
           </button>
           <button
             onClick={() => navigate(`/app/projects/${projectName}`)}

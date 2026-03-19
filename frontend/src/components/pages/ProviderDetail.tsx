@@ -1,29 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ChevronRight, Eye, EyeOff, Loader2, Upload, X } from "lucide-react";
-import GeminiColor from "@lobehub/icons/es/Gemini/components/Color";
-import GrokMono from "@lobehub/icons/es/Grok/components/Mono";
-import VertexAIColor from "@lobehub/icons/es/VertexAI/components/Color";
-import { Jimeng } from "@lobehub/icons";
 import { API } from "@/api";
+import { ProviderIcon } from "@/components/ui/ProviderIcon";
 import type { ProviderConfigDetail, ProviderField, ProviderTestResult } from "@/types";
-
-// ---------------------------------------------------------------------------
-// Provider icon helper
-// ---------------------------------------------------------------------------
-
-function ProviderIcon({ providerId, className }: { providerId: string; className?: string }) {
-  const cls = className ?? "h-6 w-6";
-  if (providerId === "gemini-vertex") return <VertexAIColor className={cls} />;
-  if (providerId.startsWith("gemini")) return <GeminiColor className={cls} />;
-  if (providerId.startsWith("grok")) return <GrokMono className={cls} />;
-  if (providerId === "seedance") return <Jimeng className={cls} />;
-  // Fallback: first letter badge
-  return (
-    <span className={`inline-flex items-center justify-center rounded bg-gray-700 text-xs font-bold uppercase text-gray-300 ${cls}`}>
-      {providerId[0]}
-    </span>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -135,9 +114,11 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
   };
 
   const handleClear = () => {
-    // Empty string means clear on save
+    if (!confirm("确定要清除此密钥吗？")) return;
     setDraft((prev) => ({ ...prev, [field.key]: "" }));
   };
+
+  const fieldId = `field-${field.key}`;
 
   if (field.type === "secret") {
     const displayValue = field.key in draft
@@ -146,13 +127,16 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
 
     return (
       <div>
-        <label className="mb-1.5 block text-sm text-gray-400">
+        <label htmlFor={fieldId} className="mb-1.5 block text-sm text-gray-400">
           {field.label}
           {field.required && <span className="ml-1 text-red-400">*</span>}
         </label>
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <input
+              id={fieldId}
+              name={field.key}
+              autoComplete="off"
               type={showSecret ? "text" : "password"}
               value={displayValue}
               onChange={(e) => handleChange(e.target.value)}
@@ -190,11 +174,14 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
   if (field.type === "number") {
     return (
       <div>
-        <label className="mb-1.5 block text-sm text-gray-400">
+        <label htmlFor={fieldId} className="mb-1.5 block text-sm text-gray-400">
           {field.label}
           {field.required && <span className="ml-1 text-red-400">*</span>}
         </label>
         <input
+          id={fieldId}
+          name={field.key}
+          autoComplete="off"
           type="number"
           value={currentValue}
           onChange={(e) => handleChange(e.target.value)}
@@ -208,11 +195,14 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
   // text / url / file (file handled as text input for now)
   return (
     <div>
-      <label className="mb-1.5 block text-sm text-gray-400">
+      <label htmlFor={fieldId} className="mb-1.5 block text-sm text-gray-400">
         {field.label}
         {field.required && <span className="ml-1 text-red-400">*</span>}
       </label>
       <input
+        id={fieldId}
+        name={field.key}
+        autoComplete="off"
         type={field.type === "url" ? "url" : "text"}
         value={currentValue}
         onChange={(e) => handleChange(e.target.value)}
@@ -243,10 +233,14 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
+    let disposed = false;
     setTestResult(null);
     setDraft({});
     setDetail(null);
-    API.getProviderConfig(providerId).then(setDetail);
+    API.getProviderConfig(providerId).then((res) => {
+      if (!disposed) setDetail(res);
+    });
+    return () => { disposed = true; };
   }, [providerId]);
 
   const handleSave = useCallback(async () => {
@@ -288,22 +282,39 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     );
   }
 
-  const basicFields = detail.fields.filter((f) => !ADVANCED_KEYS.has(f.key));
-  const advancedFields = detail.fields.filter((f) => ADVANCED_KEYS.has(f.key));
+  const basicFields: ProviderField[] = [];
+  const advancedFields: ProviderField[] = [];
+  for (const f of detail.fields) {
+    (ADVANCED_KEYS.has(f.key) ? advancedFields : basicFields).push(f);
+  }
   const hasDraft = Object.keys(draft).length > 0;
 
   return (
     <div className="max-w-xl">
       {/* Header */}
-      <div className="mb-6 flex items-center gap-3">
-        <ProviderIcon providerId={providerId} className="h-7 w-7" />
-        <div>
+      <div className="mb-6 flex items-start gap-3">
+        <ProviderIcon providerId={providerId} className="mt-0.5 h-7 w-7" />
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-lg font-semibold text-gray-100">{detail.display_name}</h3>
             <StatusBadge status={detail.status} />
           </div>
+          {detail.description && (
+            <p className="mt-1 text-sm text-gray-500">{detail.description}</p>
+          )}
         </div>
       </div>
+
+      {/* Capabilities */}
+      {detail.media_types && detail.media_types.length > 0 && (
+        <div className="mb-5 flex flex-wrap gap-1.5">
+          {detail.media_types.map((t) => (
+            <span key={t} className="rounded-md bg-gray-800 px-2 py-0.5 text-xs text-gray-400">
+              {t === "video" ? "视频" : t === "image" ? "图片" : t}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Basic fields */}
       <div className="space-y-4">
@@ -356,7 +367,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
           disabled={testing}
           className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-50"
         >
-          {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : "🔗"}
+          {testing && <Loader2 className="h-4 w-4 animate-spin" />}
           测试连接
         </button>
         {hasDraft && (

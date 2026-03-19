@@ -31,9 +31,26 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
     });
   }
 
-  // 2. Check default backends' providers are ready
+  // 2. Check default backends are selected
   const videoBackend = settings.default_video_backend || "";
   const imageBackend = settings.default_image_backend || "";
+
+  if (!videoBackend) {
+    issues.push({
+      key: "no-video-backend",
+      tab: "media",
+      label: "未选择默认视频模型",
+    });
+  }
+  if (!imageBackend) {
+    issues.push({
+      key: "no-image-backend",
+      tab: "media",
+      label: "未选择默认图片模型",
+    });
+  }
+
+  // 3. Check default backends' providers are ready
   const videoProvider = videoBackend.split("/")[0];
   const imageProvider = imageBackend.split("/")[0];
 

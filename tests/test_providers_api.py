@@ -51,6 +51,7 @@ class TestListProviders:
                 ProviderStatus(
                     name="gemini-aistudio",
                     display_name="AI Studio",
+                    description="Google AI Studio",
                     status="ready",
                     media_types=["video", "image"],
                     capabilities=["text_to_video", "image_to_video"],
@@ -61,6 +62,7 @@ class TestListProviders:
                 ProviderStatus(
                     name="seedance",
                     display_name="Seedance",
+                    description="Seedance video",
                     status="unconfigured",
                     media_types=["video"],
                     capabilities=["text_to_video"],

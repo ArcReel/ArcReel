@@ -65,6 +65,7 @@ def _get_config_service(
 class ProviderSummary(BaseModel):
     id: str
     display_name: str
+    description: str
     status: str
     media_types: list[str]
     capabilities: list[str]
@@ -90,7 +91,9 @@ class FieldInfo(BaseModel):
 class ProviderConfigResponse(BaseModel):
     id: str
     display_name: str
+    description: str
     status: str
+    media_types: list[str]
     fields: list[FieldInfo]
 
 
@@ -154,6 +157,7 @@ async def list_providers(
         ProviderSummary(
             id=s.name,
             display_name=s.display_name,
+            description=s.description,
             status=s.status,
             media_types=s.media_types,
             capabilities=s.capabilities,
@@ -192,7 +196,9 @@ async def get_provider_config(
     return ProviderConfigResponse(
         id=provider_id,
         display_name=meta.display_name,
+        description=meta.description,
         status=status,
+        media_types=list(meta.media_types),
         fields=fields,
     )
 

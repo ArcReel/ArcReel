@@ -1,6 +1,7 @@
 export interface ProviderInfo {
   id: string;
   display_name: string;
+  description: string;
   status: "ready" | "unconfigured" | "error";
   media_types: string[];
   capabilities: string[];
@@ -22,7 +23,9 @@ export interface ProviderField {
 export interface ProviderConfigDetail {
   id: string;
   display_name: string;
+  description: string;
   status: string;
+  media_types?: string[];
   fields: ProviderField[];
 }
 

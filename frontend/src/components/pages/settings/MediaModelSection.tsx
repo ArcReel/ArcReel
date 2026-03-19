@@ -56,7 +56,7 @@ export function MediaModelSection() {
   }, [draft, fetchConfig]);
 
   if (!settings || !options) {
-    return <div className="p-6 text-sm text-gray-500">加载中...</div>;
+    return <div className="p-6 text-sm text-gray-500">加载中…</div>;
   }
 
   const isDirty = Object.keys(draft).length > 0;
@@ -139,7 +139,7 @@ export function MediaModelSection() {
             disabled={saving}
             className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {saving ? "保存中..." : "保存"}
+            {saving ? "保存中…" : "保存"}
           </button>
           <button
             type="button"

@@ -17,27 +17,11 @@ type SettingsSection = "agent" | "providers" | "media" | "usage";
 // Sidebar navigation config
 // ---------------------------------------------------------------------------
 
-const SECTION_LIST: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
-  {
-    id: "agent",
-    label: "智能体",
-    icon: <Bot className="h-4 w-4" />,
-  },
-  {
-    id: "providers",
-    label: "供应商",
-    icon: <Plug className="h-4 w-4" />,
-  },
-  {
-    id: "media",
-    label: "图片/视频",
-    icon: <Film className="h-4 w-4" />,
-  },
-  {
-    id: "usage",
-    label: "用量统计",
-    icon: <BarChart3 className="h-4 w-4" />,
-  },
+const SECTION_LIST: { id: SettingsSection; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: "agent", label: "智能体", Icon: Bot },
+  { id: "providers", label: "供应商", Icon: Plug },
+  { id: "media", label: "图片/视频", Icon: Film },
+  { id: "usage", label: "用量统计", Icon: BarChart3 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -101,7 +85,7 @@ export function SystemConfigPage() {
       <div className="flex min-h-0 flex-1">
         {/* Sidebar */}
         <nav className="w-48 shrink-0 border-r border-gray-800 bg-gray-950/50 py-4">
-          {SECTION_LIST.map(({ id, label, icon }) => {
+          {SECTION_LIST.map(({ id, label, Icon }) => {
             const isActive = activeSection === id;
             return (
               <button
@@ -114,7 +98,7 @@ export function SystemConfigPage() {
                     : "border-l-2 border-transparent text-gray-400 hover:bg-gray-800/30 hover:text-gray-200"
                 }`}
               >
-                {icon}
+                <Icon className="h-4 w-4" />
                 {label}
               </button>
             );

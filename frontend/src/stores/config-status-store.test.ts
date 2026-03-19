@@ -31,6 +31,7 @@ function makeProviders(overrides?: Partial<ProviderInfo>[]): { providers: Provid
     {
       id: "gemini",
       display_name: "Google Gemini",
+      description: "Google Gemini API",
       status: "unconfigured",
       media_types: ["image", "video"],
       capabilities: [],

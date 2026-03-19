@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Eye, EyeOff, Loader2, SlidersHorizontal, X } from "lucide-react";
+import { ChevronDown, Eye, EyeOff, Loader2, SlidersHorizontal, Terminal, X } from "lucide-react";
 import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -71,12 +71,23 @@ function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatchNew 
 const cardClassName = "rounded-xl border border-gray-800 bg-gray-950/40 p-4";
 const inputClassName =
   "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60";
-const vendorIconFrameClassName =
-  "rounded-2xl border border-gray-800 bg-gray-900 px-3 py-3 shadow-inner shadow-white/5";
 
 // Small inline clear button shown next to "当前：" when a value is set
 const inlineClearClassName =
   "ml-1.5 inline-flex items-center rounded p-0.5 text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50";
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function SectionHeading({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="mb-4">
+      <h3 className="text-base font-semibold text-gray-100">{title}</h3>
+      <p className="mt-1 text-sm text-gray-500">{description}</p>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -217,140 +228,181 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
 
   return (
     <div className={visible ? undefined : "hidden"}>
-      <div className="space-y-5 px-6 pb-0 pt-6">
-        {/* Anthropic API Key card */}
-        <div className={cardClassName}>
-          <div className="flex items-start gap-3">
-            <div className={vendorIconFrameClassName}>
-              <ClaudeColor size={20} />
+      <div className="space-y-8 px-6 pb-0 pt-6">
+        {/* Page intro */}
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl border border-gray-800 bg-gray-900 p-3 shadow-inner shadow-white/5">
+              <ClaudeColor size={24} />
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-gray-100">Anthropic API Key</div>
-              <div className="mt-1 text-xs text-gray-400">
-                驱动 ArcReel 智能体的核心 AI 能力。
-              </div>
-              {/* 当前值行 */}
-              <div className="mt-1 flex items-center text-xs text-gray-500">
-                <span className="truncate">
-                  当前：{settings.anthropic_api_key.masked ?? "未设置"}
-                </span>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-100">ArcReel 智能体</h2>
+              <p className="text-sm text-gray-500">
+                基于 Claude Agent SDK，驱动对话式 AI 助手与自动化工作流
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-gray-800/60 bg-gray-900/30 px-3 py-2">
+            <Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-500" />
+            <p className="text-xs text-gray-500">
+              配置项兼容 Claude Code 环境变量命名，可使用兼容 Claude Code 的 Coding Plan API。
+            </p>
+          </div>
+        </div>
+
+        {/* ----------------------------------------------------------------- */}
+        {/* Section 1: API Key + Base URL */}
+        {/* ----------------------------------------------------------------- */}
+        <div>
+          <SectionHeading
+            title="API 凭证"
+            description="Anthropic API 密钥是智能体运行的必要条件"
+          />
+
+          {/* API Key card */}
+          <div className={`${cardClassName} space-y-4`}>
+            <div>
+              <div className="flex items-center justify-between">
+                <label htmlFor="agent-anthropic-key" className="text-sm font-medium text-gray-100">
+                  API Key
+                </label>
                 {settings.anthropic_api_key.is_set && (
+                  <div className="flex items-center text-xs text-gray-500">
+                    <span className="truncate">
+                      当前：{settings.anthropic_api_key.masked ?? "已设置"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleClearField(
+                          "anthropic_api_key",
+                          { anthropic_api_key: "" },
+                          "Anthropic API Key",
+                        )
+                      }
+                      disabled={isBusy}
+                      className={inlineClearClassName}
+                      aria-label="清除已保存的 Anthropic API Key"
+                    >
+                      {clearingField === "anthropic_api_key" ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <X className="h-3 w-3" />
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-gray-500">
+                对应环境变量 ANTHROPIC_API_KEY
+              </p>
+              <div className="relative mt-2">
+                <input
+                  id="agent-anthropic-key"
+                  type={showKey ? "text" : "password"}
+                  value={draft.anthropicKey}
+                  onChange={(e) => updateDraft("anthropicKey", e.target.value)}
+                  placeholder="sk-ant-…"
+                  className={`${inputClassName} pr-10`}
+                  autoComplete="off"
+                  spellCheck={false}
+                  name="anthropic_api_key"
+                  disabled={saving}
+                />
+                {draft.anthropicKey && (
+                  <button
+                    type="button"
+                    onClick={() => updateDraft("anthropicKey", "")}
+                    className="absolute right-8 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
+                    aria-label="清除输入"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowKey((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
+                  aria-label={showKey ? "隐藏密钥" : "显示密钥"}
+                >
+                  {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Base URL */}
+            <div className="border-t border-gray-800 pt-4">
+              <div className="flex items-center justify-between">
+                <label htmlFor="agent-base-url" className="text-sm font-medium text-gray-100">
+                  Base URL
+                </label>
+                {settings.anthropic_base_url && (
                   <button
                     type="button"
                     onClick={() =>
                       void handleClearField(
-                        "anthropic_api_key",
-                        { anthropic_api_key: "" },
-                        "Anthropic API Key",
+                        "anthropic_base_url",
+                        { anthropic_base_url: "" },
+                        "Anthropic Base URL",
                       )
                     }
                     disabled={isBusy}
-                    className={inlineClearClassName}
-                    aria-label="清除已保存的 Anthropic API Key"
+                    className="inline-flex items-center gap-1 text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="清除已保存的 Anthropic Base URL"
                   >
-                    {clearingField === "anthropic_api_key" ? (
+                    {clearingField === "anthropic_base_url" ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
                       <X className="h-3 w-3" />
                     )}
+                    清除已保存
+                  </button>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-gray-500">
+                对应 ANTHROPIC_BASE_URL，留空使用官方默认地址
+              </p>
+              <div className="relative mt-2">
+                <input
+                  id="agent-base-url"
+                  value={draft.anthropicBaseUrl}
+                  onChange={(e) => updateDraft("anthropicBaseUrl", e.target.value)}
+                  placeholder="https://anthropic-proxy.example.com"
+                  className={`${inputClassName}${draft.anthropicBaseUrl ? " pr-8" : ""}`}
+                  autoComplete="off"
+                  spellCheck={false}
+                  name="anthropic_base_url"
+                  disabled={saving}
+                />
+                {draft.anthropicBaseUrl && (
+                  <button
+                    type="button"
+                    onClick={() => updateDraft("anthropicBaseUrl", "")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
+                    aria-label="清除 Base URL 输入"
+                  >
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>
             </div>
           </div>
-          {/* Key input */}
-          <div className="relative mt-3">
-            <input
-              type={showKey ? "text" : "password"}
-              value={draft.anthropicKey}
-              onChange={(e) => updateDraft("anthropicKey", e.target.value)}
-              placeholder="sk-ant-…"
-              className={`${inputClassName} pr-10`}
-              autoComplete="off"
-              spellCheck={false}
-              name="anthropic_api_key"
-              aria-label="Anthropic API Key"
-              disabled={saving}
-            />
-            {draft.anthropicKey && (
-              <button
-                type="button"
-                onClick={() => updateDraft("anthropicKey", "")}
-                className="absolute right-8 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
-                aria-label="清除输入"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setShowKey((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
-              aria-label={showKey ? "隐藏密钥" : "显示密钥"}
-            >
-              {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          </div>
+        </div>
 
-          {/* Base URL */}
-          <div className="mt-4 border-t border-gray-800 pt-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-gray-100">Base URL</div>
-              {settings.anthropic_base_url && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    void handleClearField(
-                      "anthropic_base_url",
-                      { anthropic_base_url: "" },
-                      "Anthropic Base URL",
-                    )
-                  }
-                  disabled={isBusy}
-                  className="inline-flex items-center gap-1 text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label="清除已保存的 Anthropic Base URL"
-                >
-                  {clearingField === "anthropic_base_url" ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <X className="h-3 w-3" />
-                  )}
-                  清除已保存
-                </button>
-              )}
-            </div>
-            <div className="mt-1 text-xs text-gray-400">
-              可选。留空使用官方默认地址，使用代理时填写网关地址。
-            </div>
-            <div className="relative mt-3">
-              <input
-                value={draft.anthropicBaseUrl}
-                onChange={(e) => updateDraft("anthropicBaseUrl", e.target.value)}
-                placeholder="https://anthropic-proxy.example.com"
-                className={`${inputClassName}${draft.anthropicBaseUrl ? " pr-8" : ""}`}
-                autoComplete="off"
-                spellCheck={false}
-                name="anthropic_base_url"
-                aria-label="Anthropic Base URL"
-                disabled={saving}
-              />
-              {draft.anthropicBaseUrl && (
-                <button
-                  type="button"
-                  onClick={() => updateDraft("anthropicBaseUrl", "")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
-                  aria-label="清除 Anthropic Base URL 输入"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
+        {/* ----------------------------------------------------------------- */}
+        {/* Section 2: Model Configuration */}
+        {/* ----------------------------------------------------------------- */}
+        <div>
+          <SectionHeading
+            title="模型配置"
+            description="指定智能体使用的 Claude 模型。留空则使用 Claude Agent SDK 默认值。"
+          />
 
-          {/* Model */}
-          <div className="mt-4 border-t border-gray-800 pt-4">
+          <div className={cardClassName}>
             <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-gray-100">模型配置</div>
+              <label htmlFor="agent-model" className="text-sm font-medium text-gray-100">
+                默认模型
+              </label>
               {settings.anthropic_model && (
                 <button
                   type="button"
@@ -374,11 +426,12 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 </button>
               )}
             </div>
-            <div className="mt-1 text-xs text-gray-400">
-              可选。覆盖 Claude Agent SDK 的默认模型，留空使用 SDK 默认值。
-            </div>
-            <div className="relative mt-3">
+            <p className="mt-0.5 text-xs text-gray-500">
+              对应 ANTHROPIC_MODEL，覆盖默认模型
+            </p>
+            <div className="relative mt-2">
               <input
+                id="agent-model"
                 value={draft.anthropicModel}
                 onChange={(e) => updateDraft("anthropicModel", e.target.value)}
                 placeholder="ANTHROPIC_MODEL"
@@ -386,7 +439,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 autoComplete="off"
                 spellCheck={false}
                 name="anthropic_model"
-                aria-label="ANTHROPIC_MODEL"
                 disabled={saving}
               />
               {draft.anthropicModel && (
@@ -410,7 +462,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
               <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-gray-100">
                 <span className="inline-flex items-center gap-2">
                   <SlidersHorizontal className="h-4 w-4 text-gray-400" />
-                  高级模型配置
+                  高级模型路由
                 </span>
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-800 bg-gray-900 text-gray-500">
                   <ChevronDown
@@ -420,42 +472,52 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                   />
                 </span>
               </summary>
+              <p className="mt-2 text-xs text-gray-500">
+                Claude Agent SDK 支持按能力等级路由到不同模型。留空则统一使用上方的默认模型。
+              </p>
               <div className="mt-4 grid gap-4">
                 {(
                   [
                     {
                       key: "haikuModel" as const,
                       label: "Haiku 模型",
-                      placeholder: "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+                      envVar: "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+                      hint: "轻量任务（分类、提取、简单问答）",
                       settingsValue: settings.anthropic_default_haiku_model,
                       patchKey: "anthropic_default_haiku_model" as const,
                     },
                     {
-                      key: "opusModel" as const,
-                      label: "Opus 模型",
-                      placeholder: "ANTHROPIC_DEFAULT_OPUS_MODEL",
-                      settingsValue: settings.anthropic_default_opus_model,
-                      patchKey: "anthropic_default_opus_model" as const,
-                    },
-                    {
                       key: "sonnetModel" as const,
                       label: "Sonnet 模型",
-                      placeholder: "ANTHROPIC_DEFAULT_SONNET_MODEL",
+                      envVar: "ANTHROPIC_DEFAULT_SONNET_MODEL",
+                      hint: "均衡任务（写作、编排、多步推理）",
                       settingsValue: settings.anthropic_default_sonnet_model,
                       patchKey: "anthropic_default_sonnet_model" as const,
                     },
                     {
+                      key: "opusModel" as const,
+                      label: "Opus 模型",
+                      envVar: "ANTHROPIC_DEFAULT_OPUS_MODEL",
+                      hint: "复杂任务（长文创作、深度分析）",
+                      settingsValue: settings.anthropic_default_opus_model,
+                      patchKey: "anthropic_default_opus_model" as const,
+                    },
+                    {
                       key: "subagentModel" as const,
                       label: "子 Agent 模型",
-                      placeholder: "CLAUDE_CODE_SUBAGENT_MODEL",
+                      envVar: "CLAUDE_CODE_SUBAGENT_MODEL",
+                      hint: "Subagent 并行执行时使用的模型",
                       settingsValue: settings.claude_code_subagent_model,
                       patchKey: "claude_code_subagent_model" as const,
                     },
                   ] as const
-                ).map(({ key, label, placeholder, settingsValue, patchKey }) => (
-                  <div key={key} className={cardClassName}>
+                ).map(({ key, label, envVar, hint, settingsValue, patchKey }) => (
+                  <div key={key}>
                     <div className="flex items-center justify-between">
-                      <div className="text-sm font-medium text-gray-100">{label}</div>
+                      <div>
+                        <div className="text-sm font-medium text-gray-100">{label}</div>
+                        <div className="text-xs text-gray-500">{hint}</div>
+                      </div>
                       {settingsValue && (
                         <button
                           type="button"
@@ -475,15 +537,15 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                           ) : (
                             <X className="h-3 w-3" />
                           )}
-                          清除已保存
+                          清除
                         </button>
                       )}
                     </div>
-                    <div className="relative mt-2">
+                    <div className="relative mt-1.5">
                       <input
                         value={draft[key]}
                         onChange={(e) => updateDraft(key, e.target.value)}
-                        placeholder={placeholder}
+                        placeholder={envVar}
                         className={`${inputClassName}${draft[key] ? " pr-8" : ""}`}
                         autoComplete="off"
                         spellCheck={false}
@@ -502,9 +564,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                     </div>
                   </div>
                 ))}
-              </div>
-              <div className="mt-3 text-xs text-gray-500">
-                分别覆盖按能力等级路由的模型。留空使用 ANTHROPIC_MODEL 或 SDK 默认值。
               </div>
             </details>
           </div>
