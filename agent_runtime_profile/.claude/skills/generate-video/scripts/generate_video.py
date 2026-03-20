@@ -26,7 +26,7 @@ import tempfile
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from lib.generation_queue_client import (
     BatchTaskSpec,
@@ -327,7 +327,7 @@ def _submit_and_wait_with_checkpoint(
     order_map: dict[str, int],
     ordered_paths: list[Optional[Path]],
     completed_scenes: list[str],
-    save_fn: callable,
+    save_fn: Callable[[], None],
     item_type: str,
 ) -> list[BatchTaskResult]:
     """Submit specs via batch_enqueue_and_wait_sync with checkpoint on each success."""
