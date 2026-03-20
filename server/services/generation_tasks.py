@@ -106,7 +106,7 @@ def _get_or_create_video_backend(
     provider_settings: dict,
     bulk: _BulkConfig,
     *,
-    default_video_model: str = "",
+    default_video_model: Optional[str] = None,
 ):
     """获取或创建 VideoBackend 实例（带缓存）。
 
