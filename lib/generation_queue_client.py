@@ -8,9 +8,7 @@ Skill scripts that run outside the event loop should use asyncio.run().
 from __future__ import annotations
 
 import asyncio
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -262,33 +260,6 @@ class BatchTaskResult:
     error: Optional[str] = None
 
 
-def _enqueue_batch(
-    project_name: str,
-    specs: List[BatchTaskSpec],
-) -> Dict[str, str]:
-    """Sequentially enqueue all specs, resolving dependency_resource_id."""
-    task_ids: Dict[str, str] = {}
-    for spec in specs:
-        dep_task_id: Optional[str] = None
-        if spec.dependency_resource_id:
-            dep_task_id = task_ids.get(spec.dependency_resource_id)
-
-        enqueue_result = enqueue_task_only_sync(
-            project_name=project_name,
-            task_type=spec.task_type,
-            media_type=spec.media_type,
-            resource_id=spec.resource_id,
-            payload=spec.payload,
-            script_file=spec.script_file,
-            source=spec.source,
-            dependency_task_id=dep_task_id,
-            dependency_group=spec.dependency_group,
-            dependency_index=spec.dependency_index,
-        )
-        task_ids[spec.resource_id] = enqueue_result["task_id"]
-    return task_ids
-
-
 def _task_result_from_finished(
     task: Dict[str, Any], resource_id: str, task_id: str
 ) -> BatchTaskResult:
@@ -308,6 +279,66 @@ def _task_result_from_finished(
     )
 
 
+async def _batch_enqueue_and_wait(
+    project_name: str,
+    specs: List[BatchTaskSpec],
+    on_success: Optional[Callable[[BatchTaskResult], None]],
+    on_failure: Optional[Callable[[BatchTaskResult], None]],
+) -> Tuple[List[BatchTaskResult], List[BatchTaskResult]]:
+    """Async implementation: enqueue sequentially, then gather-wait all tasks.
+
+    Runs entirely within a single event loop, so all asyncpg connections
+    are bound to the same loop — no cross-loop errors.
+    """
+    # Phase 1 — Sequential enqueue (dependency resolution requires order)
+    task_ids: Dict[str, str] = {}
+    for spec in specs:
+        dep_task_id: Optional[str] = None
+        if spec.dependency_resource_id:
+            dep_task_id = task_ids.get(spec.dependency_resource_id)
+
+        enqueue_result = await enqueue_task_only(
+            project_name=project_name,
+            task_type=spec.task_type,
+            media_type=spec.media_type,
+            resource_id=spec.resource_id,
+            payload=spec.payload,
+            script_file=spec.script_file,
+            source=spec.source,
+            dependency_task_id=dep_task_id,
+            dependency_group=spec.dependency_group,
+            dependency_index=spec.dependency_index,
+        )
+        task_ids[spec.resource_id] = enqueue_result["task_id"]
+
+    # Phase 2 — Parallel wait via asyncio.gather (single event loop)
+    async def _wait_one(spec: BatchTaskSpec) -> BatchTaskResult:
+        tid = task_ids[spec.resource_id]
+        try:
+            task = await wait_for_task(tid)
+            return _task_result_from_finished(task, spec.resource_id, tid)
+        except Exception as exc:
+            return BatchTaskResult(
+                resource_id=spec.resource_id,
+                task_id=tid,
+                status="failed",
+                error=str(exc),
+            )
+
+    results = await asyncio.gather(*[_wait_one(s) for s in specs])
+
+    successes: List[BatchTaskResult] = []
+    failures: List[BatchTaskResult] = []
+    for br in results:
+        target = successes if br.status == "succeeded" else failures
+        target.append(br)
+        cb = on_success if br.status == "succeeded" else on_failure
+        if cb:
+            cb(br)
+
+    return successes, failures
+
+
 def batch_enqueue_and_wait_sync(
     *,
     project_name: str,
@@ -318,52 +349,19 @@ def batch_enqueue_and_wait_sync(
     """Batch-enqueue all tasks then wait for all of them to complete.
 
     Phase 1 — Sequential enqueue: iterate *specs* and call
-    ``enqueue_task_only_sync`` for each.  If a spec has
+    ``enqueue_task_only`` for each.  If a spec has
     *dependency_resource_id*, it is automatically resolved to the task_id
     of a previously enqueued spec with that resource_id.
 
-    Phase 2 — Parallel wait: spin up one polling thread per task via
-    ``ThreadPoolExecutor`` (threads only sleep-poll, so the pool size equals
-    the number of tasks).  As each task finishes, call *on_success* or
-    *on_failure*.
+    Phase 2 — Parallel wait: all ``wait_for_task`` coroutines run
+    concurrently via ``asyncio.gather`` in a **single event loop**, so all
+    asyncpg connections share the same loop — no cross-loop errors.
 
     Returns ``(successes, failures)`` — two lists of ``BatchTaskResult``.
     """
     if not specs:
         return [], []
 
-    task_ids = _enqueue_batch(project_name, specs)
-
-    successes: List[BatchTaskResult] = []
-    failures: List[BatchTaskResult] = []
-    lock = threading.Lock()
-
-    def _notify(br: BatchTaskResult) -> None:
-        cb = on_success if br.status == "succeeded" else on_failure
-        if cb:
-            cb(br)
-
-    with ThreadPoolExecutor(max_workers=len(specs)) as executor:
-        future_to_spec = {
-            executor.submit(wait_for_task_sync, task_ids[spec.resource_id]): spec
-            for spec in specs
-        }
-        for future in as_completed(future_to_spec):
-            spec = future_to_spec[future]
-            tid = task_ids[spec.resource_id]
-            try:
-                task = future.result()
-                br = _task_result_from_finished(task, spec.resource_id, tid)
-            except Exception as exc:
-                br = BatchTaskResult(
-                    resource_id=spec.resource_id,
-                    task_id=tid,
-                    status="failed",
-                    error=str(exc),
-                )
-            target = successes if br.status == "succeeded" else failures
-            with lock:
-                target.append(br)
-            _notify(br)
-
-    return successes, failures
+    return _run_sync(
+        _batch_enqueue_and_wait(project_name, specs, on_success, on_failure)
+    )

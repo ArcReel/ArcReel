@@ -23,7 +23,6 @@ import json
 import subprocess
 import sys
 import tempfile
-import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -332,16 +331,14 @@ def _submit_and_wait_with_checkpoint(
 ) -> list[BatchTaskResult]:
     """Submit specs via batch_enqueue_and_wait_sync with checkpoint on each success."""
     print(f"\n🚀 批量提交 {len(specs)} 个视频到生成队列...\n")
-    checkpoint_lock = threading.Lock()
 
     def on_success(br: BatchTaskResult) -> None:
         result = br.result or {}
         relative_path = result.get("file_path") or f"videos/scene_{br.resource_id}.mp4"
         output_path = project_dir / relative_path
         ordered_paths[order_map[br.resource_id]] = output_path
-        with checkpoint_lock:
-            completed_scenes.append(br.resource_id)
-            save_fn()
+        completed_scenes.append(br.resource_id)
+        save_fn()
         print(f"    ✅ 完成: {output_path.name}")
 
     def on_failure(br: BatchTaskResult) -> None:

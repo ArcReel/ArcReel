@@ -1,6 +1,6 @@
 """Tests for generation_queue_client async functions."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -91,10 +91,10 @@ class TestGenerationQueueClient:
 
 
 class TestBatchEnqueueAndWaitSync:
-    """Tests for batch_enqueue_and_wait_sync (mocked sync wrappers)."""
+    """Tests for batch_enqueue_and_wait_sync (mocked async functions)."""
 
-    @patch("lib.generation_queue_client.wait_for_task_sync")
-    @patch("lib.generation_queue_client.enqueue_task_only_sync")
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_empty_specs(self, mock_enqueue, mock_wait):
         successes, failures = batch_enqueue_and_wait_sync(
             project_name="demo", specs=[],
@@ -104,8 +104,8 @@ class TestBatchEnqueueAndWaitSync:
         mock_enqueue.assert_not_called()
         mock_wait.assert_not_called()
 
-    @patch("lib.generation_queue_client.wait_for_task_sync")
-    @patch("lib.generation_queue_client.enqueue_task_only_sync")
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_basic_success(self, mock_enqueue, mock_wait):
         mock_enqueue.side_effect = [
             {"task_id": "t1"}, {"task_id": "t2"},
@@ -129,8 +129,8 @@ class TestBatchEnqueueAndWaitSync:
         assert mock_enqueue.call_count == 2
         assert mock_wait.call_count == 2
 
-    @patch("lib.generation_queue_client.wait_for_task_sync")
-    @patch("lib.generation_queue_client.enqueue_task_only_sync")
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_partial_failure(self, mock_enqueue, mock_wait):
         mock_enqueue.side_effect = [
             {"task_id": "t1"}, {"task_id": "t2"},
@@ -153,8 +153,8 @@ class TestBatchEnqueueAndWaitSync:
         assert failures[0].resource_id in ("玉佩", "老槐树")
         assert failures[0].status == "failed"
 
-    @patch("lib.generation_queue_client.wait_for_task_sync")
-    @patch("lib.generation_queue_client.enqueue_task_only_sync")
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_wait_exception_becomes_failure(self, mock_enqueue, mock_wait):
         mock_enqueue.return_value = {"task_id": "t1"}
         mock_wait.side_effect = RuntimeError("connection lost")
@@ -170,8 +170,8 @@ class TestBatchEnqueueAndWaitSync:
         assert len(failures) == 1
         assert "connection lost" in failures[0].error
 
-    @patch("lib.generation_queue_client.wait_for_task_sync")
-    @patch("lib.generation_queue_client.enqueue_task_only_sync")
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_dependency_resource_id_resolution(self, mock_enqueue, mock_wait):
         mock_enqueue.side_effect = [
             {"task_id": "t-first"}, {"task_id": "t-second"},
@@ -203,8 +203,8 @@ class TestBatchEnqueueAndWaitSync:
         assert second_call.kwargs["dependency_group"] == "ep1:group:1"
         assert second_call.kwargs["dependency_index"] == 1
 
-    @patch("lib.generation_queue_client.wait_for_task_sync")
-    @patch("lib.generation_queue_client.enqueue_task_only_sync")
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_callbacks_invoked(self, mock_enqueue, mock_wait):
         mock_enqueue.side_effect = [
             {"task_id": "t1"}, {"task_id": "t2"},
