@@ -166,10 +166,12 @@ def _resolve_image_backend(
 
 def _resolve_video_backend(
     project_name: str, bulk: _BulkConfig, payload: dict | None,
-) -> tuple:
+) -> tuple[Any | None, str, str]:
     """解析视频后端，返回 (video_backend, video_backend_type, video_model)。
 
     仅在 payload 存在时创建 VideoBackend，避免图片任务因视频配置缺失而报错。
+    注意：video_backend_type 仅在 video_backend 为 None（回退到 GeminiClient）时生效，
+    因此只需要在全局默认回退分支中设置。
     """
     default_video_provider_id, video_model = bulk.default_video_backend
     video_backend = None
