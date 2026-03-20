@@ -59,6 +59,26 @@ class GenerateClueRequest(BaseModel):
     prompt: str
 
 
+def _snapshot_image_backend(project_name: str) -> dict:
+    """快照图片供应商配置，返回可合并到 payload 的字典。
+
+    优先级：项目级 image_backend > 系统级 default_image_backend。
+    """
+    project = get_project_manager().load_project(project_name)
+    project_image_backend = project.get("image_backend")  # 格式: "provider_id/model"
+    if project_image_backend and "/" in project_image_backend:
+        image_provider, image_model = project_image_backend.split("/", 1)
+    elif project_image_backend:
+        image_provider = project_image_backend
+        image_model = ""
+    else:
+        return {}  # 无项目级覆盖，使用全局默认
+    return {
+        "image_provider": image_provider,
+        "image_model": image_model,
+    }
+
+
 # ==================== 分镜图生成 ====================
 
 
@@ -99,6 +119,7 @@ async def generate_storyboard(
 
         # 入队
         queue = get_generation_queue()
+        image_snapshot = _snapshot_image_backend(project_name)
         result = await queue.enqueue_task(
             project_name=project_name,
             task_type="storyboard",
@@ -108,6 +129,7 @@ async def generate_storyboard(
             payload={
                 "prompt": req.prompt,
                 "script_file": req.script_file,
+                **image_snapshot,
             },
             source="webui",
         )
@@ -235,6 +257,7 @@ async def generate_character(
 
         # 入队
         queue = get_generation_queue()
+        image_snapshot = _snapshot_image_backend(project_name)
         result = await queue.enqueue_task(
             project_name=project_name,
             task_type="character",
@@ -242,6 +265,7 @@ async def generate_character(
             resource_id=char_name,
             payload={
                 "prompt": req.prompt,
+                **image_snapshot,
             },
             source="webui",
         )
@@ -278,6 +302,7 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
 
         # 入队
         queue = get_generation_queue()
+        image_snapshot = _snapshot_image_backend(project_name)
         result = await queue.enqueue_task(
             project_name=project_name,
             task_type="clue",
@@ -285,6 +310,7 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
             resource_id=clue_name,
             payload={
                 "prompt": req.prompt,
+                **image_snapshot,
             },
             source="webui",
         )

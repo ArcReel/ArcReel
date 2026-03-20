@@ -148,48 +148,61 @@ def _get_or_create_video_backend(
     return backend
 
 
+def _resolve_image_backend(
+    bulk: _BulkConfig, payload: dict | None,
+) -> tuple[str, str, str]:
+    """解析图片后端，返回 (backend_type, gemini_config_id, image_model)。
+
+    优先级：payload 中的项目级配置 > 全局默认。
+    """
+    image_provider_id, image_model = bulk.default_image_backend
+    if payload and payload.get("image_provider"):
+        image_provider_id = payload["image_provider"]
+        image_model = payload.get("image_model", "") or image_model
+    if image_provider_id == "gemini-vertex":
+        return "vertex", "gemini-vertex", image_model
+    return "aistudio", "gemini-aistudio", image_model
+
+
+def _resolve_video_backend(
+    project_name: str, bulk: _BulkConfig, payload: dict | None,
+) -> tuple:
+    """解析视频后端，返回 (video_backend, video_backend_type, video_model)。
+
+    仅在 payload 存在时创建 VideoBackend，避免图片任务因视频配置缺失而报错。
+    """
+    default_video_provider_id, video_model = bulk.default_video_backend
+    video_backend = None
+    video_backend_type = "aistudio"
+
+    if payload and payload.get("video_provider"):
+        provider_name = payload["video_provider"]
+        provider_settings = payload.get("video_provider_settings", {})
+        video_backend = _get_or_create_video_backend(provider_name, provider_settings, bulk)
+    elif payload:
+        project = get_project_manager().load_project(project_name)
+        provider_name = project.get("video_provider")
+        if not provider_name:
+            provider_name = _PROVIDER_ID_TO_BACKEND.get(default_video_provider_id, default_video_provider_id)
+            if provider_name == PROVIDER_GEMINI:
+                video_backend_type = "vertex" if default_video_provider_id == "gemini-vertex" else "aistudio"
+        provider_settings = project.get("video_provider_settings", {}).get(provider_name, {})
+        video_backend = _get_or_create_video_backend(provider_name, provider_settings, bulk)
+
+    return video_backend, video_backend_type, video_model
+
+
 async def get_media_generator(project_name: str, payload: dict | None = None) -> MediaGenerator:
     """创建 MediaGenerator。仅当 payload 包含视频配置时才初始化视频后端。
 
     通过单次 DB session 批量加载所有供应商配置和系统设置。
     """
     project_path = get_project_manager().get_project_path(project_name)
-
-    # 单次 DB 查询加载所有配置
     bulk = await _load_all_config()
 
-    # 解析图片后端
-    image_provider_id, image_model = bulk.default_image_backend
-    if image_provider_id == "gemini-vertex":
-        image_backend_type = "vertex"
-        gemini_config_id = "gemini-vertex"
-    else:
-        image_backend_type = "aistudio"
-        gemini_config_id = "gemini-aistudio"
-
+    image_backend_type, gemini_config_id, image_model = _resolve_image_backend(bulk, payload)
     gemini_config = bulk.get_provider_config(gemini_config_id)
-    gemini_api_key = gemini_config.get("api_key")
-    gemini_base_url = gemini_config.get("base_url")
-
-    # 仅在有 payload（即视频任务）时创建 VideoBackend，避免图片任务因视频配置缺失而报错
-    video_backend = None
-    video_backend_type = "aistudio"
-    if payload and payload.get("video_provider"):
-        provider_name = payload["video_provider"]
-        provider_settings = payload.get("video_provider_settings", {})
-        video_backend = _get_or_create_video_backend(provider_name, provider_settings, bulk)
-    elif payload:
-        # payload 存在但无 video_provider → 从 project.json / DB / env 读取
-        project = get_project_manager().load_project(project_name)
-        provider_name = project.get("video_provider")
-        if not provider_name:
-            default_video_provider_id, _ = bulk.default_video_backend
-            # 将新 provider_id 映射到旧 provider_name 以兼容 project.json 格式
-            provider_name = _PROVIDER_ID_TO_BACKEND.get(default_video_provider_id, default_video_provider_id)
-            if provider_name == PROVIDER_GEMINI:
-                video_backend_type = "vertex" if default_video_provider_id == "gemini-vertex" else "aistudio"
-        provider_settings = project.get("video_provider_settings", {}).get(provider_name, {})
-        video_backend = _get_or_create_video_backend(provider_name, provider_settings, bulk)
+    video_backend, video_backend_type, video_model = _resolve_video_backend(project_name, bulk, payload)
 
     return MediaGenerator(
         project_path,
@@ -197,9 +210,10 @@ async def get_media_generator(project_name: str, payload: dict | None = None) ->
         video_backend=video_backend,
         image_backend_type=image_backend_type,
         video_backend_type=video_backend_type,
-        gemini_api_key=gemini_api_key,
-        gemini_base_url=gemini_base_url,
+        gemini_api_key=gemini_config.get("api_key"),
+        gemini_base_url=gemini_config.get("base_url"),
         gemini_image_model=image_model or None,
+        gemini_video_model=video_model or None,
     )
 
 
