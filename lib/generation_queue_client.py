@@ -330,11 +330,14 @@ async def _batch_enqueue_and_wait(
     successes: List[BatchTaskResult] = []
     failures: List[BatchTaskResult] = []
     for br in results:
-        target = successes if br.status == "succeeded" else failures
-        target.append(br)
-        cb = on_success if br.status == "succeeded" else on_failure
-        if cb:
-            cb(br)
+        if br.status == "succeeded":
+            successes.append(br)
+            if on_success:
+                on_success(br)
+        else:
+            failures.append(br)
+            if on_failure:
+                on_failure(br)
 
     return successes, failures
 
