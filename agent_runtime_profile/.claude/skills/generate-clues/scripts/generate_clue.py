@@ -106,9 +106,9 @@ def generate_batch_clues(
     """
     pm, project_name = ProjectManager.from_cwd()
     project = pm.load_project(project_name)
+    clues_dict = project.get("clues", {})
 
     if clue_names:
-        clues_dict = project.get("clues", {})
         names_to_process = []
         for name in clue_names:
             if name not in clues_dict:
@@ -125,8 +125,6 @@ def generate_batch_clues(
     if not names_to_process:
         print("✅ 没有需要生成的线索")
         return (0, 0)
-
-    clues_dict = project.get("clues", {})
     specs = [
         BatchTaskSpec(
             task_type="clue",

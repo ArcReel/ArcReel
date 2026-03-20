@@ -1,6 +1,6 @@
 """Tests for generation_queue_client async functions."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 

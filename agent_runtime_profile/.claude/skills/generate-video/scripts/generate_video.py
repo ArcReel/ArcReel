@@ -374,10 +374,9 @@ def generate_episode_video(
     resume: bool = False,
 ) -> list[Path]:
     """
-    为指定 episode 生成视频
+    为指定 episode 生成所有场景的视频片段。
 
-    每个场景独立生成视频，使用分镜图作为起始帧，
-    最后用 ffmpeg 拼接成完整视频。
+    每个场景独立生成视频，使用分镜图作为起始帧。
     """
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
