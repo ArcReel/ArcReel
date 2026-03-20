@@ -102,16 +102,22 @@ async def _load_all_config() -> _BulkConfig:
 
 
 def _get_or_create_video_backend(
-    provider_name: str, provider_settings: dict, bulk: _BulkConfig,
+    provider_name: str,
+    provider_settings: dict,
+    bulk: _BulkConfig,
+    *,
+    default_video_model: str = "",
 ):
     """获取或创建 VideoBackend 实例（带缓存）。
 
     provider_name 可以是旧格式（gemini/seedance/grok）或新格式（gemini-aistudio/gemini-vertex）。
     使用预加载的 bulk 配置，避免额外 DB 查询。
+    default_video_model: 全局默认视频模型，当 provider_settings 中无 model 时作为 fallback。
     """
     from lib.video_backends import create_backend
 
-    cache_key = (provider_name, provider_settings.get("model"))
+    effective_model = provider_settings.get("model") or default_video_model or None
+    cache_key = (provider_name, effective_model)
     if cache_key in _backend_cache:
         return _backend_cache[cache_key]
 
@@ -132,16 +138,16 @@ def _get_or_create_video_backend(
         db_config = bulk.get_provider_config(config_provider_id)
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["rate_limiter"] = rate_limiter
-        kwargs["video_model"] = provider_settings.get("model")
+        kwargs["video_model"] = effective_model
     elif backend_name == PROVIDER_SEEDANCE:
         db_config = bulk.get_provider_config("seedance")
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["file_service_base_url"] = db_config.get("file_service_base_url", "")
-        kwargs["model"] = provider_settings.get("model")
+        kwargs["model"] = effective_model
     elif backend_name == PROVIDER_GROK:
         db_config = bulk.get_provider_config("grok")
         kwargs["api_key"] = db_config.get("api_key")
-        kwargs["model"] = provider_settings.get("model")
+        kwargs["model"] = effective_model
 
     backend = create_backend(backend_name, **kwargs)
     _backend_cache[cache_key] = backend
@@ -180,7 +186,9 @@ def _resolve_video_backend(
     if payload and payload.get("video_provider"):
         provider_name = payload["video_provider"]
         provider_settings = payload.get("video_provider_settings", {})
-        video_backend = _get_or_create_video_backend(provider_name, provider_settings, bulk)
+        video_backend = _get_or_create_video_backend(
+            provider_name, provider_settings, bulk, default_video_model=video_model,
+        )
     elif payload:
         project = get_project_manager().load_project(project_name)
         provider_name = project.get("video_provider")
@@ -189,7 +197,9 @@ def _resolve_video_backend(
             if provider_name == PROVIDER_GEMINI:
                 video_backend_type = "vertex" if default_video_provider_id == "gemini-vertex" else "aistudio"
         provider_settings = project.get("video_provider_settings", {}).get(provider_name, {})
-        video_backend = _get_or_create_video_backend(provider_name, provider_settings, bulk)
+        video_backend = _get_or_create_video_backend(
+            provider_name, provider_settings, bulk, default_video_model=video_model,
+        )
 
     return video_backend, video_backend_type, video_model
 
@@ -484,7 +494,7 @@ async def execute_storyboard_task(project_name: str, resource_id: str, payload: 
         previous_storyboard_path=previous_storyboard_path,
     )
 
-    generator = await get_media_generator(project_name)
+    generator = await get_media_generator(project_name, payload=payload)
     aspect_ratio = get_aspect_ratio(project, "storyboards")
 
     _, version = await generator.generate_image_async(
@@ -635,7 +645,7 @@ async def execute_character_task(project_name: str, resource_id: str, payload: D
         if full_ref.exists():
             reference_images = [full_ref]
 
-    generator = await get_media_generator(project_name)
+    generator = await get_media_generator(project_name, payload=payload)
     aspect_ratio = get_aspect_ratio(project, "characters")
 
     _, version = await generator.generate_image_async(
@@ -679,7 +689,7 @@ async def execute_clue_task(project_name: str, resource_id: str, payload: Dict[s
     clue_type = clue_data.get("type", "prop")
     full_prompt = build_clue_prompt(resource_id, prompt, clue_type, style, style_description)
 
-    generator = await get_media_generator(project_name)
+    generator = await get_media_generator(project_name, payload=payload)
     aspect_ratio = get_aspect_ratio(project, "clues")
 
     _, version = await generator.generate_image_async(
