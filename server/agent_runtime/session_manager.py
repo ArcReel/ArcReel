@@ -476,6 +476,13 @@ class SessionManager:
             if not file_path or not file_path.endswith(".json"):
                 return {}
 
+            # --- Reject curly/smart quotes that would corrupt JSON ---
+            _CURLY_QUOTES = "\u201c\u201d\u201e\u201f"  # ""„‟
+
+            def _has_curly_quotes(text: str) -> bool:
+                """Return True if *text* contains Unicode curly/smart quotes."""
+                return any(ch in _CURLY_QUOTES for ch in text)
+
             # --- Simulate the result without touching the file ---
             simulated: str | None = None
 
@@ -486,6 +493,34 @@ class SessionManager:
                 new_string = tool_input.get("new_string", "")
                 if not old_string:
                     return {}
+
+                # Detect curly quotes early — Claude Code may normalise
+                # old_string internally (allowing the edit to succeed) while
+                # the hook's exact-match ``old_string not in current`` check
+                # below would skip validation, letting curly quotes slip into
+                # the file and corrupt JSON.
+                if _has_curly_quotes(new_string):
+                    curly_found = [
+                        f"U+{ord(ch):04X}" for ch in new_string
+                        if ch in _CURLY_QUOTES
+                    ]
+                    logger.warning(
+                        "PreToolUse JSON 校验拦截(弯引号): file=%s curly=%s",
+                        file_path, curly_found[:5],
+                    )
+                    return {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": (
+                                "操作被阻止：new_string 包含弯引号"
+                                "（\u201c 或 \u201d），"
+                                "这会破坏 JSON 格式。"
+                                "请将所有弯引号替换为标准 ASCII "
+                                "双引号 (U+0022) 后重试。"
+                            ),
+                        },
+                    }
 
                 p = Path(file_path)
                 resolved = (

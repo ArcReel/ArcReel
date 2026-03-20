@@ -713,3 +713,53 @@ class TestJsonValidationHook:
             "new_string": "replacement",
         })
         assert result == {}
+
+    # --- Edit: curly/smart quotes in new_string → deny ---
+
+    async def test_edit_curly_quotes_in_new_string_denies(self, tmp_path):
+        """Edit whose new_string contains curly quotes is denied even when
+        old_string doesn't exactly match the file (Claude Code may normalise
+        quotes internally, bypassing the hook's str.replace simulation)."""
+        json_file = tmp_path / "ep.json"
+        json_file.write_text('{"segment_break": true, "title": "test"}')
+        manager = self._make_manager(tmp_path)
+
+        # old_string uses curly quotes (won't match file via Python str `in`),
+        # but new_string also has curly quotes → must be blocked.
+        result = await self._call_hook(manager, {
+            "file_path": str(json_file),
+            "old_string": "\u201csegment_break\u201d: true",
+            "new_string": "\u201csegment_break\u201d: false",
+        })
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert "弯引号" in result["hookSpecificOutput"]["permissionDecisionReason"]
+
+    async def test_edit_curly_quotes_old_only_is_allowed(self, tmp_path):
+        """If only old_string has curly quotes but new_string is clean,
+        don't block (edit will likely fail on its own)."""
+        json_file = tmp_path / "ep.json"
+        json_file.write_text('{"segment_break": true}')
+        manager = self._make_manager(tmp_path)
+
+        result = await self._call_hook(manager, {
+            "file_path": str(json_file),
+            "old_string": "\u201csegment_break\u201d: true",
+            "new_string": '"segment_break": false',
+        })
+        # old_string not in file → hook skips → allowed
+        assert result == {}
+
+    async def test_edit_curly_quotes_in_new_string_straight_old_denies(self, tmp_path):
+        """Edit with straight-quote old_string that matches file but
+        curly-quote new_string is denied via the early curly-quote check."""
+        json_file = tmp_path / "ep.json"
+        json_file.write_text('{"segment_break": true, "title": "test"}')
+        manager = self._make_manager(tmp_path)
+
+        result = await self._call_hook(manager, {
+            "file_path": str(json_file),
+            "old_string": '"segment_break": true',
+            "new_string": "\u201csegment_break\u201d: false",
+        })
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert "弯引号" in result["hookSpecificOutput"]["permissionDecisionReason"]
