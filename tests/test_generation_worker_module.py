@@ -65,10 +65,10 @@ class TestProviderPool:
         assert not pool.has_image_room()
         assert not pool.has_video_room()
 
-    def test_no_room_when_full(self):
+    async def test_no_room_when_full(self):
         pool = ProviderPool(provider_id="test", image_max=1, video_max=1)
         # Simulate inflight tasks with a dummy future
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         dummy = loop.create_future()
         dummy.set_result(None)
         pool.image_inflight["t1"] = dummy
@@ -76,9 +76,9 @@ class TestProviderPool:
         assert not pool.has_image_room()
         assert not pool.has_video_room()
 
-    def test_drain_finished(self):
+    async def test_drain_finished(self):
         pool = ProviderPool(provider_id="test", image_max=2, video_max=2)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         done = loop.create_future()
         done.set_result(None)
         pending = loop.create_future()
@@ -206,7 +206,7 @@ class TestGenerationWorker:
         assert pool.video_max == 1
         assert "unknown-provider" in worker._pools
 
-    def test_any_pool_has_room(self):
+    async def test_any_pool_has_room(self):
         pools = {
             "a": ProviderPool(provider_id="a", image_max=0, video_max=1),
             "b": ProviderPool(provider_id="b", image_max=1, video_max=0),
@@ -215,7 +215,7 @@ class TestGenerationWorker:
         assert worker._any_pool_has_room("image")
         assert worker._any_pool_has_room("video")
         # Fill them up
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         dummy = loop.create_future()
         dummy.set_result(None)
         pools["b"].image_inflight["t1"] = dummy
