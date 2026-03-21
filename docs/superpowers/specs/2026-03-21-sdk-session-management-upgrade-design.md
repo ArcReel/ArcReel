@@ -63,8 +63,8 @@ POST /send(project_name, message, session_id=null)
 **读取路径**（`list_sessions` API）：
 
 1. DB 查询：按 `project_name` 过滤，得到 `[{id, status, created_at, ...}]`
-2. SDK 查询：调用 `list_sessions(directory=project_cwd)` 一次拿到所有会话的 `summary`
-3. 合并：按 `session_id` join，将 `summary` 注入返回的 `SessionMeta.title`
+2. SDK 查询：调用 `list_sessions(directory=project_cwd, include_worktrees=False)` 一次拿到所有会话的 `summary`（显式禁用 worktree 跨查询，避免多项目 cwd 在同一 git repo 下时互相污染）
+3. 合并：按 `session_id` join，将 `summary` 注入返回的 `SessionMeta.title`；SDK 返回但 DB 中不存在的会话忽略（缺少 `project_name` 等 DB 元数据）
 4. 无匹配 summary 的记录（SDK 数据已清理等）fallback 到空字符串
 
 **SDK `summary` 的三级降级**（SDK 内部逻辑）：
@@ -78,6 +78,7 @@ POST /send(project_name, message, session_id=null)
 ### Tag 标签
 
 在 `sdk_session_id` 首次到达时，调用 `tag_session(sdk_session_id, f"project:{project_name}")`。
+注意：`tag_session` 是同步文件 I/O，需用 `asyncio.to_thread()` 包装。
 当前不用于查询，为将来 SDK 原生按 tag 过滤铺路。
 
 ## 详细改动清单
@@ -102,18 +103,30 @@ POST /send(project_name, message, session_id=null)
 #### 新增/修改
 
 - **`send_message` 端点**：接受可选 `session_id`；无 session_id 时为新会话创建流程
-- **`SessionManager.send_message()`**：新会话场景下增加 `asyncio.Event` 等待 sdk_session_id，拿到后创建 DB 记录并返回
+- **`SessionManager.send_message()`**：新会话场景下增加 `asyncio.Event` 等待 sdk_session_id，拿到后创建 DB 记录并返回。注意时序保证：consumer task 在 `send_message` 返回前已启动，SDK 流事件会缓冲在 `message_buffer`（max 100）中，SSE 连接建立后通过 replay_buffer 补发
 - **`SessionManager._maybe_update_sdk_session_id()`** → 重命名为 `_register_new_session()`：
   - 首次拿到 sdk_session_id 时创建 DB 记录（`id=sdk_session_id`）
-  - 调用 `tag_session()`
+  - 调用 `tag_session()`（通过 `asyncio.to_thread`）
   - set `asyncio.Event` 通知 `send_message` 返回
-- **`AssistantService.list_sessions()`**：合并 DB 查询 + SDK `list_sessions()` 注入 summary
+- **`AssistantService.list_sessions()`**：合并 DB 查询 + SDK `list_sessions()` 注入 summary（SDK `list_sessions` 是同步函数，需 `asyncio.to_thread` 包装）
 - **`SessionMetaStore.create()`**：接受显式 `session_id` 参数（不再自动生成 UUID）
+
+#### 受影响的引用点（`sdk_session_id` → `id` 替换）
+
+- `service.py`：`_build_projector`、`_resolve_sdk_session_id`（大幅简化或移除）、`_build_status_event_payload`、`_with_session_metadata`
+- `session_manager.py`：`get_or_connect`（`meta.sdk_session_id` → `meta.id`）、`_build_options`（`resume_id`）
+- `sdk_transcript_adapter.py`：`read_raw_messages`（参数改用 `meta.id`）
+- `models.py`：`AssistantSnapshotV2.sdk_session_id` 字段移除
 
 #### DB 迁移
 
-- Alembic 迁移：移除 `sdk_session_id` 列（数据迁移：将现有记录的 `id` 更新为 `sdk_session_id` 值，`sdk_session_id=null` 的记录直接删除）
-- `title` 列保留但 server_default 改为空字符串（已经是）
+SQLite 不支持原地修改主键，使用 Alembic `batch_alter_table` 重建表：
+
+1. 删除 `sdk_session_id IS NULL` 的幽灵记录
+2. 创建新表（`id` 直接存原 `sdk_session_id`，无 `sdk_session_id` 列）
+3. `INSERT INTO new_table SELECT sdk_session_id AS id, project_name, title, status, created_at, updated_at FROM old_table`
+4. 删旧表、改名
+5. `title` 列保留但不再写入（server_default 已是空字符串）
 
 ### 前端
 
@@ -125,13 +138,14 @@ POST /send(project_name, message, session_id=null)
 #### 修改
 
 - **`sendMessage`**：draft 模式时 POST /send 不传 session_id，从响应中获取 `session_id`，更新 store
-- **`SessionMeta` 类型**：移除 `sdk_session_id` 字段
+- **`SessionMeta` 类型**（`types/assistant.ts`）：移除 `sdk_session_id` 字段
 - **`AgentCopilot.tsx`**：`displayTitle` fallback 链不变（`title || formatTime(created_at)`），title 质量自动提升
+- **测试文件**：所有引用 `sdk_session_id` 的测试需更新（`useAssistantSession.test.tsx`、`stores.test.ts`、`router.test.tsx`、`AgentCopilot.test.tsx` 及后端测试）
 
 ### 错误处理
 
 - SDK 连接失败：`send_message` 直接抛异常，无 DB 残留（空会话问题自然消除）
-- sdk_session_id 等待超时：设 30 秒超时，超时后清理 SDK 连接并抛错
+- sdk_session_id 等待超时：设 30 秒超时，超时后取消 consumer task、断开 SDK 连接、确保无资源泄漏后抛错
 - `list_sessions` SDK 调用失败：降级为仅返回 DB 数据，title 为空（前端 fallback 到时间戳）
 
 ## 向后兼容
@@ -146,3 +160,4 @@ POST /send(project_name, message, session_id=null)
 - `AssistantMessage.usage` token 追踪
 - `RateLimitEvent` 捕获
 - `AgentDefinition` 的 `skills`/`memory`/`mcpServers` 声明化配置
+- SDK summary 的 DB 缓存（已完成会话的 summary 不变，可作后续性能优化）
