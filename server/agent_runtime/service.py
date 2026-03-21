@@ -11,6 +11,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
 
+try:
+    from claude_agent_sdk import list_sessions as sdk_list_sessions
+except ImportError:
+    sdk_list_sessions = None
+
 if TYPE_CHECKING:
     from server.routers.assistant import ImageAttachment
 
@@ -77,14 +82,6 @@ class AssistantService:
                 interrupted_count,
             )
 
-    async def create_session(self, project_name: str, title: str = "") -> SessionMeta:
-        """Create a new session."""
-        self.pm.get_project_path(project_name)  # Validate project exists
-        normalized_title = title.strip() or f"{project_name} 会话"
-        session = await self.session_manager.create_session(project_name, normalized_title)
-        logger.info("创建会话 session_id=%s project=%s", session.id, project_name)
-        return session
-
     async def list_sessions(
         self,
         project_name: Optional[str] = None,
@@ -92,10 +89,28 @@ class AssistantService:
         limit: int = 50,
         offset: int = 0,
     ) -> list[SessionMeta]:
-        """List sessions."""
-        return await self.meta_store.list(
+        """List sessions, injecting SDK summary as title when available."""
+        sessions = await self.meta_store.list(
             project_name=project_name, status=status, limit=limit, offset=offset
         )
+        if not sessions or not project_name or sdk_list_sessions is None:
+            return sessions
+
+        # Inject SDK summary as title
+        try:
+            project_cwd = str(self.projects_root / project_name)
+            sdk_sessions = await asyncio.to_thread(
+                sdk_list_sessions, directory=project_cwd, include_worktrees=False
+            )
+            summary_map = {s.session_id: s.summary for s in sdk_sessions}
+        except Exception:
+            logger.warning("SDK list_sessions failed, titles will be empty", exc_info=True)
+            return sessions
+
+        return [
+            SessionMeta(**{**s.model_dump(), "title": summary_map.get(s.id, s.title)})
+            for s in sessions
+        ]
 
     async def get_session(self, session_id: str) -> Optional[SessionMeta]:
         """Get session by ID."""
@@ -107,15 +122,6 @@ class AssistantService:
                 **{**meta.model_dump(), "status": managed.status}
             )
         return meta
-
-    async def update_session_title(self, session_id: str, title: str) -> Optional[SessionMeta]:
-        """Update session title."""
-        if await self.meta_store.get(session_id) is None:
-            return None
-        normalized = title.strip() or "未命名会话"
-        if not await self.meta_store.update_title(session_id, normalized):
-            return None
-        return await self.meta_store.get(session_id)
 
     async def delete_session(self, session_id: str) -> bool:
         """Delete session and cleanup."""
@@ -175,26 +181,15 @@ class AssistantService:
 
         return snapshot
 
-    async def send_message(
+    def _prepare_prompt(
         self,
-        session_id: str,
         content: str,
-        *,
         images: Optional[list["ImageAttachment"]] = None,
-        meta: Optional[SessionMeta] = None,
-    ) -> dict[str, Any]:
-        """Send a message to the session."""
+    ) -> tuple[str, Optional[Any], Optional[list[dict[str, Any]]]]:
+        """Prepare prompt components: (text, sdk_prompt_or_none, echo_blocks_or_none)."""
         text = content.strip()
         if not text and not images:
             raise ValueError("消息内容不能为空")
-
-        if meta is None:
-            meta = await self.meta_store.get(session_id)
-            if meta is None:
-                raise FileNotFoundError(f"session not found: {session_id}")
-
-        logger.info("发送消息到会话 session_id=%s", session_id)
-        self._snapshot_cache.pop(session_id, None)
 
         if images:
             sdk_prompt = self._build_multimodal_prompt(text, images)
@@ -203,13 +198,65 @@ class AssistantService:
             ]
             if text:
                 echo_blocks.append({"type": "text", "text": text})
-            await self.session_manager.send_message(
-                session_id, sdk_prompt, echo_text=text, echo_content=echo_blocks, meta=meta
-            )
-        else:
-            await self.session_manager.send_message(session_id, text, meta=meta)
+            return text, sdk_prompt, echo_blocks
+        return text, None, None
 
-        return {"status": "accepted", "session_id": session_id}
+    async def send_or_create(
+        self,
+        project_name: str,
+        content: str,
+        *,
+        session_id: Optional[str] = None,
+        images: Optional[list["ImageAttachment"]] = None,
+    ) -> dict[str, Any]:
+        """Unified send: create new session or send to existing one."""
+        self.pm.get_project_path(project_name)  # Validate project
+
+        if session_id:
+            # Existing session
+            meta = await self.meta_store.get(session_id)
+            if meta is None:
+                raise FileNotFoundError(f"session not found: {session_id}")
+            if meta.project_name != project_name:
+                raise FileNotFoundError(f"session not found: {session_id}")
+            self._snapshot_cache.pop(session_id, None)
+            # Build prompt
+            text, sdk_prompt, echo_blocks = self._prepare_prompt(content, images)
+            if sdk_prompt is not None:
+                await self.session_manager.send_message(
+                    session_id, sdk_prompt, echo_text=text, echo_content=echo_blocks, meta=meta
+                )
+            else:
+                await self.session_manager.send_message(session_id, text, meta=meta)
+            return {"status": "accepted", "session_id": session_id}
+        else:
+            # New session
+            text, sdk_prompt, echo_blocks = self._prepare_prompt(content, images)
+            prompt = sdk_prompt if sdk_prompt is not None else text
+            new_sdk_session_id = await self.session_manager.send_new_session(
+                project_name,
+                prompt,
+                echo_text=text,
+                echo_content=echo_blocks,
+            )
+            return {"status": "accepted", "session_id": new_sdk_session_id}
+
+    async def send_message(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        images: Optional[list["ImageAttachment"]] = None,
+        meta: Optional[SessionMeta] = None,
+    ) -> dict[str, Any]:
+        """Send a message to an existing session."""
+        if meta is None:
+            meta = await self.meta_store.get(session_id)
+            if meta is None:
+                raise FileNotFoundError(f"session not found: {session_id}")
+        return await self.send_or_create(
+            meta.project_name, content, session_id=session_id, images=images
+        )
 
     @staticmethod
     def _image_block(img: "ImageAttachment") -> dict[str, Any]:
@@ -542,7 +589,7 @@ class AssistantService:
     ) -> AssistantStreamProjector:
         """Build projector state from transcript history + in-memory buffer."""
         history_messages = await asyncio.to_thread(
-            self.transcript_adapter.read_raw_messages, meta.sdk_session_id
+            self.transcript_adapter.read_raw_messages, meta.id
         )
         projector = AssistantStreamProjector(initial_messages=history_messages)
 
@@ -638,32 +685,19 @@ class AssistantService:
         subtype = message.get("subtype")
         stop_reason = message.get("stop_reason")
         is_error = bool(message.get("is_error"))
-        sdk_session_id = None
-        explicit_sdk_session_id = message.get("sdk_session_id") or message.get("sdkSessionId")
-        if isinstance(explicit_sdk_session_id, str) and explicit_sdk_session_id.strip():
-            sdk_session_id = explicit_sdk_session_id.strip()
-        else:
-            raw_session_id = message.get("session_id") or message.get("sessionId")
-            if isinstance(raw_session_id, str):
-                normalized_raw_session_id = raw_session_id.strip()
-                if normalized_raw_session_id and normalized_raw_session_id != session_id:
-                    sdk_session_id = normalized_raw_session_id
 
         if status == "error" and subtype is None:
             subtype = "error"
         if status == "error":
             is_error = True
 
-        payload = {
+        return {
             "status": status,
             "subtype": subtype,
             "stop_reason": stop_reason,
             "is_error": is_error,
             "session_id": session_id,
         }
-        if sdk_session_id:
-            payload["sdk_session_id"] = sdk_session_id
-        return payload
 
     async def _with_session_metadata(
         self,
@@ -672,52 +706,11 @@ class AssistantService:
         session_id: str,
         message: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        """Normalize outward-facing event payloads to ArcReel session ids."""
+        """Normalize outward-facing event payloads."""
         normalized = dict(payload)
         normalized["session_id"] = session_id
-
-        sdk_session_id = await self._resolve_sdk_session_id(
-            session_id,
-            message,
-            payload,
-        )
-        if sdk_session_id:
-            normalized["sdk_session_id"] = sdk_session_id
-        else:
-            normalized.pop("sdk_session_id", None)
-
+        normalized.pop("sdk_session_id", None)
         return normalized
-
-    async def _resolve_sdk_session_id(
-        self,
-        session_id: str,
-        *sources: Optional[dict[str, Any]],
-    ) -> Optional[str]:
-        """Resolve the Claude SDK session id without leaking it into public session_id."""
-        for source in sources:
-            if not isinstance(source, dict):
-                continue
-
-            explicit = source.get("sdk_session_id") or source.get("sdkSessionId")
-            if isinstance(explicit, str) and explicit.strip():
-                return explicit.strip()
-
-            candidate = source.get("session_id") or source.get("sessionId")
-            if isinstance(candidate, str):
-                normalized_candidate = candidate.strip()
-                if normalized_candidate and normalized_candidate != session_id:
-                    return normalized_candidate
-
-        sessions = getattr(self.session_manager, "sessions", None)
-        managed = sessions.get(session_id) if isinstance(sessions, dict) else None
-        if managed and managed.sdk_session_id:
-            return managed.sdk_session_id
-
-        meta = await self.meta_store.get(session_id)
-        if meta and meta.sdk_session_id:
-            return meta.sdk_session_id
-
-        return None
 
     @staticmethod
     def _is_groupable_message(message: dict[str, Any]) -> bool:

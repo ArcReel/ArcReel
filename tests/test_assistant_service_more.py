@@ -32,13 +32,6 @@ class _FakeMetaStore:
     async def list(self, project_name=None, status=None, limit=50, offset=0):
         return list(self.metas.values())
 
-    async def update_title(self, session_id, title):
-        meta = self.metas.get(session_id)
-        if not meta:
-            return False
-        self.metas[session_id] = make_session_meta(**{**meta.model_dump(), "title": title})
-        return True
-
     async def delete(self, session_id):
         return self.metas.pop(session_id, None) is not None
 
@@ -46,7 +39,7 @@ class _FakeMetaStore:
 class _FakeSessionManager:
     def __init__(self):
         self.sessions = {}
-        self.created = []
+        self.new_sessions = []
         self.sent = []
         self.answered = []
         self.interrupted = []
@@ -55,9 +48,9 @@ class _FakeSessionManager:
         self.buffer = []
         self.pending = []
 
-    async def create_session(self, project_name, title):
-        self.created.append((project_name, title))
-        return make_session_meta(id="s-created", project_name=project_name, title=title)
+    async def send_new_session(self, project_name, prompt, **kwargs):
+        self.new_sessions.append((project_name, prompt))
+        return "sdk-new-id"
 
     async def get_status(self, session_id):
         return self.status
@@ -124,8 +117,8 @@ class TestAssistantServiceMore:
         factory = async_sessionmaker(engine, expire_on_commit=False)
         store = SessionMetaStore(session_factory=factory)
 
-        running = await store.create("demo", "Running")
-        completed = await store.create("demo", "Completed")
+        running = await store.create("demo", "sdk-running-1")
+        completed = await store.create("demo", "sdk-completed-1")
         await store.update_status(running.id, "running")
         await store.update_status(completed.id, "completed")
 
@@ -182,10 +175,6 @@ class TestAssistantServiceMore:
         service.session_manager = sm
         service.meta_store = _FakeMetaStore([meta])
 
-        created = await service.create_session("demo", "  ")
-        assert created.title == "demo 会话"
-        assert sm.created == [("demo", "demo 会话")]
-
         listed = await service.list_sessions()
         assert len(listed) == 1
 
@@ -195,15 +184,36 @@ class TestAssistantServiceMore:
         fetched_live = await service.get_session("s1")
         assert fetched_live.status == "running"
 
-        assert await service.update_session_title("missing", "x") is None
-        updated = await service.update_session_title("s1", "  ")
-        assert updated.title == "未命名会话"
+        # send_or_create — new session (no session_id)
+        new_result = await service.send_or_create("demo", "hello")
+        assert new_result == {"status": "accepted", "session_id": "sdk-new-id"}
+        assert len(sm.new_sessions) == 1
+        assert sm.new_sessions[0][0] == "demo"
 
+        # send_or_create — existing session
+        existing_result = await service.send_or_create("demo", "world", session_id="s1")
+        assert existing_result == {"status": "accepted", "session_id": "s1"}
+        assert sm.sent == [("s1", "world")]
+
+        # send_or_create — empty message raises ValueError
+        with pytest.raises(ValueError):
+            await service.send_or_create("demo", "   ")
+
+        # send_or_create — missing session raises FileNotFoundError
+        with pytest.raises(FileNotFoundError):
+            await service.send_or_create("demo", "hello", session_id="missing")
+
+        # send_or_create — project mismatch raises FileNotFoundError
+        with pytest.raises(FileNotFoundError):
+            await service.send_or_create("other_project", "hello", session_id="s1")
+
+        # send_message delegates to send_or_create
         with pytest.raises(ValueError):
             await service.send_message("s1", "   ")
 
         with pytest.raises(FileNotFoundError):
             await service.send_message("missing", "hello")
+        sm.sent.clear()
         accepted = await service.send_message("s1", " hello ")
         assert accepted == {"status": "accepted", "session_id": "s1"}
         assert sm.sent == [("s1", "hello")]
