@@ -620,11 +620,12 @@ class SessionManager:
             raise RuntimeError("claude_agent_sdk is not installed")
 
         temp_id = uuid4().hex
+        managed_ref: list[Optional[ManagedSession]] = [None]
 
         options = self._build_options(
             project_name,
             resume_id=None,
-            can_use_tool=await self._build_can_use_tool_callback(temp_id),
+            can_use_tool=await self._build_can_use_tool_callback(temp_id, managed_ref),
         )
         client = ClaudeSDKClient(options=options)
         await client.connect()
@@ -635,6 +636,7 @@ class SessionManager:
             status="running",
             project_name=project_name,
         )
+        managed_ref[0] = managed
         self.sessions[temp_id] = managed
 
         # Echo user message
@@ -998,12 +1000,11 @@ class SessionManager:
 
     async def _handle_ask_user_question(
         self,
-        session_id: str,
+        managed: Optional["ManagedSession"],
         tool_name: str,
         input_data: dict[str, Any],
     ) -> Any:
         """Handle AskUserQuestion tool invocation within can_use_tool callback."""
-        managed = self.sessions.get(session_id)
         if managed is None:
             return PermissionResultAllow(updated_input=input_data)
 
@@ -1032,7 +1033,11 @@ class SessionManager:
         merged_input["answers"] = answers
         return PermissionResultAllow(updated_input=merged_input)
 
-    async def _build_can_use_tool_callback(self, session_id: str):
+    async def _build_can_use_tool_callback(
+        self,
+        session_id: str,
+        managed_ref: Optional[list] = None,
+    ):
         """Create per-session can_use_tool callback (default-deny).
 
         This is step 5 (final fallback) in the SDK permission chain:
@@ -1045,6 +1050,13 @@ class SessionManager:
 
         This callback handles AskUserQuestion (async user interaction) and
         denies everything else as a whitelist fallback.
+
+        Args:
+            session_id: Initial session ID (may be temp_id for new sessions).
+            managed_ref: Mutable single-element list holding the ManagedSession.
+                When provided, the callback resolves the session via this
+                reference instead of looking up session_id in self.sessions,
+                so it survives the temp_id → sdk_id key swap.
         """
 
         async def _can_use_tool(
@@ -1058,8 +1070,9 @@ class SessionManager:
             normalized_tool = str(tool_name or "").strip().lower()
 
             if normalized_tool == "askuserquestion":
+                managed = managed_ref[0] if managed_ref else self.sessions.get(session_id)
                 return await self._handle_ask_user_question(
-                    session_id, tool_name, input_data,
+                    managed, tool_name, input_data,
                 )
 
             # Whitelist fallback: deny any tool that was not pre-approved
