@@ -76,7 +76,6 @@ describe("AppRoutes", () => {
       sessions: [
         {
           id: "session-1",
-          sdk_session_id: null,
           project_name: "old",
           title: "Old",
           status: "idle",

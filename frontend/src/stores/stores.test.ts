@@ -182,7 +182,6 @@ describe("stores", () => {
     assistant.setSessions([
       {
         id: "s1",
-        sdk_session_id: null,
         project_name: "demo",
         title: "Session 1",
         status: "idle",

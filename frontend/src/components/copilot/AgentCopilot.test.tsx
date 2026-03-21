@@ -103,7 +103,6 @@ describe("AgentCopilot", () => {
       sessions: [
         {
           id: "session-1",
-          sdk_session_id: null,
           project_name: "demo",
           title: "当前会话",
           status: "idle",

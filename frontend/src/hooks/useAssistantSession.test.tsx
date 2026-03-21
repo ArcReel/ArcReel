@@ -34,7 +34,6 @@ class MockEventSource {
 function makeSession(id: string, status: SessionMeta["status"]): SessionMeta {
   return {
     id,
-    sdk_session_id: null,
     project_name: "demo",
     title: id,
     status,
@@ -273,7 +272,7 @@ describe("useAssistantSession", () => {
           : [],
       }),
     );
-    const deferred = createDeferred<{ success: boolean }>();
+    const deferred = createDeferred<{ session_id: string; status: string }>();
     vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -301,7 +300,7 @@ describe("useAssistantSession", () => {
     ]);
 
     await act(async () => {
-      deferred.resolve({ success: true });
+      deferred.resolve({ session_id: "session-1", status: "running" });
       await deferred.promise;
     });
 
@@ -315,7 +314,7 @@ describe("useAssistantSession", () => {
     });
     vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "idle") });
     vi.spyOn(API, "getAssistantSnapshot").mockResolvedValue(makeSnapshot());
-    vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({ success: true });
+    vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({ session_id: "session-1", status: "running" });
 
     const { result } = renderHook(() => useAssistantSession("demo"));
 
@@ -388,7 +387,7 @@ describe("useAssistantSession", () => {
         },
       ],
     }));
-    vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({ success: true });
+    vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({ session_id: "session-1", status: "running" });
 
     const { result } = renderHook(() => useAssistantSession("demo"));
 

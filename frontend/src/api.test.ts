@@ -295,15 +295,13 @@ describe("API", () => {
       await API.deleteStyleImage("demo");
       await API.updateStyleDescription("demo", "moody");
 
-      await API.createAssistantSession("demo", "My Session");
       await API.listAssistantSessions("demo", "running");
       await API.getAssistantSession("demo", "session-1");
       await API.getAssistantSnapshot("demo", "session-1");
-      await API.sendAssistantMessage("demo", "session-1", "hello");
+      await API.sendAssistantMessage("demo", "hello", "session-1");
       await API.interruptAssistantSession("demo", "session-1");
       await API.answerAssistantQuestion("demo", "session-1", "q-1", { key: "a" });
       await API.listAssistantSkills("demo");
-      await API.updateAssistantSession("demo", "session-1", { title: "Renamed", status: "idle" });
       await API.deleteAssistantSession("demo", "session-1");
 
       await API.getUsageStats({

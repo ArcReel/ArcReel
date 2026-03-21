@@ -10,8 +10,7 @@
 export type SessionStatus = "idle" | "running" | "completed" | "error" | "interrupted";
 
 export interface SessionMeta {
-  id: string;
-  sdk_session_id: string | null;
+  id: string;              // 现在就是 sdk_session_id
   project_name: string;
   title: string;
   status: SessionStatus;
@@ -62,7 +61,6 @@ export interface PendingQuestion {
 
 export interface AssistantSnapshot {
   session_id: string;
-  sdk_session_id?: string | null;
   status: SessionStatus;
   turns: Turn[];
   draft_turn: Turn | null;

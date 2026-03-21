@@ -1060,16 +1060,6 @@ class API {
     return `/projects/${encodeURIComponent(projectName)}/assistant`;
   }
 
-  static async createAssistantSession(
-    projectName: string,
-    title: string = ""
-  ): Promise<{ success: boolean; session: SessionMeta }> {
-    return this.request(`${this.assistantBase(projectName)}/sessions`, {
-      method: "POST",
-      body: JSON.stringify({ title }),
-    });
-  }
-
   static async listAssistantSessions(
     projectName: string,
     status: string | null = null
@@ -1102,17 +1092,18 @@ class API {
 
   static async sendAssistantMessage(
     projectName: string,
-    sessionId: string,
     content: string,
+    sessionId?: string | null,
     images?: Array<{ data: string; media_type: string }>
-  ): Promise<SuccessResponse> {
-    return this.request(
-      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/messages`,
-      {
-        method: "POST",
-        body: JSON.stringify({ content, images: images ?? [] }),
-      }
-    );
+  ): Promise<{ session_id: string; status: string }> {
+    return this.request(`${this.assistantBase(projectName)}/sessions/send`, {
+      method: "POST",
+      body: JSON.stringify({
+        content,
+        session_id: sessionId || undefined,
+        images: images || [],
+      }),
+    });
   }
 
   static async interruptAssistantSession(
@@ -1151,20 +1142,6 @@ class API {
   ): Promise<{ skills: SkillInfo[] }> {
     return this.request(
       `${this.assistantBase(projectName)}/skills`
-    );
-  }
-
-  static async updateAssistantSession(
-    projectName: string,
-    sessionId: string,
-    updates: Partial<Pick<SessionMeta, "title" | "status">>
-  ): Promise<SuccessResponse> {
-    return this.request(
-      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify(updates),
-      }
     );
   }
 

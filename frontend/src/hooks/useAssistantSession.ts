@@ -405,39 +405,13 @@ export function useAssistantSession(projectName: string | null) {
       store.getState().setError(null);
 
       try {
-        // 如果没有会话，创建一个（懒创建：以首条消息作为标题）
-        if (!sessionId && projectName) {
-          const title = content.trim().slice(0, 30) || "图片消息";
-          const res = await API.createAssistantSession(projectName, title);
-          const raw = res as Record<string, unknown>;
-          const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
-          sessionId = (sessionObj.id as string) ?? null;
-          if (sessionId) {
-            const newSession: SessionMeta = {
-              id: sessionId,
-              sdk_session_id: null,
-              project_name: projectName,
-              title,
-              status: "idle" as const,
-              created_at: (sessionObj.created_at as string) ?? new Date().toISOString(),
-              updated_at: (sessionObj.created_at as string) ?? new Date().toISOString(),
-            };
-            store.getState().setCurrentSessionId(sessionId);
-            store.getState().setSessions([newSession, ...store.getState().sessions]);
-            store.getState().setIsDraftSession(false);
-            saveLastSessionId(projectName, sessionId);
-          }
-        }
-
-        if (!sessionId) throw new Error("无法创建会话");
-
-        // 提取 base64 数据（每张图片只 split 一次）
+        // 提取 base64 数据
         const imagePayload = images?.map((img) => ({
           data: img.dataUrl.split(",")[1] ?? "",
           media_type: img.mimeType,
         }));
 
-        // 乐观更新：立即在 UI 上显示用户消息，不等后端返回
+        // 乐观更新：立即在 UI 上显示用户消息
         const optimisticContent: import("@/types").ContentBlock[] = [
           ...(imagePayload ?? []).map((img) => ({
             type: "image" as const,
@@ -460,9 +434,35 @@ export function useAssistantSession(projectName: string | null) {
         statusRef.current = "running";
         store.getState().setSessionStatus("running");
 
-        // 先发送消息，再建立 SSE 连接。
-        await API.sendAssistantMessage(projectName!, sessionId, content, imagePayload);
+        // 统一发送（新建或已有会话）
+        const result = await API.sendAssistantMessage(
+          projectName!,
+          content,
+          sessionId,  // null for new session
+          imagePayload,
+        );
+
         if (pendingSendVersionRef.current !== sendVersion) return;
+
+        const returnedSessionId = result.session_id;
+
+        // 新会话：更新 store
+        if (!sessionId) {
+          const newSession: SessionMeta = {
+            id: returnedSessionId,
+            project_name: projectName!,
+            title: "",  // SDK summary 会在 list_sessions 时注入
+            status: "running",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          store.getState().setCurrentSessionId(returnedSessionId);
+          store.getState().setSessions([newSession, ...store.getState().sessions]);
+          store.getState().setIsDraftSession(false);
+          saveLastSessionId(projectName!, returnedSessionId);
+          sessionId = returnedSessionId;
+        }
+
         if (store.getState().currentSessionId !== sessionId) return;
         connectStream(sessionId);
       } catch (err) {
@@ -471,6 +471,10 @@ export function useAssistantSession(projectName: string | null) {
         if (sessionId && optimisticUuid) {
           restoreFailedSend(sessionId, optimisticUuid, previousStatus);
         } else {
+          // 新会话创建失败：回滚到 draft 模式
+          store.getState().setTurns(store.getState().turns.filter(t => t.uuid !== optimisticUuid));
+          store.getState().setIsDraftSession(true);
+          store.getState().setCurrentSessionId(null);
           statusRef.current = previousStatus ?? "idle";
           store.getState().setSessionStatus(previousStatus ?? "idle");
           store.getState().setSending(false);
