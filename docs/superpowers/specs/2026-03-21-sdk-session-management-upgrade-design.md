@@ -51,7 +51,7 @@ POST /send(project_name, message, session_id=null)
 | 字段 | 变更 | 说明 |
 |------|------|------|
 | `id` | **降级为内部主键** | 保留自动生成的 UUID，不再暴露给 API/前端 |
-| `sdk_session_id` | **升级为业务标识** | 加 UNIQUE 约束；所有 API 路由、前端、内存缓存统一使用此字段作为 session 标识 |
+| `sdk_session_id` | **升级为业务标识** | 加 UNIQUE + NOT NULL 约束；所有 API 路由、前端、内存缓存统一使用此字段作为 session 标识 |
 | `title` | **移除写入** | 不再写入；列暂时保留避免迁移，读时忽略 |
 | `project_name` | 不变 | SDK `list_sessions` 按 cwd 过滤，但 cwd ≠ project_name，DB 仍需此字段做映射 |
 | `status` | 不变 | SDK 不追踪应用层状态，DB 必须保留 |
@@ -100,24 +100,25 @@ POST /send(project_name, message, session_id=null)
 
 #### 新增/修改
 
-- **`send_message` 端点**：接受可选 `session_id`；无 session_id 时为新会话创建流程
-- **`SessionManager.send_message()`**：新会话场景下增加 `asyncio.Event` 等待 sdk_session_id，拿到后创建 DB 记录并返回。注意时序保证：consumer task 在 `send_message` 返回前已启动，SDK 流事件会缓冲在 `message_buffer`（max 100）中，SSE 连接建立后通过 replay_buffer 补发
+- **`send_message` 端点**：新增 `POST /sessions/send`（不含 `{session_id}` 路径参数）用于新会话；原 `POST /sessions/{session_id}/messages` 保留用于已有会话。新端点接受 `project_name` + `message`，返回 `session_id`（即 sdk_session_id）
+- **`SessionManager.send_new_session()`**：新会话专用方法。流程：connect → query → 启动 consumer task → await `asyncio.Event`（30s 超时）等待 sdk_session_id → 创建 DB 记录 → 返回 sdk_session_id。新会话期间 ManagedSession 先以临时 UUID 为 key 存入 `self.sessions`，拿到 sdk_session_id 后替换 key。超时清理：cancel consumer task → disconnect client → 从 `self.sessions` 移除临时 key。时序保证：consumer task 在 `send_message` 返回前已启动，SDK 流事件缓冲在 `message_buffer`（max 100）中，SSE 连接建立后通过 replay_buffer 补发
 - **`SessionManager._maybe_update_sdk_session_id()`** → 重命名为 `_register_new_session()`：
   - 首次拿到 sdk_session_id 时创建 DB 记录（`id=auto_uuid, sdk_session_id=xxx`）
   - 调用 `tag_session()`（通过 `asyncio.to_thread`）
   - set `asyncio.Event` 通知 `send_message` 返回
 - **`AssistantService.list_sessions()`**：合并 DB 查询 + SDK `list_sessions()` 注入 summary（SDK `list_sessions` 是同步函数，需 `asyncio.to_thread` 包装）
-- **`SessionMetaStore`**：所有查询方法改为按 `sdk_session_id` 查找而非 `id`
-- **`SessionRepository`**：查询/更新方法改用 `sdk_session_id` 作为业务查找键
+- **`SessionMetaStore`**：`get()`、`update_status()`、`delete()` 改为按 `sdk_session_id` 查找而非 `id`；移除 `update_sdk_session_id()`（新流程创建时直接带 sdk_session_id）
+- **`SessionRepository`**：`get()`、`update_status()`、`delete()` 的 WHERE 条件从 `AgentSession.id == x` 改为 `AgentSession.sdk_session_id == x`
+- **`_dict_to_session()`**（`session_store.py`）：关键映射点 — `id=d["sdk_session_id"]` 使对外暴露的 `SessionMeta.id` 填充 sdk_session_id 值
 
 #### 业务标识切换（app_id → sdk_session_id）
 
 以下位置的 session 标识从 app `id` 切换为 `sdk_session_id`：
 
-- `service.py`：所有 API 方法的 `session_id` 参数语义变更为 sdk_session_id；`_resolve_sdk_session_id` 大幅简化（不再需要反查映射）；`_build_status_event_payload`、`_with_session_metadata` 中的 ID 字段统一
+- `service.py`：所有 API 方法的 `session_id` 参数语义变更为 sdk_session_id；`_resolve_sdk_session_id` 移除（session_id 就是 sdk_session_id，无需反查）；`_build_status_event_payload` 中区分两种 ID 的逻辑移除；`_with_session_metadata` 简化
 - `session_manager.py`：`sessions` 字典的 key 改用 sdk_session_id；`get_or_connect`、`send_message` 等方法的 `session_id` 参数语义变更
 - `sdk_transcript_adapter.py`：`read_raw_messages` 直接用 sdk_session_id（不再需要从 meta 间接获取）
-- `models.py`：`SessionMeta.id` 对外填充 `sdk_session_id` 值；`AssistantSnapshotV2.sdk_session_id` 移除（与 `session_id` 统一）
+- `models.py`：`SessionMeta` 移除 `sdk_session_id` 字段（对外 `id` 已填充 sdk_session_id 值，由 `_dict_to_session` 映射）；`AssistantSnapshotV2.sdk_session_id` 移除（与 `session_id` 统一）
 - `routers/assistant.py`：路由中的 `{session_id}` 参数直接映射到 sdk_session_id
 
 #### DB 迁移
@@ -125,8 +126,9 @@ POST /send(project_name, message, session_id=null)
 Alembic 迁移：
 
 1. 删除 `sdk_session_id IS NULL` 的幽灵记录
-2. 为 `sdk_session_id` 列添加 UNIQUE 约束（使用 `batch_alter_table`）
-3. `title` 列保留但不再写入（server_default 已是空字符串）
+2. 为 `sdk_session_id` 列添加 UNIQUE + NOT NULL 约束（使用 `batch_alter_table`，`render_as_batch=True` 已在 `alembic/env.py` 中配置）
+3. ORM 模型 `AgentSession.sdk_session_id` 从 `Optional[str]` 改为 `str`（非空）
+4. `title` 列保留但不再写入（server_default 已是空字符串）
 
 ### 前端
 
@@ -139,6 +141,7 @@ Alembic 迁移：
 
 - **`sendMessage`**：draft 模式时 POST /send 不传 session_id，从响应中获取 `session_id`，更新 store
 - **`SessionMeta` 类型**（`types/assistant.ts`）：移除 `sdk_session_id` 字段（后端返回的 `id` 已经是 sdk_session_id）
+- **`AssistantSnapshot` 接口**（`types/assistant.ts`）：移除 `sdk_session_id` 字段
 - **`AgentCopilot.tsx`**：`displayTitle` fallback 链不变（`title || formatTime(created_at)`），title 质量自动提升
 - **测试文件**：所有引用 `sdk_session_id` 的测试需更新（`useAssistantSession.test.tsx`、`stores.test.ts`、`router.test.tsx`、`AgentCopilot.test.tsx` 及后端测试）
 
