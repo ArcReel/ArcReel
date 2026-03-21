@@ -46,38 +46,42 @@ async def _assistant_service_for_stream(
     return service, meta
 
 
-class CreateSessionRequest(BaseModel):
-    title: Optional[str] = ""
-
-
 class ImageAttachment(BaseModel):
     data: str
     media_type: str
 
 
-class SendMessageRequest(BaseModel):
+class SendRequest(BaseModel):
     content: str = ""
     images: list[ImageAttachment] = Field(default_factory=list, max_length=5)
+    session_id: Optional[str] = None
 
 
 class AnswerQuestionRequest(BaseModel):
     answers: dict[str, str] = Field(default_factory=dict)
 
 
-class UpdateSessionRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=120)
-
-
-@router.post("/sessions")
-async def create_session(project_name: str, req: CreateSessionRequest, _user: Annotated[dict, Depends(get_current_user)]):
+@router.post("/sessions/send")
+async def send_message(
+    project_name: str,
+    req: SendRequest,
+    _user: Annotated[dict, Depends(get_current_user)],
+):
     try:
         service = get_assistant_service()
-        session = await service.create_session(project_name, req.title or "")
-        return {"id": session.id, "status": session.status, "created_at": session.created_at}
+        result = await service.send_or_create(
+            project_name,
+            req.content,
+            session_id=req.session_id,
+            images=req.images,
+        )
+        return result
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
-    except HTTPException:
-        raise
+        raise HTTPException(status_code=404, detail="会话或项目不存在")
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="SDK 会话创建超时")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -111,24 +115,6 @@ async def get_session(project_name: str, session_id: str, _user: Annotated[dict,
         return session.model_dump()
     except HTTPException:
         raise
-    except Exception as exc:
-        logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.patch("/sessions/{session_id}")
-async def update_session(project_name: str, session_id: str, req: UpdateSessionRequest, _user: Annotated[dict, Depends(get_current_user)]):
-    try:
-        service = get_assistant_service()
-        await _validate_session_ownership(service, session_id, project_name)
-        session = await service.update_session_title(session_id, req.title)
-        if session is None:
-            raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
-        return {"success": True, "session": session.model_dump()}
-    except HTTPException:
-        raise
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -169,24 +155,6 @@ async def get_snapshot(project_name: str, session_id: str, _user: Annotated[dict
         raise
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
-    except Exception as exc:
-        logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.post("/sessions/{session_id}/messages")
-async def send_message(project_name: str, session_id: str, req: SendMessageRequest, _user: Annotated[dict, Depends(get_current_user)]):
-    try:
-        service = get_assistant_service()
-        meta = await _validate_session_ownership(service, session_id, project_name)
-        result = await service.send_message(session_id, req.content, images=req.images, meta=meta)
-        return result
-    except HTTPException:
-        raise
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(exc))

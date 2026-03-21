@@ -142,7 +142,7 @@ async def agent_chat(
     except (FileNotFoundError, KeyError):
         raise HTTPException(status_code=404, detail=f"项目 '{body.project_name}' 不存在")
 
-    # 创建或复用会话
+    # 若传入 session_id，先校验会话归属
     if body.session_id:
         session = await service.get_session(body.session_id)
         if session is None:
@@ -152,15 +152,18 @@ async def agent_chat(
                 status_code=400,
                 detail=f"会话 '{body.session_id}' 属于项目 '{session.project_name}'，与请求项目 '{body.project_name}' 不符",
             )
-        session_id = body.session_id
-    else:
-        session = await service.create_session(body.project_name)
-        session_id = session.id
 
-    # 先发消息，再在 _collect_reply 内订阅队列。
+    # 统一通过 send_or_create 创建或复用会话并发送消息。
     # 依赖 replay_buffer=True 缓冲已发送的消息，不会产生竞争条件。
     try:
-        await service.send_message(session_id, body.message)
+        result = await service.send_or_create(
+            body.project_name,
+            body.message,
+            session_id=body.session_id,
+        )
+        session_id = result["session_id"]
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="SDK 会话创建超时")
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 

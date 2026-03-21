@@ -20,10 +20,20 @@ class _FakeService:
             "bad": make_session_meta(id="bad", project_name=PROJECT),
         }
 
-    async def create_session(self, project_name, title):
+    async def send_or_create(self, project_name, content, session_id=None, images=None):
         if project_name == "missing":
             raise FileNotFoundError(project_name)
-        return make_session_meta(id="session-new", project_name=project_name, title=title or "")
+        if not content.strip() and not images:
+            raise ValueError("空消息")
+        returned_id = session_id or "sdk-new-session"
+        return {"status": "accepted", "session_id": returned_id}
+
+    async def send_message(self, session_id, content, **kwargs):
+        if session_id == "missing":
+            raise FileNotFoundError(session_id)
+        if content == "bad":
+            raise ValueError("bad")
+        return {"status": "accepted", "session_id": session_id}
 
     async def list_sessions(self, **kwargs):
         return [make_session_meta(id="session-1", project_name=kwargs.get("project_name") or "demo")]
@@ -33,15 +43,6 @@ class _FakeService:
             raise RuntimeError("boom")
         return self.sessions.get(session_id)
 
-    async def update_session_title(self, session_id, title):
-        if title == "bad":
-            raise ValueError("bad title")
-        if session_id not in self.sessions:
-            return None
-        session = make_session_meta(id=session_id, title=title, project_name=PROJECT)
-        self.sessions[session_id] = session
-        return session
-
     async def delete_session(self, session_id):
         return session_id in self.sessions
 
@@ -49,13 +50,6 @@ class _FakeService:
         if session_id == "missing":
             raise FileNotFoundError(session_id)
         return {"session_id": session_id, "status": "running", "turns": [], "pending_questions": []}
-
-    async def send_message(self, session_id, content, **kwargs):
-        if session_id == "missing":
-            raise FileNotFoundError(session_id)
-        if content == "bad":
-            raise ValueError("bad")
-        return {"status": "accepted", "session_id": session_id}
 
     async def interrupt_session(self, session_id, **kwargs):
         if session_id == "missing":
@@ -97,14 +91,29 @@ def _client(monkeypatch):
 class TestAssistantRouterFull:
     def test_full_endpoints_and_errors(self, monkeypatch):
         with _client(monkeypatch) as client:
-            create_ok = client.post(f"{PREFIX}/sessions", json={"title": "T"})
-            assert create_ok.status_code == 200
-            assert create_ok.json()["id"] == "session-new"
+            # POST /sessions/send — new session (no session_id)
+            send_new = client.post(f"{PREFIX}/sessions/send", json={"content": "hello"})
+            assert send_new.status_code == 200
+            assert send_new.json()["session_id"] == "sdk-new-session"
 
-            create_missing = client.post(
-                "/api/v1/projects/missing/assistant/sessions", json={"title": "T"}
+            # POST /sessions/send — existing session
+            send_existing = client.post(
+                f"{PREFIX}/sessions/send",
+                json={"content": "hello", "session_id": "session-1"},
             )
-            assert create_missing.status_code == 404
+            assert send_existing.status_code == 200
+            assert send_existing.json()["session_id"] == "session-1"
+
+            # POST /sessions/send — missing project → 404
+            send_missing_project = client.post(
+                "/api/v1/projects/missing/assistant/sessions/send",
+                json={"content": "hello"},
+            )
+            assert send_missing_project.status_code == 404
+
+            # POST /sessions/send — empty content → 400
+            send_empty = client.post(f"{PREFIX}/sessions/send", json={"content": "   "})
+            assert send_empty.status_code == 400
 
             listed = client.get(f"{PREFIX}/sessions")
             assert listed.status_code == 200
@@ -115,16 +124,6 @@ class TestAssistantRouterFull:
 
             get_missing = client.get(f"{PREFIX}/sessions/missing")
             assert get_missing.status_code == 404
-
-            update_ok = client.patch(f"{PREFIX}/sessions/session-1", json={"title": "new"})
-            assert update_ok.status_code == 200
-            assert update_ok.json()["session"]["title"] == "new"
-
-            update_bad = client.patch(f"{PREFIX}/sessions/session-1", json={"title": "bad"})
-            assert update_bad.status_code == 400
-
-            update_missing = client.patch(f"{PREFIX}/sessions/no", json={"title": "x"})
-            assert update_missing.status_code == 404
 
             delete_ok = client.delete(f"{PREFIX}/sessions/session-1")
             assert delete_ok.status_code == 200
@@ -140,15 +139,6 @@ class TestAssistantRouterFull:
 
             snapshot_missing = client.get(f"{PREFIX}/sessions/missing/snapshot")
             assert snapshot_missing.status_code == 404
-
-            send_ok = client.post(f"{PREFIX}/sessions/session-1/messages", json={"content": "hello"})
-            assert send_ok.status_code == 200
-
-            send_missing = client.post(f"{PREFIX}/sessions/missing/messages", json={"content": "hello"})
-            assert send_missing.status_code == 404
-
-            send_bad = client.post(f"{PREFIX}/sessions/session-1/messages", json={"content": "bad"})
-            assert send_bad.status_code == 400
 
             interrupt_ok = client.post(f"{PREFIX}/sessions/session-1/interrupt")
             assert interrupt_ok.status_code == 200
@@ -197,6 +187,22 @@ class TestAssistantRouterFull:
             skills_missing = client.get("/api/v1/projects/missing/assistant/skills")
             assert skills_missing.status_code == 404
 
+    def test_send_with_timeout_error(self, monkeypatch):
+        """TimeoutError 应返回 504。"""
+        fake = _FakeService()
+
+        async def _timeout_send_or_create(project_name, content, session_id=None, images=None):
+            raise TimeoutError("timeout")
+
+        fake.send_or_create = _timeout_send_or_create
+        monkeypatch.setattr(assistant, "get_assistant_service", lambda: fake)
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
+        app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant")
+        with TestClient(app) as client:
+            resp = client.post(f"{PREFIX}/sessions/send", json={"content": "hello"})
+            assert resp.status_code == 504
+
     def test_ownership_validation_wrong_project(self, monkeypatch):
         """Accessing a session through the wrong project should return 404."""
         with _client(monkeypatch) as client:
@@ -204,23 +210,11 @@ class TestAssistantRouterFull:
             get_wrong = client.get("/api/v1/projects/other/assistant/sessions/session-1")
             assert get_wrong.status_code == 404
 
-            patch_wrong = client.patch(
-                "/api/v1/projects/other/assistant/sessions/session-1",
-                json={"title": "new"},
-            )
-            assert patch_wrong.status_code == 404
-
             delete_wrong = client.delete("/api/v1/projects/other/assistant/sessions/session-1")
             assert delete_wrong.status_code == 404
 
             snapshot_wrong = client.get("/api/v1/projects/other/assistant/sessions/session-1/snapshot")
             assert snapshot_wrong.status_code == 404
-
-            send_wrong = client.post(
-                "/api/v1/projects/other/assistant/sessions/session-1/messages",
-                json={"content": "hello"},
-            )
-            assert send_wrong.status_code == 404
 
             interrupt_wrong = client.post("/api/v1/projects/other/assistant/sessions/session-1/interrupt")
             assert interrupt_wrong.status_code == 404

@@ -28,7 +28,7 @@ def _fake_session(session_id: str = "sess-1", project_name: str = "demo"):
 
 
 class TestAgentChatEndpoint:
-    def _patch_service(self, monkeypatch, *, project_exists=True, reply_text="你好", status="completed"):
+    def _patch_service(self, monkeypatch, *, project_exists=True, reply_text="你好", status="completed", session_id="sess-1"):
         """构建 mock AssistantService 并注入。"""
         mock_service = AsyncMock()
 
@@ -40,10 +40,11 @@ class TestAgentChatEndpoint:
             pm.get_project_path = MagicMock(side_effect=FileNotFoundError("not found"))
         mock_service.pm = pm
 
-        # 会话创建
-        mock_service.create_session = AsyncMock(return_value=_fake_session())
-        mock_service.get_session = AsyncMock(return_value=_fake_session())
-        mock_service.send_message = AsyncMock(return_value={"status": "accepted"})
+        # 会话查询（用于归属校验）
+        mock_service.get_session = AsyncMock(return_value=_fake_session(session_id=session_id))
+
+        # 统一发送端点
+        mock_service.send_or_create = AsyncMock(return_value={"status": "accepted", "session_id": session_id})
 
         monkeypatch.setattr(agent_chat, "get_assistant_service", lambda: mock_service)
         monkeypatch.setattr(
