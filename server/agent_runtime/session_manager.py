@@ -926,7 +926,7 @@ class SessionManager:
             try:
                 await managed.client.disconnect()
             except Exception:
-                pass
+                logger.debug("会话断开过程中出现非致命错误 session_id=%s", session_id, exc_info=True)
             self.sessions.pop(session_id, None)
             self._connect_locks.pop(session_id, None)
             logger.debug("已清理终态会话 session_id=%s", session_id)
