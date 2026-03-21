@@ -37,10 +37,11 @@ class SessionRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, project_name: str, title: str = "") -> dict[str, Any]:
+    async def create(self, project_name: str, sdk_session_id: str, title: str = "") -> dict[str, Any]:
         now = _utc_now()
         row = AgentSession(
             id=uuid.uuid4().hex,
+            sdk_session_id=sdk_session_id,
             project_name=project_name,
             title=title,
             status="idle",
@@ -54,7 +55,7 @@ class SessionRepository:
 
     async def get(self, session_id: str) -> Optional[dict[str, Any]]:
         result = await self.session.execute(
-            select(AgentSession).where(AgentSession.id == session_id)
+            select(AgentSession).where(AgentSession.sdk_session_id == session_id)
         )
         row = result.scalar_one_or_none()
         return _row_to_dict(row) if row else None
@@ -82,35 +83,15 @@ class SessionRepository:
         now = _utc_now()
         result = await self.session.execute(
             update(AgentSession)
-            .where(AgentSession.id == session_id)
+            .where(AgentSession.sdk_session_id == session_id)
             .values(status=status, updated_at=now)
-        )
-        await self.session.commit()
-        return result.rowcount > 0
-
-    async def update_sdk_session_id(self, session_id: str, sdk_session_id: str) -> bool:
-        now = _utc_now()
-        result = await self.session.execute(
-            update(AgentSession)
-            .where(AgentSession.id == session_id)
-            .values(sdk_session_id=sdk_session_id, updated_at=now)
-        )
-        await self.session.commit()
-        return result.rowcount > 0
-
-    async def update_title(self, session_id: str, title: str) -> bool:
-        now = _utc_now()
-        result = await self.session.execute(
-            update(AgentSession)
-            .where(AgentSession.id == session_id)
-            .values(title=title.strip(), updated_at=now)
         )
         await self.session.commit()
         return result.rowcount > 0
 
     async def delete(self, session_id: str) -> bool:
         result = await self.session.execute(
-            sa_delete(AgentSession).where(AgentSession.id == session_id)
+            sa_delete(AgentSession).where(AgentSession.sdk_session_id == session_id)
         )
         await self.session.commit()
         return result.rowcount > 0
