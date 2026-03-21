@@ -127,6 +127,7 @@ POST /sessions/send(project_name, message, session_id=xxx)
 - `sdk_transcript_adapter.py`：`read_raw_messages` 直接用 sdk_session_id（不再需要从 meta 间接获取）
 - `models.py`：`SessionMeta` 移除 `sdk_session_id` 字段（对外 `id` 已填充 sdk_session_id 值，由 `_dict_to_session` 映射）；`AssistantSnapshotV2.sdk_session_id` 移除（与 `session_id` 统一）
 - `routers/assistant.py`：路由中的 `{session_id}` 参数直接映射到 sdk_session_id
+- `routers/agent_chat.py`：`agent_chat` 端点同步适配 — 移除 `service.create_session()` 调用，新会话走与 `POST /sessions/send` 相同的 send-first 路径（SDK 连接 + 等待 sdk_session_id）；`session_id` 语义统一为 sdk_session_id；已有会话的查找改用 sdk_session_id
 
 #### DB 迁移
 
