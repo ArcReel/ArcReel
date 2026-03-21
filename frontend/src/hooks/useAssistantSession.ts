@@ -290,6 +290,14 @@ export function useAssistantSession(projectName: string | null) {
             store.getState().setDraftTurn(null);
           }
           closeStream();
+
+          // Turn 结束后刷新会话列表，获取 SDK summary 标题
+          if (projectName) {
+            API.listAssistantSessions(projectName).then((res) => {
+              const fresh = res.sessions ?? [];
+              if (fresh.length > 0) store.getState().setSessions(fresh);
+            }).catch(() => {/* 静默失败 */});
+          }
         }
       });
 
@@ -451,7 +459,7 @@ export function useAssistantSession(projectName: string | null) {
           const newSession: SessionMeta = {
             id: returnedSessionId,
             project_name: projectName!,
-            title: "",  // SDK summary 会在 list_sessions 时注入
+            title: content.trim().slice(0, 30) || "图片消息",
             status: "running",
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),

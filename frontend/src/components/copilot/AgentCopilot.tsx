@@ -88,7 +88,7 @@ function SessionSelector({
                   </button>
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
+                    onClick={(e) => { e.stopPropagation(); if (confirm("确定要删除这个会话吗？此操作不可撤销。")) onDelete(session.id); }}
                     className="shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
                     title="删除会话"
                   >
