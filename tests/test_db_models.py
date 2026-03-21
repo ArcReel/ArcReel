@@ -62,6 +62,7 @@ class TestModelsCreateTables:
         now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         s = AgentSession(
             id="sess123",
+            sdk_session_id="sdk-sess123",
             project_name="demo",
             status="idle",
             created_at=now,
