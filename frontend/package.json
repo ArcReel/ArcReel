@@ -22,7 +22,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@lobehub/icons": "^5.0.1",
     "@tanstack/react-virtual": "^3.13.22",
-    "framer-motion": "^12.36.0",
+    "framer-motion": "^12.37.0",
     "lucide-react": "^0.577.0",
     "pnpm": "^10.32.1",
     "react": "^19.2.4",
