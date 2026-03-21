@@ -193,8 +193,9 @@ def _resolve_video_backend(
         project = get_project_manager().load_project(project_name)
         provider_name = project.get("video_provider")
         if not provider_name:
-            provider_name = _PROVIDER_ID_TO_BACKEND.get(default_video_provider_id, default_video_provider_id)
-            if provider_name == PROVIDER_GEMINI:
+            provider_name = default_video_provider_id
+            mapped = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
+            if mapped == PROVIDER_GEMINI:
                 video_backend_type = "vertex" if default_video_provider_id == "gemini-vertex" else "aistudio"
         provider_settings = project.get("video_provider_settings", {}).get(provider_name, {})
         video_backend = _get_or_create_video_backend(

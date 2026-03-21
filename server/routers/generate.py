@@ -59,6 +59,18 @@ class GenerateClueRequest(BaseModel):
     prompt: str
 
 
+_LEGACY_PROVIDER_NAMES: dict[str, str] = {
+    "gemini": "gemini-aistudio",
+    "aistudio": "gemini-aistudio",
+    "vertex": "gemini-vertex",
+}
+
+
+def _normalize_provider_id(raw: str) -> str:
+    """将旧格式 provider 名称归一化为标准 provider_id。"""
+    return _LEGACY_PROVIDER_NAMES.get(raw, raw)
+
+
 def _snapshot_image_backend(project_name: str) -> dict:
     """快照图片供应商配置，返回可合并到 payload 的字典。
 
@@ -69,7 +81,7 @@ def _snapshot_image_backend(project_name: str) -> dict:
     if project_image_backend and "/" in project_image_backend:
         image_provider, image_model = project_image_backend.split("/", 1)
     elif project_image_backend:
-        image_provider = project_image_backend
+        image_provider = _normalize_provider_id(project_image_backend)
         image_model = ""
     else:
         return {}  # 无项目级覆盖，使用全局默认
@@ -195,7 +207,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
         if project_video_backend and "/" in project_video_backend:
             video_provider, video_model = project_video_backend.split("/", 1)
         elif project_video_backend:
-            video_provider = project_video_backend
+            video_provider = _normalize_provider_id(project_video_backend)
             video_model = ""
         else:
             from server.services.generation_tasks import _load_all_config

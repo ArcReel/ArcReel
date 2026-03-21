@@ -100,7 +100,7 @@ class GeminiVideoBackend:
 
     @property
     def name(self) -> str:
-        return PROVIDER_GEMINI
+        return f"gemini-{self._backend_type}"
 
     @property
     def model(self) -> str:

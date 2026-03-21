@@ -405,7 +405,7 @@ class MediaGenerator:
         else:
             video_client = self._get_gemini_video()
             model_name = video_client.VIDEO_MODEL
-            provider_name = "gemini"
+            provider_name = f"gemini-{self._gemini_video_backend_type}"
             configured_generate_audio = self._resolve_video_generate_audio()
             effective_generate_audio = (
                 configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
@@ -551,7 +551,7 @@ class MediaGenerator:
         else:
             video_client = self._get_gemini_video()
             model_name = video_client.VIDEO_MODEL
-            provider_name = "gemini"
+            provider_name = f"gemini-{self._gemini_video_backend_type}"
             configured_generate_audio = self._resolve_video_generate_audio()
             effective_generate_audio = (
                 configured_generate_audio if self._gemini_video_backend_type == "vertex" else True

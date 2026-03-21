@@ -40,7 +40,7 @@ def backend(mock_rate_limiter):
 
 class TestGeminiVideoBackendProperties:
     def test_name(self, backend):
-        assert backend.name == "gemini"
+        assert backend.name == "gemini-aistudio"
 
     def test_capabilities_aistudio(self, backend):
         caps = backend.capabilities
