@@ -877,6 +877,8 @@ class SessionManager:
         await self.meta_store.update_status(managed.session_id, final_status)
         managed.interrupt_requested = False
         self._prune_transient_buffer(managed)
+        if final_status not in ("idle", "running"):
+            self._schedule_session_cleanup(managed.session_id)
 
     async def _mark_session_terminal(
         self, managed: ManagedSession, status: SessionStatus, reason: str
@@ -910,6 +912,29 @@ class SessionManager:
             "status": status,
             "reason": reason,
         })
+        self._schedule_session_cleanup(managed.session_id)
+
+    _SESSION_CLEANUP_DELAY = 300  # seconds before evicting terminal sessions
+
+    def _schedule_session_cleanup(self, session_id: str) -> None:
+        """Schedule deferred cleanup for a terminal session."""
+        async def _cleanup() -> None:
+            await asyncio.sleep(self._SESSION_CLEANUP_DELAY)
+            managed = self.sessions.get(session_id)
+            if managed is None:
+                return
+            if managed.status in ("idle", "running"):
+                return  # session was resumed, skip cleanup
+            managed.clear_buffer()
+            try:
+                await managed.client.disconnect()
+            except Exception:
+                pass
+            self.sessions.pop(session_id, None)
+            self._connect_locks.pop(session_id, None)
+            logger.debug("已清理终态会话 session_id=%s", session_id)
+
+        asyncio.create_task(_cleanup())
 
     @staticmethod
     def _resolve_result_status(
@@ -1036,7 +1061,7 @@ class SessionManager:
     async def _build_can_use_tool_callback(
         self,
         session_id: str,
-        managed_ref: Optional[list] = None,
+        managed_ref: Optional[list[Optional["ManagedSession"]]] = None,
     ):
         """Create per-session can_use_tool callback (default-deny).
 
@@ -1213,12 +1238,19 @@ class SessionManager:
 
         # Only create DB record for new sessions (no existing meta)
         if not managed.sdk_id_event.is_set():
-            await self.meta_store.create(managed.project_name, sdk_id)
+            # Run DB create and SDK tag in parallel (tag is independent file I/O)
+            tag_coro = None
             if tag_session is not None:
-                try:
-                    await asyncio.to_thread(tag_session, sdk_id, f"project:{managed.project_name}")
-                except Exception:
-                    logger.warning("tag_session failed for %s", sdk_id, exc_info=True)
+                async def _tag() -> None:
+                    try:
+                        await asyncio.to_thread(tag_session, sdk_id, f"project:{managed.project_name}")
+                    except Exception:
+                        logger.warning("tag_session failed for %s", sdk_id, exc_info=True)
+                tag_coro = _tag()
+            await asyncio.gather(
+                self.meta_store.create(managed.project_name, sdk_id),
+                *([] if tag_coro is None else [tag_coro]),
+            )
             await self.meta_store.update_status(sdk_id, "running")
             managed.sdk_id_event.set()
 

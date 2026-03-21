@@ -28,13 +28,6 @@ class _FakeService:
         returned_id = session_id or "sdk-new-session"
         return {"status": "accepted", "session_id": returned_id}
 
-    async def send_message(self, session_id, content, **kwargs):
-        if session_id == "missing":
-            raise FileNotFoundError(session_id)
-        if content == "bad":
-            raise ValueError("bad")
-        return {"status": "accepted", "session_id": session_id}
-
     async def list_sessions(self, **kwargs):
         return [make_session_meta(id="session-1", project_name=kwargs.get("project_name") or "demo")]
 

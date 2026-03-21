@@ -207,17 +207,6 @@ class TestAssistantServiceMore:
         with pytest.raises(FileNotFoundError):
             await service.send_or_create("other_project", "hello", session_id="s1")
 
-        # send_message delegates to send_or_create
-        with pytest.raises(ValueError):
-            await service.send_message("s1", "   ")
-
-        with pytest.raises(FileNotFoundError):
-            await service.send_message("missing", "hello")
-        sm.sent.clear()
-        accepted = await service.send_message("s1", " hello ")
-        assert accepted == {"status": "accepted", "session_id": "s1"}
-        assert sm.sent == [("s1", "hello")]
-
         with pytest.raises(FileNotFoundError):
             await service.answer_user_question("missing", "q1", {"a": "b"})
         await service.answer_user_question("s1", "q1", {"a": "b"})

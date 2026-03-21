@@ -6,6 +6,7 @@ import asyncio
 import copy
 import logging
 import os
+from collections import OrderedDict
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,7 +56,7 @@ class AssistantService:
         )
         self._startup_lock = asyncio.Lock()
         self._startup_done = False
-        self._snapshot_cache: dict[str, dict[str, Any]] = {}  # session_id → snapshot
+        self._snapshot_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._snapshot_cache_max = 128
         self.stream_heartbeat_seconds = int(
             os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20")
@@ -153,6 +154,7 @@ class AssistantService:
 
         # Return cached snapshot for terminal (non-running) sessions
         if status != "running" and session_id in self._snapshot_cache:
+            self._snapshot_cache.move_to_end(session_id)
             return copy.deepcopy(self._snapshot_cache[session_id])
 
         projector = await self._build_projector(meta, session_id)
@@ -174,9 +176,7 @@ class AssistantService:
         # Cache snapshots for terminal sessions (transcript won't change)
         if status != "running":
             if len(self._snapshot_cache) >= self._snapshot_cache_max:
-                # Evict oldest entry (first inserted key in insertion-ordered dict)
-                oldest = next(iter(self._snapshot_cache))
-                del self._snapshot_cache[oldest]
+                self._snapshot_cache.popitem(last=False)  # evict LRU
             self._snapshot_cache[session_id] = snapshot
 
         return snapshot
@@ -240,23 +240,6 @@ class AssistantService:
                 echo_content=echo_blocks,
             )
             return {"status": "accepted", "session_id": new_sdk_session_id}
-
-    async def send_message(
-        self,
-        session_id: str,
-        content: str,
-        *,
-        images: Optional[list["ImageAttachment"]] = None,
-        meta: Optional[SessionMeta] = None,
-    ) -> dict[str, Any]:
-        """Send a message to an existing session."""
-        if meta is None:
-            meta = await self.meta_store.get(session_id)
-            if meta is None:
-                raise FileNotFoundError(f"session not found: {session_id}")
-        return await self.send_or_create(
-            meta.project_name, content, session_id=session_id, images=images
-        )
 
     @staticmethod
     def _image_block(img: "ImageAttachment") -> dict[str, Any]:
@@ -482,7 +465,6 @@ class AssistantService:
                     await self._with_session_metadata(
                         update["patch"],
                         session_id=session_id,
-                        message=message,
                     ),
                 )
             )
@@ -493,7 +475,6 @@ class AssistantService:
                     await self._with_session_metadata(
                         update["delta"],
                         session_id=session_id,
-                        message=message,
                     ),
                 )
             )
@@ -504,7 +485,6 @@ class AssistantService:
                     await self._with_session_metadata(
                         update["question"],
                         session_id=session_id,
-                        message=message,
                     ),
                 )
             )
@@ -704,7 +684,6 @@ class AssistantService:
         payload: dict[str, Any],
         *,
         session_id: str,
-        message: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Normalize outward-facing event payloads."""
         normalized = dict(payload)
