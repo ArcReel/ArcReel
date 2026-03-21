@@ -90,6 +90,7 @@ POST /send(project_name, message, session_id=null)
 #### 移除
 
 - `POST /sessions` 创建端点（`routers/assistant.py`）
+- `POST /sessions/{session_id}/messages` 发送端点（合并到 `POST /sessions/send`）
 - `PATCH /sessions/{session_id}` 改名端点（`routers/assistant.py`）
 - `CreateSessionRequest`、`UpdateSessionRequest` 模型
 - `AssistantService.create_session()`
@@ -100,8 +101,8 @@ POST /send(project_name, message, session_id=null)
 
 #### 新增/修改
 
-- **`send_message` 端点**：新增 `POST /sessions/send`（不含 `{session_id}` 路径参数）用于新会话；原 `POST /sessions/{session_id}/messages` 保留用于已有会话。新端点接受 `project_name` + `message`，返回 `session_id`（即 sdk_session_id）
-- **`SessionManager.send_new_session()`**：新会话专用方法。流程：connect → query → 启动 consumer task → await `asyncio.Event`（30s 超时）等待 sdk_session_id → 创建 DB 记录 → 返回 sdk_session_id。新会话期间 ManagedSession 先以临时 UUID 为 key 存入 `self.sessions`，拿到 sdk_session_id 后替换 key。超时清理：cancel consumer task → disconnect client → 从 `self.sessions` 移除临时 key。时序保证：consumer task 在 `send_message` 返回前已启动，SDK 流事件缓冲在 `message_buffer`（max 100）中，SSE 连接建立后通过 replay_buffer 补发
+- **`send_message` 端点**：合并为统一的 `POST /sessions/send`，接受 `project_name` + `message` + 可选 `session_id`（body 参数）。移除原 `POST /sessions/{session_id}/messages`。无 `session_id` 时为新会话创建流程，返回 `session_id`（即 sdk_session_id）；有 `session_id` 时为已有会话发送
+- **`SessionManager.send_new_session()`**：新会话专用方法。流程：connect → query → 启动 consumer task → await `asyncio.Event`（**10s 超时**）等待 sdk_session_id → 创建 DB 记录 → 返回 sdk_session_id。新会话期间 ManagedSession 先以临时 UUID 为 key 存入 `self.sessions`，拿到 sdk_session_id 后替换 key。超时或错误时清理：cancel consumer task → disconnect client → 从 `self.sessions` 移除临时 key → **返回 HTTP 错误**（前端据此回滚乐观更新）。时序保证：consumer task 在方法返回前已启动，SDK 流事件缓冲在 `message_buffer`（max 100）中，SSE 连接建立后通过 replay_buffer 补发
 - **`SessionManager._maybe_update_sdk_session_id()`** → 重命名为 `_register_new_session()`：
   - 首次拿到 sdk_session_id 时创建 DB 记录（`id=auto_uuid, sdk_session_id=xxx`）
   - 调用 `tag_session()`（通过 `asyncio.to_thread`）
@@ -135,6 +136,7 @@ Alembic 迁移：
 #### 移除
 
 - `API.createAssistantSession()` 调用
+- `API.sendAssistantMessage()` 旧签名（改为统一的 `send` 接口）
 - `sendMessage` 中的 title 截取逻辑（`content.trim().slice(0, 30)`）
 
 #### 修改
@@ -147,9 +149,15 @@ Alembic 迁移：
 
 ### 错误处理
 
-- SDK 连接失败：`send_message` 直接抛异常，无 DB 残留（空会话问题自然消除）
-- sdk_session_id 等待超时：设 30 秒超时，超时后取消 consumer task、断开 SDK 连接、确保无资源泄漏后抛错
+**后端**：
+- SDK 连接失败：`send_message` 直接抛异常返回 HTTP 500，无 DB 残留（空会话问题自然消除）
+- sdk_session_id 等待超时：设 **10 秒**超时，超时后取消 consumer task、断开 SDK 连接、确保无资源泄漏，返回 HTTP 504
+- 已有会话发送失败：返回 HTTP 错误码，前端据此回滚
 - `list_sessions` SDK 调用失败：降级为仅返回 DB 数据，title 为空（前端 fallback 到时间戳）
+
+**前端**：
+- `sendMessage` 的 `catch` 分支需正确处理新会话创建失败：移除乐观插入的用户消息 turn、恢复 draft 模式、显示错误提示
+- 修复现有 bug：当前 SDK 未存储消息但前端乐观显示的情况，通过 send-first 模式 + 错误回滚从根本上解决
 
 ## 向后兼容
 
