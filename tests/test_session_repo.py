@@ -50,7 +50,7 @@ class TestSessionRepository:
 
     async def test_update_status(self, db_session):
         repo = SessionRepository(db_session)
-        created = await repo.create("demo", "sdk-002", "Test")
+        await repo.create("demo", "sdk-002", "Test")
         assert await repo.update_status("sdk-002", "running")
 
         fetched = await repo.get("sdk-002")

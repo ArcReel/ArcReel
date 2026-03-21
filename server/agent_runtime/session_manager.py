@@ -653,8 +653,8 @@ class SessionManager:
             del self.sessions[temp_id]
             try:
                 await client.disconnect()
-            except Exception:
-                pass
+            except Exception as disconnect_err:
+                logger.warning("新会话断开连接失败: %s", disconnect_err)
             raise
 
         managed.consumer_task = asyncio.create_task(self._consume_messages(managed))
@@ -671,17 +671,14 @@ class SessionManager:
             del self.sessions[temp_id]
             try:
                 await client.disconnect()
-            except Exception:
-                pass
+            except Exception as disconnect_err:
+                logger.warning("超时清理断开连接失败: %s", disconnect_err)
             raise TimeoutError("SDK 会话创建超时")
 
         sdk_id = managed.resolved_sdk_id
         assert sdk_id is not None
-
-        # Replace temp key with real sdk_session_id
-        del self.sessions[temp_id]
-        managed.session_id = sdk_id
-        self.sessions[sdk_id] = managed
+        # Key swap already done in _on_sdk_session_id_received
+        assert managed.session_id == sdk_id
 
         return sdk_id
 
@@ -1252,6 +1249,15 @@ class SessionManager:
                 *([] if tag_coro is None else [tag_coro]),
             )
             await self.meta_store.update_status(sdk_id, "running")
+            # Key swap: replace temp_id with real sdk_id in sessions dict
+            # BEFORE signaling the event. This prevents _finalize_turn from
+            # using the stale temp_id if it runs before send_new_session
+            # completes its own key swap.
+            old_id = managed.session_id
+            if old_id != sdk_id and old_id in self.sessions:
+                del self.sessions[old_id]
+                managed.session_id = sdk_id
+                self.sessions[sdk_id] = managed
             managed.sdk_id_event.set()
 
     @staticmethod
