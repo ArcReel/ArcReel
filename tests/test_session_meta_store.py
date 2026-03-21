@@ -21,9 +21,10 @@ async def store():
 
 class TestSessionMetaStore:
     async def test_session_lifecycle(self, store):
-        session = await store.create(project_name="demo", title="Demo Session")
+        session = await store.create(project_name="demo", sdk_session_id="sdk-abc")
         assert session.project_name == "demo"
         assert session.status == "idle"
+        assert session.id == "sdk-abc"
 
         sessions = await store.list(project_name="demo")
         assert len(sessions) == 1
@@ -37,18 +38,6 @@ class TestSessionMetaStore:
         assert running_session is not None
         assert running_session.status == "running"
 
-        # Test SDK session ID update
-        await store.update_sdk_session_id(session.id, "sdk-abc123")
-        with_sdk_id = await store.get(session.id)
-        assert with_sdk_id.sdk_session_id == "sdk-abc123"
-
-        # Test title update
-        updated = await store.update_title(session.id, "Renamed Session")
-        assert updated
-        renamed_session = await store.get(session.id)
-        assert renamed_session is not None
-        assert renamed_session.title == "Renamed Session"
-
         # Test delete
         deleted = await store.delete(session.id)
         assert deleted
@@ -56,9 +45,9 @@ class TestSessionMetaStore:
 
     async def test_list_with_filters(self, store):
         # Create sessions for different projects
-        await store.create(project_name="project_a", title="Session A1")
-        await store.create(project_name="project_a", title="Session A2")
-        await store.create(project_name="project_b", title="Session B1")
+        await store.create(project_name="project_a", sdk_session_id="sdk-a1")
+        await store.create(project_name="project_a", sdk_session_id="sdk-a2")
+        await store.create(project_name="project_b", sdk_session_id="sdk-b1")
 
         # Filter by project
         sessions_a = await store.list(project_name="project_a")
@@ -77,9 +66,9 @@ class TestSessionMetaStore:
         assert not deleted
 
     async def test_interrupt_running_sessions(self, store):
-        running = await store.create(project_name="demo", title="Running")
-        completed = await store.create(project_name="demo", title="Completed")
-        idle = await store.create(project_name="demo", title="Idle")
+        running = await store.create(project_name="demo", sdk_session_id="sdk-running")
+        completed = await store.create(project_name="demo", sdk_session_id="sdk-completed")
+        idle = await store.create(project_name="demo", sdk_session_id="sdk-idle")
 
         await store.update_status(running.id, "running")
         await store.update_status(completed.id, "completed")
@@ -90,3 +79,8 @@ class TestSessionMetaStore:
         assert (await store.get(running.id)).status == "interrupted"
         assert (await store.get(completed.id)).status == "completed"
         assert (await store.get(idle.id)).status == "idle"
+
+    async def test_id_equals_sdk_session_id(self, store):
+        """SessionMeta.id 应直接映射 sdk_session_id 值。"""
+        session = await store.create(project_name="demo", sdk_session_id="my-sdk-session-42")
+        assert session.id == "my-sdk-session-42"

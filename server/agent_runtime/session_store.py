@@ -16,8 +16,7 @@ from server.agent_runtime.models import SessionMeta, SessionStatus
 def _dict_to_session(d: dict) -> SessionMeta:
     """Convert a repository dict to a SessionMeta dataclass."""
     return SessionMeta(
-        id=d["id"],
-        sdk_session_id=d.get("sdk_session_id"),
+        id=d["sdk_session_id"],  # 关键映射：业务 ID = sdk_session_id
         project_name=d["project_name"],
         title=d.get("title") or "",
         status=d["status"],
@@ -32,11 +31,11 @@ class SessionMetaStore:
     def __init__(self, *, session_factory=None):
         self._session_factory = session_factory or safe_session_factory
 
-    async def create(self, project_name: str, title: str = "") -> SessionMeta:
+    async def create(self, project_name: str, sdk_session_id: str) -> SessionMeta:
 
         async with self._session_factory() as session:
             repo = SessionRepository(session)
-            d = await repo.create(project_name=project_name, title=title)
+            d = await repo.create(project_name=project_name, sdk_session_id=sdk_session_id)
         return _dict_to_session(d)
 
     async def get(self, session_id: str) -> Optional[SessionMeta]:
@@ -77,18 +76,6 @@ class SessionMetaStore:
         async with self._session_factory() as session:
             repo = SessionRepository(session)
             return await repo.interrupt_running()
-
-    async def update_sdk_session_id(self, session_id: str, sdk_session_id: str) -> bool:
-
-        async with self._session_factory() as session:
-            repo = SessionRepository(session)
-            return await repo.update_sdk_session_id(session_id, sdk_session_id)
-
-    async def update_title(self, session_id: str, title: str) -> bool:
-
-        async with self._session_factory() as session:
-            repo = SessionRepository(session)
-            return await repo.update_title(session_id, title)
 
     async def delete(self, session_id: str) -> bool:
 

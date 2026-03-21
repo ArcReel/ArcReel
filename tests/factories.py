@@ -14,7 +14,6 @@ def make_session_meta(**overrides) -> SessionMeta:
     """
     defaults = dict(
         id="session-1",
-        sdk_session_id="sdk-1",
         project_name="demo",
         title="demo",
         status="running",

@@ -10,8 +10,7 @@ SessionStatus = Literal["idle", "running", "completed", "error", "interrupted"]
 
 class SessionMeta(BaseModel):
     """Session metadata stored in database."""
-    id: str
-    sdk_session_id: Optional[str] = None
+    id: str  # 对外暴露，填充 sdk_session_id 值
     project_name: str
     title: str = ""
     status: SessionStatus = "idle"
@@ -23,7 +22,6 @@ class AssistantSnapshotV2(BaseModel):
     """Unified assistant snapshot for history and reconnect."""
 
     session_id: str
-    sdk_session_id: Optional[str] = None
     status: SessionStatus
     turns: list[dict[str, Any]]
     draft_turn: Optional[dict[str, Any]] = None
