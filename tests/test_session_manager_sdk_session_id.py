@@ -1,4 +1,4 @@
-"""Unit tests for SessionManager SDK session id updates during streaming."""
+"""Unit tests for SessionManager._on_sdk_session_id_received during streaming."""
 
 from server.agent_runtime.session_manager import ManagedSession, SessionManager
 
@@ -35,23 +35,65 @@ class FakeClient:
 
 
 class TestSessionManagerSdkSessionId:
-    async def test_updates_sdk_session_id_before_result(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "demo title")
-        sdk_session_id = "sdk-early-123"
+    async def test_on_sdk_session_id_received_creates_db_record(self, session_manager, meta_store):
+        """For new sessions, _on_sdk_session_id_received creates DB record and signals event."""
+        sdk_session_id = "sdk-new-123"
+        managed = ManagedSession(
+            session_id="temp-id",
+            client=FakeClient([]),
+            status="running",
+            project_name="demo",
+        )
+
+        await session_manager._on_sdk_session_id_received(
+            managed, StreamEvent(sdk_session_id), {"session_id": sdk_session_id}
+        )
+
+        assert managed.resolved_sdk_id == sdk_session_id
+        assert managed.sdk_id_event.is_set()
+        # DB record should exist
+        meta = await meta_store.get(sdk_session_id)
+        assert meta is not None
+        assert meta.project_name == "demo"
+        assert meta.status == "running"
+
+    async def test_on_sdk_session_id_received_noop_when_already_registered(self, session_manager, meta_store):
+        """For sessions with resolved_sdk_id already set, it's a no-op."""
+        managed = ManagedSession(
+            session_id="sdk-existing",
+            client=FakeClient([]),
+            status="running",
+            project_name="demo",
+            resolved_sdk_id="sdk-existing",
+        )
+        managed.sdk_id_event.set()
+
+        await session_manager._on_sdk_session_id_received(
+            managed, StreamEvent("sdk-existing"), {"session_id": "sdk-existing"}
+        )
+        # Should not create duplicate DB record
+        meta = await meta_store.get("sdk-existing")
+        assert meta is None  # No DB record was created
+
+    async def test_consume_messages_triggers_on_sdk_session_id_received(self, session_manager, meta_store):
+        """_consume_messages calls _on_sdk_session_id_received and creates DB record for new sessions."""
+        sdk_session_id = "sdk-consume-456"
         client = FakeClient([StreamEvent(sdk_session_id), ResultMessage(sdk_session_id, "success")])
         managed = ManagedSession(
-            session_id=meta.id,
+            session_id=sdk_session_id,  # 模拟 send_new_session 已将 temp_id 替换为 sdk_id
             client=client,
-            sdk_session_id=None,
             status="running",
+            project_name="demo",
         )
-        session_manager.sessions[meta.id] = managed
+        session_manager.sessions[sdk_session_id] = managed
 
         await session_manager._consume_messages(managed)
 
-        updated_meta = await meta_store.get(meta.id)
-        assert updated_meta is not None
-        assert managed.sdk_session_id == sdk_session_id
-        assert updated_meta.sdk_session_id == sdk_session_id
+        assert managed.resolved_sdk_id == sdk_session_id
+        assert managed.sdk_id_event.is_set()
         assert managed.status == "completed"
-        assert updated_meta.status == "completed"
+        # DB record should have been created by _on_sdk_session_id_received
+        meta = await meta_store.get(sdk_session_id)
+        assert meta is not None
+        assert meta.project_name == "demo"
+        assert meta.status == "completed"

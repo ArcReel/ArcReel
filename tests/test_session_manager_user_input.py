@@ -13,7 +13,7 @@ from server.agent_runtime.session_manager import (
 
 class TestSessionManagerUserInput:
     async def test_send_message_adds_user_echo_to_buffer(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "sdk-user-input")
         client = FakeSDKClient()
         managed = ManagedSession(
             session_id=meta.id,
@@ -34,7 +34,7 @@ class TestSessionManagerUserInput:
             await managed.consumer_task
 
     async def test_send_message_prunes_previous_stream_events(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "sdk-user-input")
         client = FakeSDKClient()
         managed = ManagedSession(
             session_id=meta.id,
@@ -74,7 +74,7 @@ class TestSessionManagerUserInput:
         assert not any(msg.get("type") == "result" for msg in managed.message_buffer)
 
     async def test_consume_result_prunes_stream_events_after_completion(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "sdk-user-input")
         client = FakeSDKClient(
             messages=[
                 {
@@ -117,7 +117,7 @@ class TestSessionManagerUserInput:
         if not SDK_AVAILABLE:
             pytest.skip("claude_agent_sdk is not installed")
 
-        meta = await meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "sdk-user-input")
         managed = ManagedSession(
             session_id=meta.id,
             client=FakeSDKClient(),
@@ -164,7 +164,7 @@ class TestSessionManagerUserInput:
         )
 
     async def test_answer_user_question_raises_for_unknown_question(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "sdk-user-input")
         managed = ManagedSession(
             session_id=meta.id,
             client=FakeSDKClient(),
@@ -180,12 +180,11 @@ class TestSessionManagerUserInput:
             )
 
     async def test_interrupt_session_requests_interrupt_and_keeps_consumer_alive(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "demo title")
+        meta = await meta_store.create("demo", "sdk-user-input")
         client = FakeSDKClient()
         managed = ManagedSession(
             session_id=meta.id,
             client=client,
-            sdk_session_id="sdk-123",
             status="running",
         )
         session_manager.sessions[meta.id] = managed

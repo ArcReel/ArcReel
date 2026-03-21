@@ -116,7 +116,7 @@ class TestSessionManagerMore:
 
         projects_demo = tmp_path / "projects" / "demo"
         projects_demo.mkdir(parents=True)
-        meta = await meta_store.create("demo", "title")
+        meta = await meta_store.create("demo", "sdk-build-opts")
 
         with monkeypatch.context() as m:
             m.setattr(sm_mod, "SDK_AVAILABLE", True)
@@ -136,12 +136,12 @@ class TestSessionManagerMore:
             session_manager._resolve_project_cwd("../evil")
 
         assert await session_manager.get_status("missing") is None
-        meta = await meta_store.create("demo", "title")
+        meta = await meta_store.create("demo", "sdk-resolve-status")
         assert await session_manager.get_status(meta.id) == "idle"
 
     @pytest.mark.asyncio
     async def test_send_message_and_interrupt_branches(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "title")
+        meta = await meta_store.create("demo", "sdk-send-msg")
         managed_running = ManagedSession(session_id=meta.id, client=FakeSDKClient(), status="running")
         session_manager.sessions[meta.id] = managed_running
         with pytest.raises(ValueError):
@@ -164,12 +164,12 @@ class TestSessionManagerMore:
         with pytest.raises(FileNotFoundError):
             await session_manager.interrupt_session("missing")
 
-        meta2 = await meta_store.create("demo", "title2")
+        meta2 = await meta_store.create("demo", "sdk-interrupt-1")
         await meta_store.update_status(meta2.id, "running")
         assert await session_manager.interrupt_session(meta2.id) == "interrupted"
         assert (await meta_store.get(meta2.id)).status == "interrupted"
 
-        meta3 = await meta_store.create("demo", "title3")
+        meta3 = await meta_store.create("demo", "sdk-interrupt-2")
         assert await session_manager.interrupt_session(meta3.id) == "idle"
 
         managed_idle = ManagedSession(session_id=meta3.id, client=FakeSDKClient(), status="completed")
@@ -178,7 +178,7 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_consume_messages_terminal_paths(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "title")
+        meta = await meta_store.create("demo", "sdk-cancel-1")
         managed_cancel = ManagedSession(session_id=meta.id, client=_CancelClient(), status="running")
         session_manager.sessions[meta.id] = managed_cancel
         await meta_store.update_status(meta.id, "running")
@@ -186,7 +186,7 @@ class TestSessionManagerMore:
             await session_manager._consume_messages(managed_cancel)
         assert managed_cancel.status == "interrupted"
 
-        meta2 = await meta_store.create("demo", "title2")
+        meta2 = await meta_store.create("demo", "sdk-cancel-2")
         managed_error = ManagedSession(session_id=meta2.id, client=_ErrorClient(), status="running")
         session_manager.sessions[meta2.id] = managed_error
         await meta_store.update_status(meta2.id, "running")
@@ -263,7 +263,7 @@ class TestSessionManagerMore:
         with pytest.raises(ValueError):
             await session_manager.answer_user_question("missing", "q", {"a": "b"})
 
-        meta = await meta_store.create("demo", "title")
+        meta = await meta_store.create("demo", "sdk-buffer-snap")
         client = _InterruptibleClient(disconnect_raises=True)
         managed = ManagedSession(
             session_id=meta.id,
