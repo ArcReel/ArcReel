@@ -33,18 +33,21 @@ POST /sessions(project_name, title) → DB 创建记录(app_id)
 POST /send(app_id, message)         → SDK 连接 → 流中提取 sdk_session_id → DB 更新
 ```
 
-**新流程**（创建+发送合一，DB 记录仅在 SDK 成功响应后创建）：
+**新流程**（统一 send 端点，DB 记录仅在 SDK 成功响应后创建）：
 
 ```
-POST /sessions/new(project_name, message)
+新会话：
+POST /sessions/send(project_name, message, session_id=null)
   → SDK 连接 + query + 启动 consumer task
   → 等待 sdk_session_id 从流中到达（asyncio.Event，10s 超时）
   → 创建 DB 记录(id=auto, sdk_session_id=xxx) + tag_session
-  → 响应返回 {session_id: sdk_session_id}
+  → 响应返回 {session_id: sdk_session_id, status: "accepted"}
   → 前端用 session_id 连接 GET /sessions/{session_id}/stream (SSE)
 
 后续消息：
-POST /sessions/{session_id}/messages(content, images)  ← session_id = sdk_session_id
+POST /sessions/send(project_name, message, session_id=xxx)
+  → 查找已有会话，发送消息
+  → 响应返回 {session_id, status: "accepted"}
 ```
 
 ### DB 模型变更
@@ -92,7 +95,8 @@ POST /sessions/{session_id}/messages(content, images)  ← session_id = sdk_sess
 
 #### 移除
 
-- `POST /sessions` 创建端点（`routers/assistant.py`）— 被 `POST /sessions/new` 替代
+- `POST /sessions` 创建端点（`routers/assistant.py`）
+- `POST /sessions/{session_id}/messages` 发送端点 — 与创建合并为 `POST /sessions/send`
 - `PATCH /sessions/{session_id}` 改名端点（`routers/assistant.py`）
 - `CreateSessionRequest`、`UpdateSessionRequest` 模型
 - `AssistantService.create_session()`
@@ -103,7 +107,7 @@ POST /sessions/{session_id}/messages(content, images)  ← session_id = sdk_sess
 
 #### 新增/修改
 
-- **`send_message` 端点**：`POST /sessions/{session_id}/messages` 保留（`session_id` 此处语义为 sdk_session_id）。新增 `POST /sessions/new` 用于新会话：接受 `project_name` + `message`，内部完成 SDK 连接 + 等待 sdk_session_id + 创建 DB 记录 + 发送消息，返回 `{session_id, status}`。前端拿到 `session_id` 后用它连接 `GET /sessions/{session_id}/stream` SSE
+- **`send_message` 端点**：统一为 `POST /sessions/send`，接受 `project_name` + `content` + `images` + 可选 `session_id`（body 参数）。无 `session_id` 时为新会话：SDK 连接 + 等待 sdk_session_id + 创建 DB + 发送消息；有 `session_id` 时为已有会话发送。返回 `{session_id, status}`
 - **`SessionManager.send_new_session()`**：新会话专用方法。流程：connect → query → 启动 consumer task → await `asyncio.Event`（**10s 超时**）等待 sdk_session_id → 创建 DB 记录 → 返回 sdk_session_id。新会话期间 ManagedSession 先以临时 UUID 为 key 存入 `self.sessions`，拿到 sdk_session_id 后替换 key。超时或错误时清理：cancel consumer task → disconnect client → 从 `self.sessions` 移除临时 key → **返回 HTTP 错误**（前端据此回滚乐观更新）。时序保证：consumer task 在方法返回前已启动，SDK 流事件缓冲在 `message_buffer`（max 100）中，SSE 连接建立后通过 replay_buffer 补发
 - **`SessionManager._maybe_update_sdk_session_id()`** → 重命名为 `_register_new_session()`：
   - 首次拿到 sdk_session_id 时创建 DB 记录（`id=auto_uuid, sdk_session_id=xxx`）
@@ -137,12 +141,13 @@ Alembic 迁移：
 
 #### 移除
 
-- `API.createAssistantSession()` 调用 — 被 `API.createAndSendSession()` 替代（调 `POST /sessions/new`）
+- `API.createAssistantSession()` 调用
+- `API.sendAssistantMessage()` 旧签名 — 合并为统一的 `API.sendMessage()`（调 `POST /sessions/send`）
 - `sendMessage` 中的 title 截取逻辑（`content.trim().slice(0, 30)`）
 
 #### 修改
 
-- **`sendMessage`**：draft 模式时调 `POST /sessions/new`（创建 + 发送一步完成），从响应中获取 `session_id`，更新 store 后连接 SSE；已有会话时照旧调 `POST /sessions/{session_id}/messages`
+- **`sendMessage`**：统一调 `POST /sessions/send`。draft 模式时不传 `session_id`，从响应中获取 `session_id`，更新 store 后连接 SSE；已有会话时传 `session_id`
 - **`SessionMeta` 类型**（`types/assistant.ts`）：移除 `sdk_session_id` 字段（后端返回的 `id` 已经是 sdk_session_id）
 - **`AssistantSnapshot` 接口**（`types/assistant.ts`）：移除 `sdk_session_id` 字段
 - **`AgentCopilot.tsx`**：`displayTitle` fallback 链不变（`title || formatTime(created_at)`），title 质量自动提升
