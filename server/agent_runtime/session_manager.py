@@ -410,10 +410,22 @@ class SessionManager:
                 # Official Python SDK guidance: keep stream open when using
                 # can_use_tool.
                 hook_callbacks.insert(0, self._keep_stream_open_hook)
+
+            # Shared dict: PreToolUse saves file backup, PostToolUse restores
+            # on corruption.  Keyed by tool_use_id.
+            json_backups: dict[str, tuple[Path, str]] = {}
+
             hooks = {
                 "PreToolUse": [
                     HookMatcher(matcher=None, hooks=hook_callbacks),
-                    HookMatcher(matcher="Write|Edit", hooks=[self._build_json_validation_hook(project_cwd)]),
+                    HookMatcher(matcher="Write|Edit", hooks=[
+                        self._build_json_validation_hook(project_cwd, json_backups),
+                    ]),
+                ],
+                "PostToolUse": [
+                    HookMatcher(matcher="Write|Edit", hooks=[
+                        self._build_json_post_validation_hook(project_cwd, json_backups),
+                    ]),
                 ],
             }
 
@@ -478,13 +490,21 @@ class SessionManager:
 
         return _file_access_hook
 
-    def _build_json_validation_hook(self, project_cwd: Path) -> Callable[..., Any]:
+    def _build_json_validation_hook(
+        self,
+        project_cwd: Path,
+        json_backups: dict[str, tuple[Path, str]] | None = None,
+    ) -> Callable[..., Any]:
         """Build a PreToolUse hook that blocks Write/Edit when the result would
         produce invalid JSON.
 
         For Edit: reads the current file, simulates the string replacement, and
         validates the result with ``json.loads()``.
         For Write: validates the ``content`` parameter directly.
+
+        When *json_backups* is provided, the hook saves the current file
+        content before the edit so the PostToolUse hook can restore it if
+        the actual result turns out to be invalid.
 
         Returns ``permissionDecision: "deny"`` to block the operation before it
         executes, giving the agent a chance to fix its input and retry.
@@ -514,10 +534,18 @@ class SessionManager:
 
             if tool_name == "Write":
                 simulated = tool_input.get("content")
+                logger.info(
+                    "JSON 校验 hook: tool=Write file=%s content_len=%s",
+                    file_path, len(simulated) if simulated else 0,
+                )
             elif tool_name == "Edit":
                 old_string = tool_input.get("old_string", "")
                 new_string = tool_input.get("new_string", "")
                 if not old_string:
+                    logger.info(
+                        "JSON 校验 hook: tool=Edit file=%s skip=old_string为空",
+                        file_path,
+                    )
                     return {}
 
                 # Detect curly quotes early — Claude Code may normalise
@@ -556,11 +584,24 @@ class SessionManager:
                 )
                 try:
                     current = resolved.read_text(encoding="utf-8")
-                except OSError:
+                except OSError as read_err:
+                    logger.info(
+                        "JSON 校验 hook: tool=Edit file=%s skip=读取失败 error=%s",
+                        file_path, read_err,
+                    )
                     return {}
+
+                # Save backup for PostToolUse restore on corruption
+                if json_backups is not None and _tool_use_id:
+                    json_backups[_tool_use_id] = (resolved, current)
 
                 if old_string not in current:
                     # Edit tool will fail on its own; no need to intervene.
+                    logger.info(
+                        "JSON 校验 hook: tool=Edit file=%s skip=old_string未匹配 "
+                        "old_len=%d new_len=%d file_len=%d",
+                        file_path, len(old_string), len(new_string), len(current),
+                    )
                     return {}
 
                 replace_all = tool_input.get("replace_all", False)
@@ -569,11 +610,22 @@ class SessionManager:
                 else:
                     simulated = current.replace(old_string, new_string, 1)
 
+                logger.info(
+                    "JSON 校验 hook: tool=Edit file=%s matched=True "
+                    "old_len=%d new_len=%d simulated_len=%d replace_all=%s",
+                    file_path, len(old_string), len(new_string),
+                    len(simulated), replace_all,
+                )
+
             if simulated is None:
                 return {}
 
             try:
                 json.loads(simulated)
+                logger.info(
+                    "JSON 校验 hook: tool=%s file=%s result=valid",
+                    tool_name, file_path,
+                )
                 return {}
             except json.JSONDecodeError as exc:
                 logger.warning(
@@ -594,6 +646,91 @@ class SessionManager:
                 }
 
         return _json_validation_hook
+
+    def _build_json_post_validation_hook(
+        self,
+        project_cwd: Path,
+        json_backups: dict[str, tuple[Path, str]],
+    ) -> Callable[..., Any]:
+        """Build a PostToolUse hook that validates JSON files after Write/Edit.
+
+        This is a safety net for cases where the PreToolUse simulation fails
+        to catch invalid edits (e.g. due to old_string mismatch or escaping
+        differences between the hook simulation and the actual Edit tool).
+
+        If the file is invalid JSON after the edit, the hook:
+        1. Restores the file from the backup saved by the PreToolUse hook
+        2. Returns ``additionalContext`` telling the agent what went wrong
+        """
+
+        async def _json_post_validation_hook(
+            input_data: dict[str, Any],
+            tool_use_id: str | None,
+            _context: Any,
+        ) -> dict[str, Any]:
+            tool_name = input_data.get("tool_name", "")
+            tool_input = input_data.get("tool_input", {})
+
+            file_path = tool_input.get("file_path", "")
+            if not file_path or not file_path.endswith(".json"):
+                return {}
+
+            # Pop the backup regardless of outcome to avoid memory leaks
+            backup = json_backups.pop(tool_use_id, None) if tool_use_id else None
+
+            p = Path(file_path)
+            resolved = (
+                (project_cwd / p).resolve()
+                if not p.is_absolute()
+                else p.resolve()
+            )
+
+            try:
+                actual = resolved.read_text(encoding="utf-8")
+            except OSError:
+                return {}
+
+            try:
+                json.loads(actual)
+                logger.info(
+                    "PostToolUse JSON 校验: tool=%s file=%s result=valid",
+                    tool_name, file_path,
+                )
+                return {}
+            except json.JSONDecodeError as exc:
+                # File is corrupt — restore from backup if available
+                if backup:
+                    backup_path, backup_content = backup
+                    try:
+                        backup_path.write_text(backup_content, encoding="utf-8")
+                        logger.warning(
+                            "PostToolUse JSON 校验拦截并恢复: file=%s tool=%s "
+                            "error=%s backup_restored=True",
+                            file_path, tool_name, exc,
+                        )
+                    except OSError as write_err:
+                        logger.error(
+                            "PostToolUse JSON 备份恢复失败: file=%s error=%s",
+                            file_path, write_err,
+                        )
+                else:
+                    logger.warning(
+                        "PostToolUse JSON 校验拦截(无备份): file=%s tool=%s error=%s",
+                        file_path, tool_name, exc,
+                    )
+
+                return {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PostToolUse",
+                        "additionalContext": (
+                            f"⚠ JSON 损坏已检测并回滚：{tool_name} 导致 "
+                            f"{file_path} 变成无效 JSON（{exc}）。"
+                            "文件已恢复到编辑前状态，请修正后重试。"
+                        ),
+                    },
+                }
+
+        return _json_post_validation_hook
 
     def _resolve_project_cwd(self, project_name: str) -> Path:
         """Resolve and validate per-session project working directory."""

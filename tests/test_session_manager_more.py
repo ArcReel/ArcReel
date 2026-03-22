@@ -763,3 +763,128 @@ class TestJsonValidationHook:
         })
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
         assert "弯引号" in result["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+class TestJsonPostValidationHook:
+    """Tests for the PostToolUse JSON validation hook (safety net)."""
+
+    def _make_manager(self, tmp_path):
+        from server.agent_runtime.session_manager import SessionManager
+        from server.agent_runtime.session_store import SessionMetaStore
+        return SessionManager(
+            project_root=tmp_path,
+            data_dir=tmp_path / "data",
+            meta_store=SessionMetaStore(),
+        )
+
+    async def _call_post_hook(
+        self, manager, tool_input: dict, tool_name: str = "Edit",
+        project_cwd=None, json_backups=None,
+    ):
+        from pathlib import Path
+        hook_fn = manager._build_json_post_validation_hook(
+            Path(project_cwd) if project_cwd else Path("/tmp"),
+            json_backups if json_backups is not None else {},
+        )
+        input_data = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+        }
+        return await hook_fn(input_data, "test-tool-use-id", None)
+
+    # --- Valid JSON after edit → pass ---
+
+    async def test_valid_json_after_edit_returns_empty(self, tmp_path):
+        """PostToolUse returns empty when file is valid JSON after edit."""
+        json_file = tmp_path / "ep.json"
+        json_file.write_text('{"title": "new"}')
+        manager = self._make_manager(tmp_path)
+
+        result = await self._call_post_hook(manager, {
+            "file_path": str(json_file),
+        }, project_cwd=str(tmp_path))
+        assert result == {}
+
+    # --- Invalid JSON after edit with backup → restore + additionalContext ---
+
+    async def test_invalid_json_restores_backup(self, tmp_path):
+        """PostToolUse restores backup when file is invalid JSON after edit."""
+        json_file = tmp_path / "ep.json"
+        original_content = '{"title": "original"}'
+
+        # Simulate: file was corrupted by edit
+        json_file.write_text('{"title": "broken",,}')
+        manager = self._make_manager(tmp_path)
+
+        # Provide backup
+        backups: dict = {
+            "test-tool-use-id": (json_file, original_content),
+        }
+
+        result = await self._call_post_hook(
+            manager,
+            {"file_path": str(json_file)},
+            project_cwd=str(tmp_path),
+            json_backups=backups,
+        )
+
+        # Should report the issue via additionalContext
+        assert "additionalContext" in result.get("hookSpecificOutput", {})
+        assert "回滚" in result["hookSpecificOutput"]["additionalContext"]
+
+        # File should be restored
+        assert json_file.read_text() == original_content
+
+        # Backup should be consumed (popped)
+        assert "test-tool-use-id" not in backups
+
+    # --- Invalid JSON after edit without backup → report only ---
+
+    async def test_invalid_json_no_backup_reports_error(self, tmp_path):
+        """PostToolUse reports error when file is corrupt and no backup exists."""
+        json_file = tmp_path / "ep.json"
+        json_file.write_text('{"broken":,}')
+        manager = self._make_manager(tmp_path)
+
+        result = await self._call_post_hook(
+            manager,
+            {"file_path": str(json_file)},
+            project_cwd=str(tmp_path),
+            json_backups={},
+        )
+
+        assert "additionalContext" in result.get("hookSpecificOutput", {})
+
+    # --- Non-.json file → skip ---
+
+    async def test_non_json_file_returns_empty(self, tmp_path):
+        """PostToolUse ignores non-.json files."""
+        manager = self._make_manager(tmp_path)
+        result = await self._call_post_hook(manager, {
+            "file_path": str(tmp_path / "notes.md"),
+        }, project_cwd=str(tmp_path))
+        assert result == {}
+
+    # --- Backup is consumed even on success ---
+
+    async def test_backup_consumed_on_success(self, tmp_path):
+        """PostToolUse pops backup even when validation succeeds."""
+        json_file = tmp_path / "ep.json"
+        json_file.write_text('{"title": "ok"}')
+        manager = self._make_manager(tmp_path)
+
+        backups: dict = {
+            "test-tool-use-id": (json_file, '{"title": "old"}'),
+        }
+
+        result = await self._call_post_hook(
+            manager,
+            {"file_path": str(json_file)},
+            project_cwd=str(tmp_path),
+            json_backups=backups,
+        )
+
+        assert result == {}
+        # Backup should be consumed to prevent memory leaks
+        assert "test-tool-use-id" not in backups
