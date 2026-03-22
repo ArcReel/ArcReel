@@ -668,6 +668,20 @@ class SessionManager:
             tool_use_id: str | None,
             _context: Any,
         ) -> dict[str, Any]:
+            # Top-level guard: unhandled exceptions in hooks interrupt the
+            # agent (per SDK docs), so we catch everything and log.
+            try:
+                return await _json_post_validation_impl(
+                    input_data, tool_use_id,
+                )
+            except Exception:
+                logger.exception("PostToolUse JSON 校验 hook 异常")
+                return {}
+
+        async def _json_post_validation_impl(
+            input_data: dict[str, Any],
+            tool_use_id: str | None,
+        ) -> dict[str, Any]:
             tool_name = input_data.get("tool_name", "")
             tool_input = input_data.get("tool_input", {})
 
