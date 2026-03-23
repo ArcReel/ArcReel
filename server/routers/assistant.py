@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from lib import PROJECT_ROOT
 from server.agent_runtime.models import SessionMeta
 from server.agent_runtime.service import AssistantService
+from server.agent_runtime.session_manager import SessionCapacityError
 from server.auth import get_current_user, get_current_user_flexible
 
 router = APIRouter()
@@ -76,6 +77,8 @@ async def send_message(
             images=req.images,
         )
         return result
+    except SessionCapacityError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="会话或项目不存在")
     except TimeoutError:

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from server.agent_runtime.service import AssistantService
+from server.agent_runtime.session_manager import SessionCapacityError
 from server.auth import get_current_user
 from server.routers.assistant import get_assistant_service
 
@@ -162,6 +163,8 @@ async def agent_chat(
             session_id=body.session_id,
         )
         session_id = result["session_id"]
+    except SessionCapacityError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     except TimeoutError:
         raise HTTPException(status_code=504, detail="SDK 会话创建超时")
     except ValueError as exc:
