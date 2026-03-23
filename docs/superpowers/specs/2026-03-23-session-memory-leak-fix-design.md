@@ -132,7 +132,7 @@ async def _ensure_capacity(self) -> None:
 
     # 所有会话都在 running → 拒绝
     raise SessionCapacityError(
-        "当前所有智能体会话均在处理中，请稍后再试"
+        "当前有{len(running)}个正在进行的会话，已达到最大上限，请稍后重试"
     )
 ```
 
@@ -142,7 +142,7 @@ async def _ensure_capacity(self) -> None:
 
 ```json
 HTTP 503
-{"detail": "当前所有智能体会话均在处理中，请稍后再试"}
+{"detail": "当前有{len(running)}个正在进行的会话，已达到最大上限，请稍后重试"}
 ```
 
 `SessionCapacityError` 定义为自定义异常，放在 `server/agent_runtime/` 下。
