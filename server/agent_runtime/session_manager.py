@@ -42,6 +42,13 @@ except ImportError:
     tag_session = None
     SDK_AVAILABLE = False
 
+try:
+    from lib.db import async_session_factory
+    from lib.config.service import ConfigService
+except ImportError:
+    async_session_factory = None  # type: ignore[assignment]
+    ConfigService = None  # type: ignore[assignment]
+
 
 class SessionCapacityError(Exception):
     """所有并发槽位已被 running 会话占满，无法创建新连接。"""
@@ -962,6 +969,28 @@ class SessionManager:
             logger.debug("disconnect non-fatal error for %s", session_id, exc_info=True)
         self.sessions.pop(session_id, None)
         self._connect_locks.pop(session_id, None)
+
+    async def _get_idle_ttl(self) -> int:
+        """返回 idle TTL 秒数，默认 600（10 分钟）。"""
+        try:
+            async with async_session_factory() as session:
+                svc = ConfigService(session)
+                val = await svc.get_setting("agent_session_idle_ttl_minutes", "10")
+            return max(int(val), 1) * 60
+        except Exception:
+            logger.warning("读取 idle TTL 配置失败，使用默认值", exc_info=True)
+            return 600
+
+    async def _get_max_concurrent(self) -> int:
+        """返回最大并发会话数，默认 5。"""
+        try:
+            async with async_session_factory() as session:
+                svc = ConfigService(session)
+                val = await svc.get_setting("agent_max_concurrent_sessions", "5")
+            return max(int(val), 1)
+        except Exception:
+            logger.warning("读取 max_concurrent 配置失败，使用默认值", exc_info=True)
+            return 5
 
     @staticmethod
     def _resolve_result_status(
