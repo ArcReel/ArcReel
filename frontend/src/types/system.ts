@@ -9,6 +9,8 @@ export interface SystemConfigSettings {
   anthropic_default_opus_model: string;
   anthropic_default_sonnet_model: string;
   claude_code_subagent_model: string;
+  agent_session_idle_ttl_minutes: number;
+  agent_max_concurrent_sessions: number;
 }
 
 export interface SystemConfigOptions {
@@ -32,4 +34,6 @@ export interface SystemConfigPatch {
   anthropic_default_opus_model?: string;
   anthropic_default_sonnet_model?: string;
   claude_code_subagent_model?: string;
+  agent_session_idle_ttl_minutes?: number;
+  agent_max_concurrent_sessions?: number;
 }
