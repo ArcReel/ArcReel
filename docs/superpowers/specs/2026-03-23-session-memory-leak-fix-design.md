@@ -49,8 +49,9 @@ if final_status not in ("idle", "running"):
 #### ManagedSession 新增字段
 
 ```python
-idle_since: float | None = None      # monotonic 时间戳，进入 idle 时记录
-last_activity: float | None = None   # 每次发送/接收消息时更新
+idle_since: float | None = None                        # monotonic 时间戳，进入 idle 时记录
+last_activity: float | None = None                     # 每次发送/接收消息时更新
+_idle_cleanup_task: asyncio.Task | None = None         # 当前 idle 清理定时器（防止累积）
 ```
 
 #### 触发点：`_finalize_turn()`
@@ -65,9 +66,11 @@ if final_status == "idle":
 
 #### `_schedule_idle_cleanup()`
 
+- **取消旧定时器**：调度前先检查 `managed._idle_cleanup_task`，若存在且未完成则 `cancel()` 再创建新的，防止多轮对话累积孤儿 Task
 - 延迟 = 从配置读取的 TTL（默认 600 秒 = 10 分钟）
-- 到期后检查：如果会话仍为 `idle` **且** `idle_since` 未被刷新 → 执行 `client.disconnect()` + 从 `self.sessions` 移除
+- 到期后检查：如果会话仍为 `idle` **且** `idle_since` 未被刷新 → 执行 `_disconnect_session()` + 从 `self.sessions` 移除
 - 如果期间用户发了新消息（`idle_since` 已重置为 None），则取消清理
+- 当会话从 `idle` 转回 `running` 时，立即 `cancel()` 待执行的 cleanup task
 
 #### 恢复路径
 
@@ -75,9 +78,34 @@ if final_status == "idle":
 
 ### 层 2：并发上限 + LRU 淘汰
 
-#### 检查点
+#### 检查点与调用时序
 
-在 `send_new_session()` 和 `get_or_connect()` 中，连接 SDK 客户端**之前**调用 `_ensure_capacity()`。
+在 `send_new_session()` 和 `get_or_connect()` 中，**必须在 `client.connect()` 之前、新 session 加入 `self.sessions` 之前**调用 `_ensure_capacity()`。这确保新会话不会被计入活跃数。
+
+#### 统一清理辅助方法 `_disconnect_session()`
+
+所有清理路径（TTL、LRU 淘汰、巡检）统一使用此方法，避免遗漏：
+
+```python
+async def _disconnect_session(self, session_id: str) -> None:
+    """安全断开并移除一个会话，处理 consumer_task 和 connect_lock。"""
+    managed = self.sessions.get(session_id)
+    if managed is None:
+        return
+    # 取消 idle cleanup 定时器
+    if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
+        managed._idle_cleanup_task.cancel()
+    # 取消 consumer_task（如果仍在运行）
+    if managed.consumer_task and not managed.consumer_task.done():
+        managed.consumer_task.cancel()
+    managed.clear_buffer()
+    try:
+        await managed.client.disconnect()
+    except Exception:
+        logger.debug("disconnect non-fatal error for %s", session_id)
+    self.sessions.pop(session_id, None)
+    self._connect_locks.pop(session_id, None)
+```
 
 #### `_ensure_capacity()` 逻辑
 
@@ -85,7 +113,7 @@ if final_status == "idle":
 async def _ensure_capacity(self) -> None:
     """确保有空余并发槽位，必要时淘汰最久 idle 会话。"""
     max_concurrent = await self._get_max_concurrent()
-    active = [s for s in self.sessions.values() if s.client.connected]
+    active = [s for s in self.sessions.values() if s.client and s.status != "disconnected"]
 
     if len(active) < max_concurrent:
         return
@@ -98,8 +126,7 @@ async def _ensure_capacity(self) -> None:
 
     if idle_sessions:
         victim = idle_sessions[0]
-        await victim.client.disconnect()
-        self.sessions.pop(victim.session_id, None)
+        await self._disconnect_session(victim.session_id)
         return
 
     # 所有会话都在 running → 拒绝
@@ -124,40 +151,43 @@ HTTP 503
 在 `SessionManager` 启动时创建后台 `asyncio.Task`：
 
 ```python
+_PATROL_INTERVAL = 300  # 5 分钟，类常量
+
 async def _patrol_loop(self) -> None:
     """每 5 分钟扫描一次，清理漏网的超时 idle 会话。"""
     while True:
-        await asyncio.sleep(300)
+        await asyncio.sleep(self._PATROL_INTERVAL)
         ttl = await self._get_idle_ttl()
         now = time.monotonic()
         for sid, managed in list(self.sessions.items()):
             if managed.status == "idle" and managed.idle_since:
                 if now - managed.idle_since > ttl:
-                    await managed.client.disconnect()
-                    self.sessions.pop(sid, None)
+                    await self._disconnect_session(sid)
 ```
 
 在 `shutdown_gracefully()` 中取消此任务。
 
 ### 配置读取
 
-SessionManager 新增两个方法，从 `ConfigService` 动态读取（每次读取，配置变更即时生效）：
+SessionManager 新增两个方法，遵循已有的 `refresh_config()` 模式——每次调用创建短生命周期的 DB session + ConfigService，避免持有过期的长连接：
 
 ```python
 async def _get_idle_ttl(self) -> int:
     """返回 idle TTL 秒数，默认 600。"""
-    val = await self._config_service.get_setting(
-        "agent_session_idle_ttl_minutes", "10"
-    )
+    async with async_session_factory() as session:
+        svc = ConfigService(SystemSettingRepository(session))
+        val = await svc.get_setting("agent_session_idle_ttl_minutes", "10")
     return int(val) * 60
 
 async def _get_max_concurrent(self) -> int:
     """返回最大并发会话数，默认 5。"""
-    val = await self._config_service.get_setting(
-        "agent_max_concurrent_sessions", "5"
-    )
+    async with async_session_factory() as session:
+        svc = ConfigService(SystemSettingRepository(session))
+        val = await svc.get_setting("agent_max_concurrent_sessions", "5")
     return int(val)
 ```
+
+**注意**：不在 `SessionManager.__init__()` 中存储 `ConfigService` 实例属性，因为 `ConfigService` 依赖请求级的 `AsyncSession`，长期持有会导致 session 过期。
 
 ### 后端配置 API 扩展
 
@@ -223,7 +253,7 @@ agent_max_concurrent_sessions: number;
 | 文件 | 变更 |
 |------|------|
 | `server/agent_runtime/session_manager.py` | 核心：idle TTL、LRU 淘汰、巡检循环 |
-| `server/agent_runtime/service.py` | 注入 ConfigService 依赖 |
+| `server/agent_runtime/service.py` | 透传 SessionCapacityError，无需注入 ConfigService |
 | `server/routers/system_config.py` | 新增两个配置字段的 PATCH/GET |
 | `server/routers/assistant.py` | 捕获 SessionCapacityError → 503 |
 | `server/routers/agent_chat.py` | 捕获 SessionCapacityError → 503 |
