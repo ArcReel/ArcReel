@@ -942,6 +942,27 @@ class SessionManager:
 
         asyncio.create_task(_cleanup())
 
+    async def _disconnect_session(self, session_id: str) -> None:
+        """安全断开并移除一个会话，处理 consumer_task 和 connect_lock。"""
+        managed = self.sessions.get(session_id)
+        if managed is None:
+            return
+        # 取消 idle cleanup 定时器
+        if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
+            managed._idle_cleanup_task.cancel()
+            await asyncio.gather(managed._idle_cleanup_task, return_exceptions=True)
+        # 取消 consumer_task 并等待完成，防止与 disconnect 竞争
+        if managed.consumer_task and not managed.consumer_task.done():
+            managed.consumer_task.cancel()
+            await asyncio.gather(managed.consumer_task, return_exceptions=True)
+        managed.clear_buffer()
+        try:
+            await managed.client.disconnect()
+        except Exception:
+            logger.debug("disconnect non-fatal error for %s", session_id, exc_info=True)
+        self.sessions.pop(session_id, None)
+        self._connect_locks.pop(session_id, None)
+
     @staticmethod
     def _resolve_result_status(
         result_message: dict[str, Any],
