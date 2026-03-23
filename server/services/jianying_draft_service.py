@@ -86,3 +86,86 @@ class JianyingDraftService:
         if aspect == "9:16":
             return 1080, 1920
         return 1920, 1080
+
+    # ------------------------------------------------------------------
+    # 内部方法：草稿生成
+    # ------------------------------------------------------------------
+
+    def _generate_draft(
+        self,
+        *,
+        draft_dir: Path,
+        draft_name: str,
+        clips: list[dict],
+        width: int,
+        height: int,
+        content_mode: str,
+    ) -> None:
+        """使用 pyJianYingDraft 在 draft_dir 中生成草稿文件"""
+        draft_dir.parent.mkdir(parents=True, exist_ok=True)
+        folder = draft.DraftFolder(str(draft_dir.parent))
+        script_file = folder.create_draft(
+            draft_name, width=width, height=height, allow_replace=True
+        )
+
+        # 视频轨
+        script_file.add_track(TrackType.video)
+
+        # 字幕轨（仅 narration 模式）
+        has_subtitle = content_mode == "narration"
+        if has_subtitle:
+            script_file.add_track(TrackType.text, "字幕")
+            text_style = TextStyle(
+                size=8.0,
+                color=(1.0, 1.0, 1.0),
+                align=1,
+                bold=True,
+                auto_wrapping=True,
+            )
+
+        # 逐片段添加
+        offset_us = 0
+        for clip in clips:
+            # 预读实际视频时长
+            material = VideoMaterial(clip["local_path"])
+            actual_duration_us = material.duration
+
+            # 视频片段
+            video_seg = VideoSegment(
+                material,
+                trange(offset_us, actual_duration_us),
+            )
+            script_file.add_segment(video_seg)
+
+            # 字幕片段
+            if has_subtitle and clip.get("novel_text"):
+                text_seg = TextSegment(
+                    text=clip["novel_text"],
+                    timerange=trange(offset_us, actual_duration_us),
+                    style=text_style,
+                )
+                script_file.add_segment(text_seg)
+
+            offset_us += actual_duration_us
+
+        script_file.save()
+
+    def _replace_paths_in_draft(
+        self, *, json_path: Path, tmp_prefix: str, target_prefix: str
+    ) -> None:
+        """JSON 安全地替换 draft_content.json 中的临时路径"""
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+
+        def _walk(obj: Any) -> Any:
+            if isinstance(obj, str) and tmp_prefix in obj:
+                return obj.replace(tmp_prefix, target_prefix)
+            if isinstance(obj, dict):
+                return {k: _walk(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_walk(v) for v in obj]
+            return obj
+
+        data = _walk(data)
+        json_path.write_text(
+            json.dumps(data, ensure_ascii=False), encoding="utf-8"
+        )
