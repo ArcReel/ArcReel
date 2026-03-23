@@ -95,9 +95,10 @@ async def _disconnect_session(self, session_id: str) -> None:
     # 取消 idle cleanup 定时器
     if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
         managed._idle_cleanup_task.cancel()
-    # 取消 consumer_task（如果仍在运行）
+    # 取消 consumer_task（如果仍在运行）并等待完成，防止与 disconnect 竞争
     if managed.consumer_task and not managed.consumer_task.done():
         managed.consumer_task.cancel()
+        await asyncio.gather(managed.consumer_task, return_exceptions=True)
     managed.clear_buffer()
     try:
         await managed.client.disconnect()
@@ -175,19 +176,21 @@ SessionManager 新增两个方法，遵循已有的 `refresh_config()` 模式—
 async def _get_idle_ttl(self) -> int:
     """返回 idle TTL 秒数，默认 600。"""
     async with async_session_factory() as session:
-        svc = ConfigService(SystemSettingRepository(session))
+        svc = ConfigService(session)
         val = await svc.get_setting("agent_session_idle_ttl_minutes", "10")
     return int(val) * 60
 
 async def _get_max_concurrent(self) -> int:
     """返回最大并发会话数，默认 5。"""
     async with async_session_factory() as session:
-        svc = ConfigService(SystemSettingRepository(session))
+        svc = ConfigService(session)
         val = await svc.get_setting("agent_max_concurrent_sessions", "5")
     return int(val)
 ```
 
-**注意**：不在 `SessionManager.__init__()` 中存储 `ConfigService` 实例属性，因为 `ConfigService` 依赖请求级的 `AsyncSession`，长期持有会导致 session 过期。
+**注意**：
+- 不在 `SessionManager.__init__()` 中存储 `ConfigService` 实例属性，因为 `ConfigService` 依赖请求级的 `AsyncSession`，长期持有会导致 session 过期。
+- `_ensure_capacity()` 每次只淘汰一个 idle 会话。如果管理员动态调低 `max_concurrent`（如 10 → 3），超出的会话不会立即全部清理，而是由后续请求逐个淘汰 + TTL/巡检兜底。这是有意为之的渐进清理策略。
 
 ### 后端配置 API 扩展
 
