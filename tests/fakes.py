@@ -30,12 +30,19 @@ class FakeSDKClient:
         self._messages = list(messages) if messages else []
         self.sent_queries: list[str] = []
         self.interrupted = False
+        self.disconnected = False
 
     async def query(self, content: str) -> None:
         self.sent_queries.append(content)
 
     async def interrupt(self) -> None:
         self.interrupted = True
+
+    async def disconnect(self) -> None:
+        self.disconnected = True
+
+    async def connect(self) -> None:
+        self.disconnected = False
 
     async def receive_response(self):
         for message in self._messages:

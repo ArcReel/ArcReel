@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from collections.abc import AsyncIterable
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
@@ -42,6 +43,11 @@ except ImportError:
     SDK_AVAILABLE = False
 
 
+class SessionCapacityError(Exception):
+    """所有并发槽位已被 running 会话占满，无法创建新连接。"""
+    pass
+
+
 def _utc_now_iso() -> str:
     """Return current UTC timestamp in ISO-8601 format."""
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -71,6 +77,9 @@ class ManagedSession:
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
     pending_user_echoes: list[str] = field(default_factory=list)
     interrupt_requested: bool = False
+    idle_since: Optional[float] = None                            # monotonic timestamp when entering idle
+    last_activity: Optional[float] = None                         # updated on every send/receive
+    _idle_cleanup_task: Optional[asyncio.Task] = None             # current idle cleanup timer
 
     # Message types that must never be silently dropped from subscriber queues.
     _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "user", "assistant"}
