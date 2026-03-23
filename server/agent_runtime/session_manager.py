@@ -654,6 +654,7 @@ class SessionManager:
             project_name=project_name,
         )
         managed_ref[0] = managed
+        managed.last_activity = time.monotonic()
         self.sessions[temp_id] = managed
 
         # Echo user message
@@ -753,6 +754,12 @@ class SessionManager:
     ) -> None:
         """Send a message and start background consumer."""
         managed = await self.get_or_connect(session_id, meta=meta)
+        managed.last_activity = time.monotonic()
+        # 取消待执行的 idle cleanup（会话恢复活跃）
+        if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
+            managed._idle_cleanup_task.cancel()
+            managed._idle_cleanup_task = None
+        managed.idle_since = None
 
         if managed.status == "running":
             raise ValueError(

@@ -83,6 +83,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize async services
     await assistant.assistant_service.startup()
+    assistant.assistant_service.session_manager.start_patrol()
 
     logger.info("启动 GenerationWorker...")
     worker = create_generation_worker()
