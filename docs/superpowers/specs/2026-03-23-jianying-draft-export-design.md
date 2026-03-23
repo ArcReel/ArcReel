@@ -37,17 +37,15 @@
 
 ### 端点
 
-#### 1. 签发 token
+#### 1. 签发 token — 复用现有端点
 
 ```
-POST /api/v1/projects/{name}/export/jianying-draft/token
+POST /api/v1/projects/{name}/export/token
 ```
 
-- 需 Bearer JWT 认证
-- 复用 `create_download_token`，purpose 保持 `"download"`
-- 响应：`{ "download_token": "...", "expires_in": 300 }`
+直接复用现有导出 token 端点（`create_download_token`，`purpose="download"`）。前端获取 token 后构造剪映草稿专用的下载 URL 即可，无需新增 token 端点。
 
-#### 2. 导出草稿 ZIP
+#### 2. 导出草稿 ZIP（新增端点）
 
 ```
 GET /api/v1/projects/{name}/export/jianying-draft
@@ -66,11 +64,11 @@ GET /api/v1/projects/{name}/export/jianying-draft
 | 状态码 | 场景 |
 |--------|------|
 | 404 | 项目或集数不存在 |
-| 422 | 该集无已完成视频 / draft_path 为空 |
+| 422 | 该集无已完成视频 / draft_path 为空或含控制字符 |
 | 401 | token 过期或无效 |
 | 403 | token 与项目不匹配 |
 
-认证中间件：为 `/api/v1/projects/*/export/jianying-draft` 增加与现有导出端点相同的 `download_token` 放行逻辑。
+认证方式：GET 端点**不加** `Depends(get_current_user)`，在函数体内手动验证 `download_token` 参数（与现有 `export_project_archive` 相同模式）。
 
 ---
 
@@ -90,7 +88,7 @@ class JianyingDraftService:
 1. **加载剧本**：区分 `content_mode`（narration → segments，drama → scenes）
 2. **收集已完成视频**：遍历 `generated_assets.video_clip`，仅保留文件存在的片段；narration 模式额外提取 `novel_text`
 3. **确定画布尺寸**：`aspect_ratio.video` → 16:9 = 1920×1080，9:16 = 1080×1920
-4. **创建临时目录**，复制视频到 `assets/`（优先硬链接）
+4. **创建临时目录**，复制视频到 `assets/`（优先硬链接，跨文件系统时 fallback 到 `shutil.copy2`）
 5. **调用 pyjianyingdraft 生成草稿**：
    - `DraftFolder(tmp_dir)` → `create_draft(draft_name, width, height)`
    - `add_track(TrackType.video)` — 视频轨
@@ -142,23 +140,33 @@ if content_mode == "narration":
 
 #### 2. 剪映草稿目录（文本输入框）
 
-- OS 检测预填默认值：
-  - Windows: `C:\Users\YOUR_USERNAME\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`
-  - macOS: `/Users/YOUR_USERNAME/Movies/JianyingPro/User Data/Projects/com.lveditor.draft`
+- 输入框 placeholder 根据 OS 检测显示示例路径（浏览器无法获取系统用户名，仅作提示）：
+  - Windows: `C:\Users\你的用户名\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`
+  - macOS: `/Users/你的用户名/Movies/JianyingPro/User Data/Projects/com.lveditor.draft`
 - 输入框下方提示：*"请填入剪映草稿目录的完整路径。打开剪映 → 设置 → 草稿位置 可查看。"*
-- `localStorage` key `arcreel_jianying_draft_path` 缓存，有缓存时优先回填
+- `localStorage` key `arcreel_jianying_draft_path` 缓存，有缓存时优先回填（优先级高于 placeholder）
 
 #### 3. 导出按钮
 
 - 点击：签发 token → `window.open(GET url)` 触发浏览器下载
 - 下载期间按钮禁用，显示"导出中..."
 
+### ExportScopeDialog 改造
+
+现有组件是简单的两按钮选择器（"仅当前版本"/"全部数据"），选择即触发 `onSelect(scope)`。改造为：
+
+1. 扩展 `ExportScope` 类型：新增 `"jianying-draft"` 值
+2. 选择"导出为剪映草稿"后，弹窗从"选择模式"切换到"表单模式"，展开集数下拉 + 草稿目录输入框
+3. 剪映导出走独立回调 `onJianyingExport(episode, draftPath)`，不复用 `onSelect`
+4. 组件内部需要接收 `episodes` prop（或从 store 读取）来填充集数下拉
+5. 状态机：选择模式 → 表单模式 → 导出中（按钮禁用）→ 完成（关闭弹窗）
+
 ### API 层
 
 在 `frontend/src/api.ts` 新增：
 
 ```typescript
-requestJianyingDraftExportToken(projectName: string): Promise<{ download_token: string }>
+// 复用现有 requestExportToken，无需新方法
 getJianyingDraftDownloadUrl(projectName: string, episode: number, draftPath: string, token: string): string
 ```
 
@@ -170,7 +178,7 @@ getJianyingDraftDownloadUrl(projectName: string, episode: number, draftPath: str
 {项目名}_第{N}集_剪映草稿.zip
 └── {项目名}_第{N}集/
     ├── draft_content.json      # 路径已替换为用户本地路径
-    ├── draft_meta_info.json
+    ├── draft_meta_info.json    # 由 pyjianyingdraft save() 自动生成
     └── assets/
         ├── scene_E1S01.mp4
         ├── scene_E1S02.mp4
@@ -189,18 +197,30 @@ getJianyingDraftDownloadUrl(projectName: string, episode: number, draftPath: str
 
 ## 路径后处理
 
-`save()` 后全文替换 `draft_content.json` 中的临时目录路径：
+`save()` 后，通过 JSON 解析方式替换 `draft_content.json` 中的临时目录路径（而非文本层 `str.replace`，避免路径中的引号或特殊字符破坏 JSON 结构）：
 
 ```python
-content = json_path.read_text(encoding="utf-8")
-content = content.replace(
-    str(tmp_assets_dir),
-    f"{draft_path}/{draft_name}/assets"
-)
-json_path.write_text(content, encoding="utf-8")
+import json
+
+data = json.loads(json_path.read_text(encoding="utf-8"))
+tmp_prefix = str(tmp_assets_dir)
+target_prefix = f"{draft_path}/{draft_name}/assets"
+
+def replace_paths(obj):
+    """递归遍历 JSON，替换所有包含临时路径的字符串值"""
+    if isinstance(obj, str) and tmp_prefix in obj:
+        return obj.replace(tmp_prefix, target_prefix)
+    if isinstance(obj, dict):
+        return {k: replace_paths(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [replace_paths(v) for v in obj]
+    return obj
+
+data = replace_paths(data)
+json_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 ```
 
-所有素材路径前缀统一在 `assets/` 下，单次替换即可。
+所有素材路径前缀统一在 `assets/` 下，递归替换确保 JSON 结构完整。
 
 ---
 
@@ -212,7 +232,7 @@ json_path.write_text(content, encoding="utf-8")
 | 该集无已完成视频 | 422 + "请先生成视频" |
 | 视频文件缺失（script 有记录但文件不在） | 跳过该片段，仅导出存在的视频 |
 | pyjianyingdraft 生成失败 | 500 + 日志记录，返回友好错误 |
-| draft_path 为空或格式异常 | 422 + "请提供有效的剪映草稿目录路径" |
+| draft_path 为空、含控制字符、或超过 1024 字符 | 422 + "请提供有效的剪映草稿目录路径" |
 
 ---
 
