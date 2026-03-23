@@ -713,10 +713,12 @@ class SessionManager:
                 return {}
             except json.JSONDecodeError as exc:
                 # File is corrupt — restore from backup if available
+                restored = False
                 if backup:
                     backup_path, backup_content = backup
                     try:
                         backup_path.write_text(backup_content, encoding="utf-8")
+                        restored = True
                         logger.warning(
                             "PostToolUse JSON 校验拦截并恢复: file=%s tool=%s "
                             "error=%s backup_restored=True",
@@ -733,14 +735,24 @@ class SessionManager:
                         file_path, tool_name, exc,
                     )
 
+                if restored:
+                    ctx = (
+                        f"⚠ JSON 损坏已检测并回滚：{tool_name} 导致 "
+                        f"{file_path} 变成无效 JSON（{exc}）。"
+                        "文件已恢复到编辑前状态，请修正后重试。"
+                    )
+                else:
+                    ctx = (
+                        f"⚠ JSON 损坏已检测但无法恢复：{tool_name} 导致 "
+                        f"{file_path} 变成无效 JSON（{exc}）。"
+                        "文件当前仍为损坏状态（无可用备份或恢复写入失败），"
+                        "请先读取文件确认内容，再手动修正为合法 JSON。"
+                    )
+
                 return {
                     "hookSpecificOutput": {
                         "hookEventName": "PostToolUse",
-                        "additionalContext": (
-                            f"⚠ JSON 损坏已检测并回滚：{tool_name} 导致 "
-                            f"{file_path} 变成无效 JSON（{exc}）。"
-                            "文件已恢复到编辑前状态，请修正后重试。"
-                        ),
+                        "additionalContext": ctx,
                     },
                 }
 

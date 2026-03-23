@@ -854,7 +854,9 @@ class TestJsonPostValidationHook:
             json_backups={},
         )
 
-        assert "additionalContext" in result.get("hookSpecificOutput", {})
+        ctx = result.get("hookSpecificOutput", {}).get("additionalContext", "")
+        assert "无法恢复" in ctx
+        assert "回滚" not in ctx
 
     # --- Non-.json file → skip ---
 
