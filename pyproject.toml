@@ -27,6 +27,7 @@ dependencies = [
     "volcengine-python-sdk[ark]>=5.0.17",
     "openai>=2.29.0",
     "xai-sdk>=1.8.2",
+    "pyjianyingdraft>=0.2.6",
 ]
 
 [build-system]
