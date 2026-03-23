@@ -199,6 +199,75 @@ async def export_project_archive(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# --- 剪映草稿导出 ---
+
+
+def get_jianying_draft_service() -> "JianyingDraftService":
+    from server.services.jianying_draft_service import JianyingDraftService
+    return JianyingDraftService(get_project_manager())
+
+
+def _validate_draft_path(draft_path: str) -> str:
+    """校验 draft_path 合法性"""
+    if not draft_path or not draft_path.strip():
+        raise HTTPException(status_code=422, detail="请提供有效的剪映草稿目录路径")
+    if len(draft_path) > 1024:
+        raise HTTPException(status_code=422, detail="草稿目录路径过长")
+    if any(ord(c) < 32 for c in draft_path):
+        raise HTTPException(status_code=422, detail="草稿目录路径包含非法字符")
+    return draft_path.strip()
+
+
+@router.get("/projects/{name}/export/jianying-draft")
+async def export_jianying_draft(
+    name: str,
+    episode: int = Query(..., description="集数编号"),
+    draft_path: str = Query(..., description="用户本地剪映草稿目录"),
+    download_token: str = Query(..., description="下载 token"),
+):
+    """导出指定集的剪映草稿 ZIP"""
+    import jwt as pyjwt
+
+    # 1. 验证 download_token
+    try:
+        verify_download_token(download_token, name)
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="下载链接已过期，请重新导出")
+    except ValueError:
+        raise HTTPException(status_code=403, detail="下载 token 与项目不匹配")
+    except pyjwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="下载 token 无效")
+
+    # 2. 校验 draft_path
+    draft_path = _validate_draft_path(draft_path)
+
+    # 3. 调用服务
+    svc = get_jianying_draft_service()
+    try:
+        zip_path = svc.export_episode_draft(
+            project_name=name, episode=episode, draft_path=draft_path
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        logger.exception("剪映草稿导出失败: project=%s episode=%d", name, episode)
+        raise HTTPException(status_code=500, detail="剪映草稿导出失败，请稍后重试")
+
+    download_name = f"{name}_第{episode}集_剪映草稿.zip"
+
+    def _cleanup_temp_dir(dir_path: str) -> None:
+        shutil.rmtree(dir_path, ignore_errors=True)
+
+    return FileResponse(
+        path=str(zip_path),
+        media_type="application/zip",
+        filename=download_name,
+        background=BackgroundTask(_cleanup_temp_dir, str(zip_path.parent)),
+    )
+
+
 @router.get("/projects")
 async def list_projects(_user: Annotated[dict, Depends(get_current_user)]):
     """列出所有项目"""
