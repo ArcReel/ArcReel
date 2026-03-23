@@ -8,7 +8,7 @@ export type ExportScope = "current" | "full" | "jianying-draft";
 
 const DRAFT_PATH_STORAGE_KEY = "arcreel_jianying_draft_path";
 
-function getDefaultDraftPathPlaceholder(): string {
+function getDefaultDraftPath(): string {
   const isWindows =
     typeof navigator !== "undefined" &&
     navigator.userAgent.includes("Windows");
@@ -41,7 +41,7 @@ export function ExportScopeDialog({
     episodes.length > 0 ? episodes[0].episode : 1,
   );
   const [draftPath, setDraftPath] = useState<string>(
-    () => localStorage.getItem(DRAFT_PATH_STORAGE_KEY) ?? "",
+    () => localStorage.getItem(DRAFT_PATH_STORAGE_KEY) || getDefaultDraftPath(),
   );
 
   // Reset mode when popover closes
@@ -169,7 +169,7 @@ export function ExportScopeDialog({
                 type="text"
                 value={draftPath}
                 onChange={(e) => setDraftPath(e.target.value)}
-                placeholder={getDefaultDraftPathPlaceholder()}
+                placeholder="剪映草稿目录路径"
                 className="w-full rounded-md border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-sm text-gray-200 placeholder:text-gray-600 outline-none focus:border-indigo-500"
               />
               <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500">

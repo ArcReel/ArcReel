@@ -14,6 +14,16 @@ import { ExportScopeDialog } from "./ExportScopeDialog";
 import { API } from "@/api";
 import type { WorkspaceNotification } from "@/types";
 
+/** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
+function triggerBrowserDownload(url: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 // ---------------------------------------------------------------------------
 // Phase definitions
 // ---------------------------------------------------------------------------
@@ -177,7 +187,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       const url = API.getJianyingDraftDownloadUrl(
         currentProjectName, episode, draftPath, download_token,
       );
-      window.open(url, "_blank");
+      triggerBrowserDownload(url);
       setExportDialogOpen(false);
       useAppStore.getState().pushToast("剪映草稿导出已开始，请将下载的 ZIP 解压到剪映草稿目录中", "success");
     } catch (err) {
@@ -195,7 +205,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     try {
       const { download_token, diagnostics } = await API.requestExportToken(currentProjectName, scope);
       const url = API.getExportDownloadUrl(currentProjectName, download_token, scope);
-      window.open(url, "_blank");
+      triggerBrowserDownload(url);
       const diagnosticCount =
         diagnostics.blocking.length + diagnostics.auto_fixed.length + diagnostics.warnings.length;
       useAppStore.getState().pushToast(
