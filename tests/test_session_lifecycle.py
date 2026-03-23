@@ -162,3 +162,88 @@ class TestIdleCleanup:
 
         mock_schedule.assert_called_once_with("s1")
         assert managed.idle_since is not None
+
+
+class TestEnsureCapacity:
+    async def test_under_limit_no_eviction(self, tmp_path):
+        """活跃数低于上限时不淘汰。"""
+        mgr = _make_manager(tmp_path)
+        mgr.sessions["s1"] = _make_managed("s1")
+
+        with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=5):
+            await mgr._ensure_capacity()
+
+        assert "s1" in mgr.sessions
+
+    async def test_evicts_oldest_idle(self, tmp_path):
+        """超限时淘汰最久 idle 的会话。"""
+        mgr = _make_manager(tmp_path)
+        old = _make_managed("s_old", status="idle")
+        old.last_activity = time.monotonic() - 100
+        new = _make_managed("s_new", status="idle")
+        new.last_activity = time.monotonic()
+        mgr.sessions["s_old"] = old
+        mgr.sessions["s_new"] = new
+
+        with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=2):
+            with patch.object(mgr, "_disconnect_session", new_callable=AsyncMock) as mock_disc:
+                await mgr._ensure_capacity()
+                mock_disc.assert_called_once_with("s_old")
+
+    async def test_all_running_raises_capacity_error(self, tmp_path):
+        """所有会话都在 running 时应抛出 SessionCapacityError。"""
+        mgr = _make_manager(tmp_path)
+        for i in range(3):
+            mgr.sessions[f"s{i}"] = _make_managed(f"s{i}", status="running")
+
+        with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=3):
+            with pytest.raises(SessionCapacityError, match="正在进行的会话"):
+                await mgr._ensure_capacity()
+
+    async def test_capacity_error_message_includes_count(self, tmp_path):
+        """错误消息中应包含当前 running 会话数。"""
+        mgr = _make_manager(tmp_path)
+        for i in range(3):
+            mgr.sessions[f"s{i}"] = _make_managed(f"s{i}", status="running")
+
+        with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=3):
+            with pytest.raises(SessionCapacityError, match="3个"):
+                await mgr._ensure_capacity()
+
+
+class TestPatrolLoop:
+    async def test_patrol_cleans_expired_idle(self, tmp_path):
+        """巡检应清理超过 TTL 的 idle 会话。"""
+        mgr = _make_manager(tmp_path)
+        managed = _make_managed("s1", status="idle")
+        managed.idle_since = time.monotonic() - 1000
+        mgr.sessions["s1"] = managed
+
+        with patch.object(mgr, "_get_idle_ttl", new_callable=AsyncMock, return_value=60):
+            with patch.object(mgr, "_disconnect_session", new_callable=AsyncMock) as mock_disc:
+                await mgr._patrol_once()
+                mock_disc.assert_called_once_with("s1")
+
+    async def test_patrol_skips_running(self, tmp_path):
+        """巡检不应清理 running 会话。"""
+        mgr = _make_manager(tmp_path)
+        managed = _make_managed("s1", status="running")
+        managed.idle_since = None
+        mgr.sessions["s1"] = managed
+
+        with patch.object(mgr, "_get_idle_ttl", new_callable=AsyncMock, return_value=60):
+            with patch.object(mgr, "_disconnect_session", new_callable=AsyncMock) as mock_disc:
+                await mgr._patrol_once()
+                mock_disc.assert_not_called()
+
+    async def test_patrol_skips_recent_idle(self, tmp_path):
+        """巡检不应清理近期的 idle 会话。"""
+        mgr = _make_manager(tmp_path)
+        managed = _make_managed("s1", status="idle")
+        managed.idle_since = time.monotonic()
+        mgr.sessions["s1"] = managed
+
+        with patch.object(mgr, "_get_idle_ttl", new_callable=AsyncMock, return_value=600):
+            with patch.object(mgr, "_disconnect_session", new_callable=AsyncMock) as mock_disc:
+                await mgr._patrol_once()
+                mock_disc.assert_not_called()

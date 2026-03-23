@@ -635,6 +635,7 @@ class SessionManager:
         if not SDK_AVAILABLE or ClaudeSDKClient is None:
             raise RuntimeError("claude_agent_sdk is not installed")
 
+        await self._ensure_capacity()
         temp_id = uuid4().hex
         managed_ref: list[Optional[ManagedSession]] = [None]
 
@@ -721,6 +722,7 @@ class SessionManager:
             if not SDK_AVAILABLE or ClaudeSDKClient is None:
                 raise RuntimeError("claude_agent_sdk is not installed")
 
+            await self._ensure_capacity()
             options = self._build_options(
                 meta.project_name,
                 meta.id,  # SessionMeta.id 就是 sdk_session_id
@@ -1021,6 +1023,57 @@ class SessionManager:
             await self._disconnect_session(session_id)
 
         managed._idle_cleanup_task = asyncio.create_task(_idle_cleanup())
+
+    async def _ensure_capacity(self) -> None:
+        """确保有空余并发槽位，必要时淘汰最久 idle 会话。"""
+        max_concurrent = await self._get_max_concurrent()
+        active = [s for s in self.sessions.values() if s.client is not None]
+
+        if len(active) < max_concurrent:
+            return
+
+        # 找到最久未活跃的 idle 会话
+        idle_sessions = sorted(
+            [s for s in active if s.status == "idle"],
+            key=lambda s: s.last_activity or 0,
+        )
+
+        if idle_sessions:
+            victim = idle_sessions[0]
+            logger.info("并发上限，LRU 淘汰 session_id=%s", victim.session_id)
+            await self._disconnect_session(victim.session_id)
+            return
+
+        # 所有会话都在 running → 拒绝
+        running_count = len([s for s in active if s.status == "running"])
+        raise SessionCapacityError(
+            f"当前有{running_count}个正在进行的会话，已达到最大上限，请稍后重试"
+        )
+
+    _PATROL_INTERVAL = 300  # 5 分钟
+
+    async def _patrol_once(self) -> None:
+        """单次巡检：清理所有超时的 idle 会话。"""
+        ttl = await self._get_idle_ttl()
+        now = time.monotonic()
+        for sid, managed in list(self.sessions.items()):
+            if managed.status == "idle" and managed.idle_since:
+                if now - managed.idle_since > ttl:
+                    logger.info("巡检清理超时 idle 会话 session_id=%s", sid)
+                    await self._disconnect_session(sid)
+
+    async def _patrol_loop(self) -> None:
+        """后台定期巡检循环。"""
+        while True:
+            await asyncio.sleep(self._PATROL_INTERVAL)
+            try:
+                await self._patrol_once()
+            except Exception:
+                logger.warning("巡检循环异常", exc_info=True)
+
+    def start_patrol(self) -> None:
+        """启动巡检后台任务（应在应用 startup 时调用）。"""
+        self._patrol_task = asyncio.create_task(self._patrol_loop())
 
     @staticmethod
     def _resolve_result_status(
@@ -1464,6 +1517,11 @@ class SessionManager:
 
     async def shutdown_gracefully(self, timeout: float = 30.0) -> None:
         """Gracefully shutdown all sessions."""
+        # 取消巡检任务
+        patrol = getattr(self, "_patrol_task", None)
+        if patrol and not patrol.done():
+            patrol.cancel()
+
         for session_id, managed in list(self.sessions.items()):
             managed.cancel_pending_questions("session shutdown")
             if managed.status == "running":
