@@ -28,49 +28,53 @@ if final_status not in ("idle", "running"):
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  层 1: Idle TTL 定时清理                              │
-│  每个会话进入 idle 后启动倒计时（默认 10 分钟）        │
-│  到期 → disconnect SDK → 释放内存                     │
+│  层 1: 统一延迟清理 _schedule_cleanup               │
+│  idle → 可配置 TTL（默认 10 分钟）                   │
+│  completed/error/interrupted → 短延迟（30 秒）       │
+│  cleanup task 追踪在 ManagedSession._cleanup_task    │
+│  到期 → _disconnect_session → 释放内存               │
 │  用户再发消息 → get_or_connect 透明恢复               │
 ├─────────────────────────────────────────────────────┤
 │  层 2: 并发上限 + LRU 淘汰                            │
 │  活跃子进程数 ≤ max_concurrent（默认 5）              │
-│  新请求到来时，如超限 → 淘汰最久 idle 的会话          │
+│  新请求到来时，如超限 → 淘汰最久未活跃的非 running 会话│
 │  全部 running → 返回 503 友好提示                     │
 ├─────────────────────────────────────────────────────┤
 │  层 3: 定期巡检（安全网）                              │
-│  每 5 分钟扫描一次，清理漏网的超时会话                │
-│  防止 TTL 计时器丢失导致的泄漏                        │
+│  每 5 分钟扫描一次，清理超时 idle 和残留终态会话      │
+│  防止 cleanup task 丢失导致的泄漏                     │
 └─────────────────────────────────────────────────────┘
 ```
 
-### 层 1：Idle TTL 定时清理
+### 层 1：统一延迟清理 `_schedule_cleanup()`
 
-#### ManagedSession 新增字段
+#### ManagedSession 字段
 
 ```python
 idle_since: float | None = None                        # monotonic 时间戳，进入 idle 时记录
 last_activity: float | None = None                     # 每次发送/接收消息时更新
-_idle_cleanup_task: asyncio.Task | None = None         # 当前 idle 清理定时器（防止累积）
+_cleanup_task: asyncio.Task | None = None              # 当前清理定时器（idle TTL 或终态短延迟）
 ```
 
-#### 触发点：`_finalize_turn()`
+#### 触发点：`_finalize_turn()` 和 `_mark_session_terminal()`
 
-当 `final_status == "idle"` 时：
+所有非 running 状态统一调用 `_schedule_cleanup()`：
 
 ```python
 if final_status == "idle":
     managed.idle_since = time.monotonic()
-    self._schedule_idle_cleanup(session_id, ttl_seconds)
+if final_status != "running":
+    self._schedule_cleanup(managed.session_id)
 ```
 
-#### `_schedule_idle_cleanup()`
+#### `_schedule_cleanup()` 统一清理逻辑
 
-- **取消旧定时器**：调度前先检查 `managed._idle_cleanup_task`，若存在且未完成则 `cancel()` 再创建新的，防止多轮对话累积孤儿 Task
-- 延迟 = 从配置读取的 TTL（默认 600 秒 = 10 分钟）
-- 到期后检查：如果会话仍为 `idle` **且** `idle_since` 未被刷新 → 执行 `_disconnect_session()` + 从 `self.sessions` 移除
-- 如果期间用户发了新消息（`idle_since` 已重置为 None），则取消清理
-- 当会话从 `idle` 转回 `running` 时，立即 `cancel()` 待执行的 cleanup task
+- **取消旧定时器**：调度前先检查 `managed._cleanup_task`，若存在且未完成则 `cancel()` 再创建新的
+- **按状态决定延迟**：
+  - `idle` → 可配置 TTL（默认 600 秒 = 10 分钟）
+  - `completed/error/interrupted` → 短延迟 `_TERMINAL_CLEANUP_DELAY`（30 秒）
+- 到期后检查：会话已恢复 `running` 则跳过；`idle` 且 `idle_since` 已刷新则跳过
+- cleanup task 追踪在 `managed._cleanup_task`，`_disconnect_session()` 会自动 cancel
 
 #### 恢复路径
 
@@ -93,8 +97,8 @@ async def _disconnect_session(self, session_id: str) -> None:
     if managed is None:
         return
     # 取消 idle cleanup 定时器
-    if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
-        managed._idle_cleanup_task.cancel()
+    if managed._cleanup_task and not managed._cleanup_task.done():
+        managed._cleanup_task.cancel()
     # 取消 consumer_task（如果仍在运行）并等待完成，防止与 disconnect 竞争
     if managed.consumer_task and not managed.consumer_task.done():
         managed.consumer_task.cancel()
@@ -112,27 +116,27 @@ async def _disconnect_session(self, session_id: str) -> None:
 
 ```python
 async def _ensure_capacity(self) -> None:
-    """确保有空余并发槽位，必要时淘汰最久 idle 会话。"""
+    """确保有空余并发槽位，必要时淘汰最久未活跃的非 running 会话。"""
     max_concurrent = await self._get_max_concurrent()
-    active = [s for s in self.sessions.values() if s.client and s.status != "disconnected"]
+    active = [s for s in self.sessions.values() if s.client is not None]
 
     if len(active) < max_concurrent:
         return
 
-    # 找到最久未活跃的 idle 会话
-    idle_sessions = sorted(
-        [s for s in active if s.status == "idle"],
+    # 可淘汰的会话：非 running 状态（idle / completed / error / interrupted）
+    evictable = sorted(
+        [s for s in active if s.status != "running"],
         key=lambda s: s.last_activity or 0
     )
 
-    if idle_sessions:
-        victim = idle_sessions[0]
+    if evictable:
+        victim = evictable[0]
         await self._disconnect_session(victim.session_id)
         return
 
     # 所有会话都在 running → 拒绝
     raise SessionCapacityError(
-        "当前有{len(running)}个正在进行的会话，已达到最大上限，请稍后重试"
+        f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试"
     )
 ```
 
@@ -149,21 +153,25 @@ HTTP 503
 
 ### 层 3：定期巡检
 
-在 `SessionManager` 启动时创建后台 `asyncio.Task`：
+在 `SessionManager` 启动时创建后台 `asyncio.Task`，同时覆盖 idle 和终态会话：
 
 ```python
 _PATROL_INTERVAL = 300  # 5 分钟，类常量
 
-async def _patrol_loop(self) -> None:
-    """每 5 分钟扫描一次，清理漏网的超时 idle 会话。"""
-    while True:
-        await asyncio.sleep(self._PATROL_INTERVAL)
-        ttl = await self._get_idle_ttl()
-        now = time.monotonic()
-        for sid, managed in list(self.sessions.items()):
-            if managed.status == "idle" and managed.idle_since:
-                if now - managed.idle_since > ttl:
-                    await self._disconnect_session(sid)
+async def _patrol_once(self) -> None:
+    """单次巡检：清理所有超时的非 running 会话。"""
+    ttl = await self._get_idle_ttl()
+    now = time.monotonic()
+    for sid, managed in list(self.sessions.items()):
+        if managed.status == "running":
+            continue
+        if managed.status == "idle" and managed.idle_since:
+            if now - managed.idle_since > ttl:
+                await self._disconnect_session(sid)
+        elif managed.status in ("completed", "error", "interrupted"):
+            activity_age = now - (managed.last_activity or 0)
+            if activity_age > self._TERMINAL_CLEANUP_DELAY * 2:
+                await self._disconnect_session(sid)
 ```
 
 在 `shutdown_gracefully()` 中取消此任务。
@@ -267,5 +275,5 @@ agent_max_concurrent_sessions: number;
 
 - `AgentSession` DB 模型不变（无需新增列或迁移）
 - `SessionRepository` 不变
-- 已有的 `_schedule_session_cleanup()`（处理 completed/error/interrupted）保持不变
+- `_schedule_idle_cleanup()` 和 `_schedule_session_cleanup()` 已合并为统一的 `_schedule_cleanup()`
 - 前端会话列表、对话 UI 不变（清理对用户透明）

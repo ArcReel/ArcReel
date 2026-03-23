@@ -84,9 +84,8 @@ class ManagedSession:
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
     pending_user_echoes: list[str] = field(default_factory=list)
     interrupt_requested: bool = False
-    idle_since: Optional[float] = None                            # monotonic timestamp when entering idle
     last_activity: Optional[float] = None                         # updated on every send/receive
-    _idle_cleanup_task: Optional[asyncio.Task] = None             # current idle cleanup timer
+    _cleanup_task: Optional[asyncio.Task] = None                  # current cleanup timer (idle TTL or terminal delay)
 
     # Message types that must never be silently dropped from subscriber queues.
     _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "user", "assistant"}
@@ -918,11 +917,10 @@ class SessionManager:
         """Send a message and start background consumer."""
         managed = await self.get_or_connect(session_id, meta=meta)
         managed.last_activity = time.monotonic()
-        # 取消待执行的 idle cleanup（会话恢复活跃）
-        if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
-            managed._idle_cleanup_task.cancel()
-            managed._idle_cleanup_task = None
-        managed.idle_since = None
+        # 取消待执行的 cleanup（会话恢复活跃）
+        if managed._cleanup_task and not managed._cleanup_task.done():
+            managed._cleanup_task.cancel()
+            managed._cleanup_task = None
 
         if managed.status == "running":
             raise ValueError(
@@ -1062,11 +1060,8 @@ class SessionManager:
         await self.meta_store.update_status(managed.session_id, final_status)
         managed.interrupt_requested = False
         self._prune_transient_buffer(managed)
-        if final_status == "idle":
-            managed.idle_since = time.monotonic()
-            self._schedule_idle_cleanup(managed.session_id)
-        elif final_status not in ("running",):
-            self._schedule_session_cleanup(managed.session_id)
+        if final_status != "running":
+            self._schedule_cleanup(managed.session_id)
 
     async def _mark_session_terminal(
         self, managed: ManagedSession, status: SessionStatus, reason: str
@@ -1100,29 +1095,32 @@ class SessionManager:
             "status": status,
             "reason": reason,
         })
-        self._schedule_session_cleanup(managed.session_id)
+        self._schedule_cleanup(managed.session_id)
 
-    _SESSION_CLEANUP_DELAY = 300  # seconds before evicting terminal sessions
+    def _schedule_cleanup(self, session_id: str) -> None:
+        """为非 running 会话调度延迟清理，延迟从配置读取。"""
+        managed = self.sessions.get(session_id)
+        if managed is None:
+            return
+        # 取消旧的 cleanup task
+        if managed._cleanup_task and not managed._cleanup_task.done():
+            managed._cleanup_task.cancel()
 
-    def _schedule_session_cleanup(self, session_id: str) -> None:
-        """Schedule deferred cleanup for a terminal session."""
-        async def _cleanup() -> None:
-            await asyncio.sleep(self._SESSION_CLEANUP_DELAY)
-            managed = self.sessions.get(session_id)
-            if managed is None:
+        async def _do_cleanup() -> None:
+            delay = await self._get_cleanup_delay()
+            await asyncio.sleep(delay)
+            m = self.sessions.get(session_id)
+            if m is None:
                 return
-            if managed.status in ("idle", "running"):
-                return  # session was resumed, skip cleanup
-            managed.clear_buffer()
-            try:
-                await managed.client.disconnect()
-            except Exception:
-                logger.debug("会话断开过程中出现非致命错误 session_id=%s", session_id, exc_info=True)
-            self.sessions.pop(session_id, None)
-            self._connect_locks.pop(session_id, None)
-            logger.debug("已清理终态会话 session_id=%s", session_id)
+            # 会话已恢复活跃 → 跳过
+            if m.status == "running":
+                return
+            logger.info("清理会话 session_id=%s status=%s", session_id, m.status)
+            # 清除自身引用，避免 _disconnect_session 尝试 cancel/gather 当前任务
+            m._cleanup_task = None
+            await self._disconnect_session(session_id)
 
-        asyncio.create_task(_cleanup())
+        managed._cleanup_task = asyncio.create_task(_do_cleanup())
 
     async def _disconnect_session(self, session_id: str) -> None:
         """安全断开并移除一个会话，处理 consumer_task 和 connect_lock。"""
@@ -1130,10 +1128,10 @@ class SessionManager:
         if managed is None:
             return
         self._connect_locks.pop(session_id, None)
-        # 取消 idle cleanup 定时器
-        if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
-            managed._idle_cleanup_task.cancel()
-            await asyncio.gather(managed._idle_cleanup_task, return_exceptions=True)
+        # 取消 cleanup 定时器
+        if managed._cleanup_task and not managed._cleanup_task.done():
+            managed._cleanup_task.cancel()
+            await asyncio.gather(managed._cleanup_task, return_exceptions=True)
         # 取消 consumer_task 并等待完成，防止与 disconnect 竞争
         if managed.consumer_task and not managed.consumer_task.done():
             managed.consumer_task.cancel()
@@ -1144,16 +1142,16 @@ class SessionManager:
         except Exception:
             logger.debug("disconnect non-fatal error for %s", session_id, exc_info=True)
 
-    async def _get_idle_ttl(self) -> int:
-        """返回 idle TTL 秒数，默认 600（10 分钟）。"""
+    async def _get_cleanup_delay(self) -> int:
+        """返回会话清理延迟秒数，默认 300（5 分钟）。"""
         try:
             async with async_session_factory() as session:
                 svc = ConfigService(session)
-                val = await svc.get_setting("agent_session_idle_ttl_minutes", "10")
-            return max(int(val), 1) * 60
+                val = await svc.get_setting("agent_session_cleanup_delay_seconds", "300")
+            return max(int(val), 10)
         except Exception:
-            logger.warning("读取 idle TTL 配置失败，使用默认值", exc_info=True)
-            return 600
+            logger.warning("读取 cleanup delay 配置失败，使用默认值", exc_info=True)
+            return 300
 
     async def _get_max_concurrent(self) -> int:
         """返回最大并发会话数，默认 5。"""
@@ -1166,70 +1164,49 @@ class SessionManager:
             logger.warning("读取 max_concurrent 配置失败，使用默认值", exc_info=True)
             return 5
 
-    def _schedule_idle_cleanup(self, session_id: str) -> None:
-        """为 idle 会话调度延迟清理，到期后释放 SDK 子进程。"""
-        managed = self.sessions.get(session_id)
-        if managed is None:
-            return
-        # 取消旧的 cleanup task
-        if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
-            managed._idle_cleanup_task.cancel()
-
-        idle_since_snapshot = managed.idle_since
-
-        async def _idle_cleanup() -> None:
-            ttl = await self._get_idle_ttl()
-            await asyncio.sleep(ttl)
-            m = self.sessions.get(session_id)
-            if m is None:
-                return
-            # 会话已恢复活跃或 idle_since 已刷新 → 跳过
-            if m.status != "idle" or m.idle_since != idle_since_snapshot:
-                return
-            logger.info("Idle TTL 到期，清理会话 session_id=%s", session_id)
-            # 清除自身引用，避免 _disconnect_session 尝试 cancel/gather 当前任务
-            m._idle_cleanup_task = None
-            await self._disconnect_session(session_id)
-
-        managed._idle_cleanup_task = asyncio.create_task(_idle_cleanup())
 
     async def _ensure_capacity(self) -> None:
-        """确保有空余并发槽位，必要时淘汰最久 idle 会话。"""
+        """确保有空余并发槽位，必要时淘汰最久未活跃的非 running 会话。"""
         max_concurrent = await self._get_max_concurrent()
         active = [s for s in self.sessions.values() if s.client is not None]
 
         if len(active) < max_concurrent:
             return
 
-        # 找到最久未活跃的 idle 会话
-        idle_sessions = sorted(
-            [s for s in active if s.status == "idle"],
+        # 可淘汰的会话：非 running 状态（idle / completed / error / interrupted）
+        evictable = sorted(
+            [s for s in active if s.status != "running"],
             key=lambda s: s.last_activity or 0,
         )
 
-        if idle_sessions:
-            victim = idle_sessions[0]
-            logger.info("并发上限，LRU 淘汰 session_id=%s", victim.session_id)
+        if evictable:
+            victim = evictable[0]
+            logger.info(
+                "并发上限，淘汰 session_id=%s (status=%s)",
+                victim.session_id,
+                victim.status,
+            )
             await self._disconnect_session(victim.session_id)
             return
 
         # 所有会话都在 running → 拒绝
-        running_count = len([s for s in active if s.status == "running"])
         raise SessionCapacityError(
-            f"当前有{running_count}个正在进行的会话，已达到最大上限，请稍后重试"
+            f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试"
         )
 
     _PATROL_INTERVAL = 300  # 5 分钟
 
     async def _patrol_once(self) -> None:
-        """单次巡检：清理所有超时的 idle 会话。"""
-        ttl = await self._get_idle_ttl()
+        """单次巡检：清理所有超时的非 running 会话。"""
+        cleanup_delay = await self._get_cleanup_delay()
         now = time.monotonic()
         for sid, managed in list(self.sessions.items()):
-            if managed.status == "idle" and managed.idle_since:
-                if now - managed.idle_since > ttl:
-                    logger.info("巡检清理超时 idle 会话 session_id=%s", sid)
-                    await self._disconnect_session(sid)
+            if managed.status == "running":
+                continue
+            activity_age = now - (managed.last_activity or 0)
+            if activity_age > cleanup_delay * 2:
+                logger.info("巡检兜底清理会话 session_id=%s status=%s", sid, managed.status)
+                await self._disconnect_session(sid)
 
     async def _patrol_loop(self) -> None:
         """后台定期巡检循环。"""

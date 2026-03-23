@@ -19,7 +19,7 @@ interface AgentDraft {
   opusModel: string;
   sonnetModel: string;
   subagentModel: string;
-  sessionIdleTtlMinutes: string;
+  cleanupDelaySeconds: string;
   maxConcurrentSessions: string;
 }
 
@@ -33,7 +33,7 @@ function buildDraft(data: GetSystemConfigResponse): AgentDraft {
     opusModel: s.anthropic_default_opus_model ?? "",
     sonnetModel: s.anthropic_default_sonnet_model ?? "",
     subagentModel: s.claude_code_subagent_model ?? "",
-    sessionIdleTtlMinutes: String(s.agent_session_idle_ttl_minutes ?? 10),
+    cleanupDelaySeconds: String(s.agent_session_cleanup_delay_seconds ?? 300),
     maxConcurrentSessions: String(s.agent_max_concurrent_sessions ?? 5),
   };
 }
@@ -47,7 +47,7 @@ function deepEqual(a: AgentDraft, b: AgentDraft): boolean {
     a.opusModel === b.opusModel &&
     a.sonnetModel === b.sonnetModel &&
     a.subagentModel === b.subagentModel &&
-    a.sessionIdleTtlMinutes === b.sessionIdleTtlMinutes &&
+    a.cleanupDelaySeconds === b.cleanupDelaySeconds &&
     a.maxConcurrentSessions === b.maxConcurrentSessions
   );
 }
@@ -67,8 +67,8 @@ function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
     patch.anthropic_default_sonnet_model = draft.sonnetModel || "";
   if (draft.subagentModel !== saved.subagentModel)
     patch.claude_code_subagent_model = draft.subagentModel || "";
-  if (draft.sessionIdleTtlMinutes !== saved.sessionIdleTtlMinutes)
-    patch.agent_session_idle_ttl_minutes = Number(draft.sessionIdleTtlMinutes) || 10;
+  if (draft.cleanupDelaySeconds !== saved.cleanupDelaySeconds)
+    patch.agent_session_cleanup_delay_seconds = Number(draft.cleanupDelaySeconds) || 300;
   if (draft.maxConcurrentSessions !== saved.maxConcurrentSessions)
     patch.agent_max_concurrent_sessions = Number(draft.maxConcurrentSessions) || 5;
   return patch;
@@ -118,7 +118,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     opusModel: "",
     sonnetModel: "",
     subagentModel: "",
-    sessionIdleTtlMinutes: "10",
+    cleanupDelaySeconds: "300",
     maxConcurrentSessions: "5",
   });
   const savedRef = useRef<AgentDraft>({
@@ -129,7 +129,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     opusModel: "",
     sonnetModel: "",
     subagentModel: "",
-    sessionIdleTtlMinutes: "10",
+    cleanupDelaySeconds: "300",
     maxConcurrentSessions: "5",
   });
   const [saving, setSaving] = useState(false);
@@ -593,17 +593,17 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             <div className="mt-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-200">
-                  会话空闲超时（分钟）
+                  会话清理延迟（秒）
                 </label>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  会话空闲超过此时间后自动释放资源，再次对话时会自动恢复
+                  会话结束后等待此时间再释放资源，再次对话时会自动恢复
                 </p>
                 <input
                   type="number"
-                  min={1}
-                  max={60}
-                  value={draft.sessionIdleTtlMinutes}
-                  onChange={(e) => updateDraft("sessionIdleTtlMinutes", e.target.value)}
+                  min={10}
+                  max={3600}
+                  value={draft.cleanupDelaySeconds}
+                  onChange={(e) => updateDraft("cleanupDelaySeconds", e.target.value)}
                   className={`${inputClassName} mt-1.5 max-w-[120px]`}
                   disabled={saving}
                 />

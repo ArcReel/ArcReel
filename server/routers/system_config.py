@@ -96,7 +96,7 @@ class SystemConfigPatchRequest(BaseModel):
     anthropic_default_opus_model: Optional[str] = None
     anthropic_default_sonnet_model: Optional[str] = None
     claude_code_subagent_model: Optional[str] = None
-    agent_session_idle_ttl_minutes: Optional[int] = None
+    agent_session_cleanup_delay_seconds: Optional[int] = None
     agent_max_concurrent_sessions: Optional[int] = None
 
 
@@ -141,7 +141,7 @@ async def get_system_config(
         "anthropic_default_opus_model": all_s.get("anthropic_default_opus_model") or None,
         "anthropic_default_sonnet_model": all_s.get("anthropic_default_sonnet_model") or None,
         "claude_code_subagent_model": all_s.get("claude_code_subagent_model") or None,
-        "agent_session_idle_ttl_minutes": int(all_s.get("agent_session_idle_ttl_minutes") or "10"),
+        "agent_session_cleanup_delay_seconds": int(all_s.get("agent_session_cleanup_delay_seconds") or "300"),
         "agent_max_concurrent_sessions": int(all_s.get("agent_max_concurrent_sessions") or "5"),
     }
 
@@ -199,7 +199,7 @@ async def patch_system_config(
 
     # Integer settings with range validation
     _INT_SETTINGS_RANGES = {
-        "agent_session_idle_ttl_minutes": (1, 60),
+        "agent_session_cleanup_delay_seconds": (10, 3600),
         "agent_max_concurrent_sessions": (1, 20),
     }
     for key, (min_val, max_val) in _INT_SETTINGS_RANGES.items():

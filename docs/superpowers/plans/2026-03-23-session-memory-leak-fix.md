@@ -4,7 +4,7 @@
 
 **Goal:** 修复 Claude SDK 子进程内存泄漏，实现 idle 会话自动清理 + 并发上限 + 定期巡检三层防线
 
-**Architecture:** 在 `SessionManager` 中新增 `_disconnect_session()` 统一清理方法、`_schedule_idle_cleanup()` TTL 定时器、`_ensure_capacity()` 并发控制、`_patrol_loop()` 安全网巡检。配置通过 `SystemSetting` K-V 表存储，前端 `AgentConfigTab` 新增折叠式高级设置面板。
+**Architecture:** 在 `SessionManager` 中新增 `_disconnect_session()` 统一清理方法、`_schedule_cleanup()` TTL 定时器、`_ensure_capacity()` 并发控制、`_patrol_loop()` 安全网巡检。配置通过 `SystemSetting` K-V 表存储，前端 `AgentConfigTab` 新增折叠式高级设置面板。
 
 **Tech Stack:** Python asyncio / FastAPI / SQLAlchemy async / React 19 / TypeScript / Tailwind CSS
 
@@ -26,7 +26,7 @@
 # server/agent_runtime/session_manager.py — ManagedSession dataclass, 在 interrupt_requested 之后添加
     idle_since: Optional[float] = None                            # monotonic timestamp when entering idle
     last_activity: Optional[float] = None                         # updated on every send/receive
-    _idle_cleanup_task: Optional[asyncio.Task] = None             # current idle cleanup timer
+    _cleanup_task: Optional[asyncio.Task] = None             # current idle cleanup timer
 ```
 
 同时在文件顶部 `import` 区添加 `import time`（如果尚未导入）。
@@ -57,7 +57,7 @@ Expected: 全部 PASS
 
 ```bash
 git add server/agent_runtime/session_manager.py tests/fakes.py
-git commit -m "feat: ManagedSession 新增 idle_since/last_activity/_idle_cleanup_task 字段"
+git commit -m "feat: ManagedSession 新增 idle_since/last_activity/_cleanup_task 字段"
 ```
 
 ---
@@ -89,7 +89,7 @@ git commit -m "feat: 添加 SessionCapacityError 自定义异常"
 ### Task 3: `_disconnect_session()` 统一清理方法
 
 **Files:**
-- Modify: `server/agent_runtime/session_manager.py` (`SessionManager` 类内，`_schedule_session_cleanup` 方法之后)
+- Modify: `server/agent_runtime/session_manager.py` (`SessionManager` 类内，`_schedule_cleanup` 方法之后)
 - Create: `tests/test_session_lifecycle.py`
 
 - [ ] **Step 1: 编写 `_disconnect_session` 的测试**
@@ -143,15 +143,15 @@ class TestDisconnectSession:
         assert "s1" not in mgr._connect_locks
         assert managed.client.disconnected is True
 
-    async def test_disconnect_cancels_idle_cleanup_task(self, tmp_path):
+    async def test_disconnect_cancels_cleanup_task(self, tmp_path):
         mgr = _make_manager(tmp_path)
         managed = _make_managed("s1")
-        managed._idle_cleanup_task = asyncio.create_task(asyncio.sleep(9999))
+        managed._cleanup_task = asyncio.create_task(asyncio.sleep(9999))
         mgr.sessions["s1"] = managed
 
         await mgr._disconnect_session("s1")
 
-        assert managed._idle_cleanup_task.cancelled()
+        assert managed._cleanup_task.cancelled()
 
     async def test_disconnect_cancels_consumer_task(self, tmp_path):
         mgr = _make_manager(tmp_path)
@@ -175,7 +175,7 @@ Expected: FAIL — `_disconnect_session` 不存在
 
 - [ ] **Step 3: 实现 `_disconnect_session`**
 
-在 `SessionManager` 类中，`_schedule_session_cleanup` 方法之后添加：
+在 `SessionManager` 类中，`_schedule_cleanup` 方法之后添加：
 
 ```python
     async def _disconnect_session(self, session_id: str) -> None:
@@ -184,8 +184,8 @@ Expected: FAIL — `_disconnect_session` 不存在
         if managed is None:
             return
         # 取消 idle cleanup 定时器
-        if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
-            managed._idle_cleanup_task.cancel()
+        if managed._cleanup_task and not managed._cleanup_task.done():
+            managed._cleanup_task.cancel()
         # 取消 consumer_task 并等待完成，防止与 disconnect 竞争
         if managed.consumer_task and not managed.consumer_task.done():
             managed.consumer_task.cancel()
@@ -300,11 +300,11 @@ git commit -m "feat: 添加 _get_idle_ttl 和 _get_max_concurrent 配置读取"
 
 ---
 
-### Task 5: `_schedule_idle_cleanup()` — 层 1 Idle TTL
+### Task 5: `_schedule_cleanup()` — 层 1 Idle TTL
 
 **Files:**
 - Modify: `server/agent_runtime/session_manager.py:858-878` (`_finalize_turn`)
-- Modify: `server/agent_runtime/session_manager.py` (新增 `_schedule_idle_cleanup`)
+- Modify: `server/agent_runtime/session_manager.py` (新增 `_schedule_cleanup`)
 - Modify: `tests/test_session_lifecycle.py`
 
 - [ ] **Step 1: 编写 idle cleanup 测试**
@@ -321,7 +321,7 @@ class TestIdleCleanup:
 
         # 用极短 TTL 触发
         with patch.object(mgr, "_get_idle_ttl", return_value=1):  # 1 秒 TTL
-            mgr._schedule_idle_cleanup("s1")
+            mgr._schedule_cleanup("s1")
             await asyncio.sleep(1.5)
 
         assert "s1" not in mgr.sessions
@@ -336,7 +336,7 @@ class TestIdleCleanup:
         mgr.sessions["s1"] = managed
 
         with patch.object(mgr, "_get_idle_ttl", return_value=1):
-            mgr._schedule_idle_cleanup("s1")
+            mgr._schedule_cleanup("s1")
             # 模拟用户发送新消息：idle_since 被刷新
             managed.idle_since = time.monotonic() + 100  # 未来时间
             managed.status = "running"
@@ -353,10 +353,10 @@ class TestIdleCleanup:
         mgr.sessions["s1"] = managed
 
         with patch.object(mgr, "_get_idle_ttl", return_value=9999):
-            mgr._schedule_idle_cleanup("s1")
-            first_task = managed._idle_cleanup_task
-            mgr._schedule_idle_cleanup("s1")
-            second_task = managed._idle_cleanup_task
+            mgr._schedule_cleanup("s1")
+            first_task = managed._cleanup_task
+            mgr._schedule_cleanup("s1")
+            second_task = managed._cleanup_task
 
         assert first_task is not second_task
         assert first_task.cancelled()
@@ -371,7 +371,7 @@ class TestIdleCleanup:
 
         result_msg = {"type": "result", "subtype": "success", "is_error": False}
 
-        with patch.object(mgr, "_schedule_idle_cleanup") as mock_schedule:
+        with patch.object(mgr, "_schedule_cleanup") as mock_schedule:
             with patch.object(mgr.meta_store, "update_status", new_callable=AsyncMock):
                 await mgr._finalize_turn(managed, result_msg)
 
@@ -384,19 +384,19 @@ class TestIdleCleanup:
 Run: `uv run python -m pytest tests/test_session_lifecycle.py::TestIdleCleanup -v`
 Expected: FAIL
 
-- [ ] **Step 3: 实现 `_schedule_idle_cleanup`**
+- [ ] **Step 3: 实现 `_schedule_cleanup`**
 
 在 `SessionManager` 类中，`_get_max_concurrent` 之后添加：
 
 ```python
-    def _schedule_idle_cleanup(self, session_id: str) -> None:
+    def _schedule_cleanup(self, session_id: str) -> None:
         """为 idle 会话调度延迟清理，到期后释放 SDK 子进程。"""
         managed = self.sessions.get(session_id)
         if managed is None:
             return
         # 取消旧的 cleanup task
-        if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
-            managed._idle_cleanup_task.cancel()
+        if managed._cleanup_task and not managed._cleanup_task.done():
+            managed._cleanup_task.cancel()
 
         idle_since_snapshot = managed.idle_since
 
@@ -412,7 +412,7 @@ Expected: FAIL
             logger.info("Idle TTL 到期，清理会话 session_id=%s", session_id)
             await self._disconnect_session(session_id)
 
-        managed._idle_cleanup_task = asyncio.create_task(_idle_cleanup())
+        managed._cleanup_task = asyncio.create_task(_idle_cleanup())
 ```
 
 - [ ] **Step 4: 修改 `_finalize_turn` 以触发 idle cleanup**
@@ -421,7 +421,7 @@ Expected: FAIL
 
 ```python
         if final_status not in ("idle", "running"):
-            self._schedule_session_cleanup(managed.session_id)
+            self._schedule_cleanup(managed.session_id)
 ```
 
 改为：
@@ -429,9 +429,9 @@ Expected: FAIL
 ```python
         if final_status == "idle":
             managed.idle_since = time.monotonic()
-            self._schedule_idle_cleanup(managed.session_id)
+            self._schedule_cleanup(managed.session_id)
         elif final_status not in ("running",):
-            self._schedule_session_cleanup(managed.session_id)
+            self._schedule_cleanup(managed.session_id)
 ```
 
 - [ ] **Step 5: 运行测试确认通过**
@@ -474,8 +474,8 @@ class TestEnsureCapacity:
 
         assert "s1" in mgr.sessions
 
-    async def test_evicts_oldest_idle(self, tmp_path):
-        """超限时淘汰最久 idle 的会话。"""
+    async def test_evicts_oldest_non_running(self, tmp_path):
+        """超限时淘汰最久未活跃的非 running 会话。"""
         mgr = _make_manager(tmp_path)
         old = _make_managed("s_old", status="idle")
         old.last_activity = time.monotonic() - 100
@@ -517,33 +517,36 @@ Expected: FAIL
 
 - [ ] **Step 3: 实现 `_ensure_capacity`**
 
-在 `SessionManager` 类中，`_schedule_idle_cleanup` 之后添加：
+在 `SessionManager` 类中，`_schedule_cleanup` 之后添加：
 
 ```python
     async def _ensure_capacity(self) -> None:
-        """确保有空余并发槽位，必要时淘汰最久 idle 会话。"""
+        """确保有空余并发槽位，必要时淘汰最久未活跃的非 running 会话。"""
         max_concurrent = await self._get_max_concurrent()
         active = [s for s in self.sessions.values() if s.client is not None]
 
         if len(active) < max_concurrent:
             return
 
-        # 找到最久未活跃的 idle 会话
-        idle_sessions = sorted(
-            [s for s in active if s.status == "idle"],
+        # 可淘汰的会话：非 running 状态（idle / completed / error / interrupted）
+        evictable = sorted(
+            [s for s in active if s.status != "running"],
             key=lambda s: s.last_activity or 0,
         )
 
-        if idle_sessions:
-            victim = idle_sessions[0]
-            logger.info("并发上限，LRU 淘汰 session_id=%s", victim.session_id)
+        if evictable:
+            victim = evictable[0]
+            logger.info(
+                "并发上限，淘汰 session_id=%s (status=%s)",
+                victim.session_id,
+                victim.status,
+            )
             await self._disconnect_session(victim.session_id)
             return
 
         # 所有会话都在 running → 拒绝
-        running_count = len([s for s in active if s.status == "running"])
         raise SessionCapacityError(
-            f"当前有{running_count}个正在进行的会话，已达到最大上限，请稍后重试"
+            f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试"
         )
 ```
 
@@ -708,9 +711,9 @@ git commit -m "feat: 实现层 3 定期巡检安全网"
 ```python
         managed.last_activity = time.monotonic()
         # 取消待执行的 idle cleanup（会话恢复活跃）
-        if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
-            managed._idle_cleanup_task.cancel()
-            managed._idle_cleanup_task = None
+        if managed._cleanup_task and not managed._cleanup_task.done():
+            managed._cleanup_task.cancel()
+            managed._cleanup_task = None
         managed.idle_since = None
 ```
 
