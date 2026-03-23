@@ -1057,6 +1057,7 @@ class SessionManager:
             )
         )
         managed.status = final_status
+        managed.last_activity = time.monotonic()
         await self.meta_store.update_status(managed.session_id, final_status)
         managed.interrupt_requested = False
         self._prune_transient_buffer(managed)
@@ -1070,6 +1071,7 @@ class SessionManager:
         managed.pending_user_echoes.clear()
         managed.cancel_pending_questions(reason)
         managed.status = status
+        managed.last_activity = time.monotonic()
         await self.meta_store.update_status(managed.session_id, status)
         managed.interrupt_requested = False
         self._prune_transient_buffer(managed)
