@@ -1,6 +1,7 @@
 """剪映草稿导出服务的单元测试"""
 
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -264,3 +265,137 @@ class TestReplacePaths:
         assert result["materials"]["videos"][0]["path"] == "/Users/test/Movies/JianyingPro/草稿/assets/s1.mp4"
         assert result["materials"]["videos"][1]["path"] == "/Users/test/Movies/JianyingPro/草稿/assets/s2.mp4"
         assert result["other"] == "no change"
+
+
+class TestExportEpisodeDraft:
+    """端到端测试：完整导出流程"""
+
+    def _setup_project(self, tmp_path) -> tuple:
+        """创建带视频片段的测试项目"""
+        from lib.project_manager import ProjectManager
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = tmp_path / "projects" / "demo"
+        project_dir.mkdir(parents=True)
+        videos_dir = project_dir / "videos"
+        videos_dir.mkdir()
+
+        _make_test_video(videos_dir / "segment_S1.mp4")
+        _make_test_video(videos_dir / "segment_S2.mp4")
+
+        project_data = {
+            "title": "测试项目",
+            "content_mode": "narration",
+            "aspect_ratio": {"video": "9:16"},
+            "episodes": [
+                {"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"},
+            ],
+        }
+        (project_dir / "project.json").write_text(
+            json.dumps(project_data, ensure_ascii=False), encoding="utf-8"
+        )
+
+        scripts_dir = project_dir / "scripts"
+        scripts_dir.mkdir()
+        script_data = {
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "S1",
+                    "duration_seconds": 8,
+                    "novel_text": "从前有座山",
+                    "generated_assets": {"video_clip": "videos/segment_S1.mp4", "status": "completed"},
+                },
+                {
+                    "segment_id": "S2",
+                    "duration_seconds": 6,
+                    "novel_text": "山上有座庙",
+                    "generated_assets": {"video_clip": "videos/segment_S2.mp4", "status": "completed"},
+                },
+            ],
+        }
+        (scripts_dir / "episode_1.json").write_text(
+            json.dumps(script_data, ensure_ascii=False), encoding="utf-8"
+        )
+
+        return pm, project_dir
+
+    def test_exports_zip_with_correct_structure(self, tmp_path):
+        """导出 ZIP 包含草稿 JSON + 视频素材"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        pm, _ = self._setup_project(tmp_path)
+        svc = JianyingDraftService(pm)
+
+        zip_path = svc.export_episode_draft(
+            project_name="demo",
+            episode=1,
+            draft_path="/Users/test/Movies/JianyingPro/User Data/Projects/com.lveditor.draft",
+        )
+
+        assert zip_path.exists()
+        assert zip_path.suffix == ".zip"
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+            assert any("draft_content.json" in n for n in names)
+            assert any("draft_meta_info.json" in n for n in names)
+            assert any("segment_S1.mp4" in n for n in names)
+            assert any("segment_S2.mp4" in n for n in names)
+
+    def test_draft_content_has_user_paths(self, tmp_path):
+        """draft_content.json 中的路径已替换为用户本地路径"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        pm, _ = self._setup_project(tmp_path)
+        svc = JianyingDraftService(pm)
+        draft_path = "/Users/test/drafts"
+
+        zip_path = svc.export_episode_draft(
+            project_name="demo", episode=1, draft_path=draft_path
+        )
+
+        with zipfile.ZipFile(zip_path) as zf:
+            content_entry = [n for n in zf.namelist() if "draft_content.json" in n][0]
+            content = json.loads(zf.read(content_entry).decode("utf-8"))
+            raw = json.dumps(content)
+            assert "/tmp/" not in raw and "\\Temp\\" not in raw
+            assert draft_path in raw
+
+    def test_episode_not_found_raises(self, tmp_path):
+        """集数不存在时抛出 FileNotFoundError"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        pm, _ = self._setup_project(tmp_path)
+        svc = JianyingDraftService(pm)
+
+        with pytest.raises(FileNotFoundError, match="第 99 集不存在"):
+            svc.export_episode_draft(project_name="demo", episode=99, draft_path="/tmp")
+
+    def test_no_videos_raises_value_error(self, tmp_path):
+        """无已完成视频时抛出 ValueError"""
+        from lib.project_manager import ProjectManager
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = tmp_path / "projects" / "empty"
+        project_dir.mkdir(parents=True)
+
+        (project_dir / "project.json").write_text(json.dumps({
+            "title": "空项目",
+            "content_mode": "narration",
+            "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        }, ensure_ascii=False))
+
+        scripts_dir = project_dir / "scripts"
+        scripts_dir.mkdir()
+        (scripts_dir / "episode_1.json").write_text(json.dumps({
+            "content_mode": "narration",
+            "segments": [
+                {"segment_id": "S1", "duration_seconds": 8, "novel_text": "", "generated_assets": {"status": "pending"}},
+            ],
+        }, ensure_ascii=False))
+
+        svc = JianyingDraftService(pm)
+        with pytest.raises(ValueError, match="请先生成视频"):
+            svc.export_episode_draft(project_name="empty", episode=1, draft_path="/tmp")

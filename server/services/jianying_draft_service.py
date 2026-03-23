@@ -169,3 +169,91 @@ class JianyingDraftService:
         json_path.write_text(
             json.dumps(data, ensure_ascii=False), encoding="utf-8"
         )
+
+    # ------------------------------------------------------------------
+    # 公开方法
+    # ------------------------------------------------------------------
+
+    def export_episode_draft(
+        self,
+        project_name: str,
+        episode: int,
+        draft_path: str,
+    ) -> Path:
+        """
+        导出指定集的剪映草稿 ZIP。
+
+        Returns:
+            ZIP 文件路径（临时文件，调用方负责清理）
+
+        Raises:
+            FileNotFoundError: 项目或剧本不存在
+            ValueError: 无可导出的视频片段
+        """
+        project = self.pm.load_project(project_name)
+        project_dir = self.pm.get_project_path(project_name)
+
+        # 1. 定位剧本
+        script_data, _ = self._find_episode_script(project_name, project, episode)
+
+        # 2. 收集已完成视频
+        content_mode = script_data.get("content_mode", "narration")
+        clips = self._collect_video_clips(script_data, project_dir)
+        if not clips:
+            raise ValueError(f"第 {episode} 集没有已完成的视频片段，请先生成视频")
+
+        # 3. 画布尺寸
+        width, height = self._resolve_canvas_size(project)
+
+        # 4. 创建临时目录 + 复制素材到暂存区
+        title = project.get("title", project_name)
+        draft_name = f"{title}_第{episode}集"
+        tmp_dir = Path(tempfile.mkdtemp(prefix="arcreel_jy_"))
+        staging_dir = tmp_dir / "staging"
+        staging_dir.mkdir()
+
+        local_clips = []
+        for clip in clips:
+            src = clip["abs_path"]
+            dst = staging_dir / src.name
+            try:
+                dst.hardlink_to(src)
+            except OSError:
+                shutil.copy2(src, dst)
+            local_clips.append({**clip, "local_path": str(dst)})
+
+        # 5. 生成草稿（create_draft 会重建 draft_dir）
+        draft_dir = tmp_dir / draft_name
+        self._generate_draft(
+            draft_dir=draft_dir,
+            draft_name=draft_name,
+            clips=local_clips,
+            width=width,
+            height=height,
+            content_mode=content_mode,
+        )
+
+        # 6. 将素材移入草稿目录
+        assets_dir = draft_dir / "assets"
+        assets_dir.mkdir(exist_ok=True)
+        for clip in local_clips:
+            src = Path(clip["local_path"])
+            dst = assets_dir / src.name
+            shutil.move(str(src), str(dst))
+
+        # 7. 路径后处理：staging 路径 → 用户本地路径
+        self._replace_paths_in_draft(
+            json_path=draft_dir / "draft_content.json",
+            tmp_prefix=str(staging_dir),
+            target_prefix=f"{draft_path}/{draft_name}/assets",
+        )
+
+        # 7. 打包 ZIP
+        zip_path = tmp_dir / f"{draft_name}.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file in draft_dir.rglob("*"):
+                if file.is_file():
+                    arcname = f"{draft_name}/{file.relative_to(draft_dir)}"
+                    zf.write(file, arcname)
+
+        return zip_path
