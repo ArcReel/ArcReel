@@ -179,6 +179,8 @@ class JianyingDraftService:
         project_name: str,
         episode: int,
         draft_path: str,
+        *,
+        use_draft_info_name: bool = True,
     ) -> Path:
         """
         导出指定集的剪映草稿 ZIP。
@@ -249,9 +251,9 @@ class JianyingDraftService:
             target_prefix=f"{draft_path}/{draft_name}/assets",
         )
 
-        # 8. 重命名为剪映 6+ 期望的文件名
-        draft_info_path = draft_dir / "draft_info.json"
-        draft_content_path.rename(draft_info_path)
+        # 8. 剪映 6+ 使用 draft_info.json，低版本使用 draft_content.json
+        if use_draft_info_name:
+            draft_content_path.rename(draft_dir / "draft_info.json")
 
         # 9. 打包 ZIP
         zip_path = tmp_dir / f"{draft_name}.zip"

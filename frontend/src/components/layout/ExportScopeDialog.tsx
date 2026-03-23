@@ -23,7 +23,7 @@ interface ExportScopeDialogProps {
   onSelect: (scope: ExportScope) => void;
   anchorRef: RefObject<HTMLElement | null>;
   episodes?: EpisodeMeta[];
-  onJianyingExport?: (episode: number, draftPath: string) => void;
+  onJianyingExport?: (episode: number, draftPath: string, jianyingVersion: string) => void;
   jianyingExporting?: boolean;
 }
 
@@ -43,6 +43,7 @@ export function ExportScopeDialog({
   const [draftPath, setDraftPath] = useState<string>(
     () => localStorage.getItem(DRAFT_PATH_STORAGE_KEY) || getDefaultDraftPath(),
   );
+  const [jianyingVersion, setJianyingVersion] = useState("6");
 
   // Reset mode when popover closes
   useEffect(() => {
@@ -61,7 +62,7 @@ export function ExportScopeDialog({
   const handleJianyingSubmit = () => {
     if (!draftPath.trim() || !onJianyingExport) return;
     localStorage.setItem(DRAFT_PATH_STORAGE_KEY, draftPath.trim());
-    onJianyingExport(selectedEpisode, draftPath.trim());
+    onJianyingExport(selectedEpisode, draftPath.trim(), jianyingVersion);
   };
 
   return (
@@ -158,6 +159,22 @@ export function ExportScopeDialog({
                 </select>
               </div>
             )}
+
+            {/* JianYing version selector */}
+            <div>
+              <label htmlFor="jianying-version-select" className="mb-1 block text-xs text-gray-400">
+                剪映版本
+              </label>
+              <select
+                id="jianying-version-select"
+                value={jianyingVersion}
+                onChange={(e) => setJianyingVersion(e.target.value)}
+                className="w-full rounded-md border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-sm text-gray-200 outline-none focus:border-indigo-500"
+              >
+                <option value="6">剪映 6.0 及以上（推荐）</option>
+                <option value="5">剪映 5.x</option>
+              </select>
+            </div>
 
             {/* Draft path input */}
             <div>

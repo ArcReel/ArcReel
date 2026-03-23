@@ -224,6 +224,7 @@ async def export_jianying_draft(
     episode: int = Query(..., description="集数编号"),
     draft_path: str = Query(..., description="用户本地剪映草稿目录"),
     download_token: str = Query(..., description="下载 token"),
+    jianying_version: str = Query("6", description="剪映版本：6 或 5"),
 ):
     """导出指定集的剪映草稿 ZIP"""
     import jwt as pyjwt
@@ -245,7 +246,8 @@ async def export_jianying_draft(
     svc = get_jianying_draft_service()
     try:
         zip_path = svc.export_episode_draft(
-            project_name=name, episode=episode, draft_path=draft_path
+            project_name=name, episode=episode, draft_path=draft_path,
+            use_draft_info_name=(jianying_version != "5"),
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

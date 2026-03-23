@@ -178,14 +178,14 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
   const [jianyingExporting, setJianyingExporting] = useState(false);
 
-  const handleJianyingExport = async (episode: number, draftPath: string) => {
+  const handleJianyingExport = async (episode: number, draftPath: string, jianyingVersion: string) => {
     if (!currentProjectName || jianyingExporting) return;
 
     setJianyingExporting(true);
     try {
       const { download_token } = await API.requestExportToken(currentProjectName, "current");
       const url = API.getJianyingDraftDownloadUrl(
-        currentProjectName, episode, draftPath, download_token,
+        currentProjectName, episode, draftPath, download_token, jianyingVersion,
       );
       triggerBrowserDownload(url);
       setExportDialogOpen(false);

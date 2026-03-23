@@ -33,7 +33,7 @@ vi.mock("./ExportScopeDialog", () => ({
     onSelect: (scope: "current" | "full") => void;
     anchorRef: React.RefObject<HTMLElement | null>;
     episodes?: unknown[];
-    onJianyingExport?: (episode: number, draftPath: string) => void;
+    onJianyingExport?: (episode: number, draftPath: string, jianyingVersion: string) => void;
     jianyingExporting?: boolean;
   }) =>
     open ? (
