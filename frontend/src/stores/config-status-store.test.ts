@@ -16,6 +16,8 @@ function makeConfigResponse(overrides?: Partial<GetSystemConfigResponse["setting
       anthropic_default_opus_model: "",
       anthropic_default_sonnet_model: "",
       claude_code_subagent_model: "",
+      agent_session_idle_ttl_minutes: 10,
+      agent_max_concurrent_sessions: 5,
       ...overrides,
     },
     options: {

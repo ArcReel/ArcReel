@@ -19,6 +19,8 @@ interface AgentDraft {
   opusModel: string;
   sonnetModel: string;
   subagentModel: string;
+  sessionIdleTtlMinutes: string;
+  maxConcurrentSessions: string;
 }
 
 function buildDraft(data: GetSystemConfigResponse): AgentDraft {
@@ -31,6 +33,8 @@ function buildDraft(data: GetSystemConfigResponse): AgentDraft {
     opusModel: s.anthropic_default_opus_model ?? "",
     sonnetModel: s.anthropic_default_sonnet_model ?? "",
     subagentModel: s.claude_code_subagent_model ?? "",
+    sessionIdleTtlMinutes: String(s.agent_session_idle_ttl_minutes ?? 10),
+    maxConcurrentSessions: String(s.agent_max_concurrent_sessions ?? 5),
   };
 }
 
@@ -42,7 +46,9 @@ function deepEqual(a: AgentDraft, b: AgentDraft): boolean {
     a.haikuModel === b.haikuModel &&
     a.opusModel === b.opusModel &&
     a.sonnetModel === b.sonnetModel &&
-    a.subagentModel === b.subagentModel
+    a.subagentModel === b.subagentModel &&
+    a.sessionIdleTtlMinutes === b.sessionIdleTtlMinutes &&
+    a.maxConcurrentSessions === b.maxConcurrentSessions
   );
 }
 
@@ -61,6 +67,10 @@ function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
     patch.anthropic_default_sonnet_model = draft.sonnetModel || "";
   if (draft.subagentModel !== saved.subagentModel)
     patch.claude_code_subagent_model = draft.subagentModel || "";
+  if (draft.sessionIdleTtlMinutes !== saved.sessionIdleTtlMinutes)
+    patch.agent_session_idle_ttl_minutes = Number(draft.sessionIdleTtlMinutes) || 10;
+  if (draft.maxConcurrentSessions !== saved.maxConcurrentSessions)
+    patch.agent_max_concurrent_sessions = Number(draft.maxConcurrentSessions) || 5;
   return patch;
 }
 
@@ -108,6 +118,8 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     opusModel: "",
     sonnetModel: "",
     subagentModel: "",
+    sessionIdleTtlMinutes: "10",
+    maxConcurrentSessions: "5",
   });
   const savedRef = useRef<AgentDraft>({
     anthropicKey: "",
@@ -117,6 +129,8 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     opusModel: "",
     sonnetModel: "",
     subagentModel: "",
+    sessionIdleTtlMinutes: "10",
+    maxConcurrentSessions: "5",
   });
   const [saving, setSaving] = useState(false);
   const [clearingField, setClearingField] = useState<string | null>(null);
@@ -567,6 +581,52 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
               </div>
             </details>
           </div>
+        </div>
+
+        {/* 高级设置 */}
+        <div className={cardClassName}>
+          <details>
+            <summary className="flex cursor-pointer select-none items-center gap-2 text-sm font-medium text-gray-400 transition-colors hover:text-gray-200">
+              <SlidersHorizontal className="h-4 w-4" />
+              高级设置
+            </summary>
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-200">
+                  会话空闲超时（分钟）
+                </label>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  会话空闲超过此时间后自动释放资源，再次对话时会自动恢复
+                </p>
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={draft.sessionIdleTtlMinutes}
+                  onChange={(e) => updateDraft("sessionIdleTtlMinutes", e.target.value)}
+                  className={`${inputClassName} mt-1.5 max-w-[120px]`}
+                  disabled={saving}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-200">
+                  最大并发会话数
+                </label>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  同时保持活跃的智能体会话上限，超出时自动释放最久未使用的会话（清理的会话会持久化，下次对话时恢复）
+                </p>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={draft.maxConcurrentSessions}
+                  onChange={(e) => updateDraft("maxConcurrentSessions", e.target.value)}
+                  className={`${inputClassName} mt-1.5 max-w-[120px]`}
+                  disabled={saving}
+                />
+              </div>
+            </div>
+          </details>
         </div>
       </div>
 
