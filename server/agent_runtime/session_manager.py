@@ -963,9 +963,10 @@ class SessionManager:
 
     async def _disconnect_session(self, session_id: str) -> None:
         """安全断开并移除一个会话，处理 consumer_task 和 connect_lock。"""
-        managed = self.sessions.get(session_id)
+        managed = self.sessions.pop(session_id, None)
         if managed is None:
             return
+        self._connect_locks.pop(session_id, None)
         # 取消 idle cleanup 定时器
         if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
             managed._idle_cleanup_task.cancel()
@@ -979,8 +980,6 @@ class SessionManager:
             await managed.client.disconnect()
         except Exception:
             logger.debug("disconnect non-fatal error for %s", session_id, exc_info=True)
-        self.sessions.pop(session_id, None)
-        self._connect_locks.pop(session_id, None)
 
     async def _get_idle_ttl(self) -> int:
         """返回 idle TTL 秒数，默认 600（10 分钟）。"""
