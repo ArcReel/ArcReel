@@ -890,7 +890,10 @@ class SessionManager:
         await self.meta_store.update_status(managed.session_id, final_status)
         managed.interrupt_requested = False
         self._prune_transient_buffer(managed)
-        if final_status not in ("idle", "running"):
+        if final_status == "idle":
+            managed.idle_since = time.monotonic()
+            self._schedule_idle_cleanup(managed.session_id)
+        elif final_status not in ("running",):
             self._schedule_session_cleanup(managed.session_id)
 
     async def _mark_session_terminal(
@@ -991,6 +994,33 @@ class SessionManager:
         except Exception:
             logger.warning("读取 max_concurrent 配置失败，使用默认值", exc_info=True)
             return 5
+
+    def _schedule_idle_cleanup(self, session_id: str) -> None:
+        """为 idle 会话调度延迟清理，到期后释放 SDK 子进程。"""
+        managed = self.sessions.get(session_id)
+        if managed is None:
+            return
+        # 取消旧的 cleanup task
+        if managed._idle_cleanup_task and not managed._idle_cleanup_task.done():
+            managed._idle_cleanup_task.cancel()
+
+        idle_since_snapshot = managed.idle_since
+
+        async def _idle_cleanup() -> None:
+            ttl = await self._get_idle_ttl()
+            await asyncio.sleep(ttl)
+            m = self.sessions.get(session_id)
+            if m is None:
+                return
+            # 会话已恢复活跃或 idle_since 已刷新 → 跳过
+            if m.status != "idle" or m.idle_since != idle_since_snapshot:
+                return
+            logger.info("Idle TTL 到期，清理会话 session_id=%s", session_id)
+            # 清除自身引用，避免 _disconnect_session 尝试 cancel/gather 当前任务
+            m._idle_cleanup_task = None
+            await self._disconnect_session(session_id)
+
+        managed._idle_cleanup_task = asyncio.create_task(_idle_cleanup())
 
     @staticmethod
     def _resolve_result_status(
