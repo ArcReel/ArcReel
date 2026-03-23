@@ -320,6 +320,16 @@ class API {
     return `${API_BASE}/projects/${encodeURIComponent(projectName)}/export?download_token=${encodeURIComponent(downloadToken)}&scope=${encodeURIComponent(scope)}`;
   }
 
+  /** 构造剪映草稿下载 URL */
+  static getJianyingDraftDownloadUrl(
+    projectName: string,
+    episode: number,
+    draftPath: string,
+    downloadToken: string,
+  ): string {
+    return `${API_BASE}/projects/${encodeURIComponent(projectName)}/export/jianying-draft?episode=${encodeURIComponent(episode)}&draft_path=${encodeURIComponent(draftPath)}&download_token=${encodeURIComponent(downloadToken)}`;
+  }
+
   static async importProject(
     file: File,
     conflictPolicy: ImportConflictPolicy = "prompt"

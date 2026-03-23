@@ -10,7 +10,7 @@ import { TaskHud } from "@/components/task-hud/TaskHud";
 import { UsageDrawer } from "./UsageDrawer";
 import { WorkspaceNotificationsDrawer } from "./WorkspaceNotificationsDrawer";
 import { ExportScopeDialog } from "./ExportScopeDialog";
-import type { ExportScope } from "./ExportScopeDialog";
+
 import { API } from "@/api";
 import type { WorkspaceNotification } from "@/types";
 
@@ -166,7 +166,28 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     });
   };
 
-  const handleExportProject = async (scope: ExportScope) => {
+  const [jianyingExporting, setJianyingExporting] = useState(false);
+
+  const handleJianyingExport = async (episode: number, draftPath: string) => {
+    if (!currentProjectName || jianyingExporting) return;
+
+    setJianyingExporting(true);
+    try {
+      const { download_token } = await API.requestExportToken(currentProjectName, "current");
+      const url = API.getJianyingDraftDownloadUrl(
+        currentProjectName, episode, draftPath, download_token,
+      );
+      window.open(url, "_blank");
+      setExportDialogOpen(false);
+      useAppStore.getState().pushToast("剪映草稿导出已开始，请将下载的 ZIP 解压到剪映草稿目录中", "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(`剪映草稿导出失败: ${(err as Error).message}`, "error");
+    } finally {
+      setJianyingExporting(false);
+    }
+  };
+
+  const handleExportProject = async (scope: "current" | "full") => {
     if (!currentProjectName || exportingProject) return;
 
     setExportDialogOpen(false);
@@ -331,8 +352,11 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           <ExportScopeDialog
             open={exportDialogOpen}
             onClose={() => setExportDialogOpen(false)}
-            onSelect={(scope) => void handleExportProject(scope)}
+            onSelect={(scope) => { if (scope !== "jianying-draft") void handleExportProject(scope); }}
             anchorRef={exportAnchorRef}
+            episodes={currentProjectData?.episodes ?? []}
+            onJianyingExport={handleJianyingExport}
+            jianyingExporting={jianyingExporting}
           />
         </div>
 
