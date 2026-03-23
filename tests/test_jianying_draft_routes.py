@@ -95,7 +95,7 @@ class TestJianyingDraftExport:
 
         zf = zipfile.ZipFile(BytesIO(response.content))
         names = zf.namelist()
-        assert any("draft_content.json" in n for n in names)
+        assert any("draft_info.json" in n for n in names)
 
     def test_missing_episode_returns_404(self, tmp_path, monkeypatch):
         """集数不存在返回 404"""

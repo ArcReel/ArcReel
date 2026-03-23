@@ -338,13 +338,13 @@ class TestExportEpisodeDraft:
 
         with zipfile.ZipFile(zip_path) as zf:
             names = zf.namelist()
-            assert any("draft_content.json" in n for n in names)
+            assert any("draft_info.json" in n for n in names)
             assert any("draft_meta_info.json" in n for n in names)
             assert any("segment_S1.mp4" in n for n in names)
             assert any("segment_S2.mp4" in n for n in names)
 
     def test_draft_content_has_user_paths(self, tmp_path):
-        """draft_content.json 中的路径已替换为用户本地路径"""
+        """draft_info.json 中的路径已替换为用户本地路径"""
         from server.services.jianying_draft_service import JianyingDraftService
 
         pm, _ = self._setup_project(tmp_path)
@@ -356,7 +356,7 @@ class TestExportEpisodeDraft:
         )
 
         with zipfile.ZipFile(zip_path) as zf:
-            content_entry = [n for n in zf.namelist() if "draft_content.json" in n][0]
+            content_entry = [n for n in zf.namelist() if "draft_info.json" in n][0]
             content = json.loads(zf.read(content_entry).decode("utf-8"))
             raw = json.dumps(content)
             assert "/tmp/" not in raw and "\\Temp\\" not in raw

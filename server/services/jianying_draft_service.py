@@ -242,13 +242,18 @@ class JianyingDraftService:
             shutil.move(str(src), str(dst))
 
         # 7. 路径后处理：staging 路径 → 用户本地路径
+        draft_content_path = draft_dir / "draft_content.json"
         self._replace_paths_in_draft(
-            json_path=draft_dir / "draft_content.json",
+            json_path=draft_content_path,
             tmp_prefix=str(staging_dir),
             target_prefix=f"{draft_path}/{draft_name}/assets",
         )
 
-        # 7. 打包 ZIP
+        # 8. 重命名为剪映 6+ 期望的文件名
+        draft_info_path = draft_dir / "draft_info.json"
+        draft_content_path.rename(draft_info_path)
+
+        # 9. 打包 ZIP
         zip_path = tmp_dir / f"{draft_name}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for file in draft_dir.rglob("*"):
