@@ -1,7 +1,6 @@
 """剪映草稿导出路由的集成测试"""
 
 import json
-import subprocess
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -10,22 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from lib.project_manager import ProjectManager
-from server.auth import create_download_token, create_token
-
-
-def _make_test_video(path: Path):
-    """用 ffmpeg 生成测试视频"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [
-            "ffmpeg", "-y", "-f", "lavfi", "-i",
-            "color=c=black:s=64x64:d=1:r=30",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            str(path),
-        ],
-        capture_output=True,
-        check=True,
-    )
+from server.auth import create_download_token
+from tests.conftest import make_test_video
 
 
 def _setup_project(pm: ProjectManager):
@@ -35,7 +20,7 @@ def _setup_project(pm: ProjectManager):
 
     videos_dir = project_dir / "videos"
     videos_dir.mkdir()
-    _make_test_video(videos_dir / "segment_S1.mp4")
+    make_test_video(videos_dir / "segment_S1.mp4")
 
     scripts_dir = project_dir / "scripts"
     scripts_dir.mkdir()

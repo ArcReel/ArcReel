@@ -128,6 +128,7 @@ class JianyingDraftService:
 
         # 字幕轨（仅 narration 模式）
         has_subtitle = content_mode == "narration"
+        text_style: TextStyle | None = None
         text_border: TextBorder | None = None
         text_shadow: TextShadow | None = None
         subtitle_position: ClipSettings | None = None
@@ -242,8 +243,7 @@ class JianyingDraftService:
             raise ValueError(f"第 {episode} 集没有已完成的视频片段，请先生成视频")
 
         # 3. 画布尺寸（项目未设 aspect_ratio 时从首个视频自动检测）
-        first_video = clips[0]["abs_path"] if clips else None
-        width, height = self._resolve_canvas_size(project, first_video)
+        width, height = self._resolve_canvas_size(project, clips[0]["abs_path"])
 
         # 4. 创建临时目录 + 复制素材到暂存区
         title = project.get("title", project_name)
@@ -295,10 +295,12 @@ class JianyingDraftService:
 
         # 9. 打包 ZIP
         zip_path = tmp_dir / f"{draft_name}.zip"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        video_suffixes = {".mp4", ".webm", ".mov", ".avi", ".mkv"}
+        with zipfile.ZipFile(zip_path, "w") as zf:
             for file in draft_dir.rglob("*"):
                 if file.is_file():
                     arcname = f"{draft_name}/{file.relative_to(draft_dir)}"
-                    zf.write(file, arcname)
+                    compress = zipfile.ZIP_STORED if file.suffix.lower() in video_suffixes else zipfile.ZIP_DEFLATED
+                    zf.write(file, arcname, compress_type=compress)
 
         return zip_path

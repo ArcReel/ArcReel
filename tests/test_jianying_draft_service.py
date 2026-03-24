@@ -129,20 +129,7 @@ class TestResolveCanvasSize:
         assert (w, h) == (1920, 1080)
 
 
-import subprocess
-
-
-def _make_test_video(path: Path, duration_sec: float = 1.0, fps: int = 30):
-    """使用 ffmpeg 生成一个极短的测试视频文件（64x64 像素）"""
-    subprocess.run(
-        [
-            "ffmpeg", "-y", "-f", "lavfi", "-i",
-            f"color=black:size=64x64:duration={duration_sec}:rate={fps}",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path),
-        ],
-        capture_output=True,
-        check=True,
-    )
+from tests.conftest import make_test_video
 
 
 class TestGenerateDraft:
@@ -155,8 +142,8 @@ class TestGenerateDraft:
         # 视频文件放在 draft_dir 外部，避免被 create_draft 清理
         videos_dir = tmp_path / "videos"
         videos_dir.mkdir()
-        _make_test_video(videos_dir / "scene_S1.mp4")
-        _make_test_video(videos_dir / "scene_S2.mp4")
+        make_test_video(videos_dir / "scene_S1.mp4")
+        make_test_video(videos_dir / "scene_S2.mp4")
 
         draft_dir = tmp_path / "drafts" / "测试草稿"
 
@@ -184,7 +171,7 @@ class TestGenerateDraft:
 
         videos_dir = tmp_path / "videos"
         videos_dir.mkdir()
-        _make_test_video(videos_dir / "seg_S1.mp4")
+        make_test_video(videos_dir / "seg_S1.mp4")
 
         draft_dir = tmp_path / "drafts" / "字幕草稿"
 
@@ -212,7 +199,7 @@ class TestGenerateDraft:
 
         videos_dir = tmp_path / "videos"
         videos_dir.mkdir()
-        _make_test_video(videos_dir / "scene_S1.mp4")
+        make_test_video(videos_dir / "scene_S1.mp4")
 
         draft_dir = tmp_path / "drafts" / "无字幕草稿"
 
@@ -280,8 +267,8 @@ class TestExportEpisodeDraft:
         videos_dir = project_dir / "videos"
         videos_dir.mkdir()
 
-        _make_test_video(videos_dir / "segment_S1.mp4")
-        _make_test_video(videos_dir / "segment_S2.mp4")
+        make_test_video(videos_dir / "segment_S1.mp4")
+        make_test_video(videos_dir / "segment_S2.mp4")
 
         project_data = {
             "title": "测试项目",

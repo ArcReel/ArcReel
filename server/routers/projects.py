@@ -73,6 +73,10 @@ def _cleanup_temp_file(path: str) -> None:
         return
 
 
+def _cleanup_temp_dir(dir_path: str) -> None:
+    shutil.rmtree(dir_path, ignore_errors=True)
+
+
 @router.post("/projects/import")
 async def import_project_archive(
     _user: Annotated[dict, Depends(get_current_user)],
@@ -219,7 +223,7 @@ def _validate_draft_path(draft_path: str) -> str:
 
 
 @router.get("/projects/{name}/export/jianying-draft")
-async def export_jianying_draft(
+def export_jianying_draft(
     name: str,
     episode: int = Query(..., description="集数编号"),
     draft_path: str = Query(..., description="用户本地剪映草稿目录"),
@@ -258,9 +262,6 @@ async def export_jianying_draft(
         raise HTTPException(status_code=500, detail="剪映草稿导出失败，请稍后重试")
 
     download_name = f"{name}_第{episode}集_剪映草稿.zip"
-
-    def _cleanup_temp_dir(dir_path: str) -> None:
-        shutil.rmtree(dir_path, ignore_errors=True)
 
     return FileResponse(
         path=str(zip_path),

@@ -113,6 +113,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
   const [exportingProject, setExportingProject] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [jianyingExporting, setJianyingExporting] = useState(false);
   const usageAnchorRef = useRef<HTMLDivElement>(null);
   const notificationAnchorRef = useRef<HTMLDivElement>(null);
   const taskHudAnchorRef = useRef<HTMLDivElement>(null);
@@ -175,8 +176,6 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       expires_at: Date.now() + 3000,
     });
   };
-
-  const [jianyingExporting, setJianyingExporting] = useState(false);
 
   const handleJianyingExport = async (episode: number, draftPath: string, jianyingVersion: string) => {
     if (!currentProjectName || jianyingExporting) return;
