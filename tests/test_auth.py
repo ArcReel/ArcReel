@@ -285,8 +285,11 @@ class TestGetCurrentUser:
     async def test_get_current_user_valid_token(self):
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
             token = auth_module.create_token("admin")
-            payload = await auth_module.get_current_user(token)
-            assert payload["sub"] == "admin"
+            result = await auth_module.get_current_user(token)
+            assert isinstance(result, auth_module.CurrentUserInfo)
+            assert result.sub == "admin"
+            assert result.id == "default"
+            assert result.role == "admin"
 
     async def test_get_current_user_invalid_token(self):
         import pytest
@@ -298,14 +301,16 @@ class TestGetCurrentUser:
     async def test_get_current_user_flexible_header(self):
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
             token = auth_module.create_token("admin")
-            payload = await auth_module.get_current_user_flexible(token, None)
-            assert payload["sub"] == "admin"
+            result = await auth_module.get_current_user_flexible(token, None)
+            assert isinstance(result, auth_module.CurrentUserInfo)
+            assert result.sub == "admin"
 
     async def test_get_current_user_flexible_query(self):
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
             token = auth_module.create_token("admin")
-            payload = await auth_module.get_current_user_flexible(None, token)
-            assert payload["sub"] == "admin"
+            result = await auth_module.get_current_user_flexible(None, token)
+            assert isinstance(result, auth_module.CurrentUserInfo)
+            assert result.sub == "admin"
 
     async def test_get_current_user_flexible_no_token(self):
         import pytest

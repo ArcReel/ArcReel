@@ -18,11 +18,23 @@ from typing import Annotated, Optional
 import jwt
 from fastapi import Depends, HTTPException, Query
 from fastapi.security import OAuth2PasswordBearer
+from pydantic import BaseModel, ConfigDict
 from pwdlib import PasswordHash
 
 from lib import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
+
+
+class CurrentUserInfo(BaseModel):
+    """Current authenticated user info."""
+
+    id: str
+    sub: str
+    role: str = "admin"
+
+    model_config = ConfigDict(frozen=True)
+
 
 # JWT 签名密钥缓存
 _cached_token_secret: Optional[str] = None
@@ -362,15 +374,17 @@ async def _verify_and_get_payload_async(token: str) -> dict:
 
 async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
-) -> dict:
+) -> CurrentUserInfo:
     """标准认证依赖 — 支持 JWT 和 API Key Bearer token。"""
-    return await _verify_and_get_payload_async(token)
+    payload = await _verify_and_get_payload_async(token)
+    sub = payload.get("sub", "")
+    return CurrentUserInfo(id="default", sub=sub, role="admin")
 
 
 async def get_current_user_flexible(
     token: Annotated[str | None, Depends(oauth2_scheme_optional)] = None,
     query_token: str | None = Query(None, alias="token"),
-) -> dict:
+) -> CurrentUserInfo:
     """SSE 认证依赖 — 同时支持 Authorization header 和 ?token= query param。"""
     raw = token or query_token
     if not raw:
@@ -379,4 +393,11 @@ async def get_current_user_flexible(
             detail="缺少认证 token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return await _verify_and_get_payload_async(raw)
+    payload = await _verify_and_get_payload_async(raw)
+    sub = payload.get("sub", "")
+    return CurrentUserInfo(id="default", sub=sub, role="admin")
+
+
+# Type aliases for FastAPI dependency injection
+CurrentUser = Annotated[CurrentUserInfo, Depends(get_current_user)]
+CurrentUserFlexible = Annotated[CurrentUserInfo, Depends(get_current_user_flexible)]
