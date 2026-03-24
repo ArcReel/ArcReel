@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional, List, Union, Tuple
 from PIL import Image
 
+from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_client import GeminiClient, RateLimiter, ReferenceImageInput
 from lib.version_manager import VersionManager
 from lib.usage_tracker import UsageTracker
@@ -52,7 +53,7 @@ class MediaGenerator:
         gemini_base_url: Optional[str] = None,
         gemini_image_model: Optional[str] = None,
         gemini_video_model: Optional[str] = None,
-        user_id: str = "default",
+        user_id: str = DEFAULT_USER_ID,
     ):
         """
         初始化 MediaGenerator

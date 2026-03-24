@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 from lib import PROJECT_ROOT
 from lib.gemini_client import get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
+from lib.db.base import DEFAULT_USER_ID
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
 from lib.prompt_builders import build_character_prompt, build_clue_prompt
@@ -210,7 +211,7 @@ def _resolve_video_backend(
     return video_backend, video_backend_type, video_model
 
 
-async def get_media_generator(project_name: str, payload: dict | None = None, *, user_id: str = "default") -> MediaGenerator:
+async def get_media_generator(project_name: str, payload: dict | None = None, *, user_id: str = DEFAULT_USER_ID) -> MediaGenerator:
     """创建 MediaGenerator。仅当 payload 包含视频配置时才初始化视频后端。
 
     通过单次 DB session 批量加载所有供应商配置和系统设置。
@@ -475,7 +476,7 @@ def _emit_generation_success_batch(
         )
 
 
-async def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = "default") -> Dict[str, Any]:
+async def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = DEFAULT_USER_ID) -> Dict[str, Any]:
     script_file = payload.get("script_file")
     if not script_file:
         raise ValueError("script_file is required for storyboard task")
@@ -545,7 +546,7 @@ async def execute_storyboard_task(project_name: str, resource_id: str, payload: 
     }
 
 
-async def execute_video_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = "default") -> Dict[str, Any]:
+async def execute_video_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = DEFAULT_USER_ID) -> Dict[str, Any]:
     script_file = payload.get("script_file")
     if not script_file:
         raise ValueError("script_file is required for video task")
@@ -640,7 +641,7 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
     }
 
 
-async def execute_character_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = "default") -> Dict[str, Any]:
+async def execute_character_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = DEFAULT_USER_ID) -> Dict[str, Any]:
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
         raise ValueError("prompt is required for character task")
@@ -691,7 +692,7 @@ async def execute_character_task(project_name: str, resource_id: str, payload: D
     }
 
 
-async def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = "default") -> Dict[str, Any]:
+async def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = DEFAULT_USER_ID) -> Dict[str, Any]:
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
         raise ValueError("prompt is required for clue task")
@@ -747,7 +748,7 @@ async def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
     project_name = task.get("project_name")
     resource_id = str(task.get("resource_id"))
     payload = task.get("payload") or {}
-    user_id = task.get("user_id", "default")
+    user_id = task.get("user_id", DEFAULT_USER_ID)
 
     if not project_name:
         raise ValueError("task.project_name is required")

@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from lib.db import safe_session_factory
+from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import UsageRepository
 from lib.video_backends.base import PROVIDER_GEMINI
 
@@ -31,7 +32,7 @@ class UsageTracker:
         aspect_ratio: Optional[str] = None,
         generate_audio: bool = True,
         provider: str = PROVIDER_GEMINI,
-        user_id: str = "default",
+        user_id: str = DEFAULT_USER_ID,
     ) -> int:
 
         async with self._session_factory() as session:

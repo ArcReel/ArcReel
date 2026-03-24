@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import (
     TASK_WORKER_LEASE_TTL_SEC,
     get_generation_queue,
@@ -120,7 +121,7 @@ async def enqueue_and_wait(
     dependency_task_id: Optional[str] = None,
     dependency_group: Optional[str] = None,
     dependency_index: Optional[int] = None,
-    user_id: str = "default",
+    user_id: str = DEFAULT_USER_ID,
 ) -> Dict[str, Any]:
     enqueue_result = await enqueue_task_only(
         project_name=project_name,
@@ -167,7 +168,7 @@ async def enqueue_task_only(
     dependency_task_id: Optional[str] = None,
     dependency_group: Optional[str] = None,
     dependency_index: Optional[int] = None,
-    user_id: str = "default",
+    user_id: str = DEFAULT_USER_ID,
 ) -> Dict[str, Any]:
     queue = get_generation_queue()
 

@@ -372,13 +372,20 @@ async def _verify_and_get_payload_async(token: str) -> dict:
     return _verify_and_get_payload(token)
 
 
+def _payload_to_user(payload: dict) -> CurrentUserInfo:
+    """Convert a verified JWT/API-key payload to CurrentUserInfo."""
+    from lib.db.base import DEFAULT_USER_ID
+
+    sub = payload.get("sub", "")
+    return CurrentUserInfo(id=DEFAULT_USER_ID, sub=sub, role="admin")
+
+
 async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
 ) -> CurrentUserInfo:
     """标准认证依赖 — 支持 JWT 和 API Key Bearer token。"""
     payload = await _verify_and_get_payload_async(token)
-    sub = payload.get("sub", "")
-    return CurrentUserInfo(id="default", sub=sub, role="admin")
+    return _payload_to_user(payload)
 
 
 async def get_current_user_flexible(
@@ -394,8 +401,7 @@ async def get_current_user_flexible(
             headers={"WWW-Authenticate": "Bearer"},
         )
     payload = await _verify_and_get_payload_async(raw)
-    sub = payload.get("sub", "")
-    return CurrentUserInfo(id="default", sub=sub, role="admin")
+    return _payload_to_user(payload)
 
 
 # Type aliases for FastAPI dependency injection

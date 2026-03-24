@@ -8,7 +8,7 @@ from typing import Any, Optional
 from sqlalchemy import delete as sa_delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.db.base import _utc_now
+from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_key import ApiKey
 from lib.db.repositories.base import BaseRepository
 
@@ -39,14 +39,14 @@ class ApiKeyRepository(BaseRepository):
         key_hash: str,
         key_prefix: str,
         expires_at: Optional[datetime] = None,
-        user_id: str = "default",
+        user_id: str = DEFAULT_USER_ID,
     ) -> dict[str, Any]:
         """Create a new API key record."""
         row = ApiKey(
             name=name,
             key_hash=key_hash,
             key_prefix=key_prefix,
-            created_at=_utc_now(),
+            created_at=utc_now(),
             expires_at=expires_at,
             user_id=user_id,
         )
@@ -104,5 +104,5 @@ class ApiKeyRepository(BaseRepository):
         await self.session.execute(
             update(ApiKey)
             .where(ApiKey.key_hash == key_hash)
-            .values(last_used_at=_utc_now())
+            .values(last_used_at=utc_now())
         )

@@ -9,15 +9,10 @@ from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.cost_calculator import cost_calculator
-from lib.db.base import _utc_now
+from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.base import BaseRepository
 from lib.video_backends.base import PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_SEEDANCE
-
-
-def _dt_to_iso(val: Optional[datetime]) -> Optional[str]:
-    """Convert datetime to ISO string for JSON serialization."""
-    return val.isoformat() if val else None
 
 
 def _row_to_dict(row: ApiCall) -> dict[str, Any]:
@@ -34,15 +29,15 @@ def _row_to_dict(row: ApiCall) -> dict[str, Any]:
         "status": row.status,
         "error_message": row.error_message,
         "output_path": row.output_path,
-        "started_at": _dt_to_iso(row.started_at),
-        "finished_at": _dt_to_iso(row.finished_at),
+        "started_at": dt_to_iso(row.started_at),
+        "finished_at": dt_to_iso(row.finished_at),
         "duration_ms": row.duration_ms,
         "retry_count": row.retry_count,
         "cost_amount": row.cost_amount,
         "currency": row.currency,
         "provider": row.provider,
         "usage_tokens": row.usage_tokens,
-        "created_at": _dt_to_iso(row.created_at),
+        "created_at": dt_to_iso(row.created_at),
     }
 
 
@@ -60,9 +55,9 @@ class UsageRepository(BaseRepository):
         aspect_ratio: Optional[str] = None,
         generate_audio: bool = True,
         provider: str = PROVIDER_GEMINI,
-        user_id: str = "default",
+        user_id: str = DEFAULT_USER_ID,
     ) -> int:
-        now = _utc_now()
+        now = utc_now()
         prompt_truncated = prompt[:500] if prompt else None
 
         row = ApiCall(
@@ -95,7 +90,7 @@ class UsageRepository(BaseRepository):
         usage_tokens: Optional[int] = None,
         service_tier: str = "default",
     ) -> None:
-        finished_at = _utc_now()
+        finished_at = utc_now()
 
         result = await self.session.execute(
             select(ApiCall).where(ApiCall.id == call_id)

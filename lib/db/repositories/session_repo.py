@@ -9,14 +9,9 @@ from typing import Any, Optional
 from sqlalchemy import delete as sa_delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.db.base import _utc_now
+from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.session import AgentSession
 from lib.db.repositories.base import BaseRepository
-
-
-def _dt_to_iso(val: Optional[datetime]) -> Optional[str]:
-    """Convert datetime to ISO string for JSON serialization."""
-    return val.isoformat() if val else None
 
 
 def _row_to_dict(row: AgentSession) -> dict[str, Any]:
@@ -26,15 +21,15 @@ def _row_to_dict(row: AgentSession) -> dict[str, Any]:
         "project_name": row.project_name,
         "title": row.title or "",
         "status": row.status,
-        "created_at": _dt_to_iso(row.created_at),
-        "updated_at": _dt_to_iso(row.updated_at),
+        "created_at": dt_to_iso(row.created_at),
+        "updated_at": dt_to_iso(row.updated_at),
     }
 
 
 class SessionRepository(BaseRepository):
 
-    async def create(self, project_name: str, sdk_session_id: str, title: str = "", user_id: str = "default") -> dict[str, Any]:
-        now = _utc_now()
+    async def create(self, project_name: str, sdk_session_id: str, title: str = "", user_id: str = DEFAULT_USER_ID) -> dict[str, Any]:
+        now = utc_now()
         row = AgentSession(
             id=uuid.uuid4().hex,
             sdk_session_id=sdk_session_id,
@@ -78,7 +73,7 @@ class SessionRepository(BaseRepository):
         return [_row_to_dict(row) for row in result.scalars().all()]
 
     async def update_status(self, session_id: str, status: str) -> bool:
-        now = _utc_now()
+        now = utc_now()
         result = await self.session.execute(
             update(AgentSession)
             .where(AgentSession.sdk_session_id == session_id)
@@ -95,7 +90,7 @@ class SessionRepository(BaseRepository):
         return result.rowcount > 0
 
     async def interrupt_running(self) -> int:
-        now = _utc_now()
+        now = utc_now()
         result = await self.session.execute(
             update(AgentSession)
             .where(AgentSession.status == "running")

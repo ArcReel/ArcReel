@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 import threading
+
+from lib.db.base import DEFAULT_USER_ID
 from typing import Any, Dict, List, Optional
 
 from lib.db import safe_session_factory
@@ -48,7 +50,7 @@ class GenerationQueue:
         dependency_task_id: Optional[str] = None,
         dependency_group: Optional[str] = None,
         dependency_index: Optional[int] = None,
-        user_id: str = "default",
+        user_id: str = DEFAULT_USER_ID,
     ) -> Dict[str, Any]:
 
         async with self._session_factory() as session:
