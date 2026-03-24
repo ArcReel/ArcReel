@@ -39,6 +39,7 @@ class ApiKeyRepository(BaseRepository):
         key_hash: str,
         key_prefix: str,
         expires_at: Optional[datetime] = None,
+        user_id: str = "default",
     ) -> dict[str, Any]:
         """Create a new API key record."""
         row = ApiKey(
@@ -47,6 +48,7 @@ class ApiKeyRepository(BaseRepository):
             key_prefix=key_prefix,
             created_at=_utc_now(),
             expires_at=expires_at,
+            user_id=user_id,
         )
         self.session.add(row)
         await self.session.flush()

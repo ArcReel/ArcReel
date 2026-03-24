@@ -60,6 +60,7 @@ class UsageRepository(BaseRepository):
         aspect_ratio: Optional[str] = None,
         generate_audio: bool = True,
         provider: str = PROVIDER_GEMINI,
+        user_id: str = "default",
     ) -> int:
         now = _utc_now()
         prompt_truncated = prompt[:500] if prompt else None
@@ -76,6 +77,7 @@ class UsageRepository(BaseRepository):
             status="pending",
             started_at=now,
             provider=provider,
+            user_id=user_id,
         )
         self.session.add(row)
         await self.session.commit()

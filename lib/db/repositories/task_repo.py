@@ -113,6 +113,7 @@ class TaskRepository(BaseRepository):
         dependency_task_id: Optional[str] = None,
         dependency_group: Optional[str] = None,
         dependency_index: Optional[int] = None,
+        user_id: str = "default",
     ) -> dict[str, Any]:
         now = _utc_now()
 
@@ -132,6 +133,7 @@ class TaskRepository(BaseRepository):
             dependency_index=dependency_index,
             queued_at=now,
             updated_at=now,
+            user_id=user_id,
         )
         self.session.add(task)
         try:

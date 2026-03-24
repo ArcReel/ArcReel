@@ -33,7 +33,7 @@ def _row_to_dict(row: AgentSession) -> dict[str, Any]:
 
 class SessionRepository(BaseRepository):
 
-    async def create(self, project_name: str, sdk_session_id: str, title: str = "") -> dict[str, Any]:
+    async def create(self, project_name: str, sdk_session_id: str, title: str = "", user_id: str = "default") -> dict[str, Any]:
         now = _utc_now()
         row = AgentSession(
             id=uuid.uuid4().hex,
@@ -43,6 +43,7 @@ class SessionRepository(BaseRepository):
             status="idle",
             created_at=now,
             updated_at=now,
+            user_id=user_id,
         )
         self.session.add(row)
         await self.session.commit()
