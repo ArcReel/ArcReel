@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+import sqlalchemy as sa
 from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,7 +15,7 @@ class User(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False, server_default="user")
-    is_active: Mapped[bool] = mapped_column(Boolean, server_default="1")
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default=sa.true())
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )

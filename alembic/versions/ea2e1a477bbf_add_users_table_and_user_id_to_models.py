@@ -26,26 +26,40 @@ def upgrade() -> None:
         sa.Column('id', sa.String(), nullable=False),
         sa.Column('username', sa.String(), nullable=False),
         sa.Column('role', sa.String(), server_default='user', nullable=False),
-        sa.Column('is_active', sa.Boolean(), server_default='1', nullable=False),
+        sa.Column('is_active', sa.Boolean(), server_default=sa.true(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('username'),
     )
 
-    # 2. Insert default user
-    op.execute("""
-        INSERT INTO users (id, username, role, is_active, created_at, updated_at)
-        VALUES ('default', 'admin', 'admin', 1,
-                strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'),
-                strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))
-    """)
+    # 2. Insert default user (cross-dialect: use sa.func.now())
+    users = sa.table(
+        "users",
+        sa.column("id"),
+        sa.column("username"),
+        sa.column("role"),
+        sa.column("is_active"),
+        sa.column("created_at"),
+        sa.column("updated_at"),
+    )
+    op.execute(
+        users.insert().values(
+            id="default",
+            username="admin",
+            role="admin",
+            is_active=True,
+            created_at=sa.func.now(),
+            updated_at=sa.func.now(),
+        )
+    )
 
     # 3. Add user_id to tasks
     with op.batch_alter_table('tasks', schema=None) as batch_op:
         batch_op.add_column(
             sa.Column('user_id', sa.String(), server_default='default', nullable=False)
         )
+        batch_op.create_foreign_key('fk_tasks_user_id', 'users', ['user_id'], ['id'], ondelete='CASCADE')
         batch_op.create_index(batch_op.f('ix_tasks_user_id'), ['user_id'], unique=False)
 
     # 4. Fix api_calls: fill NULL created_at, add updated_at and user_id
@@ -55,13 +69,14 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column(
                 'updated_at', sa.DateTime(timezone=True),
-                server_default=sa.text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+                server_default=sa.func.now(),
                 nullable=False,
             )
         )
         batch_op.add_column(
             sa.Column('user_id', sa.String(), server_default='default', nullable=False)
         )
+        batch_op.create_foreign_key('fk_api_calls_user_id', 'users', ['user_id'], ['id'], ondelete='CASCADE')
         batch_op.alter_column(
             'created_at', existing_type=sa.DATETIME(), nullable=False
         )
@@ -72,13 +87,14 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column(
                 'updated_at', sa.DateTime(timezone=True),
-                server_default=sa.text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+                server_default=sa.func.now(),
                 nullable=False,
             )
         )
         batch_op.add_column(
             sa.Column('user_id', sa.String(), server_default='default', nullable=False)
         )
+        batch_op.create_foreign_key('fk_api_keys_user_id', 'users', ['user_id'], ['id'], ondelete='CASCADE')
         batch_op.create_index(batch_op.f('ix_api_keys_user_id'), ['user_id'], unique=False)
 
     # 6. Add user_id to agent_sessions
@@ -86,6 +102,7 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column('user_id', sa.String(), server_default='default', nullable=False)
         )
+        batch_op.create_foreign_key('fk_agent_sessions_user_id', 'users', ['user_id'], ['id'], ondelete='CASCADE')
         batch_op.create_index(
             batch_op.f('ix_agent_sessions_user_id'), ['user_id'], unique=False
         )

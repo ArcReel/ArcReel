@@ -5,8 +5,9 @@ from datetime import datetime, timezone
 from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-from lib.db.base import Base, TimestampMixin, UserOwnedMixin, _utc_now
-from lib.db.models import Task, TaskEvent, WorkerLease, AgentSession, ApiCall, ApiKey, User
+from lib.db.base import Base, TimestampMixin, UserOwnedMixin
+from lib.db.models import Task, AgentSession, User
+import lib.db.models  # noqa: F401 — ensure all models registered for Base.metadata
 
 
 @pytest.fixture
