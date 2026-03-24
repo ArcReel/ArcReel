@@ -276,6 +276,7 @@ class SessionManager:
         self.data_dir = Path(data_dir)
         self.meta_store = meta_store
         self.sessions: dict[str, ManagedSession] = {}
+        self._disconnecting: set[str] = set()
         self._connect_locks: dict[str, asyncio.Lock] = {}
         self._load_config()
 
@@ -868,7 +869,7 @@ class SessionManager:
 
     async def get_or_connect(self, session_id: str, *, meta: Optional["SessionMeta"] = None) -> ManagedSession:
         """Get existing managed session or create new connection."""
-        if session_id in self.sessions:
+        if session_id in self.sessions and session_id not in self._disconnecting:
             return self.sessions[session_id]
 
         # Per-session lock prevents concurrent connect() for the same session_id.
@@ -1275,10 +1276,27 @@ class SessionManager:
         interrupt_running: bool = False,
     ) -> None:
         """安全断开会话，确认子进程退出后再释放槽位。"""
+        if session_id in self._disconnecting:
+            return
         managed = self.sessions.get(session_id)
         if managed is None:
             return
+        self._disconnecting.add(session_id)
+        try:
+            await self._disconnect_session_inner(
+                session_id, managed, reason=reason, interrupt_running=interrupt_running,
+            )
+        finally:
+            self._disconnecting.discard(session_id)
 
+    async def _disconnect_session_inner(
+        self,
+        session_id: str,
+        managed: ManagedSession,
+        *,
+        reason: str,
+        interrupt_running: bool,
+    ) -> None:
         managed.cancel_pending_questions(reason)
         await self._cancel_task(managed._cleanup_task)
 
@@ -1402,7 +1420,10 @@ class SessionManager:
     async def _ensure_capacity(self) -> None:
         """确保有空余并发槽位，必要时淘汰最久未活跃的非 running 会话。"""
         max_concurrent = await self._get_max_concurrent()
-        active = [s for s in self.sessions.values() if s.client is not None]
+        active = [
+            s for s in self.sessions.values()
+            if s.client is not None and s.session_id not in self._disconnecting
+        ]
 
         if len(active) < max_concurrent:
             return
@@ -1448,7 +1469,7 @@ class SessionManager:
         cleanup_delay = await self._get_cleanup_delay()
         now = time.monotonic()
         for sid, managed in list(self.sessions.items()):
-            if managed.status == "running":
+            if managed.status == "running" or sid in self._disconnecting:
                 continue
             activity_age = now - (managed.last_activity or 0)
             if activity_age > cleanup_delay * 2:
