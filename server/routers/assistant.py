@@ -4,7 +4,7 @@ Assistant session APIs.
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Annotated, Literal, Optional
+from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ from lib import PROJECT_ROOT
 from server.agent_runtime.models import SessionMeta
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_manager import SessionCapacityError
-from server.auth import get_current_user, get_current_user_flexible
+from server.auth import CurrentUser, CurrentUserFlexible
 
 router = APIRouter()
 
@@ -66,7 +66,7 @@ class AnswerQuestionRequest(BaseModel):
 async def send_message(
     project_name: str,
     req: SendRequest,
-    _user: Annotated[dict, Depends(get_current_user)],
+    _user: CurrentUser,
 ):
     try:
         service = get_assistant_service()
@@ -93,7 +93,7 @@ async def send_message(
 @router.get("/sessions")
 async def list_sessions(
     project_name: str,
-    _user: Annotated[dict, Depends(get_current_user)],
+    _user: CurrentUser,
     status: Optional[Literal["idle", "running", "completed", "error", "interrupted"]] = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -111,7 +111,7 @@ async def list_sessions(
 
 
 @router.get("/sessions/{session_id}")
-async def get_session(project_name: str, session_id: str, _user: Annotated[dict, Depends(get_current_user)]):
+async def get_session(project_name: str, session_id: str, _user: CurrentUser):
     try:
         service = get_assistant_service()
         session = await _validate_session_ownership(service, session_id, project_name)
@@ -124,7 +124,7 @@ async def get_session(project_name: str, session_id: str, _user: Annotated[dict,
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(project_name: str, session_id: str, _user: Annotated[dict, Depends(get_current_user)]):
+async def delete_session(project_name: str, session_id: str, _user: CurrentUser):
     try:
         service = get_assistant_service()
         await _validate_session_ownership(service, session_id, project_name)
@@ -140,7 +140,7 @@ async def delete_session(project_name: str, session_id: str, _user: Annotated[di
 
 
 @router.get("/sessions/{session_id}/messages")
-async def list_messages(project_name: str, session_id: str, _user: Annotated[dict, Depends(get_current_user)]):
+async def list_messages(project_name: str, session_id: str, _user: CurrentUser):
     raise HTTPException(
         status_code=410,
         detail="messages 接口已下线，请使用 /snapshot 与 SSE stream 协议。",
@@ -148,7 +148,7 @@ async def list_messages(project_name: str, session_id: str, _user: Annotated[dic
 
 
 @router.get("/sessions/{session_id}/snapshot")
-async def get_snapshot(project_name: str, session_id: str, _user: Annotated[dict, Depends(get_current_user)]):
+async def get_snapshot(project_name: str, session_id: str, _user: CurrentUser):
     try:
         service = get_assistant_service()
         meta = await _validate_session_ownership(service, session_id, project_name)
@@ -164,7 +164,7 @@ async def get_snapshot(project_name: str, session_id: str, _user: Annotated[dict
 
 
 @router.post("/sessions/{session_id}/interrupt")
-async def interrupt_session(project_name: str, session_id: str, _user: Annotated[dict, Depends(get_current_user)]):
+async def interrupt_session(project_name: str, session_id: str, _user: CurrentUser):
     try:
         service = get_assistant_service()
         meta = await _validate_session_ownership(service, session_id, project_name)
@@ -182,7 +182,7 @@ async def interrupt_session(project_name: str, session_id: str, _user: Annotated
 
 
 @router.post("/sessions/{session_id}/questions/{question_id}/answer")
-async def answer_question(project_name: str, session_id: str, question_id: str, req: AnswerQuestionRequest, _user: Annotated[dict, Depends(get_current_user)]):
+async def answer_question(project_name: str, session_id: str, question_id: str, req: AnswerQuestionRequest, _user: CurrentUser):
     if not req.answers:
         raise HTTPException(status_code=400, detail="answers 不能为空")
     try:
@@ -210,7 +210,7 @@ async def answer_question(project_name: str, session_id: str, question_id: str, 
 async def stream_events(
     project_name: str,
     session_id: str,
-    _user: Annotated[dict, Depends(get_current_user_flexible)],
+    _user: CurrentUserFlexible,
     deps: tuple[AssistantService, SessionMeta] = Depends(_assistant_service_for_stream),
 ) -> AsyncIterator[ServerSentEvent]:
     service, meta = deps
@@ -225,7 +225,7 @@ async def stream_events(
 
 
 @router.get("/skills")
-async def list_skills(project_name: str, _user: Annotated[dict, Depends(get_current_user)]):
+async def list_skills(project_name: str, _user: CurrentUser):
     try:
         skills = get_assistant_service().list_available_skills(project_name=project_name)
         return {"skills": skills}

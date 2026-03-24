@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server.auth import get_current_user
+from server.auth import CurrentUserInfo, get_current_user
 from server.routers import agent_chat
 
 
 def _make_client() -> TestClient:
     app = FastAPI()
-    app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(agent_chat.router, prefix="/api/v1")
     return TestClient(app)
 

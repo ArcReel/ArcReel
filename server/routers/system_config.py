@@ -24,7 +24,7 @@ from lib.config.service import (
     _DEFAULT_VIDEO_BACKEND,
 )
 from lib.db import get_async_session
-from server.auth import get_current_user
+from server.auth import CurrentUser
 from server.dependencies import get_config_service
 
 logger = logging.getLogger(__name__)
@@ -118,7 +118,7 @@ _STRING_SETTINGS = (
 
 @router.get("/system/config")
 async def get_system_config(
-    _user: Annotated[dict, Depends(get_current_user)],
+    _user: CurrentUser,
     svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> dict[str, Any]:
     # Read all settings in a single query
@@ -158,7 +158,7 @@ async def get_system_config(
 @router.patch("/system/config")
 async def patch_system_config(
     req: SystemConfigPatchRequest,
-    _user: Annotated[dict, Depends(get_current_user)],
+    _user: CurrentUser,
     svc: Annotated[ConfigService, Depends(get_config_service)],
     session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:

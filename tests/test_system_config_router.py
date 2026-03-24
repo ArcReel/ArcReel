@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
 from lib.db.base import Base
-from server.auth import get_current_user
+from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
 from server.routers import system_config as system_config_router
 
@@ -41,7 +41,7 @@ async def db_session():
 def _make_app_with_mock(mock_svc: ConfigService) -> FastAPI:
     """App with a fully mocked ConfigService (no DB needed)."""
     app = FastAPI()
-    app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.dependency_overrides[get_config_service] = lambda: mock_svc
     app.include_router(system_config_router.router, prefix="/api/v1")
     return app
@@ -206,7 +206,7 @@ class TestPatchSystemConfig:
     def _make_patch_app(self, mock_svc: ConfigService) -> FastAPI:
         """App for PATCH tests - needs session override for commit()."""
         app = FastAPI()
-        app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.dependency_overrides[get_config_service] = lambda: mock_svc
 
         mock_session = AsyncMock()

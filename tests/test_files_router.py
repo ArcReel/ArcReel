@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from lib.project_manager import ProjectManager
-from server.auth import get_current_user
+from server.auth import CurrentUserInfo, get_current_user
 from server.routers import files
 
 
@@ -37,7 +37,7 @@ def _client(monkeypatch, tmp_path):
     monkeypatch.setattr("lib.text_client.create_text_client", _fake_create_text_client)
 
     app = FastAPI()
-    app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(files.router, prefix="/api/v1")
     return TestClient(app), pm
 

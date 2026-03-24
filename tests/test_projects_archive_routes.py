@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.project_manager import ProjectManager
-from server.auth import create_download_token, create_token, get_current_user
+from server.auth import CurrentUserInfo, create_download_token, create_token, get_current_user
 from server.routers import projects
 
 
@@ -84,7 +84,7 @@ def _create_demo_project(pm: ProjectManager) -> None:
 def _client(monkeypatch, pm: ProjectManager) -> TestClient:
     monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
     app = FastAPI()
-    app.dependency_overrides[get_current_user] = lambda: {"sub": "testuser"}
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(projects.router, prefix="/api/v1")
     return TestClient(app)
 

@@ -3,17 +3,17 @@
 """
 
 import logging
-from typing import Annotated, Optional
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from lib import PROJECT_ROOT
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
-from server.auth import get_current_user
+from server.auth import CurrentUser
 
 router = APIRouter()
 
@@ -39,7 +39,7 @@ class UpdateCharacterRequest(BaseModel):
 
 
 @router.post("/projects/{project_name}/characters")
-async def add_character(project_name: str, req: CreateCharacterRequest, _user: Annotated[dict, Depends(get_current_user)]):
+async def add_character(project_name: str, req: CreateCharacterRequest, _user: CurrentUser):
     """添加人物"""
     try:
         with project_change_source("webui"):
@@ -59,7 +59,7 @@ async def add_character(project_name: str, req: CreateCharacterRequest, _user: A
 @router.patch("/projects/{project_name}/characters/{char_name}")
 async def update_character(
     project_name: str, char_name: str, req: UpdateCharacterRequest,
-    _user: Annotated[dict, Depends(get_current_user)],
+    _user: CurrentUser,
 ):
     """更新人物"""
     try:
@@ -92,7 +92,7 @@ async def update_character(
 
 
 @router.delete("/projects/{project_name}/characters/{char_name}")
-async def delete_character(project_name: str, char_name: str, _user: Annotated[dict, Depends(get_current_user)]):
+async def delete_character(project_name: str, char_name: str, _user: CurrentUser):
     """删除人物"""
     try:
         manager = get_project_manager()

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server.auth import get_current_user, get_current_user_flexible
+from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.routers import assistant
 from tests.factories import make_session_meta
 
@@ -13,7 +13,7 @@ from tests.factories import make_session_meta
 PROJECT = "demo"
 PREFIX = f"/api/v1/projects/{PROJECT}/assistant"
 
-_FAKE_USER = {"sub": "testuser"}
+_FAKE_USER = CurrentUserInfo(id="default", sub="testuser", role="admin")
 
 
 def _build_client() -> TestClient:

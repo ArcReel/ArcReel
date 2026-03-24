@@ -5,12 +5,12 @@ API 调用统计路由
 """
 
 from datetime import datetime
-from typing import Annotated, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
 from lib.usage_tracker import UsageTracker
-from server.auth import get_current_user
+from server.auth import CurrentUser
 
 router = APIRouter()
 
@@ -19,7 +19,7 @@ _tracker = UsageTracker()
 
 @router.get("/usage/stats")
 async def get_stats(
-    _user: Annotated[dict, Depends(get_current_user)],
+    _user: CurrentUser,
     project_name: Optional[str] = Query(None, description="项目名称（可选）"),
     provider: Optional[str] = Query(None, description="按供应商筛选"),
     start_date: Optional[str] = Query(None, description="开始日期 (YYYY-MM-DD)"),
@@ -48,7 +48,7 @@ async def get_stats(
 
 @router.get("/usage/calls")
 async def get_calls(
-    _user: Annotated[dict, Depends(get_current_user)],
+    _user: CurrentUser,
     project_name: Optional[str] = Query(None, description="项目名称"),
     call_type: Optional[str] = Query(None, description="调用类型 (image/video)"),
     status: Optional[str] = Query(None, description="状态 (success/failed)"),
@@ -73,6 +73,6 @@ async def get_calls(
 
 
 @router.get("/usage/projects")
-async def get_projects_list(_user: Annotated[dict, Depends(get_current_user)]):
+async def get_projects_list(_user: CurrentUser):
     projects = await _tracker.get_projects_list()
     return {"projects": projects}

@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Annotated, Optional, Union
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Path as FastAPIPath, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Path as FastAPIPath, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
@@ -24,7 +24,7 @@ from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator
-from server.auth import create_download_token, get_current_user, verify_download_token
+from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.services.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
@@ -79,7 +79,7 @@ def _cleanup_temp_dir(dir_path: str) -> None:
 
 @router.post("/projects/import")
 async def import_project_archive(
-    _user: Annotated[dict, Depends(get_current_user)],
+    _user: CurrentUser,
     file: UploadFile = File(...),
     conflict_policy: str = Form("prompt"),
 ):
@@ -139,7 +139,7 @@ async def import_project_archive(
 @router.post("/projects/{name}/export/token")
 async def create_export_token(
     name: str,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: CurrentUser,
     scope: str = Query("full"),
 ):
     """签发短时效下载 token，用于浏览器原生下载认证。"""
@@ -149,7 +149,7 @@ async def create_export_token(
         if scope not in ("full", "current"):
             raise HTTPException(status_code=422, detail="scope 必须为 full 或 current")
 
-        username = current_user["sub"]
+        username = current_user.sub
         download_token = create_download_token(username, name)
         diagnostics = get_archive_service().get_export_diagnostics(name, scope=scope)
         return {
@@ -272,7 +272,7 @@ def export_jianying_draft(
 
 
 @router.get("/projects")
-async def list_projects(_user: Annotated[dict, Depends(get_current_user)]):
+async def list_projects(_user: CurrentUser):
     """列出所有项目"""
     manager = get_project_manager()
     calculator = get_status_calculator()
@@ -326,7 +326,7 @@ async def list_projects(_user: Annotated[dict, Depends(get_current_user)]):
 
 
 @router.post("/projects")
-async def create_project(req: CreateProjectRequest, _user: Annotated[dict, Depends(get_current_user)]):
+async def create_project(req: CreateProjectRequest, _user: CurrentUser):
     """创建新项目"""
     try:
         manager = get_project_manager()
@@ -359,7 +359,7 @@ async def create_project(req: CreateProjectRequest, _user: Annotated[dict, Depen
 
 
 @router.get("/projects/{name}")
-async def get_project(name: str, _user: Annotated[dict, Depends(get_current_user)]):
+async def get_project(name: str, _user: CurrentUser):
     """获取项目详情（含实时计算字段）"""
     try:
         manager = get_project_manager()
@@ -405,7 +405,7 @@ async def get_project(name: str, _user: Annotated[dict, Depends(get_current_user
 
 
 @router.patch("/projects/{name}")
-async def update_project(name: str, req: UpdateProjectRequest, _user: Annotated[dict, Depends(get_current_user)]):
+async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUser):
     """更新项目元数据"""
     try:
         manager = get_project_manager()
@@ -450,7 +450,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: Annotated[
 
 
 @router.delete("/projects/{name}")
-async def delete_project(name: str, _user: Annotated[dict, Depends(get_current_user)]):
+async def delete_project(name: str, _user: CurrentUser):
     """删除项目"""
     try:
         project_dir = get_project_manager().get_project_path(name)
@@ -466,7 +466,7 @@ async def delete_project(name: str, _user: Annotated[dict, Depends(get_current_u
 
 
 @router.get("/projects/{name}/scripts/{script_file}")
-async def get_script(name: str, script_file: str, _user: Annotated[dict, Depends(get_current_user)]):
+async def get_script(name: str, script_file: str, _user: CurrentUser):
     """获取剧本内容"""
     try:
         script = get_project_manager().load_script(name, script_file)
@@ -486,7 +486,7 @@ class UpdateSceneRequest(BaseModel):
 
 
 @router.patch("/projects/{name}/scenes/{scene_id}")
-async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user: Annotated[dict, Depends(get_current_user)]):
+async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user: CurrentUser):
     """更新场景"""
     try:
         manager = get_project_manager()
@@ -539,7 +539,7 @@ class UpdateOverviewRequest(BaseModel):
 
 
 @router.patch("/projects/{name}/segments/{segment_id}")
-async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _user: Annotated[dict, Depends(get_current_user)]):
+async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _user: CurrentUser):
     """更新说书模式片段"""
     try:
         manager = get_project_manager()
@@ -589,7 +589,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
 @router.post("/projects/{name}/source")
 async def set_project_source(
     name: Annotated[str, FastAPIPath(pattern=r"^[a-zA-Z0-9_-]+$")],
-    _user: Annotated[dict, Depends(get_current_user)],
+    _user: CurrentUser,
     generate_overview: Annotated[bool, Form()] = True,
     content: Annotated[Optional[str], Form()] = None,
     file: Annotated[Optional[UploadFile], File()] = None,
@@ -676,7 +676,7 @@ async def set_project_source(
 # ==================== 项目概述管理 ====================
 
 @router.post("/projects/{name}/generate-overview")
-async def generate_overview(name: str, _user: Annotated[dict, Depends(get_current_user)]):
+async def generate_overview(name: str, _user: CurrentUser):
     """使用 AI 生成项目概述"""
     try:
         with project_change_source("webui"):
@@ -694,7 +694,7 @@ async def generate_overview(name: str, _user: Annotated[dict, Depends(get_curren
 
 
 @router.patch("/projects/{name}/overview")
-async def update_overview(name: str, req: UpdateOverviewRequest, _user: Annotated[dict, Depends(get_current_user)]):
+async def update_overview(name: str, req: UpdateOverviewRequest, _user: CurrentUser):
     """更新项目概述（手动编辑）"""
     try:
         manager = get_project_manager()

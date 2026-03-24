@@ -6,14 +6,14 @@
 
 import asyncio
 import logging
-from typing import Annotated, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_manager import SessionCapacityError
-from server.auth import get_current_user
+from server.auth import CurrentUser
 from server.routers.assistant import get_assistant_service
 
 logger = logging.getLogger(__name__)
@@ -126,7 +126,7 @@ async def _collect_reply(
 @router.post("/agent/chat")
 async def agent_chat(
     body: AgentChatRequest,
-    _user: Annotated[dict, Depends(get_current_user)],
+    _user: CurrentUser,
 ) -> AgentChatResponse:
     """同步 Agent 对话端点。
 

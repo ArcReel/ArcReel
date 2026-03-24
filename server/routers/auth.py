@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
-from server.auth import check_credentials, create_token, get_current_user
+from server.auth import CurrentUser, check_credentials, create_token
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +57,10 @@ async def login_for_access_token(
 
 @router.get("/auth/verify", response_model=VerifyResponse)
 async def verify(
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: CurrentUser,
 ):
     """验证 token 有效性
 
     使用 OAuth2 Bearer token 依赖自动提取和验证 token。
     """
-    return VerifyResponse(valid=True, username=current_user["sub"])
+    return VerifyResponse(valid=True, username=current_user.sub)
