@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import delete as sa_delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.db.base import _utc_now
 from lib.db.models.session import AgentSession
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+from lib.db.repositories.base import BaseRepository
 
 
 def _dt_to_iso(val: Optional[datetime]) -> Optional[str]:
@@ -33,9 +31,7 @@ def _row_to_dict(row: AgentSession) -> dict[str, Any]:
     }
 
 
-class SessionRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
+class SessionRepository(BaseRepository):
 
     async def create(self, project_name: str, sdk_session_id: str, title: str = "") -> dict[str, Any]:
         now = _utc_now()
@@ -54,9 +50,9 @@ class SessionRepository:
         return _row_to_dict(row)
 
     async def get(self, session_id: str) -> Optional[dict[str, Any]]:
-        result = await self.session.execute(
-            select(AgentSession).where(AgentSession.sdk_session_id == session_id)
-        )
+        stmt = select(AgentSession).where(AgentSession.sdk_session_id == session_id)
+        stmt = self._scope_query(stmt, AgentSession)
+        result = await self.session.execute(stmt)
         row = result.scalar_one_or_none()
         return _row_to_dict(row) if row else None
 
@@ -75,6 +71,7 @@ class SessionRepository:
             stmt = stmt.where(AgentSession.status == status)
         stmt = stmt.order_by(AgentSession.updated_at.desc())
         stmt = stmt.limit(max(1, limit)).offset(max(0, offset))
+        stmt = self._scope_query(stmt, AgentSession)
 
         result = await self.session.execute(stmt)
         return [_row_to_dict(row) for row in result.scalars().all()]

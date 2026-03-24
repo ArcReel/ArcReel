@@ -6,22 +6,20 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import delete as sa_delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.db.base import _utc_now
 from lib.db.models.task import Task, TaskEvent, WorkerLease
+from lib.db.repositories.base import BaseRepository
 
 logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = ("queued", "running")
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _json_dumps(value: Any) -> str:
@@ -62,6 +60,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "started_at": _dt_to_iso(row.started_at),
         "finished_at": _dt_to_iso(row.finished_at),
         "updated_at": _dt_to_iso(row.updated_at),
+        "user_id": row.user_id,
     }
 
 
@@ -77,9 +76,7 @@ def _event_to_dict(row: TaskEvent) -> dict[str, Any]:
     }
 
 
-class TaskRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
+class TaskRepository(BaseRepository):
 
     async def _append_event(
         self,
@@ -179,6 +176,7 @@ class TaskRepository:
             "existing_task_id": None,
         }
 
+    # NOTE: In multi-user mode, override this method to add user_id filtering
     async def claim_next(self, media_type: str) -> Optional[dict[str, Any]]:
         now = _utc_now()
 
@@ -425,9 +423,9 @@ class TaskRepository:
         return len(requeued_tasks)
 
     async def get(self, task_id: str) -> Optional[dict[str, Any]]:
-        result = await self.session.execute(
-            select(Task).where(Task.task_id == task_id)
-        )
+        stmt = select(Task).where(Task.task_id == task_id)
+        stmt = self._scope_query(stmt, Task)
+        result = await self.session.execute(stmt)
         task = result.scalar_one_or_none()
         return _task_to_dict(task) if task else None
 
@@ -456,6 +454,7 @@ class TaskRepository:
             filters.append(Task.source == source)
 
         count_stmt = select(func.count()).select_from(Task).where(*filters)
+        count_stmt = self._scope_query(count_stmt, Task)
         total = (await self.session.execute(count_stmt)).scalar() or 0
 
         items_stmt = (
@@ -465,6 +464,7 @@ class TaskRepository:
             .limit(page_size)
             .offset(offset)
         )
+        items_stmt = self._scope_query(items_stmt, Task)
         result = await self.session.execute(items_stmt)
         items = [_task_to_dict(t) for t in result.scalars().all()]
 
@@ -488,6 +488,7 @@ class TaskRepository:
             .where(*filters)
             .group_by(Task.status)
         )
+        stmt = self._scope_query(stmt, Task)
         result = await self.session.execute(stmt)
 
         stats = {"queued": 0, "running": 0, "succeeded": 0, "failed": 0, "total": 0}
@@ -511,10 +512,12 @@ class TaskRepository:
         if project_name:
             stmt = stmt.where(Task.project_name == project_name)
         stmt = stmt.order_by(Task.updated_at.desc()).limit(limit)
+        stmt = self._scope_query(stmt, Task)
 
         result = await self.session.execute(stmt)
         return [_task_to_dict(t) for t in result.scalars().all()]
 
+    # NOTE: In multi-user mode, override this method to filter by user via JOIN Task
     async def get_events_since(
         self,
         *,
@@ -531,6 +534,7 @@ class TaskRepository:
         result = await self.session.execute(stmt)
         return [_event_to_dict(e) for e in result.scalars().all()]
 
+    # NOTE: In multi-user mode, override this method to filter by user via JOIN Task
     async def get_latest_event_id(
         self, *, project_name: Optional[str] = None
     ) -> int:
