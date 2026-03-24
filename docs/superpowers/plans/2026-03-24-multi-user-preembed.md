@@ -213,14 +213,13 @@ class BaseRepository:
 - `class TaskRepository:` → `class TaskRepository(BaseRepository):`
 - 删除 `__init__` 中的 `self.session = session`（继承自 BaseRepository）
 - 在以下方法的查询构建处插入 `stmt = self._scope_query(stmt, Task)`：
-  - `list_tasks`: 在 `stmt = select(Task)` 之后
+  - `list_tasks`: 注意有 `count_stmt` 和 `items_stmt` 两个 select，**两个都需要**插入 `_scope_query`
   - `get`: 在 `stmt = select(Task).where(Task.task_id == task_id)` 之后
-  - `get_stats`: 在 `stmt = select(...)` 之后
+  - `get_stats`: 在 `select(...).select_from(Task)` 之后插入
   - `get_recent_tasks_snapshot`: 在 `stmt = select(Task)` 之后
-- 在 TaskEvent 查询方法中，通过 JOIN Task 过滤：
-  - `get_events_since`: 在查询中添加 `.join(Task, TaskEvent.task_id == Task.task_id)` 然后 `self._scope_query(stmt, Task)`
-  - `get_latest_event_id`: 同上
-- `claim_next`: 在注释中标记 `# TODO: 重构为 ORM 查询以支持 _scope_query 覆盖`
+- TaskEvent 查询方法（`get_events_since`、`get_latest_event_id`）：开源版 `_scope_query` 是 no-op，这两个方法**暂不插入 _scope_query**。在方法上添加注释说明多用户模式下需要通过 JOIN Task 过滤或 override 这两个方法
+- `claim_next`: 使用原生 SQL，`_scope_query` 无法拦截。在方法上添加注释标记 `# NOTE: 多用户模式下需要 override 此方法以加入 user_id 过滤`
+- **修改 `_task_to_dict` 函数**：在返回的 dict 中添加 `"user_id": task.user_id` 字段，确保下游能读取 task 的 user_id
 
 - [ ] **Step 3: UsageRepository 继承 BaseRepository，插入 _scope_query**
 
@@ -330,7 +329,7 @@ async def enqueue(
 
 - [ ] **Step 2: UsageRepository.start_call 添加 user_id**
 
-修改方法签名，在 `provider` 参数后添加：
+修改方法签名，在所有现有参数之后添加：
 ```python
     user_id: str = "default",
 ```
@@ -405,6 +404,8 @@ CurrentUserFlexible = Annotated[CurrentUserInfo, Depends(get_current_user_flexib
 
 - [ ] **Step 2: 修改 get_current_user 返回 CurrentUserInfo**
 
+当前返回完整 JWT payload dict（含 `sub`, `iat`, `exp`）。改为只返回 `CurrentUserInfo`。经确认，下游代码仅访问 `["sub"]`（2 处：`server/routers/projects.py` 和 `server/routers/auth.py`），不依赖 `iat`/`exp`，安全。
+
 ```python
 async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
@@ -475,9 +476,13 @@ git commit -m "refactor: return CurrentUserInfo from auth instead of dict"
 3. 路由函数参数中 `Annotated[dict, Depends(get_current_user_flexible)]` → `_user: CurrentUserFlexible`
 4. 所有 `current_user["sub"]` → `current_user.sub` 的属性访问替换
 
-- [ ] **Step 1: 迁移 projects.py（最复杂，含属性访问）**
+- [ ] **Step 1: 迁移 projects.py 和 auth.py（含 dict 属性访问）**
 
-`server/routers/projects.py` 有 ~13 个路由使用 `current_user`，其中至少 1 处使用 `current_user["sub"]`。
+需要修改 dict 属性访问的**两处**：
+- `server/routers/projects.py:152` — `current_user["sub"]` → `current_user.sub`
+- `server/routers/auth.py:66` — `current_user["sub"]` → `current_user.sub`
+
+`projects.py` 有 ~13 个路由，`auth.py` 有 ~1 个路由。
 
 - [ ] **Step 2: 迁移 generate.py**
 
@@ -534,7 +539,7 @@ git commit -m "refactor: migrate all routes from dict auth to CurrentUser type a
 - Modify: `lib/generation_queue_client.py` — `enqueue_and_wait`、`enqueue_task_only` 添加 `user_id`
 - Modify: `lib/usage_tracker.py` — `start_call` 添加 `user_id`
 - Modify: `lib/media_generator.py` — 构造时接受 `user_id`，传给 usage_tracker
-- Modify: `lib/generation_worker.py` — 从 task record 取 `user_id` 传给 MediaGenerator
+- Modify: `server/services/generation_tasks.py` — `get_media_generator()` 和 `execute_generation_task()` 接受并透传 `user_id`（从 task record 取）
 - Modify: `server/routers/generate.py` — 传入 `user.id` 到 enqueue
 
 - [ ] **Step 1: GenerationQueue.enqueue_task 添加 user_id**
@@ -587,10 +592,14 @@ async def start_call(
 - 存储为 `self._user_id = user_id`
 - 在所有 `self.usage_tracker.start_call(...)` 调用中追加 `user_id=self._user_id`
 
-- [ ] **Step 5: GenerationWorker 从 task 传递 user_id**
+- [ ] **Step 5: generation_tasks.py 从 task record 透传 user_id**
 
-修改 `lib/generation_worker.py`：
-- 在从 task record 创建 MediaGenerator 时，传入 `user_id=task.get("user_id", "default")`
+修改 `server/services/generation_tasks.py`：
+- `execute_generation_task(task)` 中从 `task.get("user_id", "default")` 取 user_id
+- `get_media_generator(project_name, payload, user_id="default")` 新增 `user_id` 参数
+- 在创建 MediaGenerator 时传入 `user_id=user_id`
+
+注意：`GenerationWorker._process_task()` 调用的是 `execute_generation_task(task)`，MediaGenerator 由 `get_media_generator()` 工厂函数创建，不在 GenerationWorker 中直接构造。
 
 - [ ] **Step 6: generate.py 路由传入 user.id**
 
@@ -605,7 +614,7 @@ Expected: PASS
 - [ ] **Step 8: 提交**
 
 ```bash
-git add lib/generation_queue.py lib/generation_queue_client.py lib/usage_tracker.py lib/media_generator.py lib/generation_worker.py server/routers/generate.py
+git add lib/generation_queue.py lib/generation_queue_client.py lib/usage_tracker.py lib/media_generator.py server/services/generation_tasks.py server/routers/generate.py
 git commit -m "refactor: propagate user_id through generation pipeline"
 ```
 
