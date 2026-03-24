@@ -14,7 +14,17 @@ from pathlib import Path
 from typing import Any
 
 import pyJianYingDraft as draft
-from pyJianYingDraft import TextSegment, TextStyle, TrackType, VideoMaterial, VideoSegment, trange
+from pyJianYingDraft import (
+    ClipSettings,
+    TextBorder,
+    TextSegment,
+    TextShadow,
+    TextStyle,
+    TrackType,
+    VideoMaterial,
+    VideoSegment,
+    trange,
+)
 
 from lib.project_manager import ProjectManager
 
@@ -80,9 +90,14 @@ class JianyingDraftService:
 
         return clips
 
-    def _resolve_canvas_size(self, project: dict) -> tuple[int, int]:
-        """根据项目 aspect_ratio 确定画布尺寸"""
-        aspect = project.get("aspect_ratio", {}).get("video", "16:9")
+    def _resolve_canvas_size(
+        self, project: dict, first_video_path: Path | None = None
+    ) -> tuple[int, int]:
+        """根据项目 aspect_ratio 确定画布尺寸，缺失时从首个视频自动检测"""
+        aspect = project.get("aspect_ratio", {}).get("video")
+        if aspect is None and first_video_path is not None:
+            mat = VideoMaterial(str(first_video_path))
+            aspect = "9:16" if mat.height > mat.width else "16:9"
         if aspect == "9:16":
             return 1080, 1920
         return 1920, 1080
@@ -113,14 +128,33 @@ class JianyingDraftService:
 
         # 字幕轨（仅 narration 模式）
         has_subtitle = content_mode == "narration"
+        text_border: TextBorder | None = None
+        text_shadow: TextShadow | None = None
+        subtitle_position: ClipSettings | None = None
+        is_portrait = height > width
         if has_subtitle:
             script_file.add_track(TrackType.text, "字幕")
             text_style = TextStyle(
-                size=8.0,
+                size=12.0 if is_portrait else 8.0,
                 color=(1.0, 1.0, 1.0),
                 align=1,
                 bold=True,
                 auto_wrapping=True,
+                max_line_width=0.82 if is_portrait else 0.6,
+            )
+            text_border = TextBorder(
+                color=(0.0, 0.0, 0.0),
+                width=30.0,
+            )
+            text_shadow = TextShadow(
+                color=(0.0, 0.0, 0.0),
+                alpha=0.7,
+                diffuse=8.0,
+                distance=3.0,
+                angle=-45.0,
+            )
+            subtitle_position = ClipSettings(
+                transform_y=-0.75 if is_portrait else -0.8,
             )
 
         # 逐片段添加
@@ -143,6 +177,9 @@ class JianyingDraftService:
                     text=clip["novel_text"],
                     timerange=trange(offset_us, actual_duration_us),
                     style=text_style,
+                    border=text_border,
+                    shadow=text_shadow,
+                    clip_settings=subtitle_position,
                 )
                 script_file.add_segment(text_seg)
 
@@ -204,8 +241,9 @@ class JianyingDraftService:
         if not clips:
             raise ValueError(f"第 {episode} 集没有已完成的视频片段，请先生成视频")
 
-        # 3. 画布尺寸
-        width, height = self._resolve_canvas_size(project)
+        # 3. 画布尺寸（项目未设 aspect_ratio 时从首个视频自动检测）
+        first_video = clips[0]["abs_path"] if clips else None
+        width, height = self._resolve_canvas_size(project, first_video)
 
         # 4. 创建临时目录 + 复制素材到暂存区
         title = project.get("title", project_name)
