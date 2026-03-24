@@ -43,10 +43,12 @@ class _FakeSessionManager:
         self.sent = []
         self.answered = []
         self.interrupted = []
+        self.closed = []
         self.unsubscribed = []
         self.status = "running"
         self.buffer = []
         self.pending = []
+        self.close_error = None
 
     async def send_new_session(self, project_name, prompt, **kwargs):
         self.new_sessions.append((project_name, prompt))
@@ -80,6 +82,12 @@ class _FakeSessionManager:
     async def unsubscribe(self, session_id, queue):
         self.unsubscribed.append(session_id)
 
+    async def close_session(self, session_id, *, reason="session closed"):
+        self.closed.append((session_id, reason))
+        if self.close_error is not None:
+            raise self.close_error
+        self.sessions.pop(session_id, None)
+
     async def shutdown_gracefully(self):
         return None
 
@@ -90,21 +98,6 @@ class _FakeTranscriptAdapter:
 
     def read_raw_messages(self, sdk_session_id=None):
         return list(self.history)
-
-
-class _ManagedForDelete:
-    def __init__(self, disconnect_raises=False):
-        self.cancelled = False
-        self.consumer_task = asyncio.create_task(asyncio.sleep(3600))
-        self.client = SimpleNamespace(disconnect=self._disconnect)
-        self._disconnect_raises = disconnect_raises
-
-    def cancel_pending_questions(self, _reason):
-        self.cancelled = True
-
-    async def _disconnect(self):
-        if self._disconnect_raises:
-            raise RuntimeError("disconnect failed")
 
 
 class TestAssistantServiceMore:
@@ -218,22 +211,36 @@ class TestAssistantServiceMore:
         assert interrupted["session_status"] == "interrupted"
 
     @pytest.mark.asyncio
-    async def test_delete_session_handles_active_and_disconnect_error(self, tmp_path):
+    async def test_delete_session_closes_active_session_before_delete(self, tmp_path):
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta(id="s1")
         service.meta_store = _FakeMetaStore([meta])
         sm = _FakeSessionManager()
-        managed = _ManagedForDelete(disconnect_raises=True)
-        sm.sessions["s1"] = managed
+        sm.sessions["s1"] = SimpleNamespace()
         service.session_manager = sm
 
         ok = await service.delete_session("s1")
         assert ok is True
-        assert managed.cancelled is True
+        assert sm.closed == [("s1", "session deleted")]
         assert "s1" not in sm.sessions
 
         missing = await service.delete_session("missing")
         assert missing is False
+
+    @pytest.mark.asyncio
+    async def test_delete_session_propagates_close_error(self, tmp_path):
+        service = AssistantService(project_root=tmp_path)
+        meta = make_session_meta(id="s1")
+        service.meta_store = _FakeMetaStore([meta])
+        sm = _FakeSessionManager()
+        sm.sessions["s1"] = SimpleNamespace()
+        sm.close_error = RuntimeError("close failed")
+        service.session_manager = sm
+
+        with pytest.raises(RuntimeError, match="close failed"):
+            await service.delete_session("s1")
+
+        assert "s1" in sm.sessions
 
     @pytest.mark.asyncio
     async def test_snapshot_and_stream_helpers(self, tmp_path):

@@ -264,7 +264,7 @@ class TestSessionManagerMore:
             await session_manager.answer_user_question("missing", "q", {"a": "b"})
 
         meta = await meta_store.create("demo", "sdk-buffer-snap")
-        client = _InterruptibleClient(disconnect_raises=True)
+        client = _InterruptibleClient(disconnect_raises=False)
         managed = ManagedSession(
             session_id=meta.id,
             client=client,

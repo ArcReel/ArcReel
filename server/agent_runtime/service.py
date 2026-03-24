@@ -128,15 +128,10 @@ class AssistantService:
         """Delete session and cleanup."""
         # Disconnect if active
         if session_id in self.session_manager.sessions:
-            managed = self.session_manager.sessions[session_id]
-            managed.cancel_pending_questions("session deleted")
-            if managed.consumer_task and not managed.consumer_task.done():
-                managed.consumer_task.cancel()
-            try:
-                await managed.client.disconnect()
-            except Exception as exc:
-                logger.warning("会话断开清理异常: %s", exc)
-            del self.session_manager.sessions[session_id]
+            await self.session_manager.close_session(
+                session_id,
+                reason="session deleted",
+            )
 
         self._snapshot_cache.pop(session_id, None)
         return await self.meta_store.delete(session_id)
