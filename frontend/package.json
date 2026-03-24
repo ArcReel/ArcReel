@@ -22,12 +22,12 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@lobehub/icons": "^5.0.1",
     "@tanstack/react-virtual": "^3.13.22",
-    "framer-motion": "^12.36.0",
+    "framer-motion": "^12.38.0",
     "lucide-react": "^0.577.0",
     "pnpm": "^10.32.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "streamdown": "^2.4.0",
+    "streamdown": "^2.5.0",
     "wouter": "^3.9.0",
     "zustand": "^5.0.11"
   },
@@ -39,12 +39,12 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
-    "@vitest/coverage-v8": "^4.1.0",
-    "jsdom": "^29.0.0",
-    "tailwindcss": "^4.2.1",
+    "@vitest/coverage-v8": "^4.1.1",
+    "jsdom": "^29.0.1",
+    "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.1"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
