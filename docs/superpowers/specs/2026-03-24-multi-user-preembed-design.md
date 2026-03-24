@@ -54,7 +54,7 @@ class User(Base):
 
 ### 3.2 Mixin 定义
 
-放在 `lib/db/base.py`：
+放在 `lib/db/base.py`（统一为全局唯一定义，各 repository 和 config.py 中的重复 `_utc_now()` 改为从此处导入）：
 
 ```python
 def _utc_now() -> datetime:
@@ -104,18 +104,30 @@ class UserOwnedMixin:
 新增 `lib/db/repositories/base.py`：
 
 ```python
+from sqlalchemy import Select
+
 class BaseRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    def _scope_query(self, stmt, model=None):
+    def _scope_query(self, stmt: Select, model: type[Base]) -> Select:
         """查询范围限定。开源版 no-op，商业版覆盖以注入 user_id 过滤。"""
         return stmt
 ```
 
 四个 Repository 继承 `BaseRepository`：`TaskRepository`、`UsageRepository`、`SessionRepository`、`ApiKeyRepository`。
 
-所有查询方法在执行前调用 `self._scope_query(stmt, Model)`：
+### 4.1 需要插入 `_scope_query` 的查询方法完整清单
+
+| Repository | 方法 | 说明 |
+|---|---|---|
+| **TaskRepository** | `list_tasks`, `get`, `get_stats`, `get_recent_tasks_snapshot`, `get_events_since`, `get_latest_event_id` | 所有读取方法 |
+| **TaskRepository** | `claim_next` | **特殊处理**：当前使用原生 SQL（依赖自连接），需重构为 ORM 查询以支持 `_scope_query`，或标记为商业版必须 override 的方法 |
+| **UsageRepository** | `get_stats`, `get_stats_grouped_by_provider`, `get_calls`, `get_projects_list` | 所有读取方法 |
+| **SessionRepository** | `get`, `list` | 所有读取方法 |
+| **ApiKeyRepository** | `list_all`, `get_by_hash`, `get_by_id` | 所有读取方法 |
+
+示例：
 
 ```python
 async def list_tasks(self, project_name=None, ...):
@@ -126,7 +138,22 @@ async def list_tasks(self, project_name=None, ...):
     ...
 ```
 
-**商业版子类示例：**
+### 4.2 `claim_next` 原生 SQL 问题
+
+`TaskRepository.claim_next()` 使用 `text()` 原生 SQL 处理依赖自连接，`_scope_query` 无法拦截。需要将其重构为 ORM 查询，以确保商业版的用户过滤能正确生效。如果重构复杂度过高，则标记为商业版必须 override 的方法，并在方法文档中注明。
+
+### 4.3 需要新增 `user_id` 参数的写入方法
+
+| Repository | 方法 |
+|---|---|
+| **TaskRepository** | `enqueue` |
+| **UsageRepository** | `start_call` |
+| **SessionRepository** | `create` |
+| **ApiKeyRepository** | `create` |
+
+这些方法新增 `user_id: str = "default"` 参数，写入对应模型的 `user_id` 字段。
+
+### 4.4 商业版子类示例
 
 ```python
 class MultiUserTaskRepository(TaskRepository):
@@ -134,7 +161,7 @@ class MultiUserTaskRepository(TaskRepository):
         super().__init__(session)
         self._user_id = user_id
 
-    def _scope_query(self, stmt, model=None):
+    def _scope_query(self, stmt: Select, model: type[Base]) -> Select:
         return stmt.where(model.user_id == self._user_id)
 ```
 
@@ -155,28 +182,42 @@ class CurrentUserInfo(BaseModel):
     model_config = ConfigDict(frozen=True)
 ```
 
-### 5.2 get_current_user 改造
+### 5.2 `get_current_user` 和 `get_current_user_flexible` 同步改造
+
+两个认证函数都需要改为返回 `CurrentUserInfo`：
 
 ```python
 async def get_current_user(...) -> CurrentUserInfo:
     payload = await _verify_and_get_payload(token, db)
     sub = payload.get("sub", "")
-    return CurrentUserInfo(
-        id="default",
-        sub=sub,
-        role="admin",
-    )
+    return CurrentUserInfo(id="default", sub=sub, role="admin")
+
+async def get_current_user_flexible(...) -> CurrentUserInfo:
+    # 用于 SSE 端点（支持 query param token）
+    # 同样改为返回 CurrentUserInfo
+    ...
 ```
+
+`get_current_user_flexible` 被以下 SSE 端点使用，必须同步改造：
+- `server/routers/assistant.py` — SSE stream
+- `server/routers/tasks.py` — SSE stream
+- `server/routers/project_events.py` — SSE stream
 
 ### 5.3 类型别名
 
 ```python
 CurrentUser = Annotated[CurrentUserInfo, Depends(get_current_user)]
+CurrentUserFlexible = Annotated[CurrentUserInfo, Depends(get_current_user_flexible)]
 ```
 
-### 5.4 对现有代码的影响
+### 5.4 `id` 与 `sub` 的语义说明
 
-- 所有 `current_user["sub"]` → `current_user.sub`（dict 访问改为属性访问）
+- `id`：对应 `users.id` 主键，用于数据库关联。开源版固定 `"default"`，商业版为真实用户 ID
+- `sub`：JWT payload 中的 subject claim，表示登录身份（用户名或 `apikey:<name>`）。保留此字段以兼容现有日志/审计逻辑
+
+### 5.5 对现有代码的影响
+
+- 所有 `current_user["sub"]` → `current_user.sub`（dict 访问改为属性访问，约 60+ 处机械替换）
 - 路由签名 `current_user: dict` → `user: CurrentUser`
 
 ---
@@ -197,9 +238,26 @@ async def create_task(project_name: str, user: CurrentUser, ...):
     await task_repo.create_task(project_name=project_name, user_id=user.id, ...)
 ```
 
-### 6.2 GenerationQueue
+### 6.2 GenerationQueue 完整调用链
 
-`enqueue()` 方法新增 `user_id` 参数，透传到 Task 创建。
+`user_id` 需要在以下完整调用链中透传：
+
+```
+路由层 (user.id)
+  → GenerationQueue.enqueue_task(user_id=...)
+    → TaskRepository.enqueue(user_id=...)
+
+Skill 脚本 (agent runtime)
+  → generation_queue_client.enqueue_and_wait(user_id=...)
+    → enqueue_task_only(user_id=...)
+      → GenerationQueue.enqueue_task(user_id=...)
+```
+
+Skill 脚本运行在 agent runtime 中无 HTTP 认证上下文，`user_id` 来源策略：开源版默认 `"default"`，商业版由 agent session 携带 `user_id` 传入。
+
+### 6.3 UsageRepository 调用链
+
+`MediaGenerator` 调用 `UsageRepository.start_call()` 时也需要透传 `user_id`。
 
 ---
 
@@ -214,6 +272,8 @@ async def create_task(project_name: str, user: CurrentUser, ...):
 5. 给 ApiCall 新增 `updated_at` 字段
 6. 给 ApiKey 新增 `updated_at` 字段
 7. AgentSession 的 `created_at`/`updated_at` 迁移为 Mixin 统一实现（schema 不变，仅代码层面）
+
+**实现提示**：SQLite 不支持 `ALTER COLUMN`，修改列可空性（步骤 4）需使用 `op.batch_alter_table()` 重建表。
 
 ---
 
