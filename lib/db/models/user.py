@@ -1,0 +1,23 @@
+"""User model for multi-user infrastructure."""
+
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from lib.db.base import Base, _utc_now
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    role: Mapped[str] = mapped_column(String, nullable=False, server_default="user")
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
+    )
