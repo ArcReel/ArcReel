@@ -70,6 +70,7 @@ class _BulkConfig:
     provider_configs: dict[str, dict[str, str]]
     default_image_backend: tuple[str, str]
     default_video_backend: tuple[str, str]
+    video_generate_audio: bool
 
     def get_provider_config(self, provider_id: str) -> dict[str, str]:
         return self.provider_configs.get(provider_id, {})
@@ -86,18 +87,22 @@ async def _load_all_config() -> _BulkConfig:
             provider_configs = await svc.get_all_provider_configs()
             image_backend = await svc.get_default_image_backend()
             video_backend = await svc.get_default_video_backend()
+            audio_raw = await svc.get_setting("video_generate_audio", "true")
+            video_generate_audio = audio_raw.lower() in ("true", "1", "yes")
     except Exception:
         logger.debug("从 DB 批量加载配置失败")
         return _BulkConfig(
             provider_configs={},
             default_image_backend=("gemini-aistudio", ""),
             default_video_backend=("gemini-aistudio", ""),
+            video_generate_audio=True,
         )
 
     return _BulkConfig(
         provider_configs=provider_configs,
         default_image_backend=image_backend,
         default_video_backend=video_backend,
+        video_generate_audio=video_generate_audio,
     )
 
 
@@ -217,12 +222,20 @@ async def get_media_generator(project_name: str, payload: dict | None = None) ->
     gemini_config = bulk.get_provider_config(gemini_config_id)
     video_backend, video_backend_type, video_model = _resolve_video_backend(project_name, bulk, payload)
 
+    # 解析 video_generate_audio：项目级覆盖 > 全局设置
+    video_generate_audio = bulk.video_generate_audio
+    project = get_project_manager().load_project(project_name)
+    project_audio_override = project.get("video_generate_audio")
+    if project_audio_override is not None:
+        video_generate_audio = bool(project_audio_override)
+
     return MediaGenerator(
         project_path,
         rate_limiter=rate_limiter,
         video_backend=video_backend,
         image_backend_type=image_backend_type,
         video_backend_type=video_backend_type,
+        video_generate_audio=video_generate_audio,
         gemini_api_key=gemini_config.get("api_key"),
         gemini_base_url=gemini_config.get("base_url"),
         gemini_image_model=image_model or None,
