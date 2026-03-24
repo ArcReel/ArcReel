@@ -144,6 +144,7 @@ async def generate_storyboard(
                 **image_snapshot,
             },
             source="webui",
+            user_id=_user.id,
         )
 
         return {
@@ -232,6 +233,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
                 "video_provider_settings": video_provider_settings,
             },
             source="webui",
+            user_id=_user.id,
         )
 
         return {
@@ -280,6 +282,7 @@ async def generate_character(
                 **image_snapshot,
             },
             source="webui",
+            user_id=_user.id,
         )
 
         return {
@@ -325,6 +328,7 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
                 **image_snapshot,
             },
             source="webui",
+            user_id=_user.id,
         )
 
         return {

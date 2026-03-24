@@ -120,6 +120,7 @@ async def enqueue_and_wait(
     dependency_task_id: Optional[str] = None,
     dependency_group: Optional[str] = None,
     dependency_index: Optional[int] = None,
+    user_id: str = "default",
 ) -> Dict[str, Any]:
     enqueue_result = await enqueue_task_only(
         project_name=project_name,
@@ -133,6 +134,7 @@ async def enqueue_and_wait(
         dependency_task_id=dependency_task_id,
         dependency_group=dependency_group,
         dependency_index=dependency_index,
+        user_id=user_id,
     )
 
     task = await wait_for_task(
@@ -165,6 +167,7 @@ async def enqueue_task_only(
     dependency_task_id: Optional[str] = None,
     dependency_group: Optional[str] = None,
     dependency_index: Optional[int] = None,
+    user_id: str = "default",
 ) -> Dict[str, Any]:
     queue = get_generation_queue()
 
@@ -182,6 +185,7 @@ async def enqueue_task_only(
         dependency_task_id=dependency_task_id,
         dependency_group=dependency_group,
         dependency_index=dependency_index,
+        user_id=user_id,
     )
     return enqueue_result
 

@@ -210,7 +210,7 @@ def _resolve_video_backend(
     return video_backend, video_backend_type, video_model
 
 
-async def get_media_generator(project_name: str, payload: dict | None = None) -> MediaGenerator:
+async def get_media_generator(project_name: str, payload: dict | None = None, *, user_id: str = "default") -> MediaGenerator:
     """创建 MediaGenerator。仅当 payload 包含视频配置时才初始化视频后端。
 
     通过单次 DB session 批量加载所有供应商配置和系统设置。
@@ -243,6 +243,7 @@ async def get_media_generator(project_name: str, payload: dict | None = None) ->
         gemini_base_url=gemini_config.get("base_url"),
         gemini_image_model=image_model or None,
         gemini_video_model=video_model or None,
+        user_id=user_id,
     )
 
 
@@ -474,7 +475,7 @@ def _emit_generation_success_batch(
         )
 
 
-async def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = "default") -> Dict[str, Any]:
     script_file = payload.get("script_file")
     if not script_file:
         raise ValueError("script_file is required for storyboard task")
@@ -511,7 +512,7 @@ async def execute_storyboard_task(project_name: str, resource_id: str, payload: 
         previous_storyboard_path=previous_storyboard_path,
     )
 
-    generator = await get_media_generator(project_name, payload=payload)
+    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
     aspect_ratio = get_aspect_ratio(project, "storyboards")
 
     _, version = await generator.generate_image_async(
@@ -544,7 +545,7 @@ async def execute_storyboard_task(project_name: str, resource_id: str, payload: 
     }
 
 
-async def execute_video_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_video_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = "default") -> Dict[str, Any]:
     script_file = payload.get("script_file")
     if not script_file:
         raise ValueError("script_file is required for video task")
@@ -555,7 +556,7 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
 
     project = get_project_manager().load_project(project_name)
     project_path = get_project_manager().get_project_path(project_name)
-    generator = await get_media_generator(project_name, payload=payload)
+    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
 
     storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
     if not storyboard_file.exists():
@@ -639,7 +640,7 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
     }
 
 
-async def execute_character_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_character_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = "default") -> Dict[str, Any]:
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
         raise ValueError("prompt is required for character task")
@@ -662,7 +663,7 @@ async def execute_character_task(project_name: str, resource_id: str, payload: D
         if full_ref.exists():
             reference_images = [full_ref]
 
-    generator = await get_media_generator(project_name, payload=payload)
+    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
     aspect_ratio = get_aspect_ratio(project, "characters")
 
     _, version = await generator.generate_image_async(
@@ -690,7 +691,7 @@ async def execute_character_task(project_name: str, resource_id: str, payload: D
     }
 
 
-async def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = "default") -> Dict[str, Any]:
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
         raise ValueError("prompt is required for clue task")
@@ -706,7 +707,7 @@ async def execute_clue_task(project_name: str, resource_id: str, payload: Dict[s
     clue_type = clue_data.get("type", "prop")
     full_prompt = build_clue_prompt(resource_id, prompt, clue_type, style, style_description)
 
-    generator = await get_media_generator(project_name, payload=payload)
+    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
     aspect_ratio = get_aspect_ratio(project, "clues")
 
     _, version = await generator.generate_image_async(
@@ -746,6 +747,7 @@ async def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
     project_name = task.get("project_name")
     resource_id = str(task.get("resource_id"))
     payload = task.get("payload") or {}
+    user_id = task.get("user_id", "default")
 
     if not project_name:
         raise ValueError("task.project_name is required")
@@ -755,7 +757,7 @@ async def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError(f"unsupported task_type: {task_type}")
 
     with project_change_source("worker"):
-        result = await executor(project_name, resource_id, payload)
+        result = await executor(project_name, resource_id, payload, user_id=user_id)
         _emit_generation_success_batch(
             task_type=task_type,
             project_name=project_name,

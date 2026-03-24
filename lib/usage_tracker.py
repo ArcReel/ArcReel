@@ -31,6 +31,7 @@ class UsageTracker:
         aspect_ratio: Optional[str] = None,
         generate_audio: bool = True,
         provider: str = PROVIDER_GEMINI,
+        user_id: str = "default",
     ) -> int:
 
         async with self._session_factory() as session:
@@ -45,6 +46,7 @@ class UsageTracker:
                 aspect_ratio=aspect_ratio,
                 generate_audio=generate_audio,
                 provider=provider,
+                user_id=user_id,
             )
 
     async def finish_call(
