@@ -227,7 +227,10 @@ async def get_media_generator(project_name: str, payload: dict | None = None) ->
     project = get_project_manager().load_project(project_name)
     project_audio_override = project.get("video_generate_audio")
     if project_audio_override is not None:
-        video_generate_audio = bool(project_audio_override)
+        if isinstance(project_audio_override, str):
+            video_generate_audio = project_audio_override.lower() in ("true", "1", "yes")
+        else:
+            video_generate_audio = bool(project_audio_override)
 
     return MediaGenerator(
         project_path,
