@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from lib.db.base import Base
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+from lib.db.base import Base, _utc_now
 
 
 class ProviderConfig(Base):

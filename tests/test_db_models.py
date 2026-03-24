@@ -6,7 +6,7 @@ from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from lib.db.base import Base, TimestampMixin, UserOwnedMixin, _utc_now
-from lib.db.models import Task, AgentSession, User
+from lib.db.models import Task, TaskEvent, WorkerLease, AgentSession, ApiCall, ApiKey, User
 
 
 @pytest.fixture
@@ -120,3 +120,73 @@ class TestUserOwnedMixin:
         col = UserOwnedMixin.__dict__["user_id"].column
         assert col.server_default is not None
         assert col.server_default.arg == "default"
+
+
+class TestMixinApplicationToModels:
+    """Verify Mixin columns are present on ORM models after refactoring."""
+
+    async def test_task_has_user_id(self, engine):
+        """Task model should have user_id from UserOwnedMixin."""
+        async with engine.connect() as conn:
+            columns = await conn.run_sync(
+                lambda sync_conn: {
+                    c["name"] for c in inspect(sync_conn).get_columns("tasks")
+                }
+            )
+        assert "user_id" in columns
+
+    async def test_api_call_has_timestamp_and_user_id(self, engine):
+        """ApiCall should have created_at (NOT NULL), updated_at, and user_id from Mixins."""
+        async with engine.connect() as conn:
+            col_info = await conn.run_sync(
+                lambda sync_conn: {
+                    c["name"]: c for c in inspect(sync_conn).get_columns("api_calls")
+                }
+            )
+        assert "created_at" in col_info
+        assert col_info["created_at"]["nullable"] is False
+        assert "updated_at" in col_info
+        assert "user_id" in col_info
+
+    async def test_api_key_has_timestamp_and_user_id(self, engine):
+        """ApiKey should have updated_at and user_id from Mixins."""
+        async with engine.connect() as conn:
+            columns = await conn.run_sync(
+                lambda sync_conn: {
+                    c["name"] for c in inspect(sync_conn).get_columns("api_keys")
+                }
+            )
+        assert "updated_at" in columns
+        assert "user_id" in columns
+
+    async def test_agent_session_has_timestamp_and_user_id(self, engine):
+        """AgentSession should have created_at, updated_at, and user_id from Mixins."""
+        async with engine.connect() as conn:
+            columns = await conn.run_sync(
+                lambda sync_conn: {
+                    c["name"] for c in inspect(sync_conn).get_columns("agent_sessions")
+                }
+            )
+        assert "created_at" in columns
+        assert "updated_at" in columns
+        assert "user_id" in columns
+
+    async def test_task_event_no_user_id(self, engine):
+        """TaskEvent should NOT have user_id — it was not given UserOwnedMixin."""
+        async with engine.connect() as conn:
+            columns = await conn.run_sync(
+                lambda sync_conn: {
+                    c["name"] for c in inspect(sync_conn).get_columns("task_events")
+                }
+            )
+        assert "user_id" not in columns
+
+    async def test_worker_lease_no_user_id(self, engine):
+        """WorkerLease should NOT have user_id — it was not given UserOwnedMixin."""
+        async with engine.connect() as conn:
+            columns = await conn.run_sync(
+                lambda sync_conn: {
+                    c["name"] for c in inspect(sync_conn).get_columns("worker_lease")
+                }
+            )
+        assert "user_id" not in columns

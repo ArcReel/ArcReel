@@ -8,10 +8,10 @@ from typing import Optional
 from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from lib.db.base import Base
+from lib.db.base import Base, UserOwnedMixin
 
 
-class Task(Base):
+class Task(UserOwnedMixin, Base):
     __tablename__ = "tasks"
 
     task_id: Mapped[str] = mapped_column(String, primary_key=True)

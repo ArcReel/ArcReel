@@ -9,10 +9,10 @@ import sqlalchemy as sa
 from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from lib.db.base import Base
+from lib.db.base import Base, TimestampMixin, UserOwnedMixin
 
 
-class ApiCall(Base):
+class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     __tablename__ = "api_calls"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -35,8 +35,6 @@ class ApiCall(Base):
     currency: Mapped[str] = mapped_column(String, server_default="USD")
     provider: Mapped[str] = mapped_column(String, server_default="gemini")
     usage_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-
     __table_args__ = (
         Index("idx_api_calls_project_name", "project_name"),
         Index("idx_api_calls_call_type", "call_type"),
