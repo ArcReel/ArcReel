@@ -6,7 +6,6 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import delete as sa_delete, func, select, text, update
