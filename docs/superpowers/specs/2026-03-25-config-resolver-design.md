@@ -110,56 +110,32 @@ class ConfigResolver:
 
 **同步 `generate_video()` 路径**：通过现有 `_sync()` helper 调用 async 的 ConfigResolver 方法，与其他 async 调用方式一致。
 
-**后端特定逻辑保留在 MediaGenerator 中**：ConfigResolver 返回的是"用户意图"（想不想要音频），而后端能力限制（如 aistudio 不支持关闭音频）由 MediaGenerator 在调用处处理：
+**后端能力限制由后端自行处理**：ConfigResolver 返回"用户意图"，MediaGenerator 如实传递给后端。后端根据自身能力决定实际行为，并通过 `VideoGenerationResult.generate_audio` 回写实际值。MediaGenerator 在 `finish_call` 时用后端回写的实际值覆盖 usage 记录，确保用量统计与 API 实际行为一致。
+
+职责分离：
+- **ConfigResolver**：返回用户配置（项目级覆盖 > 全局配置 > 默认值）
+- **MediaGenerator**：如实传递配置值给后端，用后端回写值记录 usage
+- **VideoBackend**：根据自身 capabilities 决定实际 `generate_audio` 行为并回写到 result
 
 ```python
 # ConfigResolver 返回用户配置
 configured_generate_audio = await self._config.video_generate_audio(self.project_name)
 
-# 后端能力限制仍在 MediaGenerator 处理
-if self._gemini_video_backend_type == "vertex":
-    effective_generate_audio = configured_generate_audio
-else:
-    effective_generate_audio = True  # aistudio 不支持关闭音频
+# MediaGenerator 如实传递给后端
+request = VideoGenerationRequest(..., generate_audio=configured_generate_audio)
+result = await self._video_backend.generate(request)
+
+# 后端回写实际值，用于 usage tracking
+await self.usage_tracker.finish_call(..., generate_audio=result.generate_audio)
 ```
+
+**GeminiClient 路径**（非 VideoBackend）仍在 MediaGenerator 内处理 aistudio 强制 `True` 的逻辑，因为 GeminiClient 不遵循 VideoBackend 协议。
 
 **`version_metadata` 调用级覆盖保留**：这是第四优先级，仍在 MediaGenerator 内处理，不进 ConfigResolver。完整优先级链：
 
 ```
 version_metadata > 项目级覆盖 > 全局配置 > 默认值(False)
     ↑ MediaGenerator      ↑ ConfigResolver 内部处理
-```
-
-变更前后对比：
-
-```python
-# 之前
-class MediaGenerator:
-    def __init__(self, ..., video_generate_audio=None):
-        self._video_generate_audio = video_generate_audio
-
-    def _resolve_video_generate_audio(self) -> bool:
-        if self._video_generate_audio is not None:
-            return self._video_generate_audio
-        return True  # 散落的默认值
-
-    async def generate_video_async(self, ...):
-        configured = self._resolve_video_generate_audio()
-        ...
-
-# 之后
-class MediaGenerator:
-    def __init__(self, ..., config_resolver: ConfigResolver):
-        self._config = config_resolver
-
-    async def generate_video_async(self, ...):
-        configured = await self._config.video_generate_audio(self.project_name)
-        # 后端能力限制
-        if not self._video_backend and self._gemini_video_backend_type != "vertex":
-            effective = True
-        else:
-            effective = version_metadata.get("generate_audio", configured)
-        ...
 ```
 
 ### 改造：`server/services/generation_tasks.py`
@@ -237,9 +213,15 @@ else:
 |------|---------|
 | `lib/config/resolver.py` | **新增** |
 | `lib/config/__init__.py` | 导出 ConfigResolver |
-| `lib/media_generator.py` | 移除 audio 参数/方法，新增 config_resolver |
+| `lib/media_generator.py` | 移除 audio 参数/方法，新增 config_resolver；`finish_call` 传入后端回写的实际值 |
 | `server/services/generation_tasks.py` | 移除 `_BulkConfig`/`_load_all_config()`，使用 ConfigResolver |
 | `server/routers/generate.py` | 移除 `_load_all_config()` 导入，使用 ConfigResolver |
+| `lib/video_backends/base.py` | `VideoGenerationResult` 新增 `generate_audio` 字段 |
+| `lib/video_backends/gemini.py` | `generate()` 回写实际 `generate_audio` 值 |
+| `lib/video_backends/seedance.py` | `generate()` 回写实际 `generate_audio` 值 |
+| `lib/video_backends/grok.py` | `generate()` 回写实际 `generate_audio` 值 |
+| `lib/usage_tracker.py` | `finish_call` 新增 `generate_audio` 可选参数 |
+| `lib/db/repositories/usage_repo.py` | `finish_call` 支持用后端实际值覆盖 `generate_audio` |
 | 测试文件 | 更新 MediaGenerator 构造方式 |
 
 ## 测试策略
