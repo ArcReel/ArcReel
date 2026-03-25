@@ -5,7 +5,6 @@ Task execution service for queued generation jobs.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -64,47 +63,6 @@ def invalidate_backend_cache() -> None:
     """清空 VideoBackend 实例缓存。在配置变更后调用。"""
     _backend_cache.clear()
 
-
-@dataclass
-class _BulkConfig:
-    """单次 DB session 批量加载的配置快照。"""
-    provider_configs: dict[str, dict[str, str]]
-    default_image_backend: tuple[str, str]
-    default_video_backend: tuple[str, str]
-    video_generate_audio: bool
-
-    def get_provider_config(self, provider_id: str) -> dict[str, str]:
-        return self.provider_configs.get(provider_id, {})
-
-
-async def _load_all_config() -> _BulkConfig:
-    """单次 DB session 批量加载所有供应商配置和系统设置。"""
-    from lib.db import async_session_factory
-    from lib.config.service import ConfigService
-
-    try:
-        async with async_session_factory() as session:
-            svc = ConfigService(session)
-            provider_configs = await svc.get_all_provider_configs()
-            image_backend = await svc.get_default_image_backend()
-            video_backend = await svc.get_default_video_backend()
-            audio_raw = await svc.get_setting("video_generate_audio", "true")
-            video_generate_audio = audio_raw.lower() in ("true", "1", "yes")
-    except Exception:
-        logger.debug("从 DB 批量加载配置失败")
-        return _BulkConfig(
-            provider_configs={},
-            default_image_backend=("gemini-aistudio", ""),
-            default_video_backend=("gemini-aistudio", ""),
-            video_generate_audio=True,
-        )
-
-    return _BulkConfig(
-        provider_configs=provider_configs,
-        default_image_backend=image_backend,
-        default_video_backend=video_backend,
-        video_generate_audio=video_generate_audio,
-    )
 
 
 async def _get_or_create_video_backend(
