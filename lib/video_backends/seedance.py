@@ -150,6 +150,7 @@ class SeedanceVideoBackend:
             seed=seed,
             usage_tokens=usage_tokens,
             task_id=task_id,
+            generate_audio=request.generate_audio,
         )
 
     def _get_image_url(self, image_path: Path, project_name: Optional[str] = None) -> str:

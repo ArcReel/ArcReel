@@ -451,9 +451,9 @@ class MediaGenerator:
                     call_id=call_id,
                     status="success",
                     output_path=str(output_path),
-
                     usage_tokens=result.usage_tokens,
                     service_tier=version_metadata.get("service_tier", "default"),
+                    generate_audio=result.generate_audio,
                 ))
             else:
                 # Original GeminiClient path
@@ -599,9 +599,9 @@ class MediaGenerator:
                     call_id=call_id,
                     status="success",
                     output_path=str(output_path),
-
                     usage_tokens=result.usage_tokens,
                     service_tier=version_metadata.get("service_tier", "default"),
+                    generate_audio=result.generate_audio,
                 )
             else:
                 # Original GeminiClient path

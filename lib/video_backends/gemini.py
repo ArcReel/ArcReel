@@ -190,6 +190,7 @@ class GeminiVideoBackend:
             model=self._video_model,
             duration_seconds=request.duration_seconds,
             video_uri=video_uri,
+            generate_audio=request.generate_audio if self._backend_type == "vertex" else True,
         )
 
     # ------------------------------------------------------------------

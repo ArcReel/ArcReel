@@ -59,6 +59,7 @@ class UsageTracker:
         retry_count: int = 0,
         usage_tokens: Optional[int] = None,
         service_tier: str = "default",
+        generate_audio: Optional[bool] = None,
     ) -> None:
 
         async with self._session_factory() as session:
@@ -71,6 +72,7 @@ class UsageTracker:
                 retry_count=retry_count,
                 usage_tokens=usage_tokens,
                 service_tier=service_tier,
+                generate_audio=generate_audio,
             )
 
     async def get_stats(

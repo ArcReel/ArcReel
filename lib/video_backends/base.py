@@ -80,6 +80,7 @@ class VideoGenerationResult:
     seed: Optional[int] = None
     usage_tokens: Optional[int] = None
     task_id: Optional[str] = None
+    generate_audio: Optional[bool] = None
 
 
 class VideoBackend(Protocol):

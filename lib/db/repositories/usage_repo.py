@@ -89,6 +89,7 @@ class UsageRepository(BaseRepository):
         retry_count: int = 0,
         usage_tokens: Optional[int] = None,
         service_tier: str = "default",
+        generate_audio: Optional[bool] = None,
     ) -> None:
         finished_at = utc_now()
 
@@ -98,6 +99,10 @@ class UsageRepository(BaseRepository):
         row = result.scalar_one_or_none()
         if not row:
             return
+
+        # 后端回写的实际 generate_audio 覆盖 start_call 时的请求值
+        if generate_audio is not None:
+            row.generate_audio = generate_audio
 
         # Calculate duration
         try:

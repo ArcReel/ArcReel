@@ -94,4 +94,5 @@ class GrokVideoBackend:
             model=self._model,
             duration_seconds=actual_duration,
             video_uri=video_url,
+            generate_audio=True,
         )
