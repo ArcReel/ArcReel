@@ -131,11 +131,12 @@ await self.usage_tracker.finish_call(..., generate_audio=result.generate_audio)
 
 **GeminiClient 路径**（非 VideoBackend）仍在 MediaGenerator 内处理 aistudio 强制 `True` 的逻辑，因为 GeminiClient 不遵循 VideoBackend 协议。
 
-**`version_metadata` 调用级覆盖保留**：这是第四优先级，仍在 MediaGenerator 内处理，不进 ConfigResolver。完整优先级链：
+**`version_metadata` 调用级覆盖**：仅在 VideoBackend 路径中支持，通过 `version_metadata.get("generate_audio", configured)` 实现。GeminiClient 路径不支持此覆盖（重构前即如此）。完整优先级链：
 
 ```
-version_metadata > 项目级覆盖 > 全局配置 > 默认值(False)
-    ↑ MediaGenerator      ↑ ConfigResolver 内部处理
+VideoBackend 路径: version_metadata > 项目级覆盖 > 全局配置 > 默认值(False)
+GeminiClient 路径:                   项目级覆盖 > 全局配置 > 默认值(False)
+                                      ↑ ConfigResolver 内部处理
 ```
 
 ### 改造：`server/services/generation_tasks.py`

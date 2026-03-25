@@ -14,8 +14,11 @@ MediaGenerator 中间层
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional, List, Union, Tuple
+from typing import TYPE_CHECKING, Optional, List, Union, Tuple
 from PIL import Image
+
+if TYPE_CHECKING:
+    from lib.config.resolver import ConfigResolver
 
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_client import GeminiClient, RateLimiter, ReferenceImageInput
@@ -63,7 +66,7 @@ class MediaGenerator:
             video_backend: 可选的 VideoBackend 实例（注入后将替代 GeminiClient 生成视频）
             image_backend_type: 图片后端类型（aistudio/vertex），默认 aistudio
             video_backend_type: 视频后端类型（aistudio/vertex），默认 aistudio
-            video_generate_audio: 是否生成音频（Vertex 模式），默认 True
+            config_resolver: ConfigResolver 实例，用于运行时读取配置
             gemini_api_key: Gemini API Key（透传给 GeminiClient）
             gemini_base_url: Gemini Base URL（透传给 GeminiClient）
             gemini_image_model: 图片模型名称（透传给 GeminiClient）
