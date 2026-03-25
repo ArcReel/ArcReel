@@ -115,6 +115,42 @@ class TestExtractProvider:
         task = {"payload": {"video_provider": "gemini"}}
         assert await _extract_provider(task) == "gemini-aistudio"
 
+    async def test_resolves_video_from_config(self, monkeypatch):
+        """payload 无 provider 时，video 任务从 ConfigResolver 解析。"""
+        async def fake_video_backend(self):
+            return ("gemini-vertex", "veo-2.0-generate-001")
+
+        monkeypatch.setattr(
+            "lib.config.resolver.ConfigResolver.default_video_backend",
+            fake_video_backend,
+        )
+        task = {"payload": {}, "project_name": "test", "task_type": "video"}
+        assert await _extract_provider(task) == "gemini-vertex"
+
+    async def test_resolves_image_from_config(self, monkeypatch):
+        """payload 无 provider 时，image 任务从 ConfigResolver 解析。"""
+        async def fake_image_backend(self):
+            return ("gemini-vertex", "imagen-3.0-generate-002")
+
+        monkeypatch.setattr(
+            "lib.config.resolver.ConfigResolver.default_image_backend",
+            fake_image_backend,
+        )
+        task = {"payload": {}, "project_name": "test", "task_type": "image"}
+        assert await _extract_provider(task) == "gemini-vertex"
+
+    async def test_payload_provider_takes_precedence_over_config(self, monkeypatch):
+        """payload 中有 provider 时优先使用，不走 ConfigResolver。"""
+        async def should_not_be_called(self):
+            raise AssertionError("ConfigResolver should not be called")
+
+        monkeypatch.setattr(
+            "lib.config.resolver.ConfigResolver.default_video_backend",
+            should_not_be_called,
+        )
+        task = {"payload": {"video_provider": "seedance"}, "project_name": "test", "task_type": "video"}
+        assert await _extract_provider(task) == "seedance"
+
 
 class TestNormalizeProviderId:
     def test_old_to_new(self):

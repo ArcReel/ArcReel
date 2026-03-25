@@ -88,10 +88,9 @@ async def _extract_provider(task: Dict[str, Any]) -> str:
         task_type = task.get("task_type", "")
         if task_type == "video":
             provider_id, _ = await resolver.default_video_backend()
-            return provider_id
         else:
             provider_id, _ = await resolver.default_image_backend()
-            return provider_id
+        return provider_id
     return DEFAULT_PROVIDER
 
 
