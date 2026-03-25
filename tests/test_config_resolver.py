@@ -1,5 +1,4 @@
-import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from lib.config.resolver import ConfigResolver
 

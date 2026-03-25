@@ -21,8 +21,6 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_client import GeminiClient, RateLimiter, ReferenceImageInput
 from lib.version_manager import VersionManager
 from lib.usage_tracker import UsageTracker
-from lib.config.resolver import ConfigResolver
-
 logger = logging.getLogger(__name__)
 
 
