@@ -60,6 +60,15 @@ class _FakeUsage:
         self.finished.append(kwargs)
 
 
+class _FakeConfigResolver:
+    """Fake ConfigResolver，返回可控的配置值。"""
+    def __init__(self, video_generate_audio: bool = False):
+        self._video_generate_audio = video_generate_audio
+
+    async def video_generate_audio(self, project_name=None):
+        return self._video_generate_audio
+
+
 def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen = object.__new__(MediaGenerator)
     gen.project_path = tmp_path / "projects" / "demo"
@@ -70,7 +79,7 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen._gemini_video_backend_type = "aistudio"
     gen._video_backend = None
     gen._user_id = "default"
-    gen._video_generate_audio = None
+    gen._config = _FakeConfigResolver()
     gen._gemini_api_key = None
     gen._gemini_base_url = None
     gen._gemini_image_model = None

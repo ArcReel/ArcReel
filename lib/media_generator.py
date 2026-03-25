@@ -21,6 +21,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_client import GeminiClient, RateLimiter, ReferenceImageInput
 from lib.version_manager import VersionManager
 from lib.usage_tracker import UsageTracker
+from lib.config.resolver import ConfigResolver
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class MediaGenerator:
         *,
         image_backend_type: Optional[str] = None,
         video_backend_type: Optional[str] = None,
-        video_generate_audio: Optional[bool] = None,
+        config_resolver: Optional["ConfigResolver"] = None,
         gemini_api_key: Optional[str] = None,
         gemini_base_url: Optional[str] = None,
         gemini_image_model: Optional[str] = None,
@@ -81,7 +82,7 @@ class MediaGenerator:
             (video_backend_type or "").strip().lower()
             or "aistudio"
         )
-        self._video_generate_audio = video_generate_audio
+        self._config = config_resolver
         self._gemini_api_key = gemini_api_key
         self._gemini_base_url = gemini_base_url
         self._gemini_image_model = gemini_image_model
@@ -132,15 +133,6 @@ class MediaGenerator:
                 video_model=self._gemini_video_model,
             )
         return self._gemini_video
-
-    def _resolve_video_generate_audio(self) -> bool:
-        """Resolve whether to generate audio for video.
-
-        Uses the explicit constructor param if provided, otherwise defaults to True.
-        """
-        if self._video_generate_audio is not None:
-            return self._video_generate_audio
-        return True
 
     def _get_output_path(self, resource_type: str, resource_id: str) -> Path:
         """
@@ -406,12 +398,17 @@ class MediaGenerator:
         if self._video_backend:
             model_name = self._video_backend.model
             provider_name = self._video_backend.name
-            effective_generate_audio = version_metadata.get("generate_audio", True)
+            configured_generate_audio = self._sync(
+                self._config.video_generate_audio(self.project_name)
+            ) if self._config else False
+            effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
         else:
             video_client = self._get_gemini_video()
             model_name = video_client.VIDEO_MODEL
             provider_name = f"gemini-{self._gemini_video_backend_type}"
-            configured_generate_audio = self._resolve_video_generate_audio()
+            configured_generate_audio = self._sync(
+                self._config.video_generate_audio(self.project_name)
+            ) if self._config else False
             effective_generate_audio = (
                 configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
             )
@@ -553,12 +550,13 @@ class MediaGenerator:
         if self._video_backend:
             model_name = self._video_backend.model
             provider_name = self._video_backend.name
-            effective_generate_audio = version_metadata.get("generate_audio", True)
+            configured_generate_audio = await self._config.video_generate_audio(self.project_name) if self._config else False
+            effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
         else:
             video_client = self._get_gemini_video()
             model_name = video_client.VIDEO_MODEL
             provider_name = f"gemini-{self._gemini_video_backend_type}"
-            configured_generate_audio = self._resolve_video_generate_audio()
+            configured_generate_audio = await self._config.video_generate_audio(self.project_name) if self._config else False
             effective_generate_audio = (
                 configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
             )
