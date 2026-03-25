@@ -50,8 +50,8 @@ async def init_db() -> None:
         cfg = Config()
         cfg.set_main_option("script_location", str(project_root / "alembic"))
         if need_stamp:
-            _log.info("Detected pre-Alembic database, stamping current head")
-            command.stamp(cfg, "head")
+            _log.info("Detected pre-Alembic database, stamping initial revision")
+            command.stamp(cfg, "156fe0aa0414")
         command.upgrade(cfg, "head")
 
     await asyncio.get_event_loop().run_in_executor(None, _run_alembic)
