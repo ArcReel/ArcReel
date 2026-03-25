@@ -947,21 +947,36 @@ class GeminiClient:
             )
 
         # 等待完成
-        elapsed = 0
+        op_name = getattr(operation, "name", "unknown")
         mode_text = "扩展" if is_extend_mode else "生成"
+        logger.info("视频%s已提交, operation=%s, 开始轮询...", mode_text, op_name)
+
+        start_time = time.monotonic()
         while not operation.done:
+            elapsed = time.monotonic() - start_time
             if elapsed >= max_wait_time:
                 raise TimeoutError(f"视频{mode_text}超时（{max_wait_time}秒）")
             time.sleep(poll_interval)
-            elapsed += poll_interval
             operation = self.client.operations.get(operation)
-            logger.info("视频%s中... 已等待 %d 秒", mode_text, elapsed)
+            elapsed = time.monotonic() - start_time
+            logger.info(
+                "视频%s中... 已等待 %.0f 秒 (operation=%s)",
+                mode_text, elapsed, op_name,
+            )
+
+        total_elapsed = time.monotonic() - start_time
+        logger.info("视频%s完成, 总耗时 %.0f 秒, operation=%s", mode_text, total_elapsed, op_name)
 
         # 检查结果
         if not operation.response or not operation.response.generated_videos:
-            logger.debug("Operation details: %s", operation)
-            if hasattr(operation, "error") and operation.error:
-                raise RuntimeError(f"视频{mode_text}失败: {operation.error}")
+            error_detail = getattr(operation, "error", None)
+            metadata = getattr(operation, "metadata", None)
+            logger.error(
+                "视频%s返回空结果: operation=%s, error=%s, metadata=%s, elapsed=%.0f秒",
+                mode_text, op_name, error_detail, metadata, total_elapsed,
+            )
+            if error_detail:
+                raise RuntimeError(f"视频{mode_text}失败: {error_detail}")
             raise RuntimeError(f"视频{mode_text}失败: API 返回空结果")
 
         # 获取生成的视频和引用
@@ -1222,15 +1237,22 @@ class GeminiClient:
             )
 
         # 异步等待完成
-        elapsed = 0
+        op_name = getattr(operation, "name", "unknown")
         mode_text = "扩展" if is_extend_mode else "生成"
+        logger.info("视频%s已提交, operation=%s, 开始轮询...", mode_text, op_name)
+
+        start_time = time.monotonic()
         while not operation.done:
+            elapsed = time.monotonic() - start_time
             if elapsed >= max_wait_time:
                 raise TimeoutError(f"视频{mode_text}超时（{max_wait_time}秒）")
             await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
             operation = await self.client.aio.operations.get(operation)
-            logger.info("视频%s中... 已等待 %d 秒", mode_text, elapsed)
+            elapsed = time.monotonic() - start_time
+            logger.info(
+                "视频%s中... 已等待 %.0f 秒 (operation=%s)",
+                mode_text, elapsed, op_name,
+            )
 
         return self._process_video_result(
             operation, output_path, is_extend_mode, output_gcs_uri

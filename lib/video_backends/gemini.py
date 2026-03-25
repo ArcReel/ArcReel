@@ -6,6 +6,7 @@ import asyncio
 import io
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Optional, Set, Union
 
@@ -159,21 +160,37 @@ class GeminiVideoBackend:
         )
 
         # 6. 轮询等待完成
-        elapsed = 0
-        poll_interval = 10
+        op_name = getattr(operation, "name", "unknown")
+        logger.info("视频生成已提交, operation=%s, 开始轮询...", op_name)
+
+        start_time = time.monotonic()
+        poll_interval = 20  # 与 Google 官方推荐一致
         max_wait_time = 600
         while not operation.done:
+            elapsed = time.monotonic() - start_time
             if elapsed >= max_wait_time:
                 raise TimeoutError(f"视频生成超时（{max_wait_time}秒）")
             await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
             operation = await self._client.aio.operations.get(operation)
-            logger.info("视频生成中... 已等待 %d 秒", elapsed)
+            elapsed = time.monotonic() - start_time
+            logger.info(
+                "视频生成中... 已等待 %.0f 秒 (operation=%s)",
+                elapsed, op_name,
+            )
+
+        total_elapsed = time.monotonic() - start_time
+        logger.info("视频生成完成, 总耗时 %.0f 秒, operation=%s", total_elapsed, op_name)
 
         # 7. 检查结果
         if not operation.response or not operation.response.generated_videos:
-            if hasattr(operation, "error") and operation.error:
-                raise RuntimeError(f"视频生成失败: {operation.error}")
+            error_detail = getattr(operation, "error", None)
+            metadata = getattr(operation, "metadata", None)
+            logger.error(
+                "视频生成返回空结果: operation=%s, error=%s, metadata=%s, elapsed=%.0f秒",
+                op_name, error_detail, metadata, total_elapsed,
+            )
+            if error_detail:
+                raise RuntimeError(f"视频生成失败: {error_detail}")
             raise RuntimeError("视频生成失败: API 返回空结果")
 
         # 8. 提取并下载视频
