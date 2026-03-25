@@ -68,7 +68,7 @@ def invalidate_backend_cache() -> None:
 async def _get_or_create_video_backend(
     provider_name: str,
     provider_settings: dict,
-    resolver,
+    resolver: "ConfigResolver",
     *,
     default_video_model: Optional[str] = None,
 ):
@@ -119,7 +119,7 @@ async def _get_or_create_video_backend(
 
 
 async def _resolve_image_backend(
-    resolver, payload: dict | None,
+    resolver: "ConfigResolver", payload: dict | None,
 ) -> tuple[str, str, str]:
     """解析图片后端，返回 (backend_type, gemini_config_id, image_model)。
 
@@ -135,7 +135,7 @@ async def _resolve_image_backend(
 
 
 async def _resolve_video_backend(
-    project_name: str, resolver, payload: dict | None,
+    project_name: str, resolver: "ConfigResolver", payload: dict | None,
 ) -> tuple[Any | None, str, str]:
     """解析视频后端，返回 (video_backend, video_backend_type, video_model)。
 

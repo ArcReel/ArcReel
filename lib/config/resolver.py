@@ -17,9 +17,15 @@ from lib.project_manager import ProjectManager
 from lib.env_init import PROJECT_ROOT
 
 
+_project_manager: ProjectManager | None = None
+
+
 def get_project_manager() -> ProjectManager:
-    """返回默认的 ProjectManager 实例（使用标准项目根目录）。"""
-    return ProjectManager(PROJECT_ROOT / "projects")
+    """返回共享的 ProjectManager 单例（使用标准项目根目录）。"""
+    global _project_manager
+    if _project_manager is None:
+        _project_manager = ProjectManager(PROJECT_ROOT / "projects")
+    return _project_manager
 
 logger = logging.getLogger(__name__)
 
