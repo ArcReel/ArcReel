@@ -172,11 +172,12 @@ class GeminiVideoBackend:
                 raise TimeoutError(f"视频生成超时（{max_wait_time}秒）")
             await asyncio.sleep(poll_interval)
             operation = await self._client.aio.operations.get(operation)
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "视频生成中... 已等待 %.0f 秒 (operation=%s)",
-                elapsed, op_name,
-            )
+            if not operation.done:
+                elapsed = time.monotonic() - start_time
+                logger.info(
+                    "视频生成中... 已等待 %.0f 秒 (operation=%s)",
+                    elapsed, op_name,
+                )
 
         total_elapsed = time.monotonic() - start_time
         logger.info("视频生成完成, 总耗时 %.0f 秒, operation=%s", total_elapsed, op_name)

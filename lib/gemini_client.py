@@ -958,11 +958,12 @@ class GeminiClient:
                 raise TimeoutError(f"视频{mode_text}超时（{max_wait_time}秒）")
             time.sleep(poll_interval)
             operation = self.client.operations.get(operation)
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "视频%s中... 已等待 %.0f 秒 (operation=%s)",
-                mode_text, elapsed, op_name,
-            )
+            if not operation.done:
+                elapsed = time.monotonic() - start_time
+                logger.info(
+                    "视频%s中... 已等待 %.0f 秒 (operation=%s)",
+                    mode_text, elapsed, op_name,
+                )
 
         total_elapsed = time.monotonic() - start_time
         logger.info("视频%s完成, 总耗时 %.0f 秒, operation=%s", mode_text, total_elapsed, op_name)
@@ -1248,11 +1249,12 @@ class GeminiClient:
                 raise TimeoutError(f"视频{mode_text}超时（{max_wait_time}秒）")
             await asyncio.sleep(poll_interval)
             operation = await self.client.aio.operations.get(operation)
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "视频%s中... 已等待 %.0f 秒 (operation=%s)",
-                mode_text, elapsed, op_name,
-            )
+            if not operation.done:
+                elapsed = time.monotonic() - start_time
+                logger.info(
+                    "视频%s中... 已等待 %.0f 秒 (operation=%s)",
+                    mode_text, elapsed, op_name,
+                )
 
         return self._process_video_result(
             operation, output_path, is_extend_mode, output_gcs_uri
