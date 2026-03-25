@@ -68,17 +68,30 @@ class ProviderPool:
         return [*self.image_inflight.values(), *self.video_inflight.values()]
 
 
-def _extract_provider(task: Dict[str, Any]) -> str:
-    """Extract provider_id from a claimed task dict."""
+async def _extract_provider(task: Dict[str, Any]) -> str:
+    """Extract provider_id from a claimed task dict.
+
+    优先从 payload 读取（兼容历史任务），否则从 ConfigResolver 解析。
+    """
     payload = task.get("payload") or {}
-    # video tasks store provider explicitly
-    provider = payload.get("video_provider")
+    # 兼容已入队的历史任务（payload 中显式携带 provider）
+    provider = payload.get("video_provider") or payload.get("image_provider")
     if provider:
         return _normalize_provider_id(provider)
-    # image tasks store provider explicitly
-    provider = payload.get("image_provider")
-    if provider:
-        return _normalize_provider_id(provider)
+    # 从全局/项目配置解析真实 provider
+    project_name = task.get("project_name")
+    if project_name:
+        from lib.config.resolver import ConfigResolver
+        from lib.db import async_session_factory
+
+        resolver = ConfigResolver(async_session_factory)
+        task_type = task.get("task_type", "")
+        if task_type == "video":
+            provider_id, _ = await resolver.default_video_backend()
+            return provider_id
+        else:
+            provider_id, _ = await resolver.default_image_backend()
+            return provider_id
     return DEFAULT_PROVIDER
 
 
@@ -353,7 +366,7 @@ class GenerationWorker:
                 if not task:
                     break
 
-                provider_id = _extract_provider(task)
+                provider_id = await _extract_provider(task)
                 pool = self._get_or_create_pool(provider_id)
 
                 if media_type == "image":
@@ -434,7 +447,7 @@ class GenerationWorker:
     async def _process_task(self, task: Dict[str, Any]) -> None:
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
-        provider_id = _extract_provider(task)
+        provider_id = await _extract_provider(task)
         logger.info("开始处理任务 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
         try:
             from server.services.generation_tasks import execute_generation_task

@@ -201,23 +201,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
         elif not isinstance(req.prompt, str):
             raise HTTPException(status_code=400, detail="prompt 必须是字符串或对象")
 
-        # 快照视频供应商配置到 payload，确保任务执行时用入队时的设置
-        # 优先级：项目级 video_backend > 系统级 default_video_backend
-        project = get_project_manager().load_project(project_name)
-        project_video_backend = project.get("video_backend")  # 格式: "provider_id/model"
-        if project_video_backend and "/" in project_video_backend:
-            video_provider, video_model = project_video_backend.split("/", 1)
-        elif project_video_backend:
-            video_provider = _normalize_provider_id(project_video_backend)
-            video_model = ""
-        else:
-            from lib.config.resolver import ConfigResolver
-            from lib.db import async_session_factory
-            resolver = ConfigResolver(async_session_factory)
-            video_provider, video_model = await resolver.default_video_backend()
-        video_provider_settings = {"model": video_model} if video_model else {}
-
-        # 入队
+        # 入队（provider 由服务层根据配置自动解析，调用方无需传递）
         queue = get_generation_queue()
         result = await queue.enqueue_task(
             project_name=project_name,
@@ -230,8 +214,6 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
                 "script_file": req.script_file,
                 "duration_seconds": req.duration_seconds,
                 "seed": req.seed,
-                "video_provider": video_provider,
-                "video_provider_settings": video_provider_settings,
             },
             source="webui",
             user_id=_user.id,

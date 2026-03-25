@@ -95,25 +95,25 @@ class TestProviderPool:
 
 
 class TestExtractProvider:
-    def test_video_provider_in_payload(self):
+    async def test_video_provider_in_payload(self):
         task = {"payload": {"video_provider": "seedance"}}
-        assert _extract_provider(task) == "seedance"
+        assert await _extract_provider(task) == "seedance"
 
-    def test_image_provider_in_payload(self):
+    async def test_image_provider_in_payload(self):
         task = {"payload": {"image_provider": "gemini-vertex"}}
-        assert _extract_provider(task) == "gemini-vertex"
+        assert await _extract_provider(task) == "gemini-vertex"
 
-    def test_default_when_no_provider(self):
+    async def test_default_when_no_provider(self):
         task = {"payload": {}}
-        assert _extract_provider(task) == DEFAULT_PROVIDER
+        assert await _extract_provider(task) == DEFAULT_PROVIDER
 
-    def test_default_when_no_payload(self):
+    async def test_default_when_no_payload(self):
         task = {}
-        assert _extract_provider(task) == DEFAULT_PROVIDER
+        assert await _extract_provider(task) == DEFAULT_PROVIDER
 
-    def test_normalize_old_name(self):
+    async def test_normalize_old_name(self):
         task = {"payload": {"video_provider": "gemini"}}
-        assert _extract_provider(task) == "gemini-aistudio"
+        assert await _extract_provider(task) == "gemini-aistudio"
 
 
 class TestNormalizeProviderId:

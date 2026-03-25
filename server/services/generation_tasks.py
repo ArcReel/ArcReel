@@ -147,13 +147,8 @@ async def _resolve_video_backend(
     video_backend = None
     video_backend_type = "aistudio"
 
-    if payload and payload.get("video_provider"):
-        provider_name = payload["video_provider"]
-        provider_settings = payload.get("video_provider_settings", {})
-        video_backend = await _get_or_create_video_backend(
-            provider_name, provider_settings, resolver, default_video_model=video_model,
-        )
-    elif payload:
+    if payload:
+        # provider 统一从项目配置 → 全局默认解析，调用方无需传递
         project = get_project_manager().load_project(project_name)
         provider_name = project.get("video_provider")
         if not provider_name:
