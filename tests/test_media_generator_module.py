@@ -148,3 +148,27 @@ class TestMediaGenerator:
         assert video_path2.name == "scene_E1S02.mp4"
         assert version2 == 2
         assert gen.usage_tracker.started[-1]["call_type"] == "video"
+
+    @pytest.mark.asyncio
+    async def test_video_generate_audio_from_config_resolver(self, tmp_path):
+        """验证 generate_video_async 通过 ConfigResolver 获取 audio 设置。"""
+        gen = _build_generator(tmp_path)
+        gen._config = _FakeConfigResolver(video_generate_audio=False)
+
+        await gen.generate_video_async(
+            prompt="p", resource_type="videos", resource_id="E1S03",
+        )
+        # aistudio 后端强制 audio=True，即使 config 返回 False
+        assert gen.usage_tracker.started[-1]["generate_audio"] is True
+
+    @pytest.mark.asyncio
+    async def test_video_generate_audio_vertex_respects_config(self, tmp_path):
+        """验证 vertex 后端尊重 ConfigResolver 返回的 False。"""
+        gen = _build_generator(tmp_path)
+        gen._gemini_video_backend_type = "vertex"
+        gen._config = _FakeConfigResolver(video_generate_audio=False)
+
+        await gen.generate_video_async(
+            prompt="p", resource_type="videos", resource_id="E1S04",
+        )
+        assert gen.usage_tracker.started[-1]["generate_audio"] is False
