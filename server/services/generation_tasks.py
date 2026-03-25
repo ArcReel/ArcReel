@@ -107,17 +107,17 @@ async def _load_all_config() -> _BulkConfig:
     )
 
 
-def _get_or_create_video_backend(
+async def _get_or_create_video_backend(
     provider_name: str,
     provider_settings: dict,
-    bulk: _BulkConfig,
+    resolver,
     *,
     default_video_model: Optional[str] = None,
 ):
     """获取或创建 VideoBackend 实例（带缓存）。
 
     provider_name 可以是旧格式（gemini/seedance/grok）或新格式（gemini-aistudio/gemini-vertex）。
-    使用预加载的 bulk 配置，避免额外 DB 查询。
+    通过 resolver 按需加载供应商配置。
     default_video_model: 全局默认视频模型，当 provider_settings 中无 model 时作为 fallback。
     """
     from lib.video_backends import create_backend
@@ -141,17 +141,17 @@ def _get_or_create_video_backend(
             kwargs["backend_type"] = "aistudio"
 
         config_provider_id = "gemini-vertex" if kwargs["backend_type"] == "vertex" else "gemini-aistudio"
-        db_config = bulk.get_provider_config(config_provider_id)
+        db_config = await resolver.provider_config(config_provider_id)
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["rate_limiter"] = rate_limiter
         kwargs["video_model"] = effective_model
     elif backend_name == PROVIDER_SEEDANCE:
-        db_config = bulk.get_provider_config("seedance")
+        db_config = await resolver.provider_config("seedance")
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["file_service_base_url"] = db_config.get("file_service_base_url", "")
         kwargs["model"] = effective_model
     elif backend_name == PROVIDER_GROK:
-        db_config = bulk.get_provider_config("grok")
+        db_config = await resolver.provider_config("grok")
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["model"] = effective_model
 
@@ -160,14 +160,14 @@ def _get_or_create_video_backend(
     return backend
 
 
-def _resolve_image_backend(
-    bulk: _BulkConfig, payload: dict | None,
+async def _resolve_image_backend(
+    resolver, payload: dict | None,
 ) -> tuple[str, str, str]:
     """解析图片后端，返回 (backend_type, gemini_config_id, image_model)。
 
     优先级：payload 中的项目级配置 > 全局默认。
     """
-    image_provider_id, image_model = bulk.default_image_backend
+    image_provider_id, image_model = await resolver.default_image_backend()
     if payload and payload.get("image_provider"):
         image_provider_id = payload["image_provider"]
         image_model = payload.get("image_model", "") or image_model
@@ -176,8 +176,8 @@ def _resolve_image_backend(
     return "aistudio", "gemini-aistudio", image_model
 
 
-def _resolve_video_backend(
-    project_name: str, bulk: _BulkConfig, payload: dict | None,
+async def _resolve_video_backend(
+    project_name: str, resolver, payload: dict | None,
 ) -> tuple[Any | None, str, str]:
     """解析视频后端，返回 (video_backend, video_backend_type, video_model)。
 
@@ -185,15 +185,15 @@ def _resolve_video_backend(
     注意：video_backend_type 仅在 video_backend 为 None（回退到 GeminiClient）时生效，
     因此只需要在全局默认回退分支中设置。
     """
-    default_video_provider_id, video_model = bulk.default_video_backend
+    default_video_provider_id, video_model = await resolver.default_video_backend()
     video_backend = None
     video_backend_type = "aistudio"
 
     if payload and payload.get("video_provider"):
         provider_name = payload["video_provider"]
         provider_settings = payload.get("video_provider_settings", {})
-        video_backend = _get_or_create_video_backend(
-            provider_name, provider_settings, bulk, default_video_model=video_model,
+        video_backend = await _get_or_create_video_backend(
+            provider_name, provider_settings, resolver, default_video_model=video_model,
         )
     elif payload:
         project = get_project_manager().load_project(project_name)
@@ -204,42 +204,32 @@ def _resolve_video_backend(
             if mapped == PROVIDER_GEMINI:
                 video_backend_type = "vertex" if default_video_provider_id == "gemini-vertex" else "aistudio"
         provider_settings = project.get("video_provider_settings", {}).get(provider_name, {})
-        video_backend = _get_or_create_video_backend(
-            provider_name, provider_settings, bulk, default_video_model=video_model,
+        video_backend = await _get_or_create_video_backend(
+            provider_name, provider_settings, resolver, default_video_model=video_model,
         )
 
     return video_backend, video_backend_type, video_model
 
 
 async def get_media_generator(project_name: str, payload: dict | None = None, *, user_id: str = DEFAULT_USER_ID) -> MediaGenerator:
-    """创建 MediaGenerator。仅当 payload 包含视频配置时才初始化视频后端。
+    """创建 MediaGenerator。仅当 payload 包含视频配置时才初始化视频后端。"""
+    from lib.config.resolver import ConfigResolver
+    from lib.db import async_session_factory
 
-    通过单次 DB session 批量加载所有供应商配置和系统设置。
-    """
     project_path = get_project_manager().get_project_path(project_name)
-    bulk = await _load_all_config()
+    resolver = ConfigResolver(async_session_factory)
 
-    image_backend_type, gemini_config_id, image_model = _resolve_image_backend(bulk, payload)
-    gemini_config = bulk.get_provider_config(gemini_config_id)
-    video_backend, video_backend_type, video_model = _resolve_video_backend(project_name, bulk, payload)
-
-    # 解析 video_generate_audio：项目级覆盖 > 全局设置
-    video_generate_audio = bulk.video_generate_audio
-    project = get_project_manager().load_project(project_name)
-    project_audio_override = project.get("video_generate_audio")
-    if project_audio_override is not None:
-        if isinstance(project_audio_override, str):
-            video_generate_audio = project_audio_override.lower() in ("true", "1", "yes")
-        else:
-            video_generate_audio = bool(project_audio_override)
+    image_backend_type, gemini_config_id, image_model = await _resolve_image_backend(resolver, payload)
+    gemini_config = await resolver.provider_config(gemini_config_id)
+    video_backend, video_backend_type, video_model = await _resolve_video_backend(project_name, resolver, payload)
 
     return MediaGenerator(
         project_path,
         rate_limiter=rate_limiter,
         video_backend=video_backend,
+        config_resolver=resolver,
         image_backend_type=image_backend_type,
         video_backend_type=video_backend_type,
-        video_generate_audio=video_generate_audio,
         gemini_api_key=gemini_config.get("api_key"),
         gemini_base_url=gemini_config.get("base_url"),
         gemini_image_model=image_model or None,
@@ -572,8 +562,10 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
     # 模型级分辨率：从 video_model_settings.{model}.resolution 读取
     provider_name = payload.get("video_provider") or project.get("video_provider")
     if not provider_name:
-        bulk = await _load_all_config()
-        default_provider_id, _ = bulk.default_video_backend
+        from lib.config.resolver import ConfigResolver
+        from lib.db import async_session_factory
+        _resolver = ConfigResolver(async_session_factory)
+        default_provider_id, _ = await _resolver.default_video_backend()
         provider_name = _PROVIDER_ID_TO_BACKEND.get(default_provider_id, default_provider_id)
     # 将新 provider_id 映射为旧名称以查找分辨率
     resolution_key = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
