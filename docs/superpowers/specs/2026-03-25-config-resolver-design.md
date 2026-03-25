@@ -170,8 +170,8 @@ class MediaGenerator:
 - `get_media_generator()` 中的 `video_generate_audio` 参数解析和项目级覆盖逻辑
 
 **改造：**
-- `_resolve_video_backend()` / `_resolve_image_backend()` 改为接收 `ConfigResolver`
-- `_get_or_create_video_backend()` 改为使用 `ConfigResolver`
+- `_resolve_video_backend()` / `_resolve_image_backend()` 改为接收 `ConfigResolver`，签名改为 `async`（因为需要 `await resolver.default_video_backend()` 等调用）
+- `_get_or_create_video_backend()` 改为 `async`，接收 `ConfigResolver`（需要 `await resolver.provider_config()` 替代原来的 `bulk.get_provider_config()`）
 - `get_media_generator()` 创建 `ConfigResolver` 实例并传给 `MediaGenerator`
 
 简化后的 `get_media_generator()`：
@@ -200,15 +200,24 @@ async def get_media_generator(project_name, ..., user_id=None):
 
 ### 改造：`server/routers/generate.py`
 
-移除对 `_load_all_config()` 的跨模块导入，替换为：
+`generate_video` 路由第 213-216 行中，`_load_all_config()` 仅在 `else` 分支（项目无 `video_backend` 配置时）用于获取全局默认后端。替换为：
 
 ```python
-from lib.config.resolver import ConfigResolver
-from lib.db import async_session_factory
+# 之前
+else:
+    from server.services.generation_tasks import _load_all_config
+    bulk = await _load_all_config()
+    video_provider, video_model = bulk.default_video_backend
 
-resolver = ConfigResolver(async_session_factory)
-video_provider, video_model = await resolver.default_video_backend()
+# 之后
+else:
+    from lib.config.resolver import ConfigResolver
+    from lib.db import async_session_factory
+    resolver = ConfigResolver(async_session_factory)
+    video_provider, video_model = await resolver.default_video_backend()
 ```
+
+条件分支结构不变，仅替换 else 分支内的数据来源。
 
 ### 不变的部分
 
