@@ -68,30 +68,49 @@ class ProviderPool:
         return [*self.image_inflight.values(), *self.video_inflight.values()]
 
 
+def _project_level_provider(project: dict, task_type: str) -> str | None:
+    """Read project-level provider override, if any."""
+    if task_type == "video":
+        return project.get("video_provider")
+    project_backend = project.get("image_backend")
+    if project_backend and "/" in project_backend:
+        return project_backend.split("/", 1)[0]
+    return project_backend
+
+
 async def _extract_provider(task: Dict[str, Any]) -> str:
     """Extract provider_id from a claimed task dict.
 
-    优先从 payload 读取（兼容历史任务），否则从 ConfigResolver 解析。
+    优先级：payload 显式值 > 项目级配置 > 全局默认。
     """
     payload = task.get("payload") or {}
     # 兼容已入队的历史任务（payload 中显式携带 provider）
     provider = payload.get("video_provider") or payload.get("image_provider")
     if provider:
         return _normalize_provider_id(provider)
-    # 从全局/项目配置解析真实 provider
+    # 从项目配置 → 全局默认解析真实 provider
     project_name = task.get("project_name")
-    if project_name:
-        from lib.config.resolver import ConfigResolver
-        from lib.db import async_session_factory
+    if not project_name:
+        return DEFAULT_PROVIDER
 
-        resolver = ConfigResolver(async_session_factory)
-        task_type = task.get("task_type", "")
-        if task_type == "video":
-            provider_id, _ = await resolver.default_video_backend()
-        else:
-            provider_id, _ = await resolver.default_image_backend()
-        return provider_id
-    return DEFAULT_PROVIDER
+    from lib.config.resolver import get_project_manager
+
+    task_type = task.get("task_type", "")
+    project = get_project_manager().load_project(project_name)
+    project_provider = _project_level_provider(project, task_type)
+    if project_provider:
+        return _normalize_provider_id(project_provider)
+
+    # 回退到全局默认
+    from lib.config.resolver import ConfigResolver
+    from lib.db import async_session_factory
+
+    resolver = ConfigResolver(async_session_factory)
+    if task_type == "video":
+        provider_id, _ = await resolver.default_video_backend()
+    else:
+        provider_id, _ = await resolver.default_image_backend()
+    return provider_id
 
 
 def _normalize_provider_id(raw: str) -> str:

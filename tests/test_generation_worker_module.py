@@ -8,6 +8,7 @@ from lib.generation_worker import (
     _read_int_env,
     _extract_provider,
     _normalize_provider_id,
+    _project_level_provider,
     DEFAULT_PROVIDER,
     _build_default_pools,
 )
@@ -115,8 +116,8 @@ class TestExtractProvider:
         task = {"payload": {"video_provider": "gemini"}}
         assert await _extract_provider(task) == "gemini-aistudio"
 
-    async def test_resolves_video_from_config(self, monkeypatch):
-        """payload 无 provider 时，video 任务从 ConfigResolver 解析。"""
+    async def test_resolves_video_from_global_config(self, monkeypatch):
+        """payload 无 provider、项目无覆盖时，从全局 ConfigResolver 解析。"""
         async def fake_video_backend(self):
             return ("gemini-vertex", "veo-2.0-generate-001")
 
@@ -124,11 +125,15 @@ class TestExtractProvider:
             "lib.config.resolver.ConfigResolver.default_video_backend",
             fake_video_backend,
         )
+        monkeypatch.setattr(
+            "lib.config.resolver.get_project_manager",
+            lambda: type("PM", (), {"load_project": lambda self, name: {}})(),
+        )
         task = {"payload": {}, "project_name": "test", "task_type": "video"}
         assert await _extract_provider(task) == "gemini-vertex"
 
-    async def test_resolves_image_from_config(self, monkeypatch):
-        """payload 无 provider 时，image 任务从 ConfigResolver 解析。"""
+    async def test_resolves_image_from_global_config(self, monkeypatch):
+        """payload 无 provider、项目无覆盖时，从全局 ConfigResolver 解析。"""
         async def fake_image_backend(self):
             return ("gemini-vertex", "imagen-3.0-generate-002")
 
@@ -136,11 +141,47 @@ class TestExtractProvider:
             "lib.config.resolver.ConfigResolver.default_image_backend",
             fake_image_backend,
         )
+        monkeypatch.setattr(
+            "lib.config.resolver.get_project_manager",
+            lambda: type("PM", (), {"load_project": lambda self, name: {}})(),
+        )
+        task = {"payload": {}, "project_name": "test", "task_type": "image"}
+        assert await _extract_provider(task) == "gemini-vertex"
+
+    async def test_project_level_video_provider_takes_precedence(self, monkeypatch):
+        """项目级 video_provider 优先于全局默认。"""
+        async def should_not_be_called(self):
+            raise AssertionError("ConfigResolver should not be called")
+
+        monkeypatch.setattr(
+            "lib.config.resolver.ConfigResolver.default_video_backend",
+            should_not_be_called,
+        )
+        monkeypatch.setattr(
+            "lib.config.resolver.get_project_manager",
+            lambda: type("PM", (), {"load_project": lambda self, name: {"video_provider": "seedance"}})(),
+        )
+        task = {"payload": {}, "project_name": "test", "task_type": "video"}
+        assert await _extract_provider(task) == "seedance"
+
+    async def test_project_level_image_backend_takes_precedence(self, monkeypatch):
+        """项目级 image_backend 优先于全局默认。"""
+        async def should_not_be_called(self):
+            raise AssertionError("ConfigResolver should not be called")
+
+        monkeypatch.setattr(
+            "lib.config.resolver.ConfigResolver.default_image_backend",
+            should_not_be_called,
+        )
+        monkeypatch.setattr(
+            "lib.config.resolver.get_project_manager",
+            lambda: type("PM", (), {"load_project": lambda self, name: {"image_backend": "gemini-vertex/imagen-3"}})(),
+        )
         task = {"payload": {}, "project_name": "test", "task_type": "image"}
         assert await _extract_provider(task) == "gemini-vertex"
 
     async def test_payload_provider_takes_precedence_over_config(self, monkeypatch):
-        """payload 中有 provider 时优先使用，不走 ConfigResolver。"""
+        """payload 中有 provider 时优先使用，不走项目/全局配置。"""
         async def should_not_be_called(self):
             raise AssertionError("ConfigResolver should not be called")
 
@@ -150,6 +191,23 @@ class TestExtractProvider:
         )
         task = {"payload": {"video_provider": "seedance"}, "project_name": "test", "task_type": "video"}
         assert await _extract_provider(task) == "seedance"
+
+
+class TestProjectLevelProvider:
+    def test_video_provider(self):
+        assert _project_level_provider({"video_provider": "seedance"}, "video") == "seedance"
+
+    def test_video_no_override(self):
+        assert _project_level_provider({}, "video") is None
+
+    def test_image_backend_with_slash(self):
+        assert _project_level_provider({"image_backend": "gemini-vertex/imagen-3"}, "image") == "gemini-vertex"
+
+    def test_image_backend_without_slash(self):
+        assert _project_level_provider({"image_backend": "gemini-vertex"}, "image") == "gemini-vertex"
+
+    def test_image_no_override(self):
+        assert _project_level_provider({}, "image") is None
 
 
 class TestNormalizeProviderId:
