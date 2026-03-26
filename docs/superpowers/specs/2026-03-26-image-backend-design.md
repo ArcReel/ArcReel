@@ -100,7 +100,7 @@ class ImageBackend(Protocol):
 
 - **Provider ID**: `ark`
 - **SDK**: `volcenginesdkarkruntime.Ark` → `client.images.generate()`
-- **默认模型**: `doubao-seedream-5-0-260128`
+- **默认模型**: `doubao-seedream-5-0-lite-260128`
 - **能力**: `TEXT_TO_IMAGE`, `IMAGE_TO_IMAGE`
 - **可选模型**: `doubao-seedream-5-0-lite-260128`, `doubao-seedream-4-5-251128`, `doubao-seedream-4-0-250828`
 - **API 调用**: 同步 SDK 通过 `asyncio.to_thread()` 包装
