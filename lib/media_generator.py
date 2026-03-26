@@ -19,9 +19,10 @@ from PIL import Image
 
 if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver
+    from lib.image_backends.base import ImageBackend
 
 from lib.db.base import DEFAULT_USER_ID
-from lib.gemini_client import GeminiClient, RateLimiter, ReferenceImageInput
+from lib.gemini_client import RateLimiter
 from lib.version_manager import VersionManager
 from lib.usage_tracker import UsageTracker
 logger = logging.getLogger(__name__)
@@ -46,15 +47,10 @@ class MediaGenerator:
         self,
         project_path: Path,
         rate_limiter: Optional[RateLimiter] = None,
+        image_backend: Optional["ImageBackend"] = None,
         video_backend=None,
         *,
-        image_backend_type: Optional[str] = None,
-        video_backend_type: Optional[str] = None,
         config_resolver: Optional["ConfigResolver"] = None,
-        gemini_api_key: Optional[str] = None,
-        gemini_base_url: Optional[str] = None,
-        gemini_image_model: Optional[str] = None,
-        gemini_video_model: Optional[str] = None,
         user_id: str = DEFAULT_USER_ID,
     ):
         """
@@ -63,35 +59,18 @@ class MediaGenerator:
         Args:
             project_path: 项目根目录路径
             rate_limiter: 可选的限流器实例
-            video_backend: 可选的 VideoBackend 实例（注入后将替代 GeminiClient 生成视频）
-            image_backend_type: 图片后端类型（aistudio/vertex），默认 aistudio
-            video_backend_type: 视频后端类型（aistudio/vertex），默认 aistudio
+            image_backend: 可选的 ImageBackend 实例（用于图片生成）
+            video_backend: 可选的 VideoBackend 实例（用于视频生成）
             config_resolver: ConfigResolver 实例，用于运行时读取配置
-            gemini_api_key: Gemini API Key（透传给 GeminiClient）
-            gemini_base_url: Gemini Base URL（透传给 GeminiClient）
-            gemini_image_model: 图片模型名称（透传给 GeminiClient）
-            gemini_video_model: 视频模型名称（透传给 GeminiClient）
+            user_id: 用户 ID
         """
         self.project_path = Path(project_path)
         self.project_name = self.project_path.name
         self._rate_limiter = rate_limiter
-        self.image_backend = (
-            (image_backend_type or "").strip().lower()
-            or "aistudio"
-        )
-        self._gemini_video_backend_type = (
-            (video_backend_type or "").strip().lower()
-            or "aistudio"
-        )
-        self._config = config_resolver
-        self._gemini_api_key = gemini_api_key
-        self._gemini_base_url = gemini_base_url
-        self._gemini_image_model = gemini_image_model
-        self._gemini_video_model = gemini_video_model
+        self._image_backend = image_backend
         self._video_backend = video_backend
+        self._config = config_resolver
         self._user_id = user_id
-        self._gemini_image: Optional[GeminiClient] = None
-        self._gemini_video: Optional[GeminiClient] = None
         self.versions = VersionManager(project_path)
 
         # 初始化 UsageTracker（使用全局 async session factory）
@@ -110,30 +89,6 @@ class MediaGenerator:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 return pool.submit(asyncio.run, coro).result()
         return asyncio.run(coro)
-
-    def _get_gemini_image(self) -> GeminiClient:
-        if self._gemini_image is None:
-            self._gemini_image = GeminiClient(
-                api_key=self._gemini_api_key,
-                rate_limiter=self._rate_limiter,
-                backend=self.image_backend,
-                base_url=self._gemini_base_url,
-                image_model=self._gemini_image_model,
-                video_model=self._gemini_video_model,
-            )
-        return self._gemini_image
-
-    def _get_gemini_video(self) -> GeminiClient:
-        if self._gemini_video is None:
-            self._gemini_video = GeminiClient(
-                api_key=self._gemini_api_key,
-                rate_limiter=self._rate_limiter,
-                backend=self._gemini_video_backend_type,
-                base_url=self._gemini_base_url,
-                image_model=self._gemini_image_model,
-                video_model=self._gemini_video_model,
-            )
-        return self._gemini_video
 
     def _get_output_path(self, resource_type: str, resource_id: str) -> Path:
         """
@@ -167,103 +122,42 @@ class MediaGenerator:
         prompt: str,
         resource_type: str,
         resource_id: str,
-        reference_images: Optional[List[ReferenceImageInput]] = None,
+        reference_images=None,
         aspect_ratio: str = "9:16",
         image_size: str = "1K",
         **version_metadata
     ) -> Tuple[Path, int]:
         """
-        生成图片（带自动版本管理）
-
-        版本管理逻辑：
-        1. 检查 output_path 是否存在
-        2. 若存在 → 调用 ensure_current_tracked() 确保旧文件被记录
-        3. 调用 GeminiClient 生成新文件
-        4. 调用 add_version() 记录新版本
-        5. 返回结果
+        生成图片（带自动版本管理，同步包装）
 
         Args:
             prompt: 图片生成提示词
             resource_type: 资源类型 (storyboards, characters, clues)
             resource_id: 资源 ID (E1S01, 姜月茴, 玉佩)
-            reference_images: 参考图片列表（用于人物一致性）
+            reference_images: 参考图片列表
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             image_size: 图片尺寸，默认 1K
-            **version_metadata: 额外元数据（如 aspect_ratio）
+            **version_metadata: 额外元数据
 
         Returns:
             (output_path, version_number) 元组
         """
-        output_path = self._get_output_path(resource_type, resource_id)
-        self._ensure_parent_dir(output_path)
-
-        # 1. 若已存在，确保旧文件被记录
-        if output_path.exists():
-            self.versions.ensure_current_tracked(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                current_file=output_path,
-                prompt=prompt,  # 使用新 prompt 作为备用
-                aspect_ratio=aspect_ratio,
-                **version_metadata
-            )
-
-        # 2. 记录 API 调用开始
-        client = self._get_gemini_image()
-        call_id = self._sync(self.usage_tracker.start_call(
-            project_name=self.project_name,
-            call_type="image",
-            model=client.IMAGE_MODEL,
+        return self._sync(self.generate_image_async(
             prompt=prompt,
-            resolution=image_size,
-            aspect_ratio=aspect_ratio,
-            user_id=self._user_id,
-        ))
-
-        try:
-            # 3. 调用 GeminiClient 生成新文件
-            client.generate_image(
-                prompt=prompt,
-                reference_images=reference_images,
-                aspect_ratio=aspect_ratio,
-                image_size=image_size,
-                output_path=output_path
-            )
-
-            # 4. 记录调用成功
-            self._sync(self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="success",
-                output_path=str(output_path),
-            ))
-        except Exception as e:
-            # 记录调用失败
-            logger.exception("生成失败 (%s)", "image")
-            self._sync(self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="failed",
-                error_message=str(e),
-            ))
-            raise
-
-        # 5. 记录新版本
-        new_version = self.versions.add_version(
             resource_type=resource_type,
             resource_id=resource_id,
-            prompt=prompt,
-            source_file=output_path,
+            reference_images=reference_images,
             aspect_ratio=aspect_ratio,
-            **version_metadata
-        )
-
-        return output_path, new_version
+            image_size=image_size,
+            **version_metadata,
+        ))
 
     async def generate_image_async(
         self,
         prompt: str,
         resource_type: str,
         resource_id: str,
-        reference_images: Optional[List[ReferenceImageInput]] = None,
+        reference_images=None,
         aspect_ratio: str = "9:16",
         image_size: str = "1K",
         **version_metadata
@@ -275,7 +169,7 @@ class MediaGenerator:
             prompt: 图片生成提示词
             resource_type: 资源类型 (storyboards, characters, clues)
             resource_id: 资源 ID (E1S01, 姜月茴, 玉佩)
-            reference_images: 参考图片列表（用于人物一致性）
+            reference_images: 参考图片列表
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             image_size: 图片尺寸，默认 1K
             **version_metadata: 额外元数据
@@ -283,6 +177,8 @@ class MediaGenerator:
         Returns:
             (output_path, version_number) 元组
         """
+        from lib.image_backends.base import ImageGenerationRequest, ReferenceImage
+
         output_path = self._get_output_path(resource_type, resource_id)
         self._ensure_parent_dir(output_path)
 
@@ -297,27 +193,45 @@ class MediaGenerator:
                 **version_metadata
             )
 
+        if self._image_backend is None:
+            raise RuntimeError("image_backend not configured")
+
         # 2. 记录 API 调用开始
-        client = self._get_gemini_image()
         call_id = await self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="image",
-            model=client.IMAGE_MODEL,
+            model=self._image_backend.model,
             prompt=prompt,
             resolution=image_size,
             aspect_ratio=aspect_ratio,
+            provider=self._image_backend.name,
             user_id=self._user_id,
         )
 
         try:
-            # 3. 调用 GeminiClient 异步生成新文件
-            await client.generate_image_async(
+            # 3. 转换参考图格式并调用 ImageBackend
+            ref_images: list[ReferenceImage] = []
+            if reference_images:
+                for ref in reference_images:
+                    if isinstance(ref, dict):
+                        img_val = ref.get("image", "")
+                        ref_images.append(ReferenceImage(
+                            path=str(img_val),
+                            label=str(ref.get("label", "")),
+                        ))
+                    elif hasattr(ref, '__fspath__') or isinstance(ref, (str, Path)):
+                        ref_images.append(ReferenceImage(path=str(ref)))
+                    # PIL Image 等不支持的类型忽略
+
+            request = ImageGenerationRequest(
                 prompt=prompt,
-                reference_images=reference_images,
+                output_path=output_path,
+                reference_images=ref_images,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
-                output_path=output_path
+                project_name=self.project_name,
             )
+            await self._image_backend.generate(request)
 
             # 4. 记录调用成功
             await self.usage_tracker.finish_call(
@@ -360,7 +274,7 @@ class MediaGenerator:
         **version_metadata
     ) -> Tuple[Path, int, any, Optional[str]]:
         """
-        生成视频（带自动版本管理）
+        生成视频（带自动版本管理，同步包装）
 
         Args:
             prompt: 视频生成提示词
@@ -371,133 +285,22 @@ class MediaGenerator:
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认 "1080p"
             negative_prompt: 负面提示词
-            **version_metadata: 额外元数据（如 duration_seconds）
+            **version_metadata: 额外元数据
 
         Returns:
             (output_path, version_number, video_ref, video_uri) 四元组
         """
-        output_path = self._get_output_path(resource_type, resource_id)
-        self._ensure_parent_dir(output_path)
-
-        # 1. 若已存在，确保旧文件被记录
-        if output_path.exists():
-            self.versions.ensure_current_tracked(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                current_file=output_path,
-                prompt=prompt,
-                duration_seconds=duration_seconds,
-                **version_metadata
-            )
-
-        # 2. 记录 API 调用开始
-        try:
-            duration_int = int(duration_seconds) if duration_seconds else 8
-        except (ValueError, TypeError):
-            duration_int = 8
-
-        if self._video_backend:
-            model_name = self._video_backend.model
-            provider_name = self._video_backend.name
-            configured_generate_audio = self._sync(
-                self._config.video_generate_audio(self.project_name)
-            ) if self._config else False
-            effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
-        else:
-            video_client = self._get_gemini_video()
-            model_name = video_client.VIDEO_MODEL
-            provider_name = f"gemini-{self._gemini_video_backend_type}"
-            configured_generate_audio = self._sync(
-                self._config.video_generate_audio(self.project_name)
-            ) if self._config else False
-            effective_generate_audio = (
-                configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
-            )
-
-        call_id = self._sync(self.usage_tracker.start_call(
-            project_name=self.project_name,
-            call_type="video",
-            model=model_name,
+        return self._sync(self.generate_video_async(
             prompt=prompt,
-            resolution=resolution,
-            duration_seconds=duration_int,
-            aspect_ratio=aspect_ratio,
-            generate_audio=effective_generate_audio,
-            provider=provider_name,
-            user_id=self._user_id,
-        ))
-
-        try:
-            if self._video_backend:
-                from lib.video_backends.base import VideoGenerationRequest
-
-                request = VideoGenerationRequest(
-                    prompt=prompt,
-                    output_path=output_path,
-                    aspect_ratio=aspect_ratio,
-                    duration_seconds=duration_int,
-                    resolution=resolution,
-                    start_image=Path(start_image) if isinstance(start_image, (str, Path)) else None,
-                    generate_audio=effective_generate_audio,
-                    negative_prompt=negative_prompt,
-                    project_name=self.project_name,
-                    service_tier=version_metadata.get("service_tier", "default"),
-                    seed=version_metadata.get("seed"),
-                )
-
-                result = self._sync(self._video_backend.generate(request))
-                video_ref = None
-                video_uri = result.video_uri
-
-                # Track usage with provider info
-                self._sync(self.usage_tracker.finish_call(
-                    call_id=call_id,
-                    status="success",
-                    output_path=str(output_path),
-                    usage_tokens=result.usage_tokens,
-                    service_tier=version_metadata.get("service_tier", "default"),
-                    generate_audio=result.generate_audio,
-                ))
-            else:
-                # Original GeminiClient path
-                _, video_ref, video_uri = video_client.generate_video(
-                    prompt=prompt,
-                    start_image=start_image,
-                    aspect_ratio=aspect_ratio,
-                    duration_seconds=duration_seconds,
-                    resolution=resolution,
-                    negative_prompt=negative_prompt,
-                    generate_audio=effective_generate_audio,
-                    output_path=output_path
-                )
-
-                # 4. 记录调用成功
-                self._sync(self.usage_tracker.finish_call(
-                    call_id=call_id,
-                    status="success",
-                    output_path=str(output_path),
-                ))
-        except Exception as e:
-            # 记录调用失败
-            logger.exception("生成失败 (%s)", "video")
-            self._sync(self.usage_tracker.finish_call(
-                call_id=call_id,
-                status="failed",
-                error_message=str(e),
-            ))
-            raise
-
-        # 5. 记录新版本
-        new_version = self.versions.add_version(
             resource_type=resource_type,
             resource_id=resource_id,
-            prompt=prompt,
-            source_file=output_path,
+            start_image=start_image,
+            aspect_ratio=aspect_ratio,
             duration_seconds=duration_seconds,
-            **version_metadata
-        )
-
-        return output_path, new_version, video_ref, video_uri
+            resolution=resolution,
+            negative_prompt=negative_prompt,
+            **version_metadata,
+        ))
 
     async def generate_video_async(
         self,
@@ -548,19 +351,13 @@ class MediaGenerator:
         except (ValueError, TypeError):
             duration_int = 8
 
-        if self._video_backend:
-            model_name = self._video_backend.model
-            provider_name = self._video_backend.name
-            configured_generate_audio = await self._config.video_generate_audio(self.project_name) if self._config else False
-            effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
-        else:
-            video_client = self._get_gemini_video()
-            model_name = video_client.VIDEO_MODEL
-            provider_name = f"gemini-{self._gemini_video_backend_type}"
-            configured_generate_audio = await self._config.video_generate_audio(self.project_name) if self._config else False
-            effective_generate_audio = (
-                configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
-            )
+        if self._video_backend is None:
+            raise RuntimeError("video_backend not configured")
+
+        model_name = self._video_backend.model
+        provider_name = self._video_backend.name
+        configured_generate_audio = await self._config.video_generate_audio(self.project_name) if self._config else False
+        effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
 
         call_id = await self.usage_tracker.start_call(
             project_name=self.project_name,
@@ -576,55 +373,35 @@ class MediaGenerator:
         )
 
         try:
-            if self._video_backend:
-                from lib.video_backends.base import VideoGenerationRequest
+            from lib.video_backends.base import VideoGenerationRequest
 
-                request = VideoGenerationRequest(
-                    prompt=prompt,
-                    output_path=output_path,
-                    aspect_ratio=aspect_ratio,
-                    duration_seconds=duration_int,
-                    resolution=resolution,
-                    start_image=Path(start_image) if isinstance(start_image, (str, Path)) else None,
-                    generate_audio=effective_generate_audio,
-                    negative_prompt=negative_prompt,
-                    project_name=self.project_name,
-                    service_tier=version_metadata.get("service_tier", "default"),
-                    seed=version_metadata.get("seed"),
-                )
+            request = VideoGenerationRequest(
+                prompt=prompt,
+                output_path=output_path,
+                aspect_ratio=aspect_ratio,
+                duration_seconds=duration_int,
+                resolution=resolution,
+                start_image=Path(start_image) if isinstance(start_image, (str, Path)) else None,
+                generate_audio=effective_generate_audio,
+                negative_prompt=negative_prompt,
+                project_name=self.project_name,
+                service_tier=version_metadata.get("service_tier", "default"),
+                seed=version_metadata.get("seed"),
+            )
 
-                result = await self._video_backend.generate(request)
-                video_ref = None
-                video_uri = result.video_uri
+            result = await self._video_backend.generate(request)
+            video_ref = None
+            video_uri = result.video_uri
 
-                # Track usage with provider info
-                await self.usage_tracker.finish_call(
-                    call_id=call_id,
-                    status="success",
-                    output_path=str(output_path),
-                    usage_tokens=result.usage_tokens,
-                    service_tier=version_metadata.get("service_tier", "default"),
-                    generate_audio=result.generate_audio,
-                )
-            else:
-                # Original GeminiClient path
-                _, video_ref, video_uri = await video_client.generate_video_async(
-                    prompt=prompt,
-                    start_image=start_image,
-                    aspect_ratio=aspect_ratio,
-                    duration_seconds=duration_seconds,
-                    resolution=resolution,
-                    negative_prompt=negative_prompt,
-                    generate_audio=effective_generate_audio,
-                    output_path=output_path
-                )
-
-                # 4. 记录调用成功
-                await self.usage_tracker.finish_call(
-                    call_id=call_id,
-                    status="success",
-                    output_path=str(output_path),
-                )
+            # Track usage with provider info
+            await self.usage_tracker.finish_call(
+                call_id=call_id,
+                status="success",
+                output_path=str(output_path),
+                usage_tokens=result.usage_tokens,
+                service_tier=version_metadata.get("service_tier", "default"),
+                generate_audio=result.generate_audio,
+            )
         except Exception as e:
             # 记录调用失败
             logger.exception("生成失败 (%s)", "video")

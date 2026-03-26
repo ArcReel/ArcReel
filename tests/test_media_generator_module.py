@@ -5,27 +5,42 @@ import pytest
 from lib.media_generator import MediaGenerator
 
 
-class _FakeGemini:
-    IMAGE_MODEL = "img-model"
-    VIDEO_MODEL = "video-model"
+class _FakeImageBackend:
+    """Fake ImageBackend conforming to the protocol."""
+    name = "fake-image"
+    model = "img-model"
+    capabilities = set()
 
     def __init__(self):
-        self.image_calls = []
-        self.video_calls = []
+        self.calls = []
 
-    def generate_image(self, **kwargs):
-        self.image_calls.append(kwargs)
+    async def generate(self, request):
+        self.calls.append(request)
+        # Touch the output file so version tracking works
+        request.output_path.parent.mkdir(parents=True, exist_ok=True)
+        request.output_path.write_bytes(b"fake-image-data")
 
-    async def generate_image_async(self, **kwargs):
-        self.image_calls.append(kwargs)
 
-    def generate_video(self, **kwargs):
-        self.video_calls.append(kwargs)
-        return None, "video-ref", "video-uri"
+class _FakeVideoResult:
+    def __init__(self):
+        self.video_uri = "video-uri"
+        self.usage_tokens = 0
+        self.generate_audio = True
 
-    async def generate_video_async(self, **kwargs):
-        self.video_calls.append(kwargs)
-        return None, "video-ref", "video-uri"
+
+class _FakeVideoBackend:
+    """Fake VideoBackend conforming to the protocol."""
+    name = "fake-video"
+    model = "video-model"
+
+    def __init__(self):
+        self.calls = []
+
+    async def generate(self, request):
+        self.calls.append(request)
+        request.output_path.parent.mkdir(parents=True, exist_ok=True)
+        request.output_path.write_bytes(b"fake-video-data")
+        return _FakeVideoResult()
 
 
 class _FakeVersions:
@@ -75,18 +90,10 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen.project_path.mkdir(parents=True, exist_ok=True)
     gen.project_name = "demo"
     gen._rate_limiter = None
-    gen.image_backend = "aistudio"
-    gen._gemini_video_backend_type = "aistudio"
-    gen._video_backend = None
+    gen._image_backend = _FakeImageBackend()
+    gen._video_backend = _FakeVideoBackend()
     gen._user_id = "default"
     gen._config = _FakeConfigResolver()
-    gen._gemini_api_key = None
-    gen._gemini_base_url = None
-    gen._gemini_image_model = None
-    gen._gemini_video_model = None
-    fake = _FakeGemini()
-    gen._gemini_image = fake
-    gen._gemini_video = fake
     gen.versions = _FakeVersions()
     gen.usage_tracker = _FakeUsage()
     return gen
@@ -115,10 +122,10 @@ class TestMediaGenerator:
         assert gen.usage_tracker.started[0]["call_type"] == "image"
         assert gen.usage_tracker.finished[0]["status"] == "success"
 
-        def _raise(**kwargs):
+        async def _raise(request):
             raise RuntimeError("boom")
 
-        gen._gemini_image.generate_image = _raise
+        gen._image_backend.generate = _raise
         with pytest.raises(RuntimeError):
             gen.generate_image(prompt="p", resource_type="characters", resource_id="A")
 
@@ -136,7 +143,7 @@ class TestMediaGenerator:
         )
         assert video_path.name == "scene_E1S01.mp4"
         assert version == 1
-        assert video_ref == "video-ref"
+        assert video_ref is None
         assert video_uri == "video-uri"
 
         video_path2, version2, _, _ = await gen.generate_video_async(
@@ -158,17 +165,16 @@ class TestMediaGenerator:
         await gen.generate_video_async(
             prompt="p", resource_type="videos", resource_id="E1S03",
         )
-        # aistudio 后端强制 audio=True，即使 config 返回 False
-        assert gen.usage_tracker.started[-1]["generate_audio"] is True
+        # VideoBackend 路径尊重 ConfigResolver 返回的值
+        assert gen.usage_tracker.started[-1]["generate_audio"] is False
 
     @pytest.mark.asyncio
-    async def test_video_generate_audio_vertex_respects_config(self, tmp_path):
-        """验证 vertex 后端尊重 ConfigResolver 返回的 False。"""
+    async def test_video_generate_audio_respects_config_true(self, tmp_path):
+        """验证 video_backend 尊重 ConfigResolver 返回的 True。"""
         gen = _build_generator(tmp_path)
-        gen._gemini_video_backend_type = "vertex"
-        gen._config = _FakeConfigResolver(video_generate_audio=False)
+        gen._config = _FakeConfigResolver(video_generate_audio=True)
 
         await gen.generate_video_async(
             prompt="p", resource_type="videos", resource_id="E1S04",
         )
-        assert gen.usage_tracker.started[-1]["generate_audio"] is False
+        assert gen.usage_tracker.started[-1]["generate_audio"] is True
