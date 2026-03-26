@@ -18,4 +18,7 @@ __all__ = [
     "get_registered_backends",
     "register_backend",
 ]
-# Backend auto-registration happens after concrete backends are implemented.
+# Backend auto-registration
+from lib.video_backends.base import PROVIDER_GEMINI
+from lib.image_backends.gemini import GeminiImageBackend
+register_backend(PROVIDER_GEMINI, GeminiImageBackend)
