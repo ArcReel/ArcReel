@@ -78,10 +78,10 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
 
   const totalPages = Math.ceil(total / pageSize);
   const costByCurrency = stats?.cost_by_currency ?? {};
-  const costSummary = Object.entries(costByCurrency)
+  const costParts = Object.entries(costByCurrency)
     .filter(([, v]) => v > 0)
-    .map(([currency, amount]) => `${currency === "CNY" ? "¥" : "$"}${amount.toFixed(2)}`)
-    .join(" + ") || "$0.00";
+    .map(([currency, amount]) => `${currency === "CNY" ? "¥" : "$"}${amount.toFixed(2)}`);
+  const costSummary = costParts.length > 0 ? costParts : ["$0.00"];
 
   return (
     <Popover
@@ -108,7 +108,15 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
 
       {/* Stats summary */}
       <div className="grid grid-cols-4 gap-2 border-b border-gray-800 px-4 py-3">
-        <StatBlock label="总费用" value={costSummary} accent />
+        <StatBlock
+          label="总费用"
+          value={
+            costSummary.length === 1
+              ? costSummary[0]
+              : <span className="flex flex-col items-center leading-tight">{costSummary.map((part, i) => <span key={part}>{i !== 0 && <span className="text-gray-500">+</span>} {part}</span>)}</span>
+          }
+          accent
+        />
         <StatBlock label="图片" value={String(stats?.image_count ?? 0)} icon={<Image className="h-3 w-3 text-blue-400" />} />
         <StatBlock label="视频" value={String(stats?.video_count ?? 0)} icon={<Video className="h-3 w-3 text-purple-400" />} />
         <StatBlock label="失败" value={String(stats?.failed_count ?? 0)} icon={<AlertCircle className="h-3 w-3 text-red-400" />} />
@@ -203,7 +211,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
 
 function StatBlock({ label, value, icon, accent }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   icon?: React.ReactNode;
   accent?: boolean;
 }) {

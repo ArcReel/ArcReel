@@ -1,6 +1,6 @@
 import { startTransition, useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { ChevronLeft, Activity, Settings, DollarSign, Bell, Download, Loader2 } from "lucide-react";
+import { ChevronLeft, Activity, Settings, Bell, Download, Loader2 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -155,9 +155,12 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const modeBadgeText =
     contentMode === "drama" ? "剧集动画 16:9" : "说书模式 9:16";
 
-  // Format cost display
-  const totalCost = usageStats?.total_cost ?? 0;
-  const costText = `$${totalCost.toFixed(2)}`;
+  // Format cost display – show multi-currency summary
+  const costByCurrency = usageStats?.cost_by_currency ?? {};
+  const costText = Object.entries(costByCurrency)
+    .filter(([, v]) => v > 0)
+    .map(([currency, amount]) => `${currency === "CNY" ? "¥" : "$"}${amount.toFixed(2)}`)
+    .join(" + ") || "$0.00";
 
   const handleNotificationNavigate = (notification: WorkspaceNotification) => {
     if (!notification.target) return;
@@ -302,8 +305,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             }`}
             title={`项目总花费: ${costText}`}
           >
-            <DollarSign className="h-3.5 w-3.5" />
-            <span>{costText}</span>
+            <span className="font-mono">{costText}</span>
           </button>
           <UsageDrawer
             open={usageDrawerOpen}
