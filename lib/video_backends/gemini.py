@@ -14,8 +14,8 @@ from PIL import Image
 
 from lib.gemini_client import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
+from lib.providers import PROVIDER_GEMINI
 from lib.video_backends.base import (
-    PROVIDER_GEMINI,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,

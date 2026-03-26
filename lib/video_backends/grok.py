@@ -10,9 +10,9 @@ from typing import Optional, Set
 
 import xai_sdk
 
+from lib.providers import PROVIDER_GROK
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
-    PROVIDER_GROK,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,

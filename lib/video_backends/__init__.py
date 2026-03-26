@@ -1,9 +1,7 @@
 """视频生成服务层公共 API。"""
 
+from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
 from lib.video_backends.base import (
-    PROVIDER_ARK,
-    PROVIDER_GEMINI,
-    PROVIDER_GROK,
     VideoBackend,
     VideoCapability,
     VideoGenerationRequest,

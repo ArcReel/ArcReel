@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 from typing import Optional, Set
 
+from lib.providers import PROVIDER_ARK
 from lib.video_backends.base import (
-    PROVIDER_ARK,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,

@@ -9,8 +9,6 @@ from typing import Optional, Protocol, Set
 
 import httpx
 
-from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
-
 # 图片后缀 → MIME 类型映射（多个后端共用）
 IMAGE_MIME_TYPES: dict[str, str] = {
     ".png": "image/png",

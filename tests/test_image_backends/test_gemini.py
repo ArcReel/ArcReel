@@ -144,7 +144,7 @@ class TestGenerate:
             output_path=output_file,
             reference_images=[ReferenceImage(path=str(ref_img_path), label="角色A")],
         )
-        result = await backend_aistudio.generate(request)
+        await backend_aistudio.generate(request)
 
         # Verify contents were built: should contain label, image, and prompt
         call_kwargs = backend_aistudio._client.aio.models.generate_content.call_args
