@@ -25,3 +25,7 @@ register_backend(PROVIDER_GEMINI, GeminiImageBackend)
 
 from lib.image_backends.ark import ArkImageBackend
 register_backend(PROVIDER_ARK, ArkImageBackend)
+
+from lib.video_backends.base import PROVIDER_GROK
+from lib.image_backends.grok import GrokImageBackend
+register_backend(PROVIDER_GROK, GrokImageBackend)
