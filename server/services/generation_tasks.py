@@ -191,22 +191,29 @@ async def _resolve_video_backend(
     return video_backend, video_backend_type, video_model
 
 
-async def get_media_generator(project_name: str, payload: dict | None = None, *, user_id: str = DEFAULT_USER_ID) -> MediaGenerator:
-    """创建 MediaGenerator。仅当 payload 包含视频配置时才初始化视频后端。"""
+async def get_media_generator(
+    project_name: str,
+    payload: dict | None = None,
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    require_image_backend: bool = True,
+) -> MediaGenerator:
+    """创建 MediaGenerator。仅按调用场景初始化所需的 backend。"""
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
 
     project_path = get_project_manager().get_project_path(project_name)
     resolver = ConfigResolver(async_session_factory)
 
-    # 解析 image backend
-    image_provider_id, image_model = await resolver.default_image_backend()
-    if payload and payload.get("image_provider"):
-        image_provider_id = payload["image_provider"]
-        image_model = payload.get("image_model", "") or image_model
-    image_backend = await _get_or_create_image_backend(
-        image_provider_id, {}, resolver, default_image_model=image_model,
-    )
+    image_backend = None
+    if require_image_backend:
+        image_provider_id, image_model = await resolver.default_image_backend()
+        if payload and payload.get("image_provider"):
+            image_provider_id = payload["image_provider"]
+            image_model = payload.get("image_model", "") or image_model
+        image_backend = await _get_or_create_image_backend(
+            image_provider_id, {}, resolver, default_image_model=image_model,
+        )
 
     # 解析 video backend（保持现有逻辑）
     video_backend, _, _ = await _resolve_video_backend(
@@ -488,7 +495,12 @@ async def execute_storyboard_task(project_name: str, resource_id: str, payload: 
         previous_storyboard_path=previous_storyboard_path,
     )
 
-    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
+    generator = await get_media_generator(
+        project_name,
+        payload=payload,
+        user_id=user_id,
+        require_image_backend=False,
+    )
     aspect_ratio = get_aspect_ratio(project, "storyboards")
 
     _, version = await generator.generate_image_async(
