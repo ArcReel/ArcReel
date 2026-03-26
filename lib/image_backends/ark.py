@@ -9,13 +9,12 @@ import os
 from pathlib import Path
 from typing import Optional, Set
 
-from lib.video_backends.base import PROVIDER_ARK
+from lib.providers import PROVIDER_ARK
 from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
 )
-from volcenginesdkarkruntime import Ark
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +30,8 @@ class ArkImageBackend:
         api_key: Optional[str] = None,
         model: Optional[str] = None,
     ):
+        from volcenginesdkarkruntime import Ark
+
         self._api_key = api_key or os.environ.get("ARK_API_KEY")
         if not self._api_key:
             raise ValueError(
@@ -47,10 +48,6 @@ class ArkImageBackend:
             ImageCapability.IMAGE_TO_IMAGE,
         }
 
-    # ------------------------------------------------------------------
-    # Properties
-    # ------------------------------------------------------------------
-
     @property
     def name(self) -> str:
         return PROVIDER_ARK
@@ -62,10 +59,6 @@ class ArkImageBackend:
     @property
     def capabilities(self) -> Set[ImageCapability]:
         return self._capabilities
-
-    # ------------------------------------------------------------------
-    # 核心生成方法
-    # ------------------------------------------------------------------
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         """异步生成图片（T2I / I2I）。"""

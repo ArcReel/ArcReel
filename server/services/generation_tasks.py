@@ -28,7 +28,7 @@ from lib.storyboard_sequence import (
     resolve_previous_storyboard_path,
 )
 from lib.thumbnail import extract_video_thumbnail
-from lib.video_backends.base import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
+from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
 
 
 pm = ProjectManager(PROJECT_ROOT / "projects")
@@ -499,7 +499,6 @@ async def execute_storyboard_task(project_name: str, resource_id: str, payload: 
         project_name,
         payload=payload,
         user_id=user_id,
-        require_image_backend=False,
     )
     aspect_ratio = get_aspect_ratio(project, "storyboards")
 

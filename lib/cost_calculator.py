@@ -197,24 +197,24 @@ class CostCalculator:
         self,
         model: str | None = None,
         n: int = 1,
-    ) -> float:
+    ) -> tuple[float, str]:
         """
         Grok 图片按张计费。
 
         Returns:
-            费用（美元）
+            (amount, currency) — 金额和币种 (USD)
         """
         model = model or self.DEFAULT_GROK_IMAGE_MODEL
         per_image = self.GROK_IMAGE_COST.get(
             model, self.GROK_IMAGE_COST[self.DEFAULT_GROK_IMAGE_MODEL]
         )
-        return per_image * n
+        return per_image * n, "USD"
 
     def calculate_grok_video_cost(
         self,
         duration_seconds: int,
         model: str | None = None,
-    ) -> float:
+    ) -> tuple[float, str]:
         """
         计算 Grok 视频生成费用。
 
@@ -223,13 +223,13 @@ class CostCalculator:
             model: 模型名称
 
         Returns:
-            费用（美元）
+            (amount, currency) — 金额和币种 (USD)
         """
         model = model or self.DEFAULT_GROK_MODEL
         per_second = self.GROK_VIDEO_COST.get(
             model, self.GROK_VIDEO_COST[self.DEFAULT_GROK_MODEL]
         )
-        return duration_seconds * per_second
+        return duration_seconds * per_second, "USD"
 
 
 # 单例实例，方便使用

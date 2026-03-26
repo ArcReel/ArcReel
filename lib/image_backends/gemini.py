@@ -12,7 +12,7 @@ from PIL import Image
 
 from lib.gemini_client import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
-from lib.video_backends.base import PROVIDER_GEMINI
+from lib.providers import PROVIDER_GEMINI
 from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
@@ -96,10 +96,6 @@ class GeminiImageBackend:
             ImageCapability.IMAGE_TO_IMAGE,
         }
 
-    # ------------------------------------------------------------------
-    # Properties
-    # ------------------------------------------------------------------
-
     @property
     def name(self) -> str:
         return f"gemini-{self._backend_type}"
@@ -111,10 +107,6 @@ class GeminiImageBackend:
     @property
     def capabilities(self) -> Set[ImageCapability]:
         return self._capabilities
-
-    # ------------------------------------------------------------------
-    # 核心生成方法
-    # ------------------------------------------------------------------
 
     @with_retry_async(max_attempts=5, backoff_seconds=(2, 4, 8, 16, 32))
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -150,10 +142,6 @@ class GeminiImageBackend:
             provider=PROVIDER_GEMINI,
             model=self._image_model,
         )
-
-    # ------------------------------------------------------------------
-    # 内部辅助方法（从 GeminiClient 迁移）
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _load_image_detached(image_path: Union[str, Path]) -> Image.Image:

@@ -6,14 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Protocol, Set
 
-# 图片后缀 → MIME 类型映射
-IMAGE_MIME_TYPES: dict[str, str] = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-}
+from lib.video_backends.base import IMAGE_MIME_TYPES
 
 def image_to_base64_data_uri(image_path: Path) -> str:
     """将本地图片转为 base64 data URI。"""

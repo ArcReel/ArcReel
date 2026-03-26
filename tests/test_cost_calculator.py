@@ -109,23 +109,25 @@ class TestArkCost:
 class TestGrokCost:
     def test_default_model_per_second(self):
         calculator = CostCalculator()
-        cost = calculator.calculate_grok_video_cost(
+        cost, currency = calculator.calculate_grok_video_cost(
             duration_seconds=10,
             model="grok-imagine-video",
         )
         assert cost == pytest.approx(0.50)
+        assert currency == "USD"
 
     def test_short_video(self):
         calculator = CostCalculator()
-        cost = calculator.calculate_grok_video_cost(
+        cost, currency = calculator.calculate_grok_video_cost(
             duration_seconds=1,
             model="grok-imagine-video",
         )
         assert cost == pytest.approx(0.050)
+        assert currency == "USD"
 
     def test_max_duration(self):
         calculator = CostCalculator()
-        cost = calculator.calculate_grok_video_cost(
+        cost, _ = calculator.calculate_grok_video_cost(
             duration_seconds=15,
             model="grok-imagine-video",
         )
@@ -133,7 +135,7 @@ class TestGrokCost:
 
     def test_zero_duration(self):
         calculator = CostCalculator()
-        cost = calculator.calculate_grok_video_cost(
+        cost, _ = calculator.calculate_grok_video_cost(
             duration_seconds=0,
             model="grok-imagine-video",
         )
@@ -141,7 +143,7 @@ class TestGrokCost:
 
     def test_unknown_model_uses_default(self):
         calculator = CostCalculator()
-        cost = calculator.calculate_grok_video_cost(
+        cost, _ = calculator.calculate_grok_video_cost(
             duration_seconds=10,
             model="unknown-grok-model",
         )
@@ -170,17 +172,20 @@ class TestArkImageCost:
 
 class TestGrokImageCost:
     def test_grok_image_cost_default(self):
-        cost = cost_calculator.calculate_grok_image_cost()
+        cost, currency = cost_calculator.calculate_grok_image_cost()
         assert cost == pytest.approx(0.02)
+        assert currency == "USD"
 
     def test_grok_image_cost_pro(self):
-        cost = cost_calculator.calculate_grok_image_cost(model="grok-imagine-image-pro")
+        cost, currency = cost_calculator.calculate_grok_image_cost(model="grok-imagine-image-pro")
         assert cost == pytest.approx(0.07)
+        assert currency == "USD"
 
     def test_grok_image_cost_n_images(self):
-        cost = cost_calculator.calculate_grok_image_cost(n=4)
+        cost, _ = cost_calculator.calculate_grok_image_cost(n=4)
         assert cost == pytest.approx(0.02 * 4)
 
     def test_grok_image_cost_unknown_model(self):
-        cost = cost_calculator.calculate_grok_image_cost(model="unknown-model")
+        cost, currency = cost_calculator.calculate_grok_image_cost(model="unknown-model")
         assert cost == pytest.approx(0.02)
+        assert currency == "USD"

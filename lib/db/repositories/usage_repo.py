@@ -12,7 +12,7 @@ from lib.cost_calculator import cost_calculator
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.base import BaseRepository
-from lib.video_backends.base import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
+from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
 
 
 def _row_to_dict(row: ApiCall) -> dict[str, Any]:
@@ -124,21 +124,19 @@ class UsageRepository(BaseRepository):
                     model=row.model,
                 )
             elif effective_provider == PROVIDER_GROK and row.call_type == "video":
-                cost_amount = cost_calculator.calculate_grok_video_cost(
+                cost_amount, currency = cost_calculator.calculate_grok_video_cost(
                     duration_seconds=row.duration_seconds or 8,
                     model=row.model,
                 )
-                currency = "USD"
             elif row.call_type == "image":
                 if effective_provider == PROVIDER_ARK:
                     cost_amount, currency = cost_calculator.calculate_ark_image_cost(
                         model=row.model
                     )
                 elif effective_provider == PROVIDER_GROK:
-                    cost_amount = cost_calculator.calculate_grok_image_cost(
+                    cost_amount, currency = cost_calculator.calculate_grok_image_cost(
                         model=row.model
                     )
-                    currency = "USD"
                 else:  # gemini
                     cost_amount = cost_calculator.calculate_image_cost(
                         row.resolution or "1K", model=row.model

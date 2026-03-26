@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import UsageRepository
-from lib.video_backends.base import PROVIDER_GEMINI
+from lib.providers import PROVIDER_GEMINI
 
 
 class UsageTracker:

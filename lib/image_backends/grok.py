@@ -8,7 +8,7 @@ from typing import Optional, Set
 
 import httpx
 
-from lib.video_backends.base import PROVIDER_GROK
+from lib.providers import PROVIDER_GROK
 from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
