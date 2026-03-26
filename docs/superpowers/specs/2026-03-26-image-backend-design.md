@@ -30,7 +30,7 @@ lib/image_backends/
 #### 数据模型 (`base.py`)
 
 ```python
-class ImageCapability(Enum):
+class ImageCapability(str, Enum):  # 继承 str 以支持字符串比较，与 VideoCapability 一致
     TEXT_TO_IMAGE = "text_to_image"
     IMAGE_TO_IMAGE = "image_to_image"
 
@@ -45,7 +45,7 @@ class ImageGenerationRequest:
     output_path: Path
     reference_images: list[ReferenceImage] = field(default_factory=list)
     aspect_ratio: str = "9:16"
-    image_size: str = "1K"       # "1K", "2K"
+    image_size: str = "1K"       # "1K", "2K"；各 Backend 忽略不支持的字段
     project_name: str | None = None
     seed: int | None = None
 
@@ -94,6 +94,7 @@ class ImageBackend(Protocol):
 - **API**: `client.aio.models.generate_content(model, contents, config)`
 - **参考图处理**: 从 `gemini_client.py` 迁移 `_build_contents_with_labeled_refs()` 逻辑，将 `ReferenceImage` 列表转为 contents 中的 `[label, PIL.Image, ...]` 序列
 - **构造参数**: `backend_type`, `api_key`, `rate_limiter`, `image_model`, `base_url`(AI Studio), `credentials_path`/`gcs_bucket`(Vertex)
+- **Vertex 凭证**: 从 `GeminiClient` 迁移 Vertex 模式的凭证初始化逻辑（`service_account.Credentials.from_service_account_file()`），通过 `credentials_path` 参数传入
 
 #### 2.2 ArkImageBackend (`ark.py`)
 
@@ -114,8 +115,8 @@ class ImageBackend(Protocol):
 - **可选模型**: `grok-imagine-image-pro`
 - **能力**: `TEXT_TO_IMAGE`, `IMAGE_TO_IMAGE`
 - **生成**: `client.image.sample(prompt, model, aspect_ratio, resolution)`
-- **编辑（I2I）**: `client.image.sample(prompt, model, image_url="data:image/png;base64,...")`
-- **参考图处理**: 读取第一张 `ReferenceImage` 为 base64 data URI 传入 `image_url`（Grok 编辑 API 支持单张或多张，通过 `/images/edits` endpoint）
+- **编辑（I2I）**: `client.image.sample(prompt, model, image_url="data:image/png;base64,...")`，SDK 的 `sample()` 方法在传入 `image_url` 时自动走编辑路径
+- **参考图处理**: 读取第一张 `ReferenceImage` 为 base64 data URI 传入 `image_url`；多张参考图场景需确认 SDK 是否支持 `images` 数组参数，不支持则取第一张
 - **构造参数**: `api_key`, `model`
 
 #### 2.4 Reference Images 处理策略
@@ -135,14 +136,18 @@ class ImageBackend(Protocol):
 #### 3.1 GenerationWorker (`lib/generation_worker.py`)
 
 - 现有 `_extract_provider()` 已支持 image 任务的 provider 解析，**无需修改**
+- `_normalize_provider_id()` 新增 `"seedance": "ark"` 映射，确保历史队列中的任务正确路由
 - 优先级链：payload 显式指定 > project.json `image_backend` > 全局 `default_image_backend` > 硬编码默认值
 
 #### 3.2 generation_tasks.py (`server/services/generation_tasks.py`)
 
-- 新增 `_get_or_create_image_backend(provider_name, provider_settings, resolver, default_image_model)` 工厂函数
+- **删除** `_resolve_image_backend()`（原返回 Gemini-only 三元组）
+- **新增** `_get_or_create_image_backend(provider_name, provider_settings, resolver, default_image_model)` 工厂函数，返回 `ImageBackend` 实例
 - 对称 `_get_or_create_video_backend()`，带实例缓存
 - 通过 `image_backends.create_backend(provider_id, **config)` 创建实例
-- `get_media_generator()` 中注入 `image_backend` 参数
+- `_PROVIDER_ID_TO_BACKEND` 映射更新：`"seedance"` → `"ark"`
+- `_DEFAULT_VIDEO_RESOLUTION` 映射更新：`PROVIDER_SEEDANCE` → `PROVIDER_ARK`
+- `get_media_generator()` 中：不再传 `image_backend_type` / `gemini_api_key` / `gemini_base_url` / `gemini_image_model` 给图片路径，改为注入 `image_backend` 实例（Gemini config 仅保留给文本生成所需）
 
 #### 3.3 MediaGenerator (`lib/media_generator.py`)
 
@@ -152,18 +157,16 @@ class ImageBackend(Protocol):
 def __init__(self, ..., image_backend=None, ...):
 ```
 
-`generate_image()` / `generate_image_async()` 逻辑变为：
+`generate_image()` / `generate_image_async()` **移除 GeminiClient fallback**，统一走 `ImageBackend`：
 
 ```python
-if self._image_backend:
-    request = ImageGenerationRequest(...)
-    result = await self._image_backend.generate(request)
-else:
-    # fallback: GeminiClient 直调（向后兼容脚本直调场景）
-    image = await gemini_client.generate_image_async(...)
+if self._image_backend is None:
+    raise RuntimeError("image_backend not configured")
+request = ImageGenerationRequest(...)
+result = await self._image_backend.generate(request)
 ```
 
-保留 fallback 确保 CLI 脚本直调 MediaGenerator（不经过 Worker）时仍可工作。
+脚本直调 MediaGenerator 的场景由调用方负责创建 backend 实例（通过 `image_backends.create_backend()` 即可）。
 
 #### 3.4 ConfigResolver / ConfigService
 
@@ -190,9 +193,15 @@ UPDATE system_setting SET value = REPLACE(value, 'seedance/', 'ark/')
 | `lib/video_backends/__init__.py` | 更新 import 和注册 |
 | `lib/config/registry.py` | key `"seedance"` → `"ark"`，description 更新，`media_types` 加入 `"image"` |
 | `server/routers/system_config.py` | `_PROVIDER_MODELS` key 改为 `"ark"`，加入 image 模型列表 |
-| `lib/cost_calculator.py` | `calculate_seedance_video_cost` → `calculate_ark_video_cost` |
+| `lib/cost_calculator.py` | `calculate_seedance_video_cost` → `calculate_ark_video_cost`；常量 `SEEDANCE_VIDEO_COST` / `DEFAULT_SEEDANCE_MODEL` 重命名为 `ARK_VIDEO_COST` / `DEFAULT_ARK_MODEL` |
 | `lib/db/repositories/usage_repo.py` | 更新 provider 匹配逻辑 |
+| `server/services/generation_tasks.py` | `_PROVIDER_ID_TO_BACKEND`: `"seedance"` → `"ark"`；`_DEFAULT_VIDEO_RESOLUTION`: key 更新 |
+| `lib/generation_worker.py` | `_normalize_provider_id()` 新增 `"seedance": "ark"` 向后兼容映射 |
 | 全局 | 搜索替换 `PROVIDER_SEEDANCE` → `PROVIDER_ARK`、`"seedance"` → `"ark"` |
+
+#### 4.x project.json 向后兼容
+
+已有 `project.json` 中可能包含 `"video_provider": "seedance"` 或 `"image_backend": "seedance/..."`。通过 `_normalize_provider_id()` 的 `"seedance" → "ark"` 映射实现运行时兼容，不需要迁移文件。
 
 #### 4.3 Grok Provider 扩展
 
@@ -235,6 +244,8 @@ def calculate_grok_image_cost(self, model: str | None = None, n: int = 1) -> flo
     """Grok 图片按张计费，返回 USD"""
     # grok-imagine-image: $0.02, grok-imagine-image-pro: $0.07
 ```
+
+**返回类型说明**: 保持与现有模式一致（Ark 返回 `tuple[float, str]` 含 currency，Grok/Gemini 返回 `float` 默认 USD）。UsageRepository 根据 provider 类型决定 currency：Ark 系列设 `currency = "CNY"`，其余默认 `"USD"`。
 
 #### 5.2 UsageRepository 成本路由扩展
 
@@ -279,9 +290,9 @@ if status == "success":
 - `ReferenceImageInput` / `ReferenceImageValue` 类型别名从 `gemini_client.py` 迁移到 `image_backends/base.py`
 - 更新所有 import 引用
 
-#### 6.3 MediaGenerator fallback 移除
+#### 6.3 MediaGenerator GeminiClient 依赖移除
 
-移除 `MediaGenerator` 中对 `GeminiClient` 图片/视频生成的 fallback 路径。注入 `image_backend` 为必需（Worker 路径），脚本直调场景由调用方负责创建 backend 实例。
+移除 `MediaGenerator` 中对 `GeminiClient` 的图片/视频生成依赖（与 3.3 节一致）。`image_backend` 为必需注入，脚本直调场景由调用方通过 `image_backends.create_backend()` 创建实例。`MediaGenerator` 不再直接 import `GeminiClient`。
 
 ### 7. 错误处理
 
