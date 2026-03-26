@@ -61,7 +61,7 @@ class TestListProviders:
                 ),
                 ProviderStatus(
                     name="ark",
-                    display_name="Ark",
+                    display_name="火山方舟",
                     description="Ark video and image",
                     status="unconfigured",
                     media_types=["video", "image"],

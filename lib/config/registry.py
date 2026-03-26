@@ -34,7 +34,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         capabilities=["text_to_video", "image_to_video", "text_to_image", "generate_audio", "negative_prompt", "video_extend"],
     ),
     "ark": ProviderMeta(
-        display_name="Ark",
+        display_name="火山方舟",
         description="字节跳动火山方舟 AI 平台，支持 Seedance 视频生成和 Seedream 图片生成，具备音频生成和种子控制能力。",
         media_types=["video", "image"],
         required_keys=["api_key"],
