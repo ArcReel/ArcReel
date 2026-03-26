@@ -4,10 +4,7 @@ import base64
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Protocol, Set
-
-# Provider 常量从 video_backends 复用，避免重复定义
-from lib.video_backends.base import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
+from typing import Protocol, Set
 
 # 图片后缀 → MIME 类型映射
 IMAGE_MIME_TYPES: dict[str, str] = {

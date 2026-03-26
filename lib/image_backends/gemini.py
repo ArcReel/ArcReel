@@ -12,8 +12,8 @@ from PIL import Image
 
 from lib.gemini_client import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
+from lib.video_backends.base import PROVIDER_GEMINI
 from lib.image_backends.base import (
-    PROVIDER_GEMINI,
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
@@ -83,7 +83,7 @@ class GeminiImageBackend:
         else:
             _api_key = api_key or os.environ.get("GEMINI_API_KEY")
             if not _api_key:
-                raise ValueError("GEMINI_API_KEY 环境变量未设置")
+                raise ValueError("Gemini API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。")
 
             effective_base_url = base_url or os.environ.get("GEMINI_BASE_URL", "").strip() or None
             http_options = {"base_url": effective_base_url} if effective_base_url else None
@@ -143,7 +143,7 @@ class GeminiImageBackend:
         )
 
         # 5. 解析响应并保存
-        image = self._process_image_response(response, request.output_path)
+        self._process_image_response(response, request.output_path)
 
         return ImageGenerationResult(
             image_path=request.output_path,

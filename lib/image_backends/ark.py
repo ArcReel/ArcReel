@@ -34,8 +34,7 @@ class ArkImageBackend:
         self._api_key = api_key or os.environ.get("ARK_API_KEY")
         if not self._api_key:
             raise ValueError(
-                "ARK_API_KEY 环境变量未设置\n"
-                "请在 .env 文件中添加：ARK_API_KEY=your-api-key"
+                "Ark API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。"
             )
 
         self._client = Ark(

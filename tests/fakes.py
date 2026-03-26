@@ -49,7 +49,6 @@ class FakeSDKClient:
             yield message
 
 
-from pathlib import Path
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
 
 

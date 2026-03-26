@@ -54,7 +54,7 @@ class TestArkImageBackendInit:
         monkeypatch.delenv("ARK_API_KEY", raising=False)
         from lib.image_backends.ark import ArkImageBackend
 
-        with pytest.raises(ValueError, match="ARK_API_KEY"):
+        with pytest.raises(ValueError, match="Ark API Key"):
             ArkImageBackend(api_key=None)
 
     def test_api_key_from_env(self, monkeypatch: pytest.MonkeyPatch):
@@ -71,7 +71,7 @@ class TestArkImageBackendInit:
         with patch("lib.image_backends.ark.Ark") as MockArk:
             from lib.image_backends.ark import ArkImageBackend
 
-            backend = ArkImageBackend(api_key="my-key")
+            ArkImageBackend(api_key="my-key")
             MockArk.assert_called_once_with(
                 base_url="https://ark.cn-beijing.volces.com/api/v3",
                 api_key="my-key",
