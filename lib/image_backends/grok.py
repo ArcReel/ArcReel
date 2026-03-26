@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Optional, Set
 
 import httpx
-import xai_sdk
 
 from lib.image_backends.base import (
     PROVIDER_GROK,
@@ -36,6 +35,8 @@ class GrokImageBackend:
                 "XAI_API_KEY 未设置\n"
                 "请在系统配置页中配置 xAI API Key"
             )
+
+        import xai_sdk
 
         self._client = xai_sdk.AsyncClient(api_key=api_key)
         self._model = model or DEFAULT_MODEL
