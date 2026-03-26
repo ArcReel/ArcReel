@@ -47,3 +47,42 @@ class FakeSDKClient:
     async def receive_response(self):
         for message in self._messages:
             yield message
+
+
+from pathlib import Path
+from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
+
+
+class FakeImageBackend:
+    """Fake image backend for testing."""
+
+    def __init__(self, *, provider: str = "fake", model: str = "fake-model"):
+        self._provider = provider
+        self._model = model
+
+    @property
+    def name(self) -> str:
+        return self._provider
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @property
+    def capabilities(self) -> set[ImageCapability]:
+        return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
+
+    async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        request.output_path.parent.mkdir(parents=True, exist_ok=True)
+        # Minimal valid PNG (1x1 pixel)
+        request.output_path.write_bytes(
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+            b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00"
+            b"\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00"
+            b"\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        return ImageGenerationResult(
+            image_path=request.output_path,
+            provider=self._provider,
+            model=self._model,
+        )
