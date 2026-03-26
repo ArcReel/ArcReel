@@ -353,8 +353,8 @@ def _extract_gemini_models(pager) -> list[str]:
     return sorted(models)
 
 
-def _test_seedance(config: dict[str, str]) -> ConnectionTestResponse:
-    """通过 tasks.list 验证 Seedance (Ark) API Key。"""
+def _test_ark(config: dict[str, str]) -> ConnectionTestResponse:
+    """通过 tasks.list 验证 Ark API Key。"""
     from volcenginesdkarkruntime import Ark
 
     client = Ark(
@@ -387,7 +387,7 @@ def _test_grok(config: dict[str, str]) -> ConnectionTestResponse:
 _TEST_DISPATCH: dict[str, Callable[[dict[str, str]], ConnectionTestResponse]] = {
     "gemini-aistudio": _test_gemini_aistudio,
     "gemini-vertex": _test_gemini_vertex,
-    "seedance": _test_seedance,
+    "ark": _test_ark,
     "grok": _test_grok,
 }
 

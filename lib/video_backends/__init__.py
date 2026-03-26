@@ -1,9 +1,9 @@
 """视频生成服务层公共 API。"""
 
 from lib.video_backends.base import (
+    PROVIDER_ARK,
     PROVIDER_GEMINI,
     PROVIDER_GROK,
-    PROVIDER_SEEDANCE,
     VideoBackend,
     VideoCapability,
     VideoGenerationRequest,
@@ -12,9 +12,9 @@ from lib.video_backends.base import (
 from lib.video_backends.registry import create_backend, get_registered_backends, register_backend
 
 __all__ = [
+    "PROVIDER_ARK",
     "PROVIDER_GEMINI",
     "PROVIDER_GROK",
-    "PROVIDER_SEEDANCE",
     "VideoBackend",
     "VideoCapability",
     "VideoGenerationRequest",
@@ -29,9 +29,9 @@ __all__ = [
 from lib.video_backends.gemini import GeminiVideoBackend
 register_backend(PROVIDER_GEMINI, GeminiVideoBackend)
 
-# Seedance: volcengine-python-sdk[ark] is a project dependency
-from lib.video_backends.seedance import SeedanceVideoBackend
-register_backend(PROVIDER_SEEDANCE, SeedanceVideoBackend)
+# Ark: volcengine-python-sdk[ark] is a project dependency
+from lib.video_backends.ark import ArkVideoBackend
+register_backend(PROVIDER_ARK, ArkVideoBackend)
 
 # Grok: xai-sdk
 from lib.video_backends.grok import GrokVideoBackend

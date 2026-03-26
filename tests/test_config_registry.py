@@ -3,7 +3,7 @@ from lib.config.registry import PROVIDER_REGISTRY, ProviderMeta
 
 def test_all_providers_registered():
     assert set(PROVIDER_REGISTRY.keys()) == {
-        "gemini-aistudio", "gemini-vertex", "seedance", "grok"
+        "gemini-aistudio", "gemini-vertex", "ark", "grok"
     }
 
 
@@ -18,10 +18,10 @@ def test_provider_meta_fields():
     assert "text_to_video" in meta.capabilities
 
 
-def test_seedance_video_only():
-    meta = PROVIDER_REGISTRY["seedance"]
-    assert meta.media_types == ["video"]
-    assert "image" not in meta.media_types
+def test_ark_supports_video_and_image():
+    meta = PROVIDER_REGISTRY["ark"]
+    assert "video" in meta.media_types
+    assert "image" in meta.media_types
 
 
 def test_required_keys_are_subset_of_all_keys():

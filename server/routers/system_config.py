@@ -44,13 +44,14 @@ _PROVIDER_MODELS: dict[str, dict[str, list[str]]] = {
         "video": ["veo-3.1-generate-001", "veo-3.1-fast-generate-001"],
         "image": ["gemini-3.1-flash-image-preview"],
     },
-    "seedance": {
+    "ark": {
         "video": ["doubao-seedance-1-5-pro-251215"],
-        "image": [],
+        "image": ["doubao-seedream-5-0-260128", "doubao-seedream-5-0-lite-260128",
+                   "doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828"],
     },
     "grok": {
         "video": ["grok-imagine-video"],
-        "image": [],
+        "image": ["grok-imagine-image", "grok-imagine-image-pro"],
     },
 }
 

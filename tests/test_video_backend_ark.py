@@ -1,4 +1,4 @@
-"""SeedanceVideoBackend 单元测试 — mock Ark SDK。"""
+"""ArkVideoBackend 单元测试 — mock Ark SDK。"""
 
 import os
 from pathlib import Path
@@ -11,7 +11,7 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
 )
-from lib.video_backends.seedance import SeedanceVideoBackend
+from lib.video_backends.ark import ArkVideoBackend
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def mock_ark_client():
 @pytest.fixture
 def backend(mock_ark_client):
     with patch("volcenginesdkarkruntime.Ark", return_value=mock_ark_client):
-        b = SeedanceVideoBackend(
+        b = ArkVideoBackend(
             api_key="test-ark-key",
             file_service_base_url="https://example.com",
         )
@@ -57,9 +57,9 @@ def _mock_httpx_stream(data: bytes = b"fake-mp4-data"):
     return patcher
 
 
-class TestSeedanceProperties:
+class TestArkProperties:
     def test_name(self, backend):
-        assert backend.name == "seedance"
+        assert backend.name == "ark"
 
     def test_capabilities(self, backend):
         caps = backend.capabilities
@@ -71,7 +71,7 @@ class TestSeedanceProperties:
         assert VideoCapability.NEGATIVE_PROMPT not in caps
 
 
-class TestSeedanceGenerate:
+class TestArkGenerate:
     async def test_text_to_video(self, backend, tmp_path):
         """文生视频：无 start_image。"""
         output = tmp_path / "out.mp4"
@@ -105,7 +105,7 @@ class TestSeedanceGenerate:
             patcher.stop()
 
         assert isinstance(result, VideoGenerationResult)
-        assert result.provider == "seedance"
+        assert result.provider == "ark"
         assert result.model == "doubao-seedance-1-5-pro-251215"
         assert result.seed == 58944
         assert result.usage_tokens == 246840
@@ -150,7 +150,7 @@ class TestSeedanceGenerate:
         finally:
             patcher.stop()
 
-        assert result.provider == "seedance"
+        assert result.provider == "ark"
         create_call = backend._client.content_generation.tasks.create
         call_kwargs = create_call.call_args
         content_arg = call_kwargs.kwargs.get("content") or call_kwargs[1].get(
@@ -176,7 +176,7 @@ class TestSeedanceGenerate:
         )
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
-        with pytest.raises(RuntimeError, match="Seedance 视频生成失败"):
+        with pytest.raises(RuntimeError, match="Ark 视频生成失败"):
             await backend.generate(request)
 
     async def test_with_seed_and_flex(self, backend, tmp_path):
@@ -223,7 +223,7 @@ class TestSeedanceGenerate:
         with patch.dict(os.environ, {}, clear=True):
             with patch("volcenginesdkarkruntime.Ark"):
                 with pytest.raises(ValueError, match="ARK_API_KEY"):
-                    SeedanceVideoBackend(api_key=None)
+                    ArkVideoBackend(api_key=None)
 
     def test_missing_file_service_url_raises(self, backend):
         backend._file_service_base_url = ""

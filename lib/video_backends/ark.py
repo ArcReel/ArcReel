@@ -1,4 +1,4 @@
-"""SeedanceVideoBackend — 火山方舟 Seedance 视频生成后端。"""
+"""ArkVideoBackend — 火山方舟 Ark 视频生成后端。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional, Set
 
 from lib.video_backends.base import (
-    PROVIDER_SEEDANCE,
+    PROVIDER_ARK,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -19,8 +19,8 @@ from lib.video_backends.base import (
 logger = logging.getLogger(__name__)
 
 
-class SeedanceVideoBackend:
-    """Seedance (火山方舟) 视频生成后端。"""
+class ArkVideoBackend:
+    """Ark (火山方舟) 视频生成后端。"""
 
     DEFAULT_MODEL = "doubao-seedance-1-5-pro-251215"
 
@@ -58,7 +58,7 @@ class SeedanceVideoBackend:
 
     @property
     def name(self) -> str:
-        return PROVIDER_SEEDANCE
+        return PROVIDER_ARK
 
     @property
     def model(self) -> str:
@@ -101,7 +101,7 @@ class SeedanceVideoBackend:
             **create_params,
         )
         task_id = create_result.id
-        logger.info("Seedance 任务已创建: %s", task_id)
+        logger.info("Ark 任务已创建: %s", task_id)
 
         # 4. Poll until done
         poll_interval = 10 if request.service_tier == "default" else 60
@@ -118,14 +118,14 @@ class SeedanceVideoBackend:
                 break
             elif result.status in ("failed", "expired"):
                 error_msg = getattr(result, "error", None) or "Unknown error"
-                raise RuntimeError(f"Seedance 视频生成失败: {error_msg}")
+                raise RuntimeError(f"Ark 视频生成失败: {error_msg}")
 
             elapsed += poll_interval
             if elapsed >= max_wait_time:
-                raise TimeoutError(f"Seedance 视频生成超时（{max_wait_time}秒）")
+                raise TimeoutError(f"Ark 视频生成超时（{max_wait_time}秒）")
 
             logger.info(
-                "Seedance 视频生成中... 状态: %s, 已等待 %d 秒",
+                "Ark 视频生成中... 状态: %s, 已等待 %d 秒",
                 result.status,
                 elapsed,
             )
@@ -143,7 +143,7 @@ class SeedanceVideoBackend:
 
         return VideoGenerationResult(
             video_path=request.output_path,
-            provider=PROVIDER_SEEDANCE,
+            provider=PROVIDER_ARK,
             model=self._model,
             duration_seconds=request.duration_seconds,
             video_uri=video_url,
@@ -161,7 +161,7 @@ class SeedanceVideoBackend:
         """
         if not self._file_service_base_url:
             raise ValueError(
-                "使用 Seedance 供应商的图生视频功能需要设置 FILE_SERVICE_BASE_URL 环境变量\n"
+                "使用 Ark 供应商的图生视频功能需要设置 FILE_SERVICE_BASE_URL 环境变量\n"
                 "部署环境必须可公网访问"
             )
         if not project_name:

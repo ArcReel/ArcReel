@@ -67,7 +67,7 @@ class TestVideoGenerationResult:
     def test_optional_fields(self):
         result = VideoGenerationResult(
             video_path=Path("/tmp/out.mp4"),
-            provider="seedance",
+            provider="ark",
             model="doubao-seedance-1-5-pro-251215",
             duration_seconds=5,
             video_uri="https://cdn.example.com/video.mp4",

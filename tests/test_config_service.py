@@ -58,9 +58,9 @@ async def test_system_settings(config_service: ConfigService):
 
 
 async def test_get_default_video_backend(config_service: ConfigService):
-    await config_service.set_setting("default_video_backend", "seedance/doubao-seedance-1-5-pro-251215")
+    await config_service.set_setting("default_video_backend", "ark/doubao-seedance-1-5-pro-251215")
     provider_id, model_id = await config_service.get_default_video_backend()
-    assert provider_id == "seedance"
+    assert provider_id == "ark"
     assert model_id == "doubao-seedance-1-5-pro-251215"
 
 

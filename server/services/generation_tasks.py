@@ -28,7 +28,7 @@ from lib.storyboard_sequence import (
     resolve_previous_storyboard_path,
 )
 from lib.thumbnail import extract_video_thumbnail
-from lib.video_backends.base import PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_SEEDANCE
+from lib.video_backends.base import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
 
 
 pm = ProjectManager(PROJECT_ROOT / "projects")
@@ -41,7 +41,7 @@ _backend_cache: dict[tuple[str, str | None], Any] = {}
 # 各供应商默认视频分辨率
 _DEFAULT_VIDEO_RESOLUTION: dict[str, str] = {
     PROVIDER_GEMINI: "1080p",
-    PROVIDER_SEEDANCE: "720p",
+    PROVIDER_ARK: "720p",
     PROVIDER_GROK: "720p",
 }
 
@@ -50,7 +50,7 @@ _PROVIDER_ID_TO_BACKEND: dict[str, str] = {
     "gemini-aistudio": PROVIDER_GEMINI,
     "gemini-vertex": PROVIDER_GEMINI,
     PROVIDER_GEMINI: PROVIDER_GEMINI,
-    PROVIDER_SEEDANCE: PROVIDER_SEEDANCE,
+    PROVIDER_ARK: PROVIDER_ARK,
     PROVIDER_GROK: PROVIDER_GROK,
 }
 
@@ -103,8 +103,8 @@ async def _get_or_create_video_backend(
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["rate_limiter"] = rate_limiter
         kwargs["video_model"] = effective_model
-    elif backend_name == PROVIDER_SEEDANCE:
-        db_config = await resolver.provider_config("seedance")
+    elif backend_name == PROVIDER_ARK:
+        db_config = await resolver.provider_config("ark")
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["file_service_base_url"] = db_config.get("file_service_base_url", "")
         kwargs["model"] = effective_model

@@ -97,8 +97,8 @@ class TestProviderPool:
 
 class TestExtractProvider:
     async def test_video_provider_in_payload(self):
-        task = {"payload": {"video_provider": "seedance"}}
-        assert await _extract_provider(task) == "seedance"
+        task = {"payload": {"video_provider": "ark"}}
+        assert await _extract_provider(task) == "ark"
 
     async def test_image_provider_in_payload(self):
         task = {"payload": {"image_provider": "gemini-vertex"}}
@@ -159,10 +159,10 @@ class TestExtractProvider:
         )
         monkeypatch.setattr(
             "lib.config.resolver.get_project_manager",
-            lambda: type("PM", (), {"load_project": lambda self, name: {"video_provider": "seedance"}})(),
+            lambda: type("PM", (), {"load_project": lambda self, name: {"video_provider": "ark"}})(),
         )
         task = {"payload": {}, "project_name": "test", "task_type": "video"}
-        assert await _extract_provider(task) == "seedance"
+        assert await _extract_provider(task) == "ark"
 
     async def test_project_level_image_backend_takes_precedence(self, monkeypatch):
         """项目级 image_backend 优先于全局默认。"""
@@ -189,13 +189,13 @@ class TestExtractProvider:
             "lib.config.resolver.ConfigResolver.default_video_backend",
             should_not_be_called,
         )
-        task = {"payload": {"video_provider": "seedance"}, "project_name": "test", "task_type": "video"}
-        assert await _extract_provider(task) == "seedance"
+        task = {"payload": {"video_provider": "ark"}, "project_name": "test", "task_type": "video"}
+        assert await _extract_provider(task) == "ark"
 
 
 class TestProjectLevelProvider:
     def test_video_provider(self):
-        assert _project_level_provider({"video_provider": "seedance"}, "video") == "seedance"
+        assert _project_level_provider({"video_provider": "ark"}, "video") == "ark"
 
     def test_video_no_override(self):
         assert _project_level_provider({}, "video") is None
@@ -216,8 +216,11 @@ class TestNormalizeProviderId:
         assert _normalize_provider_id("vertex") == "gemini-vertex"
 
     def test_already_new(self):
-        assert _normalize_provider_id("seedance") == "seedance"
+        assert _normalize_provider_id("ark") == "ark"
         assert _normalize_provider_id("grok") == "grok"
+
+    def test_seedance_to_ark(self):
+        assert _normalize_provider_id("seedance") == "ark"
 
 
 class TestBuildDefaultPools:
@@ -326,7 +329,7 @@ class TestGenerationWorker:
                     {"task_id": "img1", "task_type": "gen_image", "media_type": "image",
                      "payload": {"image_provider": "gemini-aistudio"}},
                     {"task_id": "vid1", "task_type": "gen_video", "media_type": "video",
-                     "payload": {"video_provider": "seedance"}},
+                     "payload": {"video_provider": "ark"}},
                 ]
 
             async def claim_next_task(self, media_type):
@@ -338,7 +341,7 @@ class TestGenerationWorker:
         queue = _ClaimableQueue()
         pools = {
             "gemini-aistudio": ProviderPool(provider_id="gemini-aistudio", image_max=3, video_max=2),
-            "seedance": ProviderPool(provider_id="seedance", image_max=0, video_max=2),
+            "ark": ProviderPool(provider_id="ark", image_max=0, video_max=2),
         }
         worker = GenerationWorker(queue=queue, pools=pools)
 
@@ -353,10 +356,10 @@ class TestGenerationWorker:
         claimed = await worker._claim_tasks()
         assert claimed
         assert "img1" in pools["gemini-aistudio"].image_inflight
-        assert "vid1" in pools["seedance"].video_inflight
+        assert "vid1" in pools["ark"].video_inflight
 
         # Wait for tasks to complete
         await asyncio.gather(*[
             *pools["gemini-aistudio"].image_inflight.values(),
-            *pools["seedance"].video_inflight.values(),
+            *pools["ark"].video_inflight.values(),
         ], return_exceptions=True)

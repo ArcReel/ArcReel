@@ -118,6 +118,7 @@ def _normalize_provider_id(raw: str) -> str:
     mapping = {
         "gemini": "gemini-aistudio",
         "vertex": "gemini-vertex",
+        "seedance": "ark",
     }
     return mapping.get(raw, raw)
 

@@ -53,7 +53,7 @@ async def test_migrate_provider_configs(session: AsyncSession, json_file: Path):
     config = await repo.get_all("gemini-aistudio")
     assert config["api_key"] == "AIza-test-key"
     assert config["image_rpm"] == "15"
-    config = await repo.get_all("seedance")
+    config = await repo.get_all("ark")
     assert config["api_key"] == "ark-test-key"
 
 
@@ -79,8 +79,8 @@ async def test_migrate_max_workers_to_all_configured_providers(
 ):
     await migrate_json_to_db(session, json_file)
     repo = ProviderConfigRepository(session)
-    seedance = await repo.get_all("seedance")
-    assert seedance.get("video_max_workers") == "2"
+    ark = await repo.get_all("ark")
+    assert ark.get("video_max_workers") == "2"
     grok = await repo.get_all("grok")
     assert "video_max_workers" not in grok
 

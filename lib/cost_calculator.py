@@ -71,8 +71,8 @@ class CostCalculator:
 
     DEFAULT_VIDEO_MODEL = "veo-3.1-fast-generate-preview"
 
-    # Seedance 视频费用（元/百万 token），按 (service_tier, generate_audio) 查表
-    SEEDANCE_VIDEO_COST = {
+    # Ark 视频费用（元/百万 token），按 (service_tier, generate_audio) 查表
+    ARK_VIDEO_COST = {
         "doubao-seedance-1-5-pro-251215": {
             ("default", True): 16.00,
             ("default", False): 8.00,
@@ -81,7 +81,7 @@ class CostCalculator:
         },
     }
 
-    DEFAULT_SEEDANCE_MODEL = "doubao-seedance-1-5-pro-251215"
+    DEFAULT_ARK_VIDEO_MODEL = "doubao-seedance-1-5-pro-251215"
 
     # Grok 视频费用（美元/秒），不区分分辨率
     # 来源：docs/grok-docs/models.md — $0.050/sec
@@ -91,7 +91,7 @@ class CostCalculator:
 
     DEFAULT_GROK_MODEL = "grok-imagine-video"
 
-    def calculate_seedance_video_cost(
+    def calculate_ark_video_cost(
         self,
         usage_tokens: int,
         service_tier: str = "default",
@@ -99,14 +99,14 @@ class CostCalculator:
         model: str | None = None,
     ) -> tuple[float, str]:
         """
-        计算 Seedance 视频生成费用。
+        计算 Ark 视频生成费用。
 
         Returns:
             (amount, currency) — 金额和币种 (CNY)
         """
-        model = model or self.DEFAULT_SEEDANCE_MODEL
-        model_costs = self.SEEDANCE_VIDEO_COST.get(
-            model, self.SEEDANCE_VIDEO_COST[self.DEFAULT_SEEDANCE_MODEL]
+        model = model or self.DEFAULT_ARK_VIDEO_MODEL
+        model_costs = self.ARK_VIDEO_COST.get(
+            model, self.ARK_VIDEO_COST[self.DEFAULT_ARK_VIDEO_MODEL]
         )
         key = (service_tier, generate_audio)
         price_per_million = model_costs.get(

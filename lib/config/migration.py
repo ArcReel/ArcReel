@@ -17,8 +17,8 @@ _PROVIDER_KEY_MAP: list[tuple[str, str, str, bool]] = [
     ("gemini_api_key", "gemini-aistudio", "api_key", True),
     ("gemini_base_url", "gemini-aistudio", "base_url", False),
     ("vertex_gcs_bucket", "gemini-vertex", "gcs_bucket", False),
-    ("ark_api_key", "seedance", "api_key", True),
-    ("file_service_base_url", "seedance", "file_service_base_url", False),
+    ("ark_api_key", "ark", "api_key", True),
+    ("file_service_base_url", "ark", "file_service_base_url", False),
     ("xai_api_key", "grok", "api_key", True),
 ]
 

@@ -12,7 +12,7 @@ from lib.cost_calculator import cost_calculator
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.base import BaseRepository
-from lib.video_backends.base import PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_SEEDANCE
+from lib.video_backends.base import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
 
 
 def _row_to_dict(row: ApiCall) -> dict[str, Any]:
@@ -116,8 +116,8 @@ class UsageRepository(BaseRepository):
         effective_provider = row.provider or PROVIDER_GEMINI
 
         if status == "success":
-            if effective_provider == PROVIDER_SEEDANCE and row.call_type == "video":
-                cost_amount, currency = cost_calculator.calculate_seedance_video_cost(
+            if effective_provider == PROVIDER_ARK and row.call_type == "video":
+                cost_amount, currency = cost_calculator.calculate_ark_video_cost(
                     usage_tokens=usage_tokens or 0,
                     service_tier=service_tier,
                     generate_audio=bool(row.generate_audio),

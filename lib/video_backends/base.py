@@ -11,7 +11,7 @@ import httpx
 
 
 PROVIDER_GEMINI = "gemini"
-PROVIDER_SEEDANCE = "seedance"
+PROVIDER_ARK = "ark"
 PROVIDER_GROK = "grok"
 
 # 图片后缀 → MIME 类型映射（多个后端共用）

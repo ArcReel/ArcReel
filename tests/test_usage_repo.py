@@ -91,7 +91,7 @@ class TestUsageRepository:
 
 
 class TestMultiProviderUsage:
-    async def test_seedance_call_records_provider_and_tokens(self, db_session):
+    async def test_ark_call_records_provider_and_tokens(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(
             project_name="demo",
@@ -101,7 +101,7 @@ class TestMultiProviderUsage:
             resolution="1080p",
             duration_seconds=5,
             generate_audio=True,
-            provider="seedance",
+            provider="ark",
         )
 
         await repo.finish_call(
@@ -113,7 +113,7 @@ class TestMultiProviderUsage:
 
         calls = await repo.get_calls(project_name="demo")
         item = calls["items"][0]
-        assert item["provider"] == "seedance"
+        assert item["provider"] == "ark"
         assert item["currency"] == "CNY"
         assert item["usage_tokens"] == 246840
         assert item["cost_amount"] == pytest.approx(3.9494, rel=1e-3)
@@ -147,11 +147,11 @@ class TestMultiProviderUsage:
         )
         await repo.finish_call(c1, status="success")
 
-        # Seedance call
+        # Ark call
         c2 = await repo.start_call(
             project_name="demo", call_type="video",
             model="doubao-seedance-1-5-pro-251215", duration_seconds=5,
-            resolution="1080p", generate_audio=True, provider="seedance",
+            resolution="1080p", generate_audio=True, provider="ark",
         )
         await repo.finish_call(c2, status="success", usage_tokens=246840, service_tier="default")
 

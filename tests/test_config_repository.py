@@ -55,8 +55,8 @@ async def test_get_secrets_masked(session: AsyncSession):
 
 async def test_get_configured_keys(session: AsyncSession):
     repo = ProviderConfigRepository(session)
-    await repo.set("seedance", "api_key", "ark-test", is_secret=True)
-    keys = await repo.get_configured_keys("seedance")
+    await repo.set("ark", "api_key", "ark-test", is_secret=True)
+    keys = await repo.get_configured_keys("ark")
     assert keys == ["api_key"]
 
 

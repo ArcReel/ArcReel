@@ -42,10 +42,10 @@ class TestCostCalculator:
         assert isinstance(cost_calculator, CostCalculator)
 
 
-class TestSeedanceCost:
+class TestArkCost:
     def test_online_with_audio(self):
         calculator = CostCalculator()
-        amount, currency = calculator.calculate_seedance_video_cost(
+        amount, currency = calculator.calculate_ark_video_cost(
             usage_tokens=246840,
             service_tier="default",
             generate_audio=True,
@@ -56,7 +56,7 @@ class TestSeedanceCost:
 
     def test_online_no_audio(self):
         calculator = CostCalculator()
-        amount, currency = calculator.calculate_seedance_video_cost(
+        amount, currency = calculator.calculate_ark_video_cost(
             usage_tokens=246840,
             service_tier="default",
             generate_audio=False,
@@ -66,7 +66,7 @@ class TestSeedanceCost:
 
     def test_flex_with_audio(self):
         calculator = CostCalculator()
-        amount, currency = calculator.calculate_seedance_video_cost(
+        amount, currency = calculator.calculate_ark_video_cost(
             usage_tokens=246840,
             service_tier="flex",
             generate_audio=True,
@@ -76,7 +76,7 @@ class TestSeedanceCost:
 
     def test_flex_no_audio(self):
         calculator = CostCalculator()
-        amount, currency = calculator.calculate_seedance_video_cost(
+        amount, currency = calculator.calculate_ark_video_cost(
             usage_tokens=246840,
             service_tier="flex",
             generate_audio=False,
@@ -86,7 +86,7 @@ class TestSeedanceCost:
 
     def test_zero_tokens(self):
         calculator = CostCalculator()
-        amount, currency = calculator.calculate_seedance_video_cost(
+        amount, currency = calculator.calculate_ark_video_cost(
             usage_tokens=0,
             service_tier="default",
             generate_audio=True,
@@ -96,7 +96,7 @@ class TestSeedanceCost:
 
     def test_unknown_model_uses_default(self):
         calculator = CostCalculator()
-        amount, currency = calculator.calculate_seedance_video_cost(
+        amount, currency = calculator.calculate_ark_video_cost(
             usage_tokens=1_000_000,
             service_tier="default",
             generate_audio=True,
