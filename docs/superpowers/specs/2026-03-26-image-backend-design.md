@@ -299,7 +299,7 @@ if status == "success":
 - **网络/API 错误**: 直接抛出，Worker 记录 `status=failed` + `error_message`
 - **审核拒绝**: Grok `respect_moderation=False`、Ark 特定错误码 → 统一抛出描述性异常
 - **能力不匹配**: 传了 `reference_images` 但后端不支持 `IMAGE_TO_IMAGE` → 忽略参考图退回 T2I，log warning（不中断，四个后端均支持 I2I，此分支为防御性代码）
-- **重试**: 复用 Worker 的 task 重新入队机制，不在 backend 内部重试
+- **重试**: SDK 层通过 `@with_retry_async` 处理瞬态 API 错误（429/503，backoff 2-32s）；持久性失败直接标记 `failed` 终态，由用户决定是否重试
 
 ### 8. 测试策略
 

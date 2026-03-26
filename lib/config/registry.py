@@ -40,15 +40,15 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         required_keys=["api_key"],
         optional_keys=["file_service_base_url", "video_rpm", "image_rpm", "request_gap", "video_max_workers", "image_max_workers"],
         secret_keys=["api_key"],
-        capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "flex_tier"],
+        capabilities=["text_to_video", "image_to_video", "text_to_image", "image_to_image", "generate_audio", "seed_control", "flex_tier"],
     ),
     "grok": ProviderMeta(
         display_name="Grok",
-        description="xAI Grok 视频生成模型，支持文本和图像驱动的视频创作。",
+        description="xAI Grok 模型，支持视频和图片生成。",
         media_types=["video", "image"],
         required_keys=["api_key"],
         optional_keys=["video_rpm", "image_rpm", "request_gap", "video_max_workers", "image_max_workers"],
         secret_keys=["api_key"],
-        capabilities=["text_to_video", "image_to_video"],
+        capabilities=["text_to_video", "image_to_video", "text_to_image", "image_to_image"],
     ),
 }
