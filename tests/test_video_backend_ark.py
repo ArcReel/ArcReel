@@ -27,7 +27,6 @@ def backend(mock_ark_client):
     with patch("volcenginesdkarkruntime.Ark", return_value=mock_ark_client):
         b = ArkVideoBackend(
             api_key="test-ark-key",
-            file_service_base_url="https://example.com",
         )
     b._client = mock_ark_client
     return b
@@ -114,10 +113,7 @@ class TestArkGenerate:
     async def test_image_to_video(self, backend, tmp_path):
         """图生视频：有 start_image。"""
         output = tmp_path / "out.mp4"
-        # 模拟真实项目路径结构: .../projects/<name>/storyboards/<file>.png
-        project_dir = tmp_path / "projects" / "demo" / "storyboards"
-        project_dir.mkdir(parents=True)
-        frame = project_dir / "scene_E1S01.png"
+        frame = tmp_path / "scene_E1S01.png"
         frame.write_bytes(b"fake-png")
 
         create_result = MagicMock()
@@ -144,7 +140,6 @@ class TestArkGenerate:
                 output_path=output,
                 start_image=frame,
                 generate_audio=True,
-                project_name="demo",
             )
             result = await backend.generate(request)
         finally:
@@ -158,6 +153,7 @@ class TestArkGenerate:
         )
         assert len(content_arg) == 2
         assert content_arg[1]["type"] == "image_url"
+        assert content_arg[1]["image_url"]["url"].startswith("data:image/")
 
     async def test_failed_task_raises(self, backend, tmp_path):
         output = tmp_path / "out.mp4"
@@ -225,7 +221,3 @@ class TestArkGenerate:
                 with pytest.raises(ValueError, match="ARK_API_KEY"):
                     ArkVideoBackend(api_key=None)
 
-    def test_missing_file_service_url_raises(self, backend):
-        backend._file_service_base_url = ""
-        with pytest.raises(ValueError, match="FILE_SERVICE_BASE_URL"):
-            backend._get_image_url(Path("/tmp/test.png"), "demo")

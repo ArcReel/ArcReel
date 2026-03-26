@@ -40,7 +40,6 @@ _FIELD_META: dict[str, dict[str, str]] = {
     "base_url": {"label": "Base URL", "type": "url", "placeholder": "默认官方地址"},
     "credentials_path": {"label": "Vertex 凭证路径", "type": "text"},
     "gcs_bucket": {"label": "GCS Bucket", "type": "text"},
-    "file_service_base_url": {"label": "文件服务 URL", "type": "url"},
     "image_rpm": {"label": "图片 RPM", "type": "number"},
     "video_rpm": {"label": "视频 RPM", "type": "number"},
     "request_gap": {"label": "请求间隔(秒)", "type": "number"},

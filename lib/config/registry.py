@@ -38,7 +38,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         description="字节跳动火山方舟 AI 平台，支持 Seedance 视频生成和 Seedream 图片生成，具备音频生成和种子控制能力。",
         media_types=["video", "image"],
         required_keys=["api_key"],
-        optional_keys=["file_service_base_url", "video_rpm", "image_rpm", "request_gap", "video_max_workers", "image_max_workers"],
+        optional_keys=["video_rpm", "image_rpm", "request_gap", "video_max_workers", "image_max_workers"],
         secret_keys=["api_key"],
         capabilities=["text_to_video", "image_to_video", "text_to_image", "image_to_image", "generate_audio", "seed_control", "flex_tier"],
     ),

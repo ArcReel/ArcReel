@@ -160,7 +160,7 @@ class TestArkImageBackendGenerate:
         # Prepare a reference image file
         ref_file = tmp_path / "ref.png"
         ref_file.write_bytes(b"ref-image-bytes")
-        expected_b64 = base64.b64encode(b"ref-image-bytes").decode()
+        expected_data_uri = "data:image/png;base64," + base64.b64encode(b"ref-image-bytes").decode()
 
         output = tmp_path / "out.png"
         request = ImageGenerationRequest(
@@ -172,7 +172,7 @@ class TestArkImageBackendGenerate:
         await backend.generate(request)
 
         call_kwargs = client.images.generate.call_args.kwargs
-        assert call_kwargs["image"] == expected_b64
+        assert call_kwargs["image"] == expected_data_uri
 
     async def test_i2i_multiple_refs(self, backend_and_client, tmp_path: Path):
         backend, client = backend_and_client
@@ -196,8 +196,8 @@ class TestArkImageBackendGenerate:
 
         call_kwargs = client.images.generate.call_args.kwargs
         assert call_kwargs["image"] == [
-            base64.b64encode(b"img-a").decode(),
-            base64.b64encode(b"img-b").decode(),
+            "data:image/png;base64," + base64.b64encode(b"img-a").decode(),
+            "data:image/png;base64," + base64.b64encode(b"img-b").decode(),
         ]
 
     async def test_output_dir_created(self, backend_and_client, tmp_path: Path):

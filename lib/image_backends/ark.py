@@ -14,6 +14,7 @@ from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
+    image_to_base64_data_uri,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,14 +70,14 @@ class ArkImageBackend:
             "response_format": "b64_json",
         }
 
-        # I2I: 读取参考图并 base64 编码
+        # I2I: 读取参考图并转为 base64 data URI
         if request.reference_images:
-            b64_images = [
-                base64.b64encode(Path(ref.path).read_bytes()).decode()
+            data_uris = [
+                image_to_base64_data_uri(Path(ref.path))
                 for ref in request.reference_images
             ]
             # 单张传字符串，多张传列表
-            kwargs["image"] = b64_images[0] if len(b64_images) == 1 else b64_images
+            kwargs["image"] = data_uris[0] if len(data_uris) == 1 else data_uris
 
         if request.seed is not None:
             kwargs["seed"] = request.seed

@@ -106,7 +106,6 @@ async def _get_or_create_video_backend(
     elif backend_name == PROVIDER_ARK:
         db_config = await resolver.provider_config("ark")
         kwargs["api_key"] = db_config.get("api_key")
-        kwargs["file_service_base_url"] = db_config.get("file_service_base_url", "")
         kwargs["model"] = effective_model
     elif backend_name == PROVIDER_GROK:
         db_config = await resolver.provider_config("grok")

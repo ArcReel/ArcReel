@@ -29,7 +29,6 @@ class ArkVideoBackend:
         *,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
-        file_service_base_url: Optional[str] = None,
     ):
         self._api_key = api_key or os.environ.get("ARK_API_KEY")
         if not self._api_key:
@@ -45,9 +44,6 @@ class ArkVideoBackend:
             api_key=self._api_key,
         )
         self._model = model or self.DEFAULT_MODEL
-        self._file_service_base_url = file_service_base_url or os.environ.get(
-            "FILE_SERVICE_BASE_URL", ""
-        )
         self._capabilities: Set[VideoCapability] = {
             VideoCapability.TEXT_TO_VIDEO,
             VideoCapability.IMAGE_TO_VIDEO,
@@ -74,10 +70,12 @@ class ArkVideoBackend:
         content = [{"type": "text", "text": request.prompt}]
 
         if request.start_image:
-            image_url = self._get_image_url(request.start_image, request.project_name)
+            from lib.image_backends.base import image_to_base64_data_uri
+
+            data_uri = image_to_base64_data_uri(request.start_image)
             content.append({
                 "type": "image_url",
-                "image_url": {"url": image_url},
+                "image_url": {"url": data_uri},
             })
 
         # 2. Build API params
@@ -153,33 +151,3 @@ class ArkVideoBackend:
             generate_audio=request.generate_audio,
         )
 
-    def _get_image_url(self, image_path: Path, project_name: Optional[str] = None) -> str:
-        """将本地图片路径转换为公网可访问的 URL。
-
-        通过项目文件服务的静态资源路径构建 URL。
-        文件服务路由为 /api/v1/files/{project_name}/{rel_path}。
-        """
-        if not self._file_service_base_url:
-            raise ValueError(
-                "使用 Ark 供应商的图生视频功能需要设置 FILE_SERVICE_BASE_URL 环境变量\n"
-                "部署环境必须可公网访问"
-            )
-        if not project_name:
-            raise ValueError("project_name is required for image URL generation")
-        # Walk up from the image to find the project directory,
-        # avoiding false matches when project_name appears elsewhere in the path
-        # (e.g. /home/demo/projects/demo/storyboards/scene_E1S01.png)
-        image_path = Path(image_path)
-        project_dir = None
-        p = image_path.parent
-        while p != p.parent:
-            if p.name == project_name:
-                project_dir = p
-                break
-            p = p.parent
-
-        if not project_dir:
-            raise ValueError(f"无法从路径中定位项目 '{project_name}': {image_path}")
-
-        rel_path = image_path.relative_to(project_dir).as_posix()
-        return f"{self._file_service_base_url}/api/v1/files/{project_name}/{rel_path}"
