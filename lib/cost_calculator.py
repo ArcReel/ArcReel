@@ -91,6 +91,22 @@ class CostCalculator:
 
     DEFAULT_GROK_MODEL = "grok-imagine-video"
 
+    # Ark 图片费用（元/张）
+    ARK_IMAGE_COST = {
+        "doubao-seedream-5-0-260128": 0.22,
+        "doubao-seedream-5-0-lite-260128": 0.22,
+        "doubao-seedream-4-5-251128": 0.25,
+        "doubao-seedream-4-0-250828": 0.20,
+    }
+    DEFAULT_ARK_IMAGE_MODEL = "doubao-seedream-5-0-lite-260128"
+
+    # Grok 图片费用（美元/张）
+    GROK_IMAGE_COST = {
+        "grok-imagine-image": 0.02,
+        "grok-imagine-image-pro": 0.07,
+    }
+    DEFAULT_GROK_IMAGE_MODEL = "grok-imagine-image"
+
     def calculate_ark_video_cost(
         self,
         usage_tokens: int,
@@ -159,6 +175,40 @@ class CostCalculator:
             model_costs.get(("1080p", True)) or self.VIDEO_COST[self.DEFAULT_VIDEO_MODEL][("1080p", True)],
         )
         return duration_seconds * cost_per_second
+
+    def calculate_ark_image_cost(
+        self,
+        model: str | None = None,
+        n: int = 1,
+    ) -> tuple[float, str]:
+        """
+        Ark 图片按张计费。
+
+        Returns:
+            (amount, currency) — 金额和币种 (CNY)
+        """
+        model = model or self.DEFAULT_ARK_IMAGE_MODEL
+        per_image = self.ARK_IMAGE_COST.get(
+            model, self.ARK_IMAGE_COST[self.DEFAULT_ARK_IMAGE_MODEL]
+        )
+        return per_image * n, "CNY"
+
+    def calculate_grok_image_cost(
+        self,
+        model: str | None = None,
+        n: int = 1,
+    ) -> float:
+        """
+        Grok 图片按张计费。
+
+        Returns:
+            费用（美元）
+        """
+        model = model or self.DEFAULT_GROK_IMAGE_MODEL
+        per_image = self.GROK_IMAGE_COST.get(
+            model, self.GROK_IMAGE_COST[self.DEFAULT_GROK_IMAGE_MODEL]
+        )
+        return per_image * n
 
     def calculate_grok_video_cost(
         self,

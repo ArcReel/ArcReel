@@ -130,10 +130,20 @@ class UsageRepository(BaseRepository):
                 )
                 currency = "USD"
             elif row.call_type == "image":
-                cost_amount = cost_calculator.calculate_image_cost(
-                    row.resolution or "1K", model=row.model
-                )
-                currency = "USD"
+                if effective_provider == PROVIDER_ARK:
+                    cost_amount, currency = cost_calculator.calculate_ark_image_cost(
+                        model=row.model
+                    )
+                elif effective_provider == PROVIDER_GROK:
+                    cost_amount = cost_calculator.calculate_grok_image_cost(
+                        model=row.model
+                    )
+                    currency = "USD"
+                else:  # gemini
+                    cost_amount = cost_calculator.calculate_image_cost(
+                        row.resolution or "1K", model=row.model
+                    )
+                    currency = "USD"
             elif row.call_type == "video":
                 cost_amount = cost_calculator.calculate_video_cost(
                     duration_seconds=row.duration_seconds or 8,

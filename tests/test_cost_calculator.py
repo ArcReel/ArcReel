@@ -146,3 +146,41 @@ class TestGrokCost:
             model="unknown-grok-model",
         )
         assert cost == pytest.approx(0.50)
+
+
+class TestArkImageCost:
+    def test_ark_image_cost_default(self):
+        cost, currency = cost_calculator.calculate_ark_image_cost()
+        assert currency == "CNY"
+        assert cost == pytest.approx(0.22)
+
+    def test_ark_image_cost_by_model(self):
+        cost, _ = cost_calculator.calculate_ark_image_cost(model="doubao-seedream-4-5-251128")
+        assert cost == pytest.approx(0.25)
+
+    def test_ark_image_cost_n_images(self):
+        cost, _ = cost_calculator.calculate_ark_image_cost(n=3)
+        assert cost == pytest.approx(0.22 * 3)
+
+    def test_ark_image_cost_unknown_model(self):
+        cost, currency = cost_calculator.calculate_ark_image_cost(model="unknown-model")
+        assert currency == "CNY"
+        assert cost == pytest.approx(0.22)
+
+
+class TestGrokImageCost:
+    def test_grok_image_cost_default(self):
+        cost = cost_calculator.calculate_grok_image_cost()
+        assert cost == pytest.approx(0.02)
+
+    def test_grok_image_cost_pro(self):
+        cost = cost_calculator.calculate_grok_image_cost(model="grok-imagine-image-pro")
+        assert cost == pytest.approx(0.07)
+
+    def test_grok_image_cost_n_images(self):
+        cost = cost_calculator.calculate_grok_image_cost(n=4)
+        assert cost == pytest.approx(0.02 * 4)
+
+    def test_grok_image_cost_unknown_model(self):
+        cost = cost_calculator.calculate_grok_image_cost(model="unknown-model")
+        assert cost == pytest.approx(0.02)
