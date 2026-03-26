@@ -113,7 +113,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
           value={
             costSummary.length === 1
               ? costSummary[0]
-              : <span className="flex flex-col items-center leading-tight">{costSummary.map((part, i) => <span key={part}>{i !== 0 && <span className="text-gray-500">+</span>} {part}</span>)}</span>
+              : <span className="flex flex-col items-center leading-tight">{costSummary.map((part, i) => <span key={i}>{i !== 0 && <span className="text-gray-500">+</span>} {part}</span>)}</span>
           }
           accent
         />
