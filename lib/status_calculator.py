@@ -157,7 +157,7 @@ class StatusCalculator:
         """
         project_dir = self.pm.get_project_path(project_name)
 
-        # 人物统计
+        # 角色统计
         chars = project.get('characters', {})
         chars_total = len(chars)
         chars_done = sum(

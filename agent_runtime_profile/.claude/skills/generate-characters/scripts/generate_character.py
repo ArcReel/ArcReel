@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Character Generator - 使用 Gemini API 生成人物设计图
+Character Generator - 使用 Gemini API 生成角色设计图
 
 Usage:
     python generate_character.py --character "张三"
@@ -30,10 +30,10 @@ def generate_character(
     character_name: str,
 ) -> Path:
     """
-    生成单个人物设计图
+    生成单个角色设计图
 
     Args:
-        character_name: 人物名称
+        character_name: 角色名称
 
     Returns:
         生成的图片路径
@@ -41,7 +41,7 @@ def generate_character(
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
 
-    # 从 project.json 获取人物信息
+    # 从 project.json 获取角色信息
     project = pm.load_project(project_name)
 
     description = ""
@@ -51,10 +51,10 @@ def generate_character(
 
     if not description:
         raise ValueError(
-            f"人物 '{character_name}' 的描述为空，请先在 project.json 中添加描述"
+            f"角色 '{character_name}' 的描述为空，请先在 project.json 中添加描述"
         )
 
-    print(f"🎨 正在生成人物设计图: {character_name}")
+    print(f"🎨 正在生成角色设计图: {character_name}")
     print(f"   描述: {description[:50]}...")
 
     queued = enqueue_and_wait(
@@ -70,7 +70,7 @@ def generate_character(
     output_path = project_dir / relative_path
     version = result.get("version")
     version_text = f" (版本 v{version})" if version is not None else ""
-    print(f"✅ 人物设计图已保存: {output_path}{version_text}")
+    print(f"✅ 角色设计图已保存: {output_path}{version_text}")
     return output_path
 
 
@@ -95,7 +95,7 @@ def generate_batch_characters(
     character_names: Optional[List[str]] = None,
 ) -> Tuple[int, int]:
     """
-    批量生成人物设计图（全部入队，由 Worker 并行处理）
+    批量生成角色设计图（全部入队，由 Worker 并行处理）
 
     Args:
         character_names: 指定的角色名称列表。None 表示所有待处理角色。
@@ -136,15 +136,15 @@ def generate_batch_characters(
     ]
 
     total = len(specs)
-    print(f"\n🚀 批量提交 {total} 个人物设计图到生成队列...\n")
+    print(f"\n🚀 批量提交 {total} 个角色设计图到生成队列...\n")
 
     def on_success(br: BatchTaskResult) -> None:
         version = (br.result or {}).get("version")
         version_text = f" (版本 v{version})" if version is not None else ""
-        print(f"✅ 人物设计图: {br.resource_id} 完成{version_text}")
+        print(f"✅ 角色设计图: {br.resource_id} 完成{version_text}")
 
     def on_failure(br: BatchTaskResult) -> None:
-        print(f"❌ 人物设计图: {br.resource_id} 失败 - {br.error}")
+        print(f"❌ 角色设计图: {br.resource_id} 失败 - {br.error}")
 
     successes, failures = batch_enqueue_and_wait_sync(
         project_name=project_name,
@@ -163,9 +163,9 @@ def generate_batch_characters(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="生成人物设计图")
-    parser.add_argument("--character", help="指定单个人物名称")
-    parser.add_argument("--characters", nargs="+", help="指定多个人物名称")
+    parser = argparse.ArgumentParser(description="生成角色设计图")
+    parser.add_argument("--character", help="指定单个角色名称")
+    parser.add_argument("--characters", nargs="+", help="指定多个角色名称")
     parser.add_argument("--all", action="store_true", help="生成所有待处理的角色")
     parser.add_argument("--list", action="store_true", help="列出待生成的角色")
 

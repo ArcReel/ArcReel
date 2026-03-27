@@ -8,7 +8,7 @@
 ## 2. ClueStack 组件
 
 - [x] 2.1 新建 `frontend/src/components/ui/ClueStack.tsx`，参照 AvatarStack 结构实现线索缩略图叠放展示
-- [x] 2.2 线索图片形状使用圆角方形（`rounded`），尺寸与人物头像一致（`h-7 w-7`），叠放间距使用 `-space-x-2`
+- [x] 2.2 线索图片形状使用圆角方形（`rounded`），尺寸与角色头像一致（`h-7 w-7`），叠放间距使用 `-space-x-2`
 - [x] 2.3 无 `clue_sheet` 时展示首字母色块（圆角方形），颜色由名称哈希值确定
 - [x] 2.4 超过 4 个线索时显示 `+n` 溢出徽章
 - [x] 2.5 分镜无关联线索时 ClueStack 不渲染
@@ -19,9 +19,9 @@
 - [x] 3.2 `type === "location"` 时显示"场景"标签（amber 色调）；`type === "prop"` 时显示"道具"标签（emerald 色调）
 - [x] 3.3 浮窗布局、尺寸、layer 与 AvatarPopover 保持一致
 
-## 4. 人物浮窗增加类型标签
+## 4. 角色浮窗增加类型标签
 
-- [x] 4.1 修改 `AvatarStack.tsx` 中的 `AvatarPopover`：在角色名称旁新增"人物"标签（indigo 色调），与线索浮窗标签风格一致
+- [x] 4.1 修改 `AvatarStack.tsx` 中的 `AvatarPopover`：在角色名称旁新增"角色"标签（indigo 色调），与线索浮窗标签风格一致
 
 ## 5. SegmentCard 头部集成
 

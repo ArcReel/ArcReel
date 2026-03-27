@@ -1,17 +1,17 @@
-# 人物参考图功能设计
+# 角色参考图功能设计
 
 **日期**: 2026-02-05  
 **状态**: 已实现
 
 ## 概述
 
-为人物生成功能添加参考图支持。用户可以上传一张参考图（如演员照片、手绘草稿），生成人物设计图时 AI 会参考该图片保持人物外貌一致性。
+为角色生成功能添加参考图支持。用户可以上传一张参考图（如演员照片、手绘草稿），生成角色设计图时 AI 会参考该图片保持角色外貌一致性。
 
 ## 术语定义
 
 | 类型 | 用途 | 来源 |
 |------|------|------|
-| **参考图 (reference_image)** | 生成人物设计图时作为 AI 输入，控制外貌 | 用户上传 |
+| **参考图 (reference_image)** | 生成角色设计图时作为 AI 输入，控制外貌 | 用户上传 |
 | **设计图 (character_sheet)** | 生成分镜图/视频时作为参考，确保角色一致 | AI 生成 |
 
 ## 数据结构变更
@@ -60,7 +60,7 @@ projects/{项目名}/
 
 在 `upload_file` 函数中添加处理逻辑。
 
-### 2. 人物管理路由 (`webui/server/routers/characters.py`)
+### 2. 角色管理路由 (`webui/server/routers/characters.py`)
 
 `UpdateCharacterRequest` 新增可选字段：
 ```python
@@ -72,25 +72,25 @@ reference_image: Optional[str] = None
 ### 3. 生成路由 (`webui/server/routers/generate.py`)
 
 `generate_character` 端点增加逻辑：
-1. 检查人物是否有 `reference_image` 字段
+1. 检查角色是否有 `reference_image` 字段
 2. 若有，读取图片文件
 3. 传入 `MediaGenerator.generate_image_async()` 的 `reference_images` 参数
 
 ### 4. CLI 脚本 (`.claude/skills/generate-characters/scripts/generate_character.py`)
 
 - **移除** `--ref` 命令行参数
-- 自动从 `project.json` 读取人物的 `reference_image` 字段
+- 自动从 `project.json` 读取角色的 `reference_image` 字段
 - 若存在则加载图片作为参考
 
 ## 前端 WebUI 变更
 
-### 人物编辑弹窗布局
+### 角色编辑弹窗布局
 
 参考图和设计图上下排布：
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  编辑人物                                    [X] │
+│  编辑角色                                    [X] │
 ├─────────────────────────────────────────────────┤
 │  名称：[姜月茴_____________]                    │
 │  描述：[二十出头女子...____]                    │
@@ -121,7 +121,7 @@ reference_image: Optional[str] = None
 1. **选择参考图**：选择文件后暂存在前端（File 对象），显示预览
 2. **点击保存**：
    - 若有新选择的参考图文件 → 先调用 `upload/character_ref` API
-   - 再保存人物数据（包含 `reference_image` 路径）
+   - 再保存角色数据（包含 `reference_image` 路径）
 3. **生成设计图**：调用 `generate/character` API，后端自动读取参考图
 4. **版本控制**：设计图支持版本管理（现有功能）
 
@@ -133,11 +133,11 @@ reference_image: Optional[str] = None
 ## 用户操作流程
 
 ```
-1. 添加/编辑人物 → 填写名称、描述
+1. 添加/编辑角色 → 填写名称、描述
          ↓
 2. 选择参考图（可选）→ 前端预览
          ↓
-3. 点击"保存" → 上传参考图 + 保存人物数据
+3. 点击"保存" → 上传参考图 + 保存角色数据
          ↓
 4. 点击"生成设计图" → API 自动使用参考图 → AI 生成
          ↓

@@ -44,14 +44,14 @@ cd frontend && pnpm test:watch                         # vitest watch 模式
 
 所有 API 在 `/api/v1` 下，路由定义在 `server/routers/`：
 - `projects.py` — 项目 CRUD、概述生成
-- `generate.py` — 分镜/视频/人物/线索生成（入队到任务队列）
+- `generate.py` — 分镜/视频/角色/线索生成（入队到任务队列）
 - `assistant.py` — Claude Agent SDK 会话管理（SSE 流式）
 - `agent_chat.py` — 智能体对话交互
 - `tasks.py` — 任务队列状态（SSE 流式）
 - `project_events.py` — 项目事件 SSE 推送
 - `files.py` — 文件上传与静态资源
 - `versions.py` — 资源版本历史与回滚
-- `characters.py` / `clues.py` — 人物/线索管理
+- `characters.py` / `clues.py` — 角色/线索管理
 - `usage.py` — API 用量统计
 - `auth.py` / `api_keys.py` — 认证与 API 密钥管理
 - `system_config.py` — 系统配置
@@ -105,7 +105,7 @@ cd frontend && pnpm test:watch                         # vitest watch 模式
 
 ### 任务队列
 
-所有生成任务（分镜/视频/人物/线索）统一通过 GenerationQueue 入队，由 GenerationWorker 异步处理。
+所有生成任务（分镜/视频/角色/线索）统一通过 GenerationQueue 入队，由 GenerationWorker 异步处理。
 `generation_queue_client.py` 的 `enqueue_and_wait()` 封装入队 + 等待完成。
 
 ### Pydantic 数据模型

@@ -47,7 +47,7 @@ class Composition(BaseModel):
 
 class ImagePrompt(BaseModel):
     """分镜图生成 Prompt"""
-    scene: str = Field(description="场景描述：人物位置、表情、动作、环境细节")
+    scene: str = Field(description="场景描述：角色位置、表情、动作、环境细节")
     composition: Composition = Field(description="构图信息")
 
 
@@ -262,7 +262,7 @@ c. **clues_in_segment**：列出本片段中涉及的线索名称。
    - 仅包含明确提及或明显暗示的线索
 
 d. **image_prompt**：生成包含以下字段的对象：
-   - scene：描述具体场景——人物位置、表情、动作、环境细节。要具体、可视化。一段话。
+   - scene：描述具体场景——角色位置、表情、动作、环境细节。要具体、可视化。一段话。
    - composition：
      - shot_type：镜头类型（Close-up、Medium Shot、Medium Long Shot、Long Shot 等）
      - lighting：描述光源、方向和氛围
@@ -363,7 +363,7 @@ b. **clues_in_scene**：列出本场景中涉及的线索名称。
    - 仅包含明确提及或明显暗示的线索
 
 c. **image_prompt**：生成包含以下字段的对象：
-   - scene：描述具体场景——人物位置、表情、动作、环境细节。要具体、可视化。一段话。16:9 横屏构图。
+   - scene：描述具体场景——角色位置、表情、动作、环境细节。要具体、可视化。一段话。16:9 横屏构图。
    - composition：
      - shot_type：镜头类型（Close-up、Medium Shot、Medium Long Shot、Long Shot 等）
      - lighting：描述光源、方向和氛围

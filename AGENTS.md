@@ -43,12 +43,12 @@ cd frontend && pnpm check                              # typecheck + test
 
 所有 API 在 `/api/v1` 下，路由定义在 `server/routers/`：
 - `projects.py` — 项目 CRUD、概述生成
-- `generate.py` — 分镜/视频/人物/线索生成（入队到任务队列）
+- `generate.py` — 分镜/视频/角色/线索生成（入队到任务队列）
 - `assistant.py` — Claude Agent SDK 会话管理（SSE 流式）
 - `tasks.py` — 任务队列状态（SSE 流式）
 - `files.py` — 文件上传与静态资源
 - `versions.py` — 资源版本历史与回滚
-- `characters.py` / `clues.py` — 人物/线索管理
+- `characters.py` / `clues.py` — 角色/线索管理
 - `usage.py` — API 用量统计
 
 ### lib/ 核心模块
@@ -100,7 +100,7 @@ cd frontend && pnpm check                              # typecheck + test
 
 ### 任务队列
 
-所有生成任务（分镜/视频/人物/线索）统一通过 GenerationQueue 入队，由 GenerationWorker 异步处理。
+所有生成任务（分镜/视频/角色/线索）统一通过 GenerationQueue 入队，由 GenerationWorker 异步处理。
 `generation_queue_client.py` 的 `enqueue_and_wait()` 封装入队 + 等待完成。
 
 ### Pydantic 数据模型

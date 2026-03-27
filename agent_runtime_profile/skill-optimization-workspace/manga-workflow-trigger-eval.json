@@ -32,7 +32,7 @@
     "should_trigger": true
   },
   {
-    "query": "第3集的分镜图有几张人物脸不对，帮我单独重新生成 E3S02 和 E3S05",
+    "query": "第3集的分镜图有几张角色脸不对，帮我单独重新生成 E3S02 和 E3S05",
     "should_trigger": false
   },
   {

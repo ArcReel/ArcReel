@@ -4,7 +4,7 @@
 所有 Prompt 模板集中在此文件管理，确保 WebUI 和 Skill 使用相同的逻辑。
 
 模块职责:
-- 人物设计图 Prompt 构建
+- 角色设计图 Prompt 构建
 - 线索设计图 Prompt 构建（道具类/环境类）
 - 分镜图 Prompt 后缀
 
@@ -17,13 +17,13 @@
 
 def build_character_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
     """
-    构建人物设计图 Prompt
+    构建角色设计图 Prompt
 
     遵循 nano-banana 最佳实践：使用叙事性段落描述，而非关键词列表。
 
     Args:
-        name: 人物名称
-        description: 人物外貌描述（应为叙事性段落）
+        name: 角色名称
+        description: 角色外貌描述（应为叙事性段落）
         style: 项目风格
         style_description: AI 分析的风格描述
 
@@ -37,13 +37,13 @@ def build_character_prompt(name: str, description: str, style: str = "", style_d
     if style_description:
         style_prefix = f"Visual style: {style_description}\n\n"
 
-    return f"""{style_prefix}人物设计参考图{style_part}。
+    return f"""{style_prefix}角色设计参考图{style_part}。
 
 「{name}」的全身立绘。
 
 {description}
 
-构图要求：单人全身像，站立姿态自然，面向镜头。
+构图要求：单一角色全身像，姿态自然，面向镜头。
 背景：纯净浅灰色，无任何装饰元素。
 光线：柔和均匀的摄影棚照明，无强烈阴影。
 画质：高清，细节清晰，色彩准确。"""

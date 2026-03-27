@@ -1,5 +1,5 @@
 """
-人物管理路由
+角色管理路由
 """
 
 import logging
@@ -40,7 +40,7 @@ class UpdateCharacterRequest(BaseModel):
 
 @router.post("/projects/{project_name}/characters")
 async def add_character(project_name: str, req: CreateCharacterRequest, _user: CurrentUser):
-    """添加人物"""
+    """添加角色"""
     try:
         with project_change_source("webui"):
             project = get_project_manager().add_project_character(
@@ -61,13 +61,13 @@ async def update_character(
     project_name: str, char_name: str, req: UpdateCharacterRequest,
     _user: CurrentUser,
 ):
-    """更新人物"""
+    """更新角色"""
     try:
         manager = get_project_manager()
         project = manager.load_project(project_name)
 
         if char_name not in project["characters"]:
-            raise HTTPException(status_code=404, detail=f"人物 '{char_name}' 不存在")
+            raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
 
         char = project["characters"][char_name]
         if req.description is not None:
@@ -93,18 +93,18 @@ async def update_character(
 
 @router.delete("/projects/{project_name}/characters/{char_name}")
 async def delete_character(project_name: str, char_name: str, _user: CurrentUser):
-    """删除人物"""
+    """删除角色"""
     try:
         manager = get_project_manager()
         project = manager.load_project(project_name)
 
         if char_name not in project["characters"]:
-            raise HTTPException(status_code=404, detail=f"人物 '{char_name}' 不存在")
+            raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
 
         del project["characters"][char_name]
         with project_change_source("webui"):
             manager.save_project(project_name, project)
-        return {"success": True, "message": f"人物 '{char_name}' 已删除"}
+        return {"success": True, "message": f"角色 '{char_name}' 已删除"}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except HTTPException:

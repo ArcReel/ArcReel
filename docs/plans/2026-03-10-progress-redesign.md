@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 重新设计进度机制，使其准确反映完整工作流（setup → worldbuilding → scripting → production → completed），并按集粒度追踪分镜/视频进度，人物/线索始终展示。
+**Goal:** 重新设计进度机制，使其准确反映完整工作流（setup → worldbuilding → scripting → production → completed），并按集粒度追踪分镜/视频进度，角色/线索始终展示。
 
 **Architecture:** 修改 `StatusCalculator` 引入 5 段阶段枚举、集级 `script_status` 字段、以及新的 `calculate_project_status()` 方法；同步更新前端类型和 `ProjectCard` 展示逻辑。读时计算策略不变，不存储冗余状态。
 
@@ -325,7 +325,7 @@ def calculate_project_status(self, project_name: str, project: Dict) -> Dict:
     """
     project_dir = self.pm.get_project_path(project_name)
 
-    # 人物统计
+    # 角色统计
     chars = project.get('characters', {})
     chars_total = len(chars)
     chars_done = sum(
@@ -866,7 +866,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       {(characters || clues) && (
         <div className="flex gap-3 text-xs text-gray-500">
           {characters && (
-            <span>人物 {characters.completed}/{characters.total}</span>
+            <span>角色 {characters.completed}/{characters.total}</span>
           )}
           {clues && (
             <span>线索 {clues.completed}/{clues.total}</span>

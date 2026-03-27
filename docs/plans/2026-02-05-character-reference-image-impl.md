@@ -1,12 +1,12 @@
-# 人物参考图功能实现计划
+# 角色参考图功能实现计划
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 添加人物参考图上传功能，生成人物设计图时自动使用参考图作为 AI 输入
+**Goal:** 添加角色参考图上传功能，生成角色设计图时自动使用参考图作为 AI 输入
 
 **Architecture:** 
 - 后端：新增 `character_ref` 上传类型，修改生成端点读取参考图
-- 前端：人物弹窗新增参考图上传区域（上下排布），保存时一并上传
+- 前端：角色弹窗新增参考图上传区域（上下排布），保存时一并上传
 - CLI：移除 `--ref` 参数，自动从 project.json 读取
 
 **Tech Stack:** Python/FastAPI, JavaScript, HTML/Tailwind CSS
@@ -55,7 +55,7 @@ if upload_type == "character_ref" and name:
     try:
         pm.update_character_reference_image(project_name, name, f"characters/refs/{filename}")
     except KeyError:
-        pass  # 人物不存在，忽略
+        pass  # 角色不存在，忽略
 ```
 
 **Step 4: 运行服务器验证语法正确**
@@ -84,11 +84,11 @@ git commit -m "feat(files): add character_ref upload type"
 ```python
 def update_character_reference_image(self, project_name: str, char_name: str, ref_path: str) -> dict:
     """
-    更新人物的参考图路径
+    更新角色的参考图路径
     
     Args:
         project_name: 项目名称
-        char_name: 人物名称
+        char_name: 角色名称
         ref_path: 参考图相对路径
         
     Returns:
@@ -97,7 +97,7 @@ def update_character_reference_image(self, project_name: str, char_name: str, re
     project = self.load_project(project_name)
     
     if "characters" not in project or char_name not in project["characters"]:
-        raise KeyError(f"人物 '{char_name}' 不存在")
+        raise KeyError(f"角色 '{char_name}' 不存在")
     
     project["characters"][char_name]["reference_image"] = ref_path
     self.save_project(project_name, project)
@@ -157,14 +157,14 @@ git commit -m "feat(characters): add reference_image field to update API"
 
 ---
 
-## Task 4: 后端 - generate.py 使用参考图生成人物设计图
+## Task 4: 后端 - generate.py 使用参考图生成角色设计图
 
 **Files:**
 - Modify: `webui/server/routers/generate.py:280-330` (generate_character 函数)
 
 **Step 1: 修改 generate_character 函数读取参考图**
 
-在 `generate_character` 函数中，检查人物是否存在后，添加读取参考图的逻辑：
+在 `generate_character` 函数中，检查角色是否存在后，添加读取参考图的逻辑：
 
 ```python
 @router.post("/projects/{project_name}/generate/character/{char_name}")
@@ -174,23 +174,23 @@ async def generate_character(
     req: GenerateCharacterRequest
 ):
     """
-    生成人物设计图（首次生成或重新生成）
+    生成角色设计图（首次生成或重新生成）
 
     使用 MediaGenerator 自动处理版本管理。
-    若人物有 reference_image，自动作为参考图传入。
+    若角色有 reference_image，自动作为参考图传入。
     """
     try:
         project = pm.load_project(project_name)
         project_path = pm.get_project_path(project_name)
         generator = get_media_generator(project_name)
 
-        # 检查人物是否存在
+        # 检查角色是否存在
         if char_name not in project.get("characters", {}):
-            raise HTTPException(status_code=404, detail=f"人物 '{char_name}' 不存在")
+            raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
 
         char_data = project["characters"][char_name]
 
-        # 获取画面比例（人物设计图 3:4）
+        # 获取画面比例（角色设计图 3:4）
         aspect_ratio = get_aspect_ratio(project, "characters")
 
         # 使用共享库构建 Prompt（确保与 Skill 侧一致）
@@ -259,11 +259,11 @@ def generate_character(
     character_name: str,
 ) -> Path:
     """
-    生成人物设计图
+    生成角色设计图
 
     Args:
         project_name: 项目名称
-        character_name: 人物名称
+        character_name: 角色名称
 
     Returns:
         生成的图片路径
@@ -271,7 +271,7 @@ def generate_character(
     pm = ProjectManager()
     project_dir = pm.get_project_path(project_name)
 
-    # 从 project.json 获取人物信息
+    # 从 project.json 获取角色信息
     project = pm.load_project(project_name)
 
     description = ""
@@ -291,7 +291,7 @@ def generate_character(
                 print(f"📎 使用参考图: {ref_full_path}")
 
     if not description:
-        raise ValueError(f"人物 '{character_name}' 的描述为空，请先在 project.json 中添加描述")
+        raise ValueError(f"角色 '{character_name}' 的描述为空，请先在 project.json 中添加描述")
 
     # 构建 prompt
     prompt = build_character_prompt(character_name, description, style)
@@ -299,7 +299,7 @@ def generate_character(
     # 生成图片（带自动版本管理）
     generator = MediaGenerator(project_dir)
 
-    print(f"🎨 正在生成人物设计图: {character_name}")
+    print(f"🎨 正在生成角色设计图: {character_name}")
     print(f"   描述: {description[:50]}...")
 
     output_path, version = generator.generate_image(
@@ -310,7 +310,7 @@ def generate_character(
         aspect_ratio="3:4"
     )
 
-    print(f"✅ 人物设计图已保存: {output_path} (版本 v{version})")
+    print(f"✅ 角色设计图已保存: {output_path} (版本 v{version})")
 
     # 更新 project.json 中的 character_sheet 路径
     relative_path = f"characters/{character_name}.png"
@@ -324,9 +324,9 @@ def generate_character(
 
 ```python
 def main():
-    parser = argparse.ArgumentParser(description='生成人物设计图')
+    parser = argparse.ArgumentParser(description='生成角色设计图')
     parser.add_argument('project', help='项目名称')
-    parser.add_argument('character', help='人物名称')
+    parser.add_argument('character', help='角色名称')
     # 移除 --ref 参数
 
     args = parser.parse_args()
@@ -362,9 +362,9 @@ git commit -m "feat(cli): auto-read reference_image from project.json, remove --
 **Files:**
 - Modify: `webui/project.html:370-400` (character-modal 内的表单)
 
-**Step 1: 在"声音风格"字段后、"人物设计图"字段前添加参考图上传区域**
+**Step 1: 在"声音风格"字段后、"角色设计图"字段前添加参考图上传区域**
 
-在 `char-voice` 输入框的 `</div>` 后，`人物设计图` label 前添加：
+在 `char-voice` 输入框的 `</div>` 后，`角色设计图` label 前添加：
 
 ```html
 <div>
@@ -611,8 +611,8 @@ Run: `cd /Users/pollochen/Documents/ai-anime/.worktrees/character-reference-imag
 
 1. 打开浏览器访问 http://localhost:8000
 2. 选择或创建一个测试项目
-3. 添加新人物，上传参考图
-4. 保存人物
+3. 添加新角色，上传参考图
+4. 保存角色
 5. 点击"生成设计图"
 6. 验证生成的设计图是否参考了上传的图片
 

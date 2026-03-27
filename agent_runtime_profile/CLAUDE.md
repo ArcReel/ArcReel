@@ -107,7 +107,7 @@
 | manga-workflow | `/manga-workflow` | 编排 skill：状态检测 + subagent dispatch + 用户确认 |
 | manage-project | — | 项目管理工具集：分集切分（peek+split）、角色/线索批量写入 |
 | generate-script | — | 使用 Gemini 生成 JSON 剧本（由 subagent 调用） |
-| generate-characters | `/generate-characters` | 生成人物设计图 |
+| generate-characters | `/generate-characters` | 生成角色设计图 |
 | generate-clues | `/generate-clues` | 生成线索设计图 |
 | generate-storyboard | `/generate-storyboard` | 生成分镜图片 |
 | generate-video | `/generate-video` | 生成视频 |
@@ -126,7 +126,7 @@
 3. **分集规划** → 主 agent 直接执行 peek+split 切分（manage-project 工具集）
 4. **单集预处理** → dispatch `split-narration-segments`（narration）或 `normalize-drama-script`（drama）
 5. **JSON 剧本生成** → dispatch `create-episode-script` subagent
-6. **人物设计** → dispatch 资产生成 subagent（调用 generate_character.py）
+6. **角色设计** → dispatch 资产生成 subagent（调用 generate_character.py）
 7. **线索设计** → dispatch 资产生成 subagent（调用 generate_clue.py）
 8. **分镜图生成** → dispatch 资产生成 subagent（调用 generate_storyboard.py）
 9. **视频生成** → dispatch 资产生成 subagent（调用 generate_video.py）
@@ -136,7 +136,7 @@
 
 ## 关键原则
 
-- **人物一致性**：每个场景都使用分镜图作为起始帧，确保人物形象一致
+- **角色一致性**：每个场景都使用分镜图作为起始帧，确保角色形象一致
 - **线索一致性**：重要物品和环境元素通过 `clues` 机制固化，确保跨场景一致
 - **分镜连贯性**：使用 segment_break 标记场景切换点，后期可添加转场效果
 - **质量控制**：每个场景生成后检查质量，可单独重新生成不满意的场景
@@ -145,10 +145,10 @@
 
 ```
 projects/{项目名}/
-├── project.json       # 项目元数据（人物、线索、剧集、风格）
+├── project.json       # 项目元数据（角色、线索、剧集、风格）
 ├── source/            # 原始小说内容
 ├── scripts/           # 分镜剧本 (JSON)
-├── characters/        # 人物设计图
+├── characters/        # 角色设计图
 ├── clues/             # 线索设计图
 ├── storyboards/       # 分镜图片
 ├── videos/            # 生成的视频
@@ -160,7 +160,7 @@ projects/{项目名}/
 - `title`、`content_mode`（`narration`/`drama`）、`style`、`style_description`
 - `overview`：项目概述（synopsis、genre、theme、world_setting）
 - `episodes`：剧集核心元数据（episode、title、script_file）
-- `characters`：人物完整定义（description、character_sheet、voice_style）
+- `characters`：角色完整定义（description、character_sheet、voice_style）
 - `clues`：线索完整定义（type、description、importance、clue_sheet）
 
 ### 数据分层原则

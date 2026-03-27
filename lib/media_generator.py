@@ -7,7 +7,7 @@ MediaGenerator 中间层
 覆盖的 4 种资源类型：
 - storyboards: 分镜图 (scene_E1S01.png)
 - videos: 视频 (scene_E1S01.mp4)
-- characters: 人物设计图 (姜月茴.png)
+- characters: 角色设计图 (姜月茴.png)
 - clues: 线索设计图 (玉佩.png)
 """
 

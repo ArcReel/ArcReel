@@ -52,7 +52,7 @@ The scene should be self-contained, not implying past events or future developme
 **当前版本**：
 ```python
 d. **image_prompt**：生成包含以下字段的对象：
-   - scene：用中文描述具体场景——人物位置、表情、动作、环境细节。要具体、可视化。一段话。
+   - scene：用中文描述具体场景——角色位置、表情、动作、环境细节。要具体、可视化。一段话。
    - composition：
      - shot_type：镜头类型（Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view）
      - lighting：用中文描述光源、方向和氛围
@@ -62,7 +62,7 @@ d. **image_prompt**：生成包含以下字段的对象：
 **优化版本**：
 ```python
 d. **image_prompt**：生成包含以下字段的对象：
-   - scene：用中文描述此刻画面中的具体场景——人物位置、姿态、表情、服装细节，以及可见的环境元素和物品。
+   - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。
      聚焦当下瞬间的可见画面。仅描述摄像机能够捕捉到的具体视觉元素。
      确保描述避免超出此刻画面的元素。排除比喻、隐喻、抽象情绪词、主观评价、多场景切换等无法直接渲染的描述。
      画面应自包含，不暗示过去事件或未来发展。
@@ -104,7 +104,7 @@ e. **video_prompt**：生成包含以下字段的对象：
 **image_prompt**（与 narration 模式一致，保留 16:9 横屏说明）：
 ```python
 c. **image_prompt**：生成包含以下字段的对象：
-   - scene：用中文描述此刻画面中的具体场景——人物位置、姿态、表情、服装细节，以及可见的环境元素和物品。16:9 横屏构图。
+   - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。16:9 横屏构图。
      聚焦当下瞬间的可见画面。仅描述摄像机能够捕捉到的具体视觉元素。
      确保描述避免超出此刻画面的元素。排除比喻、隐喻、抽象情绪词、主观评价、多场景切换等无法直接渲染的描述。
      画面应自包含，不暗示过去事件或未来发展。

@@ -46,7 +46,7 @@
 
 > **注意**：
 > - **Style（风格）** 由项目级 `project.json` 的 `style` 字段统一决定，不在每个 segment 中重复
-> - **人物和线索** 通过现有的 `characters_in_segment` / `clues_in_segment` 字段引用，不在 imagePrompt 中重复
+> - **角色和线索** 通过现有的 `characters_in_segment` / `clues_in_segment` 字段引用，不在 imagePrompt 中重复
 
 ### 1.2 videoPrompt 结构
 
@@ -97,7 +97,7 @@
 | `Medium Shot` | 中景 | 头部到腰部 |
 | `Medium Long Shot` | 中远景 | 头部到膝盖 |
 | `Long Shot` | 远景 | 全身可见 |
-| `Extreme Long Shot` | 大远景 | 人物在环境中很小 |
+| `Extreme Long Shot` | 大远景 | 角色在环境中很小 |
 | `Over-the-shoulder` | 过肩镜头 | 从一个角色肩后看另一个角色 |
 | `Point-of-view` | 主观镜头 | 从角色视角看 |
 

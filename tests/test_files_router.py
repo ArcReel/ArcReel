@@ -246,11 +246,11 @@ class TestFilesRouter:
             assert clue_missing_entity.json()["path"] == "clues/不存在线索.png"
 
             character_missing_entity = client.post(
-                "/api/v1/projects/demo/upload/character?name=不存在人物",
+                "/api/v1/projects/demo/upload/character?name=不存在角色",
                 files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
             )
             assert character_missing_entity.status_code == 200
-            assert character_missing_entity.json()["path"] == "characters/不存在人物.png"
+            assert character_missing_entity.json()["path"] == "characters/不存在角色.png"
 
             storyboard_no_name = client.post(
                 "/api/v1/projects/demo/upload/storyboard",

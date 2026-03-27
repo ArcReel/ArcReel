@@ -77,7 +77,7 @@ async def upload_file(
         project_name: 项目名称
         upload_type: 上传类型 (source/character/clue/storyboard)
         file: 上传的文件
-        name: 可选，用于人物/线索名称，或分镜 ID（自动更新元数据）
+        name: 可选，用于角色/线索名称，或分镜 ID（自动更新元数据）
     """
     if upload_type not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"无效的上传类型: {upload_type}")
@@ -162,7 +162,7 @@ async def upload_file(
                         project_name, name, f"characters/{filename}"
                     )
             except KeyError:
-                pass  # 人物不存在，忽略
+                pass  # 角色不存在，忽略
 
         if upload_type == "character_ref" and name:
             try:
@@ -171,7 +171,7 @@ async def upload_file(
                         project_name, name, f"characters/refs/{filename}"
                     )
             except KeyError:
-                pass  # 人物不存在，忽略
+                pass  # 角色不存在，忽略
 
         if upload_type == "clue" and name:
             try:

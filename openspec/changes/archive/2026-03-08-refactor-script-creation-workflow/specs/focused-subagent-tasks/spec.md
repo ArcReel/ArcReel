@@ -42,7 +42,7 @@
 
 #### Scenario: drama 模式使用 normalize-drama-script
 - **WHEN** project 的 content_mode 为 "drama"
-- **THEN** 编排 skill 指引主 agent dispatch `normalize-drama-script` subagent，执行规范化剧本（结构化场景、时间、地点、人物）+ 镜头预算（预估镜头数、标记 segment_break），输出 step1_normalized_script.md 和 step2_shot_budget.md
+- **THEN** 编排 skill 指引主 agent dispatch `normalize-drama-script` subagent，执行规范化剧本（结构化场景、时间、地点、角色）+ 镜头预算（预估镜头数、标记 segment_break），输出 step1_normalized_script.md 和 step2_shot_budget.md
 
 ### Requirement: create-episode-script subagent 须预加载 generate-script skill
 

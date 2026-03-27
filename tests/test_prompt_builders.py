@@ -17,7 +17,7 @@ class TestPromptBuilders:
             style_description="Cinematic, low-key lighting",
         )
         assert "Visual style: Cinematic, low-key lighting" in prompt
-        assert "人物设计参考图，古风" in prompt
+        assert "角色设计参考图，古风" in prompt
         assert "姜月茴" in prompt
         assert "黑发，冷静神态。" in prompt
 

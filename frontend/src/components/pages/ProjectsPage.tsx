@@ -268,7 +268,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       {(characters || clues) && (
         <div className="flex gap-3 text-xs text-gray-500">
           {characters && (
-            <span>人物 {characters.completed}/{characters.total}</span>
+            <span>角色 {characters.completed}/{characters.total}</span>
           )}
           {clues && (
             <span>线索 {clues.completed}/{clues.total}</span>

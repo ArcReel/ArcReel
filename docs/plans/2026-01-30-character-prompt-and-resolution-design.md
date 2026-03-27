@@ -1,6 +1,6 @@
-# 人物设计 Prompt 优化与分辨率升级设计
+# 角色设计 Prompt 优化与分辨率升级设计
 
-> 优化人物设计图的 prompt 模板，升级图片/视频分辨率，调整人物设计图比例
+> 优化角色设计图的 prompt 模板，升级图片/视频分辨率，调整角色设计图比例
 
 ---
 
@@ -9,17 +9,17 @@
 | 需求 | 说明 |
 |------|------|
 | 角色描述结构化 | 优化 prompt 模板格式，保持 description 单一字段 |
-| 人物设计图比例 | 从 16:9 改为 **3:4**（单人全身像） |
+| 角色设计图比例 | 从 16:9 改为 **3:4**（单人全身像） |
 | 线索设计图比例 | 保持 **16:9** 不变 |
 | 图片分辨率 | 所有图片默认使用 **2K**（API 参数 `image_size="2K"`） |
 | 视频分辨率 | 从 720p 改为 **1080p** |
-| WebUI 同步 | 调整人物卡片展示框适配 3:4 比例 |
+| WebUI 同步 | 调整角色卡片展示框适配 3:4 比例 |
 
 ---
 
 ## 2. Prompt 模板优化
 
-### 2.1 人物设计图 Prompt
+### 2.1 角色设计图 Prompt
 
 **修改文件**: `.claude/skills/generate-characters/scripts/generate_character.py`
 
@@ -28,9 +28,9 @@
 def build_character_prompt(name: str, description: str, style: str = "") -> str:
     style_prefix = f"，{style}" if style else ""
 
-    prompt = f"""一张专业的人物设计参考图{style_prefix}。
+    prompt = f"""一张专业的角色设计参考图{style_prefix}。
 
-人物「{name}」的三视图设计稿。{description}
+角色「{name}」的三视图设计稿。{description}
 
 三个等比例全身像水平排列在纯净浅灰背景上：左侧正面、中间四分之三侧面、右侧纯侧面轮廓。柔和均匀的摄影棚照明，无强烈阴影。"""
 
@@ -42,7 +42,7 @@ def build_character_prompt(name: str, description: str, style: str = "") -> str:
 def build_character_prompt(name: str, description: str, style: str = "") -> str:
     style_part = f"，{style}" if style else ""
 
-    prompt = f"""人物设计参考图{style_part}。
+    prompt = f"""角色设计参考图{style_part}。
 
 「{name}」的全身立绘。
 
@@ -126,7 +126,7 @@ def generate_video(
 ) -> Tuple[Path, int, any, Optional[str]]:
 ```
 
-### 3.3 人物设计图比例
+### 3.3 角色设计图比例
 
 **修改文件**: `.claude/skills/generate-characters/scripts/generate_character.py`
 
@@ -156,7 +156,7 @@ def get_aspect_ratio(project: dict, resource_type: str) -> str:
 
     # 默认比例
     if resource_type == "characters":
-        return "3:4"  # 人物设计图改为 3:4
+        return "3:4"  # 角色设计图改为 3:4
     elif resource_type == "clues":
         return "16:9"  # 线索保持 16:9
     elif content_mode == "narration":
@@ -165,7 +165,7 @@ def get_aspect_ratio(project: dict, resource_type: str) -> str:
         return "16:9"  # 剧集模式横屏
 ```
 
-人物生成 API 添加 `image_size` 参数：
+角色生成 API 添加 `image_size` 参数：
 
 ```python
 _, new_version = await generator.generate_image_async(
@@ -186,30 +186,30 @@ _, new_version = await generator.generate_image_async(
 **修改文件**: `webui/css/styles.css`
 
 ```css
-/* 3:4 竖版比例（人物设计图） */
+/* 3:4 竖版比例（角色设计图） */
 .aspect-portrait-3-4 {
     aspect-ratio: 3 / 4;
 }
 ```
 
-### 4.2 人物卡片渲染
+### 4.2 角色卡片渲染
 
 **修改文件**: `webui/js/project.js`
 
-在渲染人物卡片时，图片容器使用新的比例类：
+在渲染角色卡片时，图片容器使用新的比例类：
 
 ```javascript
-// 人物卡片图片容器
+// 角色卡片图片容器
 <div class="aspect-portrait-3-4 bg-gray-700 rounded-lg overflow-hidden">
     <img src="${imageSrc}" class="w-full h-full object-cover" />
 </div>
 ```
 
-### 4.3 人物编辑模态框预览
+### 4.3 角色编辑模态框预览
 
 **修改文件**: `webui/project.html`
 
-人物图片预览区域调整：
+角色图片预览区域调整：
 
 ```html
 <!-- 之前 -->
@@ -237,7 +237,7 @@ _, new_version = await generator.generate_image_async(
 - **视频分辨率**：1080p
 
 ### 设计图规格
-- **人物设计图**：3:4 竖版，2K 分辨率
+- **角色设计图**：3:4 竖版，2K 分辨率
 - **线索设计图**：16:9 横版，2K 分辨率
 ```
 
@@ -252,8 +252,8 @@ _, new_version = await generator.generate_image_async(
 | `.claude/skills/generate-characters/scripts/generate_character.py` | 优化 prompt，比例改为 3:4 |
 | `webui/server/routers/generate.py` | 更新默认比例和分辨率 |
 | `webui/css/styles.css` | 添加 `.aspect-portrait-3-4` 类 |
-| `webui/js/project.js` | 人物卡片使用新比例 |
-| `webui/project.html` | 人物预览区域调整 |
+| `webui/js/project.js` | 角色卡片使用新比例 |
+| `webui/project.html` | 角色预览区域调整 |
 | `CLAUDE.md` | 更新文档说明 |
 
 ---
@@ -261,7 +261,7 @@ _, new_version = await generator.generate_image_async(
 ## 7. 向后兼容性
 
 - `project.json` 中的 `aspect_ratio` 自定义配置优先级最高，可覆盖默认值
-- 现有项目的人物/线索设计图不受影响，仅新生成的图片使用新规格
+- 现有项目的角色/线索设计图不受影响，仅新生成的图片使用新规格
 - `description` 字段保持不变，无需迁移数据
 
 ---

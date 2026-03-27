@@ -26,7 +26,7 @@
 |---------|-------------|-----------------|
 | `storyboards` | generate_storyboard.py, webui | `E1S01` (segment/scene ID) |
 | `videos` | generate_video.py, webui | `E1S01` (segment/scene ID) |
-| `characters` | generate_character.py, webui | `姜月茴` (人物名) |
+| `characters` | generate_character.py, webui | `姜月茴` (角色名) |
 | `clues` | generate_clue.py, webui | `玉佩` (线索名) |
 
 ---

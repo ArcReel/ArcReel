@@ -385,7 +385,7 @@ class API {
     };
   }
 
-  // ==================== 人物管理 ====================
+  // ==================== 角色管理 ====================
 
   static async addCharacter(
     projectName: string,
@@ -773,10 +773,10 @@ class API {
   }
 
   /**
-   * 生成人物设计图
+   * 生成角色设计图
    * @param projectName - 项目名称
-   * @param charName - 人物名称
-   * @param prompt - 人物描述 prompt
+   * @param charName - 角色名称
+   * @param prompt - 角色描述 prompt
    */
   static async generateCharacter(
     projectName: string,

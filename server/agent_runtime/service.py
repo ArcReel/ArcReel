@@ -811,7 +811,7 @@ class AssistantService:
         "generate-script":     {"label": "生成剧本",    "icon": "scroll-text"},
         "generate-storyboard": {"label": "生成分镜图",  "icon": "layout-grid"},
         "generate-video":      {"label": "生成视频",    "icon": "film"},
-        "generate-characters": {"label": "生成人物图",  "icon": "users"},
+        "generate-characters": {"label": "生成角色图",  "icon": "users"},
         "generate-clues":      {"label": "生成线索图",  "icon": "search"},
         "compose-video":       {"label": "合成视频",    "icon": "scissors"},
     }

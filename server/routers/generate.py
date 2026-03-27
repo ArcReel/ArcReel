@@ -1,7 +1,7 @@
 """
 生成 API 路由
 
-处理分镜图、视频、人物图、线索图的生成请求。
+处理分镜图、视频、角色图、线索图的生成请求。
 所有生成请求入队到 GenerationQueue，由 GenerationWorker 异步执行。
 """
 
@@ -234,7 +234,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ==================== 人物设计图生成 ====================
+# ==================== 角色设计图生成 ====================
 
 
 @router.post("/projects/{project_name}/generate/character/{char_name}")
@@ -243,14 +243,14 @@ async def generate_character(
     _user: CurrentUser,
 ):
     """
-    提交人物设计图生成任务到队列，立即返回 task_id。
+    提交角色设计图生成任务到队列，立即返回 task_id。
     """
     try:
         project = get_project_manager().load_project(project_name)
 
-        # 检查人物是否存在
+        # 检查角色是否存在
         if char_name not in project.get("characters", {}):
-            raise HTTPException(status_code=404, detail=f"人物 '{char_name}' 不存在")
+            raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
 
         # 入队
         queue = get_generation_queue()

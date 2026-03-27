@@ -54,7 +54,7 @@ class Composition(BaseModel):
 class ImagePrompt(BaseModel):
     """分镜图生成 Prompt"""
 
-    scene: str = Field(description="场景描述：人物位置、表情、动作、环境细节")
+    scene: str = Field(description="场景描述：角色位置、表情、动作、环境细节")
     composition: Composition = Field(description="构图信息")
 
 

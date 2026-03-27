@@ -8,7 +8,7 @@
 ## 需求概述
 
 1. 在 WebUI 编辑模态框中添加生成/重新生成按钮，调用 GeminiClient 异步方法生成图片/视频
-2. 对分镜图、视频、人物图、线索图引入版本号机制，保留历史版本并可还原
+2. 对分镜图、视频、角色图、线索图引入版本号机制，保留历史版本并可还原
 3. 历史版本的图片/视频与对应的 prompt 绑定
 
 ---
@@ -17,7 +17,7 @@
 
 | 决策项 | 选择 |
 |--------|------|
-| 覆盖场景 | 片段/场景分镜图、视频、人物设计图、线索设计图（共 4 类） |
+| 覆盖场景 | 片段/场景分镜图、视频、角色设计图、线索设计图（共 4 类） |
 | 生成交互 | 模态框内 loading 状态，不阻断其他编辑 |
 | 版本存储 | `versions/` 集中目录，当前版本保持原路径 |
 | 版本元数据 | `versions/versions.json` 统一管理 |
@@ -42,7 +42,7 @@ projects/{项目名}/
 │   ├── videos/                  # 视频历史版本
 │   │   ├── E1S01_v1_20260129T120000.mp4
 │   │   └── ...
-│   ├── characters/              # 人物图历史版本
+│   ├── characters/              # 角色图历史版本
 │   │   ├── 姜月茴_v1_20260129T090000.png
 │   │   └── ...
 │   └── clues/                   # 线索图历史版本
@@ -140,7 +140,7 @@ projects/{项目名}/
 |------|------|------|
 | `POST` | `/api/v1/projects/{name}/generate/storyboard/{segment_id}` | 生成分镜图（首次或新版本） |
 | `POST` | `/api/v1/projects/{name}/generate/video/{segment_id}` | 生成视频（首次或新版本） |
-| `POST` | `/api/v1/projects/{name}/generate/character/{char_name}` | 生成人物设计图 |
+| `POST` | `/api/v1/projects/{name}/generate/character/{char_name}` | 生成角色设计图 |
 | `POST` | `/api/v1/projects/{name}/generate/clue/{clue_name}` | 生成线索设计图 |
 | `GET` | `/api/v1/projects/{name}/versions/{resource_type}/{resource_id}` | 获取资源版本列表 |
 | `POST` | `/api/v1/projects/{name}/versions/{resource_type}/{resource_id}/restore/{version}` | 还原到指定版本 |
@@ -237,7 +237,7 @@ async def generate_storyboard(name, segment_id, prompt, script_file):
 
 ### 1. 编辑模态框改造
 
-在片段/场景、人物、线索的编辑模态框中，预览区域增加：
+在片段/场景、角色、线索的编辑模态框中，预览区域增加：
 - **版本下拉选择器**：显示在预览图上方
 - **生成按钮**：无图时显示「生成」，有图时显示「重新生成」
 

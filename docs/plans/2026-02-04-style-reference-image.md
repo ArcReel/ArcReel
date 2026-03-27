@@ -798,7 +798,7 @@ git commit -m "feat(storyboard): 使用风格描述生成分镜图"
 - Modify: `.claude/skills/generate-characters/scripts/generate_character.py`
 - Modify: `.claude/skills/generate-clues/scripts/generate_clue.py`
 
-**Step 1: 修改人物生成脚本**
+**Step 1: 修改角色生成脚本**
 
 在构建 prompt 时添加风格描述：
 
@@ -826,7 +826,7 @@ prompt = f"{style_prefix}{build_character_prompt(name, description, style)}"
 ```bash
 git add .claude/skills/generate-characters/scripts/generate_character.py
 git add .claude/skills/generate-clues/scripts/generate_clue.py
-git commit -m "feat(generate): 人物和线索生成使用风格描述"
+git commit -m "feat(generate): 角色和线索生成使用风格描述"
 ```
 
 ---
@@ -858,7 +858,7 @@ git commit -m "feat(generate): 人物和线索生成使用风格描述"
 ```markdown
 ### 风格参考图（可选）
 
-项目支持上传风格参考图，系统会自动分析并生成风格描述。后续所有图片生成（人物、线索、分镜）都会使用该风格描述，确保整体风格一致。
+项目支持上传风格参考图，系统会自动分析并生成风格描述。后续所有图片生成（角色、线索、分镜）都会使用该风格描述，确保整体风格一致。
 
 | 字段 | 说明 |
 |------|------|
@@ -903,7 +903,7 @@ Run: `python -m uvicorn webui.server.app:app --reload --port 8080`
 
 **Step 4: 测试生成流程**
 
-1. 生成人物设计图，验证是否包含风格描述
+1. 生成角色设计图，验证是否包含风格描述
 2. 生成分镜图，验证是否包含风格描述
 
 **Step 5: 最终提交**

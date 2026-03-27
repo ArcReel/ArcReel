@@ -158,7 +158,7 @@ export function CharacterCard({
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-              人物设计图
+              角色设计图
             </span>
             <VersionTimeMachine
               projectName={projectName}

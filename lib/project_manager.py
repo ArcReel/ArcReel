@@ -474,7 +474,7 @@ class ProjectManager:
         scripts_dir = project_dir / "scripts"
         return [f.name for f in scripts_dir.glob("*.json")]
 
-    # ==================== 人物管理 ====================
+    # ==================== 角色管理 ====================
 
     def add_character(
         self,
@@ -486,15 +486,15 @@ class ProjectManager:
         character_sheet: Optional[str] = None,
     ) -> Dict:
         """
-        向剧本添加人物
+        向剧本添加角色
 
         Args:
             project_name: 项目名称
             script_filename: 剧本文件名
-            name: 人物名称
-            description: 人物描述
+            name: 角色名称
+            description: 角色描述
             voice_style: 声音风格
-            character_sheet: 人物设计图路径
+            character_sheet: 角色设计图路径
 
         Returns:
             更新后的剧本
@@ -513,11 +513,11 @@ class ProjectManager:
     def update_character_sheet(
         self, project_name: str, script_filename: str, name: str, sheet_path: str
     ) -> Dict:
-        """更新人物设计图路径"""
+        """更新角色设计图路径"""
         script = self.load_script(project_name, script_filename)
 
         if name not in script["characters"]:
-            raise KeyError(f"人物 '{name}' 不存在")
+            raise KeyError(f"角色 '{name}' 不存在")
 
         script["characters"][name]["character_sheet"] = sheet_path
         self.save_script(project_name, script, script_filename)
@@ -887,7 +887,7 @@ class ProjectManager:
         return self.get_project_path(project_name) / "source" / filename
 
     def get_character_path(self, project_name: str, filename: str) -> Path:
-        """获取人物设计图路径"""
+        """获取角色设计图路径"""
         return self.get_project_path(project_name) / "characters" / filename
 
     def get_storyboard_path(self, project_name: str, filename: str) -> Path:
@@ -992,7 +992,7 @@ class ProjectManager:
     ) -> Path:
         """原子性地更新 project.json：加文件锁 → 读 → 修改 → 写回。
 
-        避免并发任务（如同时生成多张人物图片）之间的 lost-update 竞态。
+        避免并发任务（如同时生成多张角色图片）之间的 lost-update 竞态。
 
         Args:
             project_name: 项目名称
@@ -1127,7 +1127,7 @@ class ProjectManager:
         # 仅返回项目数据，不执行任何写入
         return self.load_project(project_name)
 
-    # ==================== 项目级人物管理 ====================
+    # ==================== 项目级角色管理 ====================
 
     def add_project_character(
         self,
@@ -1138,14 +1138,14 @@ class ProjectManager:
         character_sheet: Optional[str] = None,
     ) -> Dict:
         """
-        向项目添加人物（项目级）
+        向项目添加角色（项目级）
 
         Args:
             project_name: 项目名称
-            name: 人物名称
-            description: 人物描述
+            name: 角色名称
+            description: 角色描述
             voice_style: 声音风格
-            character_sheet: 人物设计图路径
+            character_sheet: 角色设计图路径
 
         Returns:
             更新后的项目元数据
@@ -1164,11 +1164,11 @@ class ProjectManager:
     def update_project_character_sheet(
         self, project_name: str, name: str, sheet_path: str
     ) -> Dict:
-        """更新项目级人物设计图路径"""
+        """更新项目级角色设计图路径"""
         project = self.load_project(project_name)
 
         if name not in project["characters"]:
-            raise KeyError(f"人物 '{name}' 不存在")
+            raise KeyError(f"角色 '{name}' 不存在")
 
         project["characters"][name]["character_sheet"] = sheet_path
         self.save_project(project_name, project)
@@ -1178,11 +1178,11 @@ class ProjectManager:
         self, project_name: str, char_name: str, ref_path: str
     ) -> Dict:
         """
-        更新人物的参考图路径
+        更新角色的参考图路径
 
         Args:
             project_name: 项目名称
-            char_name: 人物名称
+            char_name: 角色名称
             ref_path: 参考图相对路径
 
         Returns:
@@ -1191,18 +1191,18 @@ class ProjectManager:
         project = self.load_project(project_name)
 
         if "characters" not in project or char_name not in project["characters"]:
-            raise KeyError(f"人物 '{char_name}' 不存在")
+            raise KeyError(f"角色 '{char_name}' 不存在")
 
         project["characters"][char_name]["reference_image"] = ref_path
         self.save_project(project_name, project)
         return project
 
     def get_project_character(self, project_name: str, name: str) -> Dict:
-        """获取项目级人物定义"""
+        """获取项目级角色定义"""
         project = self.load_project(project_name)
 
         if name not in project["characters"]:
-            raise KeyError(f"人物 '{name}' 不存在")
+            raise KeyError(f"角色 '{name}' 不存在")
 
         return project["characters"][name]
 
@@ -1506,7 +1506,7 @@ class ProjectManager:
         project_dir = self.get_project_path(project_name)
         refs = []
 
-        # 人物参考图
+        # 角色参考图
         for char in scene.get("characters_in_scene", []):
             char_data = project["characters"].get(char, {})
             sheet = char_data.get("character_sheet")

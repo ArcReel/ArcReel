@@ -139,7 +139,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
             <div className="relative overflow-hidden rounded-lg border border-gray-700 bg-gray-800">
               <img
                 src={referencePreview}
-                alt="人物参考图预览"
+                alt="角色参考图预览"
                 className="h-32 w-full object-cover"
               />
               <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
@@ -184,7 +184,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
             className="hidden"
           />
           <p className="mt-1 text-xs text-gray-600">
-            用于后续人物设计图生成时保持角色一致性
+            用于后续角色设计图生成时保持角色一致性
           </p>
         </div>
 

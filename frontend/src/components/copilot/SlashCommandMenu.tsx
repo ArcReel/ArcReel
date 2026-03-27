@@ -29,7 +29,7 @@ const SKILL_META_FALLBACK: Record<string, { label: string; icon: LucideIcon }> =
   "generate-script":     { label: "生成剧本",     icon: ScrollText },
   "generate-storyboard": { label: "生成分镜图",   icon: LayoutGrid },
   "generate-video":      { label: "生成视频",     icon: Film },
-  "generate-characters": { label: "生成人物图",   icon: Users },
+  "generate-characters": { label: "生成角色图",   icon: Users },
   "generate-clues":      { label: "生成线索图",   icon: Search },
   "compose-video":       { label: "合成视频",     icon: Scissors },
 };
