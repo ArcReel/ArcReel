@@ -33,7 +33,7 @@
 ### 新增 `provider_credential` 表
 
 ```python
-class ProviderCredential(Base):
+class ProviderCredential(TimestampMixin, Base):
     __tablename__ = "provider_credential"
     __table_args__ = (
         Index("ix_provider_credential_provider", "provider"),
@@ -46,8 +46,7 @@ class ProviderCredential(Base):
     credentials_path: Mapped[str | None] = mapped_column(Text, nullable=True)  # Vertex JSON 路径
     base_url: Mapped[str | None] = mapped_column(Text, nullable=True)          # 自定义 URL
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    # created_at, updated_at 由 TimestampMixin 提供
 ```
 
 **设计要点：**
