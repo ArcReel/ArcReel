@@ -63,12 +63,14 @@ cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts
 
 ## 角色/线索批量写入
 
+从项目目录内执行，自动检测项目名称：
+
 ```bash
 # 通过命令行参数（⚠️ 必须单行，JSON 使用紧凑格式，不可用 \ 换行）
-python .claude/skills/manage-project/scripts/add_characters_clues.py {project_name} --characters '{"角色名": {"description": "...", "voice_style": "..."}}' --clues '{"线索名": {"type": "prop", "description": "...", "importance": "major"}}'
+python .claude/skills/manage-project/scripts/add_characters_clues.py --characters '{"角色名": {"description": "...", "voice_style": "..."}}' --clues '{"线索名": {"type": "prop", "description": "...", "importance": "major"}}'
 
 # 通过 stdin（推荐用于大量角色/线索）
-echo '{"characters": {...}, "clues": {...}}' | python .claude/skills/manage-project/scripts/add_characters_clues.py {project_name} --stdin
+echo '{"characters": {...}, "clues": {...}}' | python .claude/skills/manage-project/scripts/add_characters_clues.py --stdin
 ```
 
 ## 字数统计规则

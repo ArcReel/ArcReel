@@ -2,13 +2,13 @@
 """
 add_characters_clues.py - 批量添加角色/线索到 project.json
 
-用法:
-    python add_characters_clues.py {project_name} \
+用法（需从项目目录内执行）:
+    python .claude/skills/manage-project/scripts/add_characters_clues.py \
         --characters '{"角色名": {"description": "...", "voice_style": "..."}}' \
         --clues '{"线索名": {"type": "prop", "description": "...", "importance": "major"}}'
 
     # 通过 stdin 接收 JSON
-    echo '{"characters": {...}, "clues": {...}}' | python add_characters_clues.py {project_name} --stdin
+    echo '{"characters": {...}, "clues": {...}}' | python .claude/skills/manage-project/scripts/add_characters_clues.py --stdin
 """
 
 import argparse
@@ -32,14 +32,13 @@ def main():
         description="批量添加角色/线索到 project.json",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-示例:
-    %(prog)s my_project --characters '{"李白": {"description": "白衣剑客", "voice_style": "豪放"}}'
-    %(prog)s my_project --clues '{"玉佩": {"type": "prop", "description": "温润白玉", "importance": "major"}}'
-    echo '{"characters": {...}}' | %(prog)s my_project --stdin
+示例（需从项目目录内执行）:
+    %(prog)s --characters '{"李白": {"description": "白衣剑客", "voice_style": "豪放"}}'
+    %(prog)s --clues '{"玉佩": {"type": "prop", "description": "温润白玉", "importance": "major"}}'
+    echo '{"characters": {...}}' | %(prog)s --stdin
         """,
     )
 
-    parser.add_argument("project_name", help="项目名称")
     parser.add_argument(
         "--characters",
         type=str,
@@ -77,30 +76,30 @@ def main():
         print("❌ 未提供角色或线索数据")
         sys.exit(1)
 
-    pm = ProjectManager()
+    pm, project_name = ProjectManager.from_cwd()
 
     # 添加角色
     chars_added = 0
     chars_skipped = 0
     if characters:
-        project = pm.load_project(args.project_name)
+        project = pm.load_project(project_name)
         existing = project.get("characters", {})
         chars_skipped = sum(1 for name in characters if name in existing)
-        chars_added = pm.add_characters_batch(args.project_name, characters)
+        chars_added = pm.add_characters_batch(project_name, characters)
         print(f"角色: 新增 {chars_added} 个，跳过 {chars_skipped} 个（已存在）")
 
     # 添加线索
     clues_added = 0
     clues_skipped = 0
     if clues:
-        project = pm.load_project(args.project_name)
+        project = pm.load_project(project_name)
         existing = project.get("clues", {})
         clues_skipped = sum(1 for name in clues if name in existing)
-        clues_added = pm.add_clues_batch(args.project_name, clues)
+        clues_added = pm.add_clues_batch(project_name, clues)
         print(f"线索: 新增 {clues_added} 个，跳过 {clues_skipped} 个（已存在）")
 
     # 数据验证
-    result = validate_project(args.project_name)
+    result = validate_project(project_name, projects_root=str(pm.projects_root))
     if result.valid:
         print("✅ 数据验证通过")
     else:
