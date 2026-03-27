@@ -91,6 +91,9 @@ export interface ProjectData {
   video_backend?: string;
   image_backend?: string;
   video_generate_audio?: boolean | null;
+  text_backend_script?: string;
+  text_backend_overview?: string;
+  text_backend_style?: string;
   metadata?: {
     created_at: string;
     updated_at: string;

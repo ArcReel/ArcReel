@@ -13,6 +13,7 @@ export function ProjectSettingsPage() {
   const [options, setOptions] = useState<{
     video_backends: string[];
     image_backends: string[];
+    text_backends: string[];
   } | null>(null);
   const [globalDefaults, setGlobalDefaults] = useState<{
     video: string;
@@ -24,6 +25,9 @@ export function ProjectSettingsPage() {
   const [videoBackend, setVideoBackend] = useState<string>("");
   const [imageBackend, setImageBackend] = useState<string>("");
   const [audioOverride, setAudioOverride] = useState<boolean | null>(null);
+  const [textScript, setTextScript] = useState<string>("");
+  const [textOverview, setTextOverview] = useState<string>("");
+  const [textStyle, setTextStyle] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
@@ -40,6 +44,7 @@ export function ProjectSettingsPage() {
       setOptions({
         video_backends: configRes.options?.video_backends ?? [],
         image_backends: configRes.options?.image_backends ?? [],
+        text_backends: configRes.options?.text_backends ?? [],
       });
       setGlobalDefaults({
         video: configRes.settings?.default_video_backend ?? "",
@@ -51,6 +56,9 @@ export function ProjectSettingsPage() {
       setImageBackend((project.image_backend as string | undefined) ?? "");
       const rawAudio = project.video_generate_audio;
       setAudioOverride(typeof rawAudio === "boolean" ? rawAudio : null);
+      setTextScript((project.text_backend_script as string | undefined) ?? "");
+      setTextOverview((project.text_backend_overview as string | undefined) ?? "");
+      setTextStyle((project.text_backend_style as string | undefined) ?? "");
     });
 
     return () => { disposed = true; };
@@ -65,6 +73,9 @@ export function ProjectSettingsPage() {
         video_backend: videoBackend || undefined,
         image_backend: imageBackend || undefined,
         video_generate_audio: audioOverride,
+        text_backend_script: textScript || undefined,
+        text_backend_overview: textOverview || undefined,
+        text_backend_style: textStyle || undefined,
       });
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 2000);
@@ -73,7 +84,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [videoBackend, imageBackend, audioOverride, projectName]);
+  }, [videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle, projectName]);
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 overflow-y-auto">
@@ -151,6 +162,30 @@ export function ProjectSettingsPage() {
                   关闭
                 </label>
               </fieldset>
+            </div>
+            {/* Text model overrides */}
+            <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
+              <div className="mb-3 text-sm font-medium text-gray-100">文本模型</div>
+              <p className="mb-2 text-xs text-gray-500">按任务类型覆盖，留空跟随全局默认</p>
+              <div className="space-y-3">
+                {([
+                  [textScript, setTextScript, "剧本生成"] as const,
+                  [textOverview, setTextOverview, "概述生成"] as const,
+                  [textStyle, setTextStyle, "风格分析"] as const,
+                ]).map(([value, setter, label], i) => (
+                  <div key={i}>
+                    <div className="mb-1 text-xs text-gray-400">{label}</div>
+                    <ProviderModelSelect
+                      value={value}
+                      options={options.text_backends}
+                      providerNames={PROVIDER_NAMES}
+                      onChange={setter}
+                      allowDefault
+                      defaultHint="跟随全局默认"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           </>
         )}
