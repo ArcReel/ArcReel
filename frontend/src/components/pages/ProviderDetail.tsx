@@ -180,6 +180,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let disposed = false;
@@ -189,7 +190,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
       if (!disposed) setDetail(res);
     });
     return () => { disposed = true; };
-  }, [providerId]);
+  }, [providerId, refreshKey]);
 
   const handleSave = useCallback(async () => {
     if (Object.keys(draft).length === 0) return;
@@ -248,7 +249,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
       )}
 
       {/* Credentials */}
-      <CredentialList providerId={providerId} onChanged={onSaved} />
+      <CredentialList providerId={providerId} onChanged={() => { setRefreshKey((k) => k + 1); onSaved?.(); }} />
 
       {/* Shared config (all remaining fields from the API are "advanced") */}
       {detail.fields.length > 0 && (

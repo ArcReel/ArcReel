@@ -33,8 +33,12 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
   const [draft, setDraft] = useState({ name: cred.name, api_key: "", base_url: cred.base_url ?? "" });
 
   const handleActivate = useCallback(async () => {
-    await API.activateCredential(providerId, cred.id);
-    onChanged();
+    try {
+      await API.activateCredential(providerId, cred.id);
+      onChanged();
+    } catch {
+      // 网络错误静默处理，用户可重试
+    }
   }, [providerId, cred.id, onChanged]);
 
   const handleTest = useCallback(async () => {
