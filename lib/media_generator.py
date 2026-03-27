@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from lib.image_backends.base import ImageBackend
 
 from lib.db.base import DEFAULT_USER_ID
-from lib.gemini_client import RateLimiter
+from lib.gemini_shared import RateLimiter
 from lib.version_manager import VersionManager
 from lib.usage_tracker import UsageTracker
 logger = logging.getLogger(__name__)

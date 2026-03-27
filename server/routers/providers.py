@@ -22,7 +22,7 @@ from lib import PROJECT_ROOT
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService
 from lib.db import get_async_session
-from lib.gemini_client import VERTEX_SCOPES
+from lib.gemini_shared import VERTEX_SCOPES
 from server.dependencies import get_config_service
 
 logger = logging.getLogger(__name__)

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from lib import PROJECT_ROOT
-from lib.gemini_client import get_shared_rate_limiter
+from lib.gemini_shared import get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
 from lib.db.base import DEFAULT_USER_ID
 from lib.project_change_hints import emit_project_change_batch, project_change_source
