@@ -246,6 +246,13 @@ class CostCalculator:
         )
         return duration_seconds * per_second, "USD"
 
+    _TEXT_COST_TABLES: dict[str, tuple[dict, str, str]] = {
+        # provider -> (cost_table_attr, default_model, currency)
+        "ark": ("ARK_TEXT_COST", "doubao-seed-2-0-lite-260215", "CNY"),
+        "grok": ("GROK_TEXT_COST", "grok-4-1-fast-reasoning", "USD"),
+    }
+    _TEXT_COST_DEFAULT = ("GEMINI_TEXT_COST", "gemini-3-flash-preview", "USD")
+
     def calculate_text_cost(
         self,
         input_tokens: int,
@@ -254,21 +261,14 @@ class CostCalculator:
         model: str | None = None,
     ) -> tuple[float, str]:
         """计算文本生成费用。返回 (amount, currency)。"""
-        if provider == "ark":
-            model = model or "doubao-seed-2-0-lite-260215"
-            rates = self.ARK_TEXT_COST.get(model, {"input": 0.30, "output": 0.60})
-            amount = (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000
-            return amount, "CNY"
-        elif provider == "grok":
-            model = model or "grok-4-1-fast-reasoning"
-            rates = self.GROK_TEXT_COST.get(model, {"input": 2.00, "output": 10.00})
-            amount = (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000
-            return amount, "USD"
-        else:  # gemini
-            model = model or "gemini-3-flash-preview"
-            rates = self.GEMINI_TEXT_COST.get(model, {"input": 0.10, "output": 0.40})
-            amount = (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000
-            return amount, "USD"
+        table_attr, default_model, currency = self._TEXT_COST_TABLES.get(
+            provider, self._TEXT_COST_DEFAULT
+        )
+        cost_table = getattr(self, table_attr)
+        model = model or default_model
+        rates = cost_table.get(model, cost_table.get(default_model, {"input": 0.0, "output": 0.0}))
+        amount = (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000
+        return amount, currency
 
 
 # 单例实例，方便使用

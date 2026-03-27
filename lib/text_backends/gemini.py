@@ -89,10 +89,6 @@ class GeminiTextBackend:
             else:
                 logger.info("GeminiTextBackend: 使用 AI Studio 后端")
 
-    # ------------------------------------------------------------------
-    # TextBackend Protocol 属性
-    # ------------------------------------------------------------------
-
     @property
     def name(self) -> str:
         return PROVIDER_GEMINI
@@ -108,10 +104,6 @@ class GeminiTextBackend:
             TextCapability.STRUCTURED_OUTPUT,
             TextCapability.VISION,
         }
-
-    # ------------------------------------------------------------------
-    # 内部辅助
-    # ------------------------------------------------------------------
 
     def _build_config(
         self,
@@ -142,10 +134,6 @@ class GeminiTextBackend:
 
         contents.append(request.prompt)
         return contents
-
-    # ------------------------------------------------------------------
-    # 主生成方法
-    # ------------------------------------------------------------------
 
     @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:

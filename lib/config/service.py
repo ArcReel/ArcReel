@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -85,15 +85,7 @@ class ConfigService:
             status: Literal["ready", "unconfigured", "error"] = (
                 "ready" if not missing else "unconfigured"
             )
-            # Build models dict from registry
-            models_dict = {}
-            for model_id, model_info in meta.models.items():
-                models_dict[model_id] = {
-                    "display_name": model_info.display_name,
-                    "media_type": model_info.media_type,
-                    "capabilities": model_info.capabilities,
-                    "default": model_info.default,
-                }
+            models_dict = {mid: asdict(mi) for mid, mi in meta.models.items()}
             statuses.append(
                 ProviderStatus(
                     name=name,

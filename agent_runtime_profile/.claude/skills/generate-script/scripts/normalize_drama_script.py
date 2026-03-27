@@ -169,10 +169,13 @@ def main():
         return
 
     # 调用 TextBackend
-    backend = asyncio.run(create_text_backend_for_task(TextTaskType.SCRIPT))
-    print(f"正在使用 {backend.model} 生成规范化剧本...")
-    result = asyncio.run(backend.generate(TextGenerationRequest(prompt=prompt)))
-    response = result.text
+    async def _run():
+        backend = await create_text_backend_for_task(TextTaskType.SCRIPT)
+        print(f"正在使用 {backend.model} 生成规范化剧本...")
+        result = await backend.generate(TextGenerationRequest(prompt=prompt))
+        return result.text
+
+    response = asyncio.run(_run())
 
     # 保存文件
     drafts_dir = project_path / "drafts" / f"episode_{args.episode}"
