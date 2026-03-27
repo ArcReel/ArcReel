@@ -20,9 +20,12 @@ from starlette.responses import Response
 
 from lib import PROJECT_ROOT
 from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.repository import mask_secret
 from lib.config.service import ConfigService
 from lib.config.url_utils import normalize_base_url
 from lib.db import get_async_session
+from lib.db.base import dt_to_iso
+from lib.db.repositories.credential_repository import CredentialRepository
 from lib.gemini_shared import VERTEX_SCOPES
 from server.dependencies import get_config_service
 
@@ -103,9 +106,57 @@ class ConnectionTestResponse(BaseModel):
     message: str
 
 
+class CredentialResponse(BaseModel):
+    id: int
+    provider: str
+    name: str
+    api_key_masked: Optional[str] = None
+    credentials_filename: Optional[str] = None
+    base_url: Optional[str] = None
+    is_active: bool
+    created_at: str
+
+
+class CredentialListResponse(BaseModel):
+    credentials: list[CredentialResponse]
+
+
+class CreateCredentialRequest(BaseModel):
+    name: str
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+class UpdateCredentialRequest(BaseModel):
+    name: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # 辅助函数
 # ---------------------------------------------------------------------------
+
+
+def _cred_to_response(cred) -> CredentialResponse:
+    return CredentialResponse(
+        id=cred.id,
+        provider=cred.provider,
+        name=cred.name,
+        api_key_masked=mask_secret(cred.api_key) if cred.api_key else None,
+        credentials_filename=Path(cred.credentials_path).name if cred.credentials_path else None,
+        base_url=cred.base_url,
+        is_active=cred.is_active,
+        created_at=dt_to_iso(cred.created_at) or "",
+    )
+
+
+async def _invalidate_caches(request: Request) -> None:
+    from server.services.generation_tasks import invalidate_backend_cache
+    invalidate_backend_cache()
+    worker = getattr(request.app.state, "generation_worker", None)
+    if worker:
+        await worker.reload_limits()
 
 
 def _build_field(
@@ -228,13 +279,108 @@ async def patch_provider_config(
     await session.commit()
 
     # 配置变更后刷新缓存和并发池
-    from server.services.generation_tasks import invalidate_backend_cache
-    invalidate_backend_cache()
+    await _invalidate_caches(request)
 
-    worker = getattr(request.app.state, "generation_worker", None)
-    if worker:
-        await worker.reload_limits()
+    return Response(status_code=204)
 
+
+# ---------------------------------------------------------------------------
+# 凭证 CRUD 端点
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{provider_id}/credentials", response_model=CredentialListResponse)
+async def list_credentials(
+    provider_id: str,
+    session: AsyncSession = Depends(get_async_session),
+) -> CredentialListResponse:
+    if provider_id not in PROVIDER_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    repo = CredentialRepository(session)
+    creds = await repo.list_by_provider(provider_id)
+    return CredentialListResponse(credentials=[_cred_to_response(c) for c in creds])
+
+
+@router.post("/{provider_id}/credentials", status_code=201, response_model=CredentialResponse)
+async def create_credential(
+    provider_id: str,
+    body: CreateCredentialRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_async_session),
+) -> CredentialResponse:
+    if provider_id not in PROVIDER_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    repo = CredentialRepository(session)
+    cred = await repo.create(
+        provider=provider_id, name=body.name,
+        api_key=body.api_key, base_url=body.base_url,
+    )
+    await session.commit()
+    await _invalidate_caches(request)
+    return _cred_to_response(cred)
+
+
+@router.patch("/{provider_id}/credentials/{cred_id}", status_code=204)
+async def update_credential(
+    provider_id: str, cred_id: int,
+    body: UpdateCredentialRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_async_session),
+) -> Response:
+    if provider_id not in PROVIDER_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    repo = CredentialRepository(session)
+    cred = await repo.get_by_id(cred_id)
+    if not cred or cred.provider != provider_id:
+        raise HTTPException(status_code=404, detail="凭证不存在")
+    kwargs: dict = {}
+    if body.name is not None:
+        kwargs["name"] = body.name
+    if body.api_key is not None:
+        kwargs["api_key"] = body.api_key
+    if body.base_url is not None:
+        kwargs["base_url"] = body.base_url
+    if kwargs:
+        await repo.update(cred_id, **kwargs)
+        await session.commit()
+        if cred.is_active:
+            await _invalidate_caches(request)
+    return Response(status_code=204)
+
+
+@router.delete("/{provider_id}/credentials/{cred_id}", status_code=204)
+async def delete_credential(
+    provider_id: str, cred_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_async_session),
+) -> Response:
+    if provider_id not in PROVIDER_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    repo = CredentialRepository(session)
+    cred = await repo.get_by_id(cred_id)
+    if not cred or cred.provider != provider_id:
+        raise HTTPException(status_code=404, detail="凭证不存在")
+    await repo.delete(cred_id)
+    await session.commit()
+    await _invalidate_caches(request)
+    return Response(status_code=204)
+
+
+@router.post("/{provider_id}/credentials/{cred_id}/activate", status_code=204)
+async def activate_credential(
+    provider_id: str, cred_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_async_session),
+) -> Response:
+    if provider_id not in PROVIDER_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    repo = CredentialRepository(session)
+    cred = await repo.get_by_id(cred_id)
+    if not cred or cred.provider != provider_id:
+        raise HTTPException(status_code=404, detail="凭证不存在")
+    await repo.activate(cred_id, provider_id)
+    await session.commit()
+    await _invalidate_caches(request)
     return Response(status_code=204)
 
 
