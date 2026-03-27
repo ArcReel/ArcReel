@@ -107,6 +107,21 @@ class CostCalculator:
     }
     DEFAULT_GROK_IMAGE_MODEL = "grok-imagine-image"
 
+    # Gemini 文本 token 费率（美元/百万 token）
+    GEMINI_TEXT_COST = {
+        "gemini-3-flash-preview": {"input": 0.10, "output": 0.40},
+    }
+
+    # Ark 文本 token 费率（元/百万 token）
+    ARK_TEXT_COST = {
+        "doubao-seed-2-0-lite-260215": {"input": 0.30, "output": 0.60},
+    }
+
+    # Grok 文本 token 费率（美元/百万 token）
+    GROK_TEXT_COST = {
+        "grok-4-1-fast-reasoning": {"input": 2.00, "output": 10.00},
+    }
+
     def calculate_ark_video_cost(
         self,
         usage_tokens: int,
@@ -230,6 +245,30 @@ class CostCalculator:
             model, self.GROK_VIDEO_COST[self.DEFAULT_GROK_MODEL]
         )
         return duration_seconds * per_second, "USD"
+
+    def calculate_text_cost(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        provider: str,
+        model: str | None = None,
+    ) -> tuple[float, str]:
+        """计算文本生成费用。返回 (amount, currency)。"""
+        if provider == "ark":
+            model = model or "doubao-seed-2-0-lite-260215"
+            rates = self.ARK_TEXT_COST.get(model, {"input": 0.30, "output": 0.60})
+            amount = (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000
+            return amount, "CNY"
+        elif provider == "grok":
+            model = model or "grok-4-1-fast-reasoning"
+            rates = self.GROK_TEXT_COST.get(model, {"input": 2.00, "output": 10.00})
+            amount = (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000
+            return amount, "USD"
+        else:  # gemini
+            model = model or "gemini-3-flash-preview"
+            rates = self.GEMINI_TEXT_COST.get(model, {"input": 0.10, "output": 0.40})
+            amount = (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000
+            return amount, "USD"
 
 
 # 单例实例，方便使用
