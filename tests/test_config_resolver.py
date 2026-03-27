@@ -1,5 +1,8 @@
 from unittest.mock import patch
 
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+from lib.db.base import Base
 from lib.config.resolver import ConfigResolver
 
 
@@ -111,14 +114,31 @@ class TestDefaultBackends:
 class TestProviderConfig:
     """验证供应商配置方法委托给 ConfigService。"""
 
+    async def _make_session(self):
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        return factory, engine
+
     async def test_provider_config(self):
-        resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService()
-        result = await resolver._resolve_provider_config(fake_svc, "gemini-aistudio")
-        assert result == {"api_key": "key-gemini-aistudio"}
+        factory, engine = await self._make_session()
+        try:
+            resolver = ConfigResolver.__new__(ConfigResolver)
+            fake_svc = _FakeConfigService()
+            async with factory() as session:
+                result = await resolver._resolve_provider_config(fake_svc, session, "gemini-aistudio")
+            assert result == {"api_key": "key-gemini-aistudio"}
+        finally:
+            await engine.dispose()
 
     async def test_all_provider_configs(self):
-        resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService()
-        result = await resolver._resolve_all_provider_configs(fake_svc)
-        assert "gemini-aistudio" in result
+        factory, engine = await self._make_session()
+        try:
+            resolver = ConfigResolver.__new__(ConfigResolver)
+            fake_svc = _FakeConfigService()
+            async with factory() as session:
+                result = await resolver._resolve_all_provider_configs(fake_svc, session)
+            assert "gemini-aistudio" in result
+        finally:
+            await engine.dispose()

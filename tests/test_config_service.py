@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from lib.db.base import Base
 from lib.config.service import ConfigService
+from lib.db.repositories.credential_repository import CredentialRepository
 
 
 @pytest.fixture
@@ -29,12 +30,14 @@ async def test_get_all_providers_status_empty(config_service: ConfigService):
         assert s.status == "unconfigured"
 
 
-async def test_provider_becomes_ready(config_service: ConfigService):
-    await config_service.set_provider_config("gemini-aistudio", "api_key", "AIza-test")
+async def test_provider_becomes_ready(config_service: ConfigService, session: AsyncSession):
+    # 新逻辑：status 由凭证表中的活跃凭证决定，而不是 ProviderConfig 表
+    cred_repo = CredentialRepository(session)
+    await cred_repo.create("gemini-aistudio", "default", api_key="AIza-test")
+    await session.flush()
     statuses = await config_service.get_all_providers_status()
     aistudio = next(s for s in statuses if s.name == "gemini-aistudio")
     assert aistudio.status == "ready"
-    assert "api_key" in aistudio.configured_keys
     assert aistudio.missing_keys == []
 
 

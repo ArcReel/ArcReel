@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
+from lib.db.repositories.credential_repository import CredentialRepository
 
 _DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-fast-generate-preview"
 _DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image-preview"
@@ -78,13 +79,18 @@ class ConfigService:
 
     async def get_all_providers_status(self) -> list[ProviderStatus]:
         all_configured = await self._provider_repo.get_all_configured_keys_bulk()
+        cred_repo = CredentialRepository(self._provider_repo.session)
+        active_creds = await cred_repo.get_active_credentials_bulk()
         statuses = []
         for name, meta in PROVIDER_REGISTRY.items():
+            has_active = name in active_creds
             configured = all_configured.get(name, [])
-            missing = [k for k in meta.required_keys if k not in configured]
-            status: Literal["ready", "unconfigured", "error"] = (
-                "ready" if not missing else "unconfigured"
-            )
+            if has_active:
+                status: Literal["ready", "unconfigured", "error"] = "ready"
+                missing: list[str] = []
+            else:
+                status = "unconfigured"
+                missing = list(meta.required_keys)
             models_dict = {mid: asdict(mi) for mid, mi in meta.models.items()}
             statuses.append(
                 ProviderStatus(
