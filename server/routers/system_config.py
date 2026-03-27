@@ -22,6 +22,7 @@ from lib.config.service import (
     sync_anthropic_env,
     _DEFAULT_IMAGE_BACKEND,
     _DEFAULT_VIDEO_BACKEND,
+    _DEFAULT_TEXT_BACKEND,
 )
 from lib.db import get_async_session
 from server.auth import CurrentUser
@@ -30,30 +31,6 @@ from server.dependencies import get_config_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# ---------------------------------------------------------------------------
-# Provider → model mapping (hardcoded for now, will be dynamic later)
-# ---------------------------------------------------------------------------
-
-_PROVIDER_MODELS: dict[str, dict[str, list[str]]] = {
-    "gemini-aistudio": {
-        "video": ["veo-3.1-generate-preview", "veo-3.1-fast-generate-preview"],
-        "image": ["gemini-3.1-flash-image-preview"],
-    },
-    "gemini-vertex": {
-        "video": ["veo-3.1-generate-001", "veo-3.1-fast-generate-001"],
-        "image": ["gemini-3.1-flash-image-preview"],
-    },
-    "ark": {
-        "video": ["doubao-seedance-1-5-pro-251215"],
-        "image": ["doubao-seedream-5-0-260128", "doubao-seedream-5-0-lite-260128",
-                   "doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828"],
-    },
-    "grok": {
-        "video": ["grok-imagine-video"],
-        "image": ["grok-imagine-image", "grok-imagine-image-pro"],
-    },
-}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -67,17 +44,23 @@ async def _build_options(svc: ConfigService) -> dict[str, list[str]]:
 
     video_backends: list[str] = []
     image_backends: list[str] = []
-    for provider_id, models in _PROVIDER_MODELS.items():
+    text_backends: list[str] = []
+    for provider_id, meta in PROVIDER_REGISTRY.items():
         if provider_id not in ready_providers:
             continue
-        for model in models.get("video", []):
-            video_backends.append(f"{provider_id}/{model}")
-        for model in models.get("image", []):
-            image_backends.append(f"{provider_id}/{model}")
+        for model_id, model_info in meta.models.items():
+            full = f"{provider_id}/{model_id}"
+            if model_info.media_type == "video":
+                video_backends.append(full)
+            elif model_info.media_type == "image":
+                image_backends.append(full)
+            elif model_info.media_type == "text":
+                text_backends.append(full)
 
     return {
         "video_backends": video_backends,
         "image_backends": image_backends,
+        "text_backends": text_backends,
     }
 
 
@@ -89,6 +72,7 @@ async def _build_options(svc: ConfigService) -> dict[str, list[str]]:
 class SystemConfigPatchRequest(BaseModel):
     default_video_backend: Optional[str] = None
     default_image_backend: Optional[str] = None
+    default_text_backend: Optional[str] = None
     video_generate_audio: Optional[bool] = None
     anthropic_api_key: Optional[str] = None
     anthropic_base_url: Optional[str] = None
@@ -99,6 +83,9 @@ class SystemConfigPatchRequest(BaseModel):
     claude_code_subagent_model: Optional[str] = None
     agent_session_cleanup_delay_seconds: Optional[int] = None
     agent_max_concurrent_sessions: Optional[int] = None
+    text_backend_script: Optional[str] = None
+    text_backend_overview: Optional[str] = None
+    text_backend_style: Optional[str] = None
 
 
 # Setting keys that map directly to string DB settings
@@ -109,6 +96,9 @@ _STRING_SETTINGS = (
     "anthropic_default_opus_model",
     "anthropic_default_sonnet_model",
     "claude_code_subagent_model",
+    "text_backend_script",
+    "text_backend_overview",
+    "text_backend_style",
 )
 
 
@@ -131,6 +121,7 @@ async def get_system_config(
     settings: dict[str, Any] = {
         "default_video_backend": all_s.get("default_video_backend") or _DEFAULT_VIDEO_BACKEND,
         "default_image_backend": all_s.get("default_image_backend") or _DEFAULT_IMAGE_BACKEND,
+        "default_text_backend": all_s.get("default_text_backend") or _DEFAULT_TEXT_BACKEND,
         "video_generate_audio": video_generate_audio,
         "anthropic_api_key": {
             "is_set": bool(anthropic_key),
@@ -144,6 +135,9 @@ async def get_system_config(
         "claude_code_subagent_model": all_s.get("claude_code_subagent_model") or None,
         "agent_session_cleanup_delay_seconds": int(all_s.get("agent_session_cleanup_delay_seconds") or "300"),
         "agent_max_concurrent_sessions": int(all_s.get("agent_max_concurrent_sessions") or "5"),
+        "text_backend_script": all_s.get("text_backend_script") or "",
+        "text_backend_overview": all_s.get("text_backend_overview") or "",
+        "text_backend_style": all_s.get("text_backend_style") or "",
     }
 
     options = await _build_options(svc)
@@ -168,7 +162,7 @@ async def patch_system_config(
         patch[field_name] = getattr(req, field_name)
 
     # Validate backend references
-    for backend_key in ("default_video_backend", "default_image_backend"):
+    for backend_key in ("default_video_backend", "default_image_backend", "default_text_backend"):
         if backend_key in patch and patch[backend_key]:
             value = str(patch[backend_key]).strip()
             if "/" not in value:

@@ -124,6 +124,7 @@ class TestGetSystemConfig:
         expected_keys = {
             "default_video_backend",
             "default_image_backend",
+            "default_text_backend",
             "video_generate_audio",
             "anthropic_api_key",
             "anthropic_base_url",
@@ -134,6 +135,9 @@ class TestGetSystemConfig:
             "claude_code_subagent_model",
             "agent_session_cleanup_delay_seconds",
             "agent_max_concurrent_sessions",
+            "text_backend_script",
+            "text_backend_overview",
+            "text_backend_style",
         }
         assert set(settings.keys()) == expected_keys
 
