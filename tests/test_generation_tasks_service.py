@@ -85,6 +85,9 @@ class _FakePM:
     def save_project(self, project_name: str, project: dict):
         self.project = project
 
+    def update_project(self, project_name: str, mutate_fn):
+        mutate_fn(self.project)
+
     def project_exists(self, project_name: str) -> bool:
         return True
 

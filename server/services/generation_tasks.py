@@ -663,8 +663,12 @@ async def execute_character_task(project_name: str, resource_id: str, payload: D
         image_size="1K",
     )
 
-    project["characters"][resource_id]["character_sheet"] = f"characters/{resource_id}.png"
-    get_project_manager().save_project(project_name, project)
+    sheet_path = f"characters/{resource_id}.png"
+
+    def _set_character_sheet(p: Dict) -> None:
+        p["characters"][resource_id]["character_sheet"] = sheet_path
+
+    get_project_manager().update_project(project_name, _set_character_sheet)
 
     created_at = generator.versions.get_versions("characters", resource_id)["versions"][-1][
         "created_at"
@@ -706,8 +710,12 @@ async def execute_clue_task(project_name: str, resource_id: str, payload: Dict[s
         image_size="1K",
     )
 
-    project["clues"][resource_id]["clue_sheet"] = f"clues/{resource_id}.png"
-    get_project_manager().save_project(project_name, project)
+    sheet_path = f"clues/{resource_id}.png"
+
+    def _set_clue_sheet(p: Dict) -> None:
+        p["clues"][resource_id]["clue_sheet"] = sheet_path
+
+    get_project_manager().update_project(project_name, _set_clue_sheet)
 
     created_at = generator.versions.get_versions("clues", resource_id)["versions"][-1][
         "created_at"

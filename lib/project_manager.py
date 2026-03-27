@@ -4,6 +4,7 @@
 管理视频项目的目录结构、分镜剧本读写、状态追踪。
 """
 
+import fcntl
 import json
 import logging
 import os
@@ -12,7 +13,7 @@ import secrets
 import unicodedata
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 from lib.project_change_hints import emit_project_change_hint
@@ -984,6 +985,48 @@ class ProjectManager:
 
         with open(project_file, "w", encoding="utf-8") as f:
             json.dump(project, f, ensure_ascii=False, indent=2)
+
+        emit_project_change_hint(
+            project_name,
+            changed_paths=[self.PROJECT_FILE],
+        )
+
+        return project_file
+
+    def update_project(
+        self,
+        project_name: str,
+        mutate_fn: Callable[[Dict], None],
+    ) -> Path:
+        """原子性地更新 project.json：加文件锁 → 读 → 修改 → 写回。
+
+        避免并发任务（如同时生成多张人物图片）之间的 lost-update 竞态。
+
+        Args:
+            project_name: 项目名称
+            mutate_fn: 接收 project dict 并就地修改的回调函数
+        """
+        project_file = self._get_project_file_path(project_name)
+
+        with open(project_file, "r+", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                project = json.load(f)
+                mutate_fn(project)
+
+                if "metadata" not in project:
+                    project["metadata"] = {
+                        "created_at": datetime.now().isoformat(),
+                        "updated_at": datetime.now().isoformat(),
+                    }
+                else:
+                    project["metadata"]["updated_at"] = datetime.now().isoformat()
+
+                f.seek(0)
+                json.dump(project, f, ensure_ascii=False, indent=2)
+                f.truncate()
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
 
         emit_project_change_hint(
             project_name,
