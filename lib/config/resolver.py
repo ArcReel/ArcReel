@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from lib.config.service import ConfigService
+from lib.config.service import ConfigService, _DEFAULT_TEXT_BACKEND
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.project_manager import ProjectManager
 from lib.env_init import PROJECT_ROOT
@@ -152,17 +152,17 @@ class ConfigResolver:
             project = get_project_manager().load_project(project_name)
             project_val = project.get(setting_key)
             if project_val and "/" in str(project_val):
-                return ConfigService._parse_backend(str(project_val), "")
+                return ConfigService._parse_backend(str(project_val), _DEFAULT_TEXT_BACKEND)
 
         # 2. Global task-type setting
         task_val = await svc.get_setting(setting_key, "")
         if task_val and "/" in task_val:
-            return ConfigService._parse_backend(task_val, "")
+            return ConfigService._parse_backend(task_val, _DEFAULT_TEXT_BACKEND)
 
         # 3. Global default text backend
         default_val = await svc.get_setting("default_text_backend", "")
         if default_val and "/" in default_val:
-            return ConfigService._parse_backend(default_val, "")
+            return ConfigService._parse_backend(default_val, _DEFAULT_TEXT_BACKEND)
 
         # 4. Auto-resolve
         return await self._auto_resolve_backend(svc, "text")

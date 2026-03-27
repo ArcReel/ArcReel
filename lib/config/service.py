@@ -50,7 +50,7 @@ class ProviderStatus:
     required_keys: list[str]
     configured_keys: list[str]
     missing_keys: list[str]
-    models: dict = None  # model_id -> ModelInfo dict representation
+    models: dict[str, dict] | None = None  # model_id -> ModelInfo dict representation
 
 
 class ConfigService:

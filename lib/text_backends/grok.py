@@ -77,21 +77,52 @@ class GrokTextBackend:
             response = await asyncio.to_thread(chat.sample)
             text = response.content if hasattr(response, "content") else str(response)
 
+        # Try to extract token usage from the response
+        input_tokens = None
+        output_tokens = None
+        if hasattr(response, 'usage'):
+            usage = response.usage
+            input_tokens = getattr(usage, 'input_tokens', None) or getattr(usage, 'prompt_tokens', None)
+            output_tokens = getattr(usage, 'output_tokens', None) or getattr(usage, 'completion_tokens', None)
+
         return TextGenerationResult(
             text=text.strip() if isinstance(text, str) else str(text),
             provider=PROVIDER_GROK,
             model=self._model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
 
 
 def _schema_to_pydantic(schema: dict):
-    """Convert a JSON Schema dict to a dynamic Pydantic model."""
+    """Convert a JSON Schema dict to a dynamic Pydantic model.
+
+    Maps basic JSON Schema types to Python types. Nested objects and arrays
+    are mapped to dict/list respectively for flexibility.
+    """
     from pydantic import create_model
-    from typing import Any as AnyType
+    from typing import Any as AnyType, Optional
 
     properties = schema.get("properties", {})
+    required = set(schema.get("required", []))
     fields = {}
+
+    _TYPE_MAP = {
+        "string": str,
+        "integer": int,
+        "number": float,
+        "boolean": bool,
+        "array": list,
+        "object": dict,
+    }
+
     for field_name, prop in properties.items():
-        fields[field_name] = (AnyType, ...)
+        json_type = prop.get("type", "string")
+        py_type = _TYPE_MAP.get(json_type, AnyType)
+
+        if field_name in required:
+            fields[field_name] = (py_type, ...)
+        else:
+            fields[field_name] = (Optional[py_type], None)
 
     return create_model("DynamicResponse", **fields)

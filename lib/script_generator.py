@@ -1,7 +1,7 @@
 """
 script_generator.py - 剧本生成器
 
-读取 Step 1/2 的 Markdown 中间文件，调用 Gemini 生成最终 JSON 剧本
+读取 Step 1/2 的 Markdown 中间文件，调用文本生成 Backend 生成最终 JSON 剧本
 """
 
 import json
@@ -29,7 +29,7 @@ class ScriptGenerator:
     """
     剧本生成器
 
-    读取 Step 1/2 的 Markdown 中间文件，调用 Gemini 生成最终 JSON 剧本
+    读取 Step 1/2 的 Markdown 中间文件，调用 TextBackend 生成最终 JSON 剧本
     """
 
     def __init__(self, project_path: Union[str, Path], backend: Optional["TextBackend"] = None):
@@ -193,7 +193,7 @@ class ScriptGenerator:
 
     def _parse_response(self, response_text: str, episode: int) -> dict:
         """
-        解析并验证 Gemini 响应
+        解析并验证 TextBackend 响应
 
         Args:
             response_text: API 返回的 JSON 文本
