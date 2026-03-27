@@ -10,13 +10,26 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.routers import files
 
 
-class _FakeGeminiClient:
-    def analyze_style_image(self, image_path):
-        return "cinematic, high contrast"
+class _FakeTextBackend:
+    @property
+    def name(self):
+        return "fake"
+
+    @property
+    def model(self):
+        return "fake-model"
+
+    @property
+    def capabilities(self):
+        return set()
+
+    async def generate(self, request):
+        from lib.text_backends.base import TextGenerationResult
+        return TextGenerationResult(text="cinematic, high contrast", provider="fake", model="fake-model")
 
 
-async def _fake_create_text_client():
-    return _FakeGeminiClient()
+async def _fake_create_backend(*args, **kwargs):
+    return _FakeTextBackend()
 
 
 def _img_bytes(fmt="JPEG"):
@@ -34,7 +47,7 @@ def _client(monkeypatch, tmp_path):
     pm.add_clue("demo", "玉佩", "prop", "desc", "major")
 
     monkeypatch.setattr(files, "get_project_manager", lambda: pm)
-    monkeypatch.setattr("lib.text_client.create_text_client", _fake_create_text_client)
+    monkeypatch.setattr("lib.text_backends.factory.create_text_backend_for_task", _fake_create_backend)
 
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")

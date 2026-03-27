@@ -521,10 +521,15 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
         with open(output_path, "wb") as f:
             f.write(png_content)
 
-        # 调用 Gemini API 分析风格
-        from lib.text_client import create_text_client
-        client = await create_text_client()
-        style_description = client.analyze_style_image(output_path)
+        # 调用 TextBackend 分析风格
+        from lib.text_backends.factory import create_text_backend_for_task
+        from lib.text_backends.base import TextGenerationRequest, TextTaskType, ImageInput
+        from lib.text_backends.prompts import STYLE_ANALYSIS_PROMPT
+        backend = await create_text_backend_for_task(TextTaskType.STYLE_ANALYSIS)
+        result = await backend.generate(
+            TextGenerationRequest(prompt=STYLE_ANALYSIS_PROMPT, images=[ImageInput(path=output_path)])
+        )
+        style_description = result.text
 
         # 更新 project.json
         project_data = get_project_manager().load_project(project_name)

@@ -1540,25 +1540,27 @@ class ProjectManager:
         Returns:
             生成的 overview 字典，包含 synopsis, genre, theme, world_setting, generated_at
         """
-        from .text_client import create_text_client
+        from .text_backends.factory import create_text_backend_for_task
+        from .text_backends.base import TextGenerationRequest, TextTaskType
 
         # 读取源文件内容
         source_content = self._read_source_files(project_name)
         if not source_content:
             raise ValueError("source 目录为空，无法生成概述")
 
-        # 从 DB 加载供应商配置创建 client（Vertex > AI Studio）
-        client = await create_text_client()
+        # 从 DB 加载供应商配置创建 backend
+        backend = await create_text_backend_for_task(TextTaskType.OVERVIEW)
 
-        # 调用 Gemini API（Structured Outputs）
+        # 调用 TextBackend（Structured Outputs）
         prompt = f"请分析以下小说内容，提取关键信息：\n\n{source_content}"
 
-        # 使用原生异步 API
-        response_text = await client.generate_text_async(
-            prompt=prompt,
-            model="gemini-3-flash-preview",
-            response_schema=ProjectOverview.model_json_schema(),
+        result = await backend.generate(
+            TextGenerationRequest(
+                prompt=prompt,
+                response_schema=ProjectOverview.model_json_schema(),
+            )
         )
+        response_text = result.text
 
         # 解析并验证响应
         overview = ProjectOverview.model_validate_json(response_text)

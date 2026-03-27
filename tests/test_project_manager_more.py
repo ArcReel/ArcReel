@@ -16,16 +16,33 @@ def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-class _FakeGeminiClient:
-    async def generate_text_async(self, prompt, model, response_schema):
-        return json.dumps(
-            {
-                "synopsis": "故事梗概",
-                "genre": "悬疑",
-                "theme": "真相",
-                "world_setting": "古代",
-            },
-            ensure_ascii=False,
+class _FakeTextBackend:
+    @property
+    def name(self):
+        return "fake"
+
+    @property
+    def model(self):
+        return "fake-model"
+
+    @property
+    def capabilities(self):
+        return set()
+
+    async def generate(self, request):
+        from lib.text_backends.base import TextGenerationResult
+        return TextGenerationResult(
+            text=json.dumps(
+                {
+                    "synopsis": "故事梗概",
+                    "genre": "悬疑",
+                    "theme": "真相",
+                    "world_setting": "古代",
+                },
+                ensure_ascii=False,
+            ),
+            provider="fake",
+            model="fake-model",
         )
 
 
@@ -289,9 +306,9 @@ class TestProjectManagerMore:
         content = pm._read_source_files("demo", max_chars=15)
         assert "1.txt" in content
 
-        async def _fake_create_text_client():
-            return _FakeGeminiClient()
-        monkeypatch.setattr("lib.text_client.create_text_client", _fake_create_text_client)
+        async def _fake_create_backend(*args, **kwargs):
+            return _FakeTextBackend()
+        monkeypatch.setattr("lib.text_backends.factory.create_text_backend_for_task", _fake_create_backend)
         overview = await pm.generate_overview("demo")
         assert overview["genre"] == "悬疑"
         assert "generated_at" in overview
