@@ -11,7 +11,7 @@ class ModelInfo:
     default: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class ProviderMeta:
     display_name: str
     description: str

@@ -1,8 +1,6 @@
 """Text backend factory tests."""
 from unittest.mock import AsyncMock, patch, MagicMock
 
-import pytest
-
 from lib.text_backends.base import TextTaskType
 from lib.text_backends.factory import create_text_backend_for_task
 
@@ -40,6 +38,7 @@ async def test_creates_ark_backend():
         mock_create.assert_called_once_with(
             "ark", api_key="ark-key", model="doubao-seed-2-0-lite-260215",
         )
+        assert result is mock_backend
 
 
 async def test_creates_vertex_backend():
@@ -57,3 +56,4 @@ async def test_creates_vertex_backend():
         mock_create.assert_called_once_with(
             "gemini", model="gemini-3-flash-preview", backend="vertex", gcs_bucket="my-bucket",
         )
+        assert result is mock_backend

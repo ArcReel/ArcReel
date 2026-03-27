@@ -1,7 +1,7 @@
 """Text backend registry tests."""
 import pytest
 
-from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
+from lib.text_backends.base import TextCapability, TextGenerationResult
 from lib.text_backends.registry import (
     create_backend,
     get_registered_backends,
