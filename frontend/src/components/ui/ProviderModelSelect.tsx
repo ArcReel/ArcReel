@@ -12,6 +12,8 @@ interface ProviderModelSelectProps {
   /** If true, adds "跟随全局默认" option that returns empty string */
   allowDefault?: boolean;
   defaultHint?: string; // "当前: gemini-aistudio/veo-3.1-generate-001"
+  /** Accessible label for the trigger button */
+  "aria-label"?: string;
 }
 
 interface FlatOption {
@@ -44,6 +46,7 @@ export function ProviderModelSelect({
   className,
   allowDefault,
   defaultHint,
+  "aria-label": ariaLabel,
 }: ProviderModelSelectProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -176,6 +179,7 @@ export function ProviderModelSelect({
         aria-haspopup="listbox"
         aria-controls={LISTBOX_ID}
         aria-activedescendant={activeDescendantId}
+        aria-label={ariaLabel}
         onClick={() => setOpen(!open)}
         onKeyDown={handleKeyDown}
         className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-800/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"

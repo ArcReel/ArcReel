@@ -6,6 +6,12 @@ import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 
+const TEXT_MODEL_FIELDS = [
+  ["text_backend_script", "剧本生成"],
+  ["text_backend_overview", "概述生成"],
+  ["text_backend_style", "风格分析"],
+] as const;
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -119,20 +125,17 @@ export function MediaModelSection() {
 
         {textBackends.length > 0 ? (
           <div className="space-y-3">
-            {([
-              ["text_backend_script", "剧本生成"] as const,
-              ["text_backend_overview", "概述生成"] as const,
-              ["text_backend_style", "风格分析"] as const,
-            ]).map(([key, label]) => (
+            {TEXT_MODEL_FIELDS.map(([key, label]) => (
               <div key={key}>
                 <div className="mb-1 text-xs text-gray-400">{label}</div>
                 <ProviderModelSelect
-                  value={(draft[key] ?? (settings as unknown as Record<string, unknown>)[key] ?? "") as string}
+                  value={(draft[key] ?? settings[key] ?? "") as string}
                   options={textBackends}
                   providerNames={PROVIDER_NAMES}
                   onChange={(v) => setDraft((prev) => ({ ...prev, [key]: v }))}
                   allowDefault
                   defaultHint="自动"
+                  aria-label={label}
                 />
               </div>
             ))}

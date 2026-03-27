@@ -1,5 +1,5 @@
 import { useParams, useLocation } from "wouter";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ArrowLeft } from "lucide-react";
 import { API } from "@/api";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
@@ -31,6 +31,7 @@ export function ProjectSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
+  const initialRef = useRef({ videoBackend: "", imageBackend: "", audioOverride: null as boolean | null, textScript: "", textOverview: "", textStyle: "" });
 
   useEffect(() => {
     let disposed = false;
@@ -52,17 +53,45 @@ export function ProjectSettingsPage() {
       });
 
       const project = projectRes.project as unknown as Record<string, unknown>;
-      setVideoBackend((project.video_backend as string | undefined) ?? "");
-      setImageBackend((project.image_backend as string | undefined) ?? "");
+      const vb = (project.video_backend as string | undefined) ?? "";
+      const ib = (project.image_backend as string | undefined) ?? "";
       const rawAudio = project.video_generate_audio;
-      setAudioOverride(typeof rawAudio === "boolean" ? rawAudio : null);
-      setTextScript((project.text_backend_script as string | undefined) ?? "");
-      setTextOverview((project.text_backend_overview as string | undefined) ?? "");
-      setTextStyle((project.text_backend_style as string | undefined) ?? "");
+      const ao = typeof rawAudio === "boolean" ? rawAudio : null;
+      const ts = (project.text_backend_script as string | undefined) ?? "";
+      const to = (project.text_backend_overview as string | undefined) ?? "";
+      const tst = (project.text_backend_style as string | undefined) ?? "";
+
+      setVideoBackend(vb);
+      setImageBackend(ib);
+      setAudioOverride(ao);
+      setTextScript(ts);
+      setTextOverview(to);
+      setTextStyle(tst);
+      initialRef.current = { videoBackend: vb, imageBackend: ib, audioOverride: ao, textScript: ts, textOverview: to, textStyle: tst };
     });
 
     return () => { disposed = true; };
   }, [projectName]);
+
+  const isDirty =
+    videoBackend !== initialRef.current.videoBackend ||
+    imageBackend !== initialRef.current.imageBackend ||
+    audioOverride !== initialRef.current.audioOverride ||
+    textScript !== initialRef.current.textScript ||
+    textOverview !== initialRef.current.textOverview ||
+    textStyle !== initialRef.current.textStyle;
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
+  const guardedNavigate = useCallback((path: string) => {
+    if (isDirty && !window.confirm("有未保存的修改，确定要离开吗？")) return;
+    navigate(path);
+  }, [isDirty, navigate]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -77,6 +106,7 @@ export function ProjectSettingsPage() {
         text_backend_overview: textOverview || undefined,
         text_backend_style: textStyle || undefined,
       });
+      initialRef.current = { videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle };
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 2000);
     } catch (e: unknown) {
@@ -91,8 +121,8 @@ export function ProjectSettingsPage() {
       {/* Header */}
       <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-gray-800 bg-gray-950/95 px-6 py-4 backdrop-blur">
         <button
-          onClick={() => navigate(`/app/projects/${projectName}`)}
-          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+          onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
+          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-800 hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           aria-label="返回项目"
         >
           <ArrowLeft className="h-5 w-5" />
@@ -172,8 +202,8 @@ export function ProjectSettingsPage() {
                   [textScript, setTextScript, "剧本生成"] as const,
                   [textOverview, setTextOverview, "概述生成"] as const,
                   [textStyle, setTextStyle, "风格分析"] as const,
-                ]).map(([value, setter, label], i) => (
-                  <div key={i}>
+                ]).map(([value, setter, label]) => (
+                  <div key={label}>
                     <div className="mb-1 text-xs text-gray-400">{label}</div>
                     <ProviderModelSelect
                       value={value}
@@ -182,6 +212,7 @@ export function ProjectSettingsPage() {
                       onChange={setter}
                       allowDefault
                       defaultHint="跟随全局默认"
+                      aria-label={label}
                     />
                   </div>
                 ))}
@@ -207,13 +238,13 @@ export function ProjectSettingsPage() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="rounded-lg bg-indigo-600 px-6 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
+            className="rounded-lg bg-indigo-600 px-6 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
           >
             {saving ? "保存中…" : "保存"}
           </button>
           <button
-            onClick={() => navigate(`/app/projects/${projectName}`)}
-            className="rounded-lg border border-gray-700 px-6 py-2 text-sm text-gray-300 hover:bg-gray-800"
+            onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
+            className="rounded-lg border border-gray-700 px-6 py-2 text-sm text-gray-300 hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
           >
             取消
           </button>
