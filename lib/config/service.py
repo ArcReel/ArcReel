@@ -11,6 +11,7 @@ from lib.config.repository import ProviderConfigRepository, SystemSettingReposit
 
 _DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-fast-generate-preview"
 _DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image-preview"
+_DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
 
 # DB setting key → environment variable name
 _ANTHROPIC_ENV_MAP: dict[str, str] = {
@@ -49,6 +50,7 @@ class ProviderStatus:
     required_keys: list[str]
     configured_keys: list[str]
     missing_keys: list[str]
+    models: dict = None  # model_id -> ModelInfo dict representation
 
 
 class ConfigService:
@@ -83,6 +85,15 @@ class ConfigService:
             status: Literal["ready", "unconfigured", "error"] = (
                 "ready" if not missing else "unconfigured"
             )
+            # Build models dict from registry
+            models_dict = {}
+            for model_id, model_info in meta.models.items():
+                models_dict[model_id] = {
+                    "display_name": model_info.display_name,
+                    "media_type": model_info.media_type,
+                    "capabilities": model_info.capabilities,
+                    "default": model_info.default,
+                }
             statuses.append(
                 ProviderStatus(
                     name=name,
@@ -94,6 +105,7 @@ class ConfigService:
                     required_keys=list(meta.required_keys),
                     configured_keys=configured,
                     missing_keys=missing,
+                    models=models_dict,
                 )
             )
         return statuses
@@ -123,6 +135,10 @@ class ConfigService:
     async def get_default_image_backend(self) -> tuple[str, str]:
         raw = await self._setting_repo.get("default_image_backend", _DEFAULT_IMAGE_BACKEND)
         return self._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
+
+    async def get_default_text_backend(self) -> tuple[str, str]:
+        raw = await self._setting_repo.get("default_text_backend", _DEFAULT_TEXT_BACKEND)
+        return self._parse_backend(raw, _DEFAULT_TEXT_BACKEND)
 
     @staticmethod
     def _validate_provider(provider: str) -> None:

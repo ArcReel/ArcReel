@@ -13,8 +13,10 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from lib.config.service import ConfigService
+from lib.config.registry import PROVIDER_REGISTRY
 from lib.project_manager import ProjectManager
 from lib.env_init import PROJECT_ROOT
+from lib.text_backends.base import TextTaskType
 
 
 _project_manager: ProjectManager | None = None
@@ -36,6 +38,13 @@ _TRUTHY = frozenset({"true", "1", "yes"})
 def _parse_bool(raw: str) -> bool:
     """将配置字符串解析为布尔值。"""
     return raw.strip().lower() in _TRUTHY
+
+
+_TEXT_TASK_SETTING_KEYS: dict[TextTaskType, str] = {
+    TextTaskType.SCRIPT: "text_backend_script",
+    TextTaskType.OVERVIEW: "text_backend_overview",
+    TextTaskType.STYLE_ANALYSIS: "text_backend_style",
+}
 
 
 class ConfigResolver:
@@ -118,3 +127,61 @@ class ConfigResolver:
 
     async def _resolve_all_provider_configs(self, svc: ConfigService) -> dict[str, dict[str, str]]:
         return await svc.get_all_provider_configs()
+
+    async def default_text_backend(self) -> tuple[str, str]:
+        """返回 (provider_id, model_id)。"""
+        async with self._session_factory() as session:
+            svc = ConfigService(session)
+            return await svc.get_default_text_backend()
+
+    async def text_backend_for_task(
+        self, task_type: TextTaskType, project_name: str | None = None,
+    ) -> tuple[str, str]:
+        """解析文本 backend。优先级：项目级任务配置 → 全局任务配置 → 全局默认 → 自动推断"""
+        async with self._session_factory() as session:
+            svc = ConfigService(session)
+            return await self._resolve_text_backend(svc, task_type, project_name)
+
+    async def _resolve_text_backend(
+        self, svc: ConfigService, task_type: TextTaskType, project_name: str | None,
+    ) -> tuple[str, str]:
+        setting_key = _TEXT_TASK_SETTING_KEYS[task_type]
+
+        # 1. Project-level task override
+        if project_name:
+            project = get_project_manager().load_project(project_name)
+            project_val = project.get(setting_key)
+            if project_val and "/" in str(project_val):
+                return ConfigService._parse_backend(str(project_val), "")
+
+        # 2. Global task-type setting
+        task_val = await svc.get_setting(setting_key, "")
+        if task_val and "/" in task_val:
+            return ConfigService._parse_backend(task_val, "")
+
+        # 3. Global default text backend
+        default_val = await svc.get_setting("default_text_backend", "")
+        if default_val and "/" in default_val:
+            return ConfigService._parse_backend(default_val, "")
+
+        # 4. Auto-resolve
+        return await self._auto_resolve_backend(svc, "text")
+
+    async def _auto_resolve_backend(
+        self, svc: ConfigService, media_type: str,
+    ) -> tuple[str, str]:
+        """遍历 PROVIDER_REGISTRY（按注册顺序），找到第一个 ready 且支持该 media_type 的供应商。"""
+        statuses = await svc.get_all_providers_status()
+        ready = {s.name for s in statuses if s.status == "ready"}
+
+        for provider_id, meta in PROVIDER_REGISTRY.items():
+            if provider_id not in ready:
+                continue
+            for model_id, model_info in meta.models.items():
+                if model_info.media_type == media_type and model_info.default:
+                    return provider_id, model_id
+
+        raise ValueError(
+            f"未找到可用的 {media_type} 供应商。"
+            "请在「全局设置 → 供应商」页面配置至少一个供应商。"
+        )
