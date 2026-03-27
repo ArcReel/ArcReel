@@ -123,6 +123,20 @@ def _create_project(
     return project_dir
 
 
+def _add_agent_runtime_symlinks(project_dir: Path) -> None:
+    """Create agent_runtime_profile and symlinks mimicking production layout."""
+    # projects_root is project_dir.parent; project_root is projects_root.parent
+    project_root = project_dir.parent.parent
+    profile_claude = project_root / "agent_runtime_profile" / ".claude"
+    profile_claude.mkdir(parents=True, exist_ok=True)
+    (profile_claude / "settings.json").write_text("{}", encoding="utf-8")
+    profile_md = project_root / "agent_runtime_profile" / "CLAUDE.md"
+    profile_md.write_text("# Agent Runtime", encoding="utf-8")
+
+    (project_dir / ".claude").symlink_to(Path("../../agent_runtime_profile/.claude"))
+    (project_dir / "CLAUDE.md").symlink_to(Path("../../agent_runtime_profile/CLAUDE.md"))
+
+
 def _make_manual_zip(project_dir: Path, zip_path: Path) -> None:
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for item in sorted(project_dir.rglob("*")):
@@ -162,6 +176,59 @@ class TestProjectArchiveService:
             assert "demo/style_reference.png" in names
             assert "demo/.DS_Store" not in names
             assert "demo/.hidden/secret.txt" not in names
+
+    def test_export_excludes_agent_runtime_symlinks(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        _add_agent_runtime_symlinks(project_dir)
+
+        assert (project_dir / ".claude").is_symlink()
+        assert (project_dir / "CLAUDE.md").is_symlink()
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            assert not any(".claude" in n for n in names)
+            assert not any("CLAUDE.md" in n for n in names)
+            assert "demo/project.json" in names
+            assert "demo/source/chapter.txt" in names
+
+    def test_export_excludes_agent_runtime_real_files(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        (project_dir / "CLAUDE.md").write_text("# Agent", encoding="utf-8")
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            assert not any("CLAUDE.md" in n for n in names)
+            assert "demo/project.json" in names
+
+    def test_export_excludes_broken_agent_runtime_symlinks(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        # Create broken symlinks (targets don't exist)
+        (project_dir / ".claude").symlink_to(
+            Path("../../agent_runtime_profile/.claude")
+        )
+        (project_dir / "CLAUDE.md").symlink_to(
+            Path("../../agent_runtime_profile/CLAUDE.md")
+        )
+
+        assert (project_dir / ".claude").is_symlink()
+        assert not (project_dir / ".claude").exists()
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            assert not any(".claude" in n for n in names)
+            assert not any("CLAUDE.md" in n for n in names)
 
     def test_import_official_export_round_trip(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

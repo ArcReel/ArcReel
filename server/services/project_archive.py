@@ -157,6 +157,7 @@ class ProjectArchiveService:
         "clues": ".png",
     }
     _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES)
+    _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
     _PLACEHOLDER_CHARACTER_DESCRIPTION = "Imported placeholder character"
 
     def __init__(self, project_manager: ProjectManager):
@@ -382,11 +383,13 @@ class ProjectArchiveService:
 
         for current_dir, dirnames, filenames in os.walk(snapshot_dir):
             current_path = Path(current_dir)
+            is_root = current_path == snapshot_dir
             dirnames[:] = [
                 name
                 for name in sorted(dirnames)
                 if not name.startswith(".")
                 and not (current_path / name).is_symlink()
+                and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
             ]
 
             relative_dir = current_path.relative_to(snapshot_dir)
@@ -402,6 +405,7 @@ class ProjectArchiveService:
                 for name in sorted(filenames)
                 if not name.startswith(".")
                 and not (current_path / name).is_symlink()
+                and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
             ]
 
             if relative_dir != Path("."):
@@ -456,11 +460,13 @@ class ProjectArchiveService:
         target_dir.mkdir(parents=True, exist_ok=True)
         for current_dir, dirnames, filenames in os.walk(source_dir):
             current_path = Path(current_dir)
+            is_root = current_path == source_dir
             dirnames[:] = [
                 name
                 for name in sorted(dirnames)
                 if not name.startswith(".")
                 and not (current_path / name).is_symlink()
+                and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
             ]
             relative_dir = current_path.relative_to(source_dir)
             destination_dir = target_dir / relative_dir
@@ -469,6 +475,8 @@ class ProjectArchiveService:
             for filename in sorted(filenames):
                 source_path = current_path / filename
                 if filename.startswith(".") or source_path.is_symlink():
+                    continue
+                if is_root and filename in self._AGENT_RUNTIME_EXCLUDES:
                     continue
                 destination_path = destination_dir / filename
                 destination_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1003,6 +1011,8 @@ class ProjectArchiveService:
 
         for child in sorted(project_dir.iterdir(), key=lambda item: item.name):
             if self._is_hidden_path(Path(child.name)):
+                continue
+            if child.name in self._AGENT_RUNTIME_EXCLUDES:
                 continue
             if child.name not in self._ROOT_VISIBLE_ENTRIES:
                 entries.append(child.name)
