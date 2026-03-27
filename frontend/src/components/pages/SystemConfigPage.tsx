@@ -20,7 +20,7 @@ type SettingsSection = "agent" | "providers" | "media" | "usage";
 const SECTION_LIST: { id: SettingsSection; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "agent", label: "智能体", Icon: Bot },
   { id: "providers", label: "供应商", Icon: Plug },
-  { id: "media", label: "图片/视频", Icon: Film },
+  { id: "media", label: "模型选择", Icon: Film },
   { id: "usage", label: "用量统计", Icon: BarChart3 },
 ];
 

@@ -18,6 +18,10 @@ function makeConfigResponse(
     settings: {
       default_video_backend: "gemini/veo-3",
       default_image_backend: "gemini/imagen-4",
+      default_text_backend: "",
+      text_backend_script: "",
+      text_backend_overview: "",
+      text_backend_style: "",
       video_generate_audio: true,
       anthropic_api_key: { is_set: true, masked: "sk-ant-***" },
       anthropic_base_url: "",
@@ -33,6 +37,7 @@ function makeConfigResponse(
     options: {
       video_backends: ["gemini/veo-3"],
       image_backends: ["gemini/imagen-4"],
+      text_backends: [],
     },
   };
 }
@@ -45,7 +50,7 @@ function makeProviders(overrides?: Partial<ProviderInfo>): { providers: Provider
         display_name: "Google Gemini",
         description: "Google Gemini API",
         status: "ready",
-        media_types: ["image", "video"],
+        media_types: ["image", "video", "text"],
         capabilities: [],
         configured_keys: ["api_key"],
         missing_keys: [],
@@ -97,7 +102,7 @@ describe("SystemConfigPage", () => {
     renderPage();
     expect(screen.getByRole("button", { name: /智能体/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /供应商/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /图片\/视频/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /模型选择/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /用量统计/ })).toBeInTheDocument();
   });
 
@@ -117,9 +122,9 @@ describe("SystemConfigPage", () => {
     });
   });
 
-  it("clicking 图片/视频 makes it the active section", async () => {
+  it("clicking 模型选择 makes it the active section", async () => {
     renderPage();
-    const mediaButton = screen.getByRole("button", { name: /图片\/视频/ });
+    const mediaButton = screen.getByRole("button", { name: /模型选择/ });
     fireEvent.click(mediaButton);
     await waitFor(() => {
       expect(mediaButton.className).toContain("border-indigo-500");

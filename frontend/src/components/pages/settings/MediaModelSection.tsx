@@ -50,6 +50,7 @@ export function MediaModelSection() {
 
   const videoBackends: string[] = options.video_backends ?? [];
   const imageBackends: string[] = options.image_backends ?? [];
+  const textBackends: string[] = options.text_backends ?? [];
 
   const currentVideo = draft.default_video_backend ?? settings.default_video_backend ?? "";
   const currentImage = draft.default_image_backend ?? settings.default_image_backend ?? "";
@@ -59,7 +60,7 @@ export function MediaModelSection() {
     <div className="space-y-6 p-6">
       {/* Section heading */}
       <div>
-        <h3 className="text-lg font-semibold text-gray-100">图片 / 视频模型</h3>
+        <h3 className="text-lg font-semibold text-gray-100">模型选择</h3>
         <p className="mt-1 text-sm text-gray-500">设置全局默认的生成模型，项目内可单独覆盖</p>
       </div>
 
@@ -107,6 +108,38 @@ export function MediaModelSection() {
         ) : (
           <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-3 py-2 text-sm text-gray-500">
             暂无可用图片供应商，请先在「供应商」页面配置 API 密钥
+          </div>
+        )}
+      </div>
+
+      {/* Text backend selectors */}
+      <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
+        <div className="mb-3 text-sm font-medium text-gray-100">文本模型</div>
+        <p className="mb-3 text-xs text-gray-500">按任务类型配置文本模型，留空表示自动选择</p>
+
+        {textBackends.length > 0 ? (
+          <div className="space-y-3">
+            {([
+              ["text_backend_script", "剧本生成"] as const,
+              ["text_backend_overview", "概述生成"] as const,
+              ["text_backend_style", "风格分析"] as const,
+            ]).map(([key, label]) => (
+              <div key={key}>
+                <div className="mb-1 text-xs text-gray-400">{label}</div>
+                <ProviderModelSelect
+                  value={(draft[key] ?? (settings as unknown as Record<string, unknown>)[key] ?? "") as string}
+                  options={textBackends}
+                  providerNames={PROVIDER_NAMES}
+                  onChange={(v) => setDraft((prev) => ({ ...prev, [key]: v }))}
+                  allowDefault
+                  defaultHint="自动"
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-3 py-2 text-sm text-gray-500">
+            暂无可用文本供应商，请先在「供应商」页面配置 API 密钥
           </div>
         )}
       </div>
