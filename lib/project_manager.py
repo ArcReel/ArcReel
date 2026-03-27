@@ -973,15 +973,7 @@ class ProjectManager:
         """
         project_file = self._get_project_file_path(project_name)
 
-        # 确保 metadata 字段存在
-        if "metadata" not in project:
-            project["metadata"] = {
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
-            }
-        else:
-            # 更新时间戳
-            project["metadata"]["updated_at"] = datetime.now().isoformat()
+        self._touch_metadata(project)
 
         with open(project_file, "w", encoding="utf-8") as f:
             json.dump(project, f, ensure_ascii=False, indent=2)
@@ -1013,14 +1005,7 @@ class ProjectManager:
             try:
                 project = json.load(f)
                 mutate_fn(project)
-
-                if "metadata" not in project:
-                    project["metadata"] = {
-                        "created_at": datetime.now().isoformat(),
-                        "updated_at": datetime.now().isoformat(),
-                    }
-                else:
-                    project["metadata"]["updated_at"] = datetime.now().isoformat()
+                self._touch_metadata(project)
 
                 f.seek(0)
                 json.dump(project, f, ensure_ascii=False, indent=2)
@@ -1034,6 +1019,14 @@ class ProjectManager:
         )
 
         return project_file
+
+    @staticmethod
+    def _touch_metadata(project: Dict) -> None:
+        now = datetime.now().isoformat()
+        if "metadata" not in project:
+            project["metadata"] = {"created_at": now, "updated_at": now}
+        else:
+            project["metadata"]["updated_at"] = now
 
     def create_project_metadata(
         self,
