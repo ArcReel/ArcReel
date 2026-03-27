@@ -12,7 +12,7 @@ from typing import Optional, Union
 
 from pydantic import ValidationError
 
-from lib.gemini_client import GeminiClient
+from lib.text_backends.base import TextBackend, TextGenerationRequest, TextTaskType
 from lib.prompt_builders_script import (
     build_drama_prompt,
     build_narration_prompt,
@@ -32,18 +32,16 @@ class ScriptGenerator:
     读取 Step 1/2 的 Markdown 中间文件，调用 Gemini 生成最终 JSON 剧本
     """
 
-    MODEL = "gemini-3-flash-preview"
-
-    def __init__(self, project_path: Union[str, Path], client: Optional[GeminiClient] = None):
+    def __init__(self, project_path: Union[str, Path], backend: Optional["TextBackend"] = None):
         """
         初始化生成器
 
         Args:
             project_path: 项目目录路径，如 projects/test0205
-            client: GeminiClient 实例（可选）。若为 None 则仅支持 build_prompt() dry-run。
+            backend: TextBackend 实例（可选）。若为 None 则仅支持 build_prompt() dry-run。
         """
         self.project_path = Path(project_path)
-        self.client = client
+        self.backend = backend
 
         # 加载 project.json
         self.project_json = self._load_project_json()
@@ -51,11 +49,12 @@ class ScriptGenerator:
 
     @classmethod
     async def create(cls, project_path: Union[str, Path]) -> "ScriptGenerator":
-        """异步工厂方法，自动从 DB 加载供应商配置创建 client。"""
-        from lib.text_client import create_text_client
+        """异步工厂方法，自动从 DB 加载供应商配置创建 backend。"""
+        from lib.text_backends.factory import create_text_backend_for_task
 
-        client = await create_text_client()
-        return cls(project_path, client)
+        project_name = Path(project_path).name
+        backend = await create_text_backend_for_task(TextTaskType.SCRIPT, project_name)
+        return cls(project_path, backend)
 
     async def generate(
         self,
@@ -72,9 +71,9 @@ class ScriptGenerator:
         Returns:
             生成的 JSON 文件路径
         """
-        if self.client is None:
+        if self.backend is None:
             raise RuntimeError(
-                "GeminiClient 未初始化，请使用 ScriptGenerator.create() 工厂方法"
+                "TextBackend 未初始化，请使用 ScriptGenerator.create() 工厂方法"
             )
 
         # 1. 加载中间文件
@@ -106,13 +105,12 @@ class ScriptGenerator:
             )
             schema = DramaEpisodeScript.model_json_schema()
 
-        # 4. 调用 Gemini API
+        # 4. 调用 TextBackend
         logger.info("正在生成第 %d 集剧本...", episode)
-        response_text = await self.client.generate_text_async(
-            prompt=prompt,
-            model=self.MODEL,
-            response_schema=schema,
+        result = await self.backend.generate(
+            TextGenerationRequest(prompt=prompt, response_schema=schema)
         )
+        response_text = result.text
 
         # 5. 解析并验证响应
         script_data = self._parse_response(response_text, episode)
@@ -260,7 +258,7 @@ class ScriptGenerator:
         script_data.setdefault("metadata", {})
         script_data["metadata"]["created_at"] = now
         script_data["metadata"]["updated_at"] = now
-        script_data["metadata"]["generator"] = self.MODEL
+        script_data["metadata"]["generator"] = self.backend.model if self.backend else "unknown"
 
         # 计算统计信息
         if self.content_mode == "narration":

@@ -53,18 +53,27 @@ def _valid_narration_response() -> dict:
     }
 
 
-class _FakeGeminiClient:
-    def __init__(self, response_text: str):
+class _FakeTextBackend:
+    def __init__(self, response_text: str = "{}"):
         self._response_text = response_text
-        self.calls = []
+        self.last_request = None
 
-    def generate_text(self, prompt, model, response_schema):
-        self.calls.append((prompt, model, response_schema))
-        return self._response_text
+    @property
+    def name(self):
+        return "fake"
 
-    async def generate_text_async(self, prompt, model, response_schema):
-        self.calls.append((prompt, model, response_schema))
-        return self._response_text
+    @property
+    def model(self):
+        return "fake-model"
+
+    @property
+    def capabilities(self):
+        return set()
+
+    async def generate(self, request):
+        self.last_request = request
+        from lib.text_backends.base import TextGenerationResult
+        return TextGenerationResult(text=self._response_text, provider="fake", model="fake-model")
 
 
 class TestScriptGenerator:
@@ -141,23 +150,23 @@ class TestScriptGenerator:
         )
         _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "E1S01 | 片段")
 
-        fake = _FakeGeminiClient(json.dumps(_valid_narration_response(), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, client=fake)
+        fake = _FakeTextBackend(json.dumps(_valid_narration_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, backend=fake)
         output = await generator.generate(1)
 
         payload = json.loads(output.read_text(encoding="utf-8"))
         assert output == project_path / "scripts" / "episode_1.json"
         assert payload["episode"] == 1
         assert payload["duration_seconds"] == 4
-        assert payload["metadata"]["generator"] == ScriptGenerator.MODEL
+        assert payload["metadata"]["generator"] == "fake-model"
         assert "created_at" in payload["metadata"]
 
-    async def test_generate_without_client_raises(self, tmp_path):
-        """未注入 client 时调用 generate() 应抛 RuntimeError。"""
+    async def test_generate_without_backend_raises(self, tmp_path):
+        """未注入 backend 时调用 generate() 应抛 RuntimeError。"""
         project_path = tmp_path / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
         _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "content")
 
-        generator = ScriptGenerator(project_path)  # 无 client
-        with pytest.raises(RuntimeError, match="GeminiClient 未初始化"):
+        generator = ScriptGenerator(project_path)  # 无 backend
+        with pytest.raises(RuntimeError, match="TextBackend 未初始化"):
             await generator.generate(1)
