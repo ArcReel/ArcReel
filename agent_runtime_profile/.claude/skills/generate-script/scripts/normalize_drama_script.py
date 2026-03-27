@@ -22,10 +22,11 @@ PROJECT_ROOT = (
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from lib.text_client import create_text_client_sync
-from lib.project_manager import ProjectManager
+import asyncio
 
-MODEL = "gemini-3.1-pro-preview"
+from lib.text_backends.factory import create_text_backend_for_task
+from lib.text_backends.base import TextGenerationRequest, TextTaskType
+from lib.project_manager import ProjectManager
 
 
 def build_normalize_prompt(
@@ -167,10 +168,11 @@ def main():
         print(f"\nPrompt 长度: {len(prompt)} 字符")
         return
 
-    # 调用 Gemini API
-    print(f"正在使用 {MODEL} 生成规范化剧本...")
-    client = create_text_client_sync()
-    response = client.generate_text(prompt=prompt, model=MODEL)
+    # 调用 TextBackend
+    backend = asyncio.run(create_text_backend_for_task(TextTaskType.SCRIPT))
+    print(f"正在使用 {backend.model} 生成规范化剧本...")
+    result = asyncio.run(backend.generate(TextGenerationRequest(prompt=prompt)))
+    response = result.text
 
     # 保存文件
     drafts_dir = project_path / "drafts" / f"episode_{args.episode}"
