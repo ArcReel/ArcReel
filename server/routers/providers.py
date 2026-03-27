@@ -355,7 +355,7 @@ async def update_credential(
         kwargs["name"] = body.name
     if body.api_key is not None:
         kwargs["api_key"] = body.api_key
-    if body.base_url is not None:
+    if "base_url" in body.model_fields_set:
         kwargs["base_url"] = body.base_url
     if kwargs:
         await repo.update(cred_id, **kwargs)

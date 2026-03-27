@@ -6,7 +6,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
-from lib.db.models.credential import ProviderCredential
 from lib.db.repositories.credential_repository import CredentialRepository
 
 
@@ -102,7 +101,7 @@ class TestCredentialRepository:
     async def test_delete_active_promotes_oldest(self, session: AsyncSession):
         repo = CredentialRepository(session)
         c1 = await repo.create(provider="gemini-aistudio", name="Key1", api_key="AIza-1")
-        c2 = await repo.create(provider="gemini-aistudio", name="Key2", api_key="AIza-2")
+        await repo.create(provider="gemini-aistudio", name="Key2", api_key="AIza-2")
         await session.flush()
         await repo.delete(c1.id)
         await session.flush()

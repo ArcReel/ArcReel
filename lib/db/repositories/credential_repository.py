@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.url_utils import normalize_base_url
 from lib.db.models.credential import ProviderCredential

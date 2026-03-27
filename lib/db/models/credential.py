@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Index, String, Text
+from sqlalchemy import Boolean, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin
@@ -14,6 +14,13 @@ class ProviderCredential(TimestampMixin, Base):
     __tablename__ = "provider_credential"
     __table_args__ = (
         Index("ix_provider_credential_provider", "provider"),
+        Index(
+            "uq_provider_credential_one_active",
+            "provider",
+            unique=True,
+            sqlite_where=text("is_active = 1"),
+            postgresql_where=text("is_active"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
