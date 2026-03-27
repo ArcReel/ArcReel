@@ -35,6 +35,8 @@ MAX_VERTEX_CREDENTIALS_BYTES = 1024 * 1024  # 1 MiB
 
 router = APIRouter(prefix="/providers", tags=["供应商管理"])
 
+_CREDENTIAL_KEYS = frozenset({"api_key", "credentials_path", "base_url"})
+
 # ---------------------------------------------------------------------------
 # 字段元数据映射（key → label/type/placeholder）
 # ---------------------------------------------------------------------------
@@ -227,26 +229,29 @@ async def list_providers(
 @router.get("/{provider_id}/config", response_model=ProviderConfigResponse)
 async def get_provider_config(
     provider_id: str,
-    svc: Annotated[ConfigService, Depends(get_config_service)],
+    session: AsyncSession = Depends(get_async_session),
 ) -> ProviderConfigResponse:
     """返回单个供应商的配置字段（registry 元数据与 DB 值合并）。"""
     if provider_id not in PROVIDER_REGISTRY:
         raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
 
     meta = PROVIDER_REGISTRY[provider_id]
+    svc = ConfigService(session)
     db_values = await svc.get_provider_config_masked(provider_id)
 
-    # 计算状态
-    configured_keys = list(db_values.keys())
-    missing = [k for k in meta.required_keys if k not in configured_keys]
-    status = "ready" if not missing else "unconfigured"
+    # 计算状态：基于凭证表是否有活跃凭证
+    cred_repo = CredentialRepository(session)
+    has_active = await cred_repo.has_active_credential(provider_id)
+    status = "ready" if has_active else "unconfigured"
 
-    # 构建字段列表：先必填，再可选
+    # 构建字段列表：先必填，再可选，跳过凭证字段
     fields: list[FieldInfo] = []
     for key in meta.required_keys:
-        fields.append(_build_field(key, required=True, db_entry=db_values.get(key)))
+        if key not in _CREDENTIAL_KEYS:
+            fields.append(_build_field(key, required=True, db_entry=db_values.get(key)))
     for key in meta.optional_keys:
-        fields.append(_build_field(key, required=False, db_entry=db_values.get(key)))
+        if key not in _CREDENTIAL_KEYS:
+            fields.append(_build_field(key, required=False, db_entry=db_values.get(key)))
 
     return ProviderConfigResponse(
         id=provider_id,
@@ -384,12 +389,14 @@ async def activate_credential(
     return Response(status_code=204)
 
 
-@router.post("/gemini-vertex/credentials")
-async def upload_vertex_credentials(
+@router.post("/gemini-vertex/credentials/upload", status_code=201, response_model=CredentialResponse)
+async def upload_vertex_credential(
+    request: Request,
+    name: str = "Vertex 凭证",
     session: AsyncSession = Depends(get_async_session),
     file: UploadFile = File(...),
-) -> dict[str, Any]:
-    """上传 Vertex AI 服务账号 JSON 凭证文件。"""
+) -> CredentialResponse:
+    """上传 Vertex AI 服务账号 JSON 凭证文件，同时创建凭证记录。"""
     try:
         contents = await file.read(MAX_VERTEX_CREDENTIALS_BYTES + 1)
     except Exception:
@@ -406,8 +413,11 @@ async def upload_vertex_credentials(
     if not isinstance(payload, dict) or not payload.get("project_id"):
         raise HTTPException(status_code=400, detail="凭证文件缺少 project_id")
 
-    # Save credentials file
-    dest = PROJECT_ROOT / "vertex_keys" / "vertex_credentials.json"
+    repo = CredentialRepository(session)
+    cred = await repo.create(provider="gemini-vertex", name=name)
+    await session.flush()
+
+    dest = PROJECT_ROOT / "vertex_keys" / f"vertex_cred_{cred.id}.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = dest.with_suffix(".tmp")
     tmp_path.write_bytes(contents)
@@ -421,12 +431,12 @@ async def upload_vertex_credentials(
     except OSError:
         logger.warning("无法设置凭证文件权限: %s", dest, exc_info=True)
 
-    # Also store the path in provider_config so status becomes "ready"
-    svc = ConfigService(session)
-    await svc.set_provider_config("gemini-vertex", "credentials_path", str(dest))
+    await repo.update(cred.id, credentials_path=str(dest))
     await session.commit()
+    await _invalidate_caches(request)
 
-    return {"ok": True, "filename": dest.name, "project_id": payload.get("project_id")}
+    cred = await repo.get_by_id(cred.id)
+    return _cred_to_response(cred)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -553,32 +563,43 @@ _TEST_DISPATCH: dict[str, Callable[[dict[str, str]], ConnectionTestResponse]] = 
 @router.post("/{provider_id}/test", response_model=ConnectionTestResponse)
 async def test_provider_connection(
     provider_id: str,
-    svc: Annotated[ConfigService, Depends(get_config_service)],
+    credential_id: Optional[int] = None,
+    session: AsyncSession = Depends(get_async_session),
 ) -> ConnectionTestResponse:
-    """调用供应商 API 验证连通性，返回可用模型列表。"""
+    """调用供应商 API 验证连通性。可指定 credential_id 测试特定凭证。"""
     if provider_id not in PROVIDER_REGISTRY:
         raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
 
-    meta = PROVIDER_REGISTRY[provider_id]
-    configured_keys = await svc.get_provider_config_masked(provider_id)
-    missing = [k for k in meta.required_keys if k not in configured_keys]
+    repo = CredentialRepository(session)
+    if credential_id is not None:
+        cred = await repo.get_by_id(credential_id)
+        if not cred or cred.provider != provider_id:
+            raise HTTPException(status_code=404, detail="凭证不存在")
+    else:
+        cred = await repo.get_active(provider_id)
 
-    if missing:
+    if cred is None:
         return ConnectionTestResponse(
-            success=False,
-            available_models=[],
-            message=f"缺少必填配置项：{', '.join(missing)}",
+            success=False, available_models=[],
+            message="缺少凭证配置，请先添加密钥",
         )
+
+    # 合并共享配置 + 凭证
+    svc = ConfigService(session)
+    config = await svc.get_provider_config(provider_id)
+    if cred.api_key:
+        config["api_key"] = cred.api_key
+    if cred.credentials_path:
+        config["credentials_path"] = cred.credentials_path
+    if cred.base_url:
+        config["base_url"] = cred.base_url
 
     test_fn = _TEST_DISPATCH.get(provider_id)
     if test_fn is None:
         return ConnectionTestResponse(
-            success=False,
-            available_models=[],
+            success=False, available_models=[],
             message=f"供应商 {provider_id} 暂不支持连接测试",
         )
-
-    config = await svc.get_provider_config(provider_id)
 
     try:
         result = await asyncio.wait_for(
@@ -587,20 +608,16 @@ async def test_provider_connection(
         )
     except asyncio.TimeoutError:
         return ConnectionTestResponse(
-            success=False,
-            available_models=[],
+            success=False, available_models=[],
             message="连接超时，请检查网络或 API 配置",
         )
     except Exception as exc:
         err_msg = str(exc)
-        # 截断过长的错误信息
         if len(err_msg) > 200:
             err_msg = err_msg[:200] + "..."
         logger.warning("连接测试失败 [%s]: %s", provider_id, err_msg)
         return ConnectionTestResponse(
-            success=False,
-            available_models=[],
+            success=False, available_models=[],
             message=f"连接失败: {err_msg}",
         )
-
     return result
