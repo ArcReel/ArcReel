@@ -7,11 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.url_utils import normalize_base_url
 from lib.db.models.credential import ProviderCredential
+from lib.db.repositories.base import BaseRepository
+
+_UNSET = object()
 
 
-class CredentialRepository:
-    def __init__(self, session: AsyncSession) -> None:
-        self.session = session
+class CredentialRepository(BaseRepository):
 
     async def create(
         self,
@@ -88,9 +89,9 @@ class CredentialRepository:
         name: str | None = None,
         api_key: str | None = None,
         credentials_path: str | None = None,
-        base_url: str | None = ...,  # type: ignore[assignment]
+        base_url: str | None | object = _UNSET,
     ) -> None:
-        """更新凭证字段。仅更新非 None 参数（base_url 用 ... 表示未传入）。"""
+        """更新凭证字段。仅更新非 None 参数（base_url 用 _UNSET 表示未传入）。"""
         cred = await self.get_by_id(cred_id)
         if cred is None:
             return
@@ -100,7 +101,7 @@ class CredentialRepository:
             cred.api_key = api_key
         if credentials_path is not None:
             cred.credentials_path = credentials_path
-        if base_url is not ...:
+        if base_url is not _UNSET:
             cred.base_url = normalize_base_url(base_url)  # type: ignore[arg-type]
 
     async def delete(self, cred_id: int) -> None:

@@ -132,12 +132,7 @@ class ConfigResolver:
         cred_repo = CredentialRepository(session)
         active = await cred_repo.get_active(provider_id)
         if active:
-            if active.api_key:
-                config["api_key"] = active.api_key
-            if active.credentials_path:
-                config["credentials_path"] = active.credentials_path
-            if active.base_url:
-                config["base_url"] = active.base_url
+            active.overlay_config(config)
         return config
 
     async def _resolve_all_provider_configs(
@@ -148,12 +143,7 @@ class ConfigResolver:
         active_creds = await cred_repo.get_active_credentials_bulk()
         for provider_id, cred in active_creds.items():
             cfg = configs.setdefault(provider_id, {})
-            if cred.api_key:
-                cfg["api_key"] = cred.api_key
-            if cred.credentials_path:
-                cfg["credentials_path"] = cred.credentials_path
-            if cred.base_url:
-                cfg["base_url"] = cred.base_url
+            cred.overlay_config(cfg)
         return configs
 
     async def default_text_backend(self) -> tuple[str, str]:

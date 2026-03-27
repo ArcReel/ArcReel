@@ -11,7 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Annotated, Any, Callable, Optional
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
@@ -28,6 +28,9 @@ from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.gemini_shared import VERTEX_SCOPES
 from server.dependencies import get_config_service
+
+if TYPE_CHECKING:
+    from lib.db.models.credential import ProviderCredential
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +143,23 @@ class UpdateCredentialRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _cred_to_response(cred) -> CredentialResponse:
+def _validate_provider(provider_id: str) -> None:
+    """验证供应商 ID 是否存在，不存在则抛 404。"""
+    if provider_id not in PROVIDER_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+
+
+async def _get_credential_or_404(
+    repo: CredentialRepository, provider_id: str, cred_id: int,
+) -> ProviderCredential:
+    """获取凭证并校验归属，不存在则抛 404。"""
+    cred = await repo.get_by_id(cred_id)
+    if not cred or cred.provider != provider_id:
+        raise HTTPException(status_code=404, detail="凭证不存在")
+    return cred
+
+
+def _cred_to_response(cred: ProviderCredential) -> CredentialResponse:
     return CredentialResponse(
         id=cred.id,
         provider=cred.provider,
@@ -232,8 +251,7 @@ async def get_provider_config(
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderConfigResponse:
     """返回单个供应商的配置字段（registry 元数据与 DB 值合并）。"""
-    if provider_id not in PROVIDER_REGISTRY:
-        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    _validate_provider(provider_id)
 
     meta = PROVIDER_REGISTRY[provider_id]
     svc = ConfigService(session)
@@ -271,8 +289,7 @@ async def patch_provider_config(
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     """更新供应商配置。值为 null 表示删除该键。"""
-    if provider_id not in PROVIDER_REGISTRY:
-        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    _validate_provider(provider_id)
 
     svc = ConfigService(session)
     for key, value in body.items():
@@ -299,8 +316,7 @@ async def list_credentials(
     provider_id: str,
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialListResponse:
-    if provider_id not in PROVIDER_REGISTRY:
-        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    _validate_provider(provider_id)
     repo = CredentialRepository(session)
     creds = await repo.list_by_provider(provider_id)
     return CredentialListResponse(credentials=[_cred_to_response(c) for c in creds])
@@ -313,8 +329,7 @@ async def create_credential(
     request: Request,
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
-    if provider_id not in PROVIDER_REGISTRY:
-        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    _validate_provider(provider_id)
     repo = CredentialRepository(session)
     cred = await repo.create(
         provider=provider_id, name=body.name,
@@ -332,12 +347,9 @@ async def update_credential(
     request: Request,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
-    if provider_id not in PROVIDER_REGISTRY:
-        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    _validate_provider(provider_id)
     repo = CredentialRepository(session)
-    cred = await repo.get_by_id(cred_id)
-    if not cred or cred.provider != provider_id:
-        raise HTTPException(status_code=404, detail="凭证不存在")
+    cred = await _get_credential_or_404(repo, provider_id, cred_id)
     kwargs: dict = {}
     if body.name is not None:
         kwargs["name"] = body.name
@@ -359,12 +371,9 @@ async def delete_credential(
     request: Request,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
-    if provider_id not in PROVIDER_REGISTRY:
-        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    _validate_provider(provider_id)
     repo = CredentialRepository(session)
-    cred = await repo.get_by_id(cred_id)
-    if not cred or cred.provider != provider_id:
-        raise HTTPException(status_code=404, detail="凭证不存在")
+    await _get_credential_or_404(repo, provider_id, cred_id)
     await repo.delete(cred_id)
     await session.commit()
     await _invalidate_caches(request)
@@ -377,12 +386,9 @@ async def activate_credential(
     request: Request,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
-    if provider_id not in PROVIDER_REGISTRY:
-        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    _validate_provider(provider_id)
     repo = CredentialRepository(session)
-    cred = await repo.get_by_id(cred_id)
-    if not cred or cred.provider != provider_id:
-        raise HTTPException(status_code=404, detail="凭证不存在")
+    await _get_credential_or_404(repo, provider_id, cred_id)
     await repo.activate(cred_id, provider_id)
     await session.commit()
     await _invalidate_caches(request)
@@ -415,7 +421,6 @@ async def upload_vertex_credential(
 
     repo = CredentialRepository(session)
     cred = await repo.create(provider="gemini-vertex", name=name)
-    await session.flush()
 
     dest = PROJECT_ROOT / "vertex_keys" / f"vertex_cred_{cred.id}.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -435,8 +440,8 @@ async def upload_vertex_credential(
     await session.commit()
     await _invalidate_caches(request)
 
-    cred = await repo.get_by_id(cred.id)
-    return _cred_to_response(cred)  # type: ignore[arg-type]
+    await session.refresh(cred)
+    return _cred_to_response(cred)
 
 
 # ---------------------------------------------------------------------------
@@ -567,14 +572,11 @@ async def test_provider_connection(
     session: AsyncSession = Depends(get_async_session),
 ) -> ConnectionTestResponse:
     """调用供应商 API 验证连通性。可指定 credential_id 测试特定凭证。"""
-    if provider_id not in PROVIDER_REGISTRY:
-        raise HTTPException(status_code=404, detail=f"未知供应商: {provider_id}")
+    _validate_provider(provider_id)
 
     repo = CredentialRepository(session)
     if credential_id is not None:
-        cred = await repo.get_by_id(credential_id)
-        if not cred or cred.provider != provider_id:
-            raise HTTPException(status_code=404, detail="凭证不存在")
+        cred = await _get_credential_or_404(repo, provider_id, credential_id)
     else:
         cred = await repo.get_active(provider_id)
 
@@ -584,15 +586,9 @@ async def test_provider_connection(
             message="缺少凭证配置，请先添加密钥",
         )
 
-    # 合并共享配置 + 凭证
     svc = ConfigService(session)
     config = await svc.get_provider_config(provider_id)
-    if cred.api_key:
-        config["api_key"] = cred.api_key
-    if cred.credentials_path:
-        config["credentials_path"] = cred.credentials_path
-    if cred.base_url:
-        config["base_url"] = cred.base_url
+    cred.overlay_config(config)
 
     test_fn = _TEST_DISPATCH.get(provider_id)
     if test_fn is None:

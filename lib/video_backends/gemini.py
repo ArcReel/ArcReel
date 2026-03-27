@@ -84,7 +84,7 @@ class GeminiVideoBackend:
             if not _api_key:
                 raise ValueError("GEMINI_API_KEY 环境变量未设置")
 
-            base_url = normalize_base_url(os.environ.get("GEMINI_BASE_URL", "").strip())
+            base_url = normalize_base_url(os.environ.get("GEMINI_BASE_URL"))
             http_options = {"base_url": base_url} if base_url else None
             self._client = _genai.Client(
                 api_key=_api_key, http_options=http_options

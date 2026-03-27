@@ -12,12 +12,10 @@ import {
 import { API } from "@/api";
 import type { ProviderCredential, ProviderTestResult } from "@/types";
 
-// focus-visible ring 通用样式
 const focusRing = "focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none";
-
-// ---------------------------------------------------------------------------
-// CredentialRow
-// ---------------------------------------------------------------------------
+const inputCls = "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/60";
+const inputClsPlaceholder = `${inputCls} placeholder:text-gray-600`;
+const primaryBtnCls = `inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 ${focusRing}`;
 
 interface RowProps {
   cred: ProviderCredential;
@@ -76,20 +74,21 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
     if (draft.name && draft.name !== cred.name) data.name = draft.name;
     if (draft.api_key) data.api_key = draft.api_key;
     if (draft.base_url !== (cred.base_url ?? "")) data.base_url = draft.base_url;
-    if (Object.keys(data).length > 0) {
-      setSaving(true);
-      try {
-        await API.updateCredential(providerId, cred.id, data);
-      } finally {
-        setSaving(false);
-      }
+    if (Object.keys(data).length === 0) {
+      setEditing(false);
+      return;
     }
-    setEditing(false);
-    onChanged();
+    setSaving(true);
+    try {
+      await API.updateCredential(providerId, cred.id, data);
+      setEditing(false);
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
   }, [draft, cred, providerId, onChanged]);
 
   const editPrefix = `cred-edit-${cred.id}`;
-  const addPrefix = `cred-add-${cred.id}`;
 
   return (
     <div
@@ -100,7 +99,6 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
       }`}
     >
       <div className="flex items-center gap-3">
-        {/* Activate dot */}
         <button
           type="button"
           onClick={cred.is_active ? undefined : handleActivate}
@@ -113,7 +111,6 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
           }`}
         />
 
-        {/* Info */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-gray-200">{cred.name}</span>
@@ -136,7 +133,6 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
           )}
         </div>
 
-        {/* Actions */}
         <div className="flex flex-shrink-0 items-center gap-1">
           <button
             type="button"
@@ -223,7 +219,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
               type="text"
               value={draft.name}
               onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-              className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/60"
+              className={inputCls}
             />
           </div>
           <div>
@@ -236,7 +232,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
               value={draft.api_key}
               onChange={(e) => setDraft((d) => ({ ...d, api_key: e.target.value }))}
               placeholder="留空保留现有值…"
-              className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/60"
+              className={inputClsPlaceholder}
             />
           </div>
           {providerId === "gemini-aistudio" && (
@@ -249,7 +245,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
                 value={draft.base_url}
                 onChange={(e) => setDraft((d) => ({ ...d, base_url: e.target.value }))}
                 placeholder="默认使用官方地址…"
-                className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/60"
+                className={inputClsPlaceholder}
               />
             </div>
           )}
@@ -258,7 +254,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
               type="button"
               onClick={() => void handleSaveEdit()}
               disabled={saving}
-              className={`inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 ${focusRing}`}
+              className={primaryBtnCls}
             >
               {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
               保存
@@ -277,9 +273,8 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
   );
 });
 
-// ---------------------------------------------------------------------------
-// AddCredentialForm
-// ---------------------------------------------------------------------------
+//AddCredentialForm
+
 
 interface AddFormProps {
   providerId: string;
@@ -340,7 +335,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="例如：个人账号…"
-          className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/60"
+          className={inputClsPlaceholder}
           autoFocus
         />
       </div>
@@ -369,7 +364,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
               autoComplete="off"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/60"
+              className={inputCls}
             />
           </div>
           {providerId === "gemini-aistudio" && (
@@ -382,7 +377,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 placeholder="默认使用官方地址…"
-                className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/60"
+                className={inputClsPlaceholder}
               />
             </div>
           )}
@@ -394,7 +389,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
           type="button"
           onClick={() => void handleSubmit()}
           disabled={saving || !name.trim()}
-          className={`inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 ${focusRing}`}
+          className={primaryBtnCls}
         >
           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
           添加
@@ -411,9 +406,8 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
   );
 }
 
-// ---------------------------------------------------------------------------
-// CredentialList — main export
-// ---------------------------------------------------------------------------
+//CredentialList — main export
+
 
 interface Props {
   providerId: string;
@@ -434,10 +428,10 @@ export function CredentialList({ providerId, onChanged }: Props) {
     try {
       const { credentials: creds } = await API.listCredentials(providerId);
       setCredentials(creds);
+      onChangedRef.current?.();
     } finally {
       setLoading(false);
     }
-    onChangedRef.current?.();
   }, [providerId]);
 
   useEffect(() => {
