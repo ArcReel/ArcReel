@@ -13,6 +13,7 @@ except ImportError:
     genai = None  # type: ignore
     Image = None  # type: ignore
 
+from ..config.url_utils import normalize_base_url
 from ..gemini_shared import VERTEX_SCOPES, with_retry_async
 from ..providers import PROVIDER_GEMINI
 from .base import (
@@ -81,7 +82,8 @@ class GeminiTextBackend:
                 raise ValueError(
                     "Gemini API Key 未提供（API Key is required for AI Studio mode）。"
                 )
-            http_options = {"base_url": base_url} if base_url else None
+            effective_base_url = normalize_base_url(base_url)
+            http_options = {"base_url": effective_base_url} if effective_base_url else None
             self._client = genai.Client(api_key=api_key, http_options=http_options)
             if base_url:
                 logger.info("GeminiTextBackend: 使用 AI Studio 后端（Base URL: %s）", base_url)
