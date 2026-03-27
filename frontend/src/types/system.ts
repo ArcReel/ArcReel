@@ -1,6 +1,10 @@
 export interface SystemConfigSettings {
   default_video_backend: string;
   default_image_backend: string;
+  default_text_backend: string;
+  text_backend_script: string;
+  text_backend_overview: string;
+  text_backend_style: string;
   video_generate_audio: boolean;
   anthropic_api_key: { is_set: boolean; masked: string | null };
   anthropic_base_url: string;
@@ -16,6 +20,7 @@ export interface SystemConfigSettings {
 export interface SystemConfigOptions {
   video_backends: string[];
   image_backends: string[];
+  text_backends: string[];
 }
 
 export interface GetSystemConfigResponse {
@@ -26,6 +31,10 @@ export interface GetSystemConfigResponse {
 export interface SystemConfigPatch {
   default_video_backend?: string;
   default_image_backend?: string;
+  default_text_backend?: string;
+  text_backend_script?: string;
+  text_backend_overview?: string;
+  text_backend_style?: string;
   video_generate_audio?: boolean;
   anthropic_api_key?: string;
   anthropic_base_url?: string;

@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { API } from "@/api";
-import type { ProviderInfo } from "@/types";
 
 // ---------------------------------------------------------------------------
 // ConfigIssue
@@ -31,48 +30,32 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
     });
   }
 
-  // 2. Check default backends are selected
-  const videoBackend = settings.default_video_backend || "";
-  const imageBackend = settings.default_image_backend || "";
+  // 2. Check any provider supports each media type
+  const readyProviders = providers.filter((p) => p.status === "ready");
 
-  if (!videoBackend) {
+  const hasMediaType = (type: string) =>
+    readyProviders.some((p) => p.media_types.includes(type));
+
+  if (!hasMediaType("video")) {
     issues.push({
-      key: "no-video-backend",
-      tab: "media",
-      label: "未选择默认视频模型",
+      key: "no-video-provider",
+      tab: "providers",
+      label: "未配置支持视频生成的供应商",
     });
   }
-  if (!imageBackend) {
+  if (!hasMediaType("image")) {
     issues.push({
-      key: "no-image-backend",
-      tab: "media",
-      label: "未选择默认图片模型",
+      key: "no-image-provider",
+      tab: "providers",
+      label: "未配置支持图片生成的供应商",
     });
   }
-
-  // 3. Check default backends' providers are ready
-  const videoProvider = videoBackend.split("/")[0];
-  const imageProvider = imageBackend.split("/")[0];
-
-  const checked = new Set<string>();
-
-  for (const [providerName, label] of [
-    [videoProvider, "视频"],
-    [imageProvider, "图片"],
-  ] as [string, string][]) {
-    if (!providerName || checked.has(providerName)) continue;
-    checked.add(providerName);
-
-    const pInfo: ProviderInfo | undefined = providers.find(
-      (p) => p.id === providerName,
-    );
-    if (pInfo && pInfo.status !== "ready") {
-      issues.push({
-        key: `provider-${pInfo.id}`,
-        tab: "providers",
-        label: `默认${label}供应商 ${pInfo.display_name} 未配置完成`,
-      });
-    }
+  if (!hasMediaType("text")) {
+    issues.push({
+      key: "no-text-provider",
+      tab: "providers",
+      label: "未配置支持文本生成的供应商",
+    });
   }
 
   return issues;

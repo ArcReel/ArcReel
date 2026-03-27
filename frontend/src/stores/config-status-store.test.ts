@@ -8,6 +8,10 @@ function makeConfigResponse(overrides?: Partial<GetSystemConfigResponse["setting
     settings: {
       default_video_backend: "gemini/veo-3",
       default_image_backend: "gemini/imagen-4",
+      default_text_backend: "",
+      text_backend_script: "",
+      text_backend_overview: "",
+      text_backend_style: "",
       video_generate_audio: true,
       anthropic_api_key: { is_set: false, masked: null },
       anthropic_base_url: "",
@@ -23,6 +27,7 @@ function makeConfigResponse(overrides?: Partial<GetSystemConfigResponse["setting
     options: {
       video_backends: ["gemini/veo-3"],
       image_backends: ["gemini/imagen-4"],
+      text_backends: [],
     },
   };
 }
@@ -60,15 +65,17 @@ describe("config-status-store", () => {
 
     const { issues, initialized } = useConfigStatusStore.getState();
     expect(initialized).toBe(true);
-    // anthropic issue + gemini provider issue (shared for video+image, deduped)
+    // anthropic issue + no ready provider for each media type
     expect(issues.find((i) => i.key === "anthropic")).toBeTruthy();
-    expect(issues.find((i) => i.key === "provider-gemini")).toBeTruthy();
-    expect(issues).toHaveLength(2);
+    expect(issues.find((i) => i.key === "no-video-provider")).toBeTruthy();
+    expect(issues.find((i) => i.key === "no-image-provider")).toBeTruthy();
+    expect(issues.find((i) => i.key === "no-text-provider")).toBeTruthy();
+    expect(issues).toHaveLength(4);
   });
 
   it("reports no issues when all configured", async () => {
     vi.spyOn(API, "getProviders").mockResolvedValue(
-      makeProviders([{ id: "gemini", display_name: "Google Gemini", status: "ready", media_types: ["image", "video"], capabilities: [], configured_keys: ["api_key"], missing_keys: [] }]),
+      makeProviders([{ id: "gemini", display_name: "Google Gemini", status: "ready", media_types: ["image", "video", "text"], capabilities: [], configured_keys: ["api_key"], missing_keys: [] }]),
     );
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(
       makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
