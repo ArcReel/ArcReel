@@ -12,6 +12,7 @@ from typing import Optional, Set, Union
 
 from PIL import Image
 
+from lib.config.url_utils import normalize_base_url
 from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
 from lib.providers import PROVIDER_GEMINI
@@ -83,7 +84,7 @@ class GeminiVideoBackend:
             if not _api_key:
                 raise ValueError("GEMINI_API_KEY 环境变量未设置")
 
-            base_url = os.environ.get("GEMINI_BASE_URL", "").strip() or None
+            base_url = normalize_base_url(os.environ.get("GEMINI_BASE_URL", "").strip())
             http_options = {"base_url": base_url} if base_url else None
             self._client = _genai.Client(
                 api_key=_api_key, http_options=http_options

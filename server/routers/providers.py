@@ -21,6 +21,7 @@ from starlette.responses import Response
 from lib import PROJECT_ROOT
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService
+from lib.config.url_utils import normalize_base_url
 from lib.db import get_async_session
 from lib.gemini_shared import VERTEX_SCOPES
 from server.dependencies import get_config_service
@@ -294,7 +295,7 @@ def _test_gemini_aistudio(config: dict[str, str]) -> ConnectionTestResponse:
     from google import genai
 
     api_key = config["api_key"]
-    base_url = config.get("base_url", "").strip() or None
+    base_url = normalize_base_url(config.get("base_url"))
     http_options = {"base_url": base_url} if base_url else None
     client = genai.Client(api_key=api_key, http_options=http_options)
 

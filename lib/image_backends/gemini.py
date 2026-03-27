@@ -10,6 +10,7 @@ from typing import List, Optional, Set, Union
 
 from PIL import Image
 
+from lib.config.url_utils import normalize_base_url
 from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
 from lib.providers import PROVIDER_GEMINI
@@ -85,7 +86,7 @@ class GeminiImageBackend:
             if not _api_key:
                 raise ValueError("Gemini API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。")
 
-            effective_base_url = base_url or os.environ.get("GEMINI_BASE_URL", "").strip() or None
+            effective_base_url = normalize_base_url(base_url or os.environ.get("GEMINI_BASE_URL", "").strip())
             http_options = {"base_url": effective_base_url} if effective_base_url else None
             self._client = _genai.Client(
                 api_key=_api_key, http_options=http_options
