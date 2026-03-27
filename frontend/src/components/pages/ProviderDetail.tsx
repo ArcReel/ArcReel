@@ -81,7 +81,7 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
             <button
               type="button"
               onClick={() => setShowSecret((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-gray-500 hover:text-gray-300 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
               aria-label={showSecret ? "隐藏" : "显示"}
             >
               {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -92,7 +92,7 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
               type="button"
               onClick={handleClear}
               title="清除密钥"
-              className="flex items-center gap-1 rounded-lg border border-gray-700 px-3 py-2 text-xs text-gray-400 hover:border-gray-600 hover:text-gray-200"
+              className="flex items-center gap-1 rounded-lg border border-gray-700 px-3 py-2 text-xs text-gray-400 hover:border-gray-600 hover:text-gray-200 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
             >
               <X className="h-3 w-3" />
               清除
@@ -182,6 +182,11 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  const handleCredentialChanged = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+    onSaved?.();
+  }, [onSaved]);
+
   useEffect(() => {
     let disposed = false;
     setDraft({});
@@ -249,7 +254,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
       )}
 
       {/* Credentials */}
-      <CredentialList providerId={providerId} onChanged={() => { setRefreshKey((k) => k + 1); onSaved?.(); }} />
+      <CredentialList providerId={providerId} onChanged={handleCredentialChanged} />
 
       {/* Shared config (all remaining fields from the API are "advanced") */}
       {detail.fields.length > 0 && (
@@ -257,7 +262,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
           <button
             type="button"
             onClick={() => setShowAdvanced((v) => !v)}
-            className="flex items-center gap-1 text-sm text-gray-400 hover:text-gray-200"
+            className="flex items-center gap-1 rounded text-sm text-gray-400 hover:text-gray-200 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
           >
             <ChevronRight
               className={`h-4 w-4 transition-transform ${showAdvanced ? "rotate-90" : ""}`}
@@ -275,7 +280,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
                     type="button"
                     onClick={() => void handleSave()}
                     disabled={saving}
-                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
                   >
                     {saving ? (
                       <>

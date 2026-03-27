@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import {
   Check,
   Edit2,
@@ -12,6 +12,9 @@ import {
 import { API } from "@/api";
 import type { ProviderCredential, ProviderTestResult } from "@/types";
 
+// focus-visible ring 通用样式
+const focusRing = "focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none";
+
 // ---------------------------------------------------------------------------
 // CredentialRow
 // ---------------------------------------------------------------------------
@@ -23,7 +26,7 @@ interface RowProps {
   onChanged: () => void;
 }
 
-function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
+const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
   const [editing, setEditing] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
@@ -85,6 +88,9 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
     onChanged();
   }, [draft, cred, providerId, onChanged]);
 
+  const editPrefix = `cred-edit-${cred.id}`;
+  const addPrefix = `cred-add-${cred.id}`;
+
   return (
     <div
       className={`rounded-lg border-l-2 px-3 py-2.5 transition-colors ${
@@ -99,12 +105,12 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
           type="button"
           onClick={cred.is_active ? undefined : handleActivate}
           disabled={cred.is_active}
-          className={`h-2.5 w-2.5 flex-shrink-0 rounded-full transition-colors ${
+          aria-label={cred.is_active ? "当前使用中" : `激活 ${cred.name}`}
+          className={`h-2.5 w-2.5 flex-shrink-0 rounded-full transition-colors ${focusRing} ${
             cred.is_active
               ? "bg-[var(--neon-500)] shadow-[0_0_6px_var(--neon-500)]"
               : "border border-gray-600 hover:border-gray-400 cursor-pointer"
           }`}
-          title={cred.is_active ? "当前使用中" : "点击激活"}
         />
 
         {/* Info */}
@@ -136,8 +142,8 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
             type="button"
             onClick={handleTest}
             disabled={testing}
-            className="rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
-            title="测试连接"
+            aria-label={`测试 ${cred.name} 连接`}
+            className={`rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 ${focusRing}`}
           >
             {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
           </button>
@@ -149,8 +155,8 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
                 setDraft({ name: cred.name, api_key: "", base_url: cred.base_url ?? "" });
                 setTestResult(null);
               }}
-              className="rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
-              title="编辑"
+              aria-label={`编辑 ${cred.name}`}
+              className={`rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 ${focusRing}`}
             >
               <Edit2 className="h-3.5 w-3.5" />
             </button>
@@ -160,8 +166,8 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
               type="button"
               onClick={handleDelete}
               disabled={deleting}
-              className="rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-rose-400"
-              title="删除"
+              aria-label={`删除 ${cred.name}`}
+              className={`rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-rose-400 ${focusRing}`}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -171,14 +177,14 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
                 type="button"
                 onClick={handleDelete}
                 disabled={deleting}
-                className="rounded px-2 py-1 text-xs text-rose-400 transition-colors hover:bg-rose-900/20"
+                className={`rounded px-2 py-1 text-xs text-rose-400 transition-colors hover:bg-rose-900/20 ${focusRing}`}
               >
                 {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : "确认"}
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
-                className="rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+                className={`rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 ${focusRing}`}
               >
                 取消
               </button>
@@ -190,6 +196,7 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
       {/* Test result */}
       {testResult && (
         <div
+          aria-live="polite"
           className={`mt-2 ml-5.5 rounded-md px-3 py-2 text-xs ${
             testResult.success
               ? "bg-green-900/20 text-green-400"
@@ -209,8 +216,10 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
       {editing && (
         <div className="mt-2.5 ml-5.5 space-y-2.5 rounded-lg border border-gray-800 bg-gray-950/60 p-3">
           <div>
-            <label className="mb-1 block text-xs text-gray-500">名称</label>
+            <label htmlFor={`${editPrefix}-name`} className="mb-1 block text-xs text-gray-500">名称</label>
             <input
+              id={`${editPrefix}-name`}
+              name="name"
               type="text"
               value={draft.name}
               onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
@@ -218,23 +227,28 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-500">API Key（留空保留现有值）</label>
+            <label htmlFor={`${editPrefix}-apikey`} className="mb-1 block text-xs text-gray-500">API Key（留空保留现有值）</label>
             <input
+              id={`${editPrefix}-apikey`}
+              name="api_key"
               type="password"
+              autoComplete="off"
               value={draft.api_key}
               onChange={(e) => setDraft((d) => ({ ...d, api_key: e.target.value }))}
-              placeholder="••••••••"
+              placeholder="留空保留现有值…"
               className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/60"
             />
           </div>
           {providerId === "gemini-aistudio" && (
             <div>
-              <label className="mb-1 block text-xs text-gray-500">Base URL（可选）</label>
+              <label htmlFor={`${editPrefix}-baseurl`} className="mb-1 block text-xs text-gray-500">Base URL（可选）</label>
               <input
+                id={`${editPrefix}-baseurl`}
+                name="base_url"
                 type="url"
                 value={draft.base_url}
                 onChange={(e) => setDraft((d) => ({ ...d, base_url: e.target.value }))}
-                placeholder="默认官方地址"
+                placeholder="默认使用官方地址…"
                 className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/60"
               />
             </div>
@@ -244,7 +258,7 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
               type="button"
               onClick={() => void handleSaveEdit()}
               disabled={saving}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+              className={`inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 ${focusRing}`}
             >
               {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
               保存
@@ -252,7 +266,7 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
             <button
               type="button"
               onClick={() => setEditing(false)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+              className={`inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 ${focusRing}`}
             >
               <X className="h-3 w-3" /> 取消
             </button>
@@ -261,7 +275,7 @@ function CredentialRow({ cred, providerId, isVertex, onChanged }: RowProps) {
       )}
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // AddCredentialForm
@@ -318,35 +332,41 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
   return (
     <div className="rounded-lg border border-gray-700 bg-gray-950/60 p-3 space-y-2.5">
       <div>
-        <label className="mb-1 block text-xs text-gray-500">名称 <span className="text-rose-400">*</span></label>
+        <label htmlFor="cred-add-name" className="mb-1 block text-xs text-gray-500">名称 <span className="text-rose-400">*</span></label>
         <input
+          id="cred-add-name"
+          name="name"
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="例如：个人账号"
+          placeholder="例如：个人账号…"
           className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/60"
           autoFocus
         />
       </div>
       {isVertex ? (
         <div>
-          <label className="mb-1 block text-xs text-gray-500">凭证文件 <span className="text-rose-400">*</span></label>
+          <label htmlFor="cred-add-file" className="mb-1 block text-xs text-gray-500">凭证文件 <span className="text-rose-400">*</span></label>
           <button
+            id="cred-add-file"
             type="button"
             onClick={() => fileRef.current?.click()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800"
+            className={`inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 ${focusRing}`}
           >
             <Upload className="h-3 w-3" />
-            {fileRef.current?.files?.[0]?.name ?? "选择 JSON 文件"}
+            {fileRef.current?.files?.[0]?.name ?? "选择 JSON 文件…"}
           </button>
           <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={() => setError(null)} />
         </div>
       ) : (
         <>
           <div>
-            <label className="mb-1 block text-xs text-gray-500">API Key <span className="text-rose-400">*</span></label>
+            <label htmlFor="cred-add-apikey" className="mb-1 block text-xs text-gray-500">API Key <span className="text-rose-400">*</span></label>
             <input
+              id="cred-add-apikey"
+              name="api_key"
               type="password"
+              autoComplete="off"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/60"
@@ -354,25 +374,27 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
           </div>
           {providerId === "gemini-aistudio" && (
             <div>
-              <label className="mb-1 block text-xs text-gray-500">Base URL（可选）</label>
+              <label htmlFor="cred-add-baseurl" className="mb-1 block text-xs text-gray-500">Base URL（可选）</label>
               <input
+                id="cred-add-baseurl"
+                name="base_url"
                 type="url"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="默认官方地址"
+                placeholder="默认使用官方地址…"
                 className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/60"
               />
             </div>
           )}
         </>
       )}
-      {error && <p className="text-xs text-rose-400">{error}</p>}
+      {error && <p className="text-xs text-rose-400" aria-live="polite">{error}</p>}
       <div className="flex gap-2 pt-0.5">
         <button
           type="button"
           onClick={() => void handleSubmit()}
           disabled={saving || !name.trim()}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+          className={`inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 ${focusRing}`}
         >
           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
           添加
@@ -380,7 +402,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+          className={`rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 ${focusRing}`}
         >
           取消
         </button>
@@ -404,6 +426,10 @@ export function CredentialList({ providerId, onChanged }: Props) {
   const [showAdd, setShowAdd] = useState(false);
   const isVertex = providerId === "gemini-vertex";
 
+  // 用 ref 存储 onChanged 以稳定 refresh 引用，避免父组件 re-render 导致无限循环
+  const onChangedRef = useRef(onChanged);
+  onChangedRef.current = onChanged;
+
   const refresh = useCallback(async () => {
     try {
       const { credentials: creds } = await API.listCredentials(providerId);
@@ -411,8 +437,8 @@ export function CredentialList({ providerId, onChanged }: Props) {
     } finally {
       setLoading(false);
     }
-    onChanged?.();
-  }, [providerId, onChanged]);
+    onChangedRef.current?.();
+  }, [providerId]);
 
   useEffect(() => {
     setLoading(true);
@@ -436,7 +462,7 @@ export function CredentialList({ providerId, onChanged }: Props) {
           <button
             type="button"
             onClick={() => setShowAdd(true)}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--neon-500)] transition-colors hover:bg-[var(--neon-500)]/10"
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--neon-500)] transition-colors hover:bg-[var(--neon-500)]/10 ${focusRing}`}
           >
             <Plus className="h-3 w-3" /> 添加密钥
           </button>
@@ -449,7 +475,7 @@ export function CredentialList({ providerId, onChanged }: Props) {
           <button
             type="button"
             onClick={() => setShowAdd(true)}
-            className="mt-2 inline-flex items-center gap-1 text-xs text-[var(--neon-500)] transition-colors hover:text-[var(--neon-400)]"
+            className={`mt-2 inline-flex items-center gap-1 text-xs text-[var(--neon-500)] transition-colors hover:text-[var(--neon-400)] ${focusRing}`}
           >
             <Plus className="h-3 w-3" /> 添加第一个密钥
           </button>
@@ -463,7 +489,7 @@ export function CredentialList({ providerId, onChanged }: Props) {
             cred={c}
             providerId={providerId}
             isVertex={isVertex}
-            onChanged={() => void refresh()}
+            onChanged={refresh}
           />
         ))}
       </div>
