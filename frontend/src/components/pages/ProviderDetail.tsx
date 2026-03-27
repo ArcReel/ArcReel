@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { ChevronRight, Eye, EyeOff, Loader2, Upload, X } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { ChevronRight, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { API } from "@/api";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
-import type { ProviderConfigDetail, ProviderField, ProviderTestResult } from "@/types";
+import { CredentialList } from "@/components/pages/CredentialList";
+import type { ProviderConfigDetail, ProviderField } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -20,78 +21,6 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
       {label}
     </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Credentials file upload field
-// ---------------------------------------------------------------------------
-
-interface CredentialsUploadProps {
-  field: ProviderField;
-  providerId: string;
-  onUploaded: () => void;
-}
-
-function CredentialsUploadField({ field, providerId, onUploaded }: CredentialsUploadProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadResult, setUploadResult] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    setUploadResult(null);
-    try {
-      await API.uploadVertexCredentialsForProvider(providerId, file);
-      setUploadResult({ ok: true, msg: `已上传: ${file.name}` });
-      onUploaded();
-    } catch (err) {
-      setUploadResult({ ok: false, msg: String(err) });
-    } finally {
-      setUploading(false);
-      if (inputRef.current) inputRef.current.value = "";
-    }
-  };
-
-  return (
-    <div>
-      <label className="mb-1.5 block text-sm text-gray-400">
-        {field.label}
-        {field.required && <span className="ml-1 text-red-400">*</span>}
-      </label>
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={uploading}
-          className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-50"
-        >
-          {uploading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Upload className="h-4 w-4" />
-          )}
-          {uploading ? "上传中…" : "选择 JSON 凭证文件"}
-        </button>
-        {field.is_set && !uploadResult && (
-          <span className="text-xs text-gray-500">已设置凭证文件</span>
-        )}
-        {uploadResult && (
-          <span className={`text-xs ${uploadResult.ok ? "text-green-400" : "text-red-400"}`}>
-            {uploadResult.msg}
-          </span>
-        )}
-      </div>
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".json,application/json"
-        className="hidden"
-        onChange={(e) => void handleFileChange(e)}
-      />
-    </div>
   );
 }
 
@@ -246,19 +175,14 @@ interface Props {
   onSaved?: () => void;
 }
 
-const ADVANCED_KEYS = new Set(["image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"]);
-
 export function ProviderDetail({ providerId, onSaved }: Props) {
   const [detail, setDetail] = useState<ProviderConfigDetail | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     let disposed = false;
-    setTestResult(null);
     setDraft({});
     setDetail(null);
     API.getProviderConfig(providerId).then((res) => {
@@ -285,18 +209,6 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     }
   }, [draft, providerId, onSaved]);
 
-  const handleTest = useCallback(async () => {
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const result = await API.testProviderConnection(providerId);
-      setTestResult(result);
-    } catch (e) {
-      setTestResult({ success: false, available_models: [], message: String(e) });
-    }
-    setTesting(false);
-  }, [providerId]);
-
   if (!detail) {
     return (
       <div className="flex items-center gap-2 text-sm text-gray-500">
@@ -306,11 +218,6 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     );
   }
 
-  const basicFields: ProviderField[] = [];
-  const advancedFields: ProviderField[] = [];
-  for (const f of detail.fields) {
-    (ADVANCED_KEYS.has(f.key) ? advancedFields : basicFields).push(f);
-  }
   const hasDraft = Object.keys(draft).length > 0;
 
   return (
@@ -340,28 +247,11 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
         </div>
       )}
 
-      {/* Basic fields */}
-      <div className="space-y-4">
-        {basicFields.map((field) =>
-          field.key === "credentials_path" ? (
-            <CredentialsUploadField
-              key={field.key}
-              field={field}
-              providerId={providerId}
-              onUploaded={async () => {
-                const updated = await API.getProviderConfig(providerId);
-                setDetail(updated);
-                onSaved?.();
-              }}
-            />
-          ) : (
-            <FieldEditor key={field.key} field={field} draft={draft} setDraft={setDraft} />
-          )
-        )}
-      </div>
+      {/* Credentials */}
+      <CredentialList providerId={providerId} onChanged={onSaved} />
 
-      {/* Advanced section */}
-      {advancedFields.length > 0 && (
+      {/* Shared config (all remaining fields from the API are "advanced") */}
+      {detail.fields.length > 0 && (
         <div className="mt-6">
           <button
             type="button"
@@ -375,57 +265,28 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
           </button>
           {showAdvanced && (
             <div className="mt-3 space-y-4">
-              {advancedFields.map((field) => (
+              {detail.fields.map((field) => (
                 <FieldEditor key={field.key} field={field} draft={draft} setDraft={setDraft} />
               ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="mt-6 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleTest}
-          disabled={testing}
-          className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-50"
-        >
-          {testing && <Loader2 className="h-4 w-4 animate-spin" />}
-          测试连接
-        </button>
-        {hasDraft && (
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
-          >
-            {saving ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                保存中…
-              </>
-            ) : (
-              "保存"
-            )}
-          </button>
-        )}
-      </div>
-
-      {/* Test result */}
-      {testResult && (
-        <div
-          className={`mt-3 rounded-lg p-3 text-sm ${
-            testResult.success
-              ? "bg-green-900/20 text-green-400"
-              : "bg-red-900/20 text-red-400"
-          }`}
-        >
-          {testResult.message}
-          {testResult.success && testResult.available_models.length > 0 && (
-            <div className="mt-1 text-xs opacity-75">
-              可用模型: {testResult.available_models.join(", ")}
+              {hasDraft && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleSave()}
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
+                  >
+                    {saving ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        保存中…
+                      </>
+                    ) : (
+                      "保存"
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

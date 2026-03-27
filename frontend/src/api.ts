@@ -28,6 +28,7 @@ import type {
   ProviderInfo,
   ProviderConfigDetail,
   ProviderTestResult,
+  ProviderCredential,
   UsageStatsResponse,
 } from "@/types";
 import { getToken, clearToken } from "@/utils/auth";
@@ -1257,29 +1258,63 @@ class API {
   }
 
   /** 测试指定 provider 的连接。 */
-  static async testProviderConnection(id: string): Promise<ProviderTestResult> {
-    return this.request(`/providers/${encodeURIComponent(id)}/test`, {
+  static async testProviderConnection(id: string, credentialId?: number): Promise<ProviderTestResult> {
+    const params = credentialId != null ? `?credential_id=${credentialId}` : "";
+    return this.request(`/providers/${encodeURIComponent(id)}/test${params}`, {
       method: "POST",
     });
   }
 
-  /** 上传 Vertex AI 服务账号凭证文件。 */
-  static async uploadVertexCredentialsForProvider(
-    id: string,
-    file: File
+  // ==================== Provider 凭证管理 API ====================
+
+  static async listCredentials(providerId: string): Promise<{ credentials: ProviderCredential[] }> {
+    return this.request(`/providers/${encodeURIComponent(providerId)}/credentials`);
+  }
+
+  static async createCredential(
+    providerId: string,
+    data: { name: string; api_key?: string; base_url?: string },
+  ): Promise<ProviderCredential> {
+    return this.request(`/providers/${encodeURIComponent(providerId)}/credentials`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  static async updateCredential(
+    providerId: string,
+    credId: number,
+    data: { name?: string; api_key?: string; base_url?: string },
   ): Promise<void> {
+    return this.request(
+      `/providers/${encodeURIComponent(providerId)}/credentials/${credId}`,
+      { method: "PATCH", body: JSON.stringify(data) },
+    );
+  }
+
+  static async deleteCredential(providerId: string, credId: number): Promise<void> {
+    return this.request(
+      `/providers/${encodeURIComponent(providerId)}/credentials/${credId}`,
+      { method: "DELETE" },
+    );
+  }
+
+  static async activateCredential(providerId: string, credId: number): Promise<void> {
+    return this.request(
+      `/providers/${encodeURIComponent(providerId)}/credentials/${credId}/activate`,
+      { method: "POST" },
+    );
+  }
+
+  static async uploadVertexCredential(name: string, file: File): Promise<ProviderCredential> {
     const formData = new FormData();
     formData.append("file", file);
-
     const response = await fetch(
-      `${API_BASE}/providers/${encodeURIComponent(id)}/credentials`,
-      withAuth({
-        method: "POST",
-        body: formData,
-      })
+      `${API_BASE}/providers/gemini-vertex/credentials/upload?name=${encodeURIComponent(name)}`,
+      withAuth({ method: "POST", body: formData }),
     );
-
     await throwIfNotOk(response, "上传凭证失败");
+    return response.json();
   }
 
   // ==================== 用量统计（按 provider 分组）API ====================

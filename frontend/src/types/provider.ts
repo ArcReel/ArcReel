@@ -35,6 +35,17 @@ export interface ProviderTestResult {
   message: string;
 }
 
+export interface ProviderCredential {
+  id: number;
+  provider: string;
+  name: string;
+  api_key_masked: string | null;
+  credentials_filename: string | null;
+  base_url: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface UsageStat {
   provider: string;
   call_type: string;

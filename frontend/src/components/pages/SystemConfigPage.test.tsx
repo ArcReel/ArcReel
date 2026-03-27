@@ -89,6 +89,7 @@ describe("SystemConfigPage", () => {
       capabilities: [],
       fields: [],
     } as never);
+    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
     vi.spyOn(API, "getUsageStatsGrouped").mockResolvedValue({ stats: [], period: { start: "", end: "" } });
   });
 
