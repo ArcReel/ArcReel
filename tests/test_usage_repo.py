@@ -161,3 +161,89 @@ class TestMultiProviderUsage:
         assert stats["cost_by_currency"]["USD"] == pytest.approx(3.2)
         assert stats["cost_by_currency"]["CNY"] == pytest.approx(3.9494, rel=1e-3)
         assert stats["total_cost"] == pytest.approx(3.2)
+
+    async def test_text_call_gemini_cost(self, db_session):
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(
+            project_name="demo",
+            call_type="text",
+            model="gemini-3-flash-preview",
+            prompt="分析小说内容",
+            provider="gemini",
+        )
+
+        await repo.finish_call(
+            call_id,
+            status="success",
+            input_tokens=1000,
+            output_tokens=500,
+        )
+
+        calls = await repo.get_calls(project_name="demo")
+        item = calls["items"][0]
+        assert item["call_type"] == "text"
+        assert item["input_tokens"] == 1000
+        assert item["output_tokens"] == 500
+        assert item["currency"] == "USD"
+        # cost = (1000 * 0.10 + 500 * 0.40) / 1_000_000 = 0.0003
+        assert item["cost_amount"] == pytest.approx(0.0003)
+
+    async def test_text_call_ark_cost(self, db_session):
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(
+            project_name="demo",
+            call_type="text",
+            model="doubao-seed-2-0-lite-260215",
+            prompt="分析小说内容",
+            provider="ark",
+        )
+
+        await repo.finish_call(
+            call_id,
+            status="success",
+            input_tokens=2000,
+            output_tokens=1000,
+        )
+
+        calls = await repo.get_calls(project_name="demo")
+        item = calls["items"][0]
+        assert item["currency"] == "CNY"
+        # cost = (2000 * 0.30 + 1000 * 0.60) / 1_000_000 = 0.0012
+        assert item["cost_amount"] == pytest.approx(0.0012)
+
+    async def test_text_call_failed_zero_cost(self, db_session):
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(
+            project_name="demo",
+            call_type="text",
+            model="gemini-3-flash-preview",
+            provider="gemini",
+        )
+
+        await repo.finish_call(
+            call_id,
+            status="failed",
+            error_message="API error",
+        )
+
+        calls = await repo.get_calls(project_name="demo")
+        item = calls["items"][0]
+        assert item["cost_amount"] == 0.0
+
+    async def test_get_stats_includes_text_count(self, db_session):
+        repo = UsageRepository(db_session)
+        c1 = await repo.start_call(project_name="demo", call_type="image", model="m")
+        await repo.finish_call(c1, status="success")
+
+        c2 = await repo.start_call(project_name="demo", call_type="video", model="m", duration_seconds=8)
+        await repo.finish_call(c2, status="failed", error_message="timeout")
+
+        c3 = await repo.start_call(project_name="demo", call_type="text", model="m", provider="gemini")
+        await repo.finish_call(c3, status="success", input_tokens=100, output_tokens=50)
+
+        stats = await repo.get_stats(project_name="demo")
+        assert stats["image_count"] == 1
+        assert stats["video_count"] == 1
+        assert stats["text_count"] == 1
+        assert stats["failed_count"] == 1
+        assert stats["total_count"] == 3

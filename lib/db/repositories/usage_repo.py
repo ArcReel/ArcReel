@@ -37,6 +37,8 @@ def _row_to_dict(row: ApiCall) -> dict[str, Any]:
         "currency": row.currency,
         "provider": row.provider,
         "usage_tokens": row.usage_tokens,
+        "input_tokens": row.input_tokens,
+        "output_tokens": row.output_tokens,
         "created_at": dt_to_iso(row.created_at),
     }
 
@@ -90,6 +92,8 @@ class UsageRepository(BaseRepository):
         usage_tokens: Optional[int] = None,
         service_tier: str = "default",
         generate_audio: Optional[bool] = None,
+        input_tokens: Optional[int] = None,
+        output_tokens: Optional[int] = None,
     ) -> None:
         finished_at = utc_now()
 
@@ -150,6 +154,13 @@ class UsageRepository(BaseRepository):
                     model=row.model,
                 )
                 currency = "USD"
+            elif row.call_type == "text" and input_tokens is not None:
+                cost_amount, currency = cost_calculator.calculate_text_cost(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens or 0,
+                    provider=effective_provider,
+                    model=row.model,
+                )
 
         error_truncated = error_message[:500] if error_message else None
 
@@ -164,6 +175,8 @@ class UsageRepository(BaseRepository):
                 cost_amount=cost_amount,
                 currency=currency,
                 usage_tokens=usage_tokens,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
                 output_path=output_path,
                 error_message=error_truncated,
             )
@@ -201,6 +214,7 @@ class UsageRepository(BaseRepository):
             ), 0).label("total_cost_usd"),
             func.count(case((ApiCall.call_type == "image", 1))).label("image_count"),
             func.count(case((ApiCall.call_type == "video", 1))).label("video_count"),
+            func.count(case((ApiCall.call_type == "text", 1))).label("text_count"),
             func.count(case((ApiCall.status == "failed", 1))).label("failed_count"),
             func.count().label("total_count"),
         ).select_from(ApiCall).where(*filters)
@@ -222,6 +236,7 @@ class UsageRepository(BaseRepository):
             "cost_by_currency": cost_by_currency,
             "image_count": row.image_count,
             "video_count": row.video_count,
+            "text_count": row.text_count,
             "failed_count": row.failed_count,
             "total_count": row.total_count,
         }
