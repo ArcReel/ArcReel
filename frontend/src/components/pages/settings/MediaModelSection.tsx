@@ -79,6 +79,9 @@ export function MediaModelSection() {
             options={videoBackends}
             providerNames={PROVIDER_NAMES}
             onChange={(v) => setDraft((prev) => ({ ...prev, default_video_backend: v }))}
+            allowDefault
+            defaultLabel="自动选择"
+            defaultHint="自动"
           />
         ) : (
           <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-3 py-2 text-sm text-gray-500">
@@ -110,6 +113,9 @@ export function MediaModelSection() {
             options={imageBackends}
             providerNames={PROVIDER_NAMES}
             onChange={(v) => setDraft((prev) => ({ ...prev, default_image_backend: v }))}
+            allowDefault
+            defaultLabel="自动选择"
+            defaultHint="自动"
           />
         ) : (
           <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-3 py-2 text-sm text-gray-500">

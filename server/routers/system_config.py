@@ -20,9 +20,6 @@ from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import (
     ConfigService,
     sync_anthropic_env,
-    _DEFAULT_IMAGE_BACKEND,
-    _DEFAULT_VIDEO_BACKEND,
-    _DEFAULT_TEXT_BACKEND,
 )
 from lib.db import get_async_session
 from server.auth import CurrentUser
@@ -119,9 +116,9 @@ async def get_system_config(
     anthropic_key = all_s.get("anthropic_api_key", "")
 
     settings: dict[str, Any] = {
-        "default_video_backend": all_s.get("default_video_backend") or _DEFAULT_VIDEO_BACKEND,
-        "default_image_backend": all_s.get("default_image_backend") or _DEFAULT_IMAGE_BACKEND,
-        "default_text_backend": all_s.get("default_text_backend") or _DEFAULT_TEXT_BACKEND,
+        "default_video_backend": all_s.get("default_video_backend", ""),
+        "default_image_backend": all_s.get("default_image_backend", ""),
+        "default_text_backend": all_s.get("default_text_backend", ""),
         "video_generate_audio": video_generate_audio,
         "anthropic_api_key": {
             "is_set": bool(anthropic_key),
@@ -161,21 +158,22 @@ async def patch_system_config(
     for field_name in req.model_fields_set:
         patch[field_name] = getattr(req, field_name)
 
-    # Validate backend references
+    # Validate backend references (empty string = auto-resolve)
     for backend_key in ("default_video_backend", "default_image_backend", "default_text_backend"):
-        if backend_key in patch and patch[backend_key]:
-            value = str(patch[backend_key]).strip()
-            if "/" not in value:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"{backend_key} 格式应为 provider/model",
-                )
-            provider_id = value.split("/", 1)[0]
-            if provider_id not in PROVIDER_REGISTRY:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"未知供应商: {provider_id}",
-                )
+        if backend_key in patch:
+            value = str(patch[backend_key] or "").strip()
+            if value:
+                if "/" not in value:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{backend_key} 格式应为 provider/model",
+                    )
+                provider_id = value.split("/", 1)[0]
+                if provider_id not in PROVIDER_REGISTRY:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"未知供应商: {provider_id}",
+                    )
             await svc.set_setting(backend_key, value)
 
     # Boolean settings

@@ -14,7 +14,12 @@ if TYPE_CHECKING:
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.config.service import ConfigService, _DEFAULT_TEXT_BACKEND
+from lib.config.service import (
+    ConfigService,
+    _DEFAULT_IMAGE_BACKEND,
+    _DEFAULT_TEXT_BACKEND,
+    _DEFAULT_VIDEO_BACKEND,
+)
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.project_manager import ProjectManager
@@ -120,10 +125,16 @@ class ConfigResolver:
         return value
 
     async def _resolve_default_video_backend(self, svc: ConfigService) -> tuple[str, str]:
-        return await svc.get_default_video_backend()
+        raw = await svc.get_setting("default_video_backend", "")
+        if raw and "/" in raw:
+            return ConfigService._parse_backend(raw, _DEFAULT_VIDEO_BACKEND)
+        return await self._auto_resolve_backend(svc, "video")
 
     async def _resolve_default_image_backend(self, svc: ConfigService) -> tuple[str, str]:
-        return await svc.get_default_image_backend()
+        raw = await svc.get_setting("default_image_backend", "")
+        if raw and "/" in raw:
+            return ConfigService._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
+        return await self._auto_resolve_backend(svc, "image")
 
     async def _resolve_provider_config(
         self, svc: ConfigService, session: AsyncSession, provider_id: str,

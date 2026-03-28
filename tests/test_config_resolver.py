@@ -1,16 +1,38 @@
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from lib.db.base import Base
 from lib.config.resolver import ConfigResolver
+from lib.config.service import ProviderStatus
+
+
+def _make_ready_provider(name: str, media_types: list[str]) -> ProviderStatus:
+    return ProviderStatus(
+        name=name,
+        display_name=name,
+        description="",
+        status="ready",
+        media_types=media_types,
+        capabilities=[],
+        required_keys=[],
+        configured_keys=[],
+        missing_keys=[],
+    )
 
 
 class _FakeConfigService:
     """最小化的 ConfigService fake，只实现 resolver 需要的方法。"""
 
-    def __init__(self, settings: dict[str, str] | None = None):
+    def __init__(
+        self,
+        settings: dict[str, str] | None = None,
+        *,
+        ready_providers: list[ProviderStatus] | None = None,
+    ):
         self._settings = settings or {}
+        self._ready_providers = ready_providers
 
     async def get_setting(self, key: str, default: str = "") -> str:
         return self._settings.get(key, default)
@@ -26,6 +48,11 @@ class _FakeConfigService:
 
     async def get_all_provider_configs(self) -> dict[str, dict[str, str]]:
         return {"gemini-aistudio": {"api_key": "key-aistudio"}}
+
+    async def get_all_providers_status(self) -> list[ProviderStatus]:
+        if self._ready_providers is not None:
+            return self._ready_providers
+        return [_make_ready_provider("gemini-aistudio", ["text", "image", "video"])]
 
 
 class TestVideoGenerateAudio:
@@ -96,19 +123,54 @@ class TestVideoGenerateAudio:
 
 
 class TestDefaultBackends:
-    """验证后端配置方法委托给 ConfigService。"""
+    """验证 video/image 后端解析：显式值 vs auto-resolve。"""
 
-    async def test_default_video_backend(self):
+    async def test_video_backend_explicit(self):
+        """DB 有显式值时直接返回。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService()
+        fake_svc = _FakeConfigService(
+            settings={"default_video_backend": "ark/doubao-seedance-1-5-pro"},
+        )
         result = await resolver._resolve_default_video_backend(fake_svc)
-        assert result == ("gemini-aistudio", "veo-3.1-fast-generate-preview")
+        assert result == ("ark", "doubao-seedance-1-5-pro")
 
-    async def test_default_image_backend(self):
+    async def test_video_backend_auto_resolve(self):
+        """DB 无值时走 auto-resolve，选第一个 ready 供应商的默认 video 模型。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService()
+        fake_svc = _FakeConfigService(settings={})
+        result = await resolver._resolve_default_video_backend(fake_svc)
+        # auto-resolve 从 PROVIDER_REGISTRY 找第一个 ready + default video model
+        assert result[0] in ("gemini-aistudio", "gemini-vertex", "ark", "grok")
+
+    async def test_video_backend_auto_resolve_no_ready_provider(self):
+        """无 ready 供应商时抛出 ValueError。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={}, ready_providers=[])
+        with pytest.raises(ValueError, match="未找到可用的 video 供应商"):
+            await resolver._resolve_default_video_backend(fake_svc)
+
+    async def test_image_backend_explicit(self):
+        """DB 有显式值时直接返回。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={"default_image_backend": "grok/grok-2-image"},
+        )
         result = await resolver._resolve_default_image_backend(fake_svc)
-        assert result == ("gemini-aistudio", "gemini-3.1-flash-image-preview")
+        assert result == ("grok", "grok-2-image")
+
+    async def test_image_backend_auto_resolve(self):
+        """DB 无值时走 auto-resolve。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        result = await resolver._resolve_default_image_backend(fake_svc)
+        assert result[0] in ("gemini-aistudio", "gemini-vertex", "ark", "grok")
+
+    async def test_image_backend_auto_resolve_no_ready_provider(self):
+        """无 ready 供应商时抛出 ValueError。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={}, ready_providers=[])
+        with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
+            await resolver._resolve_default_image_backend(fake_svc)
 
 
 class TestProviderConfig:
