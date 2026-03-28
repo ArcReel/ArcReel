@@ -76,6 +76,16 @@ class _FakeTextBackend:
         return TextGenerationResult(text=self._response_text, provider="fake", model="fake-model")
 
 
+class _FakeTextGenerator:
+    """模拟 TextGenerator，包装 _FakeTextBackend。"""
+
+    def __init__(self, response_text: str = "{}"):
+        self.backend = _FakeTextBackend(response_text)
+
+    async def generate(self, request, project_name=None):
+        return await self.backend.generate(request)
+
+
 class TestScriptGenerator:
     async def test_build_prompt_uses_step1_content(self, tmp_path):
         """build_prompt 无需 client 即可使用（dry-run 模式）。"""
@@ -150,8 +160,8 @@ class TestScriptGenerator:
         )
         _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "E1S01 | 片段")
 
-        fake = _FakeTextBackend(json.dumps(_valid_narration_response(), ensure_ascii=False))
-        generator = ScriptGenerator(project_path, backend=fake)
+        fake = _FakeTextGenerator(json.dumps(_valid_narration_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
         output = await generator.generate(1)
 
         payload = json.loads(output.read_text(encoding="utf-8"))
@@ -168,5 +178,5 @@ class TestScriptGenerator:
         _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "content")
 
         generator = ScriptGenerator(project_path)  # 无 backend
-        with pytest.raises(RuntimeError, match="TextBackend 未初始化"):
+        with pytest.raises(RuntimeError, match="TextGenerator 未初始化"):
             await generator.generate(1)

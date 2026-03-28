@@ -1576,25 +1576,26 @@ class ProjectManager:
         Returns:
             生成的 overview 字典，包含 synopsis, genre, theme, world_setting, generated_at
         """
-        from .text_backends.factory import create_text_backend_for_task
         from .text_backends.base import TextGenerationRequest, TextTaskType
+        from .text_generator import TextGenerator
 
         # 读取源文件内容
         source_content = self._read_source_files(project_name)
         if not source_content:
             raise ValueError("source 目录为空，无法生成概述")
 
-        # 从 DB 加载供应商配置创建 backend
-        backend = await create_text_backend_for_task(TextTaskType.OVERVIEW)
+        # 创建 TextGenerator（自动追踪用量）
+        generator = await TextGenerator.create(TextTaskType.OVERVIEW)
 
-        # 调用 TextBackend（Structured Outputs）
+        # 调用 TextGenerator（Structured Outputs）
         prompt = f"请分析以下小说内容，提取关键信息：\n\n{source_content}"
 
-        result = await backend.generate(
+        result = await generator.generate(
             TextGenerationRequest(
                 prompt=prompt,
                 response_schema=ProjectOverview.model_json_schema(),
-            )
+            ),
+            project_name=project_name,
         )
         response_text = result.text
 

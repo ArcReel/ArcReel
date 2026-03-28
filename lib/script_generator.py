@@ -12,7 +12,8 @@ from typing import Optional, Union
 
 from pydantic import ValidationError
 
-from lib.text_backends.base import TextBackend, TextGenerationRequest, TextTaskType
+from lib.text_backends.base import TextGenerationRequest, TextTaskType
+from lib.text_generator import TextGenerator
 from lib.prompt_builders_script import (
     build_drama_prompt,
     build_narration_prompt,
@@ -32,16 +33,16 @@ class ScriptGenerator:
     读取 Step 1/2 的 Markdown 中间文件，调用 TextBackend 生成最终 JSON 剧本
     """
 
-    def __init__(self, project_path: Union[str, Path], backend: Optional["TextBackend"] = None):
+    def __init__(self, project_path: Union[str, Path], generator: Optional["TextGenerator"] = None):
         """
         初始化生成器
 
         Args:
             project_path: 项目目录路径，如 projects/test0205
-            backend: TextBackend 实例（可选）。若为 None 则仅支持 build_prompt() dry-run。
+            generator: TextGenerator 实例（可选）。若为 None 则仅支持 build_prompt() dry-run。
         """
         self.project_path = Path(project_path)
-        self.backend = backend
+        self.generator = generator
 
         # 加载 project.json
         self.project_json = self._load_project_json()
@@ -49,12 +50,10 @@ class ScriptGenerator:
 
     @classmethod
     async def create(cls, project_path: Union[str, Path]) -> "ScriptGenerator":
-        """异步工厂方法，自动从 DB 加载供应商配置创建 backend。"""
-        from lib.text_backends.factory import create_text_backend_for_task
-
+        """异步工厂方法，自动从 DB 加载供应商配置创建 TextGenerator。"""
         project_name = Path(project_path).name
-        backend = await create_text_backend_for_task(TextTaskType.SCRIPT, project_name)
-        return cls(project_path, backend)
+        generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name)
+        return cls(project_path, generator)
 
     async def generate(
         self,
@@ -71,9 +70,9 @@ class ScriptGenerator:
         Returns:
             生成的 JSON 文件路径
         """
-        if self.backend is None:
+        if self.generator is None:
             raise RuntimeError(
-                "TextBackend 未初始化，请使用 ScriptGenerator.create() 工厂方法"
+                "TextGenerator 未初始化，请使用 ScriptGenerator.create() 工厂方法"
             )
 
         # 1. 加载中间文件
@@ -107,8 +106,10 @@ class ScriptGenerator:
 
         # 4. 调用 TextBackend
         logger.info("正在生成第 %d 集剧本...", episode)
-        result = await self.backend.generate(
-            TextGenerationRequest(prompt=prompt, response_schema=schema)
+        project_name = self.project_path.name
+        result = await self.generator.generate(
+            TextGenerationRequest(prompt=prompt, response_schema=schema),
+            project_name=project_name,
         )
         response_text = result.text
 
@@ -258,7 +259,7 @@ class ScriptGenerator:
         script_data.setdefault("metadata", {})
         script_data["metadata"]["created_at"] = now
         script_data["metadata"]["updated_at"] = now
-        script_data["metadata"]["generator"] = self.backend.model if self.backend else "unknown"
+        script_data["metadata"]["generator"] = self.generator.backend.model if self.generator else "unknown"
 
         # 计算统计信息
         if self.content_mode == "narration":
