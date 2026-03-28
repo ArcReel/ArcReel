@@ -17,6 +17,11 @@ try:
 except ImportError:
     sdk_list_sessions = None
 
+try:
+    from claude_agent_sdk import delete_session as sdk_delete_session
+except ImportError:
+    sdk_delete_session = None
+
 if TYPE_CHECKING:
     from server.routers.assistant import ImageAttachment
 
@@ -132,6 +137,13 @@ class AssistantService:
                 session_id,
                 reason="session deleted",
             )
+
+        # Clean up SDK-side session files
+        if sdk_delete_session is not None:
+            try:
+                await asyncio.to_thread(sdk_delete_session, session_id)
+            except Exception:
+                logger.warning("sdk delete_session failed for %s", session_id, exc_info=True)
 
         self._snapshot_cache.pop(session_id, None)
         return await self.meta_store.delete(session_id)
