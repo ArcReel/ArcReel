@@ -21,7 +21,6 @@ interface ProviderModelSelectProps {
 interface FlatOption {
   type: "default" | "option";
   fullValue: string;
-  label: string;
 }
 
 function groupByProvider(options: string[]): Record<string, string[]> {
@@ -63,19 +62,18 @@ export function ProviderModelSelect({
   const flatOptions = useMemo(() => {
     const list: FlatOption[] = [];
     if (allowDefault) {
-      list.push({ type: "default", fullValue: "", label: defaultLabel ?? "跟随全局默认" });
+      list.push({ type: "default", fullValue: "" });
     }
     for (const [providerId, models] of Object.entries(grouped)) {
       for (const model of models) {
         list.push({
           type: "option",
           fullValue: `${providerId}/${model}`,
-          label: model,
         });
       }
     }
     return list;
-  }, [options, allowDefault, defaultLabel]);
+  }, [options, allowDefault]);
 
   // Close on outside click
   useEffect(() => {
