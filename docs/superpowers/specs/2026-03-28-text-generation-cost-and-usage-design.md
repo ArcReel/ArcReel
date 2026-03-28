@@ -83,10 +83,10 @@ class TextGenerator:
             call_type="text",
             model=self.backend.model,
             prompt=request.prompt[:500],
-            provider=self.backend.provider,
+            provider=self.backend.name,
         )
         try:
-            result = await self.backend.generate_async(request)
+            result = await self.backend.generate(request)
             await self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="success",
