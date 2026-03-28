@@ -254,6 +254,7 @@ describe("stores", () => {
       cost_by_currency: { USD: 12.34 },
       image_count: 5,
       video_count: 2,
+      text_count: 0,
       failed_count: 1,
       total_count: 8,
     });
@@ -275,6 +276,8 @@ describe("stores", () => {
           error_message: null,
           started_at: "2026-02-01T00:00:00Z",
           created_at: "2026-02-01T00:00:00Z",
+          input_tokens: null,
+          output_tokens: null,
         },
       ],
       1,

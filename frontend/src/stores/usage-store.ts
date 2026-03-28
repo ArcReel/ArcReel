@@ -11,6 +11,7 @@ interface UsageStats {
   cost_by_currency: Record<string, number>;
   image_count: number;
   video_count: number;
+  text_count: number;
   failed_count: number;
   total_count: number;
 }
@@ -31,6 +32,8 @@ interface UsageCall {
   error_message: string | null;
   started_at: string;
   created_at: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
 }
 
 interface UsageState {

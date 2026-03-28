@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, type RefObject } from "react";
-import { X, Image, Video, AlertCircle, DollarSign, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, Image, Video, FileText, AlertCircle, DollarSign, ChevronLeft, ChevronRight } from "lucide-react";
 import { useUsageStore } from "@/stores/usage-store";
 import { API } from "@/api";
 import { Popover } from "@/components/ui/Popover";
@@ -31,6 +31,8 @@ interface UsageCall {
   error_message: string | null;
   started_at: string;
   created_at: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
 }
 
 export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDrawerProps) {
@@ -48,6 +50,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
           cost_by_currency: Record<string, number>;
           image_count: number;
           video_count: number;
+          text_count: number;
           failed_count: number;
           total_count: number;
         });
@@ -107,7 +110,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
       </div>
 
       {/* Stats summary */}
-      <div className="grid grid-cols-4 gap-2 border-b border-gray-800 px-4 py-3">
+      <div className="grid grid-cols-5 gap-2 border-b border-gray-800 px-4 py-3">
         <StatBlock
           label="总费用"
           value={
@@ -119,6 +122,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
         />
         <StatBlock label="图片" value={String(stats?.image_count ?? 0)} icon={<Image className="h-3 w-3 text-blue-400" />} />
         <StatBlock label="视频" value={String(stats?.video_count ?? 0)} icon={<Video className="h-3 w-3 text-purple-400" />} />
+        <StatBlock label="文本" value={String(stats?.text_count ?? 0)} icon={<FileText className="h-3 w-3 text-green-400" />} />
         <StatBlock label="失败" value={String(stats?.failed_count ?? 0)} icon={<AlertCircle className="h-3 w-3 text-red-400" />} />
       </div>
 
@@ -132,7 +136,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
           <ul className="divide-y divide-gray-800">
             {calls.map((call) => {
               const filename = extractFilename(call.output_path);
-              const typeLabel = call.call_type === "video" ? "视频" : "图片";
+              const typeLabel = call.call_type === "video" ? "视频" : call.call_type === "text" ? "文本" : "图片";
               const durationInfo = call.duration_ms
                 ? `${(call.duration_ms / 1000).toFixed(1)}s`
                 : null;
@@ -144,6 +148,8 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
                     <span className="shrink-0">
                       {call.call_type === "video" ? (
                         <Video className="h-3.5 w-3.5 text-purple-400" />
+                      ) : call.call_type === "text" ? (
+                        <FileText className="h-3.5 w-3.5 text-green-400" />
                       ) : (
                         <Image className="h-3.5 w-3.5 text-blue-400" />
                       )}
@@ -159,8 +165,17 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
                   {/* Row 2: model + resolution + duration + time */}
                   <div className="mt-0.5 flex items-center gap-2 pl-5.5 text-[10px] text-gray-500">
                     <span className="truncate">{call.model}</span>
-                    {call.resolution && <span>{call.resolution}</span>}
-                    {durationInfo && <span>{durationInfo}</span>}
+                    {call.call_type === "text" ? (
+                      <>
+                        {call.input_tokens != null && <span>输入 {call.input_tokens.toLocaleString()}</span>}
+                        {call.output_tokens != null && <span>输出 {call.output_tokens.toLocaleString()} tokens</span>}
+                      </>
+                    ) : (
+                      <>
+                        {call.resolution && <span>{call.resolution}</span>}
+                        {durationInfo && <span>{durationInfo}</span>}
+                      </>
+                    )}
                     <span className="ml-auto shrink-0">{formatDateTime(call.started_at || call.created_at)}</span>
                   </div>
                   {/* Row 3: error message (if failed) */}

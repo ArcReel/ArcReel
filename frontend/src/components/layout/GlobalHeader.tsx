@@ -139,6 +139,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           cost_by_currency: Record<string, number>;
           image_count: number;
           video_count: number;
+          text_count: number;
           failed_count: number;
           total_count: number;
         });
