@@ -560,7 +560,10 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
         from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
         _resolver = ConfigResolver(async_session_factory)
-        default_provider_id, _ = await _resolver.default_video_backend()
+        try:
+            default_provider_id, _ = await _resolver.default_video_backend()
+        except Exception:
+            default_provider_id = "gemini-aistudio"
         provider_name = _PROVIDER_ID_TO_BACKEND.get(default_provider_id, default_provider_id)
     # 将新 provider_id 映射为旧名称以查找分辨率
     resolution_key = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
