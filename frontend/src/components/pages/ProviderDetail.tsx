@@ -180,12 +180,13 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
 
-  const handleCredentialChanged = useCallback(() => {
-    setRefreshKey((k) => k + 1);
+  const handleCredentialChanged = useCallback(async () => {
+    // 静默刷新配置（不清除 detail，避免 loading 闪烁和子组件重挂）
+    const updated = await API.getProviderConfig(providerId);
+    setDetail(updated);
     onSaved?.();
-  }, [onSaved]);
+  }, [providerId, onSaved]);
 
   useEffect(() => {
     let disposed = false;
@@ -195,7 +196,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
       if (!disposed) setDetail(res);
     });
     return () => { disposed = true; };
-  }, [providerId, refreshKey]);
+  }, [providerId]);
 
   const handleSave = useCallback(async () => {
     if (Object.keys(draft).length === 0) return;

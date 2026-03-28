@@ -428,11 +428,16 @@ export function CredentialList({ providerId, onChanged }: Props) {
     try {
       const { credentials: creds } = await API.listCredentials(providerId);
       setCredentials(creds);
-      onChangedRef.current?.();
     } finally {
       setLoading(false);
     }
   }, [providerId]);
+
+  // 用户操作后：刷新列表 + 通知父组件
+  const handleChanged = useCallback(async () => {
+    await refresh();
+    onChangedRef.current?.();
+  }, [refresh]);
 
   useEffect(() => {
     setLoading(true);
@@ -483,7 +488,7 @@ export function CredentialList({ providerId, onChanged }: Props) {
             cred={c}
             providerId={providerId}
             isVertex={isVertex}
-            onChanged={refresh}
+            onChanged={handleChanged}
           />
         ))}
       </div>
@@ -495,7 +500,7 @@ export function CredentialList({ providerId, onChanged }: Props) {
             isVertex={isVertex}
             onCreated={() => {
               setShowAdd(false);
-              void refresh();
+              void handleChanged();
             }}
             onCancel={() => setShowAdd(false)}
           />
