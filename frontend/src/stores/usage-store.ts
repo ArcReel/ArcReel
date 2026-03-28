@@ -6,7 +6,7 @@ interface UsageFilters {
   status?: string;
 }
 
-interface UsageStats {
+export interface UsageStats {
   total_cost: number;
   cost_by_currency: Record<string, number>;
   image_count: number;
@@ -16,7 +16,7 @@ interface UsageStats {
   total_count: number;
 }
 
-interface UsageCall {
+export interface UsageCall {
   id: string;
   project_name: string;
   call_type: string;

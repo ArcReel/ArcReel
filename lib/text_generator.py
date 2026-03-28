@@ -30,6 +30,11 @@ class TextGenerator:
         self.backend = backend
         self.usage_tracker = usage_tracker
 
+    @property
+    def model(self) -> str:
+        """当前 backend 的模型名称。"""
+        return self.backend.model
+
     @classmethod
     async def create(
         cls,
@@ -51,7 +56,7 @@ class TextGenerator:
             project_name=project_name or "",
             call_type="text",
             model=self.backend.model,
-            prompt=request.prompt[:500],
+            prompt=request.prompt,
             provider=self.backend.name,
         )
         try:
@@ -67,6 +72,6 @@ class TextGenerator:
             await self.usage_tracker.finish_call(
                 call_id,
                 status="failed",
-                error_message=str(e)[:500],
+                error_message=str(e),
             )
             raise

@@ -308,7 +308,7 @@ class TestProjectManagerMore:
 
         async def _fake_create_backend(*args, **kwargs):
             return _FakeTextBackend()
-        monkeypatch.setattr("lib.text_backends.factory.create_text_backend_for_task", _fake_create_backend)
+        monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _fake_create_backend)
         overview = await pm.generate_overview("demo")
         assert overview["genre"] == "悬疑"
         assert "generated_at" in overview

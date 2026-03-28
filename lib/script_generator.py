@@ -259,7 +259,7 @@ class ScriptGenerator:
         script_data.setdefault("metadata", {})
         script_data["metadata"]["created_at"] = now
         script_data["metadata"]["updated_at"] = now
-        script_data["metadata"]["generator"] = self.generator.backend.model if self.generator else "unknown"
+        script_data["metadata"]["generator"] = self.generator.model if self.generator else "unknown"
 
         # 计算统计信息
         if self.content_mode == "narration":

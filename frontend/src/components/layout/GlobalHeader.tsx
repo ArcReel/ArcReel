@@ -5,7 +5,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
-import { useUsageStore } from "@/stores/usage-store";
+import { useUsageStore, type UsageStats } from "@/stores/usage-store";
 import { TaskHud } from "@/components/task-hud/TaskHud";
 import { UsageDrawer } from "./UsageDrawer";
 import { WorkspaceNotificationsDrawer } from "./WorkspaceNotificationsDrawer";
@@ -134,15 +134,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   useEffect(() => {
     API.getUsageStats(currentProjectName ? { projectName: currentProjectName } : {})
       .then((res) => {
-        setUsageStats(res as {
-          total_cost: number;
-          cost_by_currency: Record<string, number>;
-          image_count: number;
-          video_count: number;
-          text_count: number;
-          failed_count: number;
-          total_count: number;
-        });
+        setUsageStats(res as unknown as UsageStats);
       })
       .catch(() => {});
   }, [currentProjectName, completedTaskCount, setUsageStats]);

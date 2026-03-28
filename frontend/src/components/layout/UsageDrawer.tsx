@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, type RefObject } from "react";
 import { X, Image, Video, FileText, AlertCircle, DollarSign, ChevronLeft, ChevronRight } from "lucide-react";
-import { useUsageStore } from "@/stores/usage-store";
+import { useUsageStore, type UsageStats, type UsageCall } from "@/stores/usage-store";
 import { API } from "@/api";
 import { Popover } from "@/components/ui/Popover";
 
@@ -15,25 +15,12 @@ interface UsageDrawerProps {
   anchorRef: RefObject<HTMLElement | null>;
 }
 
-interface UsageCall {
-  id: string;
-  project_name: string;
-  call_type: string;
-  model: string;
-  status: string;
-  cost_amount: number;
-  currency: string;
-  provider: string;
-  output_path: string | null;
-  resolution: string | null;
-  duration_seconds: number | null;
-  duration_ms: number | null;
-  error_message: string | null;
-  started_at: string;
-  created_at: string;
-  input_tokens: number | null;
-  output_tokens: number | null;
-}
+const CALL_TYPE_CONFIG: Record<string, { icon: typeof Image; color: string; label: string }> = {
+  video: { icon: Video, color: "text-purple-400", label: "视频" },
+  text: { icon: FileText, color: "text-green-400", label: "文本" },
+  image: { icon: Image, color: "text-blue-400", label: "图片" },
+};
+
 
 export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDrawerProps) {
   const { stats, calls, total, page, pageSize, setStats, setCalls, setPage, setLoading } = useUsageStore();
@@ -45,15 +32,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
     setLoading(true);
     API.getUsageStats(projectName ? { projectName } : {})
       .then((res) => {
-        setStats(res as {
-          total_cost: number;
-          cost_by_currency: Record<string, number>;
-          image_count: number;
-          video_count: number;
-          text_count: number;
-          failed_count: number;
-          total_count: number;
-        });
+        setStats(res as unknown as UsageStats);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -136,7 +115,8 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
           <ul className="divide-y divide-gray-800">
             {calls.map((call) => {
               const filename = extractFilename(call.output_path);
-              const typeLabel = call.call_type === "video" ? "视频" : call.call_type === "text" ? "文本" : "图片";
+              const cfg = CALL_TYPE_CONFIG[call.call_type] ?? CALL_TYPE_CONFIG.image;
+              const TypeIcon = cfg.icon;
               const durationInfo = call.duration_ms
                 ? `${(call.duration_ms / 1000).toFixed(1)}s`
                 : null;
@@ -146,16 +126,10 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
                   {/* Row 1: type + filename + status + cost */}
                   <div className="flex items-center gap-2">
                     <span className="shrink-0">
-                      {call.call_type === "video" ? (
-                        <Video className="h-3.5 w-3.5 text-purple-400" />
-                      ) : call.call_type === "text" ? (
-                        <FileText className="h-3.5 w-3.5 text-green-400" />
-                      ) : (
-                        <Image className="h-3.5 w-3.5 text-blue-400" />
-                      )}
+                      <TypeIcon className={`h-3.5 w-3.5 ${cfg.color}`} />
                     </span>
                     <span className="flex-1 truncate text-xs text-gray-200" title={call.output_path ?? undefined}>
-                      {filename || typeLabel}
+                      {filename || cfg.label}
                     </span>
                     <StatusBadge status={call.status} />
                     <span className={`shrink-0 text-xs font-mono ${call.cost_amount > 0 ? "text-gray-200" : "text-gray-500"}`}>

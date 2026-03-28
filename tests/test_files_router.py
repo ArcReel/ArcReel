@@ -47,7 +47,7 @@ def _client(monkeypatch, tmp_path):
     pm.add_clue("demo", "玉佩", "prop", "desc", "major")
 
     monkeypatch.setattr(files, "get_project_manager", lambda: pm)
-    monkeypatch.setattr("lib.text_backends.factory.create_text_backend_for_task", _fake_create_backend)
+    monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _fake_create_backend)
 
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")

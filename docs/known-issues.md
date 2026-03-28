@@ -72,3 +72,39 @@ for override_key, env_key in (
 **风险：** 视频生成耗时分钟级，相比之下 DB 往返影响较小，但仍是可消除的冗余。
 
 **建议：** 让调用方在 `finish_call` 时传入已知的计费字段（`provider`、`call_type`、`duration_seconds` 等），合并为一次纯 `UPDATE`。
+
+---
+
+## 6. UsageRepository.finish_call() 参数膨胀
+
+**位置：** `lib/db/repositories/usage_repo.py` — `finish_call()`，`lib/usage_tracker.py` — `finish_call()`
+
+**现状：** `finish_call()` 已有 9 个 keyword 参数（`status`、`output_path`、`error_message`、`retry_count`、`usage_tokens`、`service_tier`、`generate_audio`、`input_tokens`、`output_tokens`），且 `UsageTracker.finish_call()` 1:1 镜像透传。每新增 call_type 都可能增加新的类型特有参数。
+
+**风险：** 参数列表持续膨胀，调用方需要了解所有其他 call_type 的参数才能正确调用。
+
+**建议：** 引入 per-call-type 的 TypedDict（如 `TextFinishParams`、`VideoFinishParams`），或使用一个 `extra: dict` bag 传递类型特有字段。
+
+---
+
+## 7. call_type 裸字符串缺乏类型约束
+
+**位置：** 后端 `usage_repo.py`、`text_generator.py`、`media_generator.py`；前端 `UsageDrawer.tsx`、`UsageStatsSection.tsx`
+
+**现状：** `"image"`、`"video"`、`"text"` 作为裸字符串分散在后端和前端代码中，没有统一的枚举或 Literal 类型。拼写错误（如 `"texts"`）不会被静态检查捕获。
+
+**风险：** 随着 call_type 增多，漏改或拼写错误的概率上升。
+
+**建议：** Python 端定义 `CallType = Literal["image", "video", "text"]` 类型别名，前端定义对应的 union type，在接口签名中使用。
+
+---
+
+## 8. UsageRepository 查询方法 filter 构建重复
+
+**位置：** `lib/db/repositories/usage_repo.py` — `get_stats()`、`get_stats_grouped_by_provider()`、`get_calls()`
+
+**现状：** 三个方法各自内联构建相同的 date/project/provider 过滤条件（约 10 行重复逻辑）。`get_stats()` 有一个 `_base_filters()` 本地函数，但未被其他方法共享。
+
+**风险：** 新增过滤条件时需要三处同步修改。
+
+**建议：** 将 `_base_filters()` 提升为类级别的私有方法，三个查询方法共享。

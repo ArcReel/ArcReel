@@ -81,6 +81,7 @@ class _FakeTextGenerator:
 
     def __init__(self, response_text: str = "{}"):
         self.backend = _FakeTextBackend(response_text)
+        self.model = self.backend.model
 
     async def generate(self, request, project_name=None):
         return await self.backend.generate(request)
