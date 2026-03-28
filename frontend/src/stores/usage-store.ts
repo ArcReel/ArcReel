@@ -19,7 +19,7 @@ export interface UsageStats {
 export interface UsageCall {
   id: string;
   project_name: string;
-  call_type: string;
+  call_type: "image" | "video" | "text";
   model: string;
   status: string;
   cost_amount: number;

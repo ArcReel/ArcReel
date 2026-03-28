@@ -56,7 +56,7 @@ class TextGenerator:
             project_name=project_name or "",
             call_type="text",
             model=self.backend.model,
-            prompt=request.prompt,
+            prompt=request.prompt[:500],
             provider=self.backend.name,
         )
         try:
@@ -72,6 +72,6 @@ class TextGenerator:
             await self.usage_tracker.finish_call(
                 call_id,
                 status="failed",
-                error_message=str(e),
+                error_message=str(e)[:500],
             )
             raise

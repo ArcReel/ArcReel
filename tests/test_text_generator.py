@@ -1,7 +1,7 @@
 """Tests for TextGenerator wrapper."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from lib.db.base import Base

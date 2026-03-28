@@ -104,7 +104,9 @@ export function UsageStatsSection() {
                     : 0}
                   %
                 </span>
-                {s.call_type !== "text" && s.total_duration_seconds !== undefined && (
+                {s.call_type === "text" ? (
+                  s.total_calls > 0 && <span>类型: 文本生成</span>
+                ) : s.total_duration_seconds !== undefined && (
                   <span>时长: {s.total_duration_seconds}s</span>
                 )}
               </div>
