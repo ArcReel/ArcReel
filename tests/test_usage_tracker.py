@@ -103,3 +103,29 @@ class TestUsageTracker:
 
         projects = await tracker.get_projects_list()
         assert projects == ["demo-a", "demo-b"]
+
+    async def test_text_call_with_token_tracking(self, tracker):
+        call_id = await tracker.start_call(
+            project_name="demo",
+            call_type="text",
+            model="gemini-3-flash-preview",
+            prompt="测试 prompt",
+            provider="gemini",
+        )
+        await tracker.finish_call(
+            call_id,
+            status="success",
+            input_tokens=1000,
+            output_tokens=500,
+        )
+
+        result = await tracker.get_calls(project_name="demo")
+        item = result["items"][0]
+        assert item["call_type"] == "text"
+        assert item["input_tokens"] == 1000
+        assert item["output_tokens"] == 500
+        assert item["cost_amount"] == pytest.approx(0.0003)
+
+        stats = await tracker.get_stats(project_name="demo")
+        assert stats["text_count"] == 1
+        assert stats["total_count"] == 1
