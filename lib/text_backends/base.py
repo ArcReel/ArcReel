@@ -60,16 +60,18 @@ def resolve_schema(schema: dict | type) -> dict:
     if not defs:
         return schema
 
-    def _inline(obj):
+    def _inline(obj, visited_refs=frozenset()):
         if isinstance(obj, dict):
             if "$ref" in obj:
                 ref_name = obj["$ref"].split("/")[-1]
-                resolved = _inline(defs[ref_name])
+                if ref_name in visited_refs:
+                    raise ValueError(f"检测到 schema 中的循环引用: {ref_name}")
+                resolved = _inline(defs[ref_name], visited_refs | {ref_name})
                 extra = {k: v for k, v in obj.items() if k != "$ref"}
                 return {**resolved, **extra} if extra else resolved
-            return {k: _inline(v) for k, v in obj.items()}
+            return {k: _inline(v, visited_refs) for k, v in obj.items()}
         if isinstance(obj, list):
-            return [_inline(item) for item in obj]
+            return [_inline(item, visited_refs) for item in obj]
         return obj
 
     result = _inline(schema)

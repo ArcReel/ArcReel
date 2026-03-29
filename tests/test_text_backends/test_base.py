@@ -110,6 +110,21 @@ class TestResolveSchema:
         items_schema = result["properties"]["items"]["items"]
         assert items_schema["properties"]["value"]["type"] == "integer"
 
+    def test_circular_ref_raises(self):
+        schema = {
+            "$defs": {
+                "Node": {
+                    "type": "object",
+                    "properties": {"child": {"$ref": "#/$defs/Node"}},
+                },
+            },
+            "type": "object",
+            "properties": {"root": {"$ref": "#/$defs/Node"}},
+        }
+        import pytest
+        with pytest.raises(ValueError, match="循环引用"):
+            resolve_schema(schema)
+
     def test_preserves_extra_keys_on_ref(self):
         schema = {
             "$defs": {"Inner": {"type": "object", "properties": {"x": {"type": "integer"}}}},

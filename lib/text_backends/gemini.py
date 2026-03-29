@@ -108,7 +108,7 @@ class GeminiTextBackend:
 
     def _build_config(
         self,
-        response_schema,
+        response_schema: dict | type | None,
         system_prompt: Optional[str],
     ) -> dict:
         """构建 generate_content 的 config 字典。"""
