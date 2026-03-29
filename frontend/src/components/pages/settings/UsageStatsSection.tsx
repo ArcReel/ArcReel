@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { API } from "@/api";
 import type { UsageStat } from "@/types";
 
+const currencyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const percentFmt = new Intl.NumberFormat("zh-CN", { style: "percent", maximumFractionDigits: 0 });
+
 const TIME_RANGES = [
   { label: "最近 7 天", days: 7 },
   { label: "最近 30 天", days: 30 },
@@ -95,7 +98,7 @@ export function UsageStatsSection() {
                   <span className="ml-2 text-xs text-gray-500">{s.call_type}</span>
                 </div>
                 <span className="text-sm text-gray-300">
-                  {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(s.total_cost_usd)}
+                  {currencyFmt.format(s.total_cost_usd)}
                 </span>
               </div>
               <div className="mt-2 flex flex-wrap gap-6 text-xs text-gray-400">
@@ -104,7 +107,7 @@ export function UsageStatsSection() {
                 <span>
                   成功率:{" "}
                   {s.total_calls > 0
-                    ? new Intl.NumberFormat("zh-CN", { style: "percent", maximumFractionDigits: 0 }).format(s.success_calls / s.total_calls)
+                    ? percentFmt.format(s.success_calls / s.total_calls)
                     : "0%"}
                 </span>
                 {s.call_type === "text" ? (

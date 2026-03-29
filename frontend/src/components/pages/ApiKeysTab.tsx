@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { copyText } from "@/utils/clipboard";
 import type { ApiKeyInfo, CreateApiKeyResponse } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
 
   const handleCopy = useCallback(async () => {
     if (!created?.key) return;
-    await navigator.clipboard.writeText(created.key);
+    await copyText(created.key);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [created?.key]);
