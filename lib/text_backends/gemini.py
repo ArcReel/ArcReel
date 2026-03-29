@@ -108,14 +108,17 @@ class GeminiTextBackend:
 
     def _build_config(
         self,
-        response_schema: Optional[dict],
+        response_schema,
         system_prompt: Optional[str],
     ) -> dict:
         """构建 generate_content 的 config 字典。"""
         config: dict = {}
         if response_schema:
             config["response_mime_type"] = "application/json"
-            config["response_json_schema"] = response_schema
+            if isinstance(response_schema, type):
+                config["response_schema"] = response_schema
+            else:
+                config["response_json_schema"] = response_schema
         if system_prompt:
             config["system_instruction"] = system_prompt
         return config

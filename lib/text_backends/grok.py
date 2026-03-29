@@ -70,7 +70,11 @@ class GrokTextBackend:
 
         # Structured output or plain
         if request.response_schema:
-            DynamicModel = _schema_to_pydantic(request.response_schema)
+            if isinstance(request.response_schema, type):
+                DynamicModel = request.response_schema
+            else:
+                from lib.text_backends.base import resolve_schema
+                DynamicModel = _schema_to_pydantic(resolve_schema(request.response_schema))
             response, parsed = await asyncio.to_thread(chat.parse, DynamicModel)
             text = response.content if hasattr(response, "content") else parsed.model_dump_json()
         else:

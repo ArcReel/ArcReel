@@ -68,14 +68,17 @@ class ArkTextBackend:
         return self._parse_chat_response(response)
 
     async def _generate_structured(self, request: TextGenerationRequest) -> TextGenerationResult:
+        from lib.text_backends.base import resolve_schema
+
         messages = self._build_messages(request)
+        schema = resolve_schema(request.response_schema)
         response = await asyncio.to_thread(
             self._client.chat.completions.create,
             model=self._model,
             messages=messages,
             response_format={"type": "json_schema", "json_schema": {
                 "name": "response",
-                "schema": request.response_schema,
+                "schema": schema,
             }},
         )
         return self._parse_chat_response(response)

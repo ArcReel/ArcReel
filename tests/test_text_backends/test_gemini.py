@@ -86,6 +86,29 @@ class TestGenerate:
         assert config["response_mime_type"] == "application/json"
         assert config["response_json_schema"] == schema
 
+    async def test_structured_output_pydantic_class_uses_response_schema(self, backend):
+        """传入 Pydantic 类时应使用 response_schema 而非 response_json_schema。"""
+        from pydantic import BaseModel
+
+        class MyModel(BaseModel):
+            name: str
+
+        mock_resp = SimpleNamespace(
+            text='{"name": "test"}',
+            usage_metadata=SimpleNamespace(prompt_token_count=20, candidates_token_count=10),
+        )
+        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+
+        await backend.generate(
+            TextGenerationRequest(prompt="gen", response_schema=MyModel)
+        )
+
+        call_kwargs = backend._test_client.aio.models.generate_content.call_args
+        config = call_kwargs.kwargs.get("config")
+        assert config["response_mime_type"] == "application/json"
+        assert config["response_schema"] is MyModel
+        assert "response_json_schema" not in config
+
     async def test_system_prompt(self, backend):
         mock_resp = SimpleNamespace(
             text="output",

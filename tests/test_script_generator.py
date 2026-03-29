@@ -172,6 +172,31 @@ class TestScriptGenerator:
         assert payload["metadata"]["generator"] == "fake-model"
         assert "created_at" in payload["metadata"]
 
+    async def test_generate_passes_pydantic_class_as_schema(self, tmp_path):
+        """generate 应传入 Pydantic 类而非 model_json_schema() dict。"""
+        project_path = tmp_path / "demo"
+        _write_json(
+            project_path / "project.json",
+            {
+                "title": "项目",
+                "content_mode": "drama",
+                "overview": {},
+                "characters": {"姜月茴": {}},
+                "clues": {"玉佩": {}},
+                "style": "古风",
+                "style_description": "cinematic",
+            },
+        )
+        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
+
+        from lib.script_models import DramaEpisodeScript
+
+        fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
+        generator = ScriptGenerator(project_path, generator=fake)
+        # generate 会因验证失败但 schema 已传入，检查传入的 schema 是否为类
+        await generator.generate(1)
+        assert fake.backend.last_request.response_schema is DramaEpisodeScript
+
     async def test_generate_without_backend_raises(self, tmp_path):
         """未注入 backend 时调用 generate() 应抛 RuntimeError。"""
         project_path = tmp_path / "demo"

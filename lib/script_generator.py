@@ -92,7 +92,7 @@ class ScriptGenerator:
                 clues=clues,
                 segments_md=step1_md,
             )
-            schema = NarrationEpisodeScript.model_json_schema()
+            schema = NarrationEpisodeScript
         else:
             prompt = build_drama_prompt(
                 project_overview=self.project_json.get("overview", {}),
@@ -102,7 +102,7 @@ class ScriptGenerator:
                 clues=clues,
                 scenes_md=step1_md,
             )
-            schema = DramaEpisodeScript.model_json_schema()
+            schema = DramaEpisodeScript
 
         # 4. 调用 TextBackend
         logger.info("正在生成第 %d 集剧本...", episode)

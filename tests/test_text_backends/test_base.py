@@ -9,6 +9,7 @@ from lib.text_backends.base import (
     TextGenerationRequest,
     TextGenerationResult,
     TextTaskType,
+    resolve_schema,
 )
 
 
@@ -75,6 +76,49 @@ class TestTextGenerationResult:
         )
         assert result.input_tokens == 100
         assert result.output_tokens == 50
+
+
+class TestResolveSchema:
+    def test_dict_without_refs_unchanged(self):
+        schema = {"type": "object", "properties": {"name": {"type": "string"}}}
+        assert resolve_schema(schema) == schema
+
+    def test_inlines_refs(self):
+        schema = {
+            "$defs": {"Inner": {"type": "object", "properties": {"x": {"type": "integer"}}}},
+            "type": "object",
+            "properties": {"child": {"$ref": "#/$defs/Inner"}},
+        }
+        result = resolve_schema(schema)
+        assert "$defs" not in result
+        assert "$ref" not in str(result)
+        assert result["properties"]["child"]["properties"]["x"]["type"] == "integer"
+
+    def test_pydantic_class(self):
+        from pydantic import BaseModel
+        from typing import List
+
+        class Item(BaseModel):
+            value: int
+
+        class Container(BaseModel):
+            items: List[Item]
+
+        result = resolve_schema(Container)
+        assert "$ref" not in str(result)
+        assert "$defs" not in result
+        items_schema = result["properties"]["items"]["items"]
+        assert items_schema["properties"]["value"]["type"] == "integer"
+
+    def test_preserves_extra_keys_on_ref(self):
+        schema = {
+            "$defs": {"Inner": {"type": "object", "properties": {"x": {"type": "integer"}}}},
+            "type": "object",
+            "properties": {"child": {"$ref": "#/$defs/Inner", "description": "A child"}},
+        }
+        result = resolve_schema(schema)
+        assert result["properties"]["child"]["description"] == "A child"
+        assert result["properties"]["child"]["type"] == "object"
 
 
 class TestTextBackendProtocol:
