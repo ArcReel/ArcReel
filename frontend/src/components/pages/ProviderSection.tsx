@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
 import { API } from "@/api";
@@ -31,8 +31,7 @@ export function ProviderSection() {
   const [location, navigate] = useLocation();
   const search = useSearch();
 
-  const params = new URLSearchParams(search);
-  const selectedId = params.get("provider");
+  const selectedId = useMemo(() => new URLSearchParams(search).get("provider"), [search]);
 
   const setSelectedId = (id: string) => {
     const p = new URLSearchParams(search);
@@ -45,7 +44,7 @@ export function ProviderSection() {
     API.getProviders().then((res) => {
       if (disposed) return;
       setProviders(res.providers);
-      if (res.providers.length > 0 && !params.get("provider")) {
+      if (res.providers.length > 0 && !new URLSearchParams(search).get("provider")) {
         setSelectedId(res.providers[0].id);
       }
       setLoading(false);

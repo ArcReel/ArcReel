@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Eye, EyeOff, Loader2, SlidersHorizontal, Terminal, X } from "lucide-react";
+import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -81,6 +82,40 @@ function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
 const cardClassName = "rounded-xl border border-gray-800 bg-gray-950/40 p-4";
 const inputClassName =
   "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60";
+const smallBtnClassName =
+  "rounded p-1 text-gray-500 hover:text-gray-300 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none";
+
+// Model routing config — static, hoisted to module level to avoid re-creation on each render
+const MODEL_ROUTING_FIELDS = [
+  {
+    key: "haikuModel" as const,
+    label: "Haiku 模型",
+    envVar: "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    hint: "轻量任务（分类、提取、简单问答）",
+    patchKey: "anthropic_default_haiku_model" as const,
+  },
+  {
+    key: "sonnetModel" as const,
+    label: "Sonnet 模型",
+    envVar: "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    hint: "均衡任务（写作、编排、多步推理）",
+    patchKey: "anthropic_default_sonnet_model" as const,
+  },
+  {
+    key: "opusModel" as const,
+    label: "Opus 模型",
+    envVar: "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    hint: "复杂任务（长文创作、深度分析）",
+    patchKey: "anthropic_default_opus_model" as const,
+  },
+  {
+    key: "subagentModel" as const,
+    label: "子 Agent 模型",
+    envVar: "CLAUDE_CODE_SUBAGENT_MODEL",
+    hint: "Subagent 并行执行时使用的模型",
+    patchKey: "claude_code_subagent_model" as const,
+  },
+] as const;
 
 // Small inline clear button shown next to "当前：" when a value is set
 const inlineClearClassName =
@@ -155,6 +190,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   useEffect(() => { void load(); }, [load]);
 
   const isDirty = !deepEqual(draft, savedRef.current);
+  useWarnUnsaved(isDirty);
 
   const updateDraft = useCallback(
     <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]) => {
@@ -327,7 +363,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                   <button
                     type="button"
                     onClick={() => updateDraft("anthropicKey", "")}
-                    className="absolute right-8 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
+                    className={`absolute right-8 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
                     aria-label="清除输入"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -336,7 +372,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 <button
                   type="button"
                   onClick={() => setShowKey((v) => !v)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
                   aria-label={showKey ? "隐藏密钥" : "显示密钥"}
                 >
                   {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -361,7 +397,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                       )
                     }
                     disabled={isBusy}
-                    className="inline-flex items-center gap-1 text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
                     aria-label="清除已保存的 Anthropic Base URL"
                   >
                     {clearingField === "anthropic_base_url" ? (
@@ -392,7 +428,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                   <button
                     type="button"
                     onClick={() => updateDraft("anthropicBaseUrl", "")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
+                    className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
                     aria-label="清除 Base URL 输入"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -428,7 +464,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                     )
                   }
                   disabled={isBusy}
-                  className="inline-flex items-center gap-1 text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
                   aria-label="清除已保存的模型配置"
                 >
                   {clearingField === "anthropic_model" ? (
@@ -459,7 +495,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 <button
                   type="button"
                   onClick={() => updateDraft("anthropicModel", "")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
                   aria-label="清除模型配置输入"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -490,94 +526,62 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 Claude Agent SDK 支持按能力等级路由到不同模型。留空则统一使用上方的默认模型。
               </p>
               <div className="mt-4 grid gap-4">
-                {(
-                  [
-                    {
-                      key: "haikuModel" as const,
-                      label: "Haiku 模型",
-                      envVar: "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-                      hint: "轻量任务（分类、提取、简单问答）",
-                      settingsValue: settings.anthropic_default_haiku_model,
-                      patchKey: "anthropic_default_haiku_model" as const,
-                    },
-                    {
-                      key: "sonnetModel" as const,
-                      label: "Sonnet 模型",
-                      envVar: "ANTHROPIC_DEFAULT_SONNET_MODEL",
-                      hint: "均衡任务（写作、编排、多步推理）",
-                      settingsValue: settings.anthropic_default_sonnet_model,
-                      patchKey: "anthropic_default_sonnet_model" as const,
-                    },
-                    {
-                      key: "opusModel" as const,
-                      label: "Opus 模型",
-                      envVar: "ANTHROPIC_DEFAULT_OPUS_MODEL",
-                      hint: "复杂任务（长文创作、深度分析）",
-                      settingsValue: settings.anthropic_default_opus_model,
-                      patchKey: "anthropic_default_opus_model" as const,
-                    },
-                    {
-                      key: "subagentModel" as const,
-                      label: "子 Agent 模型",
-                      envVar: "CLAUDE_CODE_SUBAGENT_MODEL",
-                      hint: "Subagent 并行执行时使用的模型",
-                      settingsValue: settings.claude_code_subagent_model,
-                      patchKey: "claude_code_subagent_model" as const,
-                    },
-                  ] as const
-                ).map(({ key, label, envVar, hint, settingsValue, patchKey }) => (
-                  <div key={key}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm font-medium text-gray-100">{label}</div>
-                        <div className="text-xs text-gray-500">{hint}</div>
+                {MODEL_ROUTING_FIELDS.map(({ key, label, envVar, hint, patchKey }) => {
+                  const settingsValue = settings[patchKey];
+                  return (
+                    <div key={key}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-medium text-gray-100">{label}</div>
+                          <div className="text-xs text-gray-500">{hint}</div>
+                        </div>
+                        {settingsValue && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleClearField(
+                                patchKey,
+                                { [patchKey]: "" } as SystemConfigPatch,
+                                label,
+                              )
+                            }
+                            disabled={isBusy}
+                            className="inline-flex items-center gap-1 text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none rounded"
+                            aria-label={`清除已保存的 ${label}`}
+                          >
+                            {clearingField === patchKey ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <X className="h-3 w-3" />
+                            )}
+                            清除
+                          </button>
+                        )}
                       </div>
-                      {settingsValue && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleClearField(
-                              patchKey,
-                              { [patchKey]: "" } as SystemConfigPatch,
-                              label,
-                            )
-                          }
-                          disabled={isBusy}
-                          className="inline-flex items-center gap-1 text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
-                          aria-label={`清除已保存的 ${label}`}
-                        >
-                          {clearingField === patchKey ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <X className="h-3 w-3" />
-                          )}
-                          清除
-                        </button>
-                      )}
+                      <div className="relative mt-1.5">
+                        <input
+                          value={draft[key]}
+                          onChange={(e) => updateDraft(key, e.target.value)}
+                          placeholder={envVar}
+                          className={`${inputClassName}${draft[key] ? " pr-8" : ""}`}
+                          autoComplete="off"
+                          spellCheck={false}
+                          disabled={saving}
+                        />
+                        {draft[key] && (
+                          <button
+                            type="button"
+                            onClick={() => updateDraft(key, "")}
+                            className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
+                            aria-label={`清除 ${label} 输入`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="relative mt-1.5">
-                      <input
-                        value={draft[key]}
-                        onChange={(e) => updateDraft(key, e.target.value)}
-                        placeholder={envVar}
-                        className={`${inputClassName}${draft[key] ? " pr-8" : ""}`}
-                        autoComplete="off"
-                        spellCheck={false}
-                        disabled={saving}
-                      />
-                      {draft[key] && (
-                        <button
-                          type="button"
-                          onClick={() => updateDraft(key, "")}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-300"
-                          aria-label={`清除 ${label} 输入`}
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </details>
           </div>

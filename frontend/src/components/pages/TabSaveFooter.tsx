@@ -26,8 +26,8 @@ export function TabSaveFooter({
 
   return (
     <div
-      className={`border-t border-gray-800 bg-gray-950 px-4 py-3 flex items-center justify-between${
-        isDirty ? " sticky bottom-0 z-10 shadow-[0_-2px_8px_rgba(0,0,0,0.18)]" : ""
+      className={`bg-gray-950 px-4 py-3 flex items-center justify-between${
+        isDirty ? " sticky bottom-0 z-10 border-t border-gray-800 shadow-[0_-2px_8px_rgba(0,0,0,0.18)]" : ""
       }`}
     >
       <div className="flex items-center gap-3 min-w-0">

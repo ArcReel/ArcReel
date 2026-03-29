@@ -99,12 +99,13 @@ describe("SystemConfigPage", () => {
     expect(screen.getByText("系统配置与 API 访问管理")).toBeInTheDocument();
   });
 
-  it("renders all 4 sidebar sections", () => {
+  it("renders all 5 sidebar sections", () => {
     renderPage();
     expect(screen.getByRole("button", { name: /智能体/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /供应商/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /模型选择/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /用量统计/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /API 管理/ })).toBeInTheDocument();
   });
 
   it("defaults to the 智能体 section", () => {
@@ -169,8 +170,10 @@ describe("SystemConfigPage", () => {
     expect(screen.queryByText("以下必填配置尚未完成：")).not.toBeInTheDocument();
   });
 
-  it("renders the back button that links to projects", () => {
+  it("renders the back link that navigates to projects", () => {
     renderPage();
-    expect(screen.getByRole("button", { name: "返回项目大厅" })).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "返回项目大厅" });
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/app/projects");
   });
 });

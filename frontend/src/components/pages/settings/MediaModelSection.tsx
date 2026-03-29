@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { API } from "@/api";
 import type { SystemConfigSettings, SystemConfigOptions, SystemConfigPatch } from "@/types/system";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
@@ -21,6 +22,9 @@ export function MediaModelSection() {
   const [options, setOptions] = useState<SystemConfigOptions | null>(null);
   const [draft, setDraft] = useState<SystemConfigPatch>({});
   const [saving, setSaving] = useState(false);
+
+  const isDirty = Object.keys(draft).length > 0;
+  useWarnUnsaved(isDirty);
 
   const fetchConfig = useCallback(async () => {
     const res = await API.getSystemConfig();
@@ -51,8 +55,6 @@ export function MediaModelSection() {
   if (!settings || !options) {
     return <div className="p-6 text-sm text-gray-500">加载中…</div>;
   }
-
-  const isDirty = Object.keys(draft).length > 0;
 
   const videoBackends: string[] = options.video_backends ?? [];
   const imageBackends: string[] = options.image_backends ?? [];
@@ -160,14 +162,14 @@ export function MediaModelSection() {
             type="button"
             onClick={() => void handleSave()}
             disabled={saving}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
           >
             {saving ? "保存中…" : "保存"}
           </button>
           <button
             type="button"
             onClick={() => setDraft({})}
-            className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800"
+            className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
           >
             重置
           </button>

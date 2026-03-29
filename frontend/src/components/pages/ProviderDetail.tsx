@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { ChevronRight, Eye, EyeOff, Loader2, X } from "lucide-react";
+import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { API } from "@/api";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
 import { CredentialList } from "@/components/pages/CredentialList";
@@ -181,6 +182,9 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  const hasDraft = Object.keys(draft).length > 0;
+  useWarnUnsaved(hasDraft);
+
   const handleCredentialChanged = useCallback(async () => {
     // 静默刷新配置（不清除 detail，避免 loading 闪烁和子组件重挂）
     const updated = await API.getProviderConfig(providerId);
@@ -225,8 +229,6 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     );
   }
 
-  const hasDraft = Object.keys(draft).length > 0;
-
   return (
     <div className="max-w-xl">
       {/* Header */}
@@ -248,7 +250,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
         <div className="mb-5 flex flex-wrap gap-1.5">
           {detail.media_types.map((t) => (
             <span key={t} className="rounded-md bg-gray-800 px-2 py-0.5 text-xs text-gray-400">
-              {t === "video" ? "视频" : t === "image" ? "图片" : t}
+              {t === "video" ? "视频" : t === "image" ? "图片" : t === "text" ? "文本" : t}
             </span>
           ))}
         </div>

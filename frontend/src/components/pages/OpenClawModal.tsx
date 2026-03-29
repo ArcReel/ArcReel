@@ -63,7 +63,7 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
   // task 7.4：跳转 API Key 管理页
   const handleGoToApiKeys = useCallback(() => {
     onClose();
-    navigate("/app/settings?tab=api-keys");
+    navigate("/app/settings?section=api-keys");
   }, [navigate, onClose]);
 
   const handleBackdropClick = useCallback(

@@ -1,8 +1,9 @@
-import { useEffect } from "react";
-import { useLocation, useSearch } from "wouter";
-import { AlertTriangle, BarChart3, Bot, ChevronLeft, Film, Plug } from "lucide-react";
+import { useEffect, useMemo } from "react";
+import { Link, useLocation, useSearch } from "wouter";
+import { AlertTriangle, BarChart3, Bot, ChevronLeft, Film, KeyRound, Plug } from "lucide-react";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { AgentConfigTab } from "./AgentConfigTab";
+import { ApiKeysTab } from "./ApiKeysTab";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { ProviderSection } from "./ProviderSection";
 import { UsageStatsSection } from "./settings/UsageStatsSection";
@@ -11,7 +12,7 @@ import { UsageStatsSection } from "./settings/UsageStatsSection";
 // Types
 // ---------------------------------------------------------------------------
 
-type SettingsSection = "agent" | "providers" | "media" | "usage";
+type SettingsSection = "agent" | "providers" | "media" | "usage" | "api-keys";
 
 // ---------------------------------------------------------------------------
 // Sidebar navigation config
@@ -22,6 +23,7 @@ const SECTION_LIST: { id: SettingsSection; label: string; Icon: React.ComponentT
   { id: "providers", label: "供应商", Icon: Plug },
   { id: "media", label: "模型选择", Icon: Film },
   { id: "usage", label: "用量统计", Icon: BarChart3 },
+  { id: "api-keys", label: "API 管理", Icon: KeyRound },
 ];
 
 // ---------------------------------------------------------------------------
@@ -32,16 +34,14 @@ export function SystemConfigPage() {
   const [location, navigate] = useLocation();
   const search = useSearch();
 
-  const getActiveSection = (): SettingsSection => {
-    const params = new URLSearchParams(search);
-    const section = params.get("section");
+  const activeSection = useMemo((): SettingsSection => {
+    const section = new URLSearchParams(search).get("section");
     if (section === "providers") return "providers";
     if (section === "media") return "media";
     if (section === "usage") return "usage";
+    if (section === "api-keys") return "api-keys";
     return "agent";
-  };
-
-  const activeSection = getActiveSection();
+  }, [search]);
 
   const setActiveSection = (section: SettingsSection) => {
     const params = new URLSearchParams(search);
@@ -65,15 +65,14 @@ export function SystemConfigPage() {
       {/* Page header */}
       <header className="shrink-0 border-b border-gray-800 px-6 py-4">
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => navigate("/app/projects")}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-200 hover:border-gray-700 hover:bg-gray-800"
+          <Link
+            href="/app/projects"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-200 hover:border-gray-700 hover:bg-gray-800 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
             aria-label="返回项目大厅"
           >
             <ChevronLeft className="h-4 w-4" />
             返回
-          </button>
+          </Link>
           <div>
             <h1 className="text-lg font-semibold text-gray-100">设置</h1>
             <p className="text-xs text-gray-500">系统配置与 API 访问管理</p>
@@ -92,7 +91,7 @@ export function SystemConfigPage() {
                 key={id}
                 type="button"
                 onClick={() => setActiveSection(id)}
-                className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/60 focus-visible:outline-none ${
                   isActive
                     ? "border-l-2 border-indigo-500 bg-gray-800/50 text-white"
                     : "border-l-2 border-transparent text-gray-400 hover:bg-gray-800/30 hover:text-gray-200"
@@ -120,7 +119,7 @@ export function SystemConfigPage() {
                         <button
                           type="button"
                           onClick={() => setActiveSection(issue.tab)}
-                          className="underline underline-offset-2 hover:text-amber-100"
+                          className="underline underline-offset-2 hover:text-amber-100 focus-visible:ring-2 focus-visible:ring-amber-400/60 focus-visible:outline-none rounded"
                         >
                           {issue.label}
                         </button>
@@ -137,6 +136,11 @@ export function SystemConfigPage() {
           {activeSection === "providers" && <ProviderSection />}
           {activeSection === "media" && <MediaModelSection />}
           {activeSection === "usage" && <UsageStatsSection />}
+          {activeSection === "api-keys" && (
+            <div className="p-6">
+              <ApiKeysTab />
+            </div>
+          )}
         </div>
       </div>
     </div>
