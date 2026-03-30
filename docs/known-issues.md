@@ -108,3 +108,15 @@ for override_key, env_key in (
 **风险：** 新增过滤条件时需要三处同步修改。
 
 **建议：** 将 `_base_filters()` 提升为类级别的私有方法，三个查询方法共享。
+
+---
+
+## 9. test_text_backends 测试文件 asyncio.to_thread patch 重复
+
+**位置：** `tests/test_text_backends/test_ark.py`、`tests/test_text_backends/test_grok.py`
+
+**现状：** 多个测试文件各自内联 `patch("asyncio.to_thread", side_effect=lambda fn, **kw: fn(**kw))`，ark 出现 5 次，grok 出现 2 次。`tests/test_text_backends/` 下不存在 `conftest.py` 共享 fixture。
+
+**风险：** 纯可维护性问题，新增后端测试时继续复制粘贴。
+
+**建议：** 在 `tests/test_text_backends/conftest.py` 中提取 `sync_to_thread` fixture，各测试文件共享。
