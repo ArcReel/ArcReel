@@ -397,26 +397,17 @@ class SystemConfigManager:
         else:
             self._restore_or_unset("GEMINI_VIDEO_BACKEND")
 
-        # Secrets
-        if "gemini_api_key" in overrides:
-            self._set_env("GEMINI_API_KEY", overrides.get("gemini_api_key"))
-        else:
-            self._restore_or_unset("GEMINI_API_KEY")
-
-        if "gemini_base_url" in overrides:
-            self._set_env("GEMINI_BASE_URL", overrides.get("gemini_base_url"))
-        else:
-            self._restore_or_unset("GEMINI_BASE_URL")
-
-        if "anthropic_api_key" in overrides:
-            self._set_env("ANTHROPIC_API_KEY", overrides.get("anthropic_api_key"))
-        else:
-            self._restore_or_unset("ANTHROPIC_API_KEY")
-
-        if "anthropic_base_url" in overrides:
-            self._set_env("ANTHROPIC_BASE_URL", overrides.get("anthropic_base_url"))
-        else:
-            self._restore_or_unset("ANTHROPIC_BASE_URL")
+        # Secrets & base URLs
+        for override_key, env_key in (
+            ("gemini_api_key", "GEMINI_API_KEY"),
+            ("gemini_base_url", "GEMINI_BASE_URL"),
+            ("anthropic_api_key", "ANTHROPIC_API_KEY"),
+            ("anthropic_base_url", "ANTHROPIC_BASE_URL"),
+        ):
+            if override_key in overrides:
+                self._set_env(env_key, overrides.get(override_key))
+            else:
+                self._restore_or_unset(env_key)
 
         # Anthropic model routing
         for override_key, env_key in (
@@ -431,53 +422,27 @@ class SystemConfigManager:
             else:
                 self._restore_or_unset(env_key)
 
-        # Models
-        if "image_model" in overrides:
-            self._set_env("GEMINI_IMAGE_MODEL", overrides.get("image_model"))
-        else:
-            self._restore_or_unset("GEMINI_IMAGE_MODEL")
+        # Models, provider keys & misc simple overrides
+        for override_key, env_key in (
+            ("image_model", "GEMINI_IMAGE_MODEL"),
+            ("video_model", "GEMINI_VIDEO_MODEL"),
+            ("vertex_gcs_bucket", "VERTEX_GCS_BUCKET"),
+            ("video_provider", "DEFAULT_VIDEO_PROVIDER"),
+            ("ark_api_key", "ARK_API_KEY"),
+            ("file_service_base_url", "FILE_SERVICE_BASE_URL"),
+            ("xai_api_key", "XAI_API_KEY"),
+        ):
+            if override_key in overrides:
+                self._set_env(env_key, overrides.get(override_key))
+            else:
+                self._restore_or_unset(env_key)
 
-        if "video_model" in overrides:
-            self._set_env("GEMINI_VIDEO_MODEL", overrides.get("video_model"))
-        else:
-            self._restore_or_unset("GEMINI_VIDEO_MODEL")
-
-        # Video audio toggle
+        # Video audio toggle (special: needs bool parsing)
         if "video_generate_audio" in overrides:
             configured = parse_bool_env(overrides.get("video_generate_audio"), True)
             self._set_env("GEMINI_VIDEO_GENERATE_AUDIO", "true" if configured else "false")
         else:
             self._restore_or_unset("GEMINI_VIDEO_GENERATE_AUDIO")
-
-        # Vertex GCS bucket
-        if "vertex_gcs_bucket" in overrides:
-            self._set_env("VERTEX_GCS_BUCKET", overrides.get("vertex_gcs_bucket"))
-        else:
-            self._restore_or_unset("VERTEX_GCS_BUCKET")
-
-        # Video provider
-        if "video_provider" in overrides:
-            self._set_env("DEFAULT_VIDEO_PROVIDER", overrides.get("video_provider"))
-        else:
-            self._restore_or_unset("DEFAULT_VIDEO_PROVIDER")
-
-        # Ark API key (Seedance)
-        if "ark_api_key" in overrides:
-            self._set_env("ARK_API_KEY", overrides.get("ark_api_key"))
-        else:
-            self._restore_or_unset("ARK_API_KEY")
-
-        # File service base URL
-        if "file_service_base_url" in overrides:
-            self._set_env("FILE_SERVICE_BASE_URL", overrides.get("file_service_base_url"))
-        else:
-            self._restore_or_unset("FILE_SERVICE_BASE_URL")
-
-        # xAI API key (Grok)
-        if "xai_api_key" in overrides:
-            self._set_env("XAI_API_KEY", overrides.get("xai_api_key"))
-        else:
-            self._restore_or_unset("XAI_API_KEY")
 
         # Rate limiting / performance
         for override_key, env_key, cast in (

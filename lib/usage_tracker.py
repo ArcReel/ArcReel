@@ -12,7 +12,7 @@ from typing import Any
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import UsageRepository
-from lib.providers import PROVIDER_GEMINI
+from lib.providers import PROVIDER_GEMINI, CallType
 
 
 class UsageTracker:
@@ -24,7 +24,7 @@ class UsageTracker:
     async def start_call(
         self,
         project_name: str,
-        call_type: str,
+        call_type: CallType,
         model: str,
         prompt: str | None = None,
         resolution: str | None = None,
@@ -116,7 +116,7 @@ class UsageTracker:
     async def get_calls(
         self,
         project_name: str | None = None,
-        call_type: str | None = None,
+        call_type: CallType | None = None,
         status: str | None = None,
         start_date: datetime | None = None,
         end_date: datetime | None = None,

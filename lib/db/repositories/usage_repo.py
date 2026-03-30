@@ -11,7 +11,7 @@ from lib.cost_calculator import cost_calculator
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.base import BaseRepository
-from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
+from lib.providers import PROVIDER_GEMINI, CallType
 
 
 def _row_to_dict(row: ApiCall) -> dict[str, Any]:
@@ -47,7 +47,7 @@ class UsageRepository(BaseRepository):
         self,
         *,
         project_name: str,
-        call_type: str,
+        call_type: CallType,
         model: str,
         prompt: str | None = None,
         resolution: str | None = None,
@@ -116,41 +116,18 @@ class UsageRepository(BaseRepository):
         effective_provider = row.provider or PROVIDER_GEMINI
 
         if status == "success":
-            if effective_provider == PROVIDER_ARK and row.call_type == "video":
-                cost_amount, currency = cost_calculator.calculate_ark_video_cost(
-                    usage_tokens=usage_tokens or 0,
-                    service_tier=service_tier,
-                    generate_audio=bool(row.generate_audio),
-                    model=row.model,
-                )
-            elif effective_provider == PROVIDER_GROK and row.call_type == "video":
-                cost_amount, currency = cost_calculator.calculate_grok_video_cost(
-                    duration_seconds=row.duration_seconds or 8,
-                    model=row.model,
-                )
-            elif row.call_type == "image":
-                if effective_provider == PROVIDER_ARK:
-                    cost_amount, currency = cost_calculator.calculate_ark_image_cost(model=row.model)
-                elif effective_provider == PROVIDER_GROK:
-                    cost_amount, currency = cost_calculator.calculate_grok_image_cost(model=row.model)
-                else:  # gemini
-                    cost_amount = cost_calculator.calculate_image_cost(row.resolution or "1K", model=row.model)
-                    currency = "USD"
-            elif row.call_type == "video":
-                cost_amount = cost_calculator.calculate_video_cost(
-                    duration_seconds=row.duration_seconds or 8,
-                    resolution=row.resolution or "1080p",
-                    generate_audio=bool(row.generate_audio),
-                    model=row.model,
-                )
-                currency = "USD"
-            elif row.call_type == "text" and input_tokens is not None:
-                cost_amount, currency = cost_calculator.calculate_text_cost(
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens or 0,
-                    provider=effective_provider,
-                    model=row.model,
-                )
+            cost_amount, currency = cost_calculator.calculate_cost(
+                provider=effective_provider,
+                call_type=row.call_type,
+                model=row.model,
+                resolution=row.resolution,
+                duration_seconds=row.duration_seconds,
+                generate_audio=bool(row.generate_audio),
+                usage_tokens=usage_tokens,
+                service_tier=service_tier,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
 
         error_truncated = error_message[:500] if error_message else None
 
@@ -173,6 +150,33 @@ class UsageRepository(BaseRepository):
         )
         await self.session.commit()
 
+    @staticmethod
+    def _build_filters(
+        *,
+        project_name: str | None = None,
+        provider: str | None = None,
+        call_type: CallType | None = None,
+        status: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list:
+        filters: list = []
+        if project_name:
+            filters.append(ApiCall.project_name == project_name)
+        if provider:
+            filters.append(ApiCall.provider == provider)
+        if call_type:
+            filters.append(ApiCall.call_type == call_type)
+        if status:
+            filters.append(ApiCall.status == status)
+        if start_date:
+            start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
+            filters.append(ApiCall.started_at >= start)
+        if end_date:
+            end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=UTC) + timedelta(days=1)
+            filters.append(ApiCall.started_at < end_exclusive)
+        return filters
+
     async def get_stats(
         self,
         *,
@@ -181,21 +185,12 @@ class UsageRepository(BaseRepository):
         start_date: datetime | None = None,
         end_date: datetime | None = None,
     ) -> dict[str, Any]:
-        def _base_filters():
-            filters = []
-            if project_name:
-                filters.append(ApiCall.project_name == project_name)
-            if provider:
-                filters.append(ApiCall.provider == provider)
-            if start_date:
-                start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
-                filters.append(ApiCall.started_at >= start)
-            if end_date:
-                end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=UTC) + timedelta(days=1)
-                filters.append(ApiCall.started_at < end_exclusive)
-            return filters
-
-        filters = _base_filters()
+        filters = self._build_filters(
+            project_name=project_name,
+            provider=provider,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
         # Main aggregation query
         main_stmt = (
@@ -248,17 +243,12 @@ class UsageRepository(BaseRepository):
         start_date: datetime | None = None,
         end_date: datetime | None = None,
     ) -> dict[str, Any]:
-        filters = []
-        if project_name:
-            filters.append(ApiCall.project_name == project_name)
-        if provider:
-            filters.append(ApiCall.provider == provider)
-        if start_date:
-            start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
-            filters.append(ApiCall.started_at >= start)
-        if end_date:
-            end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=UTC) + timedelta(days=1)
-            filters.append(ApiCall.started_at < end_exclusive)
+        filters = self._build_filters(
+            project_name=project_name,
+            provider=provider,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
         stmt = (
             select(
@@ -307,26 +297,20 @@ class UsageRepository(BaseRepository):
         self,
         *,
         project_name: str | None = None,
-        call_type: str | None = None,
+        call_type: CallType | None = None,
         status: str | None = None,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
-        filters = []
-        if project_name:
-            filters.append(ApiCall.project_name == project_name)
-        if call_type:
-            filters.append(ApiCall.call_type == call_type)
-        if status:
-            filters.append(ApiCall.status == status)
-        if start_date:
-            start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
-            filters.append(ApiCall.started_at >= start)
-        if end_date:
-            end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=UTC) + timedelta(days=1)
-            filters.append(ApiCall.started_at < end_exclusive)
+        filters = self._build_filters(
+            project_name=project_name,
+            call_type=call_type,
+            status=status,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
         # Total count
         count_stmt = select(func.count()).select_from(ApiCall).where(*filters)

@@ -30,6 +30,7 @@ from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator
 from server.auth import CurrentUser, create_download_token, verify_download_token
+from server.routers._validators import validate_backend_value
 from server.services.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
@@ -431,28 +432,25 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
             project["title"] = req.title
         if req.style is not None:
             project["style"] = req.style
-        if "video_backend" in req.model_fields_set:
-            if req.video_backend:
-                project["video_backend"] = req.video_backend
-            else:
-                project.pop("video_backend", None)
-        if "image_backend" in req.model_fields_set:
-            if req.image_backend:
-                project["image_backend"] = req.image_backend
-            else:
-                project.pop("image_backend", None)
+        for field in (
+            "video_backend",
+            "image_backend",
+            "text_backend_script",
+            "text_backend_overview",
+            "text_backend_style",
+        ):
+            if field in req.model_fields_set:
+                value = getattr(req, field)
+                if value:
+                    validate_backend_value(value, field)
+                    project[field] = value
+                else:
+                    project.pop(field, None)
         if "video_generate_audio" in req.model_fields_set:
             if req.video_generate_audio is None:
                 project.pop("video_generate_audio", None)
             else:
                 project["video_generate_audio"] = req.video_generate_audio
-        for field in ("text_backend_script", "text_backend_overview", "text_backend_style"):
-            if field in req.model_fields_set:
-                value = getattr(req, field)
-                if value:
-                    project[field] = value
-                else:
-                    project.pop(field, None)
 
         with project_change_source("webui"):
             manager.save_project(name, project)

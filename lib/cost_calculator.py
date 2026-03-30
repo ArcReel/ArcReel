@@ -5,6 +5,10 @@
 支持按模型区分费用，以便不同模型的历史数据能正确计费。
 """
 
+from __future__ import annotations
+
+from lib.providers import PROVIDER_ARK, PROVIDER_GROK, CallType
+
 
 class CostCalculator:
     """费用计算器"""
@@ -259,6 +263,60 @@ class CostCalculator:
         rates = cost_table.get(model, cost_table.get(default_model, {"input": 0.0, "output": 0.0}))
         amount = (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000
         return amount, currency
+
+    def calculate_cost(
+        self,
+        provider: str,
+        call_type: CallType,
+        *,
+        model: str | None = None,
+        resolution: str | None = None,
+        duration_seconds: int | None = None,
+        generate_audio: bool = True,
+        usage_tokens: int | None = None,
+        service_tier: str = "default",
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+    ) -> tuple[float, str]:
+        """统一费用计算入口。按 (call_type, provider) 显式路由。返回 (amount, currency)。"""
+        if call_type == "text":
+            if input_tokens is None:
+                return 0.0, "USD"
+            return self.calculate_text_cost(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens or 0,
+                provider=provider,
+                model=model,
+            )
+
+        if call_type == "image":
+            if provider == PROVIDER_ARK:
+                return self.calculate_ark_image_cost(model=model)
+            if provider == PROVIDER_GROK:
+                return self.calculate_grok_image_cost(model=model)
+            return self.calculate_image_cost(resolution or "1K", model=model), "USD"
+
+        if call_type == "video":
+            if provider == PROVIDER_ARK:
+                return self.calculate_ark_video_cost(
+                    usage_tokens=usage_tokens or 0,
+                    service_tier=service_tier,
+                    generate_audio=generate_audio,
+                    model=model,
+                )
+            if provider == PROVIDER_GROK:
+                return self.calculate_grok_video_cost(
+                    duration_seconds=duration_seconds or 8,
+                    model=model,
+                )
+            return self.calculate_video_cost(
+                duration_seconds=duration_seconds or 8,
+                resolution=resolution or "1080p",
+                generate_audio=generate_audio,
+                model=model,
+            ), "USD"
+
+        return 0.0, "USD"
 
 
 # 单例实例，方便使用

@@ -51,20 +51,19 @@ class TestGenerate:
         b._test_client = mock_client
         return b
 
-    async def test_plain_text(self, backend):
+    async def test_plain_text(self, backend, sync_to_thread):
         mock_chat = MagicMock()
         mock_response = SimpleNamespace(content="  grok output  ")
         mock_chat.sample = MagicMock(return_value=mock_response)
         backend._test_client.chat.create.return_value = mock_chat
 
-        with patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
-            result = await backend.generate(TextGenerationRequest(prompt="hello"))
+        result = await backend.generate(TextGenerationRequest(prompt="hello"))
 
         assert isinstance(result, TextGenerationResult)
         assert result.text == "grok output"
         assert result.provider == "grok"
 
-    async def test_structured_output(self, backend):
+    async def test_structured_output(self, backend, sync_to_thread):
         mock_chat = MagicMock()
         mock_response = SimpleNamespace(content='{"name": "test"}')
         mock_parsed = MagicMock()
@@ -73,7 +72,6 @@ class TestGenerate:
         backend._test_client.chat.create.return_value = mock_chat
 
         schema = {"type": "object", "properties": {"name": {"type": "string"}}}
-        with patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
-            result = await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
+        result = await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
         assert result.text == '{"name": "test"}'

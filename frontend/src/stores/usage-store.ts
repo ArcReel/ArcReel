@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { CallType } from "@/types/provider";
 
 interface UsageFilters {
   project_name?: string;
@@ -19,7 +20,7 @@ export interface UsageStats {
 export interface UsageCall {
   id: string;
   project_name: string;
-  call_type: "image" | "video" | "text";
+  call_type: CallType;
   model: string;
   status: string;
   cost_amount: number;

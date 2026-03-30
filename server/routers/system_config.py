@@ -24,6 +24,7 @@ from lib.config.service import (
 from lib.db import get_async_session
 from server.auth import CurrentUser
 from server.dependencies import get_config_service
+from server.routers._validators import validate_backend_value
 
 logger = logging.getLogger(__name__)
 
@@ -163,17 +164,7 @@ async def patch_system_config(
         if backend_key in patch:
             value = str(patch[backend_key] or "").strip()
             if value:
-                if "/" not in value:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"{backend_key} 格式应为 provider/model",
-                    )
-                provider_id = value.split("/", 1)[0]
-                if provider_id not in PROVIDER_REGISTRY:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"未知供应商: {provider_id}",
-                    )
+                validate_backend_value(value, backend_key)
             await svc.set_setting(backend_key, value)
 
     # Boolean settings

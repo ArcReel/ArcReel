@@ -46,9 +46,11 @@ export interface ProviderCredential {
   created_at: string;
 }
 
+export type CallType = "image" | "video" | "text";
+
 export interface UsageStat {
   provider: string;
-  call_type: string;
+  call_type: CallType;
   total_calls: number;
   success_calls: number;
   total_cost_usd: number;

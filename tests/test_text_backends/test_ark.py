@@ -48,15 +48,14 @@ class TestGenerate:
         b._test_client = mock_client
         return b
 
-    async def test_plain_text(self, backend):
+    async def test_plain_text(self, backend, sync_to_thread):
         mock_resp = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="  ark output  "))],
             usage=SimpleNamespace(prompt_tokens=15, completion_tokens=8),
         )
         backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
 
-        with patch("asyncio.to_thread", side_effect=lambda fn, **kw: fn(**kw)):
-            result = await backend.generate(TextGenerationRequest(prompt="hello"))
+        result = await backend.generate(TextGenerationRequest(prompt="hello"))
 
         assert isinstance(result, TextGenerationResult)
         assert result.text == "ark output"
@@ -93,7 +92,7 @@ class TestCapabilityAwareStructured:
         """默认豆包模型不支持原生结构化输出。"""
         assert TextCapability.STRUCTURED_OUTPUT not in backend_no_structured.capabilities
 
-    async def test_fallback_uses_instructor(self, backend_no_structured):
+    async def test_fallback_uses_instructor(self, backend_no_structured, sync_to_thread):
         """模型不支持原生时走 Instructor 降级路径。"""
         from pydantic import BaseModel
 
@@ -106,17 +105,16 @@ class TestCapabilityAwareStructured:
             "lib.text_backends.instructor_support.generate_structured_via_instructor",
             return_value=(sample.model_dump_json(), 50, 20),
         ) as mock_instructor:
-            with patch("asyncio.to_thread", side_effect=lambda fn, **kw: fn(**kw)):
-                result = await backend_no_structured.generate(
-                    TextGenerationRequest(prompt="gen", response_schema=TestModel)
-                )
+            result = await backend_no_structured.generate(
+                TextGenerationRequest(prompt="gen", response_schema=TestModel)
+            )
 
             mock_instructor.assert_called_once()
             assert result.text == '{"key":"value"}'
             assert result.input_tokens == 50
             assert result.output_tokens == 20
 
-    async def test_native_path_when_supported(self, backend_with_structured):
+    async def test_native_path_when_supported(self, backend_with_structured, sync_to_thread):
         """模型支持原生时走 response_format 路径。"""
         mock_resp = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
@@ -125,8 +123,7 @@ class TestCapabilityAwareStructured:
         backend_with_structured._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
 
         schema = {"type": "object", "properties": {"key": {"type": "string"}}}
-        with patch("asyncio.to_thread", side_effect=lambda fn, **kw: fn(**kw)):
-            result = await backend_with_structured.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
+        result = await backend_with_structured.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
         assert result.text == '{"key": "value"}'
         call_args = backend_with_structured._test_client.chat.completions.create.call_args
@@ -139,10 +136,9 @@ class TestCapabilityAwareStructured:
         b = ArkTextBackend(api_key="k", model="unknown-model-xyz")
         assert TextCapability.STRUCTURED_OUTPUT not in b.capabilities
 
-    async def test_instructor_fallback_rejects_dict_schema(self, backend_no_structured):
+    async def test_instructor_fallback_rejects_dict_schema(self, backend_no_structured, sync_to_thread):
         """Instructor 降级路径传入 dict schema 时应抛出 TypeError。"""
         with pytest.raises(TypeError, match="Pydantic"):
-            with patch("asyncio.to_thread", side_effect=lambda fn, **kw: fn(**kw)):
-                await backend_no_structured.generate(
-                    TextGenerationRequest(prompt="gen", response_schema={"type": "object"})
-                )
+            await backend_no_structured.generate(
+                TextGenerationRequest(prompt="gen", response_schema={"type": "object"})
+            )

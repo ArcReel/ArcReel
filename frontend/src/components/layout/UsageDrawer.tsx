@@ -3,6 +3,7 @@ import { X, Image, Video, FileText, AlertCircle, DollarSign, ChevronLeft, Chevro
 import { useUsageStore, type UsageStats, type UsageCall } from "@/stores/usage-store";
 import { API } from "@/api";
 import { Popover } from "@/components/ui/Popover";
+import type { CallType } from "@/types/provider";
 
 // ---------------------------------------------------------------------------
 // UsageDrawer — 费用明细抽屉面板
@@ -15,7 +16,7 @@ interface UsageDrawerProps {
   anchorRef: RefObject<HTMLElement | null>;
 }
 
-const CALL_TYPE_CONFIG: Record<string, { icon: typeof Image; color: string; label: string }> = {
+const CALL_TYPE_CONFIG: Record<CallType, { icon: typeof Image; color: string; label: string }> = {
   video: { icon: Video, color: "text-purple-400", label: "视频" },
   text: { icon: FileText, color: "text-green-400", label: "文本" },
   image: { icon: Image, color: "text-blue-400", label: "图片" },
