@@ -349,3 +349,50 @@ class TestFromCwd:
         monkeypatch.chdir(project_dir)
         with pytest.raises(FileNotFoundError, match="不是有效的项目目录"):
             ProjectManager.from_cwd()
+
+
+class TestPathTraversalProtection:
+    """路径遍历防护测试"""
+
+    def test_get_project_path_rejects_traversal(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        # normalize_project_name 的正则先拦截
+        with pytest.raises(ValueError):
+            pm.get_project_path("../etc")
+        with pytest.raises(ValueError):
+            pm.get_project_path("demo/../../etc")
+
+    def test_normalize_project_name_rejects_special_chars(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        with pytest.raises(ValueError):
+            pm.normalize_project_name("../hack")
+        with pytest.raises(ValueError):
+            pm.normalize_project_name("foo/bar")
+        with pytest.raises(ValueError):
+            pm.normalize_project_name("")
+
+    def test_load_script_rejects_traversal_filename(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        with pytest.raises(ValueError, match="非法文件名"):
+            pm.load_script("demo", "../../etc/passwd")
+
+    def test_save_script_rejects_traversal_filename(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        script = {"novel": {"chapter": "ch1"}, "scenes": [], "metadata": {}}
+        with pytest.raises(ValueError, match="非法文件名"):
+            pm.save_script("demo", script, filename="../../evil.json")
+
+    def test_safe_subpath_allows_normal_filenames(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        project_dir = pm.get_project_path("demo")
+        scripts_dir = project_dir / "scripts"
+        scripts_dir.mkdir(exist_ok=True)
+        # 正常文件名不应被拦截
+        real = pm._safe_subpath(scripts_dir, "episode_1.json")
+        assert real.endswith("episode_1.json")

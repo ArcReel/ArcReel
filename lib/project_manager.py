@@ -210,14 +210,23 @@ class ProjectManager:
     def get_project_path(self, name: str) -> Path:
         """获取项目路径（含路径遍历防护）"""
         name = self.normalize_project_name(name)
-        project_dir = (self.projects_root / name).resolve()
-        try:
-            project_dir.relative_to(self.projects_root.resolve())
-        except ValueError:
+        real = os.path.realpath(self.projects_root / name)
+        base = os.path.realpath(self.projects_root) + os.sep
+        if not real.startswith(base):
             raise ValueError(f"非法项目名称: '{name}'")
+        project_dir = Path(real)
         if not project_dir.exists():
             raise FileNotFoundError(f"项目 '{name}' 不存在")
         return project_dir
+
+    @staticmethod
+    def _safe_subpath(base_dir: Path, filename: str) -> str:
+        """校验 filename 拼接后不逃出 base_dir，返回 realpath 字符串。"""
+        real = os.path.realpath(base_dir / filename)
+        bound = os.path.realpath(base_dir) + os.sep
+        if not real.startswith(bound):
+            raise ValueError(f"非法文件名: '{filename}'")
+        return real
 
     def get_project_status(self, name: str) -> dict[str, Any]:
         """
@@ -365,10 +374,11 @@ class ProjectManager:
         total_duration = sum(item.get("duration_seconds", default_duration) for item in items)
         metadata["estimated_duration_seconds"] = total_duration
 
-        # 保存文件
-        output_path = scripts_dir / filename
-        with open(output_path, "w", encoding="utf-8") as f:
+        # 保存文件（含路径遍历防护）
+        real = self._safe_subpath(scripts_dir, filename)
+        with open(real, "w", encoding="utf-8") as f:  # noqa: PTH123
             json.dump(script, f, ensure_ascii=False, indent=2)
+        output_path = Path(real)
 
         emit_project_change_hint(
             project_name,
@@ -434,16 +444,12 @@ class ProjectManager:
         project_dir = self.get_project_path(project_name)
         if filename.startswith("scripts/"):
             filename = filename[len("scripts/") :]
-        script_path = (project_dir / "scripts" / filename).resolve()
-        try:
-            script_path.relative_to(project_dir.resolve())
-        except ValueError:
-            raise ValueError(f"非法剧本文件名: '{filename}'")
+        real = self._safe_subpath(project_dir / "scripts", filename)
 
-        if not script_path.exists():
-            raise FileNotFoundError(f"剧本文件不存在: {script_path}")
+        if not os.path.exists(real):
+            raise FileNotFoundError(f"剧本文件不存在: {real}")
 
-        with open(script_path, encoding="utf-8") as f:
+        with open(real, encoding="utf-8") as f:  # noqa: PTH123
             return json.load(f)
 
     def list_scripts(self, project_name: str) -> list[str]:

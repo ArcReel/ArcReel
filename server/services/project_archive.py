@@ -1023,16 +1023,36 @@ class ProjectArchiveService:
         return f"{resource_type}/{resource_id}{extension}"
 
     def _load_json_file(self, path: Path) -> dict[str, Any] | None:
+        real = os.path.realpath(path)
+        base = os.path.realpath(self.project_manager.projects_root) + os.sep
+        tmp = os.path.realpath(tempfile.gettempdir()) + os.sep
         try:
-            with open(path, encoding="utf-8") as handle:
-                return json.load(handle)
+            if real.startswith(base):
+                with open(real, encoding="utf-8") as handle:  # noqa: PTH123
+                    return json.load(handle)
+            if real.startswith(tmp):
+                with open(real, encoding="utf-8") as handle:  # noqa: PTH123
+                    return json.load(handle)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return None
+        logger.warning("路径越界，拒绝读取: %s", real)
+        return None
 
     def _write_json_file(self, path: Path, payload: dict[str, Any]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        real = os.path.realpath(path)
+        base = os.path.realpath(self.project_manager.projects_root) + os.sep
+        tmp = os.path.realpath(tempfile.gettempdir()) + os.sep
+        if real.startswith(base):
+            os.makedirs(os.path.dirname(real), exist_ok=True)
+            with open(real, "w", encoding="utf-8") as handle:  # noqa: PTH123
+                json.dump(payload, handle, ensure_ascii=False, indent=2)
+            return
+        if real.startswith(tmp):
+            os.makedirs(os.path.dirname(real), exist_ok=True)
+            with open(real, "w", encoding="utf-8") as handle:  # noqa: PTH123
+                json.dump(payload, handle, ensure_ascii=False, indent=2)
+            return
+        raise ValueError(f"路径越界，拒绝写入: {real}")
 
     @staticmethod
     def _validate_scope(scope: str) -> None:

@@ -7,6 +7,7 @@
 
 import json
 import logging
+import os
 import shutil
 import tempfile
 import zipfile
@@ -181,7 +182,13 @@ class JianyingDraftService:
 
     def _replace_paths_in_draft(self, *, json_path: Path, tmp_prefix: str, target_prefix: str) -> None:
         """JSON 安全地替换 draft_content.json 中的临时路径"""
-        data = json.loads(json_path.read_text(encoding="utf-8"))
+        real = os.path.realpath(json_path)
+        tmp = os.path.realpath(tempfile.gettempdir()) + os.sep
+        if not real.startswith(tmp):
+            raise ValueError(f"路径越界，拒绝写入: {real}")
+
+        with open(real, encoding="utf-8") as f:  # noqa: PTH123
+            data = json.load(f)
 
         def _walk(obj: Any) -> Any:
             if isinstance(obj, str) and tmp_prefix in obj:
@@ -193,7 +200,8 @@ class JianyingDraftService:
             return obj
 
         data = _walk(data)
-        json_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with open(real, "w", encoding="utf-8") as f:  # noqa: PTH123
+            json.dump(data, f, ensure_ascii=False)
 
     # ------------------------------------------------------------------
     # 公开方法
