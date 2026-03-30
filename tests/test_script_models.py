@@ -2,14 +2,14 @@ import pytest
 from pydantic import ValidationError
 
 from lib.script_models import (
-    Dialogue,
     Composition,
-    ImagePrompt,
-    VideoPrompt,
-    NarrationSegment,
-    NarrationEpisodeScript,
-    DramaScene,
+    Dialogue,
     DramaEpisodeScript,
+    DramaScene,
+    ImagePrompt,
+    NarrationEpisodeScript,
+    NarrationSegment,
+    VideoPrompt,
 )
 
 

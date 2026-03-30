@@ -7,26 +7,34 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 import lib.generation_queue as generation_queue_module
+from lib.db.base import Base
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
-
 
 # ---------------------------------------------------------------------------
 # General utilities
 # ---------------------------------------------------------------------------
+
 
 def make_test_video(path: Path, *, duration_sec: float = 1.0, fps: int = 30) -> None:
     """使用 ffmpeg 生成极短测试视频（64x64 像素）"""
     path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [
-            "ffmpeg", "-y", "-f", "lavfi", "-i",
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
             f"color=black:size=64x64:duration={duration_sec}:rate={fps}",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path),
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(path),
         ],
         capture_output=True,
         check=True,
@@ -55,6 +63,7 @@ def fd_count():
 # SessionManager family (used by 3+ test files)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 async def meta_store():
     """Create an async SessionMetaStore backed by in-memory SQLite."""
@@ -81,6 +90,7 @@ async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> Sessi
 # ---------------------------------------------------------------------------
 # GenerationQueue family (used by 2+ test files)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 async def generation_queue():

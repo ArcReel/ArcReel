@@ -1,6 +1,7 @@
 """Tests for .claude and CLAUDE.md symlink creation on project creation."""
 
 from pathlib import Path
+
 from lib.project_manager import ProjectManager
 
 

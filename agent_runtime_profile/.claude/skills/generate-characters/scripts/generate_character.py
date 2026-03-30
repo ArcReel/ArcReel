@@ -15,12 +15,13 @@ Note:
 import argparse
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from lib.generation_queue_client import (
-    BatchTaskSpec,
     BatchTaskResult,
+    BatchTaskSpec,
     batch_enqueue_and_wait_sync,
+)
+from lib.generation_queue_client import (
     enqueue_and_wait_sync as enqueue_and_wait,
 )
 from lib.project_manager import ProjectManager
@@ -50,9 +51,7 @@ def generate_character(
         description = char_info.get("description", "")
 
     if not description:
-        raise ValueError(
-            f"角色 '{character_name}' 的描述为空，请先在 project.json 中添加描述"
-        )
+        raise ValueError(f"角色 '{character_name}' 的描述为空，请先在 project.json 中添加描述")
 
     print(f"🎨 正在生成角色设计图: {character_name}")
     print(f"   描述: {description[:50]}...")
@@ -92,8 +91,8 @@ def list_pending_characters() -> None:
 
 
 def generate_batch_characters(
-    character_names: Optional[List[str]] = None,
-) -> Tuple[int, int]:
+    character_names: list[str] | None = None,
+) -> tuple[int, int]:
     """
     批量生成角色设计图（全部入队，由 Worker 并行处理）
 

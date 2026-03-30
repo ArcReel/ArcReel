@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from lib.usage_tracker import UsageTracker

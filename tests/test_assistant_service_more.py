@@ -3,13 +3,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
-from tests.factories import make_session_meta
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_store import SessionMetaStore
 from server.agent_runtime.stream_projector import AssistantStreamProjector
+from tests.factories import make_session_meta
 
 
 class _FakePM:
@@ -329,20 +329,26 @@ class TestAssistantServiceMore:
         assert service._fingerprint({"type": "user", "content": "x"}) is None
 
         # _fingerprint_tail tests
-        tail_fps = service._fingerprint_tail([
-            {"type": "user", "content": "hello", "uuid": "u1"},
-            {"type": "assistant", "content": [{"text": "A"}], "uuid": "a1"},
-        ])
+        tail_fps = service._fingerprint_tail(
+            [
+                {"type": "user", "content": "hello", "uuid": "u1"},
+                {"type": "assistant", "content": [{"text": "A"}], "uuid": "a1"},
+            ]
+        )
         assert "fp:assistant:t:A" in tail_fps
 
         # _is_buffer_duplicate tests
-        assert service._is_buffer_duplicate(
-            {"uuid": "u1", "type": "user"}, "user", {"u1"}, set(), []
-        ) is True
-        assert service._is_buffer_duplicate(
-            {"type": "assistant", "content": [{"text": "A"}]},
-            "assistant", set(), {"fp:assistant:t:A"}, [],
-        ) is True
+        assert service._is_buffer_duplicate({"uuid": "u1", "type": "user"}, "user", {"u1"}, set(), []) is True
+        assert (
+            service._is_buffer_duplicate(
+                {"type": "assistant", "content": [{"text": "A"}]},
+                "assistant",
+                set(),
+                {"fp:assistant:t:A"},
+                [],
+            )
+            is True
+        )
 
         assert service._parse_iso_datetime(None) is None
         assert service._parse_iso_datetime("bad") is None
@@ -352,9 +358,7 @@ class TestAssistantServiceMore:
 
         # _echo_in_transcript tests — round-aware dedup
         # Case 1: in-progress round (user only, no result after) → dedup
-        history_in_progress = [
-            {"type": "user", "content": "hello", "timestamp": "2026-02-01T00:00:01Z"}
-        ]
+        history_in_progress = [{"type": "user", "content": "hello", "timestamp": "2026-02-01T00:00:01Z"}]
         local_echo = {
             "type": "user",
             "content": "hello",
@@ -375,10 +379,7 @@ class TestAssistantServiceMore:
 
         assert service._extract_plain_user_content({"type": "assistant"}) is None
         assert (
-            service._extract_plain_user_content(
-                {"type": "user", "content": [{"type": "text", "text": " ok "}]}
-            )
-            == "ok"
+            service._extract_plain_user_content({"type": "user", "content": [{"type": "text", "text": " ok "}]}) == "ok"
         )
         assert service._is_groupable_message("bad") is False  # type: ignore[arg-type]
 

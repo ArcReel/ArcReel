@@ -5,8 +5,7 @@ API Key 管理路由
 """
 
 import secrets
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -14,7 +13,13 @@ from sqlalchemy.exc import IntegrityError
 
 from lib.db import async_session_factory
 from lib.db.repositories.api_key_repository import ApiKeyRepository
-from server.auth import API_KEY_PREFIX, CurrentUser, CurrentUserInfo, _hash_api_key, invalidate_api_key_cache
+from server.auth import (
+    API_KEY_PREFIX,
+    CurrentUser,
+    CurrentUserInfo,
+    _hash_api_key,
+    invalidate_api_key_cache,
+)
 
 router = APIRouter()
 
@@ -35,12 +40,12 @@ def _generate_api_key() -> str:
 
 
 def _default_expires_at() -> datetime:
-    return datetime.now(timezone.utc) + timedelta(days=API_KEY_DEFAULT_EXPIRY_DAYS)
+    return datetime.now(UTC) + timedelta(days=API_KEY_DEFAULT_EXPIRY_DAYS)
 
 
 class CreateApiKeyRequest(BaseModel):
     name: str
-    expires_days: Optional[int] = Field(None, ge=0)  # None 使用默认 30 天，0 表示不过期
+    expires_days: int | None = Field(None, ge=0)  # None 使用默认 30 天，0 表示不过期
 
 
 class CreateApiKeyResponse(BaseModel):
@@ -49,7 +54,7 @@ class CreateApiKeyResponse(BaseModel):
     key: str  # 完整 key，仅在创建时返回
     key_prefix: str
     created_at: str
-    expires_at: Optional[str]
+    expires_at: str | None
 
 
 class ApiKeyInfo(BaseModel):
@@ -57,8 +62,8 @@ class ApiKeyInfo(BaseModel):
     name: str
     key_prefix: str
     created_at: str
-    expires_at: Optional[str]
-    last_used_at: Optional[str]
+    expires_at: str | None
+    last_used_at: str | None
 
 
 @router.post("/api-keys", status_code=201)
@@ -73,9 +78,9 @@ async def create_api_key(
     key_prefix = key[:8]  # e.g. "arc-abcd"
 
     if body.expires_days == 0:
-        expires_at: Optional[datetime] = None
+        expires_at: datetime | None = None
     elif body.expires_days is not None:
-        expires_at = datetime.now(timezone.utc) + timedelta(days=body.expires_days)
+        expires_at = datetime.now(UTC) + timedelta(days=body.expires_days)
     else:
         expires_at = _default_expires_at()
 

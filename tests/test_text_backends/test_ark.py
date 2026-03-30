@@ -1,11 +1,12 @@
 """ArkTextBackend tests."""
+
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
 from lib.text_backends.ark import ArkTextBackend
+from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
 
 
 @pytest.fixture
@@ -62,6 +63,7 @@ class TestGenerate:
         assert result.provider == "ark"
         assert result.input_tokens == 15
         assert result.output_tokens == 8
+
 
 class TestCapabilityAwareStructured:
     """测试基于模型能力的结构化输出路径选择。"""
@@ -120,15 +122,11 @@ class TestCapabilityAwareStructured:
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
             usage=SimpleNamespace(prompt_tokens=20, completion_tokens=10),
         )
-        backend_with_structured._test_client.chat.completions.create = MagicMock(
-            return_value=mock_resp
-        )
+        backend_with_structured._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
 
         schema = {"type": "object", "properties": {"key": {"type": "string"}}}
         with patch("asyncio.to_thread", side_effect=lambda fn, **kw: fn(**kw)):
-            result = await backend_with_structured.generate(
-                TextGenerationRequest(prompt="gen", response_schema=schema)
-            )
+            result = await backend_with_structured.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
         assert result.text == '{"key": "value"}'
         call_args = backend_with_structured._test_client.chat.completions.create.call_args

@@ -7,11 +7,11 @@ import json
 import logging
 import os
 import time
-from collections.abc import AsyncIterable
-from datetime import datetime, timezone
+from collections.abc import AsyncIterable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from typing import Any, Optional
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,7 @@ from server.agent_runtime.session_store import SessionMetaStore
 try:
     from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
     from claude_agent_sdk.types import HookMatcher, PermissionResultAllow, SystemPromptPreset
+
     try:
         from claude_agent_sdk.types import PermissionResultDeny
     except ImportError:
@@ -43,8 +44,8 @@ except ImportError:
     SDK_AVAILABLE = False
 
 try:
-    from lib.db import async_session_factory
     from lib.config.service import ConfigService
+    from lib.db import async_session_factory
 except ImportError:
     async_session_factory = None  # type: ignore[assignment]
     ConfigService = None  # type: ignore[assignment]
@@ -52,17 +53,19 @@ except ImportError:
 
 class SessionCapacityError(Exception):
     """所有并发槽位已被 running 会话占满，无法创建新连接。"""
+
     pass
 
 
 def _utc_now_iso() -> str:
     """Return current UTC timestamp in ISO-8601 format."""
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 @dataclass
 class PendingQuestion:
     """Tracks a pending AskUserQuestion request."""
+
     question_id: str
     payload: dict[str, Any]
     answer_future: asyncio.Future[dict[str, str]]
@@ -71,21 +74,22 @@ class PendingQuestion:
 @dataclass
 class ManagedSession:
     """A managed ClaudeSDKClient session."""
+
     session_id: str  # sdk_session_id（已有会话）或临时 UUID（新会话等待中）
     client: Any  # ClaudeSDKClient
     status: SessionStatus = "idle"
     project_name: str = ""  # 用于 _register_new_session
     sdk_id_event: asyncio.Event = field(default_factory=asyncio.Event)
-    resolved_sdk_id: Optional[str] = None  # consumer 设置，send_new_session 读取
+    resolved_sdk_id: str | None = None  # consumer 设置，send_new_session 读取
     message_buffer: list[dict[str, Any]] = field(default_factory=list)
     subscribers: set[asyncio.Queue] = field(default_factory=set)
-    consumer_task: Optional[asyncio.Task] = None
+    consumer_task: asyncio.Task | None = None
     buffer_max_size: int = 100
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
     pending_user_echoes: list[str] = field(default_factory=list)
     interrupt_requested: bool = False
-    last_activity: Optional[float] = None                         # updated on every send/receive
-    _cleanup_task: Optional[asyncio.Task] = None                  # current cleanup timer (idle TTL or terminal delay)
+    last_activity: float | None = None  # updated on every send/receive
+    _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
 
     # Message types that must never be silently dropped from subscriber queues.
     _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "user", "assistant"}
@@ -133,10 +137,12 @@ class ManagedSession:
             except asyncio.QueueEmpty:
                 break
         try:
-            queue.put_nowait({
-                "type": "_queue_overflow",
-                "session_id": self.session_id,
-            })
+            queue.put_nowait(
+                {
+                    "type": "_queue_overflow",
+                    "session_id": self.session_id,
+                }
+            )
         except asyncio.QueueFull:
             pass  # should never happen after drain
 
@@ -207,9 +213,7 @@ class ManagedSession:
         """Cancel all pending AskUserQuestion waiters."""
         for pending in list(self.pending_questions.values()):
             if not pending.answer_future.done():
-                pending.answer_future.set_exception(
-                    RuntimeError(reason)
-                )
+                pending.answer_future.set_exception(RuntimeError(reason))
         self.pending_questions.clear()
 
     def get_pending_question_payloads(self) -> list[dict[str, Any]]:
@@ -221,8 +225,14 @@ class SessionManager:
     """Manages all active ClaudeSDKClient instances."""
 
     DEFAULT_ALLOWED_TOOLS = [
-        "Skill", "Task", "Read", "Write", "Edit",
-        "Grep", "Glob", "AskUserQuestion",
+        "Skill",
+        "Task",
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob",
+        "AskUserQuestion",
     ]
     DEFAULT_SETTING_SOURCES = ["project"]
     _INTERRUPT_TIMEOUT = 2.0
@@ -288,8 +298,8 @@ class SessionManager:
     async def refresh_config(self) -> None:
         """Reload configuration from ConfigService (DB), falling back to env."""
         try:
-            from lib.db import async_session_factory
             from lib.config.service import ConfigService
+            from lib.db import async_session_factory
 
             async with async_session_factory() as session:
                 svc = ConfigService(session)
@@ -379,8 +389,12 @@ class SessionManager:
         if style_desc := config.get("style_description"):
             parts.append(f"- 风格描述：{style_desc}")
         parts.append(f"- 项目目录（即当前工作目录 cwd）：{project_cwd}")
-        parts.append("- Read/Edit/Write 等工具的 file_path 参数必须使用绝对路径，不要使用相对路径，也不要把项目标题当成目录名。")
-        parts.append("- Bash 调用 skill 脚本时必须使用相对路径（如 `python .claude/skills/.../script.py`），不要转换为绝对路径。")
+        parts.append(
+            "- Read/Edit/Write 等工具的 file_path 参数必须使用绝对路径，不要使用相对路径，也不要把项目标题当成目录名。"
+        )
+        parts.append(
+            "- Bash 调用 skill 脚本时必须使用相对路径（如 `python .claude/skills/.../script.py`），不要转换为绝对路径。"
+        )
         parts.append("- Bash 命令必须写在单行，禁止使用 `\\` 换行，JSON 参数使用紧凑格式。")
 
         self._append_overview_section(parts, config.get("overview", {}))
@@ -406,8 +420,8 @@ class SessionManager:
     def _build_options(
         self,
         project_name: str,
-        resume_id: Optional[str] = None,
-        can_use_tool: Optional[Callable[[str, dict[str, Any], Any], Any]] = None,
+        resume_id: str | None = None,
+        can_use_tool: Callable[[str, dict[str, Any], Any], Any] | None = None,
     ) -> Any:
         """Build ClaudeAgentOptions for a session."""
         if not SDK_AVAILABLE or ClaudeAgentOptions is None:
@@ -438,14 +452,20 @@ class SessionManager:
             hooks = {
                 "PreToolUse": [
                     HookMatcher(matcher=None, hooks=hook_callbacks),
-                    HookMatcher(matcher="Write|Edit", hooks=[
-                        self._build_json_validation_hook(project_cwd, json_backups),
-                    ]),
+                    HookMatcher(
+                        matcher="Write|Edit",
+                        hooks=[
+                            self._build_json_validation_hook(project_cwd, json_backups),
+                        ],
+                    ),
                 ],
                 "PostToolUse": [
-                    HookMatcher(matcher="Write|Edit", hooks=[
-                        self._build_json_post_validation_hook(project_cwd, json_backups),
-                    ]),
+                    HookMatcher(
+                        matcher="Write|Edit",
+                        hooks=[
+                            self._build_json_post_validation_hook(project_cwd, json_backups),
+                        ],
+                    ),
                 ],
             }
 
@@ -466,12 +486,15 @@ class SessionManager:
         )
 
     @staticmethod
-    async def _keep_stream_open_hook(_input_data: dict[str, Any], _tool_use_id: str | None, _context: Any) -> dict[str, bool]:
+    async def _keep_stream_open_hook(
+        _input_data: dict[str, Any], _tool_use_id: str | None, _context: Any
+    ) -> dict[str, bool]:
         """Required keep-alive hook for Python can_use_tool callback."""
         return {"continue_": True}
 
     def _build_file_access_hook(
-        self, project_cwd: Path,
+        self,
+        project_cwd: Path,
     ) -> Callable[..., Any]:
         """Build a PreToolUse hook callback that enforces file access control.
 
@@ -494,15 +517,15 @@ class SessionManager:
             file_path = tool_input.get(path_key)
 
             if file_path and not self._is_path_allowed(
-                file_path, tool_name, project_cwd,
+                file_path,
+                tool_name,
+                project_cwd,
             ):
                 return {
                     "hookSpecificOutput": {
                         "hookEventName": "PreToolUse",
                         "permissionDecision": "deny",
-                        "permissionDecisionReason": (
-                            "访问被拒绝：不允许访问当前项目和公共目录之外的路径"
-                        ),
+                        "permissionDecisionReason": ("访问被拒绝：不允许访问当前项目和公共目录之外的路径"),
                     },
                 }
 
@@ -556,7 +579,8 @@ class SessionManager:
                 simulated = tool_input.get("content")
                 logger.info(
                     "JSON 校验 hook: tool=Write file=%s content_len=%s",
-                    file_path, len(simulated) if simulated else 0,
+                    file_path,
+                    len(simulated) if simulated else 0,
                 )
             elif tool_name == "Edit":
                 old_string = tool_input.get("old_string", "")
@@ -574,13 +598,11 @@ class SessionManager:
                 # below would skip validation, letting curly quotes slip into
                 # the file and corrupt JSON.
                 if _has_curly_quotes(new_string):
-                    curly_found = [
-                        f"U+{ord(ch):04X}" for ch in new_string
-                        if ch in _CURLY_QUOTES
-                    ]
+                    curly_found = [f"U+{ord(ch):04X}" for ch in new_string if ch in _CURLY_QUOTES]
                     logger.warning(
                         "PreToolUse JSON 校验拦截(弯引号): file=%s curly=%s",
-                        file_path, curly_found[:5],
+                        file_path,
+                        curly_found[:5],
                     )
                     return {
                         "hookSpecificOutput": {
@@ -597,17 +619,14 @@ class SessionManager:
                     }
 
                 p = Path(file_path)
-                resolved = (
-                    (project_cwd / p).resolve()
-                    if not p.is_absolute()
-                    else p.resolve()
-                )
+                resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
                 try:
                     current = resolved.read_text(encoding="utf-8")
                 except OSError as read_err:
                     logger.info(
                         "JSON 校验 hook: tool=Edit file=%s skip=读取失败 error=%s",
-                        file_path, read_err,
+                        file_path,
+                        read_err,
                     )
                     return {}
 
@@ -618,9 +637,11 @@ class SessionManager:
                 if old_string not in current:
                     # Edit tool will fail on its own; no need to intervene.
                     logger.info(
-                        "JSON 校验 hook: tool=Edit file=%s skip=old_string未匹配 "
-                        "old_len=%d new_len=%d file_len=%d",
-                        file_path, len(old_string), len(new_string), len(current),
+                        "JSON 校验 hook: tool=Edit file=%s skip=old_string未匹配 old_len=%d new_len=%d file_len=%d",
+                        file_path,
+                        len(old_string),
+                        len(new_string),
+                        len(current),
                     )
                     return {}
 
@@ -633,8 +654,11 @@ class SessionManager:
                 logger.info(
                     "JSON 校验 hook: tool=Edit file=%s matched=True "
                     "old_len=%d new_len=%d simulated_len=%d replace_all=%s",
-                    file_path, len(old_string), len(new_string),
-                    len(simulated), replace_all,
+                    file_path,
+                    len(old_string),
+                    len(new_string),
+                    len(simulated),
+                    replace_all,
                 )
 
             if simulated is None:
@@ -644,13 +668,16 @@ class SessionManager:
                 json.loads(simulated)
                 logger.info(
                     "JSON 校验 hook: tool=%s file=%s result=valid",
-                    tool_name, file_path,
+                    tool_name,
+                    file_path,
                 )
                 return {}
             except json.JSONDecodeError as exc:
                 logger.warning(
                     "PreToolUse JSON 校验拦截: file=%s tool=%s error=%s",
-                    file_path, tool_name, exc,
+                    file_path,
+                    tool_name,
+                    exc,
                 )
                 return {
                     "hookSpecificOutput": {
@@ -692,7 +719,8 @@ class SessionManager:
             # agent (per SDK docs), so we catch everything and log.
             try:
                 return await _json_post_validation_impl(
-                    input_data, tool_use_id,
+                    input_data,
+                    tool_use_id,
                 )
             except Exception:
                 logger.exception("PostToolUse JSON 校验 hook 异常")
@@ -713,11 +741,7 @@ class SessionManager:
             backup = json_backups.pop(tool_use_id, None) if tool_use_id else None
 
             p = Path(file_path)
-            resolved = (
-                (project_cwd / p).resolve()
-                if not p.is_absolute()
-                else p.resolve()
-            )
+            resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
 
             try:
                 actual = resolved.read_text(encoding="utf-8")
@@ -728,7 +752,8 @@ class SessionManager:
                 json.loads(actual)
                 logger.info(
                     "PostToolUse JSON 校验: tool=%s file=%s result=valid",
-                    tool_name, file_path,
+                    tool_name,
+                    file_path,
                 )
                 return {}
             except json.JSONDecodeError as exc:
@@ -740,19 +765,23 @@ class SessionManager:
                         backup_path.write_text(backup_content, encoding="utf-8")
                         restored = True
                         logger.warning(
-                            "PostToolUse JSON 校验拦截并恢复: file=%s tool=%s "
-                            "error=%s backup_restored=True",
-                            file_path, tool_name, exc,
+                            "PostToolUse JSON 校验拦截并恢复: file=%s tool=%s error=%s backup_restored=True",
+                            file_path,
+                            tool_name,
+                            exc,
                         )
                     except OSError as write_err:
                         logger.error(
                             "PostToolUse JSON 备份恢复失败: file=%s error=%s",
-                            file_path, write_err,
+                            file_path,
+                            write_err,
                         )
                 else:
                     logger.warning(
                         "PostToolUse JSON 校验拦截(无备份): file=%s tool=%s error=%s",
-                        file_path, tool_name, exc,
+                        file_path,
+                        tool_name,
+                        exc,
                     )
 
                 if restored:
@@ -793,10 +822,10 @@ class SessionManager:
     async def send_new_session(
         self,
         project_name: str,
-        prompt: Union[str, AsyncIterable[dict]],
+        prompt: str | AsyncIterable[dict],
         *,
-        echo_text: Optional[str] = None,
-        echo_content: Optional[list[dict[str, Any]]] = None,
+        echo_text: str | None = None,
+        echo_content: list[dict[str, Any]] | None = None,
     ) -> str:
         """Create a new session via send-first: connect SDK, send message, wait for sdk_session_id."""
         if not SDK_AVAILABLE or ClaudeSDKClient is None:
@@ -804,7 +833,7 @@ class SessionManager:
 
         await self._ensure_capacity()
         temp_id = uuid4().hex
-        managed_ref: list[Optional[ManagedSession]] = [None]
+        managed_ref: list[ManagedSession | None] = [None]
 
         options = self._build_options(
             project_name,
@@ -847,7 +876,7 @@ class SessionManager:
         # Wait for sdk_session_id with timeout
         try:
             await asyncio.wait_for(managed.sdk_id_event.wait(), timeout=10.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("等待 sdk_session_id 超时 temp_id=%s", temp_id)
             managed.cancel_pending_questions("session creation timed out")
             if managed.consumer_task and not managed.consumer_task.done():
@@ -913,10 +942,10 @@ class SessionManager:
     async def send_message(
         self,
         session_id: str,
-        prompt: Union[str, AsyncIterable[dict]],
+        prompt: str | AsyncIterable[dict],
         *,
-        echo_text: Optional[str] = None,
-        echo_content: Optional[list[dict[str, Any]]] = None,
+        echo_text: str | None = None,
+        echo_content: list[dict[str, Any]] | None = None,
         meta: Optional["SessionMeta"] = None,
     ) -> None:
         """Send a message and start background consumer."""
@@ -928,9 +957,7 @@ class SessionManager:
             managed._cleanup_task = None
 
         if managed.status == "running":
-            raise ValueError(
-                "会话正在处理中，请等待当前回复完成后再发送新消息"
-            )
+            raise ValueError("会话正在处理中，请等待当前回复完成后再发送新消息")
 
         self._prune_transient_buffer(managed)
 
@@ -938,9 +965,7 @@ class SessionManager:
         # For image-only messages display_text is empty; use a sentinel so the
         # SDK-replayed empty-content user message can still be deduplicated.
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
-        dedup_key = display_text or (
-            self._IMAGE_ONLY_SENTINEL if echo_content else ""
-        )
+        dedup_key = display_text or (self._IMAGE_ONLY_SENTINEL if echo_content else "")
 
         # Update in-memory status and echo user input immediately so live SSE
         # shows it even when SDK stream doesn't replay user messages in real time.
@@ -967,9 +992,7 @@ class SessionManager:
 
         # Start consumer task if not running
         if managed.consumer_task is None or managed.consumer_task.done():
-            managed.consumer_task = asyncio.create_task(
-                self._consume_messages(managed)
-            )
+            managed.consumer_task = asyncio.create_task(self._consume_messages(managed))
 
     async def interrupt_session(self, session_id: str) -> SessionStatus:
         """Interrupt a running session."""
@@ -1030,14 +1053,9 @@ class SessionManager:
             await self._mark_session_terminal(managed, "error", "session error")
             raise
 
-    def _handle_special_message(
-        self, managed: ManagedSession, msg_dict: dict[str, Any]
-    ) -> None:
+    def _handle_special_message(self, managed: ManagedSession, msg_dict: dict[str, Any]) -> None:
         """Handle compact_boundary and result messages before broadcast."""
-        if (
-            msg_dict.get("type") == "system"
-            and msg_dict.get("subtype") == "compact_boundary"
-        ):
+        if msg_dict.get("type") == "system" and msg_dict.get("subtype") == "compact_boundary":
             self._prune_transient_buffer(managed)
 
         if msg_dict.get("type") == "result":
@@ -1046,9 +1064,7 @@ class SessionManager:
                 interrupt_requested=managed.interrupt_requested,
             )
 
-    async def _finalize_turn(
-        self, managed: ManagedSession, result_msg: dict[str, Any]
-    ) -> None:
+    async def _finalize_turn(self, managed: ManagedSession, result_msg: dict[str, Any]) -> None:
         """Settle session state after a result message completes a turn."""
         managed.pending_user_echoes.clear()
         managed.cancel_pending_questions("session completed")
@@ -1069,9 +1085,7 @@ class SessionManager:
         if final_status != "running":
             self._schedule_cleanup(managed.session_id)
 
-    async def _mark_session_terminal(
-        self, managed: ManagedSession, status: SessionStatus, reason: str
-    ) -> None:
+    async def _mark_session_terminal(self, managed: ManagedSession, status: SessionStatus, reason: str) -> None:
         """Set terminal status on abnormal consumer exit."""
         managed.pending_user_echoes.clear()
         managed.cancel_pending_questions(reason)
@@ -1088,20 +1102,24 @@ class SessionManager:
         # The consumer task is already cancelled at this point so the SDK's own
         # echo will never arrive through the normal message pipeline.
         if status == "interrupted":
-            managed._broadcast_to_subscribers({
-                "type": "user",
-                "content": "[Request interrupted by user]",
-                "uuid": f"interrupt-echo-{uuid4().hex}",
-                "timestamp": _utc_now_iso(),
-            })
+            managed._broadcast_to_subscribers(
+                {
+                    "type": "user",
+                    "content": "[Request interrupted by user]",
+                    "uuid": f"interrupt-echo-{uuid4().hex}",
+                    "timestamp": _utc_now_iso(),
+                }
+            )
 
         # Broadcast terminal status so SSE subscribers unblock immediately
         # instead of waiting for the heartbeat timeout.
-        managed._broadcast_to_subscribers({
-            "type": "runtime_status",
-            "status": status,
-            "reason": reason,
-        })
+        managed._broadcast_to_subscribers(
+            {
+                "type": "runtime_status",
+                "status": status,
+                "reason": reason,
+            }
+        )
         self._schedule_cleanup(managed.session_id)
 
     def _schedule_cleanup(self, session_id: str) -> None:
@@ -1141,16 +1159,16 @@ class SessionManager:
         return getattr(transport, "_process", None)
 
     @staticmethod
-    def _process_pid(process: Any) -> Optional[int]:
+    def _process_pid(process: Any) -> int | None:
         pid = getattr(process, "pid", None)
         return pid if isinstance(pid, int) else None
 
     @staticmethod
-    def _process_returncode(process: Any) -> Optional[int]:
+    def _process_returncode(process: Any) -> int | None:
         returncode = getattr(process, "returncode", None)
         return returncode if isinstance(returncode, int) else None
 
-    async def _cancel_task(self, task: Optional[asyncio.Task]) -> None:
+    async def _cancel_task(self, task: asyncio.Task | None) -> None:
         """Cancel a task and wait for it to finish."""
         if task is None or task.done():
             return
@@ -1170,7 +1188,7 @@ class SessionManager:
             return True
         try:
             await asyncio.wait_for(process.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
         except Exception:
             logger.warning("等待 Claude 子进程退出失败", exc_info=True)
@@ -1182,7 +1200,7 @@ class SessionManager:
         session_id: str,
         process: Any,
         *,
-        pid: Optional[int],
+        pid: int | None,
         cause: str,
     ) -> bool:
         """Force terminate lingering Claude CLI process."""
@@ -1215,9 +1233,7 @@ class SessionManager:
                 exc_info=True,
             )
         else:
-            if await self._wait_for_process_exit(
-                process, timeout=self._TERMINATE_WAIT_TIMEOUT
-            ):
+            if await self._wait_for_process_exit(process, timeout=self._TERMINATE_WAIT_TIMEOUT):
                 logger.warning(
                     "Claude 子进程已通过 SIGTERM 退出 session_id=%s pid=%s returncode=%s",
                     session_id,
@@ -1284,7 +1300,10 @@ class SessionManager:
         self._disconnecting.add(session_id)
         try:
             await self._disconnect_session_inner(
-                session_id, managed, reason=reason, interrupt_running=interrupt_running,
+                session_id,
+                managed,
+                reason=reason,
+                interrupt_running=interrupt_running,
             )
         finally:
             self._disconnecting.discard(session_id)
@@ -1308,7 +1327,7 @@ class SessionManager:
                     managed.client.interrupt(),
                     timeout=self._INTERRUPT_TIMEOUT,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("中断会话超时 session_id=%s", session_id)
             except Exception:
                 logger.warning("中断会话失败 session_id=%s", session_id, exc_info=True)
@@ -1337,10 +1356,10 @@ class SessionManager:
         )
 
         disconnect_task = asyncio.create_task(managed.client.disconnect())
-        disconnect_error: Optional[BaseException] = None
+        disconnect_error: BaseException | None = None
         try:
             await asyncio.wait_for(disconnect_task, timeout=self._DISCONNECT_TIMEOUT)
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             disconnect_error = exc
             disconnect_task.cancel()
             await asyncio.gather(disconnect_task, return_exceptions=True)
@@ -1372,17 +1391,11 @@ class SessionManager:
                 pid=pid,
                 cause="disconnect_timeout"
                 if isinstance(disconnect_error, asyncio.TimeoutError)
-                else (
-                    "disconnect_error"
-                    if disconnect_error is not None
-                    else "process_still_running"
-                ),
+                else ("disconnect_error" if disconnect_error is not None else "process_still_running"),
             )
 
         if not closed:
-            raise RuntimeError(
-                f"failed to close Claude subprocess for session {session_id}"
-            ) from disconnect_error
+            raise RuntimeError(f"failed to close Claude subprocess for session {session_id}") from disconnect_error
 
         managed.clear_buffer()
         self.sessions.pop(session_id, None)
@@ -1416,14 +1429,10 @@ class SessionManager:
             logger.warning("读取 max_concurrent 配置失败，使用默认值", exc_info=True)
             return 5
 
-
     async def _ensure_capacity(self) -> None:
         """确保有空余并发槽位，必要时淘汰最久未活跃的非 running 会话。"""
         max_concurrent = await self._get_max_concurrent()
-        active = [
-            s for s in self.sessions.values()
-            if s.client is not None and s.session_id not in self._disconnecting
-        ]
+        active = [s for s in self.sessions.values() if s.client is not None and s.session_id not in self._disconnecting]
 
         if len(active) < max_concurrent:
             return
@@ -1452,15 +1461,11 @@ class SessionManager:
                     victim.session_id,
                     exc_info=True,
                 )
-                raise SessionCapacityError(
-                    "存在未能关闭的空闲会话，当前无法释放并发槽位，请稍后重试"
-                ) from exc
+                raise SessionCapacityError("存在未能关闭的空闲会话，当前无法释放并发槽位，请稍后重试") from exc
             return
 
         # 所有会话都在 running → 拒绝
-        raise SessionCapacityError(
-            f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试"
-        )
+        raise SessionCapacityError(f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试")
 
     _PATROL_INTERVAL = 300  # 5 分钟
 
@@ -1564,10 +1569,7 @@ class SessionManager:
         #    session data (transcripts, etc.) remains inaccessible.
         encoded = self._encode_sdk_project_path(project_cwd)
         sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
-        if (
-            resolved.is_relative_to(sdk_project_dir)
-            and "tool-results" in resolved.parts
-        ):
+        if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
             return True
 
         # 5. Read tools: allow SDK task output files.
@@ -1621,7 +1623,7 @@ class SessionManager:
     async def _build_can_use_tool_callback(
         self,
         session_id: str,
-        managed_ref: Optional[list[Optional["ManagedSession"]]] = None,
+        managed_ref: list[Optional["ManagedSession"]] | None = None,
     ):
         """Create per-session can_use_tool callback (default-deny).
 
@@ -1657,7 +1659,9 @@ class SessionManager:
             if normalized_tool == "askuserquestion":
                 managed = managed_ref[0] if managed_ref else self.sessions.get(session_id)
                 return await self._handle_ask_user_question(
-                    managed, tool_name, input_data,
+                    managed,
+                    tool_name,
+                    input_data,
                 )
 
             # Whitelist fallback: deny any tool that was not pre-approved
@@ -1699,7 +1703,7 @@ class SessionManager:
     @staticmethod
     def _build_user_echo_message(
         text: str,
-        content_blocks: Optional[list[dict[str, Any]]] = None,
+        content_blocks: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Build a synthetic user message for real-time UI echo.
 
@@ -1732,9 +1736,13 @@ class SessionManager:
         managed.message_buffer = [
             message
             for message in managed.message_buffer
-            if message.get("type") not in {
-                "stream_event", "runtime_status",
-                "user", "assistant", "result",
+            if message.get("type")
+            not in {
+                "stream_event",
+                "runtime_status",
+                "user",
+                "assistant",
+                "result",
             }
         ]
 
@@ -1801,11 +1809,13 @@ class SessionManager:
             # Run DB create and SDK tag in parallel (tag is independent file I/O)
             tag_coro = None
             if tag_session is not None:
+
                 async def _tag() -> None:
                     try:
                         await asyncio.to_thread(tag_session, sdk_id, f"project:{managed.project_name}")
                     except Exception:
                         logger.warning("tag_session failed for %s", sdk_id, exc_info=True)
+
                 tag_coro = _tag()
             await asyncio.gather(
                 self.meta_store.create(managed.project_name, sdk_id),
@@ -1824,23 +1834,19 @@ class SessionManager:
             managed.sdk_id_event.set()
 
     @staticmethod
-    def _extract_sdk_session_id(
-        message: Any, msg_dict: dict[str, Any]
-    ) -> Optional[str]:
+    def _extract_sdk_session_id(message: Any, msg_dict: dict[str, Any]) -> str | None:
         """Extract SDK session id from either serialized payload or raw object."""
         sdk_id = None
         if isinstance(msg_dict, dict):
             sdk_id = msg_dict.get("session_id") or msg_dict.get("sessionId")
         if sdk_id:
             return str(sdk_id)
-        raw_sdk_id = getattr(message, "session_id", None) or getattr(
-            message, "sessionId", None
-        )
+        raw_sdk_id = getattr(message, "session_id", None) or getattr(message, "sessionId", None)
         if raw_sdk_id:
             return str(raw_sdk_id)
         return None
 
-    def _infer_message_type(self, message: Any) -> Optional[str]:
+    def _infer_message_type(self, message: Any) -> str | None:
         """Infer message type from SDK message class name."""
         class_name = type(message).__name__
         return self._MESSAGE_TYPE_MAP.get(class_name)
@@ -1863,11 +1869,7 @@ class SessionManager:
 
         # Dataclasses or objects with __dict__
         if hasattr(value, "__dict__"):
-            return {
-                k: self._serialize_value(v)
-                for k, v in value.__dict__.items()
-                if not k.startswith("_")
-            }
+            return {k: self._serialize_value(v) for k, v in value.__dict__.items() if not k.startswith("_")}
 
         # Fallback: convert to string
         return str(value)
@@ -1929,7 +1931,7 @@ class SessionManager:
         if session_id in self.sessions:
             self.sessions[session_id].subscribers.discard(queue)
 
-    async def get_status(self, session_id: str) -> Optional[SessionStatus]:
+    async def get_status(self, session_id: str) -> SessionStatus | None:
         """Get session status."""
         if session_id in self.sessions:
             return self.sessions[session_id].status
@@ -1952,7 +1954,7 @@ class SessionManager:
                 if managed.consumer_task and not managed.consumer_task.done():
                     try:
                         await asyncio.wait_for(managed.consumer_task, timeout=timeout)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         try:
                             await managed.client.interrupt()
                         except Exception:

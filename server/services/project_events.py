@@ -10,7 +10,7 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +30,7 @@ PROJECT_EVENTS_POLL_SECONDS = 0.5
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _stable_json(value: Any) -> str:
@@ -72,9 +72,7 @@ class ProjectEventService:
             return
         self._loop = asyncio.get_running_loop()
         self._listener_unregister = register_project_change_listener(self._on_hint)
-        self._batch_listener_unregister = register_project_change_batch_listener(
-            self._on_batch_hint
-        )
+        self._batch_listener_unregister = register_project_change_batch_listener(self._on_batch_hint)
 
     async def shutdown(self) -> None:
         unregister = self._listener_unregister
@@ -226,7 +224,7 @@ class ProjectEventService:
 
                 try:
                     await asyncio.wait_for(channel.scan_now.wait(), timeout=self.poll_interval)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
                 finally:
                     channel.scan_now.clear()
@@ -691,16 +689,8 @@ class ProjectEventService:
                         )
                     )
 
-                previous_body = {
-                    key: value
-                    for key, value in previous_item.items()
-                    if key != "generated_assets"
-                }
-                current_body = {
-                    key: value
-                    for key, value in current_item.items()
-                    if key != "generated_assets"
-                }
+                previous_body = {key: value for key, value in previous_item.items() if key != "generated_assets"}
+                current_body = {key: value for key, value in current_item.items() if key != "generated_assets"}
                 if previous_body != current_body:
                     changes.append(
                         self._build_entity_change(
@@ -743,11 +733,7 @@ class ProjectEventService:
         script_meta: dict[str, Any],
         important: bool,
     ) -> dict[str, Any]:
-        focus = (
-            self._build_script_item_focus(item_id, script_meta)
-            if action != "deleted"
-            else None
-        )
+        focus = self._build_script_item_focus(item_id, script_meta) if action != "deleted" else None
         return self._build_entity_change(
             entity_type="segment",
             action=action,

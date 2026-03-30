@@ -1,7 +1,8 @@
 """供应商凭证管理 API 测试。"""
 
 from __future__ import annotations
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
@@ -17,8 +18,10 @@ def _make_app() -> tuple[FastAPI, MagicMock]:
     app = FastAPI()
     mock_session = AsyncMock()
     mock_session.commit = AsyncMock()
+
     async def _override():
         yield mock_session
+
     app.dependency_overrides[get_async_session] = _override
     app.include_router(providers.router, prefix="/api/v1")
     return app, mock_session
@@ -34,12 +37,16 @@ def _fake_cred(
     credentials_path: str | None = None,
 ) -> ProviderCredential:
     cred = ProviderCredential(
-        provider=provider, name=name, api_key=api_key,
-        is_active=is_active, base_url=base_url, credentials_path=credentials_path,
+        provider=provider,
+        name=name,
+        api_key=api_key,
+        is_active=is_active,
+        base_url=base_url,
+        credentials_path=credentials_path,
     )
     cred.id = id
-    cred.created_at = datetime.now(timezone.utc)
-    cred.updated_at = datetime.now(timezone.utc)
+    cred.created_at = datetime.now(UTC)
+    cred.updated_at = datetime.now(UTC)
     return cred
 
 

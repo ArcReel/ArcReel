@@ -1,9 +1,8 @@
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from lib.config.service import ConfigService
+from lib.db.base import Base
 from lib.db.repositories.credential_repository import CredentialRepository
 
 

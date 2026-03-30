@@ -1,5 +1,6 @@
 import logging
-from lib.logging_config import setup_logging, _HANDLER_ATTR
+
+from lib.logging_config import _HANDLER_ATTR, setup_logging
 
 
 class TestSetupLogging:
@@ -14,16 +15,12 @@ class TestSetupLogging:
     def test_adds_handler_to_root(self):
         setup_logging()
         root = logging.getLogger()
-        assert any(
-            getattr(h, _HANDLER_ATTR, False) for h in root.handlers
-        )
+        assert any(getattr(h, _HANDLER_ATTR, False) for h in root.handlers)
 
     def test_log_format_contains_level_and_name(self):
         setup_logging(level="INFO")
         root = logging.getLogger()
-        our_handler = next(
-            h for h in root.handlers if getattr(h, _HANDLER_ATTR, False)
-        )
+        our_handler = next(h for h in root.handlers if getattr(h, _HANDLER_ATTR, False))
         formatter = our_handler.formatter
         record = logging.LogRecord(
             name="test.module",
@@ -48,16 +45,11 @@ class TestSetupLogging:
         setup_logging()
         setup_logging()
         root = logging.getLogger()
-        our_handlers = [
-            h for h in root.handlers if getattr(h, _HANDLER_ATTR, False)
-        ]
+        our_handlers = [h for h in root.handlers if getattr(h, _HANDLER_ATTR, False)]
         assert len(our_handlers) == 1
 
     def teardown_method(self):
         """每个测试后清理 root logger handlers。"""
         root = logging.getLogger()
-        root.handlers = [
-            h for h in root.handlers
-            if not getattr(h, _HANDLER_ATTR, False)
-        ]
+        root.handlers = [h for h in root.handlers if not getattr(h, _HANDLER_ATTR, False)]
         root.setLevel(logging.WARNING)

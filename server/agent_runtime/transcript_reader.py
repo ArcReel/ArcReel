@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from server.agent_runtime.turn_grouper import group_messages_into_turns
 
@@ -34,12 +34,12 @@ class TranscriptReader:
         "is_sidechain",
     )
 
-    def __init__(self, data_dir: Path, project_root: Optional[Path] = None):
+    def __init__(self, data_dir: Path, project_root: Path | None = None):
         self.data_dir = Path(data_dir)
         self.project_root = Path(project_root) if project_root else None
         self._claude_projects_dir = Path.home() / ".claude" / "projects"
 
-    def _resolve_project_root(self, project_name: Optional[str] = None) -> Optional[Path]:
+    def _resolve_project_root(self, project_name: str | None = None) -> Path | None:
         """Resolve the project root used by Claude SDK transcript encoding."""
         if project_name and self.project_root:
             return self.project_root / "projects" / project_name
@@ -48,8 +48,8 @@ class TranscriptReader:
     def _get_sdk_transcript_path(
         self,
         sdk_session_id: str,
-        project_name: Optional[str] = None,
-    ) -> Optional[Path]:
+        project_name: str | None = None,
+    ) -> Path | None:
         """Get the path to an SDK transcript file."""
         session_project_root = self._resolve_project_root(project_name)
         if not session_project_root:
@@ -62,8 +62,8 @@ class TranscriptReader:
     def read_messages(
         self,
         session_id: str,
-        sdk_session_id: Optional[str] = None,
-        project_name: Optional[str] = None,
+        sdk_session_id: str | None = None,
+        project_name: str | None = None,
     ) -> list[dict[str, Any]]:
         """Read transcript and return grouped conversation turns."""
         raw_messages = self.read_raw_messages(
@@ -76,8 +76,8 @@ class TranscriptReader:
     def read_raw_messages(
         self,
         session_id: str,
-        sdk_session_id: Optional[str] = None,
-        project_name: Optional[str] = None,
+        sdk_session_id: str | None = None,
+        project_name: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Read raw transcript messages (user/assistant/result) without grouping.
@@ -115,7 +115,7 @@ class TranscriptReader:
             pass
         return messages
 
-    def _parse_jsonl_entry(self, entry: dict[str, Any]) -> Optional[dict[str, Any]]:
+    def _parse_jsonl_entry(self, entry: dict[str, Any]) -> dict[str, Any] | None:
         """Parse a single JSONL entry into a raw message dict."""
         msg_type = entry.get("type")
         if msg_type not in self.MESSAGE_TYPES:
@@ -172,8 +172,8 @@ class TranscriptReader:
     def exists(
         self,
         session_id: str,
-        sdk_session_id: Optional[str] = None,
-        project_name: Optional[str] = None,
+        sdk_session_id: str | None = None,
+        project_name: str | None = None,
     ) -> bool:
         """Check if transcript exists."""
         if sdk_session_id:

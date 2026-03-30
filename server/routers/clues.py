@@ -3,7 +3,6 @@
 """
 
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException
@@ -28,14 +27,14 @@ class CreateClueRequest(BaseModel):
     name: str
     clue_type: str  # 'prop' 或 'location'
     description: str
-    importance: Optional[str] = "major"  # 'major' 或 'minor'
+    importance: str | None = "major"  # 'major' 或 'minor'
 
 
 class UpdateClueRequest(BaseModel):
-    clue_type: Optional[str] = None
-    description: Optional[str] = None
-    importance: Optional[str] = None
-    clue_sheet: Optional[str] = None
+    clue_type: str | None = None
+    description: str | None = None
+    importance: str | None = None
+    clue_sheet: str | None = None
 
 
 @router.post("/projects/{project_name}/clues")
@@ -44,11 +43,7 @@ async def add_clue(project_name: str, req: CreateClueRequest, _user: CurrentUser
     try:
         with project_change_source("webui"):
             project = get_project_manager().add_clue(
-                project_name,
-                req.name,
-                req.clue_type,
-                req.description,
-                req.importance
+                project_name, req.name, req.clue_type, req.description, req.importance
             )
         return {"success": True, "clue": project["clues"][req.name]}
     except ValueError as e:

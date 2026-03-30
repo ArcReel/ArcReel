@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, Set
 
 import httpx
 
-from lib.providers import PROVIDER_GROK
 from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
     image_to_base64_data_uri,
 )
+from lib.providers import PROVIDER_GROK
 
 logger = logging.getLogger(__name__)
 
@@ -27,20 +26,17 @@ class GrokImageBackend:
     def __init__(
         self,
         *,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
+        api_key: str | None = None,
+        model: str | None = None,
     ):
         if not api_key:
-            raise ValueError(
-                "XAI_API_KEY 未设置\n"
-                "请在系统配置页中配置 xAI API Key"
-            )
+            raise ValueError("XAI_API_KEY 未设置\n请在系统配置页中配置 xAI API Key")
 
         import xai_sdk
 
         self._client = xai_sdk.AsyncClient(api_key=api_key)
         self._model = model or DEFAULT_MODEL
-        self._capabilities: Set[ImageCapability] = {
+        self._capabilities: set[ImageCapability] = {
             ImageCapability.TEXT_TO_IMAGE,
             ImageCapability.IMAGE_TO_IMAGE,
         }
@@ -54,7 +50,7 @@ class GrokImageBackend:
         return self._model
 
     @property
-    def capabilities(self) -> Set[ImageCapability]:
+    def capabilities(self) -> set[ImageCapability]:
         return self._capabilities
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:

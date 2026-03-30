@@ -20,14 +20,14 @@ import os
 import tempfile
 import threading
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-_MANAGERS: dict[str, "SystemConfigManager"] = {}
+_MANAGERS: dict[str, SystemConfigManager] = {}
 _MANAGERS_LOCK = threading.Lock()
 
 
@@ -38,13 +38,14 @@ def _project_root_key(project_root: Path) -> str:
         return str(project_root)
 
 
-def get_system_config_manager(project_root: Path) -> "SystemConfigManager":
+def get_system_config_manager(project_root: Path) -> SystemConfigManager:
     """Return a cached SystemConfigManager for *project_root*.
 
     .. deprecated::
         Use lib.config.service.ConfigService with a DB session instead.
     """
     import warnings
+
     warnings.warn(
         "get_system_config_manager() is deprecated. Use lib.config.service.ConfigService instead.",
         DeprecationWarning,
@@ -60,7 +61,7 @@ def get_system_config_manager(project_root: Path) -> "SystemConfigManager":
         return manager
 
 
-def init_and_apply_system_config(project_root: Path) -> "SystemConfigManager":
+def init_and_apply_system_config(project_root: Path) -> SystemConfigManager:
     """Initialize (cached) manager and apply overrides to the process env.
 
     .. deprecated::
@@ -68,6 +69,7 @@ def init_and_apply_system_config(project_root: Path) -> "SystemConfigManager":
         The app lifespan in server/app.py handles this automatically.
     """
     import warnings
+
     warnings.warn(
         "init_and_apply_system_config() is deprecated. JSON→DB migration is now "
         "handled automatically at app startup via lib.config.migration.",
@@ -85,10 +87,10 @@ def init_and_apply_system_config(project_root: Path) -> "SystemConfigManager":
 
 
 def _iso_now_millis() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="milliseconds")
+    return datetime.now(UTC).astimezone().isoformat(timespec="milliseconds")
 
 
-def _safe_str(value: Any) -> Optional[str]:
+def _safe_str(value: Any) -> str | None:
     if value is None:
         return None
     if isinstance(value, str):
@@ -121,7 +123,7 @@ def parse_bool_env(value: Any, default: bool) -> bool:
     return default
 
 
-def _read_int(value: Any) -> Optional[int]:
+def _read_int(value: Any) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool):
@@ -140,7 +142,7 @@ def _read_int(value: Any) -> Optional[int]:
     return None
 
 
-def _read_float(value: Any) -> Optional[float]:
+def _read_float(value: Any) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool):
@@ -163,7 +165,7 @@ class SystemConfigPaths:
     vertex_credentials_path: Path
 
 
-def resolve_vertex_credentials_path(project_root: Path) -> Optional[Path]:
+def resolve_vertex_credentials_path(project_root: Path) -> Path | None:
     """
     Resolve the Vertex credentials JSON file to use.
 
@@ -220,9 +222,7 @@ class SystemConfigManager:
         self.project_root = Path(project_root)
         self.paths = SystemConfigPaths(
             config_path=(self.project_root / "projects" / ".system_config.json"),
-            vertex_credentials_path=(
-                self.project_root / "vertex_keys" / "vertex_credentials.json"
-            ),
+            vertex_credentials_path=(self.project_root / "vertex_keys" / "vertex_credentials.json"),
         )
         self._lock = threading.Lock()
         self._baseline_env = {key: os.environ.get(key) for key in self._ENV_KEYS}
@@ -231,7 +231,7 @@ class SystemConfigManager:
     # IO helpers
     # ------------------------------------------------------------------
 
-    def _load_file(self) -> Tuple[dict[str, Any], bool]:
+    def _load_file(self) -> tuple[dict[str, Any], bool]:
         """Return (data, migrated)."""
         if not self.paths.config_path.exists():
             return {"version": 1, "updated_at": None, "overrides": {}}, False

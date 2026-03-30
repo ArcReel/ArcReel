@@ -1,7 +1,6 @@
 """Unit tests for TranscriptReader."""
 
 import json
-from pathlib import Path
 
 from server.agent_runtime.transcript_reader import TranscriptReader
 
@@ -42,9 +41,7 @@ class TestTranscriptReader:
                 "type": "assistant",
                 "message": {
                     "role": "assistant",
-                    "content": [
-                        {"type": "text", "text": "Hello! How can I help you?"}
-                    ],
+                    "content": [{"type": "text", "text": "Hello! How can I help you?"}],
                 },
                 "uuid": "assistant-456",
                 "timestamp": "2026-02-09T08:00:03Z",
@@ -107,9 +104,7 @@ class TestTranscriptReader:
             {
                 "type": "assistant",
                 "message": {
-                    "content": [
-                        {"type": "text", "text": "Let me read that file."}
-                    ],
+                    "content": [{"type": "text", "text": "Let me read that file."}],
                 },
                 "uuid": "assistant-1",
             },
@@ -143,9 +138,7 @@ class TestTranscriptReader:
             {
                 "type": "assistant",
                 "message": {
-                    "content": [
-                        {"type": "text", "text": "The file contains: File contents here"}
-                    ],
+                    "content": [{"type": "text", "text": "The file contains: File contents here"}],
                 },
                 "uuid": "assistant-3",
             },
@@ -378,11 +371,7 @@ class TestTranscriptReader:
             },
             {
                 "type": "user",
-                "message": {
-                    "content": [
-                        {"type": "text", "text": "subagent telemetry that should be hidden"}
-                    ]
-                },
+                "message": {"content": [{"type": "text", "text": "subagent telemetry that should be hidden"}]},
                 "parent_tool_use_id": "task-1",
                 "sourceToolAssistantUUID": "assistant-task-1",
                 "isSidechain": True,
@@ -403,7 +392,7 @@ class TestTranscriptReader:
         assert telemetry["type"] == "user"
         assert telemetry.get("parent_tool_use_id") == "task-1"
         assert telemetry.get("sourceToolAssistantUUID") == "assistant-task-1"
-        assert telemetry.get("isSidechain") == True
+        assert telemetry.get("isSidechain")
 
         turns = reader.read_messages("internal-id", sdk_session_id)
         assert [turn["type"] for turn in turns] == ["user", "assistant"]

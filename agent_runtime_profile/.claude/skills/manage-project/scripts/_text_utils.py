@@ -73,19 +73,23 @@ def find_natural_breakpoints(text: str, center_offset: int, window: int = 200) -
     for i in range(start, end):
         ch = text[i]
         if ch == "\n" and i + 1 < len(text) and text[i + 1] == "\n":
-            breakpoints.append({
-                "offset": i + 1,
-                "char": "\\n\\n",
-                "type": "paragraph",
-                "distance": abs(i + 1 - center_offset),
-            })
+            breakpoints.append(
+                {
+                    "offset": i + 1,
+                    "char": "\\n\\n",
+                    "type": "paragraph",
+                    "distance": abs(i + 1 - center_offset),
+                }
+            )
         elif ch in sentence_endings:
-            breakpoints.append({
-                "offset": i + 1,  # 在标点之后切分
-                "char": ch,
-                "type": "sentence",
-                "distance": abs(i + 1 - center_offset),
-            })
+            breakpoints.append(
+                {
+                    "offset": i + 1,  # 在标点之后切分
+                    "char": ch,
+                    "type": "sentence",
+                    "distance": abs(i + 1 - center_offset),
+                }
+            )
 
     # 按距离排序
     breakpoints.sort(key=lambda bp: bp["distance"])

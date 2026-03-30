@@ -7,10 +7,10 @@ import copy
 import logging
 import os
 from collections import OrderedDict
-from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from collections.abc import AsyncGenerator, AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
+from typing import TYPE_CHECKING, Any
 
 try:
     from claude_agent_sdk import list_sessions as sdk_list_sessions
@@ -30,17 +30,16 @@ logger = logging.getLogger(__name__)
 from fastapi.sse import ServerSentEvent
 
 from lib.project_manager import ProjectManager
+from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
+from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from server.agent_runtime.stream_projector import AssistantStreamProjector
-from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.turn_grouper import (
     _has_subagent_user_metadata,
     _is_system_injected_user_message,
 )
-from server.agent_runtime.message_utils import extract_plain_user_content
-from server.agent_runtime.turn_schema import normalize_turns
 
 
 class AssistantService:
@@ -63,9 +62,7 @@ class AssistantService:
         self._startup_done = False
         self._snapshot_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._snapshot_cache_max = 128
-        self.stream_heartbeat_seconds = int(
-            os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20")
-        )
+        self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
     async def startup(self) -> None:
         """Run async initialization (must be called from event loop)."""
@@ -90,43 +87,34 @@ class AssistantService:
 
     async def list_sessions(
         self,
-        project_name: Optional[str] = None,
-        status: Optional[SessionStatus] = None,
+        project_name: str | None = None,
+        status: SessionStatus | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[SessionMeta]:
         """List sessions, injecting SDK summary as title when available."""
-        sessions = await self.meta_store.list(
-            project_name=project_name, status=status, limit=limit, offset=offset
-        )
+        sessions = await self.meta_store.list(project_name=project_name, status=status, limit=limit, offset=offset)
         if not sessions or not project_name or sdk_list_sessions is None:
             return sessions
 
         # Inject SDK summary as title
         try:
             project_cwd = str(self.projects_root / project_name)
-            sdk_sessions = await asyncio.to_thread(
-                sdk_list_sessions, directory=project_cwd, include_worktrees=False
-            )
+            sdk_sessions = await asyncio.to_thread(sdk_list_sessions, directory=project_cwd, include_worktrees=False)
             summary_map = {s.session_id: s.summary for s in sdk_sessions}
         except Exception:
             logger.warning("SDK list_sessions failed, titles will be empty", exc_info=True)
             return sessions
 
-        return [
-            SessionMeta(**{**s.model_dump(), "title": summary_map.get(s.id, s.title)})
-            for s in sessions
-        ]
+        return [SessionMeta(**{**s.model_dump(), "title": summary_map.get(s.id, s.title)}) for s in sessions]
 
-    async def get_session(self, session_id: str) -> Optional[SessionMeta]:
+    async def get_session(self, session_id: str) -> SessionMeta | None:
         """Get session by ID."""
         meta = await self.meta_store.get(session_id)
         if meta and session_id in self.session_manager.sessions:
             # Update status from live session
             managed = self.session_manager.sessions[session_id]
-            meta = SessionMeta(
-                **{**meta.model_dump(), "status": managed.status}
-            )
+            meta = SessionMeta(**{**meta.model_dump(), "status": managed.status})
         return meta
 
     async def delete_session(self, session_id: str) -> bool:
@@ -150,7 +138,7 @@ class AssistantService:
 
     # ==================== Messages ====================
 
-    async def get_snapshot(self, session_id: str, *, meta: Optional[SessionMeta] = None) -> dict[str, Any]:
+    async def get_snapshot(self, session_id: str, *, meta: SessionMeta | None = None) -> dict[str, Any]:
         """Build a normalized v2 snapshot for history and reconnect."""
         if meta is None:
             meta = await self.meta_store.get(session_id)
@@ -168,9 +156,7 @@ class AssistantService:
 
         pending_questions = []
         if status == "running":
-            pending_questions = await self.session_manager.get_pending_questions_snapshot(
-                session_id
-            )
+            pending_questions = await self.session_manager.get_pending_questions_snapshot(session_id)
         snapshot = await self._with_session_metadata(
             projector.build_snapshot(
                 session_id=session_id,
@@ -191,8 +177,8 @@ class AssistantService:
     def _prepare_prompt(
         self,
         content: str,
-        images: Optional[list["ImageAttachment"]] = None,
-    ) -> tuple[str, Optional[Any], Optional[list[dict[str, Any]]]]:
+        images: list["ImageAttachment"] | None = None,
+    ) -> tuple[str, Any | None, list[dict[str, Any]] | None]:
         """Prepare prompt components: (text, sdk_prompt_or_none, echo_blocks_or_none)."""
         text = content.strip()
         if not text and not images:
@@ -200,9 +186,7 @@ class AssistantService:
 
         if images:
             sdk_prompt = self._build_multimodal_prompt(text, images)
-            echo_blocks: list[dict[str, Any]] = [
-                self._image_block(img) for img in images
-            ]
+            echo_blocks: list[dict[str, Any]] = [self._image_block(img) for img in images]
             if text:
                 echo_blocks.append({"type": "text", "text": text})
             return text, sdk_prompt, echo_blocks
@@ -213,8 +197,8 @@ class AssistantService:
         project_name: str,
         content: str,
         *,
-        session_id: Optional[str] = None,
-        images: Optional[list["ImageAttachment"]] = None,
+        session_id: str | None = None,
+        images: list["ImageAttachment"] | None = None,
     ) -> dict[str, Any]:
         """Unified send: create new session or send to existing one."""
         self.pm.get_project_path(project_name)  # Validate project
@@ -271,10 +255,9 @@ class AssistantService:
         transport as a wire protocol message. So we must yield one complete user message
         dict (with type/message/parent_tool_use_id fields), not individual content blocks.
         """
+
         async def _gen() -> AsyncGenerator[dict[str, Any], None]:
-            content: list[dict[str, Any]] = [
-                AssistantService._image_block(img) for img in images
-            ]
+            content: list[dict[str, Any]] = [AssistantService._image_block(img) for img in images]
             if text:
                 content.append({"type": "text", "text": text})
             yield {
@@ -291,7 +274,7 @@ class AssistantService:
         question_id: str,
         answers: dict[str, str],
         *,
-        meta: Optional[SessionMeta] = None,
+        meta: SessionMeta | None = None,
     ) -> dict[str, Any]:
         """Submit answers for a pending AskUserQuestion."""
         if meta is None:
@@ -301,7 +284,7 @@ class AssistantService:
         await self.session_manager.answer_user_question(session_id, question_id, answers)
         return {"status": "accepted", "session_id": session_id, "question_id": question_id}
 
-    async def interrupt_session(self, session_id: str, *, meta: Optional[SessionMeta] = None) -> dict[str, Any]:
+    async def interrupt_session(self, session_id: str, *, meta: SessionMeta | None = None) -> dict[str, Any]:
         """Interrupt a running session."""
         if meta is None:
             meta = await self.meta_store.get(session_id)
@@ -316,7 +299,9 @@ class AssistantService:
 
     # ==================== Streaming ====================
 
-    async def stream_events(self, session_id: str, *, meta: Optional[SessionMeta] = None) -> AsyncIterator[ServerSentEvent]:
+    async def stream_events(
+        self, session_id: str, *, meta: SessionMeta | None = None
+    ) -> AsyncIterator[ServerSentEvent]:
         """Stream SSE events for a session."""
         if meta is None:
             meta = await self.meta_store.get(session_id)
@@ -331,9 +316,7 @@ class AssistantService:
 
         queue = await self.session_manager.subscribe(session_id, replay_buffer=True)
         try:
-            async for event in self._stream_running_session(
-                meta, session_id, initial_status, queue
-            ):
+            async for event in self._stream_running_session(meta, session_id, initial_status, queue):
                 yield event
         finally:
             await self.session_manager.unsubscribe(session_id, queue)
@@ -352,9 +335,7 @@ class AssistantService:
 
         status = await self.session_manager.get_status(session_id) or initial_status
         projector = await self._build_projector(meta, session_id, replayed_messages)
-        snapshot_events = await self._emit_running_snapshot(
-            session_id, status, projector
-        )
+        snapshot_events = await self._emit_running_snapshot(session_id, status, projector)
         for event in snapshot_events:
             yield event
         if status != "running":
@@ -362,17 +343,13 @@ class AssistantService:
 
         while True:
             try:
-                message = await asyncio.wait_for(
-                    queue.get(), timeout=self.stream_heartbeat_seconds
-                )
-                events, should_break = await self._dispatch_live_message(
-                    message, projector, session_id
-                )
+                message = await asyncio.wait_for(queue.get(), timeout=self.stream_heartbeat_seconds)
+                events, should_break = await self._dispatch_live_message(message, projector, session_id)
                 for event in events:
                     yield event
                 if should_break:
                     break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 event = await self._handle_heartbeat_timeout(session_id, status, projector)
                 if event is not None:
                     yield event
@@ -413,9 +390,7 @@ class AssistantService:
         """Build snapshot (+ optional terminal status) for a possibly-running session."""
         pending_questions: list[dict[str, Any]] = []
         if status == "running":
-            pending_questions = await self.session_manager.get_pending_questions_snapshot(
-                session_id
-            )
+            pending_questions = await self.session_manager.get_pending_questions_snapshot(session_id)
         snapshot_payload = await self._with_session_metadata(
             projector.build_snapshot(
                 session_id=session_id,
@@ -428,14 +403,16 @@ class AssistantService:
             self._sse_event("snapshot", snapshot_payload),
         ]
         if status != "running":
-            events.append(self._sse_event(
-                "status",
-                self._build_status_event_payload(
-                    status=status,
-                    session_id=session_id,
-                    result_message=projector.last_result,
-                ),
-            ))
+            events.append(
+                self._sse_event(
+                    "status",
+                    self._build_status_event_payload(
+                        status=status,
+                        session_id=session_id,
+                        result_message=projector.last_result,
+                    ),
+                )
+            )
         return events
 
     @staticmethod
@@ -502,10 +479,15 @@ class AssistantService:
             return events, True
 
         if msg_type == "system" and message.get("subtype") == "compact_boundary":
-            events.append(self._sse_event("compact", {
-                "session_id": session_id,
-                "subtype": "compact_boundary",
-            }))
+            events.append(
+                self._sse_event(
+                    "compact",
+                    {
+                        "session_id": session_id,
+                        "subtype": "compact_boundary",
+                    },
+                )
+            )
 
         if msg_type == "runtime_status":
             terminal = self._check_runtime_status_terminal(message, session_id)
@@ -514,23 +496,23 @@ class AssistantService:
                 return events, True
 
         if msg_type == "result":
-            events.append(self._sse_event(
-                "status",
-                self._build_status_event_payload(
-                    status=self._resolve_result_status(message),
-                    session_id=session_id,
-                    result_message=message,
-                ),
-            ))
+            events.append(
+                self._sse_event(
+                    "status",
+                    self._build_status_event_payload(
+                        status=self._resolve_result_status(message),
+                        session_id=session_id,
+                        result_message=message,
+                    ),
+                )
+            )
             return events, True
 
         return events, False
 
     _TERMINAL_STATUSES = {"idle", "running", "completed", "error", "interrupted"}
 
-    def _check_runtime_status_terminal(
-        self, message: dict[str, Any], session_id: str
-    ) -> Optional[ServerSentEvent]:
+    def _check_runtime_status_terminal(self, message: dict[str, Any], session_id: str) -> ServerSentEvent | None:
         """Return a status SSE event if *message* carries a terminal runtime status."""
         runtime_status = str(message.get("status") or "").strip()
         if runtime_status in self._TERMINAL_STATUSES:
@@ -549,7 +531,7 @@ class AssistantService:
         session_id: str,
         status: SessionStatus,
         projector: AssistantStreamProjector,
-    ) -> Optional[ServerSentEvent]:
+    ) -> ServerSentEvent | None:
         """Check session liveness on heartbeat timeout. Returns status event or None."""
         live_status = await self.session_manager.get_status(session_id) or status
         if live_status != "running":
@@ -572,12 +554,10 @@ class AssistantService:
         self,
         meta: SessionMeta,
         session_id: str,
-        replayed_messages: Optional[list[dict[str, Any]]] = None,
+        replayed_messages: list[dict[str, Any]] | None = None,
     ) -> AssistantStreamProjector:
         """Build projector state from transcript history + in-memory buffer."""
-        history_messages = await asyncio.to_thread(
-            self.transcript_adapter.read_raw_messages, meta.id
-        )
+        history_messages = await asyncio.to_thread(self.transcript_adapter.read_raw_messages, meta.id)
         projector = AssistantStreamProjector(initial_messages=history_messages)
 
         # UUID set for primary dedup
@@ -665,7 +645,7 @@ class AssistantService:
     def _build_status_event_payload(
         status: SessionStatus,
         session_id: str,
-        result_message: Optional[dict[str, Any]] = None,
+        result_message: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Build normalized status event payload."""
         message = result_message if isinstance(result_message, dict) else {}
@@ -726,7 +706,7 @@ class AssistantService:
         return None
 
     @staticmethod
-    def _fingerprint(message: dict[str, Any]) -> Optional[str]:
+    def _fingerprint(message: dict[str, Any]) -> str | None:
         """Build a truncated content fingerprint for dedup."""
         msg_type = message.get("type")
         if msg_type == "assistant":
@@ -772,9 +752,7 @@ class AssistantService:
 
         existing_msg = transcript_msgs[last_user_idx]
         # Content must match.
-        existing_text = AssistantService._extract_plain_user_content(
-            existing_msg
-        )
+        existing_text = AssistantService._extract_plain_user_content(existing_msg)
         if existing_text != echo_text:
             return False
 
@@ -795,7 +773,7 @@ class AssistantService:
     _extract_plain_user_content = staticmethod(extract_plain_user_content)
 
     @staticmethod
-    def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    def _parse_iso_datetime(value: Any) -> datetime | None:
         if not isinstance(value, str) or not value.strip():
             return None
         normalized = value.strip()
@@ -806,7 +784,7 @@ class AssistantService:
         except ValueError:
             return None
         if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=timezone.utc)
+            return parsed.replace(tzinfo=UTC)
         return parsed
 
     # ==================== Lifecycle ====================
@@ -819,16 +797,16 @@ class AssistantService:
 
     # Display metadata for user-facing skills (label + Lucide icon name)
     _SKILL_DISPLAY_META: dict[str, dict[str, str]] = {
-        "manga-workflow":      {"label": "视频工作流",  "icon": "clapperboard"},
-        "generate-script":     {"label": "生成剧本",    "icon": "scroll-text"},
-        "generate-storyboard": {"label": "生成分镜图",  "icon": "layout-grid"},
-        "generate-video":      {"label": "生成视频",    "icon": "film"},
-        "generate-characters": {"label": "生成角色图",  "icon": "users"},
-        "generate-clues":      {"label": "生成线索图",  "icon": "search"},
-        "compose-video":       {"label": "合成视频",    "icon": "scissors"},
+        "manga-workflow": {"label": "视频工作流", "icon": "clapperboard"},
+        "generate-script": {"label": "生成剧本", "icon": "scroll-text"},
+        "generate-storyboard": {"label": "生成分镜图", "icon": "layout-grid"},
+        "generate-video": {"label": "生成视频", "icon": "film"},
+        "generate-characters": {"label": "生成角色图", "icon": "users"},
+        "generate-clues": {"label": "生成线索图", "icon": "search"},
+        "compose-video": {"label": "合成视频", "icon": "scissors"},
     }
 
-    def list_available_skills(self, project_name: Optional[str] = None) -> list[dict[str, str]]:
+    def list_available_skills(self, project_name: str | None = None) -> list[dict[str, str]]:
         """List available skills."""
         if project_name:
             self.pm.get_project_path(project_name)
@@ -936,6 +914,7 @@ class AssistantService:
             return
         try:
             from dotenv import load_dotenv
+
             load_dotenv(env_path, override=False)
         except ImportError:
             pass

@@ -16,20 +16,19 @@ Example:
 import argparse
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from lib.generation_queue_client import (
-    BatchTaskSpec,
     BatchTaskResult,
+    BatchTaskSpec,
     batch_enqueue_and_wait_sync,
+)
+from lib.generation_queue_client import (
     enqueue_and_wait_sync as enqueue_and_wait,
 )
 from lib.project_manager import ProjectManager
 
 
-def generate_clue(
-    clue_name: str
-) -> Path:
+def generate_clue(clue_name: str) -> Path:
     """
     生成单个线索设计图
 
@@ -44,8 +43,8 @@ def generate_clue(
 
     # 获取线索信息
     clue = pm.get_clue(project_name, clue_name)
-    clue_type = clue.get('type', 'prop')
-    description = clue.get('description', '')
+    clue_type = clue.get("type", "prop")
+    description = clue.get("description", "")
 
     if not description:
         raise ValueError(f"线索 '{clue_name}' 的描述为空，请先添加描述")
@@ -84,8 +83,8 @@ def list_pending_clues() -> None:
 
     print(f"\n📋 待生成的线索 ({len(pending)} 个):\n")
     for clue in pending:
-        clue_type = clue.get('type', 'prop')
-        type_emoji = "📦" if clue_type == 'prop' else "🏠"
+        clue_type = clue.get("type", "prop")
+        type_emoji = "📦" if clue_type == "prop" else "🏠"
         print(f"  {type_emoji} {clue['name']}")
         print(f"     类型: {clue_type}")
         print(f"     描述: {clue.get('description', '')[:60]}...")
@@ -93,8 +92,8 @@ def list_pending_clues() -> None:
 
 
 def generate_batch_clues(
-    clue_names: Optional[List[str]] = None,
-) -> Tuple[int, int]:
+    clue_names: list[str] | None = None,
+) -> tuple[int, int]:
     """
     批量生成线索设计图（全部入队，由 Worker 并行处理）
 
@@ -163,11 +162,11 @@ def generate_batch_clues(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='生成线索设计图')
-    parser.add_argument('--all', action='store_true', help='生成所有待处理的线索')
-    parser.add_argument('--clue', help='指定单个线索名称')
-    parser.add_argument('--clues', nargs='+', help='指定多个线索名称')
-    parser.add_argument('--list', action='store_true', help='列出待生成的线索')
+    parser = argparse.ArgumentParser(description="生成线索设计图")
+    parser.add_argument("--all", action="store_true", help="生成所有待处理的线索")
+    parser.add_argument("--clue", help="指定单个线索名称")
+    parser.add_argument("--clues", nargs="+", help="指定多个线索名称")
+    parser.add_argument("--list", action="store_true", help="列出待生成的线索")
 
     args = parser.parse_args()
 
@@ -193,5 +192,5 @@ def main():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

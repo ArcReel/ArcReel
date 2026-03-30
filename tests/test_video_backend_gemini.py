@@ -56,7 +56,8 @@ class TestGeminiVideoBackendProperties:
         creds_file.write_text('{"project_id": "test-project"}')
 
         with (
-            patch("google.genai"), patch("google.genai.types"),
+            patch("google.genai"),
+            patch("google.genai.types"),
             patch(
                 "lib.video_backends.gemini.resolve_vertex_credentials_path",
                 return_value=creds_file,
@@ -99,9 +100,7 @@ class TestGeminiVideoBackendGenerate:
         output = tmp_path / "out.mp4"
 
         mock_op = _make_done_operation()
-        backend._client.aio.models.generate_videos = AsyncMock(
-            return_value=mock_op
-        )
+        backend._client.aio.models.generate_videos = AsyncMock(return_value=mock_op)
 
         request = VideoGenerationRequest(
             prompt="a cat walking",
@@ -127,9 +126,7 @@ class TestGeminiVideoBackendGenerate:
         frame.write_bytes(b"fake-png-data")
 
         mock_op = _make_done_operation(video_uri=None)
-        backend._client.aio.models.generate_videos = AsyncMock(
-            return_value=mock_op
-        )
+        backend._client.aio.models.generate_videos = AsyncMock(return_value=mock_op)
 
         request = VideoGenerationRequest(
             prompt="cat moves forward",
@@ -151,9 +148,7 @@ class TestGeminiVideoBackendGenerate:
 
         done_op = _make_done_operation()
 
-        backend._client.aio.models.generate_videos = AsyncMock(
-            return_value=pending_op
-        )
+        backend._client.aio.models.generate_videos = AsyncMock(return_value=pending_op)
         backend._client.aio.operations.get = AsyncMock(return_value=done_op)
 
         request = VideoGenerationRequest(
@@ -177,9 +172,7 @@ class TestGeminiVideoBackendGenerate:
         mock_op.response.generated_videos = []
         mock_op.error = None
 
-        backend._client.aio.models.generate_videos = AsyncMock(
-            return_value=mock_op
-        )
+        backend._client.aio.models.generate_videos = AsyncMock(return_value=mock_op)
 
         request = VideoGenerationRequest(
             prompt="test",
@@ -198,9 +191,7 @@ class TestGeminiVideoBackendGenerate:
         mock_op.response = None
         mock_op.error = "Something went wrong"
 
-        backend._client.aio.models.generate_videos = AsyncMock(
-            return_value=mock_op
-        )
+        backend._client.aio.models.generate_videos = AsyncMock(return_value=mock_op)
 
         request = VideoGenerationRequest(
             prompt="test",
@@ -215,9 +206,7 @@ class TestGeminiVideoBackendGenerate:
         output = tmp_path / "out.mp4"
 
         mock_op = _make_done_operation()
-        backend._client.aio.models.generate_videos = AsyncMock(
-            return_value=mock_op
-        )
+        backend._client.aio.models.generate_videos = AsyncMock(return_value=mock_op)
 
         request = VideoGenerationRequest(
             prompt="test",
@@ -232,9 +221,7 @@ class TestGeminiVideoBackendGenerate:
         output = tmp_path / "out.mp4"
 
         mock_op = _make_done_operation()
-        backend._client.aio.models.generate_videos = AsyncMock(
-            return_value=mock_op
-        )
+        backend._client.aio.models.generate_videos = AsyncMock(return_value=mock_op)
 
         request = VideoGenerationRequest(
             prompt="test",

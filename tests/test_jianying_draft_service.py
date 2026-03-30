@@ -277,9 +277,7 @@ class TestExportEpisodeDraft:
                 {"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"},
             ],
         }
-        (project_dir / "project.json").write_text(
-            json.dumps(project_data, ensure_ascii=False), encoding="utf-8"
-        )
+        (project_dir / "project.json").write_text(json.dumps(project_data, ensure_ascii=False), encoding="utf-8")
 
         scripts_dir = project_dir / "scripts"
         scripts_dir.mkdir()
@@ -300,9 +298,7 @@ class TestExportEpisodeDraft:
                 },
             ],
         }
-        (scripts_dir / "episode_1.json").write_text(
-            json.dumps(script_data, ensure_ascii=False), encoding="utf-8"
-        )
+        (scripts_dir / "episode_1.json").write_text(json.dumps(script_data, ensure_ascii=False), encoding="utf-8")
 
         return pm, project_dir
 
@@ -337,9 +333,7 @@ class TestExportEpisodeDraft:
         svc = JianyingDraftService(pm)
         draft_path = "/Users/test/drafts"
 
-        zip_path = svc.export_episode_draft(
-            project_name="demo", episode=1, draft_path=draft_path
-        )
+        zip_path = svc.export_episode_draft(project_name="demo", episode=1, draft_path=draft_path)
 
         with zipfile.ZipFile(zip_path) as zf:
             content_entry = [n for n in zf.namelist() if "draft_info.json" in n][0]
@@ -367,20 +361,35 @@ class TestExportEpisodeDraft:
         project_dir = tmp_path / "projects" / "empty"
         project_dir.mkdir(parents=True)
 
-        (project_dir / "project.json").write_text(json.dumps({
-            "title": "空项目",
-            "content_mode": "narration",
-            "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
-        }, ensure_ascii=False))
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "title": "空项目",
+                    "content_mode": "narration",
+                    "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+                },
+                ensure_ascii=False,
+            )
+        )
 
         scripts_dir = project_dir / "scripts"
         scripts_dir.mkdir()
-        (scripts_dir / "episode_1.json").write_text(json.dumps({
-            "content_mode": "narration",
-            "segments": [
-                {"segment_id": "S1", "duration_seconds": 8, "novel_text": "", "generated_assets": {"status": "pending"}},
-            ],
-        }, ensure_ascii=False))
+        (scripts_dir / "episode_1.json").write_text(
+            json.dumps(
+                {
+                    "content_mode": "narration",
+                    "segments": [
+                        {
+                            "segment_id": "S1",
+                            "duration_seconds": 8,
+                            "novel_text": "",
+                            "generated_assets": {"status": "pending"},
+                        },
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        )
 
         svc = JianyingDraftService(pm)
         with pytest.raises(ValueError, match="请先生成视频"):

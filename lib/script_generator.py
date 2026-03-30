@@ -8,12 +8,10 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 from pydantic import ValidationError
 
-from lib.text_backends.base import TextGenerationRequest, TextTaskType
-from lib.text_generator import TextGenerator
 from lib.prompt_builders_script import (
     build_drama_prompt,
     build_narration_prompt,
@@ -22,6 +20,8 @@ from lib.script_models import (
     DramaEpisodeScript,
     NarrationEpisodeScript,
 )
+from lib.text_backends.base import TextGenerationRequest, TextTaskType
+from lib.text_generator import TextGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class ScriptGenerator:
     读取 Step 1/2 的 Markdown 中间文件，调用 TextBackend 生成最终 JSON 剧本
     """
 
-    def __init__(self, project_path: Union[str, Path], generator: Optional["TextGenerator"] = None):
+    def __init__(self, project_path: str | Path, generator: Optional["TextGenerator"] = None):
         """
         初始化生成器
 
@@ -49,7 +49,7 @@ class ScriptGenerator:
         self.content_mode = self.project_json.get("content_mode", "narration")
 
     @classmethod
-    async def create(cls, project_path: Union[str, Path]) -> "ScriptGenerator":
+    async def create(cls, project_path: str | Path) -> "ScriptGenerator":
         """异步工厂方法，自动从 DB 加载供应商配置创建 TextGenerator。"""
         project_name = Path(project_path).name
         generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name)
@@ -58,7 +58,7 @@ class ScriptGenerator:
     async def generate(
         self,
         episode: int,
-        output_path: Optional[Path] = None,
+        output_path: Path | None = None,
     ) -> Path:
         """
         异步生成剧集剧本
@@ -71,9 +71,7 @@ class ScriptGenerator:
             生成的 JSON 文件路径
         """
         if self.generator is None:
-            raise RuntimeError(
-                "TextGenerator 未初始化，请使用 ScriptGenerator.create() 工厂方法"
-            )
+            raise RuntimeError("TextGenerator 未初始化，请使用 ScriptGenerator.create() 工厂方法")
 
         # 1. 加载中间文件
         step1_md = self._load_step1(episode)
@@ -169,7 +167,7 @@ class ScriptGenerator:
         if not path.exists():
             raise FileNotFoundError(f"未找到 project.json: {path}")
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
 
     def _load_step1(self, episode: int) -> str:
@@ -189,7 +187,7 @@ class ScriptGenerator:
             else:
                 raise FileNotFoundError(f"未找到 Step 1 文件: {primary_path}")
 
-        with open(primary_path, "r", encoding="utf-8") as f:
+        with open(primary_path, encoding="utf-8") as f:
             return f.read()
 
     def _parse_response(self, response_text: str, episode: int) -> dict:
@@ -265,14 +263,10 @@ class ScriptGenerator:
         if self.content_mode == "narration":
             segments = script_data.get("segments", [])
             script_data["metadata"]["total_segments"] = len(segments)
-            script_data["duration_seconds"] = sum(
-                s.get("duration_seconds", 4) for s in segments
-            )
+            script_data["duration_seconds"] = sum(s.get("duration_seconds", 4) for s in segments)
         else:
             scenes = script_data.get("scenes", [])
             script_data["metadata"]["total_scenes"] = len(scenes)
-            script_data["duration_seconds"] = sum(
-                s.get("duration_seconds", 8) for s in scenes
-            )
+            script_data["duration_seconds"] = sum(s.get("duration_seconds", 8) for s in scenes)
 
         return script_data

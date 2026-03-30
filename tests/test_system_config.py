@@ -10,9 +10,7 @@ class TestSystemConfigMigration:
     def _write_config(self, tmp_path: Path, overrides: dict) -> Path:
         config_path = tmp_path / "projects" / ".system_config.json"
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(
-            json.dumps({"version": 1, "overrides": overrides}), encoding="utf-8"
-        )
+        config_path.write_text(json.dumps({"version": 1, "overrides": overrides}), encoding="utf-8")
         return config_path
 
     def _make_manager(self, tmp_path: Path) -> SystemConfigManager:
@@ -25,9 +23,7 @@ class TestSystemConfigMigration:
         manager = self._make_manager(tmp_path)
         overrides = manager.read_overrides()
         assert overrides["video_model"] == "veo-3.1-generate-preview"
-        raw = json.loads(
-            (tmp_path / "projects" / ".system_config.json").read_text(encoding="utf-8")
-        )
+        raw = json.loads((tmp_path / "projects" / ".system_config.json").read_text(encoding="utf-8"))
         assert raw["overrides"]["video_model"] == "veo-3.1-generate-preview"
 
     def test_migrate_fast_001_to_preview(self, tmp_path):

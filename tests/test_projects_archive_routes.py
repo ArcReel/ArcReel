@@ -31,12 +31,8 @@ def _create_demo_project(pm: ProjectManager) -> None:
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     project = pm.load_project("demo")
-    project["episodes"] = [
-        {"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}
-    ]
-    project["characters"] = {
-        "Hero": {"description": "Lead", "character_sheet": "characters/Hero.png"}
-    }
+    project["episodes"] = [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}]
+    project["characters"] = {"Hero": {"description": "Lead", "character_sheet": "characters/Hero.png"}}
     project["clues"] = {
         "Key": {
             "type": "prop",

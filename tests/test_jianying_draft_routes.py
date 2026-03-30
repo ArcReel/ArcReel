@@ -23,22 +23,34 @@ def _setup_project(pm: ProjectManager):
     scripts_dir = project_dir / "scripts"
     scripts_dir.mkdir()
 
-    (project_dir / "project.json").write_text(json.dumps({
-        "title": "测试",
-        "content_mode": "narration",
-        "aspect_ratio": {"video": "16:9"},
-        "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
-    }, ensure_ascii=False))
+    (project_dir / "project.json").write_text(
+        json.dumps(
+            {
+                "title": "测试",
+                "content_mode": "narration",
+                "aspect_ratio": {"video": "16:9"},
+                "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            },
+            ensure_ascii=False,
+        )
+    )
 
-    (scripts_dir / "episode_1.json").write_text(json.dumps({
-        "content_mode": "narration",
-        "segments": [{
-            "segment_id": "S1",
-            "duration_seconds": 8,
-            "novel_text": "测试文本",
-            "generated_assets": {"video_clip": "videos/segment_S1.mp4", "status": "completed"},
-        }],
-    }, ensure_ascii=False))
+    (scripts_dir / "episode_1.json").write_text(
+        json.dumps(
+            {
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "S1",
+                        "duration_seconds": 8,
+                        "novel_text": "测试文本",
+                        "generated_assets": {"video_clip": "videos/segment_S1.mp4", "status": "completed"},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def _client(monkeypatch, pm: ProjectManager) -> TestClient:
@@ -48,6 +60,7 @@ def _client(monkeypatch, pm: ProjectManager) -> TestClient:
     monkeypatch.setattr(proj_mod, "pm", pm)
 
     from server.app import app
+
     return TestClient(app)
 
 
@@ -73,6 +86,7 @@ class TestJianyingDraftExport:
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/zip"
         from urllib.parse import unquote
+
         disposition = unquote(response.headers.get("content-disposition", ""))
         assert "剪映草稿" in disposition
 
@@ -99,17 +113,34 @@ class TestJianyingDraftExport:
         project_dir = pm.projects_root / "empty"
         project_dir.mkdir(parents=True)
 
-        (project_dir / "project.json").write_text(json.dumps({
-            "title": "空",
-            "content_mode": "narration",
-            "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
-        }, ensure_ascii=False))
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "title": "空",
+                    "content_mode": "narration",
+                    "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
+                },
+                ensure_ascii=False,
+            )
+        )
         scripts_dir = project_dir / "scripts"
         scripts_dir.mkdir()
-        (scripts_dir / "episode_1.json").write_text(json.dumps({
-            "content_mode": "narration",
-            "segments": [{"segment_id": "S1", "duration_seconds": 8, "novel_text": "", "generated_assets": {"status": "pending"}}],
-        }, ensure_ascii=False))
+        (scripts_dir / "episode_1.json").write_text(
+            json.dumps(
+                {
+                    "content_mode": "narration",
+                    "segments": [
+                        {
+                            "segment_id": "S1",
+                            "duration_seconds": 8,
+                            "novel_text": "",
+                            "generated_assets": {"status": "pending"},
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        )
 
         client = _client(monkeypatch, pm)
         token = create_download_token("testuser", "empty")

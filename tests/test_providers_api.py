@@ -18,7 +18,6 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from server.dependencies import get_config_service
 from server.routers import providers
 
-
 # ---------------------------------------------------------------------------
 # 测试应用工厂
 # ---------------------------------------------------------------------------
@@ -155,24 +154,30 @@ class TestGetProviderConfig:
 
     def test_returns_200_for_known_provider(self):
         app, _ = _make_session_app()
-        with patch("server.routers.providers.ConfigService", return_value=self._mock_svc_ready()), \
-             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_active()):
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_ready()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_active()),
+        ):
             with TestClient(app) as client:
                 resp = client.get("/api/v1/providers/gemini-aistudio/config")
         assert resp.status_code == 200
 
     def test_returns_404_for_unknown_provider(self):
         app, _ = _make_session_app()
-        with patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()), \
-             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_empty()):
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_empty()),
+        ):
             with TestClient(app) as client:
                 resp = client.get("/api/v1/providers/nonexistent/config")
         assert resp.status_code == 404
 
     def test_response_structure(self):
         app, _ = _make_session_app()
-        with patch("server.routers.providers.ConfigService", return_value=self._mock_svc_ready()), \
-             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_active()):
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_ready()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_active()),
+        ):
             with TestClient(app) as client:
                 resp = client.get("/api/v1/providers/gemini-aistudio/config")
         body = resp.json()
@@ -184,8 +189,10 @@ class TestGetProviderConfig:
     def test_credential_fields_not_in_response(self):
         """api_key / base_url / credentials_path 不应出现在 fields 中。"""
         app, _ = _make_session_app()
-        with patch("server.routers.providers.ConfigService", return_value=self._mock_svc_ready()), \
-             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_active()):
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_ready()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_active()),
+        ):
             with TestClient(app) as client:
                 resp = client.get("/api/v1/providers/gemini-aistudio/config")
         field_keys = {f["key"] for f in resp.json()["fields"]}
@@ -196,8 +203,10 @@ class TestGetProviderConfig:
     def test_optional_non_credential_field_present(self):
         """非凭证 optional key（如 image_rpm）应出现在 fields 中。"""
         app, _ = _make_session_app()
-        with patch("server.routers.providers.ConfigService", return_value=self._mock_svc_ready()), \
-             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_active()):
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_ready()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_active()),
+        ):
             with TestClient(app) as client:
                 resp = client.get("/api/v1/providers/gemini-aistudio/config")
         fields = {f["key"]: f for f in resp.json()["fields"]}
@@ -206,16 +215,20 @@ class TestGetProviderConfig:
 
     def test_ready_status_when_active_credential(self):
         app, _ = _make_session_app()
-        with patch("server.routers.providers.ConfigService", return_value=self._mock_svc_ready()), \
-             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_active()):
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_ready()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_active()),
+        ):
             with TestClient(app) as client:
                 resp = client.get("/api/v1/providers/gemini-aistudio/config")
         assert resp.json()["status"] == "ready"
 
     def test_unconfigured_status_when_no_active_credential(self):
         app, _ = _make_session_app()
-        with patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()), \
-             patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_empty()):
+        with (
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc_empty()),
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_empty()),
+        ):
             with TestClient(app) as client:
                 resp = client.get("/api/v1/providers/gemini-aistudio/config")
         assert resp.json()["status"] == "unconfigured"
@@ -309,9 +322,7 @@ class TestPatchProviderConfig:
                 )
 
         assert resp.status_code == 204
-        mock_svc.delete_provider_config.assert_awaited_once_with(
-            "gemini-aistudio", "base_url", flush=False
-        )
+        mock_svc.delete_provider_config.assert_awaited_once_with("gemini-aistudio", "base_url", flush=False)
 
     def test_non_null_value_calls_set(self):
         mock_svc = _make_mock_svc()
@@ -333,9 +344,7 @@ class TestPatchProviderConfig:
                 )
 
         assert resp.status_code == 204
-        mock_svc.set_provider_config.assert_awaited_once_with(
-            "gemini-aistudio", "api_key", "AIza-test", flush=False
-        )
+        mock_svc.set_provider_config.assert_awaited_once_with("gemini-aistudio", "api_key", "AIza-test", flush=False)
 
 
 # ---------------------------------------------------------------------------
@@ -378,26 +387,32 @@ class TestTestProviderConnection:
 
     def test_returns_200(self):
         app, _ = _make_session_app()
-        with patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()), \
-             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()), \
-             patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}):
+        with (
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()),
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
+            patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}),
+        ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test")
         assert resp.status_code == 200
 
     def test_returns_404_for_unknown_provider(self):
         app, _ = _make_session_app()
-        with patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_unconfigured()), \
-             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()):
+        with (
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_unconfigured()),
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
+        ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/nonexistent/test")
         assert resp.status_code == 404
 
     def test_success_true_when_configured(self):
         app, _ = _make_session_app()
-        with patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()), \
-             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()), \
-             patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}):
+        with (
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()),
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
+            patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}),
+        ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test")
         body = resp.json()
@@ -407,8 +422,10 @@ class TestTestProviderConnection:
 
     def test_success_false_when_no_credential(self):
         app, _ = _make_session_app()
-        with patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_unconfigured()), \
-             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()):
+        with (
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_unconfigured()),
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
+        ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test")
         body = resp.json()
@@ -417,9 +434,11 @@ class TestTestProviderConnection:
 
     def test_response_has_required_fields(self):
         app, _ = _make_session_app()
-        with patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()), \
-             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()), \
-             patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}):
+        with (
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()),
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
+            patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}),
+        ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test")
         body = resp.json()
@@ -432,9 +451,11 @@ class TestTestProviderConnection:
             raise RuntimeError("API key invalid")
 
         app, _ = _make_session_app()
-        with patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()), \
-             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()), \
-             patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": _failing_fn}):
+        with (
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()),
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
+            patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": _failing_fn}),
+        ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test")
         body = resp.json()
@@ -449,9 +470,11 @@ class TestTestProviderConnection:
         repo.get_active = AsyncMock(return_value=None)
 
         app, _ = _make_session_app()
-        with patch("server.routers.providers.CredentialRepository", return_value=repo), \
-             patch("server.routers.providers.ConfigService", return_value=self._mock_svc()), \
-             patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}):
+        with (
+            patch("server.routers.providers.CredentialRepository", return_value=repo),
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
+            patch.dict(providers._TEST_DISPATCH, {"gemini-aistudio": self._fake_test_fn}),
+        ):
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test?credential_id=1")
         assert resp.status_code == 200

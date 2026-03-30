@@ -27,9 +27,7 @@ async def test_provider_config_crud(session: AsyncSession):
     session.add(row)
     await session.flush()
 
-    result = await session.execute(
-        select(ProviderConfig).where(ProviderConfig.provider == "gemini-aistudio")
-    )
+    result = await session.execute(select(ProviderConfig).where(ProviderConfig.provider == "gemini-aistudio"))
     found = result.scalar_one()
     assert found.key == "api_key"
     assert found.value == "AIza-test"
@@ -52,8 +50,6 @@ async def test_system_setting_crud(session: AsyncSession):
     session.add(row)
     await session.flush()
 
-    result = await session.execute(
-        select(SystemSetting).where(SystemSetting.key == "default_video_backend")
-    )
+    result = await session.execute(select(SystemSetting).where(SystemSetting.key == "default_video_backend"))
     found = result.scalar_one()
     assert found.value == "gemini-vertex/veo-3.1-fast-generate-001"

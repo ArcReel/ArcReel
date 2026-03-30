@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 try:
     from claude_agent_sdk import get_session_messages
+
     try:
         # Public get_session_messages() drops the transcript-level timestamp, but
         # optimistic-turn dedup needs stable per-message ordering to distinguish
@@ -35,7 +36,7 @@ class SdkTranscriptAdapter:
     - Mainline conversation chain
     """
 
-    def read_raw_messages(self, sdk_session_id: Optional[str]) -> list[dict[str, Any]]:
+    def read_raw_messages(self, sdk_session_id: str | None) -> list[dict[str, Any]]:
         """Read raw messages from SDK session transcript."""
         if not sdk_session_id or not SDK_AVAILABLE or get_session_messages is None:
             return []
@@ -47,7 +48,7 @@ class SdkTranscriptAdapter:
         timestamp_by_uuid = self._load_timestamps(sdk_session_id)
         return [self._adapt(msg, timestamp_by_uuid) for msg in sdk_messages]
 
-    def _adapt(self, msg: Any, timestamp_by_uuid: Optional[dict[str, str]] = None) -> dict[str, Any]:
+    def _adapt(self, msg: Any, timestamp_by_uuid: dict[str, str] | None = None) -> dict[str, Any]:
         """Convert SDK SessionMessage to internal dict format."""
         message_data = getattr(msg, "message", {}) or {}
         if isinstance(message_data, dict):
@@ -113,7 +114,7 @@ class SdkTranscriptAdapter:
                 timestamps[uuid] = timestamp.strip()
         return timestamps
 
-    def exists(self, sdk_session_id: Optional[str]) -> bool:
+    def exists(self, sdk_session_id: str | None) -> bool:
         """Check if SDK session has any messages."""
         if not sdk_session_id or not SDK_AVAILABLE or get_session_messages is None:
             return False

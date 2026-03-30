@@ -2,6 +2,7 @@
 
 import logging
 
+from lib.db.base import Base
 from lib.db.engine import (
     async_engine,
     async_session_factory,
@@ -10,7 +11,6 @@ from lib.db.engine import (
     is_sqlite_backend,
     safe_session_factory,
 )
-from lib.db.base import Base
 
 _log = logging.getLogger(__name__)
 
@@ -27,7 +27,9 @@ async def init_db() -> None:
     """
     import asyncio
     from pathlib import Path
-    from sqlalchemy import inspect as sa_inspect, text
+
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
 
     # Detect pre-Alembic databases (tables exist but no version tracking)
     async with async_engine.connect() as conn:
@@ -41,6 +43,7 @@ async def init_db() -> None:
     need_stamp = has_app_tables and not has_version
 
     from alembic.config import Config
+
     from alembic import command
 
     def _run_alembic():
@@ -51,6 +54,7 @@ async def init_db() -> None:
         cfg.set_main_option("script_location", str(project_root / "alembic"))
         if need_stamp:
             from alembic.script import ScriptDirectory
+
             base = ScriptDirectory.from_config(cfg).get_base()
             if base is None:
                 raise RuntimeError("No base revision found in alembic migrations")

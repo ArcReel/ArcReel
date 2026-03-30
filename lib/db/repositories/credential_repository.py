@@ -12,7 +12,6 @@ _UNSET = object()
 
 
 class CredentialRepository(BaseRepository):
-
     async def create(
         self,
         provider: str,
@@ -71,14 +70,10 @@ class CredentialRepository(BaseRepository):
     async def activate(self, cred_id: int, provider: str) -> None:
         """激活指定凭证，同时取消同供应商的其他活跃标记。"""
         await self.session.execute(
-            update(ProviderCredential)
-            .where(ProviderCredential.provider == provider)
-            .values(is_active=False)
+            update(ProviderCredential).where(ProviderCredential.provider == provider).values(is_active=False)
         )
         await self.session.execute(
-            update(ProviderCredential)
-            .where(ProviderCredential.id == cred_id)
-            .values(is_active=True)
+            update(ProviderCredential).where(ProviderCredential.id == cred_id).values(is_active=True)
         )
 
     async def update(

@@ -11,10 +11,9 @@ from logging.config import fileConfig
 from sqlalchemy import DateTime, String, pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from alembic import context
-
 # Import all models so their tables are included in metadata
 import lib.db.models  # noqa: F401
+from alembic import context
 from lib.db.base import Base
 from lib.db.engine import get_database_url
 

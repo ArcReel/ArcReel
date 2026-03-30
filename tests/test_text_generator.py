@@ -1,8 +1,9 @@
 """Tests for TextGenerator wrapper."""
 
-import pytest
 from unittest.mock import AsyncMock
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from lib.text_backends.base import TextGenerationRequest, TextGenerationResult
@@ -25,13 +26,15 @@ def _make_backend(provider="gemini", model="gemini-3-flash-preview"):
     backend = AsyncMock()
     backend.name = provider
     backend.model = model
-    backend.generate = AsyncMock(return_value=TextGenerationResult(
-        text="生成的文本",
-        provider=provider,
-        model=model,
-        input_tokens=100,
-        output_tokens=50,
-    ))
+    backend.generate = AsyncMock(
+        return_value=TextGenerationResult(
+            text="生成的文本",
+            provider=provider,
+            model=model,
+            input_tokens=100,
+            output_tokens=50,
+        )
+    )
     return backend
 
 

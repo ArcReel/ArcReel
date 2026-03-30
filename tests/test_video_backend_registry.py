@@ -1,11 +1,12 @@
+import pytest
+
 from lib.video_backends.base import VideoCapability
 from lib.video_backends.registry import (
-    register_backend,
+    _BACKEND_FACTORIES,
     create_backend,
     get_registered_backends,
-    _BACKEND_FACTORIES,
+    register_backend,
 )
-import pytest
 
 
 class _FakeBackend:

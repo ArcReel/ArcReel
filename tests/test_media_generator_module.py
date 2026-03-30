@@ -7,6 +7,7 @@ from lib.media_generator import MediaGenerator
 
 class _FakeImageBackend:
     """Fake ImageBackend conforming to the protocol."""
+
     name = "fake-image"
     model = "img-model"
     capabilities = set()
@@ -30,6 +31,7 @@ class _FakeVideoResult:
 
 class _FakeVideoBackend:
     """Fake VideoBackend conforming to the protocol."""
+
     name = "fake-video"
     model = "video-model"
 
@@ -77,6 +79,7 @@ class _FakeUsage:
 
 class _FakeConfigResolver:
     """Fake ConfigResolver，返回可控的配置值。"""
+
     def __init__(self, video_generate_audio: bool = False):
         self._video_generate_audio = video_generate_audio
 
@@ -163,7 +166,9 @@ class TestMediaGenerator:
         gen._config = _FakeConfigResolver(video_generate_audio=False)
 
         await gen.generate_video_async(
-            prompt="p", resource_type="videos", resource_id="E1S03",
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S03",
         )
         # VideoBackend 路径尊重 ConfigResolver 返回的值
         assert gen.usage_tracker.started[-1]["generate_audio"] is False
@@ -175,6 +180,8 @@ class TestMediaGenerator:
         gen._config = _FakeConfigResolver(video_generate_audio=True)
 
         await gen.generate_video_async(
-            prompt="p", resource_type="videos", resource_id="E1S04",
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S04",
         )
         assert gen.usage_tracker.started[-1]["generate_audio"] is True

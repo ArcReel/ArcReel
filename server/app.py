@@ -18,26 +18,25 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from lib import PROJECT_ROOT
-from lib.db import init_db, close_db, async_session_factory
-from lib.logging_config import setup_logging
-
+from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
+from lib.logging_config import setup_logging
 from server.auth import ensure_auth_password
 from server.routers import (
+    agent_chat,
+    api_keys,
     assistant,
-    projects,
     characters,
     clues,
     files,
     generate,
     project_events,
+    projects,
     providers,
-    versions,
-    usage,
-    tasks,
     system_config,
-    api_keys,
-    agent_chat,
+    tasks,
+    usage,
+    versions,
 )
 from server.routers import auth as auth_router
 from server.services.project_events import ProjectEventService
@@ -45,6 +44,7 @@ from server.services.project_events import ProjectEventService
 # 初始化日志
 setup_logging()
 logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -58,6 +58,7 @@ async def lifespan(app: FastAPI):
     # Migrate legacy .system_config.json → DB (no-op if file doesn't exist or already migrated)
     try:
         from lib.config.migration import migrate_json_to_db
+
         json_path = PROJECT_ROOT / "projects" / ".system_config.json"
         async with async_session_factory() as session:
             await migrate_json_to_db(session, json_path)
@@ -67,6 +68,7 @@ async def lifespan(app: FastAPI):
     # Sync Anthropic DB settings to env vars (Claude Agent SDK reads from os.environ)
     try:
         from lib.config.service import ConfigService, sync_anthropic_env
+
         async with async_session_factory() as session:
             svc = ConfigService(session)
             all_settings = await svc.get_all_settings()
@@ -76,6 +78,7 @@ async def lifespan(app: FastAPI):
 
     # 修复存量项目的 agent_runtime 软连接
     from lib.project_manager import ProjectManager
+
     _pm = ProjectManager(PROJECT_ROOT / "projects")
     _symlink_stats = _pm.repair_all_symlinks()
     if any(v > 0 for v in _symlink_stats.values()):
@@ -160,7 +163,6 @@ async def request_logging_middleware(request: Request, call_next):
     return response
 
 
-
 # 注册 API 路由
 app.include_router(auth_router.router, prefix="/api/v1", tags=["认证"])
 app.include_router(projects.router, prefix="/api/v1", tags=["项目管理"])
@@ -177,6 +179,7 @@ app.include_router(providers.router, prefix="/api/v1", tags=["供应商管理"])
 app.include_router(system_config.router, prefix="/api/v1", tags=["系统配置"])
 app.include_router(api_keys.router, prefix="/api/v1", tags=["API Key 管理"])
 app.include_router(agent_chat.router, prefix="/api/v1", tags=["Agent 对话"])
+
 
 def create_generation_worker() -> GenerationWorker:
     return GenerationWorker()
@@ -232,4 +235,5 @@ if frontend_dist_dir.exists():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=1241, reload=True)

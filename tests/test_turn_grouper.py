@@ -24,9 +24,7 @@ class TestTurnGrouper:
             },
             {
                 "type": "user",
-                "content": [
-                    {"type": "tool_result", "tool_use_id": "skill-1", "content": "Launching skill: commit"}
-                ],
+                "content": [{"type": "tool_result", "tool_use_id": "skill-1", "content": "Launching skill: commit"}],
             },
             {
                 "type": "user",
@@ -108,7 +106,7 @@ class TestTurnGrouper:
         tool_block = turns[1]["content"][0]
         assert tool_block["type"] == "tool_use"
         assert tool_block["result"] == "plain tool result payload"
-        assert tool_block["is_error"] == False
+        assert not tool_block["is_error"]
 
     def test_build_turn_patch_append_replace_reset(self):
         user_turn = {"type": "user", "content": [{"type": "text", "text": "hi"}]}
@@ -119,9 +117,7 @@ class TestTurnGrouper:
         assert append_patch["op"] == "append"
         assert append_patch["turn"] == assistant_turn_v1
 
-        replace_patch = build_turn_patch(
-            [user_turn, assistant_turn_v1], [user_turn, assistant_turn_v2]
-        )
+        replace_patch = build_turn_patch([user_turn, assistant_turn_v1], [user_turn, assistant_turn_v2])
         assert replace_patch["op"] == "replace_last"
         assert replace_patch["turn"] == assistant_turn_v2
 
@@ -175,10 +171,7 @@ class TestTurnGrouper:
         # Key assertion: assistant turn is replaced/updated, not a new user turn appended.
         assert patch_v3["op"] == "replace_last"
         assert [turn["type"] for turn in turns_v3] == ["user", "assistant"]
-        assert (
-            turns_v3[1]["content"][0]["result"]
-            == "Launching skill: manga-workflow"
-        )
+        assert turns_v3[1]["content"][0]["result"] == "Launching skill: manga-workflow"
 
     def test_untyped_live_blocks_are_normalized_and_attached(self):
         raw_messages = [
@@ -249,9 +242,7 @@ class TestTurnGrouper:
             },
             {
                 "type": "user",
-                "content": [
-                    {"type": "text", "text": "正在分析项目结构..."}
-                ],
+                "content": [{"type": "text", "text": "正在分析项目结构..."}],
                 "parent_tool_use_id": "task-1",
             },
         ]
@@ -469,14 +460,14 @@ class TestTurnGrouper:
     def test_task_notification_user_message_converted_to_task_progress(self):
         """SDK-injected <task-notification> user message becomes task_progress block."""
         xml_content = (
-            '<task-notification>\n'
-            '<task-id>bdgaof0ba</task-id>\n'
-            '<tool-use-id>toolu_016arH6Ny81xuwipeci3ic5e</tool-use-id>\n'
-            '<output-file>/tmp/claude-0/tasks/bdgaof0ba.output</output-file>\n'
-            '<status>failed</status>\n'
-            '<summary>Background command failed with exit code 2</summary>\n'
-            '</task-notification>\n'
-            'Read the output file to retrieve the result.'
+            "<task-notification>\n"
+            "<task-id>bdgaof0ba</task-id>\n"
+            "<tool-use-id>toolu_016arH6Ny81xuwipeci3ic5e</tool-use-id>\n"
+            "<output-file>/tmp/claude-0/tasks/bdgaof0ba.output</output-file>\n"
+            "<status>failed</status>\n"
+            "<summary>Background command failed with exit code 2</summary>\n"
+            "</task-notification>\n"
+            "Read the output file to retrieve the result."
         )
         raw_messages = [
             {"type": "user", "content": "run this in background"},
@@ -508,13 +499,13 @@ class TestTurnGrouper:
     def test_task_notification_user_message_list_content(self):
         """Task notification in list-of-blocks content format is also detected."""
         xml_text = (
-            '<task-notification>\n'
-            '<task-id>abc123</task-id>\n'
-            '<tool-use-id>toolu_xyz</tool-use-id>\n'
-            '<output-file>/tmp/claude-0/tasks/abc123.output</output-file>\n'
-            '<status>completed</status>\n'
-            '<summary>Task finished successfully</summary>\n'
-            '</task-notification>'
+            "<task-notification>\n"
+            "<task-id>abc123</task-id>\n"
+            "<tool-use-id>toolu_xyz</tool-use-id>\n"
+            "<output-file>/tmp/claude-0/tasks/abc123.output</output-file>\n"
+            "<status>completed</status>\n"
+            "<summary>Task finished successfully</summary>\n"
+            "</task-notification>"
         )
         raw_messages = [
             {"type": "user", "content": "start"},
@@ -541,13 +532,13 @@ class TestTurnGrouper:
     def test_task_notification_without_prior_turn_creates_system_turn(self):
         """Task notification user message without assistant turn creates system turn."""
         xml_content = (
-            '<task-notification>\n'
-            '<task-id>solo-task</task-id>\n'
-            '<tool-use-id>toolu_solo</tool-use-id>\n'
-            '<output-file>/tmp/tasks/solo-task.output</output-file>\n'
-            '<status>completed</status>\n'
-            '<summary>Done</summary>\n'
-            '</task-notification>'
+            "<task-notification>\n"
+            "<task-id>solo-task</task-id>\n"
+            "<tool-use-id>toolu_solo</tool-use-id>\n"
+            "<output-file>/tmp/tasks/solo-task.output</output-file>\n"
+            "<status>completed</status>\n"
+            "<summary>Done</summary>\n"
+            "</task-notification>"
         )
         raw_messages = [
             {"type": "user", "content": xml_content},
@@ -563,13 +554,13 @@ class TestExtractTaskNotification:
 
     def test_extracts_all_fields(self):
         xml = (
-            '<task-notification>\n'
-            '<task-id>abc</task-id>\n'
-            '<tool-use-id>toolu_1</tool-use-id>\n'
-            '<output-file>/tmp/out.txt</output-file>\n'
-            '<status>completed</status>\n'
-            '<summary>All good</summary>\n'
-            '</task-notification>'
+            "<task-notification>\n"
+            "<task-id>abc</task-id>\n"
+            "<tool-use-id>toolu_1</tool-use-id>\n"
+            "<output-file>/tmp/out.txt</output-file>\n"
+            "<status>completed</status>\n"
+            "<summary>All good</summary>\n"
+            "</task-notification>"
         )
         result = _extract_task_notification(xml)
         assert result is not None
@@ -583,7 +574,9 @@ class TestExtractTaskNotification:
         assert _extract_task_notification("hello world") is None
 
     def test_handles_list_content(self):
-        blocks = [{"type": "text", "text": "<task-notification><task-id>x</task-id><status>ok</status></task-notification>"}]
+        blocks = [
+            {"type": "text", "text": "<task-notification><task-id>x</task-id><status>ok</status></task-notification>"}
+        ]
         result = _extract_task_notification(blocks)
         assert result is not None
         assert result["task_id"] == "x"
@@ -605,9 +598,7 @@ class TestInterruptEcho:
         raw = [
             {
                 "type": "user",
-                "content": [
-                    {"type": "text", "text": "[Request interrupted by user for tool use]"}
-                ],
+                "content": [{"type": "text", "text": "[Request interrupted by user for tool use]"}],
             },
         ]
         turns = group_messages_into_turns(raw)
@@ -631,8 +622,9 @@ class TestInterruptEcho:
             {"type": "user", "content": "[Request interrupted by user]"},
         ]
         turns = group_messages_into_turns(raw)
-        interrupt_turns = [t for t in turns if t["type"] == "system"
-                          and t["content"][0].get("type") == "interrupt_notice"]
+        interrupt_turns = [
+            t for t in turns if t["type"] == "system" and t["content"][0].get("type") == "interrupt_notice"
+        ]
         assert len(interrupt_turns) == 1
 
     def test_normal_user_message_not_affected(self):

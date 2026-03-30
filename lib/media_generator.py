@@ -14,7 +14,8 @@ MediaGenerator 中间层
 import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, List, Union, Tuple
+from typing import TYPE_CHECKING, Optional
+
 from PIL import Image
 
 if TYPE_CHECKING:
@@ -23,8 +24,9 @@ if TYPE_CHECKING:
 
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
-from lib.version_manager import VersionManager
 from lib.usage_tracker import UsageTracker
+from lib.version_manager import VersionManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,16 +39,16 @@ class MediaGenerator:
 
     # 资源类型到输出路径模式的映射
     OUTPUT_PATTERNS = {
-        'storyboards': 'storyboards/scene_{resource_id}.png',
-        'videos': 'videos/scene_{resource_id}.mp4',
-        'characters': 'characters/{resource_id}.png',
-        'clues': 'clues/{resource_id}.png',
+        "storyboards": "storyboards/scene_{resource_id}.png",
+        "videos": "videos/scene_{resource_id}.mp4",
+        "characters": "characters/{resource_id}.png",
+        "clues": "clues/{resource_id}.png",
     }
 
     def __init__(
         self,
         project_path: Path,
-        rate_limiter: Optional[RateLimiter] = None,
+        rate_limiter: RateLimiter | None = None,
         image_backend: Optional["ImageBackend"] = None,
         video_backend=None,
         *,
@@ -86,6 +88,7 @@ class MediaGenerator:
 
         if loop is not None and loop.is_running():
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 return pool.submit(asyncio.run, coro).result()
         return asyncio.run(coro)
@@ -125,8 +128,8 @@ class MediaGenerator:
         reference_images=None,
         aspect_ratio: str = "9:16",
         image_size: str = "1K",
-        **version_metadata
-    ) -> Tuple[Path, int]:
+        **version_metadata,
+    ) -> tuple[Path, int]:
         """
         生成图片（带自动版本管理，同步包装）
 
@@ -142,15 +145,17 @@ class MediaGenerator:
         Returns:
             (output_path, version_number) 元组
         """
-        return self._sync(self.generate_image_async(
-            prompt=prompt,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            reference_images=reference_images,
-            aspect_ratio=aspect_ratio,
-            image_size=image_size,
-            **version_metadata,
-        ))
+        return self._sync(
+            self.generate_image_async(
+                prompt=prompt,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                reference_images=reference_images,
+                aspect_ratio=aspect_ratio,
+                image_size=image_size,
+                **version_metadata,
+            )
+        )
 
     async def generate_image_async(
         self,
@@ -160,8 +165,8 @@ class MediaGenerator:
         reference_images=None,
         aspect_ratio: str = "9:16",
         image_size: str = "1K",
-        **version_metadata
-    ) -> Tuple[Path, int]:
+        **version_metadata,
+    ) -> tuple[Path, int]:
         """
         异步生成图片（带自动版本管理）
 
@@ -190,7 +195,7 @@ class MediaGenerator:
                 current_file=output_path,
                 prompt=prompt,
                 aspect_ratio=aspect_ratio,
-                **version_metadata
+                **version_metadata,
             )
 
         if self._image_backend is None:
@@ -215,11 +220,13 @@ class MediaGenerator:
                 for ref in reference_images:
                     if isinstance(ref, dict):
                         img_val = ref.get("image", "")
-                        ref_images.append(ReferenceImage(
-                            path=str(img_val),
-                            label=str(ref.get("label", "")),
-                        ))
-                    elif hasattr(ref, '__fspath__') or isinstance(ref, (str, Path)):
+                        ref_images.append(
+                            ReferenceImage(
+                                path=str(img_val),
+                                label=str(ref.get("label", "")),
+                            )
+                        )
+                    elif hasattr(ref, "__fspath__") or isinstance(ref, (str, Path)):
                         ref_images.append(ReferenceImage(path=str(ref)))
                     # PIL Image 等不支持的类型忽略
 
@@ -256,7 +263,7 @@ class MediaGenerator:
             prompt=prompt,
             source_file=output_path,
             aspect_ratio=aspect_ratio,
-            **version_metadata
+            **version_metadata,
         )
 
         return output_path, new_version
@@ -266,13 +273,13 @@ class MediaGenerator:
         prompt: str,
         resource_type: str,
         resource_id: str,
-        start_image: Optional[Union[str, Path, Image.Image]] = None,
+        start_image: str | Path | Image.Image | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str = "8",
         resolution: str = "1080p",
         negative_prompt: str = "background music, BGM, soundtrack, musical accompaniment",
-        **version_metadata
-    ) -> Tuple[Path, int, any, Optional[str]]:
+        **version_metadata,
+    ) -> tuple[Path, int, any, str | None]:
         """
         生成视频（带自动版本管理，同步包装）
 
@@ -290,30 +297,32 @@ class MediaGenerator:
         Returns:
             (output_path, version_number, video_ref, video_uri) 四元组
         """
-        return self._sync(self.generate_video_async(
-            prompt=prompt,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            start_image=start_image,
-            aspect_ratio=aspect_ratio,
-            duration_seconds=duration_seconds,
-            resolution=resolution,
-            negative_prompt=negative_prompt,
-            **version_metadata,
-        ))
+        return self._sync(
+            self.generate_video_async(
+                prompt=prompt,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                start_image=start_image,
+                aspect_ratio=aspect_ratio,
+                duration_seconds=duration_seconds,
+                resolution=resolution,
+                negative_prompt=negative_prompt,
+                **version_metadata,
+            )
+        )
 
     async def generate_video_async(
         self,
         prompt: str,
         resource_type: str,
         resource_id: str,
-        start_image: Optional[Union[str, Path, Image.Image]] = None,
+        start_image: str | Path | Image.Image | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str = "8",
         resolution: str = "1080p",
         negative_prompt: str = "background music, BGM, soundtrack, musical accompaniment",
-        **version_metadata
-    ) -> Tuple[Path, int, any, Optional[str]]:
+        **version_metadata,
+    ) -> tuple[Path, int, any, str | None]:
         """
         异步生成视频（带自动版本管理）
 
@@ -342,7 +351,7 @@ class MediaGenerator:
                 current_file=output_path,
                 prompt=prompt,
                 duration_seconds=duration_seconds,
-                **version_metadata
+                **version_metadata,
             )
 
         # 2. 记录 API 调用开始
@@ -356,7 +365,9 @@ class MediaGenerator:
 
         model_name = self._video_backend.model
         provider_name = self._video_backend.name
-        configured_generate_audio = await self._config.video_generate_audio(self.project_name) if self._config else False
+        configured_generate_audio = (
+            await self._config.video_generate_audio(self.project_name) if self._config else False
+        )
         effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
 
         call_id = await self.usage_tracker.start_call(
@@ -419,7 +430,7 @@ class MediaGenerator:
             prompt=prompt,
             source_file=output_path,
             duration_seconds=duration_seconds,
-            **version_metadata
+            **version_metadata,
         )
 
         return output_path, new_version, video_ref, video_uri

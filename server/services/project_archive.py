@@ -11,7 +11,7 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from lib.data_validator import DataValidator, ValidationResult
 from lib.project_change_hints import emit_project_change_hint
@@ -36,7 +36,7 @@ class ArchiveMember:
 class ArchiveDiagnostic:
     code: str
     message: str
-    location: Optional[str] = None
+    location: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         payload = {
@@ -53,7 +53,7 @@ class ArchiveDiagnostics:
     blocking: list[ArchiveDiagnostic] = field(default_factory=list)
     auto_fixed: list[ArchiveDiagnostic] = field(default_factory=list)
     warnings: list[ArchiveDiagnostic] = field(default_factory=list)
-    _seen: set[tuple[str, str, str, Optional[str]]] = field(
+    _seen: set[tuple[str, str, str, str | None]] = field(
         default_factory=set,
         init=False,
         repr=False,
@@ -65,7 +65,7 @@ class ArchiveDiagnostics:
         code: str,
         message: str,
         *,
-        location: Optional[str] = None,
+        location: str | None = None,
     ) -> None:
         key = (bucket, code, message, location)
         if key in self._seen:
@@ -127,10 +127,10 @@ class ProjectArchiveValidationError(ValueError):
         detail: str,
         *,
         status_code: int = 400,
-        errors: Optional[list[str]] = None,
-        warnings: Optional[list[str]] = None,
-        diagnostics: Optional[dict[str, Any]] = None,
-        extra: Optional[dict[str, Any]] = None,
+        errors: list[str] | None = None,
+        warnings: list[str] | None = None,
+        diagnostics: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
     ):
         super().__init__(detail)
         self.detail = detail
@@ -144,12 +144,14 @@ class ProjectArchiveValidationError(ValueError):
 
 
 class ProjectArchiveService:
-    _VERSION_HISTORY_DIRS = frozenset({
-        "storyboards",
-        "videos",
-        "characters",
-        "clues",
-    })
+    _VERSION_HISTORY_DIRS = frozenset(
+        {
+            "storyboards",
+            "videos",
+            "characters",
+            "clues",
+        }
+    )
     _RESOURCE_EXTENSIONS = {
         "storyboards": ".png",
         "videos": ".mp4",
@@ -190,7 +192,7 @@ class ProjectArchiveService:
         os.close(fd)
         archive_path = Path(archive_path_str)
 
-        temp_dir: Optional[tempfile.TemporaryDirectory[str]] = None
+        temp_dir: tempfile.TemporaryDirectory[str] | None = None
         try:
             temp_dir, snapshot_dir, manifest, _ = self._prepare_export_snapshot(
                 project_name,
@@ -230,16 +232,13 @@ class ProjectArchiveService:
         self,
         archive_path: Path,
         *,
-        uploaded_filename: Optional[str] = None,
+        uploaded_filename: str | None = None,
         conflict_policy: str = "prompt",
     ) -> ProjectImportResult:
         if conflict_policy not in {"prompt", "rename", "overwrite"}:
             raise ProjectArchiveValidationError(
                 "无效的冲突策略",
-                errors=[
-                    "conflict_policy 仅支持 prompt、rename 或 overwrite，"
-                    f"收到: {conflict_policy}"
-                ],
+                errors=[f"conflict_policy 仅支持 prompt、rename 或 overwrite，收到: {conflict_policy}"],
             )
 
         try:
@@ -259,9 +258,7 @@ class ProjectArchiveService:
                     )
 
                     diagnostics = self._repair_project_tree(staging_dir)
-                    diagnostics.extend_validation(
-                        self.validator.validate_project_tree(staging_dir)
-                    )
+                    diagnostics.extend_validation(self.validator.validate_project_tree(staging_dir))
                     if diagnostics.blocking:
                         raise ProjectArchiveValidationError(
                             "导入包校验失败",
@@ -270,9 +267,7 @@ class ProjectArchiveService:
                             diagnostics=diagnostics.to_import_error_payload(),
                         )
 
-                    project = self._load_project_file(
-                        staging_dir / self.project_manager.PROJECT_FILE
-                    )
+                    project = self._load_project_file(staging_dir / self.project_manager.PROJECT_FILE)
                     target_name = self._resolve_target_project_name(
                         project,
                         manifest=manifest,
@@ -342,7 +337,7 @@ class ProjectArchiveService:
     def _build_archive_manifest(
         self,
         project_name: str,
-        project: Optional[dict[str, Any]],
+        project: dict[str, Any] | None,
         *,
         scope: str,
         diagnostics: dict[str, Any],
@@ -394,11 +389,7 @@ class ProjectArchiveService:
 
             relative_dir = current_path.relative_to(snapshot_dir)
             if is_current and relative_dir.parts == ("versions",):
-                dirnames[:] = [
-                    name
-                    for name in dirnames
-                    if name not in self._VERSION_HISTORY_DIRS
-                ]
+                dirnames[:] = [name for name in dirnames if name not in self._VERSION_HISTORY_DIRS]
 
             visible_files = [
                 name
@@ -418,11 +409,7 @@ class ProjectArchiveService:
                 source_path = current_path / filename
                 archive_name = Path(project_name, relative_dir, filename).as_posix()
 
-                if (
-                    is_current
-                    and relative_dir.parts == ("versions",)
-                    and filename == "versions.json"
-                ):
+                if is_current and relative_dir.parts == ("versions",) and filename == "versions.json":
                     payload = self._load_json_file(source_path) or {}
                     archive.writestr(
                         archive_name,
@@ -451,8 +438,7 @@ class ProjectArchiveService:
                     resource_info["versions"] = [
                         version
                         for version in versions_list
-                        if isinstance(version, dict)
-                        and version.get("version") == current_ver
+                        if isinstance(version, dict) and version.get("version") == current_ver
                     ]
         return trimmed
 
@@ -554,16 +540,8 @@ class ProjectArchiveService:
                 ):
                     project_changed = True
 
-        project_characters = {
-            name
-            for name, payload in (characters or {}).items()
-            if isinstance(payload, dict)
-        }
-        project_clues = {
-            name
-            for name, payload in (clues or {}).items()
-            if isinstance(payload, dict)
-        }
+        project_characters = {name for name, payload in (characters or {}).items() if isinstance(payload, dict)}
+        project_clues = {name for name, payload in (clues or {}).items() if isinstance(payload, dict)}
 
         episodes = project.get("episodes")
         if isinstance(episodes, list):
@@ -676,23 +654,11 @@ class ProjectArchiveService:
                         location=f"{script_path_rel}:novel.source_file",
                     )
 
-        content_mode = str(
-            script_payload.get("content_mode")
-            or project_payload.get("content_mode")
-            or "narration"
-        )
+        content_mode = str(script_payload.get("content_mode") or project_payload.get("content_mode") or "narration")
         items_key = "segments" if content_mode == "narration" else "scenes"
         id_field = "segment_id" if content_mode == "narration" else "scene_id"
-        chars_field = (
-            "characters_in_segment"
-            if content_mode == "narration"
-            else "characters_in_scene"
-        )
-        clues_field = (
-            "clues_in_segment"
-            if content_mode == "narration"
-            else "clues_in_scene"
-        )
+        chars_field = "characters_in_segment" if content_mode == "narration" else "characters_in_scene"
+        clues_field = "clues_in_segment" if content_mode == "narration" else "clues_in_scene"
 
         raw_items = script_payload.get(items_key)
         if not isinstance(raw_items, list):
@@ -717,9 +683,7 @@ class ProjectArchiveService:
 
             assets = item.get("generated_assets")
             if assets is None:
-                item["generated_assets"] = self.project_manager.create_generated_assets(
-                    content_mode
-                )
+                item["generated_assets"] = self.project_manager.create_generated_assets(content_mode)
                 script_changed = True
                 diagnostics.add(
                     "auto_fixed",
@@ -738,10 +702,7 @@ class ProjectArchiveService:
                     diagnostics.add(
                         "auto_fixed",
                         "generated_assets_defaults",
-                        (
-                            f"{items_key}[{index}].generated_assets: "
-                            f"补全默认字段 {', '.join(sorted(missing_keys))}"
-                        ),
+                        (f"{items_key}[{index}].generated_assets: 补全默认字段 {', '.join(sorted(missing_keys))}"),
                         location=f"{location_prefix}.generated_assets",
                     )
 
@@ -770,12 +731,7 @@ class ProjectArchiveService:
             clues = item.get(clues_field)
             if isinstance(clues, list):
                 missing_clues = sorted(
-                    {
-                        clue_name
-                        for clue_name in clues
-                        if isinstance(clue_name, str)
-                        and clue_name not in project_clues
-                    }
+                    {clue_name for clue_name in clues if isinstance(clue_name, str) and clue_name not in project_clues}
                 )
                 if missing_clues:
                     diagnostics.add(
@@ -820,9 +776,9 @@ class ProjectArchiveService:
         canonical_rel: str,
         location: str,
         diagnostics: ArchiveDiagnostics,
-        resource_type: Optional[str] = None,
-        resource_id: Optional[str] = None,
-        versions_payload: Optional[dict[str, Any]] = None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        versions_payload: dict[str, Any] | None = None,
     ) -> bool:
         raw_value = payload.get(field_name)
         if not isinstance(raw_value, str) or not raw_value.strip():
@@ -895,7 +851,7 @@ class ProjectArchiveService:
         *,
         resource_type: str,
         resource_id: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         type_payload = versions_payload.get(resource_type, {})
         resource_info = type_payload.get(resource_id) if isinstance(type_payload, dict) else None
         if isinstance(resource_info, dict):
@@ -920,11 +876,7 @@ class ProjectArchiveService:
         extension = self._RESOURCE_EXTENSIONS[resource_type]
         candidates: list[str] = []
         for candidate in sorted(version_dir.iterdir(), key=lambda path: path.name):
-            if (
-                candidate.is_file()
-                and candidate.name.startswith(prefix)
-                and candidate.suffix == extension
-            ):
+            if candidate.is_file() and candidate.name.startswith(prefix) and candidate.suffix == extension:
                 candidates.append(candidate.relative_to(project_dir).as_posix())
 
         if len(candidates) == 1:
@@ -938,9 +890,9 @@ class ProjectArchiveService:
         *,
         default_dir: str,
         basename_index: dict[str, list[str]],
-        preferred_prefix: Optional[str] = None,
+        preferred_prefix: str | None = None,
         allow_single_preferred_candidate: bool = False,
-    ) -> Optional[str]:
+    ) -> str | None:
         normalized = raw_value.strip().replace("\\", "/")
         if not normalized:
             return None
@@ -1034,8 +986,8 @@ class ProjectArchiveService:
         project_dir: Path,
         raw_path: str,
         *,
-        default_dir: Optional[str] = None,
-    ) -> Optional[str]:
+        default_dir: str | None = None,
+    ) -> str | None:
         normalized = raw_path.strip().replace("\\", "/")
         if not normalized:
             return None
@@ -1070,9 +1022,9 @@ class ProjectArchiveService:
             return f"{resource_type}/scene_{resource_id}{extension}"
         return f"{resource_type}/{resource_id}{extension}"
 
-    def _load_json_file(self, path: Path) -> Optional[dict[str, Any]]:
+    def _load_json_file(self, path: Path) -> dict[str, Any] | None:
         try:
-            with open(path, "r", encoding="utf-8") as handle:
+            with open(path, encoding="utf-8") as handle:
                 return json.load(handle)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return None
@@ -1159,16 +1111,10 @@ class ProjectArchiveService:
         self,
         archive: zipfile.ZipFile,
         members: list[ArchiveMember],
-    ) -> tuple[tuple[str, ...], Optional[dict[str, Any]]]:
-        visible_members = [
-            member for member in members if not self._is_hidden_member(member.parts)
-        ]
+    ) -> tuple[tuple[str, ...], dict[str, Any] | None]:
+        visible_members = [member for member in members if not self._is_hidden_member(member.parts)]
 
-        manifest_members = [
-            member
-            for member in visible_members
-            if member.parts[-1] == ARCHIVE_MANIFEST_NAME
-        ]
+        manifest_members = [member for member in visible_members if member.parts[-1] == ARCHIVE_MANIFEST_NAME]
         if manifest_members:
             root_candidates = {member.parts[:-1] for member in manifest_members}
             if len(root_candidates) != 1:
@@ -1178,10 +1124,7 @@ class ProjectArchiveService:
                 )
 
             root_parts = next(iter(root_candidates))
-            if not any(
-                member.parts == (*root_parts, self.project_manager.PROJECT_FILE)
-                for member in visible_members
-            ):
+            if not any(member.parts == (*root_parts, self.project_manager.PROJECT_FILE) for member in visible_members):
                 raise ProjectArchiveValidationError(
                     "导入包校验失败",
                     errors=["官方导出包缺少 project.json"],
@@ -1195,9 +1138,7 @@ class ProjectArchiveService:
             return root_parts, manifest
 
         project_members = [
-            member
-            for member in visible_members
-            if member.parts[-1] == self.project_manager.PROJECT_FILE
+            member for member in visible_members if member.parts[-1] == self.project_manager.PROJECT_FILE
         ]
         root_candidates = {member.parts[:-1] for member in project_members}
         if not root_candidates:
@@ -1252,7 +1193,7 @@ class ProjectArchiveService:
             with archive.open(member.info) as source, open(target_path, "wb") as target:
                 shutil.copyfileobj(source, target)
 
-    def _normalize_project_name(self, value: Any) -> Optional[str]:
+    def _normalize_project_name(self, value: Any) -> str | None:
         if not isinstance(value, str):
             return None
         try:
@@ -1264,13 +1205,11 @@ class ProjectArchiveService:
         self,
         project: dict[str, Any],
         *,
-        manifest: Optional[dict[str, Any]],
+        manifest: dict[str, Any] | None,
         root_parts: tuple[str, ...],
-        uploaded_filename: Optional[str],
+        uploaded_filename: str | None,
     ) -> str:
-        manifest_name = self._normalize_project_name(
-            (manifest or {}).get("project_name")
-        )
+        manifest_name = self._normalize_project_name((manifest or {}).get("project_name"))
         if manifest_name:
             return manifest_name
 
@@ -1287,7 +1226,7 @@ class ProjectArchiveService:
 
     @staticmethod
     def _load_project_file(project_path: Path) -> dict[str, Any]:
-        with open(project_path, "r", encoding="utf-8") as handle:
+        with open(project_path, encoding="utf-8") as handle:
             return json.load(handle)
 
     def _resolve_conflict(
@@ -1310,9 +1249,7 @@ class ProjectArchiveService:
 
         if conflict_policy == "rename":
             if target_dir.exists():
-                generated_name = self.project_manager.generate_project_name(
-                    project_title or preferred_name
-                )
+                generated_name = self.project_manager.generate_project_name(project_title or preferred_name)
                 return generated_name, "renamed"
             return preferred_name, "none"
 
@@ -1332,13 +1269,11 @@ class ProjectArchiveService:
         overwrite: bool,
     ) -> None:
         target_dir = self.project_manager.projects_root / project_name
-        backup_dir: Optional[Path] = None
+        backup_dir: Path | None = None
 
         try:
             if overwrite and target_dir.exists():
-                backup_dir = target_dir.with_name(
-                    f".import-backup-{target_dir.name}-{secrets.token_hex(4)}"
-                )
+                backup_dir = target_dir.with_name(f".import-backup-{target_dir.name}-{secrets.token_hex(4)}")
                 target_dir.rename(backup_dir)
 
             shutil.move(str(staging_dir), str(target_dir))

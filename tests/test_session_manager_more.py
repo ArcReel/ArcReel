@@ -2,13 +2,13 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
-from tests.fakes import FakeSDKClient
 from server.agent_runtime import session_manager as sm_mod
 from server.agent_runtime.session_manager import ManagedSession
 from server.agent_runtime.session_store import SessionMetaStore
+from tests.fakes import FakeSDKClient
 
 
 class _FakeOptions:
@@ -222,9 +222,12 @@ class TestSessionManagerMore:
 
     def test_misc_helpers_and_serialization(self, session_manager):
         assert sm_mod.SessionManager._extract_plain_user_content({"type": "user", "content": " hi "}) == "hi"
-        assert sm_mod.SessionManager._extract_plain_user_content(
-            {"type": "user", "content": [{"type": "text", "text": " hello "}]}
-        ) == "hello"
+        assert (
+            sm_mod.SessionManager._extract_plain_user_content(
+                {"type": "user", "content": [{"type": "text", "text": " hello "}]}
+            )
+            == "hello"
+        )
         assert sm_mod.SessionManager._extract_plain_user_content({"type": "assistant"}) is None
 
         msg = {}
@@ -310,28 +313,32 @@ class TestSessionManagerMore:
         # Read own project file — allowed (within project_cwd)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(own_project / "script.json")}},
-            None, None,
+            None,
+            None,
         )
         assert result.get("continue_") is True
 
         # Read other project file — allowed (within project_root)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(other_project / "script.json")}},
-            None, None,
+            None,
+            None,
         )
         assert result.get("continue_") is True
 
         # Read docs dir — allowed (within project_root)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(docs_dir / "guide.md")}},
-            None, None,
+            None,
+            None,
         )
         assert result.get("continue_") is True
 
         # Read outside project_root — denied
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": "/etc/passwd"}},
-            None, None,
+            None,
+            None,
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
@@ -362,14 +369,16 @@ class TestSessionManagerMore:
         # Write own project file — allowed
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "output.txt")}},
-            None, None,
+            None,
+            None,
         )
         assert result.get("continue_") is True
 
         # Write to lib/ (readonly) — denied
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(lib_dir / "hack.py")}},
-            None, None,
+            None,
+            None,
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
@@ -398,7 +407,8 @@ class TestSessionManagerMore:
         # Bash — not a path tool, hook continues
         result = await hook(
             {"tool_name": "Bash", "tool_input": {"command": "ls /etc"}},
-            None, None,
+            None,
+            None,
         )
         assert result.get("continue_") is True
 
@@ -430,7 +440,8 @@ class TestSessionManagerMore:
         # Read agent_runtime_profile/CLAUDE.md — allowed (readonly dir)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(profile_md)}},
-            None, None,
+            None,
+            None,
         )
         assert result.get("continue_") is True
 
@@ -465,7 +476,8 @@ class TestSessionManagerMore:
     async def test_file_access_hook_allows_read_sdk_tool_results(self, tmp_path, monkeypatch):
         """Hook allows Read for SDK tool-results of the CURRENT project only."""
         hook, own_project, claude_home, engine = await self._make_sdk_hook_env(
-            tmp_path, monkeypatch,
+            tmp_path,
+            monkeypatch,
         )
 
         encoded = sm_mod.SessionManager._encode_sdk_project_path(own_project)
@@ -477,7 +489,8 @@ class TestSessionManagerMore:
         # Read own project's SDK tool-results — allowed
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(result_file)}},
-            None, None,
+            None,
+            None,
         )
         assert result.get("continue_") is True
 
@@ -486,14 +499,16 @@ class TestSessionManagerMore:
         transcript.write_text("{}")
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(transcript)}},
-            None, None,
+            None,
+            None,
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
         # Write to SDK tool-results — still denied (write tools only allow project_cwd)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(result_file)}},
-            None, None,
+            None,
+            None,
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
@@ -503,7 +518,8 @@ class TestSessionManagerMore:
     async def test_file_access_hook_denies_read_other_project_sdk_data(self, tmp_path, monkeypatch):
         """Hook denies Read for ANOTHER project's SDK session data."""
         hook, _, claude_home, engine = await self._make_sdk_hook_env(
-            tmp_path, monkeypatch,
+            tmp_path,
+            monkeypatch,
         )
 
         other_project = tmp_path / "app" / "projects" / "beta"
@@ -517,7 +533,8 @@ class TestSessionManagerMore:
         # Read OTHER project's SDK data — denied (cross-project isolation)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(other_file)}},
-            None, None,
+            None,
+            None,
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
@@ -531,7 +548,8 @@ class TestSessionManagerMore:
         # Path completely outside all allowed zones
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": "/etc/passwd"}},
-            None, None,
+            None,
+            None,
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
@@ -546,14 +564,16 @@ class TestSessionManagerMore:
         task_output = "/tmp/claude-0/-app-projects-alpha-abc123/tasks/bdgaof0ba.output"
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": task_output}},
-            None, None,
+            None,
+            None,
         )
         assert result.get("continue_") is True
 
         # Write to task output — denied (write tools only allow project_cwd)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": task_output}},
-            None, None,
+            None,
+            None,
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
@@ -561,7 +581,8 @@ class TestSessionManagerMore:
         non_task_path = "/tmp/claude-0/-app-projects-alpha/sessions/abc.jsonl"
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": non_task_path}},
-            None, None,
+            None,
+            None,
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
@@ -575,6 +596,7 @@ class TestJsonValidationHook:
         """Build a SessionManager with minimal fakes (SDK not required)."""
         from server.agent_runtime.session_manager import SessionManager
         from server.agent_runtime.session_store import SessionMetaStore
+
         return SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path / "data",
@@ -582,10 +604,15 @@ class TestJsonValidationHook:
         )
 
     async def _call_hook(
-        self, manager, tool_input: dict, tool_name: str = "Edit", project_cwd=None,
+        self,
+        manager,
+        tool_input: dict,
+        tool_name: str = "Edit",
+        project_cwd=None,
     ):
         """Helper: invoke the JSON validation hook callback directly."""
         from pathlib import Path
+
         hook_fn = manager._build_json_validation_hook(
             Path(project_cwd) if project_cwd else Path("/tmp"),
         )
@@ -604,11 +631,14 @@ class TestJsonValidationHook:
         json_file.write_text('{"title": "old"}')
         manager = self._make_manager(tmp_path)
 
-        result = await self._call_hook(manager, {
-            "file_path": str(json_file),
-            "old_string": '"old"',
-            "new_string": '"new"',
-        })
+        result = await self._call_hook(
+            manager,
+            {
+                "file_path": str(json_file),
+                "old_string": '"old"',
+                "new_string": '"new"',
+            },
+        )
         assert result == {}
 
     # --- Edit: replacement breaks JSON → deny ---
@@ -619,14 +649,19 @@ class TestJsonValidationHook:
         json_file.write_text('{"title": "old value"}')
         manager = self._make_manager(tmp_path)
 
-        result = await self._call_hook(manager, {
-            "file_path": str(json_file),
-            "old_string": '"old value"',
-            "new_string": '"has "quotes" inside"',  # unescaped quotes
-        })
+        result = await self._call_hook(
+            manager,
+            {
+                "file_path": str(json_file),
+                "old_string": '"old value"',
+                "new_string": '"has "quotes" inside"',  # unescaped quotes
+            },
+        )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-        assert "无效 JSON" in result["hookSpecificOutput"]["permissionDecisionReason"] or \
-               "JSON" in result["hookSpecificOutput"]["permissionDecisionReason"]
+        assert (
+            "无效 JSON" in result["hookSpecificOutput"]["permissionDecisionReason"]
+            or "JSON" in result["hookSpecificOutput"]["permissionDecisionReason"]
+        )
 
     # --- Edit: replace_all ---
 
@@ -636,12 +671,15 @@ class TestJsonValidationHook:
         json_file.write_text('{"a": "x", "b": "x"}')
         manager = self._make_manager(tmp_path)
 
-        result = await self._call_hook(manager, {
-            "file_path": str(json_file),
-            "old_string": '"x"',
-            "new_string": '"y",',  # trailing comma on last occurrence
-            "replace_all": True,
-        })
+        result = await self._call_hook(
+            manager,
+            {
+                "file_path": str(json_file),
+                "old_string": '"x"',
+                "new_string": '"y",',  # trailing comma on last occurrence
+                "replace_all": True,
+            },
+        )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     # --- Write: valid content → allow ---
@@ -649,10 +687,14 @@ class TestJsonValidationHook:
     async def test_write_valid_json_returns_empty(self, tmp_path):
         """Write with valid JSON content is allowed."""
         manager = self._make_manager(tmp_path)
-        result = await self._call_hook(manager, {
-            "file_path": str(tmp_path / "new.json"),
-            "content": '{"segments": []}',
-        }, tool_name="Write")
+        result = await self._call_hook(
+            manager,
+            {
+                "file_path": str(tmp_path / "new.json"),
+                "content": '{"segments": []}',
+            },
+            tool_name="Write",
+        )
         assert result == {}
 
     # --- Write: invalid content → deny ---
@@ -660,10 +702,14 @@ class TestJsonValidationHook:
     async def test_write_invalid_json_denies(self, tmp_path):
         """Write with invalid JSON content is denied."""
         manager = self._make_manager(tmp_path)
-        result = await self._call_hook(manager, {
-            "file_path": str(tmp_path / "bad.json"),
-            "content": '{"a": 1,,}',
-        }, tool_name="Write")
+        result = await self._call_hook(
+            manager,
+            {
+                "file_path": str(tmp_path / "bad.json"),
+                "content": '{"a": 1,,}',
+            },
+            tool_name="Write",
+        )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     # --- Non-.json file → skip ---
@@ -671,10 +717,14 @@ class TestJsonValidationHook:
     async def test_non_json_file_returns_empty(self, tmp_path):
         """Hook ignores non-.json files."""
         manager = self._make_manager(tmp_path)
-        result = await self._call_hook(manager, {
-            "file_path": str(tmp_path / "notes.md"),
-            "content": "not json {{{{",
-        }, tool_name="Write")
+        result = await self._call_hook(
+            manager,
+            {
+                "file_path": str(tmp_path / "notes.md"),
+                "content": "not json {{{{",
+            },
+            tool_name="Write",
+        )
         assert result == {}
 
     # --- Edit: file not found → skip (let Edit handle the error) ---
@@ -682,11 +732,14 @@ class TestJsonValidationHook:
     async def test_edit_missing_file_returns_empty(self, tmp_path):
         """Hook skips if the target file doesn't exist yet."""
         manager = self._make_manager(tmp_path)
-        result = await self._call_hook(manager, {
-            "file_path": str(tmp_path / "ghost.json"),
-            "old_string": "x",
-            "new_string": "y",
-        })
+        result = await self._call_hook(
+            manager,
+            {
+                "file_path": str(tmp_path / "ghost.json"),
+                "old_string": "x",
+                "new_string": "y",
+            },
+        )
         assert result == {}
 
     # --- Non-Write/Edit tool → skip ---
@@ -694,9 +747,13 @@ class TestJsonValidationHook:
     async def test_non_write_edit_tool_returns_empty(self, tmp_path):
         """Hook ignores tools other than Write/Edit."""
         manager = self._make_manager(tmp_path)
-        result = await self._call_hook(manager, {
-            "file_path": "/some/file.json",
-        }, tool_name="Read")
+        result = await self._call_hook(
+            manager,
+            {
+                "file_path": "/some/file.json",
+            },
+            tool_name="Read",
+        )
         assert result == {}
 
     # --- Edit: old_string not in file → skip (Edit will fail on its own) ---
@@ -707,11 +764,14 @@ class TestJsonValidationHook:
         json_file.write_text('{"title": "hello"}')
         manager = self._make_manager(tmp_path)
 
-        result = await self._call_hook(manager, {
-            "file_path": str(json_file),
-            "old_string": "not found",
-            "new_string": "replacement",
-        })
+        result = await self._call_hook(
+            manager,
+            {
+                "file_path": str(json_file),
+                "old_string": "not found",
+                "new_string": "replacement",
+            },
+        )
         assert result == {}
 
     # --- Edit: curly/smart quotes in new_string → deny ---
@@ -726,11 +786,14 @@ class TestJsonValidationHook:
 
         # old_string uses curly quotes (won't match file via Python str `in`),
         # but new_string also has curly quotes → must be blocked.
-        result = await self._call_hook(manager, {
-            "file_path": str(json_file),
-            "old_string": "\u201csegment_break\u201d: true",
-            "new_string": "\u201csegment_break\u201d: false",
-        })
+        result = await self._call_hook(
+            manager,
+            {
+                "file_path": str(json_file),
+                "old_string": "\u201csegment_break\u201d: true",
+                "new_string": "\u201csegment_break\u201d: false",
+            },
+        )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
         assert "弯引号" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
@@ -741,11 +804,14 @@ class TestJsonValidationHook:
         json_file.write_text('{"segment_break": true}')
         manager = self._make_manager(tmp_path)
 
-        result = await self._call_hook(manager, {
-            "file_path": str(json_file),
-            "old_string": "\u201csegment_break\u201d: true",
-            "new_string": '"segment_break": false',
-        })
+        result = await self._call_hook(
+            manager,
+            {
+                "file_path": str(json_file),
+                "old_string": "\u201csegment_break\u201d: true",
+                "new_string": '"segment_break": false',
+            },
+        )
         # old_string not in file → hook skips → allowed
         assert result == {}
 
@@ -756,11 +822,14 @@ class TestJsonValidationHook:
         json_file.write_text('{"segment_break": true, "title": "test"}')
         manager = self._make_manager(tmp_path)
 
-        result = await self._call_hook(manager, {
-            "file_path": str(json_file),
-            "old_string": '"segment_break": true',
-            "new_string": "\u201csegment_break\u201d: false",
-        })
+        result = await self._call_hook(
+            manager,
+            {
+                "file_path": str(json_file),
+                "old_string": '"segment_break": true',
+                "new_string": "\u201csegment_break\u201d: false",
+            },
+        )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
         assert "弯引号" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
@@ -771,6 +840,7 @@ class TestJsonPostValidationHook:
     def _make_manager(self, tmp_path):
         from server.agent_runtime.session_manager import SessionManager
         from server.agent_runtime.session_store import SessionMetaStore
+
         return SessionManager(
             project_root=tmp_path,
             data_dir=tmp_path / "data",
@@ -778,10 +848,15 @@ class TestJsonPostValidationHook:
         )
 
     async def _call_post_hook(
-        self, manager, tool_input: dict, tool_name: str = "Edit",
-        project_cwd=None, json_backups=None,
+        self,
+        manager,
+        tool_input: dict,
+        tool_name: str = "Edit",
+        project_cwd=None,
+        json_backups=None,
     ):
         from pathlib import Path
+
         hook_fn = manager._build_json_post_validation_hook(
             Path(project_cwd) if project_cwd else Path("/tmp"),
             json_backups if json_backups is not None else {},
@@ -801,9 +876,13 @@ class TestJsonPostValidationHook:
         json_file.write_text('{"title": "new"}')
         manager = self._make_manager(tmp_path)
 
-        result = await self._call_post_hook(manager, {
-            "file_path": str(json_file),
-        }, project_cwd=str(tmp_path))
+        result = await self._call_post_hook(
+            manager,
+            {
+                "file_path": str(json_file),
+            },
+            project_cwd=str(tmp_path),
+        )
         assert result == {}
 
     # --- Invalid JSON after edit with backup → restore + additionalContext ---
@@ -863,9 +942,13 @@ class TestJsonPostValidationHook:
     async def test_non_json_file_returns_empty(self, tmp_path):
         """PostToolUse ignores non-.json files."""
         manager = self._make_manager(tmp_path)
-        result = await self._call_post_hook(manager, {
-            "file_path": str(tmp_path / "notes.md"),
-        }, project_cwd=str(tmp_path))
+        result = await self._call_post_hook(
+            manager,
+            {
+                "file_path": str(tmp_path / "notes.md"),
+            },
+            project_cwd=str(tmp_path),
+        )
         assert result == {}
 
     # --- Backup is consumed even on success ---

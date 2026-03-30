@@ -3,7 +3,6 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +10,7 @@ logger = logging.getLogger(__name__)
 async def extract_video_thumbnail(
     video_path: Path,
     thumbnail_path: Path,
-) -> Optional[Path]:
+) -> Path | None:
     """
     使用 ffmpeg 提取视频第一帧作为 JPEG 缩略图。
 
@@ -30,10 +29,14 @@ async def extract_video_thumbnail(
     try:
         proc = await asyncio.create_subprocess_exec(
             "ffmpeg",
-            "-i", str(video_path),
-            "-vframes", "1",
-            "-q:v", "2",
-            "-y", str(thumbnail_path),
+            "-i",
+            str(video_path),
+            "-vframes",
+            "1",
+            "-q:v",
+            "2",
+            "-y",
+            str(thumbnail_path),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )

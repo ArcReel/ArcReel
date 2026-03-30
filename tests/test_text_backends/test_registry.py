@@ -1,12 +1,13 @@
 """Text backend registry tests."""
+
 import pytest
 
 from lib.text_backends.base import TextCapability, TextGenerationResult
 from lib.text_backends.registry import (
+    _BACKEND_FACTORIES,
     create_backend,
     get_registered_backends,
     register_backend,
-    _BACKEND_FACTORIES,
 )
 
 

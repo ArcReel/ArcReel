@@ -5,16 +5,16 @@ Revises: ea2e1a477bbf
 Create Date: 2026-03-26 12:57:36.230376
 
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 from alembic import op
 
-
 # revision identifiers, used by Alembic.
-revision: str = '3c6d6152046e'
-down_revision: Union[str, Sequence[str], None] = 'ea2e1a477bbf'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+revision: str = "3c6d6152046e"
+down_revision: str | Sequence[str] | None = "ea2e1a477bbf"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

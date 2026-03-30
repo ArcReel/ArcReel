@@ -3,7 +3,7 @@
 import asyncio
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from lib.db.repositories.task_repo import TaskRepository
@@ -30,14 +30,22 @@ class TestTaskRepository:
         repo = TaskRepository(db_session)
 
         first = await repo.enqueue(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S01", payload={"prompt": "test"}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={"prompt": "test"},
+            script_file="ep1.json",
         )
         assert not first["deduped"]
 
         deduped = await repo.enqueue(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S01", payload={"prompt": "test2"}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={"prompt": "test2"},
+            script_file="ep1.json",
         )
         assert deduped["deduped"]
         assert deduped["task_id"] == first["task_id"]
@@ -53,8 +61,12 @@ class TestTaskRepository:
         repo = TaskRepository(db_session)
 
         task = await repo.enqueue(
-            project_name="demo", task_type="video", media_type="video",
-            resource_id="E1S01", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
         )
         await repo.claim_next("video")
         await repo.mark_failed(task["task_id"], "mock error")
@@ -68,12 +80,20 @@ class TestTaskRepository:
         repo = TaskRepository(db_session)
 
         first = await repo.enqueue(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S01", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
         )
         second = await repo.enqueue(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S02", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S02",
+            payload={},
+            script_file="ep1.json",
             dependency_task_id=first["task_id"],
         )
 
@@ -88,8 +108,12 @@ class TestTaskRepository:
         repo = TaskRepository(db_session)
 
         task = await repo.enqueue(
-            project_name="demo", task_type="video", media_type="video",
-            resource_id="E1S01", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
         )
         await repo.claim_next("video")
         count = await repo.requeue_running()
@@ -145,10 +169,22 @@ class TestTaskRepository:
     async def test_list_tasks_with_filters(self, db_session):
         repo = TaskRepository(db_session)
 
-        await repo.enqueue(project_name="demo", task_type="storyboard", media_type="image",
-                           resource_id="E1S01", payload={}, script_file="ep1.json")
-        await repo.enqueue(project_name="other", task_type="video", media_type="video",
-                           resource_id="E1S02", payload={}, script_file="ep2.json")
+        await repo.enqueue(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+        )
+        await repo.enqueue(
+            project_name="other",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S02",
+            payload={},
+            script_file="ep2.json",
+        )
 
         result = await repo.list_tasks(project_name="demo")
         assert result["total"] == 1
@@ -159,8 +195,14 @@ class TestTaskRepository:
     async def test_get_stats(self, db_session):
         repo = TaskRepository(db_session)
 
-        await repo.enqueue(project_name="demo", task_type="storyboard", media_type="image",
-                           resource_id="E1S01", payload={}, script_file="ep1.json")
+        await repo.enqueue(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+        )
         stats = await repo.get_stats()
         assert stats["queued"] == 1
         assert stats["total"] == 1

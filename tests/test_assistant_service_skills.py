@@ -10,21 +10,18 @@ class TestListAvailableSkills:
         """Should scan agent_runtime_profile/.claude/skills/ instead of .claude/skills/."""
         skill_dir = tmp_path / "agent_runtime_profile" / ".claude" / "skills" / "test-skill"
         skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text(
-            "---\nname: test-skill\ndescription: A test skill\n---\n"
-        )
+        (skill_dir / "SKILL.md").write_text("---\nname: test-skill\ndescription: A test skill\n---\n")
 
         # Create a dev-only skill in .claude/skills/ (should NOT appear)
         dev_skill = tmp_path / ".claude" / "skills" / "dev-tool"
         dev_skill.mkdir(parents=True)
-        (dev_skill / "SKILL.md").write_text(
-            "---\nname: dev-tool\ndescription: Dev only\n---\n"
-        )
+        (dev_skill / "SKILL.md").write_text("---\nname: dev-tool\ndescription: Dev only\n---\n")
 
         with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
             service = AssistantService.__new__(AssistantService)
             service.project_root = tmp_path
             from lib.project_manager import ProjectManager
+
             service.pm = ProjectManager(tmp_path / "projects")
 
         skills = service.list_available_skills()
@@ -38,6 +35,7 @@ class TestListAvailableSkills:
             service = AssistantService.__new__(AssistantService)
             service.project_root = tmp_path
             from lib.project_manager import ProjectManager
+
             service.pm = ProjectManager(tmp_path / "projects")
 
         skills = service.list_available_skills()

@@ -10,8 +10,9 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Optional
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
@@ -91,9 +92,9 @@ class FieldInfo(BaseModel):
     type: str
     required: bool
     is_set: bool
-    value: Optional[str] = None
-    value_masked: Optional[str] = None
-    placeholder: Optional[str] = None
+    value: str | None = None
+    value_masked: str | None = None
+    placeholder: str | None = None
 
 
 class ProviderConfigResponse(BaseModel):
@@ -115,9 +116,9 @@ class CredentialResponse(BaseModel):
     id: int
     provider: str
     name: str
-    api_key_masked: Optional[str] = None
-    credentials_filename: Optional[str] = None
-    base_url: Optional[str] = None
+    api_key_masked: str | None = None
+    credentials_filename: str | None = None
+    base_url: str | None = None
     is_active: bool
     created_at: str
 
@@ -128,14 +129,14 @@ class CredentialListResponse(BaseModel):
 
 class CreateCredentialRequest(BaseModel):
     name: str
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    api_key: str | None = None
+    base_url: str | None = None
 
 
 class UpdateCredentialRequest(BaseModel):
-    name: Optional[str] = None
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    name: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +151,9 @@ def _validate_provider(provider_id: str) -> None:
 
 
 async def _get_credential_or_404(
-    repo: CredentialRepository, provider_id: str, cred_id: int,
+    repo: CredentialRepository,
+    provider_id: str,
+    cred_id: int,
 ) -> ProviderCredential:
     """获取凭证并校验归属，不存在则抛 404。"""
     cred = await repo.get_by_id(cred_id)
@@ -174,6 +177,7 @@ def _cred_to_response(cred: ProviderCredential) -> CredentialResponse:
 
 async def _invalidate_caches(request: Request) -> None:
     from server.services.generation_tasks import invalidate_backend_cache
+
     invalidate_backend_cache()
     worker = getattr(request.app.state, "generation_worker", None)
     if worker:
@@ -183,7 +187,7 @@ async def _invalidate_caches(request: Request) -> None:
 def _build_field(
     key: str,
     required: bool,
-    db_entry: Optional[dict[str, Any]],
+    db_entry: dict[str, Any] | None,
 ) -> FieldInfo:
     """根据 key、是否必填和 DB 取出的条目，构建 FieldInfo。"""
     meta = _FIELD_META.get(key, {"label": key, "type": "text"})
@@ -235,10 +239,7 @@ async def list_providers(
             capabilities=s.capabilities,
             configured_keys=s.configured_keys,
             missing_keys=s.missing_keys,
-            models={
-                mid: ModelInfoResponse(**minfo)
-                for mid, minfo in (s.models or {}).items()
-            },
+            models={mid: ModelInfoResponse(**minfo) for mid, minfo in (s.models or {}).items()},
         )
         for s in statuses
     ]
@@ -284,7 +285,7 @@ async def get_provider_config(
 @router.patch("/{provider_id}/config", status_code=204)
 async def patch_provider_config(
     provider_id: str,
-    body: dict[str, Optional[str]],
+    body: dict[str, str | None],
     request: Request,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
@@ -332,8 +333,10 @@ async def create_credential(
     _validate_provider(provider_id)
     repo = CredentialRepository(session)
     cred = await repo.create(
-        provider=provider_id, name=body.name,
-        api_key=body.api_key, base_url=body.base_url,
+        provider=provider_id,
+        name=body.name,
+        api_key=body.api_key,
+        base_url=body.base_url,
     )
     await session.commit()
     await _invalidate_caches(request)
@@ -342,7 +345,8 @@ async def create_credential(
 
 @router.patch("/{provider_id}/credentials/{cred_id}", status_code=204)
 async def update_credential(
-    provider_id: str, cred_id: int,
+    provider_id: str,
+    cred_id: int,
     body: UpdateCredentialRequest,
     request: Request,
     session: AsyncSession = Depends(get_async_session),
@@ -367,7 +371,8 @@ async def update_credential(
 
 @router.delete("/{provider_id}/credentials/{cred_id}", status_code=204)
 async def delete_credential(
-    provider_id: str, cred_id: int,
+    provider_id: str,
+    cred_id: int,
     request: Request,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
@@ -382,7 +387,8 @@ async def delete_credential(
 
 @router.post("/{provider_id}/credentials/{cred_id}/activate", status_code=204)
 async def activate_credential(
-    provider_id: str, cred_id: int,
+    provider_id: str,
+    cred_id: int,
     request: Request,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
@@ -494,7 +500,8 @@ def _test_gemini_vertex(config: dict[str, str]) -> ConnectionTestResponse:
         )
 
     credentials = service_account.Credentials.from_service_account_file(
-        credentials_path, scopes=VERTEX_SCOPES,
+        credentials_path,
+        scopes=VERTEX_SCOPES,
     )
     client = genai.Client(
         vertexai=True,
@@ -568,7 +575,7 @@ _TEST_DISPATCH: dict[str, Callable[[dict[str, str]], ConnectionTestResponse]] = 
 @router.post("/{provider_id}/test", response_model=ConnectionTestResponse)
 async def test_provider_connection(
     provider_id: str,
-    credential_id: Optional[int] = None,
+    credential_id: int | None = None,
     session: AsyncSession = Depends(get_async_session),
 ) -> ConnectionTestResponse:
     """调用供应商 API 验证连通性。可指定 credential_id 测试特定凭证。"""
@@ -582,7 +589,8 @@ async def test_provider_connection(
 
     if cred is None:
         return ConnectionTestResponse(
-            success=False, available_models=[],
+            success=False,
+            available_models=[],
             message="缺少凭证配置，请先添加密钥",
         )
 
@@ -593,7 +601,8 @@ async def test_provider_connection(
     test_fn = _TEST_DISPATCH.get(provider_id)
     if test_fn is None:
         return ConnectionTestResponse(
-            success=False, available_models=[],
+            success=False,
+            available_models=[],
             message=f"供应商 {provider_id} 暂不支持连接测试",
         )
 
@@ -602,9 +611,10 @@ async def test_provider_connection(
             asyncio.to_thread(test_fn, config),
             timeout=_CONNECTION_TEST_TIMEOUT,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return ConnectionTestResponse(
-            success=False, available_models=[],
+            success=False,
+            available_models=[],
             message="连接超时，请检查网络或 API 配置",
         )
     except Exception as exc:
@@ -613,7 +623,8 @@ async def test_provider_connection(
             err_msg = err_msg[:200] + "..."
         logger.warning("连接测试失败 [%s]: %s", provider_id, err_msg)
         return ConnectionTestResponse(
-            success=False, available_models=[],
+            success=False,
+            available_models=[],
             message=f"连接失败: {err_msg}",
         )
     return result

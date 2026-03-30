@@ -1,5 +1,3 @@
-import asyncio
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -62,7 +60,9 @@ class TestTasksRouterMore:
             latest=10,
             snapshot=[{"task_id": "t1"}],
             stats={"running": 1},
-            events=[{"id": 11, "event_type": "running", "task_id": "t1", "data": {"task_id": "t1", "status": "running"}}],
+            events=[
+                {"id": 11, "event_type": "running", "task_id": "t1", "data": {"task_id": "t1", "status": "running"}}
+            ],
         )
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
         monkeypatch.setattr(tasks_router, "read_queue_poll_interval", lambda: 0.0)
@@ -119,7 +119,9 @@ class TestTasksRouterMore:
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: _FakeQueue(task=None))
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.dependency_overrides[get_current_user_flexible] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.dependency_overrides[get_current_user_flexible] = lambda: CurrentUserInfo(
+            id="default", sub="testuser", role="admin"
+        )
         app.include_router(tasks_router.router, prefix="/api/v1")
 
         with TestClient(app) as client:

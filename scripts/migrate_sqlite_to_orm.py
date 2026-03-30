@@ -28,7 +28,6 @@ sys.path.insert(0, str(ROOT))
 
 # Import lib.db submodules directly to avoid triggering lib/__init__.py
 # which pulls in GeminiClient → PIL and other heavy dependencies.
-import importlib
 import types
 
 # Create a minimal lib package stub so sub-imports resolve correctly
@@ -108,8 +107,13 @@ async def _migrate(dry_run: bool) -> dict[str, int]:
 
     if dry_run:
         print("\n[DRY RUN] 不写入数据库，不重命名旧文件。")
-        return {"tasks": len(tasks), "events": len(events), "leases": len(leases),
-                "api_calls": len(api_calls), "sessions": len(sessions)}
+        return {
+            "tasks": len(tasks),
+            "events": len(events),
+            "leases": len(leases),
+            "api_calls": len(api_calls),
+            "sessions": len(sessions),
+        }
 
     # --- Ensure new DB tables exist ---
     await init_db()
@@ -117,80 +121,90 @@ async def _migrate(dry_run: bool) -> dict[str, int]:
     async with async_session_factory() as session:
         # Tasks
         for row in tasks:
-            session.add(Task(
-                task_id=row["task_id"],
-                project_name=row["project_name"],
-                task_type=row["task_type"],
-                media_type=row["media_type"],
-                resource_id=row["resource_id"],
-                script_file=row.get("script_file"),
-                payload_json=row.get("payload_json"),
-                status=row["status"],
-                result_json=row.get("result_json"),
-                error_message=row.get("error_message"),
-                source=row.get("source", "webui"),
-                dependency_task_id=row.get("dependency_task_id"),
-                dependency_group=row.get("dependency_group"),
-                dependency_index=row.get("dependency_index"),
-                queued_at=row["queued_at"],
-                started_at=row.get("started_at"),
-                finished_at=row.get("finished_at"),
-                updated_at=row["updated_at"],
-            ))
+            session.add(
+                Task(
+                    task_id=row["task_id"],
+                    project_name=row["project_name"],
+                    task_type=row["task_type"],
+                    media_type=row["media_type"],
+                    resource_id=row["resource_id"],
+                    script_file=row.get("script_file"),
+                    payload_json=row.get("payload_json"),
+                    status=row["status"],
+                    result_json=row.get("result_json"),
+                    error_message=row.get("error_message"),
+                    source=row.get("source", "webui"),
+                    dependency_task_id=row.get("dependency_task_id"),
+                    dependency_group=row.get("dependency_group"),
+                    dependency_index=row.get("dependency_index"),
+                    queued_at=row["queued_at"],
+                    started_at=row.get("started_at"),
+                    finished_at=row.get("finished_at"),
+                    updated_at=row["updated_at"],
+                )
+            )
 
         # Task events
         for row in events:
-            session.add(TaskEvent(
-                task_id=row["task_id"],
-                project_name=row["project_name"],
-                event_type=row["event_type"],
-                status=row["status"],
-                data_json=row.get("data_json"),
-                created_at=row["created_at"],
-            ))
+            session.add(
+                TaskEvent(
+                    task_id=row["task_id"],
+                    project_name=row["project_name"],
+                    event_type=row["event_type"],
+                    status=row["status"],
+                    data_json=row.get("data_json"),
+                    created_at=row["created_at"],
+                )
+            )
 
         # Worker leases
         for row in leases:
-            session.add(WorkerLease(
-                name=row["name"],
-                owner_id=row["owner_id"],
-                lease_until=row["lease_until"],
-                updated_at=row["updated_at"],
-            ))
+            session.add(
+                WorkerLease(
+                    name=row["name"],
+                    owner_id=row["owner_id"],
+                    lease_until=row["lease_until"],
+                    updated_at=row["updated_at"],
+                )
+            )
 
         # API calls
         for row in api_calls:
-            session.add(ApiCall(
-                project_name=row["project_name"],
-                call_type=row["call_type"],
-                model=row["model"],
-                prompt=row.get("prompt"),
-                resolution=row.get("resolution"),
-                duration_seconds=row.get("duration_seconds"),
-                aspect_ratio=row.get("aspect_ratio"),
-                generate_audio=row.get("generate_audio"),
-                status=row.get("status", "pending"),
-                error_message=row.get("error_message"),
-                output_path=row.get("output_path"),
-                started_at=row["started_at"],
-                finished_at=row.get("finished_at"),
-                duration_ms=row.get("duration_ms"),
-                retry_count=row.get("retry_count", 0),
-                cost_amount=row.get("cost_usd", 0.0),
-                created_at=row.get("created_at"),
-            ))
+            session.add(
+                ApiCall(
+                    project_name=row["project_name"],
+                    call_type=row["call_type"],
+                    model=row["model"],
+                    prompt=row.get("prompt"),
+                    resolution=row.get("resolution"),
+                    duration_seconds=row.get("duration_seconds"),
+                    aspect_ratio=row.get("aspect_ratio"),
+                    generate_audio=row.get("generate_audio"),
+                    status=row.get("status", "pending"),
+                    error_message=row.get("error_message"),
+                    output_path=row.get("output_path"),
+                    started_at=row["started_at"],
+                    finished_at=row.get("finished_at"),
+                    duration_ms=row.get("duration_ms"),
+                    retry_count=row.get("retry_count", 0),
+                    cost_amount=row.get("cost_usd", 0.0),
+                    created_at=row.get("created_at"),
+                )
+            )
 
         # Agent sessions
         for row in sessions:
-            session.add(AgentSession(
-                id=row["id"],
-                sdk_session_id=row.get("sdk_session_id"),
-                project_name=row["project_name"],
-                title=row.get("title", ""),
-                status=row.get("status", "idle"),
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
-            ))
+            session.add(
+                AgentSession(
+                    id=row["id"],
+                    sdk_session_id=row.get("sdk_session_id"),
+                    project_name=row["project_name"],
+                    title=row.get("title", ""),
+                    status=row.get("status", "idle"),
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"],
+                )
+            )
 
         await session.commit()
 

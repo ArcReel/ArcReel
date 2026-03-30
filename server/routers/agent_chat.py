@@ -6,7 +6,6 @@
 
 import asyncio
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -26,7 +25,7 @@ SYNC_CHAT_TIMEOUT = 120  # 秒
 class AgentChatRequest(BaseModel):
     project_name: str = Field(pattern=r"^[a-zA-Z0-9_-]+$")
     message: str = Field(min_length=1)
-    session_id: Optional[str] = None
+    session_id: str | None = None
 
 
 class AgentChatResponse(BaseModel):
@@ -77,7 +76,7 @@ async def _collect_reply(
 
             try:
                 message = await asyncio.wait_for(queue.get(), timeout=min(remaining, 5.0))
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # 检查会话是否已完成
                 live_status = await service.session_manager.get_status(session_id)
                 if live_status and live_status != "running":
@@ -181,10 +180,7 @@ async def agent_chat(
             for turn in reversed(turns):
                 if turn.get("role") == "assistant":
                     blocks = turn.get("content", [])
-                    text_parts = [
-                        b.get("text", "") for b in blocks
-                        if isinstance(b, dict) and b.get("type") == "text"
-                    ]
+                    text_parts = [b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text"]
                     reply = "".join(text_parts)
                     if reply:
                         break

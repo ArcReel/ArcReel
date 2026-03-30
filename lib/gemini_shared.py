@@ -20,7 +20,7 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Type, Union
+from typing import Optional
 
 from .cost_calculator import cost_calculator
 
@@ -33,7 +33,7 @@ VERTEX_SCOPES = [
 ]
 
 # 可重试的错误类型
-RETRYABLE_ERRORS: Tuple[Type[Exception], ...] = (
+RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     ConnectionError,
     TimeoutError,
 )
@@ -60,7 +60,7 @@ class RateLimiter:
     多模型滑动窗口限流器
     """
 
-    def __init__(self, limits_dict: Dict[str, int] = None, *, request_gap: float = 3.1):
+    def __init__(self, limits_dict: dict[str, int] = None, *, request_gap: float = 3.1):
         """
         Args:
             limits_dict: {model_name: rpm} 字典。例如 {"gemini-3-pro-image-preview": 20}
@@ -69,7 +69,7 @@ class RateLimiter:
         self.limits = limits_dict or {}
         self.request_gap = request_gap
         # 存储请求时间戳：{model_name: deque([timestamp1, timestamp2, ...])}
-        self.request_logs: Dict[str, deque] = {}
+        self.request_logs: dict[str, deque] = {}
         self.lock = threading.Lock()
 
     def acquire(self, model_name: str):
@@ -177,11 +177,11 @@ _shared_rate_limiter_lock = threading.Lock()
 
 def _rate_limiter_limits_from_env(
     *,
-    image_rpm: Optional[int] = None,
-    video_rpm: Optional[int] = None,
-    image_model: Optional[str] = None,
-    video_model: Optional[str] = None,
-) -> Dict[str, int]:
+    image_rpm: int | None = None,
+    video_rpm: int | None = None,
+    image_model: str | None = None,
+    video_model: str | None = None,
+) -> dict[str, int]:
     if image_rpm is None:
         image_rpm = 15
     if video_rpm is None:
@@ -191,7 +191,7 @@ def _rate_limiter_limits_from_env(
     if video_model is None:
         video_model = _SHARED_VIDEO_MODEL_NAME
 
-    limits: Dict[str, int] = {}
+    limits: dict[str, int] = {}
     if image_rpm > 0:
         limits[image_model] = image_rpm
     if video_rpm > 0:
@@ -201,11 +201,11 @@ def _rate_limiter_limits_from_env(
 
 def get_shared_rate_limiter(
     *,
-    image_rpm: Optional[int] = None,
-    video_rpm: Optional[int] = None,
-    image_model: Optional[str] = None,
-    video_model: Optional[str] = None,
-    request_gap: Optional[float] = None,
+    image_rpm: int | None = None,
+    video_rpm: int | None = None,
+    image_model: str | None = None,
+    video_model: str | None = None,
+    request_gap: float | None = None,
 ) -> "RateLimiter":
     """
     获取进程内共享的 RateLimiter
@@ -237,11 +237,11 @@ def get_shared_rate_limiter(
 
 def refresh_shared_rate_limiter(
     *,
-    image_rpm: Optional[int] = None,
-    video_rpm: Optional[int] = None,
-    image_model: Optional[str] = None,
-    video_model: Optional[str] = None,
-    request_gap: Optional[float] = None,
+    image_rpm: int | None = None,
+    video_rpm: int | None = None,
+    image_model: str | None = None,
+    video_model: str | None = None,
+    request_gap: float | None = None,
 ) -> "RateLimiter":
     """
     Refresh the process-wide shared RateLimiter in-place.
@@ -266,8 +266,8 @@ def refresh_shared_rate_limiter(
 
 def with_retry(
     max_attempts: int = 5,
-    backoff_seconds: Tuple[int, ...] = (2, 4, 8, 16, 32),
-    retryable_errors: Tuple[Type[Exception], ...] = RETRYABLE_ERRORS,
+    backoff_seconds: tuple[int, ...] = (2, 4, 8, 16, 32),
+    retryable_errors: tuple[type[Exception], ...] = RETRYABLE_ERRORS,
 ):
     """
     带指数退避的重试装饰器
@@ -319,11 +319,16 @@ def with_retry(
                         wait_time = base_wait + jitter
                         logger.warning(
                             "%sAPI 调用异常: %s - %s",
-                            context_str, type(e).__name__, str(e)[:200],
+                            context_str,
+                            type(e).__name__,
+                            str(e)[:200],
                         )
                         logger.warning(
                             "%s重试 %d/%d, %.1f 秒后...",
-                            context_str, attempt + 1, max_attempts - 1, wait_time,
+                            context_str,
+                            attempt + 1,
+                            max_attempts - 1,
+                            wait_time,
                         )
                         time.sleep(wait_time)
             raise last_error
@@ -335,8 +340,8 @@ def with_retry(
 
 def with_retry_async(
     max_attempts: int = 5,
-    backoff_seconds: Tuple[int, ...] = (2, 4, 8, 16, 32),
-    retryable_errors: Tuple[Type[Exception], ...] = RETRYABLE_ERRORS,
+    backoff_seconds: tuple[int, ...] = (2, 4, 8, 16, 32),
+    retryable_errors: tuple[type[Exception], ...] = RETRYABLE_ERRORS,
 ):
     """
     异步函数重试装饰器，带指数退避和随机抖动
@@ -383,11 +388,16 @@ def with_retry_async(
                         wait_time = base_wait + jitter
                         logger.warning(
                             "%sAPI 调用异常: %s - %s",
-                            context_str, type(e).__name__, str(e)[:200],
+                            context_str,
+                            type(e).__name__,
+                            str(e)[:200],
                         )
                         logger.warning(
                             "%s重试 %d/%d, %.1f 秒后...",
-                            context_str, attempt + 1, max_attempts - 1, wait_time,
+                            context_str,
+                            attempt + 1,
+                            max_attempts - 1,
+                            wait_time,
                         )
                         await asyncio.sleep(wait_time)
             raise last_error

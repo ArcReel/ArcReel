@@ -6,6 +6,7 @@
 
 import logging
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,9 @@ pm = ProjectManager(PROJECT_ROOT / "projects")
 
 _RESOURCE_FILE_PATTERNS: dict[str, tuple[str, str]] = {
     "storyboards": ("storyboards", "scene_{id}.png"),
-    "videos":      ("videos",      "scene_{id}.mp4"),
-    "characters":  ("characters",  "{id}.png"),
-    "clues":       ("clues",       "{id}.png"),
+    "videos": ("videos", "scene_{id}.mp4"),
+    "characters": ("characters", "{id}.png"),
+    "clues": ("clues", "{id}.png"),
 }
 
 
@@ -105,6 +106,7 @@ def _sync_metadata(
 
 # ==================== 版本查询 ====================
 
+
 @router.get("/projects/{project_name}/versions/{resource_type}/{resource_id}")
 async def get_versions(
     project_name: str,
@@ -124,11 +126,7 @@ async def get_versions(
         vm = get_version_manager(project_name)
         versions_info = vm.get_versions(resource_type, resource_id)
 
-        return {
-            "resource_type": resource_type,
-            "resource_id": resource_id,
-            **versions_info
-        }
+        return {"resource_type": resource_type, "resource_id": resource_id, **versions_info}
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -140,6 +138,7 @@ async def get_versions(
 
 
 # ==================== 版本还原 ====================
+
 
 @router.post("/projects/{project_name}/versions/{resource_type}/{resource_id}/restore/{version}")
 async def restore_version(

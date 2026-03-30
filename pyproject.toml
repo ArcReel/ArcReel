@@ -12,12 +12,9 @@ dependencies = [
     "Pillow>=12.1.1",
     "pydantic>=2.12.5",
     "PyYAML>=6.0.3",
-    "pytest>=9.0.2",
     "python-dotenv>=1.2.1",
     "python-multipart>=0.0.22",
     "uvicorn>=0.41.0",
-    "pytest-asyncio>=1.3.0",
-    "pytest-cov>=7.0.0",
     "pyjwt>=2.12.1",
     "sqlalchemy[asyncio]>=2.0.48",
     "aiosqlite>=0.22.1",
@@ -30,6 +27,9 @@ dependencies = [
     "pyjianyingdraft>=0.2.6",
     "instructor>=1.14.5",
 ]
+
+[dependency-groups]
+dev = ["pytest>=9.0.2", "pytest-asyncio>=1.3.0", "pytest-cov>=7.0.0", "ruff>=0.15.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -52,3 +52,11 @@ exclude_lines = [
     'if __name__ == "__main__":',
     "if __name__ == '__main__':",
 ]
+
+[tool.ruff]
+line-length = 120
+exclude = [".worktrees", ".claude/worktrees"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E402", "E501"]

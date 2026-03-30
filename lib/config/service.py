@@ -64,7 +64,12 @@ class ConfigService:
         return await self._provider_repo.get_all(provider)
 
     async def set_provider_config(
-        self, provider: str, key: str, value: str, *, flush: bool = True,
+        self,
+        provider: str,
+        key: str,
+        value: str,
+        *,
+        flush: bool = True,
     ) -> None:
         self._validate_provider(provider)
         meta = PROVIDER_REGISTRY[provider]
@@ -72,7 +77,11 @@ class ConfigService:
         await self._provider_repo.set(provider, key, value, is_secret=is_secret, flush=flush)
 
     async def delete_provider_config(
-        self, provider: str, key: str, *, flush: bool = True,
+        self,
+        provider: str,
+        key: str,
+        *,
+        flush: bool = True,
     ) -> None:
         self._validate_provider(provider)
         await self._provider_repo.delete(provider, key, flush=flush)

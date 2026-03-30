@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from server.agent_runtime.models import SessionMeta
 
@@ -17,8 +17,8 @@ def make_session_meta(**overrides) -> SessionMeta:
         project_name="demo",
         title="demo",
         status="running",
-        created_at=datetime(2026, 2, 9, 8, 0, 0, tzinfo=timezone.utc),
-        updated_at=datetime(2026, 2, 9, 8, 0, 0, tzinfo=timezone.utc),
+        created_at=datetime(2026, 2, 9, 8, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 2, 9, 8, 0, 0, tzinfo=UTC),
     )
     defaults.update(overrides)
     return SessionMeta(**defaults)

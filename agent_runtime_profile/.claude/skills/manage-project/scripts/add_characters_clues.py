@@ -17,9 +17,7 @@ import sys
 from pathlib import Path
 
 # 允许从仓库任意工作目录直接运行该脚本
-PROJECT_ROOT = (
-    Path(__file__).resolve().parents[4]
-)  # .claude/skills/manage-project/scripts -> repo root
+PROJECT_ROOT = Path(__file__).resolve().parents[4]  # .claude/skills/manage-project/scripts -> repo root
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 

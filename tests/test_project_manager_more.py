@@ -31,6 +31,7 @@ class _FakeTextBackend:
 
     async def generate(self, request):
         from lib.text_backends.base import TextGenerationResult
+
         return TextGenerationResult(
             text=json.dumps(
                 {
@@ -308,6 +309,7 @@ class TestProjectManagerMore:
 
         async def _fake_create_backend(*args, **kwargs):
             return _FakeTextBackend()
+
         monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _fake_create_backend)
         overview = await pm.generate_overview("demo")
         assert overview["genre"] == "悬疑"

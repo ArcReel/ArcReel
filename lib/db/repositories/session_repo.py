@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
+from typing import Any
 
-from sqlalchemy import delete as sa_delete, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import select, update
 
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.session import AgentSession
@@ -26,8 +26,9 @@ def _row_to_dict(row: AgentSession) -> dict[str, Any]:
 
 
 class SessionRepository(BaseRepository):
-
-    async def create(self, project_name: str, sdk_session_id: str, title: str = "", user_id: str = DEFAULT_USER_ID) -> dict[str, Any]:
+    async def create(
+        self, project_name: str, sdk_session_id: str, title: str = "", user_id: str = DEFAULT_USER_ID
+    ) -> dict[str, Any]:
         now = utc_now()
         row = AgentSession(
             id=uuid.uuid4().hex,
@@ -44,7 +45,7 @@ class SessionRepository(BaseRepository):
         await self.session.refresh(row)
         return _row_to_dict(row)
 
-    async def get(self, session_id: str) -> Optional[dict[str, Any]]:
+    async def get(self, session_id: str) -> dict[str, Any] | None:
         stmt = select(AgentSession).where(AgentSession.sdk_session_id == session_id)
         stmt = self._scope_query(stmt, AgentSession)
         result = await self.session.execute(stmt)
@@ -54,8 +55,8 @@ class SessionRepository(BaseRepository):
     async def list(
         self,
         *,
-        project_name: Optional[str] = None,
-        status: Optional[str] = None,
+        project_name: str | None = None,
+        status: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -74,26 +75,20 @@ class SessionRepository(BaseRepository):
     async def update_status(self, session_id: str, status: str) -> bool:
         now = utc_now()
         result = await self.session.execute(
-            update(AgentSession)
-            .where(AgentSession.sdk_session_id == session_id)
-            .values(status=status, updated_at=now)
+            update(AgentSession).where(AgentSession.sdk_session_id == session_id).values(status=status, updated_at=now)
         )
         await self.session.commit()
         return result.rowcount > 0
 
     async def delete(self, session_id: str) -> bool:
-        result = await self.session.execute(
-            sa_delete(AgentSession).where(AgentSession.sdk_session_id == session_id)
-        )
+        result = await self.session.execute(sa_delete(AgentSession).where(AgentSession.sdk_session_id == session_id))
         await self.session.commit()
         return result.rowcount > 0
 
     async def interrupt_running(self) -> int:
         now = utc_now()
         result = await self.session.execute(
-            update(AgentSession)
-            .where(AgentSession.status == "running")
-            .values(status="interrupted", updated_at=now)
+            update(AgentSession).where(AgentSession.status == "running").values(status="interrupted", updated_at=now)
         )
         await self.session.commit()
         return result.rowcount

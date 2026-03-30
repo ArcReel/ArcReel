@@ -1,5 +1,5 @@
-from io import BytesIO
 import json
+from io import BytesIO
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -25,6 +25,7 @@ class _FakeTextBackend:
 
     async def generate(self, request):
         from lib.text_backends.base import TextGenerationResult
+
         return TextGenerationResult(text="cinematic, high contrast", provider="fake", model="fake-model")
 
 

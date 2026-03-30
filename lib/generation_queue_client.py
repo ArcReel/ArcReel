@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import (
@@ -32,13 +33,11 @@ class TaskWaitTimeoutError(TimeoutError):
     """Raised when queued task does not finish before timeout."""
 
 
-DEFAULT_TASK_WAIT_TIMEOUT_SEC: Optional[float] = 3600.0
-DEFAULT_WORKER_OFFLINE_GRACE_SEC: float = max(
-    20.0, float(TASK_WORKER_LEASE_TTL_SEC) * 2.0
-)
+DEFAULT_TASK_WAIT_TIMEOUT_SEC: float | None = 3600.0
+DEFAULT_WORKER_OFFLINE_GRACE_SEC: float = max(20.0, float(TASK_WORKER_LEASE_TTL_SEC) * 2.0)
 
 
-def read_task_wait_timeout() -> Optional[float]:
+def read_task_wait_timeout() -> float | None:
     value = DEFAULT_TASK_WAIT_TIMEOUT_SEC
     if value is None:
         return None
@@ -59,12 +58,12 @@ async def is_worker_online(lease_name: str = "default") -> bool:
 
 async def wait_for_task(
     task_id: str,
-    poll_interval: Optional[float] = None,
+    poll_interval: float | None = None,
     *,
-    timeout_seconds: Optional[float] = None,
+    timeout_seconds: float | None = None,
     lease_name: str = "default",
-    worker_offline_grace_seconds: Optional[float] = None,
-) -> Dict[str, Any]:
+    worker_offline_grace_seconds: float | None = None,
+) -> dict[str, Any]:
     queue = get_generation_queue()
     interval = poll_interval if poll_interval is not None else read_queue_poll_interval()
     timeout = read_task_wait_timeout() if timeout_seconds is None else timeout_seconds
@@ -76,7 +75,7 @@ async def wait_for_task(
         else max(0.1, float(worker_offline_grace_seconds))
     )
     start = time.monotonic()
-    offline_since: Optional[float] = None
+    offline_since: float | None = None
 
     while True:
         task = await queue.get_task(task_id)
@@ -89,9 +88,7 @@ async def wait_for_task(
 
         now = time.monotonic()
         if timeout is not None and now - start >= timeout:
-            raise TaskWaitTimeoutError(
-                f"timed out waiting for task '{task_id}' after {timeout:.1f}s"
-            )
+            raise TaskWaitTimeoutError(f"timed out waiting for task '{task_id}' after {timeout:.1f}s")
 
         if await queue.is_worker_online(name=lease_name):
             offline_since = None
@@ -99,9 +96,7 @@ async def wait_for_task(
             if offline_since is None:
                 offline_since = now
             elif now - offline_since >= offline_grace:
-                raise WorkerOfflineError(
-                    f"queue worker offline while waiting for task '{task_id}'"
-                )
+                raise WorkerOfflineError(f"queue worker offline while waiting for task '{task_id}'")
 
         await asyncio.sleep(interval)
 
@@ -112,17 +107,17 @@ async def enqueue_and_wait(
     task_type: str,
     media_type: str,
     resource_id: str,
-    payload: Optional[Dict[str, Any]] = None,
-    script_file: Optional[str] = None,
+    payload: dict[str, Any] | None = None,
+    script_file: str | None = None,
     source: str = "skill",
     lease_name: str = "default",
-    wait_timeout_seconds: Optional[float] = None,
-    worker_offline_grace_seconds: Optional[float] = None,
-    dependency_task_id: Optional[str] = None,
-    dependency_group: Optional[str] = None,
-    dependency_index: Optional[int] = None,
+    wait_timeout_seconds: float | None = None,
+    worker_offline_grace_seconds: float | None = None,
+    dependency_task_id: str | None = None,
+    dependency_group: str | None = None,
+    dependency_index: int | None = None,
     user_id: str = DEFAULT_USER_ID,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     enqueue_result = await enqueue_task_only(
         project_name=project_name,
         task_type=task_type,
@@ -161,15 +156,15 @@ async def enqueue_task_only(
     task_type: str,
     media_type: str,
     resource_id: str,
-    payload: Optional[Dict[str, Any]] = None,
-    script_file: Optional[str] = None,
+    payload: dict[str, Any] | None = None,
+    script_file: str | None = None,
     source: str = "skill",
     lease_name: str = "default",
-    dependency_task_id: Optional[str] = None,
-    dependency_group: Optional[str] = None,
-    dependency_index: Optional[int] = None,
+    dependency_task_id: str | None = None,
+    dependency_group: str | None = None,
+    dependency_index: int | None = None,
     user_id: str = DEFAULT_USER_ID,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     queue = get_generation_queue()
 
     if not await queue.is_worker_online(name=lease_name):
@@ -195,6 +190,7 @@ async def enqueue_task_only(
 # Sync wrappers for skill scripts running outside an event loop
 # ---------------------------------------------------------------------------
 
+
 def _run_in_fresh_loop(coro):
     """Run *coro* with ``asyncio.run()``, disposing stale pool connections first."""
     from lib.db.engine import dispose_pool
@@ -213,22 +209,23 @@ def _run_sync(coro):
     if loop is not None and loop.is_running():
         # Already inside an event loop — create a new thread to run the coroutine.
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             return pool.submit(_run_in_fresh_loop, coro).result()
     return _run_in_fresh_loop(coro)
 
 
-def enqueue_task_only_sync(**kwargs) -> Dict[str, Any]:
+def enqueue_task_only_sync(**kwargs) -> dict[str, Any]:
     """Sync wrapper for enqueue_task_only()."""
     return _run_sync(enqueue_task_only(**kwargs))
 
 
-def wait_for_task_sync(task_id: str, poll_interval=None, **kwargs) -> Dict[str, Any]:
+def wait_for_task_sync(task_id: str, poll_interval=None, **kwargs) -> dict[str, Any]:
     """Sync wrapper for wait_for_task()."""
     return _run_sync(wait_for_task(task_id, poll_interval, **kwargs))
 
 
-def enqueue_and_wait_sync(**kwargs) -> Dict[str, Any]:
+def enqueue_and_wait_sync(**kwargs) -> dict[str, Any]:
     """Sync wrapper for enqueue_and_wait()."""
     return _run_sync(enqueue_and_wait(**kwargs))
 
@@ -245,13 +242,13 @@ class BatchTaskSpec:
     task_type: str
     media_type: str
     resource_id: str
-    payload: Optional[Dict[str, Any]] = None
-    script_file: Optional[str] = None
+    payload: dict[str, Any] | None = None
+    script_file: str | None = None
     source: str = "skill"
     # Express dependency by resource_id; auto-resolved to task_id during enqueue.
-    dependency_resource_id: Optional[str] = None
-    dependency_group: Optional[str] = None
-    dependency_index: Optional[int] = None
+    dependency_resource_id: str | None = None
+    dependency_group: str | None = None
+    dependency_index: int | None = None
 
 
 @dataclass
@@ -261,13 +258,11 @@ class BatchTaskResult:
     resource_id: str
     task_id: str
     status: str  # "succeeded" | "failed"
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
 
 
-def _task_result_from_finished(
-    task: Dict[str, Any], resource_id: str, task_id: str
-) -> BatchTaskResult:
+def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: str) -> BatchTaskResult:
     """Build a BatchTaskResult from a finished task dict."""
     if task.get("status") == "failed":
         return BatchTaskResult(
@@ -286,19 +281,19 @@ def _task_result_from_finished(
 
 async def _batch_enqueue_and_wait(
     project_name: str,
-    specs: List[BatchTaskSpec],
-    on_success: Optional[Callable[[BatchTaskResult], None]],
-    on_failure: Optional[Callable[[BatchTaskResult], None]],
-) -> Tuple[List[BatchTaskResult], List[BatchTaskResult]]:
+    specs: list[BatchTaskSpec],
+    on_success: Callable[[BatchTaskResult], None] | None,
+    on_failure: Callable[[BatchTaskResult], None] | None,
+) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
     """Async implementation: enqueue sequentially, then gather-wait all tasks.
 
     Runs entirely within a single event loop, so all asyncpg connections
     are bound to the same loop — no cross-loop errors.
     """
     # Phase 1 — Sequential enqueue (dependency resolution requires order)
-    task_ids: Dict[str, str] = {}
+    task_ids: dict[str, str] = {}
     for spec in specs:
-        dep_task_id: Optional[str] = None
+        dep_task_id: str | None = None
         if spec.dependency_resource_id:
             dep_task_id = task_ids.get(spec.dependency_resource_id)
 
@@ -332,8 +327,8 @@ async def _batch_enqueue_and_wait(
 
     results = await asyncio.gather(*[_wait_one(s) for s in specs])
 
-    successes: List[BatchTaskResult] = []
-    failures: List[BatchTaskResult] = []
+    successes: list[BatchTaskResult] = []
+    failures: list[BatchTaskResult] = []
     for br in results:
         if br.status == "succeeded":
             successes.append(br)
@@ -350,10 +345,10 @@ async def _batch_enqueue_and_wait(
 def batch_enqueue_and_wait_sync(
     *,
     project_name: str,
-    specs: List[BatchTaskSpec],
-    on_success: Optional[Callable[[BatchTaskResult], None]] = None,
-    on_failure: Optional[Callable[[BatchTaskResult], None]] = None,
-) -> Tuple[List[BatchTaskResult], List[BatchTaskResult]]:
+    specs: list[BatchTaskSpec],
+    on_success: Callable[[BatchTaskResult], None] | None = None,
+    on_failure: Callable[[BatchTaskResult], None] | None = None,
+) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
     """Batch-enqueue all tasks then wait for all of them to complete.
 
     Phase 1 — Sequential enqueue: iterate *specs* and call
@@ -370,6 +365,4 @@ def batch_enqueue_and_wait_sync(
     if not specs:
         return [], []
 
-    return _run_sync(
-        _batch_enqueue_and_wait(project_name, specs, on_success, on_failure)
-    )
+    return _run_sync(_batch_enqueue_and_wait(project_name, specs, on_success, on_failure))

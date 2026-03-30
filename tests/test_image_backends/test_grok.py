@@ -8,10 +8,10 @@ import pytest
 
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def _patch_xai_sdk():
@@ -26,18 +26,21 @@ def _patch_xai_sdk():
 @pytest.fixture()
 def backend(_patch_xai_sdk):
     from lib.image_backends.grok import GrokImageBackend
+
     return GrokImageBackend(api_key="fake-xai-key")
 
 
 @pytest.fixture()
 def backend_pro(_patch_xai_sdk):
     from lib.image_backends.grok import GrokImageBackend
+
     return GrokImageBackend(api_key="fake-xai-key", model="grok-imagine-image-pro")
 
 
 # ---------------------------------------------------------------------------
 # 属性测试
 # ---------------------------------------------------------------------------
+
 
 class TestProperties:
     def test_name(self, backend):
@@ -60,14 +63,17 @@ class TestProperties:
 # 构造函数测试
 # ---------------------------------------------------------------------------
 
+
 class TestInit:
     def test_missing_api_key_raises(self, _patch_xai_sdk):
         from lib.image_backends.grok import GrokImageBackend
+
         with pytest.raises(ValueError, match="XAI_API_KEY"):
             GrokImageBackend()
 
     def test_empty_api_key_raises(self, _patch_xai_sdk):
         from lib.image_backends.grok import GrokImageBackend
+
         with pytest.raises(ValueError, match="XAI_API_KEY"):
             GrokImageBackend(api_key="")
 
@@ -75,6 +81,7 @@ class TestInit:
 # ---------------------------------------------------------------------------
 # generate() T2I 测试
 # ---------------------------------------------------------------------------
+
 
 class TestGenerateT2I:
     async def test_t2i_calls_image_sample(self, backend, tmp_path):
@@ -122,6 +129,7 @@ class TestGenerateT2I:
 # ---------------------------------------------------------------------------
 # generate() I2I 测试
 # ---------------------------------------------------------------------------
+
 
 class TestGenerateI2I:
     async def test_i2i_sends_data_uri(self, backend, tmp_path):
@@ -194,6 +202,7 @@ class TestGenerateI2I:
 # 审核测试
 # ---------------------------------------------------------------------------
 
+
 class TestModeration:
     async def test_moderation_failure_raises(self, backend, tmp_path):
         """respect_moderation=False 时抛出 RuntimeError。"""
@@ -214,9 +223,11 @@ class TestModeration:
 # resolution 映射测试
 # ---------------------------------------------------------------------------
 
+
 class TestResolutionMapping:
     def test_map_image_size(self, _patch_xai_sdk):
         from lib.image_backends.grok import _map_image_size_to_resolution
+
         assert _map_image_size_to_resolution("1K") == "1k"
         assert _map_image_size_to_resolution("2K") == "2k"
         assert _map_image_size_to_resolution("unknown") == "1k"

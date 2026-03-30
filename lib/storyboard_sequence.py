@@ -4,9 +4,9 @@ Helpers for storyboard sequence ordering and dependency planning.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
 
 
 @dataclass(frozen=True)
@@ -20,12 +20,11 @@ class StoryboardTaskPlan:
 
 PREVIOUS_STORYBOARD_REFERENCE_LABEL = "上一分镜图（镜头衔接参考）"
 PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = (
-    "仅用于延续前一镜头的构图、色调和场景连续性，"
-    "不是新增角色、服装或道具设定；请以当前 prompt 为准生成当前镜头。"
+    "仅用于延续前一镜头的构图、色调和场景连续性，不是新增角色、服装或道具设定；请以当前 prompt 为准生成当前镜头。"
 )
 
 
-def get_storyboard_items(script: dict) -> Tuple[List[dict], str, str, str]:
+def get_storyboard_items(script: dict) -> tuple[list[dict], str, str, str]:
     content_mode = script.get("content_mode", "narration")
     if content_mode == "narration" and "segments" in script:
         return (
@@ -111,9 +110,7 @@ def build_storyboard_dependency_plan(
             previous_resource_id = str(items[index - 1].get(id_field) or "").strip() or None
 
         starts_new_group = (
-            bool(item.get("segment_break"))
-            or not previous_resource_id
-            or previous_resource_id not in selected_set
+            bool(item.get("segment_break")) or not previous_resource_id or previous_resource_id not in selected_set
         )
 
         if starts_new_group:

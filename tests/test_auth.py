@@ -95,16 +95,12 @@ class TestCheckCredentials:
 
     def test_check_credentials_valid(self):
         """正确凭据返回 True"""
-        with patch.dict(
-            os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}
-        ):
+        with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
             assert auth_module.check_credentials("admin", "pass123") is True
 
     def test_check_credentials_invalid(self):
         """错误凭据返回 False"""
-        with patch.dict(
-            os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}
-        ):
+        with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
             assert auth_module.check_credentials("admin", "wrong") is False
             assert auth_module.check_credentials("nobody", "pass123") is False
 
@@ -198,6 +194,7 @@ class TestDownloadToken:
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
             token = auth_module.create_download_token("admin", "project-a")
             import pytest
+
             with pytest.raises(ValueError, match="project 不匹配"):
                 auth_module.verify_download_token(token, "project-b")
 
@@ -246,30 +243,22 @@ class TestPasswordHash:
 
     def test_check_credentials_with_hash(self):
         """密码通过哈希比对验证"""
-        with patch.dict(
-            os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}
-        ):
+        with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
             assert auth_module.check_credentials("admin", "pass123") is True
 
     def test_check_credentials_wrong_password_with_hash(self):
         """错误密码哈希比对失败"""
-        with patch.dict(
-            os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}
-        ):
+        with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
             assert auth_module.check_credentials("admin", "wrong") is False
 
     def test_check_credentials_wrong_username_timing_safe(self):
         """错误用户名也执行哈希验证（防时序攻击）"""
-        with patch.dict(
-            os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}
-        ):
+        with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
             assert auth_module.check_credentials("nobody", "pass123") is False
 
     def test_password_hash_cached(self):
         """哈希值应被缓存"""
-        with patch.dict(
-            os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}
-        ):
+        with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
             auth_module.check_credentials("admin", "pass123")
             first_hash = auth_module._cached_password_hash
             auth_module.check_credentials("admin", "pass123")
@@ -293,6 +282,7 @@ class TestGetCurrentUser:
 
     async def test_get_current_user_invalid_token(self):
         import pytest
+
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
             with pytest.raises(HTTPException) as exc_info:
                 await auth_module.get_current_user("invalid-token")
@@ -314,6 +304,7 @@ class TestGetCurrentUser:
 
     async def test_get_current_user_flexible_no_token(self):
         import pytest
+
         with pytest.raises(HTTPException) as exc_info:
             await auth_module.get_current_user_flexible(None, None)
         assert exc_info.value.status_code == 401

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import case, func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.cost_calculator import cost_calculator
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
@@ -44,17 +43,16 @@ def _row_to_dict(row: ApiCall) -> dict[str, Any]:
 
 
 class UsageRepository(BaseRepository):
-
     async def start_call(
         self,
         *,
         project_name: str,
         call_type: str,
         model: str,
-        prompt: Optional[str] = None,
-        resolution: Optional[str] = None,
-        duration_seconds: Optional[int] = None,
-        aspect_ratio: Optional[str] = None,
+        prompt: str | None = None,
+        resolution: str | None = None,
+        duration_seconds: int | None = None,
+        aspect_ratio: str | None = None,
         generate_audio: bool = True,
         provider: str = PROVIDER_GEMINI,
         user_id: str = DEFAULT_USER_ID,
@@ -86,20 +84,18 @@ class UsageRepository(BaseRepository):
         call_id: int,
         *,
         status: str,
-        output_path: Optional[str] = None,
-        error_message: Optional[str] = None,
+        output_path: str | None = None,
+        error_message: str | None = None,
         retry_count: int = 0,
-        usage_tokens: Optional[int] = None,
+        usage_tokens: int | None = None,
         service_tier: str = "default",
-        generate_audio: Optional[bool] = None,
-        input_tokens: Optional[int] = None,
-        output_tokens: Optional[int] = None,
+        generate_audio: bool | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
     ) -> None:
         finished_at = utc_now()
 
-        result = await self.session.execute(
-            select(ApiCall).where(ApiCall.id == call_id)
-        )
+        result = await self.session.execute(select(ApiCall).where(ApiCall.id == call_id))
         row = result.scalar_one_or_none()
         if not row:
             return
@@ -134,17 +130,11 @@ class UsageRepository(BaseRepository):
                 )
             elif row.call_type == "image":
                 if effective_provider == PROVIDER_ARK:
-                    cost_amount, currency = cost_calculator.calculate_ark_image_cost(
-                        model=row.model
-                    )
+                    cost_amount, currency = cost_calculator.calculate_ark_image_cost(model=row.model)
                 elif effective_provider == PROVIDER_GROK:
-                    cost_amount, currency = cost_calculator.calculate_grok_image_cost(
-                        model=row.model
-                    )
+                    cost_amount, currency = cost_calculator.calculate_grok_image_cost(model=row.model)
                 else:  # gemini
-                    cost_amount = cost_calculator.calculate_image_cost(
-                        row.resolution or "1K", model=row.model
-                    )
+                    cost_amount = cost_calculator.calculate_image_cost(row.resolution or "1K", model=row.model)
                     currency = "USD"
             elif row.call_type == "video":
                 cost_amount = cost_calculator.calculate_video_cost(
@@ -186,10 +176,10 @@ class UsageRepository(BaseRepository):
     async def get_stats(
         self,
         *,
-        project_name: Optional[str] = None,
-        provider: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        project_name: str | None = None,
+        provider: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> dict[str, Any]:
         def _base_filters():
             filters = []
@@ -198,34 +188,43 @@ class UsageRepository(BaseRepository):
             if provider:
                 filters.append(ApiCall.provider == provider)
             if start_date:
-                start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+                start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
                 filters.append(ApiCall.started_at >= start)
             if end_date:
-                end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=timezone.utc) + timedelta(days=1)
+                end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=UTC) + timedelta(days=1)
                 filters.append(ApiCall.started_at < end_exclusive)
             return filters
 
         filters = _base_filters()
 
         # Main aggregation query
-        main_stmt = select(
-            func.coalesce(func.sum(
-                case((ApiCall.currency == "USD", ApiCall.cost_amount), else_=0)
-            ), 0).label("total_cost_usd"),
-            func.count(case((ApiCall.call_type == "image", 1))).label("image_count"),
-            func.count(case((ApiCall.call_type == "video", 1))).label("video_count"),
-            func.count(case((ApiCall.call_type == "text", 1))).label("text_count"),
-            func.count(case((ApiCall.status == "failed", 1))).label("failed_count"),
-            func.count().label("total_count"),
-        ).select_from(ApiCall).where(*filters)
+        main_stmt = (
+            select(
+                func.coalesce(func.sum(case((ApiCall.currency == "USD", ApiCall.cost_amount), else_=0)), 0).label(
+                    "total_cost_usd"
+                ),
+                func.count(case((ApiCall.call_type == "image", 1))).label("image_count"),
+                func.count(case((ApiCall.call_type == "video", 1))).label("video_count"),
+                func.count(case((ApiCall.call_type == "text", 1))).label("text_count"),
+                func.count(case((ApiCall.status == "failed", 1))).label("failed_count"),
+                func.count().label("total_count"),
+            )
+            .select_from(ApiCall)
+            .where(*filters)
+        )
         main_stmt = self._scope_query(main_stmt, ApiCall)
         row = (await self.session.execute(main_stmt)).one()
 
         # Cost by currency
-        currency_stmt = select(
-            ApiCall.currency,
-            func.coalesce(func.sum(ApiCall.cost_amount), 0).label("total"),
-        ).select_from(ApiCall).where(*filters).group_by(ApiCall.currency)
+        currency_stmt = (
+            select(
+                ApiCall.currency,
+                func.coalesce(func.sum(ApiCall.cost_amount), 0).label("total"),
+            )
+            .select_from(ApiCall)
+            .where(*filters)
+            .group_by(ApiCall.currency)
+        )
         currency_stmt = self._scope_query(currency_stmt, ApiCall)
         currency_rows = (await self.session.execute(currency_stmt)).all()
 
@@ -244,10 +243,10 @@ class UsageRepository(BaseRepository):
     async def get_stats_grouped_by_provider(
         self,
         *,
-        project_name: Optional[str] = None,
-        provider: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        project_name: str | None = None,
+        provider: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> dict[str, Any]:
         filters = []
         if project_name:
@@ -255,10 +254,10 @@ class UsageRepository(BaseRepository):
         if provider:
             filters.append(ApiCall.provider == provider)
         if start_date:
-            start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+            start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
             filters.append(ApiCall.started_at >= start)
         if end_date:
-            end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=timezone.utc) + timedelta(days=1)
+            end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=UTC) + timedelta(days=1)
             filters.append(ApiCall.started_at < end_exclusive)
 
         stmt = (
@@ -267,9 +266,9 @@ class UsageRepository(BaseRepository):
                 ApiCall.call_type,
                 func.count().label("total_calls"),
                 func.count(case((ApiCall.status == "success", 1))).label("success_calls"),
-                func.coalesce(func.sum(
-                    case((ApiCall.currency == "USD", ApiCall.cost_amount), else_=0)
-                ), 0).label("total_cost_usd"),
+                func.coalesce(func.sum(case((ApiCall.currency == "USD", ApiCall.cost_amount), else_=0)), 0).label(
+                    "total_cost_usd"
+                ),
                 func.coalesce(func.sum(ApiCall.duration_ms), 0).label("total_duration_ms"),
             )
             .select_from(ApiCall)
@@ -292,12 +291,12 @@ class UsageRepository(BaseRepository):
             for row in rows
         ]
 
-        period_start: Optional[str] = None
-        period_end: Optional[str] = None
+        period_start: str | None = None
+        period_end: str | None = None
         if start_date:
-            period_start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc).isoformat()
+            period_start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC).isoformat()
         if end_date:
-            period_end = datetime(end_date.year, end_date.month, end_date.day, tzinfo=timezone.utc).isoformat()
+            period_end = datetime(end_date.year, end_date.month, end_date.day, tzinfo=UTC).isoformat()
 
         return {
             "stats": stats,
@@ -307,11 +306,11 @@ class UsageRepository(BaseRepository):
     async def get_calls(
         self,
         *,
-        project_name: Optional[str] = None,
-        call_type: Optional[str] = None,
-        status: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        project_name: str | None = None,
+        call_type: str | None = None,
+        status: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
@@ -323,10 +322,10 @@ class UsageRepository(BaseRepository):
         if status:
             filters.append(ApiCall.status == status)
         if start_date:
-            start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+            start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
             filters.append(ApiCall.started_at >= start)
         if end_date:
-            end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=timezone.utc) + timedelta(days=1)
+            end_exclusive = datetime(end_date.year, end_date.month, end_date.day, tzinfo=UTC) + timedelta(days=1)
             filters.append(ApiCall.started_at < end_exclusive)
 
         # Total count
@@ -349,11 +348,7 @@ class UsageRepository(BaseRepository):
         }
 
     async def get_projects_list(self) -> list[str]:
-        stmt = (
-            select(ApiCall.project_name)
-            .distinct()
-            .order_by(ApiCall.project_name)
-        )
+        stmt = select(ApiCall.project_name).distinct().order_by(ApiCall.project_name)
         stmt = self._scope_query(stmt, ApiCall)
         result = await self.session.execute(stmt)
         return [row[0] for row in result.all()]

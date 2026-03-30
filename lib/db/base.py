@@ -1,7 +1,6 @@
 """SQLAlchemy declarative base."""
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -14,10 +13,10 @@ class Base(DeclarativeBase):
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
-def dt_to_iso(val: Optional[datetime]) -> Optional[str]:
+def dt_to_iso(val: datetime | None) -> str | None:
     """Convert datetime to ISO string for JSON serialization."""
     return val.isoformat() if val else None
 
@@ -25,9 +24,7 @@ def dt_to_iso(val: Optional[datetime]) -> Optional[str]:
 class TimestampMixin:
     """Unified created/updated timestamps."""
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )

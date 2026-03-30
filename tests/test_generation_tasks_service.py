@@ -7,9 +7,13 @@ from server.services import generation_tasks
 
 def _async_return(value):
     """Create an async function that always returns the given value (ignoring args)."""
+
     async def _inner(*args, **kwargs):
         return value
+
     return _inner
+
+
 from lib.storyboard_sequence import (
     PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION,
     PREVIOUS_STORYBOARD_REFERENCE_LABEL,
@@ -56,8 +60,7 @@ class _FakePM:
                             "ambiance": "薄雾",
                         },
                     },
-                }
-                ,
+                },
                 {
                     "segment_id": "E1S03",
                     "duration_seconds": 4,
@@ -134,6 +137,7 @@ def _prepare_files(tmp_path: Path):
 class TestGenerationTasks:
     def test_helper_functions(self, tmp_path):
         from lib.storyboard_sequence import get_storyboard_items
+
         mode_items = get_storyboard_items({"content_mode": "drama", "scenes": []})
         assert mode_items[1] == "scene_id"
 
@@ -179,7 +183,11 @@ class TestGenerationTasks:
         storyboard_result = await generation_tasks.execute_storyboard_task(
             "demo",
             "E1S02",
-            {"script_file": "episode_1.json", "prompt": "direct prompt", "extra_reference_images": ["characters/Alice.png"]},
+            {
+                "script_file": "episode_1.json",
+                "prompt": "direct prompt",
+                "extra_reference_images": ["characters/Alice.png"],
+            },
         )
         assert storyboard_result["resource_type"] == "storyboards"
         storyboard_refs = fake_generator.image_calls[0]["reference_images"]
@@ -244,7 +252,9 @@ class TestGenerationTasks:
         assert "asset_fingerprints" in emitted_change
 
         with pytest.raises(ValueError):
-            await generation_tasks.execute_generation_task({"task_type": "unknown", "project_name": "demo", "resource_id": "x", "payload": {}})
+            await generation_tasks.execute_generation_task(
+                {"task_type": "unknown", "project_name": "demo", "resource_id": "x", "payload": {}}
+            )
 
     async def test_execute_video_task_generates_thumbnail(self, monkeypatch, tmp_path):
         """视频生成后应自动提取首帧缩略图"""
@@ -355,9 +365,7 @@ class TestGenerationTasks:
 
         (project_path / "storyboards" / "scene_E1S01.png").unlink()
         with pytest.raises(ValueError):
-            await generation_tasks.execute_video_task(
-                "demo", "E1S01", {"script_file": "episode_1.json", "prompt": "x"}
-            )
+            await generation_tasks.execute_video_task("demo", "E1S01", {"script_file": "episode_1.json", "prompt": "x"})
 
         with pytest.raises(ValueError):
             await generation_tasks.execute_character_task("demo", "Alice", {"prompt": ""})

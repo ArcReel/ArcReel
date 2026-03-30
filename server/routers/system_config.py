@@ -9,14 +9,14 @@ is managed by the providers router.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.config.repository import mask_secret
 from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.repository import mask_secret
 from lib.config.service import (
     ConfigService,
     sync_anthropic_env,
@@ -67,22 +67,22 @@ async def _build_options(svc: ConfigService) -> dict[str, list[str]]:
 
 
 class SystemConfigPatchRequest(BaseModel):
-    default_video_backend: Optional[str] = None
-    default_image_backend: Optional[str] = None
-    default_text_backend: Optional[str] = None
-    video_generate_audio: Optional[bool] = None
-    anthropic_api_key: Optional[str] = None
-    anthropic_base_url: Optional[str] = None
-    anthropic_model: Optional[str] = None
-    anthropic_default_haiku_model: Optional[str] = None
-    anthropic_default_opus_model: Optional[str] = None
-    anthropic_default_sonnet_model: Optional[str] = None
-    claude_code_subagent_model: Optional[str] = None
-    agent_session_cleanup_delay_seconds: Optional[int] = None
-    agent_max_concurrent_sessions: Optional[int] = None
-    text_backend_script: Optional[str] = None
-    text_backend_overview: Optional[str] = None
-    text_backend_style: Optional[str] = None
+    default_video_backend: str | None = None
+    default_image_backend: str | None = None
+    default_text_backend: str | None = None
+    video_generate_audio: bool | None = None
+    anthropic_api_key: str | None = None
+    anthropic_base_url: str | None = None
+    anthropic_model: str | None = None
+    anthropic_default_haiku_model: str | None = None
+    anthropic_default_opus_model: str | None = None
+    anthropic_default_sonnet_model: str | None = None
+    claude_code_subagent_model: str | None = None
+    agent_session_cleanup_delay_seconds: int | None = None
+    agent_max_concurrent_sessions: int | None = None
+    text_backend_script: str | None = None
+    text_backend_overview: str | None = None
+    text_backend_style: str | None = None
 
 
 # Setting keys that map directly to string DB settings
@@ -178,9 +178,7 @@ async def patch_system_config(
 
     # Boolean settings
     if "video_generate_audio" in patch and patch["video_generate_audio"] is not None:
-        await svc.set_setting(
-            "video_generate_audio", "true" if patch["video_generate_audio"] else "false"
-        )
+        await svc.set_setting("video_generate_audio", "true" if patch["video_generate_audio"] else "false")
 
     # Anthropic API key (secret)
     if "anthropic_api_key" in patch:

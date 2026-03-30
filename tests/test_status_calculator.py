@@ -17,7 +17,7 @@ class _FakePM:
 
     def load_script(self, project_name: str, filename: str):
         if filename.startswith("scripts/"):
-            filename = filename[len("scripts/"):]
+            filename = filename[len("scripts/") :]
         if filename not in self._scripts:
             raise FileNotFoundError(filename)
         return self._scripts[filename]
@@ -178,9 +178,7 @@ class TestStatusCalculator:
         assert status["phase_progress"] == 1.0
         assert status["characters"] == {"total": 2, "completed": 1}
         assert status["clues"] == {"total": 2, "completed": 1}
-        assert status["episodes_summary"] == {
-            "total": 1, "scripted": 1, "in_production": 0, "completed": 1
-        }
+        assert status["episodes_summary"] == {"total": 1, "scripted": 1, "in_production": 0, "completed": 1}
 
     def test_enrich_project(self, tmp_path):
         project_root = tmp_path / "projects"
@@ -208,10 +206,16 @@ class TestStatusCalculator:
         }
         calc = StatusCalculator(_FakePM(project_root, project, {"episode_1.json": script}))
 
-        enriched = calc.enrich_project("demo", {**project, "episodes": [
-            {"episode": 1, "script_file": "scripts/episode_1.json"},
-            {"episode": 2, "script_file": "scripts/missing.json"},
-        ]})
+        enriched = calc.enrich_project(
+            "demo",
+            {
+                **project,
+                "episodes": [
+                    {"episode": 1, "script_file": "scripts/episode_1.json"},
+                    {"episode": 2, "script_file": "scripts/missing.json"},
+                ],
+            },
+        )
 
         assert "status" in enriched
         assert enriched["status"]["current_phase"] == "scripting"

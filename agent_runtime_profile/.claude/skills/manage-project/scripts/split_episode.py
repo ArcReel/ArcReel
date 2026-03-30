@@ -70,7 +70,7 @@ def main():
 
     if len(positions) == 0:
         print(
-            f"错误：在目标字数 {args.target} 附近（±{args.context} 字符窗口）未找到锚点文本: \"{args.anchor}\"",
+            f'错误：在目标字数 {args.target} 附近（±{args.context} 字符窗口）未找到锚点文本: "{args.anchor}"',
             file=sys.stderr,
         )
         sys.exit(1)
@@ -115,7 +115,7 @@ def main():
     episode_file.write_text(part_before, encoding="utf-8")
     remaining_file.write_text(part_after, encoding="utf-8")
 
-    print(f"\n已生成:")
+    print("\n已生成:")
     print(f"  {episode_file} ({len(part_before)} 字符)")
     print(f"  {remaining_file} ({len(part_after)} 字符)")
     print(f"  原文件未修改: {source_path}")

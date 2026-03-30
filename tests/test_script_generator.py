@@ -73,6 +73,7 @@ class _FakeTextBackend:
     async def generate(self, request):
         self.last_request = request
         from lib.text_backends.base import TextGenerationResult
+
         return TextGenerationResult(text=self._response_text, provider="fake", model="fake-model")
 
 

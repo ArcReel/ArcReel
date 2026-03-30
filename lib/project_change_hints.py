@@ -5,10 +5,11 @@ Lightweight project change hint bus used by the workspace realtime layer.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Iterable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from threading import RLock
-from typing import Any, Callable, Iterable, Literal
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 

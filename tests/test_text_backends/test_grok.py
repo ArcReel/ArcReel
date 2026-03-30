@@ -1,4 +1,5 @@
 """GrokTextBackend tests."""
+
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -73,8 +74,6 @@ class TestGenerate:
 
         schema = {"type": "object", "properties": {"name": {"type": "string"}}}
         with patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
-            result = await backend.generate(
-                TextGenerationRequest(prompt="gen", response_schema=schema)
-            )
+            result = await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
         assert result.text == '{"name": "test"}'

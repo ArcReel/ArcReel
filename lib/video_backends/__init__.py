@@ -25,12 +25,15 @@ __all__ = [
 # Auto-register backends
 # Gemini: google-genai is a core dependency, import failure is a real error
 from lib.video_backends.gemini import GeminiVideoBackend
+
 register_backend(PROVIDER_GEMINI, GeminiVideoBackend)
 
 # Ark: volcengine-python-sdk[ark] is a project dependency
 from lib.video_backends.ark import ArkVideoBackend
+
 register_backend(PROVIDER_ARK, ArkVideoBackend)
 
 # Grok: xai-sdk
 from lib.video_backends.grok import GrokVideoBackend
+
 register_backend(PROVIDER_GROK, GrokVideoBackend)

@@ -1,9 +1,9 @@
 """GrokTextBackend — xAI Grok 文本生成后端。"""
+
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional, Set
 
 from lib.providers import PROVIDER_GROK
 from lib.text_backends.base import (
@@ -20,15 +20,16 @@ DEFAULT_MODEL = "grok-4-1-fast-reasoning"
 class GrokTextBackend:
     """xAI Grok 文本生成后端。"""
 
-    def __init__(self, *, api_key: Optional[str] = None, model: Optional[str] = None):
+    def __init__(self, *, api_key: str | None = None, model: str | None = None):
         if not api_key:
             raise ValueError("XAI_API_KEY 未设置")
 
         import xai_sdk
+
         self._xai_sdk = xai_sdk
         self._client = xai_sdk.Client(api_key=api_key)
         self._model = model or DEFAULT_MODEL
-        self._capabilities: Set[TextCapability] = {
+        self._capabilities: set[TextCapability] = {
             TextCapability.TEXT_GENERATION,
             TextCapability.STRUCTURED_OUTPUT,
             TextCapability.VISION,
@@ -43,7 +44,7 @@ class GrokTextBackend:
         return self._model
 
     @property
-    def capabilities(self) -> Set[TextCapability]:
+    def capabilities(self) -> set[TextCapability]:
         return self._capabilities
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
@@ -61,6 +62,7 @@ class GrokTextBackend:
             for img_input in request.images:
                 if img_input.path:
                     from lib.image_backends.base import image_to_base64_data_uri
+
                     data_uri = image_to_base64_data_uri(img_input.path)
                     user_parts.append(self._xai_sdk.chat.image(image_url=data_uri))
                 elif img_input.url:
@@ -74,6 +76,7 @@ class GrokTextBackend:
                 DynamicModel = request.response_schema
             else:
                 from lib.text_backends.base import resolve_schema
+
                 DynamicModel = _schema_to_pydantic(resolve_schema(request.response_schema))
             response, parsed = await asyncio.to_thread(chat.parse, DynamicModel)
             text = response.content if hasattr(response, "content") else parsed.model_dump_json()
@@ -84,10 +87,10 @@ class GrokTextBackend:
         # Try to extract token usage from the response
         input_tokens = None
         output_tokens = None
-        if hasattr(response, 'usage'):
+        if hasattr(response, "usage"):
             usage = response.usage
-            input_tokens = getattr(usage, 'input_tokens', None) or getattr(usage, 'prompt_tokens', None)
-            output_tokens = getattr(usage, 'output_tokens', None) or getattr(usage, 'completion_tokens', None)
+            input_tokens = getattr(usage, "input_tokens", None) or getattr(usage, "prompt_tokens", None)
+            output_tokens = getattr(usage, "output_tokens", None) or getattr(usage, "completion_tokens", None)
 
         return TextGenerationResult(
             text=text.strip() if isinstance(text, str) else str(text),
@@ -104,8 +107,9 @@ def _schema_to_pydantic(schema: dict):
     Maps basic JSON Schema types to Python types. Nested objects and arrays
     are mapped to dict/list respectively for flexibility.
     """
+    from typing import Any as AnyType
+
     from pydantic import create_model
-    from typing import Any as AnyType, Optional
 
     properties = schema.get("properties", {})
     required = set(schema.get("required", []))
@@ -127,6 +131,6 @@ def _schema_to_pydantic(schema: dict):
         if field_name in required:
             fields[field_name] = (py_type, ...)
         else:
-            fields[field_name] = (Optional[py_type], None)
+            fields[field_name] = (py_type | None, None)
 
     return create_model("DynamicResponse", **fields)

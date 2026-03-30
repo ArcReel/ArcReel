@@ -6,20 +6,18 @@
 
 import json
 import logging
-import os
-import urllib.parse
 from pathlib import Path
+
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from server.auth import CurrentUser
-
 from lib import PROJECT_ROOT
 from lib.image_utils import convert_image_bytes_to_png
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
+from server.auth import CurrentUser
 
 router = APIRouter()
 
@@ -29,6 +27,7 @@ pm = ProjectManager(PROJECT_ROOT / "projects")
 
 def get_project_manager() -> ProjectManager:
     return pm
+
 
 # 允许的文件类型
 ALLOWED_EXTENSIONS = {
@@ -158,9 +157,7 @@ async def upload_file(
         if upload_type == "character" and name:
             try:
                 with project_change_source("webui"):
-                    get_project_manager().update_project_character_sheet(
-                        project_name, name, f"characters/{filename}"
-                    )
+                    get_project_manager().update_project_character_sheet(project_name, name, f"characters/{filename}")
             except KeyError:
                 pass  # 角色不存在，忽略
 
@@ -402,7 +399,7 @@ def _get_content_mode(project_dir: Path) -> str:
     """从 project.json 读取 content_mode"""
     project_json_path = project_dir / "project.json"
     if project_json_path.exists():
-        with open(project_json_path, "r", encoding="utf-8") as f:
+        with open(project_json_path, encoding="utf-8") as f:
             project_data = json.load(f)
             return project_data.get("content_mode", "drama")
     return "drama"
@@ -419,12 +416,10 @@ async def get_draft_content(project_name: str, episode: int, step_num: int, _use
         if step_num not in step_files:
             raise HTTPException(status_code=400, detail=f"无效的步骤编号: {step_num}")
 
-        draft_path = (
-            project_dir / "drafts" / f"episode_{episode}" / step_files[step_num]
-        )
+        draft_path = project_dir / "drafts" / f"episode_{episode}" / step_files[step_num]
 
         if not draft_path.exists():
-            raise HTTPException(status_code=404, detail=f"草稿文件不存在")
+            raise HTTPException(status_code=404, detail="草稿文件不存在")
 
         content = draft_path.read_text(encoding="utf-8")
         return PlainTextResponse(content)
@@ -473,9 +468,7 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _user: Cu
         if step_num not in step_files:
             raise HTTPException(status_code=400, detail=f"无效的步骤编号: {step_num}")
 
-        draft_path = (
-            project_dir / "drafts" / f"episode_{episode}" / step_files[step_num]
-        )
+        draft_path = project_dir / "drafts" / f"episode_{episode}" / step_files[step_num]
 
         if draft_path.exists():
             draft_path.unlink()
@@ -522,9 +515,10 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
             f.write(png_content)
 
         # 调用 TextGenerator 分析风格（自动追踪用量）
-        from lib.text_backends.base import TextGenerationRequest, TextTaskType, ImageInput
+        from lib.text_backends.base import ImageInput, TextGenerationRequest, TextTaskType
         from lib.text_backends.prompts import STYLE_ANALYSIS_PROMPT
         from lib.text_generator import TextGenerator
+
         generator = await TextGenerator.create(TextTaskType.STYLE_ANALYSIS)
         result = await generator.generate(
             TextGenerationRequest(prompt=STYLE_ANALYSIS_PROMPT, images=[ImageInput(path=output_path)]),

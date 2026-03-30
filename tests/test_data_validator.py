@@ -90,9 +90,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode(
-            "demo", "episode_1.json"
-        )
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert result.valid
         assert any("characters_in_episode 字段已废弃" in w for w in result.warnings)
@@ -120,9 +118,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode(
-            "demo", "episode_1.json"
-        )
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert result.valid
         assert any("缺少 clues_in_segment" in warning for warning in result.warnings)
@@ -150,9 +146,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode(
-            "demo", "episode_1.json"
-        )
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not result.valid
         assert any("episode (整数)" in error for error in result.errors)

@@ -1,7 +1,7 @@
 """Tests for UsageRepository."""
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from lib.db.repositories.usage_repo import UsageRepository
@@ -141,17 +141,24 @@ class TestMultiProviderUsage:
 
         # Gemini call
         c1 = await repo.start_call(
-            project_name="demo", call_type="video",
-            model="veo-3.1-generate-001", duration_seconds=8,
-            resolution="1080p", generate_audio=True,
+            project_name="demo",
+            call_type="video",
+            model="veo-3.1-generate-001",
+            duration_seconds=8,
+            resolution="1080p",
+            generate_audio=True,
         )
         await repo.finish_call(c1, status="success")
 
         # Ark call
         c2 = await repo.start_call(
-            project_name="demo", call_type="video",
-            model="doubao-seedance-1-5-pro-251215", duration_seconds=5,
-            resolution="1080p", generate_audio=True, provider="ark",
+            project_name="demo",
+            call_type="video",
+            model="doubao-seedance-1-5-pro-251215",
+            duration_seconds=5,
+            resolution="1080p",
+            generate_audio=True,
+            provider="ark",
         )
         await repo.finish_call(c2, status="success", usage_tokens=246840, service_tier="default")
 

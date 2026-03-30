@@ -1,13 +1,12 @@
 import asyncio
 
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from fastapi.sse import ServerSentEvent
+from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
-from tests.factories import make_session_meta
 from server.routers import assistant
-
+from tests.factories import make_session_meta
 
 PROJECT = "demo"
 PREFIX = f"/api/v1/projects/{PROJECT}/assistant"

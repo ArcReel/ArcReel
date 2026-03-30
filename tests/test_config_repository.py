@@ -1,9 +1,8 @@
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
+from lib.db.base import Base
 
 
 @pytest.fixture
@@ -18,6 +17,7 @@ async def session():
 
 
 # --- ProviderConfigRepository ---
+
 
 async def test_set_and_get(session: AsyncSession):
     repo = ProviderConfigRepository(session)
@@ -61,6 +61,7 @@ async def test_get_configured_keys(session: AsyncSession):
 
 
 # --- SystemSettingRepository ---
+
 
 async def test_setting_set_and_get(session: AsyncSession):
     repo = SystemSettingRepository(session)

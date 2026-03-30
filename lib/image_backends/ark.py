@@ -7,15 +7,14 @@ import base64
 import logging
 import os
 from pathlib import Path
-from typing import Optional, Set
 
-from lib.providers import PROVIDER_ARK
 from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
     image_to_base64_data_uri,
 )
+from lib.providers import PROVIDER_ARK
 
 logger = logging.getLogger(__name__)
 
@@ -28,23 +27,21 @@ class ArkImageBackend:
     def __init__(
         self,
         *,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
+        api_key: str | None = None,
+        model: str | None = None,
     ):
         from volcenginesdkarkruntime import Ark
 
         self._api_key = api_key or os.environ.get("ARK_API_KEY")
         if not self._api_key:
-            raise ValueError(
-                "Ark API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。"
-            )
+            raise ValueError("Ark API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。")
 
         self._client = Ark(
             base_url="https://ark.cn-beijing.volces.com/api/v3",
             api_key=self._api_key,
         )
         self._model = model or self.DEFAULT_MODEL
-        self._capabilities: Set[ImageCapability] = {
+        self._capabilities: set[ImageCapability] = {
             ImageCapability.TEXT_TO_IMAGE,
             ImageCapability.IMAGE_TO_IMAGE,
         }
@@ -58,7 +55,7 @@ class ArkImageBackend:
         return self._model
 
     @property
-    def capabilities(self) -> Set[ImageCapability]:
+    def capabilities(self) -> set[ImageCapability]:
         return self._capabilities
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -72,10 +69,7 @@ class ArkImageBackend:
 
         # I2I: 读取参考图并转为 base64 data URI
         if request.reference_images:
-            data_uris = [
-                image_to_base64_data_uri(Path(ref.path))
-                for ref in request.reference_images
-            ]
+            data_uris = [image_to_base64_data_uri(Path(ref.path)) for ref in request.reference_images]
             # 单张传字符串，多张传列表
             kwargs["image"] = data_uris[0] if len(data_uris) == 1 else data_uris
 

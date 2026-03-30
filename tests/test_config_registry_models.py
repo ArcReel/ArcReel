@@ -1,4 +1,5 @@
 """Test ProviderMeta with ModelInfo structure."""
+
 from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta
 
 
@@ -42,7 +43,9 @@ class TestProviderMeta:
 
     def test_empty_models(self):
         meta = ProviderMeta(
-            display_name="T", description="T", required_keys=[],
+            display_name="T",
+            description="T",
+            required_keys=[],
         )
         assert meta.media_types == []
         assert meta.capabilities == []
@@ -73,9 +76,7 @@ class TestProviderRegistry:
                 by_type.setdefault(m.media_type, []).append(m)
             for mt, models in by_type.items():
                 defaults = [m for m in models if m.default]
-                assert len(defaults) == 1, (
-                    f"{provider_id} has {len(defaults)} default {mt} models, expected 1"
-                )
+                assert len(defaults) == 1, f"{provider_id} has {len(defaults)} default {mt} models, expected 1"
 
     def test_media_types_property_includes_text(self):
         for provider_id, meta in PROVIDER_REGISTRY.items():

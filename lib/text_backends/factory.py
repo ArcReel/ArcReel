@@ -1,4 +1,5 @@
 """文本 backend 工厂。"""
+
 from __future__ import annotations
 
 from lib.config.resolver import ConfigResolver

@@ -6,12 +6,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lib.config.resolver import ConfigResolver
 
 from lib import PROJECT_ROOT
+from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
-from lib.db.base import DEFAULT_USER_ID
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
 from lib.prompt_builders import build_character_prompt, build_clue_prompt
@@ -21,6 +24,7 @@ from lib.prompt_utils import (
     is_structured_video_prompt,
     video_prompt_to_yaml,
 )
+from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
@@ -28,8 +32,6 @@ from lib.storyboard_sequence import (
     resolve_previous_storyboard_path,
 )
 from lib.thumbnail import extract_video_thumbnail
-from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
-
 
 pm = ProjectManager(PROJECT_ROOT / "projects")
 rate_limiter = get_shared_rate_limiter()
@@ -64,13 +66,12 @@ def invalidate_backend_cache() -> None:
     _backend_cache.clear()
 
 
-
 async def _get_or_create_video_backend(
     provider_name: str,
     provider_settings: dict,
-    resolver: "ConfigResolver",
+    resolver: ConfigResolver,
     *,
-    default_video_model: Optional[str] = None,
+    default_video_model: str | None = None,
 ):
     """获取或创建 VideoBackend 实例（带缓存）。
 
@@ -120,7 +121,7 @@ async def _get_or_create_video_backend(
 async def _get_or_create_image_backend(
     provider_name: str,
     provider_settings: dict,
-    resolver: "ConfigResolver",
+    resolver: ConfigResolver,
     *,
     default_image_model: str | None = None,
 ):
@@ -161,7 +162,9 @@ async def _get_or_create_image_backend(
 
 
 async def _resolve_video_backend(
-    project_name: str, resolver: "ConfigResolver", payload: dict | None,
+    project_name: str,
+    resolver: ConfigResolver,
+    payload: dict | None,
 ) -> tuple[Any | None, str, str]:
     """解析视频后端，返回 (video_backend, video_backend_type, video_model)。
 
@@ -184,7 +187,10 @@ async def _resolve_video_backend(
                 video_backend_type = "vertex" if default_video_provider_id == "gemini-vertex" else "aistudio"
         provider_settings = project.get("video_provider_settings", {}).get(provider_name, {})
         video_backend = await _get_or_create_video_backend(
-            provider_name, provider_settings, resolver, default_video_model=video_model,
+            provider_name,
+            provider_settings,
+            resolver,
+            default_video_model=video_model,
         )
 
     return video_backend, video_backend_type, video_model
@@ -211,12 +217,17 @@ async def get_media_generator(
             image_provider_id = payload["image_provider"]
             image_model = payload.get("image_model", "") or image_model
         image_backend = await _get_or_create_image_backend(
-            image_provider_id, {}, resolver, default_image_model=image_model,
+            image_provider_id,
+            {},
+            resolver,
+            default_image_model=image_model,
         )
 
     # 解析 video backend（保持现有逻辑）
     video_backend, _, _ = await _resolve_video_backend(
-        project_name, resolver, payload,
+        project_name,
+        resolver,
+        payload,
     )
 
     return MediaGenerator(
@@ -244,7 +255,7 @@ def get_aspect_ratio(project: dict, resource_type: str) -> str:
     return "16:9"
 
 
-def _normalize_storyboard_prompt(prompt: Union[str, dict], style: str) -> str:
+def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
     if isinstance(prompt, str):
         return prompt
 
@@ -270,7 +281,7 @@ def _normalize_storyboard_prompt(prompt: Union[str, dict], style: str) -> str:
     return image_prompt_to_yaml(normalized_prompt, style)
 
 
-def _normalize_video_prompt(prompt: Union[str, dict]) -> str:
+def _normalize_video_prompt(prompt: str | dict) -> str:
     if isinstance(prompt, str):
         return prompt
 
@@ -299,7 +310,7 @@ def _normalize_video_prompt(prompt: Union[str, dict]) -> str:
         if speaker or line:
             normalized_dialogue.append({"speaker": speaker, "line": line})
 
-    normalized_prompt: Dict[str, Any] = {
+    normalized_prompt: dict[str, Any] = {
         "action": action_text,
         "camera_motion": str(prompt.get("camera_motion", "") or "") or "Static",
         "ambiance_audio": str(prompt.get("ambiance_audio", "") or ""),
@@ -315,10 +326,10 @@ def _collect_reference_images(
     *,
     char_field: str,
     clue_field: str,
-    extra_reference_images: Optional[List[str]] = None,
-    previous_storyboard_path: Optional[Path] = None,
-) -> Optional[List[object]]:
-    reference_images: List[object] = []
+    extra_reference_images: list[str] | None = None,
+    previous_storyboard_path: Path | None = None,
+) -> list[object] | None:
+    reference_images: list[object] = []
 
     for char_name in target_item.get(char_field, []):
         char_data = project.get("characters", {}).get(char_name, {})
@@ -344,9 +355,7 @@ def _collect_reference_images(
             reference_images.append(extra_path)
 
     if previous_storyboard_path and previous_storyboard_path.exists():
-        reference_images.append(
-            build_previous_storyboard_reference(previous_storyboard_path)
-        )
+        reference_images.append(build_previous_storyboard_reference(previous_storyboard_path))
 
     return reference_images or None
 
@@ -365,9 +374,7 @@ def _resolve_script_episode(project_name: str, script_file: str | None) -> int |
     return None
 
 
-def _compute_affected_fingerprints(
-    project_name: str, task_type: str, resource_id: str
-) -> Dict[str, int]:
+def _compute_affected_fingerprints(project_name: str, task_type: str, resource_id: str) -> dict[str, int]:
     """计算受影响文件的 mtime 指纹"""
     try:
         project_path = get_project_manager().get_project_path(project_name)
@@ -377,31 +384,41 @@ def _compute_affected_fingerprints(
     paths: list[tuple[str, Path]] = []
 
     if task_type == "storyboard":
-        paths.append((
-            f"storyboards/scene_{resource_id}.png",
-            project_path / "storyboards" / f"scene_{resource_id}.png",
-        ))
+        paths.append(
+            (
+                f"storyboards/scene_{resource_id}.png",
+                project_path / "storyboards" / f"scene_{resource_id}.png",
+            )
+        )
     elif task_type == "video":
-        paths.append((
-            f"videos/scene_{resource_id}.mp4",
-            project_path / "videos" / f"scene_{resource_id}.mp4",
-        ))
-        paths.append((
-            f"thumbnails/scene_{resource_id}.jpg",
-            project_path / "thumbnails" / f"scene_{resource_id}.jpg",
-        ))
+        paths.append(
+            (
+                f"videos/scene_{resource_id}.mp4",
+                project_path / "videos" / f"scene_{resource_id}.mp4",
+            )
+        )
+        paths.append(
+            (
+                f"thumbnails/scene_{resource_id}.jpg",
+                project_path / "thumbnails" / f"scene_{resource_id}.jpg",
+            )
+        )
     elif task_type == "character":
-        paths.append((
-            f"characters/{resource_id}.png",
-            project_path / "characters" / f"{resource_id}.png",
-        ))
+        paths.append(
+            (
+                f"characters/{resource_id}.png",
+                project_path / "characters" / f"{resource_id}.png",
+            )
+        )
     elif task_type == "clue":
-        paths.append((
-            f"clues/{resource_id}.png",
-            project_path / "clues" / f"{resource_id}.png",
-        ))
+        paths.append(
+            (
+                f"clues/{resource_id}.png",
+                project_path / "clues" / f"{resource_id}.png",
+            )
+        )
 
-    result: Dict[str, int] = {}
+    result: dict[str, int] = {}
     for rel, abs_path in paths:
         if abs_path.exists():
             result[rel] = abs_path.stat().st_mtime_ns
@@ -410,11 +427,11 @@ def _compute_affected_fingerprints(
 
 
 # (entity_type, action, label_tpl, include_script_episode)
-_TASK_CHANGE_SPECS: Dict[str, tuple] = {
-    "storyboard": ("segment",   "storyboard_ready", "分镜「{}」",    True),
-    "video":      ("segment",   "video_ready",      "分镜「{}」",    True),
-    "character":  ("character", "updated",          "角色「{}」设计图", False),
-    "clue":       ("clue",      "updated",          "线索「{}」设计图", False),
+_TASK_CHANGE_SPECS: dict[str, tuple] = {
+    "storyboard": ("segment", "storyboard_ready", "分镜「{}」", True),
+    "video": ("segment", "video_ready", "分镜「{}」", True),
+    "character": ("character", "updated", "角色「{}」设计图", False),
+    "clue": ("clue", "updated", "线索「{}」设计图", False),
 }
 
 
@@ -423,7 +440,7 @@ def _emit_generation_success_batch(
     task_type: str,
     project_name: str,
     resource_id: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
 ) -> None:
     spec = _TASK_CHANGE_SPECS.get(task_type)
     if spec is None:
@@ -432,7 +449,7 @@ def _emit_generation_success_batch(
     entity_type, action, label_tpl, include_script_episode = spec
     asset_fingerprints = _compute_affected_fingerprints(project_name, task_type, resource_id)
 
-    change: Dict[str, Any] = {
+    change: dict[str, Any] = {
         "entity_type": entity_type,
         "action": action,
         "entity_id": resource_id,
@@ -457,7 +474,9 @@ def _emit_generation_success_batch(
         )
 
 
-async def execute_storyboard_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = DEFAULT_USER_ID) -> Dict[str, Any]:
+async def execute_storyboard_task(
+    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+) -> dict[str, Any]:
     script_file = payload.get("script_file")
     if not script_file:
         raise ValueError("script_file is required for storyboard task")
@@ -518,9 +537,7 @@ async def execute_storyboard_task(project_name: str, resource_id: str, payload: 
         asset_path=f"storyboards/scene_{resource_id}.png",
     )
 
-    created_at = generator.versions.get_versions("storyboards", resource_id)["versions"][-1][
-        "created_at"
-    ]
+    created_at = generator.versions.get_versions("storyboards", resource_id)["versions"][-1]["created_at"]
 
     return {
         "version": version,
@@ -531,7 +548,9 @@ async def execute_storyboard_task(project_name: str, resource_id: str, payload: 
     }
 
 
-async def execute_video_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = DEFAULT_USER_ID) -> Dict[str, Any]:
+async def execute_video_task(
+    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+) -> dict[str, Any]:
     script_file = payload.get("script_file")
     if not script_file:
         raise ValueError("script_file is required for video task")
@@ -559,6 +578,7 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
     if not provider_name:
         from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
+
         _resolver = ConfigResolver(async_session_factory)
         try:
             default_provider_id, _ = await _resolver.default_video_backend()
@@ -617,9 +637,7 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
         # 提取失败时清除旧缩略图文件，避免展示与新视频不匹配的封面
         thumbnail_file.unlink(missing_ok=True)
 
-    created_at = generator.versions.get_versions("videos", resource_id)["versions"][-1][
-        "created_at"
-    ]
+    created_at = generator.versions.get_versions("videos", resource_id)["versions"][-1]["created_at"]
 
     return {
         "version": version,
@@ -631,7 +649,9 @@ async def execute_video_task(project_name: str, resource_id: str, payload: Dict[
     }
 
 
-async def execute_character_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = DEFAULT_USER_ID) -> Dict[str, Any]:
+async def execute_character_task(
+    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+) -> dict[str, Any]:
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
         raise ValueError("prompt is required for character task")
@@ -668,14 +688,12 @@ async def execute_character_task(project_name: str, resource_id: str, payload: D
 
     sheet_path = f"characters/{resource_id}.png"
 
-    def _set_character_sheet(p: Dict) -> None:
+    def _set_character_sheet(p: dict) -> None:
         p["characters"][resource_id]["character_sheet"] = sheet_path
 
     get_project_manager().update_project(project_name, _set_character_sheet)
 
-    created_at = generator.versions.get_versions("characters", resource_id)["versions"][-1][
-        "created_at"
-    ]
+    created_at = generator.versions.get_versions("characters", resource_id)["versions"][-1]["created_at"]
 
     return {
         "version": version,
@@ -686,7 +704,9 @@ async def execute_character_task(project_name: str, resource_id: str, payload: D
     }
 
 
-async def execute_clue_task(project_name: str, resource_id: str, payload: Dict[str, Any], *, user_id: str = DEFAULT_USER_ID) -> Dict[str, Any]:
+async def execute_clue_task(
+    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+) -> dict[str, Any]:
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
         raise ValueError("prompt is required for clue task")
@@ -715,14 +735,12 @@ async def execute_clue_task(project_name: str, resource_id: str, payload: Dict[s
 
     sheet_path = f"clues/{resource_id}.png"
 
-    def _set_clue_sheet(p: Dict) -> None:
+    def _set_clue_sheet(p: dict) -> None:
         p["clues"][resource_id]["clue_sheet"] = sheet_path
 
     get_project_manager().update_project(project_name, _set_clue_sheet)
 
-    created_at = generator.versions.get_versions("clues", resource_id)["versions"][-1][
-        "created_at"
-    ]
+    created_at = generator.versions.get_versions("clues", resource_id)["versions"][-1]["created_at"]
 
     return {
         "version": version,
@@ -735,13 +753,13 @@ async def execute_clue_task(project_name: str, resource_id: str, payload: Dict[s
 
 _TASK_EXECUTORS = {
     "storyboard": execute_storyboard_task,
-    "video":      execute_video_task,
-    "character":  execute_character_task,
-    "clue":       execute_clue_task,
+    "video": execute_video_task,
+    "character": execute_character_task,
+    "clue": execute_clue_task,
 }
 
 
-async def execute_generation_task(task: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
     task_type = task.get("task_type")
     project_name = task.get("project_name")
     resource_id = str(task.get("resource_id"))

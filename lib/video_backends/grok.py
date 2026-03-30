@@ -6,7 +6,6 @@ import base64
 import logging
 from datetime import timedelta
 from pathlib import Path
-from typing import Optional, Set
 
 import xai_sdk
 
@@ -30,18 +29,15 @@ class GrokVideoBackend:
     def __init__(
         self,
         *,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
+        api_key: str | None = None,
+        model: str | None = None,
     ):
         if not api_key:
-            raise ValueError(
-                "XAI_API_KEY 未设置\n"
-                "请在系统配置页中配置 xAI API Key"
-            )
+            raise ValueError("XAI_API_KEY 未设置\n请在系统配置页中配置 xAI API Key")
 
         self._client = xai_sdk.AsyncClient(api_key=api_key)
         self._model = model or self.DEFAULT_MODEL
-        self._capabilities: Set[VideoCapability] = {
+        self._capabilities: set[VideoCapability] = {
             VideoCapability.TEXT_TO_VIDEO,
             VideoCapability.IMAGE_TO_VIDEO,
         }
@@ -55,7 +51,7 @@ class GrokVideoBackend:
         return self._model
 
     @property
-    def capabilities(self) -> Set[VideoCapability]:
+    def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:

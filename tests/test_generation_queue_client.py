@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from lib.generation_queue_client import (
-    BatchTaskSpec,
     BatchTaskResult,
+    BatchTaskSpec,
     TaskWaitTimeoutError,
     WorkerOfflineError,
     batch_enqueue_and_wait_sync,
@@ -97,7 +97,8 @@ class TestBatchEnqueueAndWaitSync:
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_empty_specs(self, mock_enqueue, mock_wait):
         successes, failures = batch_enqueue_and_wait_sync(
-            project_name="demo", specs=[],
+            project_name="demo",
+            specs=[],
         )
         assert successes == []
         assert failures == []
@@ -108,7 +109,8 @@ class TestBatchEnqueueAndWaitSync:
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_basic_success(self, mock_enqueue, mock_wait):
         mock_enqueue.side_effect = [
-            {"task_id": "t1"}, {"task_id": "t2"},
+            {"task_id": "t1"},
+            {"task_id": "t2"},
         ]
         mock_wait.side_effect = [
             {"status": "succeeded", "result": {"file_path": "a.png"}},
@@ -120,7 +122,8 @@ class TestBatchEnqueueAndWaitSync:
             BatchTaskSpec(task_type="character", media_type="image", resource_id="李四"),
         ]
         successes, failures = batch_enqueue_and_wait_sync(
-            project_name="demo", specs=specs,
+            project_name="demo",
+            specs=specs,
         )
 
         assert len(successes) == 2
@@ -133,7 +136,8 @@ class TestBatchEnqueueAndWaitSync:
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_partial_failure(self, mock_enqueue, mock_wait):
         mock_enqueue.side_effect = [
-            {"task_id": "t1"}, {"task_id": "t2"},
+            {"task_id": "t1"},
+            {"task_id": "t2"},
         ]
         mock_wait.side_effect = [
             {"status": "succeeded", "result": {"file_path": "a.png"}},
@@ -145,7 +149,8 @@ class TestBatchEnqueueAndWaitSync:
             BatchTaskSpec(task_type="clue", media_type="image", resource_id="老槐树"),
         ]
         successes, failures = batch_enqueue_and_wait_sync(
-            project_name="demo", specs=specs,
+            project_name="demo",
+            specs=specs,
         )
 
         assert len(successes) == 1
@@ -163,7 +168,8 @@ class TestBatchEnqueueAndWaitSync:
             BatchTaskSpec(task_type="storyboard", media_type="image", resource_id="S01"),
         ]
         successes, failures = batch_enqueue_and_wait_sync(
-            project_name="demo", specs=specs,
+            project_name="demo",
+            specs=specs,
         )
 
         assert len(successes) == 0
@@ -174,7 +180,8 @@ class TestBatchEnqueueAndWaitSync:
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_dependency_resource_id_resolution(self, mock_enqueue, mock_wait):
         mock_enqueue.side_effect = [
-            {"task_id": "t-first"}, {"task_id": "t-second"},
+            {"task_id": "t-first"},
+            {"task_id": "t-second"},
         ]
         mock_wait.side_effect = [
             {"status": "succeeded", "result": {}},
@@ -183,12 +190,17 @@ class TestBatchEnqueueAndWaitSync:
 
         specs = [
             BatchTaskSpec(
-                task_type="storyboard", media_type="image", resource_id="S01",
+                task_type="storyboard",
+                media_type="image",
+                resource_id="S01",
             ),
             BatchTaskSpec(
-                task_type="storyboard", media_type="image", resource_id="S02",
+                task_type="storyboard",
+                media_type="image",
+                resource_id="S02",
                 dependency_resource_id="S01",
-                dependency_group="ep1:group:1", dependency_index=1,
+                dependency_group="ep1:group:1",
+                dependency_index=1,
             ),
         ]
         batch_enqueue_and_wait_sync(project_name="demo", specs=specs)
@@ -207,7 +219,8 @@ class TestBatchEnqueueAndWaitSync:
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_callbacks_invoked(self, mock_enqueue, mock_wait):
         mock_enqueue.side_effect = [
-            {"task_id": "t1"}, {"task_id": "t2"},
+            {"task_id": "t1"},
+            {"task_id": "t2"},
         ]
         mock_wait.side_effect = [
             {"status": "succeeded", "result": {}},
@@ -228,8 +241,10 @@ class TestBatchEnqueueAndWaitSync:
             BatchTaskSpec(task_type="character", media_type="image", resource_id="B"),
         ]
         batch_enqueue_and_wait_sync(
-            project_name="demo", specs=specs,
-            on_success=on_success, on_failure=on_failure,
+            project_name="demo",
+            specs=specs,
+            on_success=on_success,
+            on_failure=on_failure,
         )
 
         assert len(success_ids) == 1

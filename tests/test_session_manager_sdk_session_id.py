@@ -1,6 +1,6 @@
 """Unit tests for SessionManager._on_sdk_session_id_received during streaming."""
 
-from server.agent_runtime.session_manager import ManagedSession, SessionManager
+from server.agent_runtime.session_manager import ManagedSession
 
 
 class StreamEvent:

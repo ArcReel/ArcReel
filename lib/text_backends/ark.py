@@ -1,10 +1,11 @@
 """ArkTextBackend — 火山方舟文本生成后端。"""
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
-from typing import Any, Optional, Set
+from typing import Any
 
 from lib.providers import PROVIDER_ARK
 from lib.text_backends.base import (
@@ -21,7 +22,7 @@ DEFAULT_MODEL = "doubao-seed-2-0-lite-260215"
 class ArkTextBackend:
     """Ark (火山方舟) 文本生成后端。"""
 
-    def __init__(self, *, api_key: Optional[str] = None, model: Optional[str] = None):
+    def __init__(self, *, api_key: str | None = None, model: str | None = None):
         from volcenginesdkarkruntime import Ark
 
         self._api_key = api_key or os.environ.get("ARK_API_KEY")
@@ -33,9 +34,9 @@ class ArkTextBackend:
             api_key=self._api_key,
         )
         self._model = model or DEFAULT_MODEL
-        self._capabilities: Set[TextCapability] = self._resolve_capabilities()
+        self._capabilities: set[TextCapability] = self._resolve_capabilities()
 
-    def _resolve_capabilities(self) -> Set[TextCapability]:
+    def _resolve_capabilities(self) -> set[TextCapability]:
         """根据 PROVIDER_REGISTRY 中的模型声明构建能力集合。"""
         from lib.config.registry import PROVIDER_REGISTRY
 
@@ -57,7 +58,7 @@ class ArkTextBackend:
         return self._model
 
     @property
-    def capabilities(self) -> Set[TextCapability]:
+    def capabilities(self) -> set[TextCapability]:
         return self._capabilities
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
@@ -86,17 +87,19 @@ class ArkTextBackend:
                 self._client.chat.completions.create,
                 model=self._model,
                 messages=messages,
-                response_format={"type": "json_schema", "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                }},
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "response",
+                        "schema": schema,
+                    },
+                },
             )
             return self._parse_chat_response(response)
         else:
             if not isinstance(request.response_schema, type):
                 raise TypeError(
-                    f"Instructor 降级路径需要传入 Pydantic 模型类，"
-                    f"收到 {type(request.response_schema).__name__}"
+                    f"Instructor 降级路径需要传入 Pydantic 模型类，收到 {type(request.response_schema).__name__}"
                 )
             from lib.text_backends.instructor_support import generate_structured_via_instructor
 
@@ -121,6 +124,7 @@ class ArkTextBackend:
         for img in request.images or []:
             if img.path:
                 from lib.image_backends.base import image_to_base64_data_uri
+
                 data_uri = image_to_base64_data_uri(img.path)
                 content.append({"type": "input_image", "image_url": data_uri})
             elif img.url:

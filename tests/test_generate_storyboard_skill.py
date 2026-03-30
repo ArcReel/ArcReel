@@ -8,7 +8,6 @@ import pytest
 
 from lib.generation_queue_client import WorkerOfflineError
 
-
 SCRIPT_PATH = Path(
     Path(__file__).resolve().parents[1]
     / "agent_runtime_profile"

@@ -5,7 +5,6 @@ API 调用统计路由
 """
 
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Query
 
@@ -20,11 +19,11 @@ _tracker = UsageTracker()
 @router.get("/usage/stats")
 async def get_stats(
     _user: CurrentUser,
-    project_name: Optional[str] = Query(None, description="项目名称（可选）"),
-    provider: Optional[str] = Query(None, description="按供应商筛选"),
-    start_date: Optional[str] = Query(None, description="开始日期 (YYYY-MM-DD)"),
-    end_date: Optional[str] = Query(None, description="结束日期 (YYYY-MM-DD)"),
-    group_by: Optional[str] = Query(None, description="分组方式: provider"),
+    project_name: str | None = Query(None, description="项目名称（可选）"),
+    provider: str | None = Query(None, description="按供应商筛选"),
+    start_date: str | None = Query(None, description="开始日期 (YYYY-MM-DD)"),
+    end_date: str | None = Query(None, description="结束日期 (YYYY-MM-DD)"),
+    group_by: str | None = Query(None, description="分组方式: provider"),
 ):
     start = datetime.fromisoformat(start_date) if start_date else None
     end = datetime.fromisoformat(end_date) if end_date else None
@@ -49,11 +48,11 @@ async def get_stats(
 @router.get("/usage/calls")
 async def get_calls(
     _user: CurrentUser,
-    project_name: Optional[str] = Query(None, description="项目名称"),
-    call_type: Optional[str] = Query(None, description="调用类型 (image/video)"),
-    status: Optional[str] = Query(None, description="状态 (success/failed)"),
-    start_date: Optional[str] = Query(None, description="开始日期 (YYYY-MM-DD)"),
-    end_date: Optional[str] = Query(None, description="结束日期 (YYYY-MM-DD)"),
+    project_name: str | None = Query(None, description="项目名称"),
+    call_type: str | None = Query(None, description="调用类型 (image/video)"),
+    status: str | None = Query(None, description="状态 (success/failed)"),
+    start_date: str | None = Query(None, description="开始日期 (YYYY-MM-DD)"),
+    end_date: str | None = Query(None, description="结束日期 (YYYY-MM-DD)"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页记录数"),
 ):

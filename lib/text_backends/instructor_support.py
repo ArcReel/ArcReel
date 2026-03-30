@@ -1,4 +1,5 @@
 """Instructor 降级支持 — 为不支持原生结构化输出的模型提供 prompt 注入 + 解析 + 重试。"""
+
 from __future__ import annotations
 
 import instructor

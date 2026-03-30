@@ -1,4 +1,5 @@
 """GeminiTextBackend tests."""
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -76,9 +77,7 @@ class TestGenerate:
         backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
 
         schema = {"type": "object", "properties": {"key": {"type": "string"}}}
-        result = await backend.generate(
-            TextGenerationRequest(prompt="gen json", response_schema=schema)
-        )
+        result = await backend.generate(TextGenerationRequest(prompt="gen json", response_schema=schema))
 
         assert result.text == '{"key": "value"}'
         call_kwargs = backend._test_client.aio.models.generate_content.call_args
@@ -99,9 +98,7 @@ class TestGenerate:
         )
         backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
 
-        await backend.generate(
-            TextGenerationRequest(prompt="gen", response_schema=MyModel)
-        )
+        await backend.generate(TextGenerationRequest(prompt="gen", response_schema=MyModel))
 
         call_kwargs = backend._test_client.aio.models.generate_content.call_args
         config = call_kwargs.kwargs.get("config")
@@ -116,9 +113,7 @@ class TestGenerate:
         )
         backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
 
-        result = await backend.generate(
-            TextGenerationRequest(prompt="hello", system_prompt="You are X.")
-        )
+        result = await backend.generate(TextGenerationRequest(prompt="hello", system_prompt="You are X."))
 
         assert result.text == "output"
         assert result.input_tokens is None

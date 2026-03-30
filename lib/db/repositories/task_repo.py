@@ -6,11 +6,11 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Optional
+from typing import Any
 
-from sqlalchemy import delete as sa_delete, func, select, text, update
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.task import Task, TaskEvent, WorkerLease
@@ -25,7 +25,7 @@ def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def _json_loads(value: Optional[str], default: Any) -> Any:
+def _json_loads(value: str | None, default: Any) -> Any:
     if not value:
         return default
     try:
@@ -71,7 +71,6 @@ def _event_to_dict(row: TaskEvent) -> dict[str, Any]:
 
 
 class TaskRepository(BaseRepository):
-
     async def _append_event(
         self,
         *,
@@ -79,7 +78,7 @@ class TaskRepository(BaseRepository):
         project_name: str,
         event_type: str,
         status: str,
-        data: Optional[dict] = None,
+        data: dict | None = None,
     ) -> int:
         now = utc_now()
         event = TaskEvent(
@@ -101,12 +100,12 @@ class TaskRepository(BaseRepository):
         task_type: str,
         media_type: str,
         resource_id: str,
-        payload: Optional[dict[str, Any]] = None,
-        script_file: Optional[str] = None,
+        payload: dict[str, Any] | None = None,
+        script_file: str | None = None,
         source: str = "webui",
-        dependency_task_id: Optional[str] = None,
-        dependency_group: Optional[str] = None,
-        dependency_index: Optional[int] = None,
+        dependency_task_id: str | None = None,
+        dependency_group: str | None = None,
+        dependency_index: int | None = None,
         user_id: str = DEFAULT_USER_ID,
     ) -> dict[str, Any]:
         now = utc_now()
@@ -137,13 +136,16 @@ class TaskRepository(BaseRepository):
             # Unique partial index violation: an active task already exists
             sf = script_file or ""
             result = await self.session.execute(
-                select(Task).where(
+                select(Task)
+                .where(
                     Task.project_name == project_name,
                     Task.task_type == task_type,
                     Task.resource_id == resource_id,
                     func.coalesce(Task.script_file, "") == sf,
                     Task.status.in_(ACTIVE_TASK_STATUSES),
-                ).order_by(Task.queued_at.desc()).limit(1)
+                )
+                .order_by(Task.queued_at.desc())
+                .limit(1)
             )
             existing = result.scalar_one_or_none()
             if existing:
@@ -173,7 +175,7 @@ class TaskRepository(BaseRepository):
         }
 
     # NOTE: In multi-user mode, override this method to add user_id filtering
-    async def claim_next(self, media_type: str) -> Optional[dict[str, Any]]:
+    async def claim_next(self, media_type: str) -> dict[str, Any] | None:
         now = utc_now()
 
         # Use raw SQL for the dependency join (clearer than ORM for self-join)
@@ -216,9 +218,7 @@ class TaskRepository(BaseRepository):
         await self.session.flush()
 
         # Reload task
-        result = await self.session.execute(
-            select(Task).where(Task.task_id == target_task_id)
-        )
+        result = await self.session.execute(select(Task).where(Task.task_id == target_task_id))
         running_task = result.scalar_one()
         task_data = _task_to_dict(running_task)
 
@@ -232,9 +232,7 @@ class TaskRepository(BaseRepository):
         await self.session.commit()
         return task_data
 
-    async def mark_succeeded(
-        self, task_id: str, result: Optional[dict[str, Any]] = None
-    ) -> Optional[dict[str, Any]]:
+    async def mark_succeeded(self, task_id: str, result: dict[str, Any] | None = None) -> dict[str, Any] | None:
         now = utc_now()
 
         await self.session.execute(
@@ -250,9 +248,7 @@ class TaskRepository(BaseRepository):
         )
         await self.session.flush()
 
-        res = await self.session.execute(
-            select(Task).where(Task.task_id == task_id)
-        )
+        res = await self.session.execute(select(Task).where(Task.task_id == task_id))
         done_task = res.scalar_one_or_none()
         if not done_task:
             return None
@@ -268,9 +264,7 @@ class TaskRepository(BaseRepository):
         await self.session.commit()
         return task_data
 
-    async def mark_failed(
-        self, task_id: str, error_message: str
-    ) -> Optional[dict[str, Any]]:
+    async def mark_failed(self, task_id: str, error_message: str) -> dict[str, Any] | None:
         failed_task, changed = await self._mark_failed_internal(
             task_id=task_id,
             error_message=error_message,
@@ -294,10 +288,8 @@ class TaskRepository(BaseRepository):
         task_id: str,
         error_message: str,
         allowed_statuses: tuple[str, ...],
-    ) -> tuple[Optional[dict[str, Any]], bool]:
-        result = await self.session.execute(
-            select(Task).where(Task.task_id == task_id)
-        )
+    ) -> tuple[dict[str, Any] | None, bool]:
+        result = await self.session.execute(select(Task).where(Task.task_id == task_id))
         task = result.scalar_one_or_none()
         if not task:
             return None, False
@@ -318,9 +310,7 @@ class TaskRepository(BaseRepository):
         )
         await self.session.flush()
 
-        res = await self.session.execute(
-            select(Task).where(Task.task_id == task_id)
-        )
+        res = await self.session.execute(select(Task).where(Task.task_id == task_id))
         failed_task = res.scalar_one()
         task_data = _task_to_dict(failed_task)
         await self._append_event(
@@ -371,10 +361,7 @@ class TaskRepository(BaseRepository):
 
         # Step 1: collect task_ids to requeue
         id_result = await self.session.execute(
-            select(Task.task_id)
-            .where(Task.status == "running")
-            .order_by(Task.updated_at.asc())
-            .limit(limit)
+            select(Task.task_id).where(Task.status == "running").order_by(Task.updated_at.asc()).limit(limit)
         )
         task_ids = [row[0] for row in id_result.all()]
         if not task_ids:
@@ -396,9 +383,7 @@ class TaskRepository(BaseRepository):
         await self.session.flush()
 
         # Step 3: reload updated tasks in one SELECT IN
-        rows = await self.session.execute(
-            select(Task).where(Task.task_id.in_(task_ids), Task.status == "queued")
-        )
+        rows = await self.session.execute(select(Task).where(Task.task_id.in_(task_ids), Task.status == "queued"))
         requeued_tasks = rows.scalars().all()
 
         # Step 4: bulk-insert all requeue events
@@ -418,7 +403,7 @@ class TaskRepository(BaseRepository):
         await self.session.commit()
         return len(requeued_tasks)
 
-    async def get(self, task_id: str) -> Optional[dict[str, Any]]:
+    async def get(self, task_id: str) -> dict[str, Any] | None:
         stmt = select(Task).where(Task.task_id == task_id)
         stmt = self._scope_query(stmt, Task)
         result = await self.session.execute(stmt)
@@ -428,10 +413,10 @@ class TaskRepository(BaseRepository):
     async def list_tasks(
         self,
         *,
-        project_name: Optional[str] = None,
-        status: Optional[str] = None,
-        task_type: Optional[str] = None,
-        source: Optional[str] = None,
+        project_name: str | None = None,
+        status: str | None = None,
+        task_type: str | None = None,
+        source: str | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> dict[str, Any]:
@@ -471,19 +456,13 @@ class TaskRepository(BaseRepository):
             "page_size": page_size,
         }
 
-    async def get_stats(
-        self, *, project_name: Optional[str] = None
-    ) -> dict[str, int]:
+    async def get_stats(self, *, project_name: str | None = None) -> dict[str, int]:
         filters = []
         if project_name:
             filters.append(Task.project_name == project_name)
 
         # Group by status
-        stmt = (
-            select(Task.status, func.count().label("cnt"))
-            .where(*filters)
-            .group_by(Task.status)
-        )
+        stmt = select(Task.status, func.count().label("cnt")).where(*filters).group_by(Task.status)
         stmt = self._scope_query(stmt, Task)
         result = await self.session.execute(stmt)
 
@@ -500,7 +479,7 @@ class TaskRepository(BaseRepository):
     async def get_recent_tasks_snapshot(
         self,
         *,
-        project_name: Optional[str] = None,
+        project_name: str | None = None,
         limit: int = 200,
     ) -> list[dict[str, Any]]:
         limit = max(1, min(1000, limit))
@@ -518,7 +497,7 @@ class TaskRepository(BaseRepository):
         self,
         *,
         last_event_id: int,
-        project_name: Optional[str] = None,
+        project_name: str | None = None,
         limit: int = 200,
     ) -> list[dict[str, Any]]:
         limit = max(1, min(1000, limit))
@@ -531,9 +510,7 @@ class TaskRepository(BaseRepository):
         return [_event_to_dict(e) for e in result.scalars().all()]
 
     # NOTE: In multi-user mode, override this method to filter by user via JOIN Task
-    async def get_latest_event_id(
-        self, *, project_name: Optional[str] = None
-    ) -> int:
+    async def get_latest_event_id(self, *, project_name: str | None = None) -> int:
         stmt = select(func.max(TaskEvent.id))
         if project_name:
             stmt = stmt.where(TaskEvent.project_name == project_name)
@@ -597,20 +574,14 @@ class TaskRepository(BaseRepository):
 
     async def is_worker_online(self, *, name: str = "default") -> bool:
         now_epoch = time.time()
-        result = await self.session.execute(
-            select(WorkerLease.lease_until).where(WorkerLease.name == name)
-        )
+        result = await self.session.execute(select(WorkerLease.lease_until).where(WorkerLease.name == name))
         row = result.first()
         if not row:
             return False
         return row[0] > now_epoch
 
-    async def get_worker_lease(
-        self, *, name: str = "default"
-    ) -> Optional[dict[str, Any]]:
-        result = await self.session.execute(
-            select(WorkerLease).where(WorkerLease.name == name)
-        )
+    async def get_worker_lease(self, *, name: str = "default") -> dict[str, Any] | None:
+        result = await self.session.execute(select(WorkerLease).where(WorkerLease.name == name))
         row = result.scalar_one_or_none()
         if not row:
             return None

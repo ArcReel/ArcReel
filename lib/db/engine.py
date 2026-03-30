@@ -95,7 +95,7 @@ class _SafeSessionFactory:
             ...
     """
 
-    def __call__(self) -> "_SafeSessionContext":
+    def __call__(self) -> _SafeSessionContext:
         return _SafeSessionContext(async_session_factory())
 
 

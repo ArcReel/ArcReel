@@ -40,12 +40,23 @@ _SYSTEM_SETTING_KEYS: list[str] = [
 ]
 
 _HANDLED_KEYS = {
-    "gemini_api_key", "gemini_base_url", "vertex_gcs_bucket",
-    "ark_api_key", "file_service_base_url", "xai_api_key",
-    "gemini_image_rpm", "gemini_video_rpm", "gemini_request_gap",
-    "image_max_workers", "video_max_workers",
-    "image_backend", "video_backend", "video_model", "image_model",
-    "version", "updated_at",
+    "gemini_api_key",
+    "gemini_base_url",
+    "vertex_gcs_bucket",
+    "ark_api_key",
+    "file_service_base_url",
+    "xai_api_key",
+    "gemini_image_rpm",
+    "gemini_video_rpm",
+    "gemini_request_gap",
+    "image_max_workers",
+    "video_max_workers",
+    "image_backend",
+    "video_backend",
+    "video_model",
+    "image_model",
+    "version",
+    "updated_at",
 } | set(_SYSTEM_SETTING_KEYS)
 
 

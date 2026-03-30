@@ -2,12 +2,11 @@ import json
 from pathlib import Path
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from lib.config.migration import migrate_json_to_db
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
+from lib.db.base import Base
 
 
 @pytest.fixture
@@ -74,9 +73,7 @@ async def test_migrate_renames_file(session: AsyncSession, json_file: Path):
     assert json_file.with_suffix(".json.bak").exists()
 
 
-async def test_migrate_max_workers_to_all_configured_providers(
-    session: AsyncSession, json_file: Path
-):
+async def test_migrate_max_workers_to_all_configured_providers(session: AsyncSession, json_file: Path):
     await migrate_json_to_db(session, json_file)
     repo = ProviderConfigRepository(session)
     ark = await repo.get_all("ark")

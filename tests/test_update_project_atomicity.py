@@ -32,12 +32,17 @@ class TestUpdateProjectAtomicity:
     def test_sequential_updates_preserve_all(self, tmp_path: Path):
         """Two sequential updates should both be visible."""
         pm = ProjectManager(tmp_path)
-        name = _make_project(tmp_path, {
-            "alice": {"description": "A", "character_sheet": ""},
-            "bob": {"description": "B", "character_sheet": ""},
-        })
+        name = _make_project(
+            tmp_path,
+            {
+                "alice": {"description": "A", "character_sheet": ""},
+                "bob": {"description": "B", "character_sheet": ""},
+            },
+        )
 
-        pm.update_project(name, lambda p: p["characters"]["alice"].__setitem__("character_sheet", "characters/alice.png"))
+        pm.update_project(
+            name, lambda p: p["characters"]["alice"].__setitem__("character_sheet", "characters/alice.png")
+        )
         pm.update_project(name, lambda p: p["characters"]["bob"].__setitem__("character_sheet", "characters/bob.png"))
 
         result = pm.load_project(name)
@@ -59,9 +64,7 @@ class TestUpdateProjectAtomicity:
             await asyncio.sleep(0.01)
             pm.update_project(
                 name,
-                lambda p, cid=char_id: p["characters"][cid].__setitem__(
-                    "character_sheet", f"characters/{cid}.png"
-                ),
+                lambda p, cid=char_id: p["characters"][cid].__setitem__("character_sheet", f"characters/{cid}.png"),
             )
 
         async def _run_all():
@@ -78,10 +81,13 @@ class TestUpdateProjectAtomicity:
     def test_old_read_modify_write_loses_update(self, tmp_path: Path):
         """Demonstrate the bug: old load→modify→save pattern loses updates."""
         pm = ProjectManager(tmp_path)
-        name = _make_project(tmp_path, {
-            "alice": {"description": "A", "character_sheet": ""},
-            "bob": {"description": "B", "character_sheet": ""},
-        })
+        name = _make_project(
+            tmp_path,
+            {
+                "alice": {"description": "A", "character_sheet": ""},
+                "bob": {"description": "B", "character_sheet": ""},
+            },
+        )
 
         # Simulate two tasks both reading the same initial version
         snapshot_a = pm.load_project(name)

@@ -3,14 +3,14 @@ import asyncio
 import pytest
 
 from lib.generation_worker import (
+    DEFAULT_PROVIDER,
     GenerationWorker,
     ProviderPool,
-    _read_int_env,
+    _build_default_pools,
     _extract_provider,
     _normalize_provider_id,
     _project_level_provider,
-    DEFAULT_PROVIDER,
-    _build_default_pools,
+    _read_int_env,
 )
 
 
@@ -118,6 +118,7 @@ class TestExtractProvider:
 
     async def test_resolves_video_from_global_config(self, monkeypatch):
         """payload 无 provider、项目无覆盖时，从全局 ConfigResolver 解析。"""
+
         async def fake_video_backend(self):
             return ("gemini-vertex", "veo-2.0-generate-001")
 
@@ -134,6 +135,7 @@ class TestExtractProvider:
 
     async def test_resolves_image_from_global_config(self, monkeypatch):
         """payload 无 provider、项目无覆盖时，从全局 ConfigResolver 解析。"""
+
         async def fake_image_backend(self):
             return ("gemini-vertex", "imagen-3.0-generate-002")
 
@@ -150,6 +152,7 @@ class TestExtractProvider:
 
     async def test_project_level_video_provider_takes_precedence(self, monkeypatch):
         """项目级 video_provider 优先于全局默认。"""
+
         async def should_not_be_called(self):
             raise AssertionError("ConfigResolver should not be called")
 
@@ -166,6 +169,7 @@ class TestExtractProvider:
 
     async def test_project_level_image_backend_takes_precedence(self, monkeypatch):
         """项目级 image_backend 优先于全局默认。"""
+
         async def should_not_be_called(self):
             raise AssertionError("ConfigResolver should not be called")
 
@@ -182,6 +186,7 @@ class TestExtractProvider:
 
     async def test_payload_provider_takes_precedence_over_config(self, monkeypatch):
         """payload 中有 provider 时优先使用，不走项目/全局配置。"""
+
         async def should_not_be_called(self):
             raise AssertionError("ConfigResolver should not be called")
 
@@ -326,10 +331,18 @@ class TestGenerationWorker:
             def __init__(self):
                 super().__init__()
                 self._tasks = [
-                    {"task_id": "img1", "task_type": "gen_image", "media_type": "image",
-                     "payload": {"image_provider": "gemini-aistudio"}},
-                    {"task_id": "vid1", "task_type": "gen_video", "media_type": "video",
-                     "payload": {"video_provider": "ark"}},
+                    {
+                        "task_id": "img1",
+                        "task_type": "gen_image",
+                        "media_type": "image",
+                        "payload": {"image_provider": "gemini-aistudio"},
+                    },
+                    {
+                        "task_id": "vid1",
+                        "task_type": "gen_video",
+                        "media_type": "video",
+                        "payload": {"video_provider": "ark"},
+                    },
                 ]
 
             async def claim_next_task(self, media_type):
@@ -359,7 +372,10 @@ class TestGenerationWorker:
         assert "vid1" in pools["ark"].video_inflight
 
         # Wait for tasks to complete
-        await asyncio.gather(*[
-            *pools["gemini-aistudio"].image_inflight.values(),
-            *pools["ark"].video_inflight.values(),
-        ], return_exceptions=True)
+        await asyncio.gather(
+            *[
+                *pools["gemini-aistudio"].image_inflight.values(),
+                *pools["ark"].video_inflight.values(),
+            ],
+            return_exceptions=True,
+        )

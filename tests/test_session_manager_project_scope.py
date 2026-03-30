@@ -1,11 +1,10 @@
 """Unit tests for SessionManager project cwd scoping."""
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from server.agent_runtime.session_manager import SessionManager
@@ -152,18 +151,24 @@ class TestSessionManagerProjectScope:
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
         project_json = project_dir / "project.json"
-        project_json.write_text(json.dumps({
-            "title": "重生之皇后威武",
-            "content_mode": "narration",
-            "style": "Photographic",
-            "style_description": "Soft diffused lighting, muted earth tones",
-            "overview": {
-                "synopsis": "姜月茴重生后逆袭的故事",
-                "genre": "古装宫斗、重生复仇",
-                "theme": "复仇与救赎",
-                "world_setting": "架空古代皇朝"
-            }
-        }, ensure_ascii=False), encoding="utf-8")
+        project_json.write_text(
+            json.dumps(
+                {
+                    "title": "重生之皇后威武",
+                    "content_mode": "narration",
+                    "style": "Photographic",
+                    "style_description": "Soft diffused lighting, muted earth tones",
+                    "overview": {
+                        "synopsis": "姜月茴重生后逆袭的故事",
+                        "genre": "古装宫斗、重生复仇",
+                        "theme": "复仇与救赎",
+                        "world_setting": "架空古代皇朝",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
         store, engine = await _make_store()
         manager = SessionManager(
@@ -220,11 +225,17 @@ class TestSessionManagerProjectScope:
         project_dir = tmp_path / "projects" / "partial"
         project_dir.mkdir(parents=True)
         project_json = project_dir / "project.json"
-        project_json.write_text(json.dumps({
-            "title": "测试项目",
-            "content_mode": "drama",
-            # No style, style_description, or overview
-        }, ensure_ascii=False), encoding="utf-8")
+        project_json.write_text(
+            json.dumps(
+                {
+                    "title": "测试项目",
+                    "content_mode": "drama",
+                    # No style, style_description, or overview
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
         store, engine = await _make_store()
         manager = SessionManager(
@@ -255,7 +266,9 @@ class TestAllowedToolsAndConstants:
         """Verify allowed tools align with SDK documentation."""
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
         tools = manager.DEFAULT_ALLOWED_TOOLS
         assert "Task" in tools
@@ -273,12 +286,13 @@ class TestAllowedToolsAndConstants:
         """LS should not be in _PATH_TOOLS."""
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
         assert "LS" not in manager._PATH_TOOLS
         assert "MultiEdit" not in manager._PATH_TOOLS
         await engine.dispose()
-
 
 
 class TestSystemPromptProjectContext:
@@ -290,7 +304,9 @@ class TestSystemPromptProjectContext:
 
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
 
         prompt = manager._build_project_context("demo")
@@ -309,12 +325,12 @@ class TestSystemPromptProjectContext:
 
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
 
         prompt = manager._build_project_context("demo")
         assert "项目标题：测试项目" in prompt
         assert "当前项目上下文" in prompt
         await engine.dispose()
-
-

@@ -10,7 +10,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -18,24 +18,20 @@ class ValidationResult:
     """验证结果"""
 
     valid: bool
-    errors: List[str] = field(default_factory=list)  # 错误列表（阻止继续）
-    warnings: List[str] = field(default_factory=list)  # 警告列表（仅提示）
+    errors: list[str] = field(default_factory=list)  # 错误列表（阻止继续）
+    warnings: list[str] = field(default_factory=list)  # 警告列表（仅提示）
 
     def __str__(self) -> str:
         if self.valid:
             msg = "验证通过"
             if self.warnings:
-                msg += f"\n警告 ({len(self.warnings)}):\n" + "\n".join(
-                    f"  - {warning}" for warning in self.warnings
-                )
+                msg += f"\n警告 ({len(self.warnings)}):\n" + "\n".join(f"  - {warning}" for warning in self.warnings)
             return msg
 
         msg = f"验证失败 ({len(self.errors)} 个错误)"
         msg += "\n错误:\n" + "\n".join(f"  - {error}" for error in self.errors)
         if self.warnings:
-            msg += f"\n警告 ({len(self.warnings)}):\n" + "\n".join(
-                f"  - {warning}" for warning in self.warnings
-            )
+            msg += f"\n警告 ({len(self.warnings)}):\n" + "\n".join(f"  - {warning}" for warning in self.warnings)
         return msg
 
 
@@ -63,7 +59,7 @@ class DataValidator:
         "versions",
     }
 
-    def __init__(self, projects_root: Optional[str] = None):
+    def __init__(self, projects_root: str | None = None):
         """
         初始化验证器
 
@@ -76,10 +72,10 @@ class DataValidator:
             projects_root = os.environ.get("AI_ANIME_PROJECTS", "projects")
         self.projects_root = Path(projects_root)
 
-    def _load_json(self, file_path: Path) -> Optional[Dict[str, Any]]:
+    def _load_json(self, file_path: Path) -> dict[str, Any] | None:
         """加载 JSON 文件"""
         try:
-            with open(file_path, "r", encoding="utf-8") as handle:
+            with open(file_path, encoding="utf-8") as handle:
                 return json.load(handle)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return None
@@ -93,8 +89,8 @@ class DataValidator:
         project_dir: Path,
         raw_path: str,
         *,
-        default_dir: Optional[str] = None,
-    ) -> tuple[Optional[str], Optional[str]]:
+        default_dir: str | None = None,
+    ) -> tuple[str | None, str | None]:
         normalized = str(raw_path).strip().replace("\\", "/")
         if not normalized:
             return None, "路径不能为空"
@@ -126,12 +122,12 @@ class DataValidator:
         self,
         project_dir: Path,
         value: Any,
-        errors: List[str],
+        errors: list[str],
         field_name: str,
         *,
-        default_dir: Optional[str] = None,
+        default_dir: str | None = None,
         allow_external: bool = False,
-    ) -> Optional[str]:
+    ) -> str | None:
         if value in (None, ""):
             return None
         if not isinstance(value, str):
@@ -159,9 +155,9 @@ class DataValidator:
 
     def _validate_project_payload(
         self,
-        project: Dict[str, Any],
-        errors: List[str],
-        warnings: List[str],
+        project: dict[str, Any],
+        errors: list[str],
+        warnings: list[str],
     ) -> None:
         if not project.get("title"):
             errors.append("缺少必填字段: title")
@@ -170,9 +166,7 @@ class DataValidator:
         if not content_mode:
             errors.append("缺少必填字段: content_mode")
         elif content_mode not in self.VALID_CONTENT_MODES:
-            errors.append(
-                f"content_mode 值无效: '{content_mode}'，必须是 {self.VALID_CONTENT_MODES}"
-            )
+            errors.append(f"content_mode 值无效: '{content_mode}'，必须是 {self.VALID_CONTENT_MODES}")
 
         if not project.get("style"):
             errors.append("缺少必填字段: style")
@@ -218,9 +212,7 @@ class DataValidator:
                 if not clue_type:
                     errors.append(f"线索 '{clue_name}' 缺少必填字段: type")
                 elif clue_type not in self.VALID_CLUE_TYPES:
-                    errors.append(
-                        f"线索 '{clue_name}' type 值无效: '{clue_type}'，必须是 {self.VALID_CLUE_TYPES}"
-                    )
+                    errors.append(f"线索 '{clue_name}' type 值无效: '{clue_type}'，必须是 {self.VALID_CLUE_TYPES}")
 
                 if not clue_data.get("description"):
                     errors.append(f"线索 '{clue_name}' 缺少必填字段: description")
@@ -239,8 +231,8 @@ class DataValidator:
 
     def validate_project_dir(self, project_dir: Path) -> ValidationResult:
         """验证指定目录中的 project.json。"""
-        errors: List[str] = []
-        warnings: List[str] = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         project_path = Path(project_dir) / "project.json"
         project = self._load_json(project_path)
@@ -258,7 +250,7 @@ class DataValidator:
         project_dir: Path,
         prefix: str,
         assets: Any,
-        errors: List[str],
+        errors: list[str],
     ) -> None:
         if assets in (None, ""):
             return
@@ -291,13 +283,13 @@ class DataValidator:
 
     def _validate_segments(
         self,
-        segments: List[Dict[str, Any]],
+        segments: list[dict[str, Any]],
         project_characters: set[str],
         project_clues: set[str],
-        errors: List[str],
-        warnings: List[str],
+        errors: list[str],
+        warnings: list[str],
         *,
-        project_dir: Optional[Path] = None,
+        project_dir: Path | None = None,
     ) -> None:
         """验证 segments（narration 模式）"""
         if not segments:
@@ -311,17 +303,13 @@ class DataValidator:
             if not segment_id:
                 errors.append(f"{prefix}: 缺少必填字段 segment_id")
             elif not self.ID_PATTERN.match(segment_id):
-                errors.append(
-                    f"{prefix}: segment_id 格式错误 '{segment_id}'，应为 E{{n}}S{{nn}}"
-                )
+                errors.append(f"{prefix}: segment_id 格式错误 '{segment_id}'，应为 E{{n}}S{{nn}}")
 
             duration = segment.get("duration_seconds")
             if duration is None:
                 warnings.append(f"{prefix}: 缺少 duration_seconds，将使用默认值 4")
             elif duration not in self.VALID_DURATIONS:
-                errors.append(
-                    f"{prefix}: duration_seconds 值无效 '{duration}'，必须是 {self.VALID_DURATIONS}"
-                )
+                errors.append(f"{prefix}: duration_seconds 值无效 '{duration}'，必须是 {self.VALID_DURATIONS}")
 
             if not segment.get("novel_text"):
                 errors.append(f"{prefix}: 缺少必填字段 novel_text")
@@ -334,9 +322,7 @@ class DataValidator:
             else:
                 invalid = set(chars_in_segment) - project_characters
                 if invalid:
-                    errors.append(
-                        f"{prefix}: characters_in_segment 引用了不存在于 project.json 的角色: {invalid}"
-                    )
+                    errors.append(f"{prefix}: characters_in_segment 引用了不存在于 project.json 的角色: {invalid}")
 
             clues_in_segment = segment.get("clues_in_segment")
             if clues_in_segment is None:
@@ -346,9 +332,7 @@ class DataValidator:
             else:
                 invalid = set(clues_in_segment) - project_clues
                 if invalid:
-                    errors.append(
-                        f"{prefix}: clues_in_segment 引用了不存在于 project.json 的线索: {invalid}"
-                    )
+                    errors.append(f"{prefix}: clues_in_segment 引用了不存在于 project.json 的线索: {invalid}")
 
             if not segment.get("image_prompt"):
                 errors.append(f"{prefix}: 缺少必填字段 image_prompt")
@@ -365,13 +349,13 @@ class DataValidator:
 
     def _validate_scenes(
         self,
-        scenes: List[Dict[str, Any]],
+        scenes: list[dict[str, Any]],
         project_characters: set[str],
         project_clues: set[str],
-        errors: List[str],
-        warnings: List[str],
+        errors: list[str],
+        warnings: list[str],
         *,
-        project_dir: Optional[Path] = None,
+        project_dir: Path | None = None,
     ) -> None:
         """验证 scenes（drama 模式）"""
         if not scenes:
@@ -385,25 +369,19 @@ class DataValidator:
             if not scene_id:
                 errors.append(f"{prefix}: 缺少必填字段 scene_id")
             elif not self.ID_PATTERN.match(scene_id):
-                errors.append(
-                    f"{prefix}: scene_id 格式错误 '{scene_id}'，应为 E{{n}}S{{nn}}"
-                )
+                errors.append(f"{prefix}: scene_id 格式错误 '{scene_id}'，应为 E{{n}}S{{nn}}")
 
             scene_type = scene.get("scene_type")
             if not scene_type:
                 errors.append(f"{prefix}: 缺少必填字段 scene_type")
             elif scene_type not in self.VALID_SCENE_TYPES:
-                errors.append(
-                    f"{prefix}: scene_type 值无效 '{scene_type}'，必须是 {self.VALID_SCENE_TYPES}"
-                )
+                errors.append(f"{prefix}: scene_type 值无效 '{scene_type}'，必须是 {self.VALID_SCENE_TYPES}")
 
             duration = scene.get("duration_seconds")
             if duration is None:
                 warnings.append(f"{prefix}: 缺少 duration_seconds，将使用默认值 8")
             elif duration not in self.VALID_DURATIONS:
-                errors.append(
-                    f"{prefix}: duration_seconds 值无效 '{duration}'，必须是 {self.VALID_DURATIONS}"
-                )
+                errors.append(f"{prefix}: duration_seconds 值无效 '{duration}'，必须是 {self.VALID_DURATIONS}")
 
             chars_in_scene = scene.get("characters_in_scene")
             if chars_in_scene is None:
@@ -413,9 +391,7 @@ class DataValidator:
             else:
                 invalid = set(chars_in_scene) - project_characters
                 if invalid:
-                    errors.append(
-                        f"{prefix}: characters_in_scene 引用了不存在于 project.json 的角色: {invalid}"
-                    )
+                    errors.append(f"{prefix}: characters_in_scene 引用了不存在于 project.json 的角色: {invalid}")
 
             clues_in_scene = scene.get("clues_in_scene")
             if clues_in_scene is None:
@@ -425,9 +401,7 @@ class DataValidator:
             else:
                 invalid = set(clues_in_scene) - project_clues
                 if invalid:
-                    errors.append(
-                        f"{prefix}: clues_in_scene 引用了不存在于 project.json 的线索: {invalid}"
-                    )
+                    errors.append(f"{prefix}: clues_in_scene 引用了不存在于 project.json 的线索: {invalid}")
 
             if not scene.get("image_prompt"):
                 errors.append(f"{prefix}: 缺少必填字段 image_prompt")
@@ -445,10 +419,10 @@ class DataValidator:
     def _validate_episode_payload(
         self,
         project_dir: Path,
-        project: Dict[str, Any],
-        episode: Dict[str, Any],
-        errors: List[str],
-        warnings: List[str],
+        project: dict[str, Any],
+        episode: dict[str, Any],
+        errors: list[str],
+        warnings: list[str],
     ) -> None:
         project_characters = set(project.get("characters", {}).keys())
         project_clues = set(project.get("clues", {}).keys())
@@ -513,8 +487,8 @@ class DataValidator:
         episode_file: str | Path,
     ) -> ValidationResult:
         """验证指定目录中的剧本文件。"""
-        errors: List[str] = []
-        warnings: List[str] = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         project_dir = Path(project_dir)
         project_path = project_dir / "project.json"
@@ -628,8 +602,8 @@ class DataValidator:
                     errors.append(f"无法加载剧本文件: {project_dir / resolved_path}")
                     continue
 
-                episode_errors: List[str] = []
-                episode_warnings: List[str] = []
+                episode_errors: list[str] = []
+                episode_warnings: list[str] = []
                 self._validate_episode_payload(
                     project_dir,
                     project,
@@ -652,7 +626,7 @@ class DataValidator:
 
 def validate_project(
     project_name: str,
-    projects_root: Optional[str] = None,
+    projects_root: str | None = None,
 ) -> ValidationResult:
     """验证 project.json"""
     validator = DataValidator(projects_root)
@@ -662,7 +636,7 @@ def validate_project(
 def validate_episode(
     project_name: str,
     episode_file: str,
-    projects_root: Optional[str] = None,
+    projects_root: str | None = None,
 ) -> ValidationResult:
     """验证 episode JSON"""
     validator = DataValidator(projects_root)

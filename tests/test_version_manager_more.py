@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from lib.version_manager import VersionManager, _get_versions_file_lock

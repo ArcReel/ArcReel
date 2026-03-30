@@ -66,15 +66,9 @@ class TestProjectEventService:
         current = service._build_snapshot("demo")
         changes = service._diff_snapshots(previous, current)
 
-        assert any(
-            change["entity_type"] == "character" and change["action"] == "created"
-            for change in changes
-        )
+        assert any(change["entity_type"] == "character" and change["action"] == "created" for change in changes)
         assert any(change["action"] == "storyboard_ready" for change in changes)
-        assert any(
-            change["entity_type"] == "segment" and change["action"] == "updated"
-            for change in changes
-        )
+        assert any(change["entity_type"] == "segment" and change["action"] == "updated" for change in changes)
 
     def test_diff_snapshots_reports_project_metadata_and_new_segments(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -142,14 +136,9 @@ class TestProjectEventService:
         current = service._build_snapshot("demo")
         changes = service._diff_snapshots(previous, current)
 
+        assert any(change["entity_type"] == "project" and change["action"] == "updated" for change in changes)
         assert any(
-            change["entity_type"] == "project" and change["action"] == "updated"
-            for change in changes
-        )
-        assert any(
-            change["entity_type"] == "segment"
-            and change["action"] == "created"
-            and change["entity_id"] == "E1S02"
+            change["entity_type"] == "segment" and change["action"] == "created" and change["entity_id"] == "E1S02"
             for change in changes
         )
 
@@ -183,15 +172,10 @@ class TestProjectEventService:
         assert event_name == "changes"
         assert payload["source"] == "filesystem"
         assert any(
-            change["entity_type"] == "episode"
-            and change["action"] == "created"
-            and change["episode"] == 2
+            change["entity_type"] == "episode" and change["action"] == "created" and change["episode"] == 2
             for change in payload["changes"]
         )
-        assert any(
-            episode["episode"] == 2
-            for episode in pm.load_project("demo")["episodes"]
-        )
+        assert any(episode["episode"] == 2 for episode in pm.load_project("demo")["episodes"])
 
         await service.unsubscribe("demo", queue)
         await service.shutdown()

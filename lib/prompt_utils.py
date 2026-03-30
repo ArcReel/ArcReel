@@ -4,10 +4,7 @@ Prompt 工具函数
 提供结构化 Prompt 到 YAML 格式的转换功能。
 """
 
-from typing import Dict, List, Optional
-
 import yaml
-
 
 # 预设选项定义
 STYLES = ["Photographic", "Anime", "3D Animation"]
@@ -83,10 +80,7 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
     Returns:
         YAML 格式字符串，用于 Veo API 调用
     """
-    dialogue = [
-        {"Speaker": d["speaker"], "Line": d["line"]}
-        for d in video_prompt.get("dialogue", [])
-    ]
+    dialogue = [{"Speaker": d["speaker"], "Line": d["line"]} for d in video_prompt.get("dialogue", [])]
 
     ordered = {
         "Action": video_prompt["action"],

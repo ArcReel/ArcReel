@@ -4,11 +4,11 @@ import asyncio
 
 import pytest
 
-from tests.fakes import FakeSDKClient
 from server.agent_runtime.session_manager import (
-    ManagedSession,
     SDK_AVAILABLE,
+    ManagedSession,
 )
+from tests.fakes import FakeSDKClient
 
 
 class TestSessionManagerUserInput:
@@ -28,7 +28,7 @@ class TestSessionManagerUserInput:
         echo = managed.message_buffer[0]
         assert echo.get("type") == "user"
         assert echo.get("content") == "hello realtime"
-        assert echo.get("local_echo") == True
+        assert echo.get("local_echo")
 
         if managed.consumer_task:
             await managed.consumer_task
@@ -158,10 +158,7 @@ class TestSessionManagerUserInput:
         )
 
         allow_result = await task
-        assert (
-            allow_result.updated_input.get("answers", {}).get("请选择时长")
-            == "2分钟"
-        )
+        assert allow_result.updated_input.get("answers", {}).get("请选择时长") == "2分钟"
 
     async def test_answer_user_question_raises_for_unknown_question(self, session_manager, meta_store):
         meta = await meta_store.create("demo", "sdk-user-input")
@@ -194,7 +191,7 @@ class TestSessionManagerUserInput:
         assert new_status == "running"
         assert client.interrupted
         assert managed.status == "running"
-        assert managed.interrupt_requested == True
+        assert managed.interrupt_requested
         assert len(managed.message_buffer) == 0
         stored = await meta_store.get(meta.id)
         assert stored is not None

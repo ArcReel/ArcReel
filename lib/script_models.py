@@ -6,7 +6,7 @@ script_models.py - 剧本数据模型
 2. 输出验证
 """
 
-from typing import List, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -64,20 +64,16 @@ class VideoPrompt(BaseModel):
     action: str = Field(description="动作描述：角色在该片段内的具体动作")
     camera_motion: CameraMotion = Field(description="镜头运动")
     ambiance_audio: str = Field(description="环境音效：仅描述场景内的声音，禁止 BGM")
-    dialogue: List[Dialogue] = Field(
-        default_factory=list, description="对话列表，仅当原文有引号对话时填写"
-    )
+    dialogue: list[Dialogue] = Field(default_factory=list, description="对话列表，仅当原文有引号对话时填写")
 
 
 class GeneratedAssets(BaseModel):
     """生成资源状态（初始化为空）"""
 
-    storyboard_image: Optional[str] = Field(default=None, description="分镜图路径")
-    video_clip: Optional[str] = Field(default=None, description="视频片段路径")
-    video_uri: Optional[str] = Field(default=None, description="视频 URI")
-    status: Literal["pending", "storyboard_ready", "completed"] = Field(
-        default="pending", description="生成状态"
-    )
+    storyboard_image: str | None = Field(default=None, description="分镜图路径")
+    video_clip: str | None = Field(default=None, description="视频片段路径")
+    video_uri: str | None = Field(default=None, description="视频 URI")
+    status: Literal["pending", "storyboard_ready", "completed"] = Field(default="pending", description="生成状态")
 
 
 # ============ 说书模式（Narration） ============
@@ -91,19 +87,13 @@ class NarrationSegment(BaseModel):
     duration_seconds: Literal[4, 6, 8] = Field(description="片段时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     novel_text: str = Field(description="小说原文（必须原样保留，用于后期配音）")
-    characters_in_segment: List[str] = Field(description="出场角色名称列表")
-    clues_in_segment: List[str] = Field(
-        default_factory=list, description="出场线索名称列表"
-    )
+    characters_in_segment: list[str] = Field(description="出场角色名称列表")
+    clues_in_segment: list[str] = Field(default_factory=list, description="出场线索名称列表")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
-    transition_to_next: Literal["cut", "fade", "dissolve"] = Field(
-        default="cut", description="转场类型"
-    )
-    note: Optional[str] = Field(default=None, description="用户备注（不参与生成）")
-    generated_assets: GeneratedAssets = Field(
-        default_factory=GeneratedAssets, description="生成资源状态"
-    )
+    transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="转场类型")
+    note: str | None = Field(default=None, description="用户备注（不参与生成）")
+    generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
 
 
 class NovelInfo(BaseModel):
@@ -119,15 +109,13 @@ class NarrationEpisodeScript(BaseModel):
 
     episode: int = Field(description="剧集编号")
     title: str = Field(description="剧集标题")
-    content_mode: Literal["narration"] = Field(
-        default="narration", description="内容模式"
-    )
+    content_mode: Literal["narration"] = Field(default="narration", description="内容模式")
     duration_seconds: int = Field(default=0, description="总时长（秒）")
     summary: str = Field(description="剧集摘要")
     novel: NovelInfo = Field(description="小说来源信息")
-    characters_in_episode: List[str] = Field(description="本集出场角色列表")
-    clues_in_episode: List[str] = Field(description="本集出场线索列表")
-    segments: List[NarrationSegment] = Field(description="片段列表")
+    characters_in_episode: list[str] = Field(description="本集出场角色列表")
+    clues_in_episode: list[str] = Field(description="本集出场线索列表")
+    segments: list[NarrationSegment] = Field(description="片段列表")
 
 
 # ============ 剧集动画模式（Drama） ============
@@ -140,19 +128,13 @@ class DramaScene(BaseModel):
     duration_seconds: Literal[4, 6, 8] = Field(default=8, description="场景时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     scene_type: str = Field(default="剧情", description="场景类型")
-    characters_in_scene: List[str] = Field(description="出场角色名称列表")
-    clues_in_scene: List[str] = Field(
-        default_factory=list, description="出场线索名称列表"
-    )
+    characters_in_scene: list[str] = Field(description="出场角色名称列表")
+    clues_in_scene: list[str] = Field(default_factory=list, description="出场线索名称列表")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词（16:9 横屏）")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
-    transition_to_next: Literal["cut", "fade", "dissolve"] = Field(
-        default="cut", description="转场类型"
-    )
-    note: Optional[str] = Field(default=None, description="用户备注（不参与生成）")
-    generated_assets: GeneratedAssets = Field(
-        default_factory=GeneratedAssets, description="生成资源状态"
-    )
+    transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="转场类型")
+    note: str | None = Field(default=None, description="用户备注（不参与生成）")
+    generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
 
 
 class DramaEpisodeScript(BaseModel):
@@ -164,6 +146,6 @@ class DramaEpisodeScript(BaseModel):
     duration_seconds: int = Field(default=0, description="总时长（秒）")
     summary: str = Field(description="剧集摘要")
     novel: NovelInfo = Field(description="小说来源信息")
-    characters_in_episode: List[str] = Field(description="本集出场角色列表")
-    clues_in_episode: List[str] = Field(description="本集出场线索列表")
-    scenes: List[DramaScene] = Field(description="场景列表")
+    characters_in_episode: list[str] = Field(description="本集出场角色列表")
+    clues_in_episode: list[str] = Field(description="本集出场线索列表")
+    scenes: list[DramaScene] = Field(description="场景列表")

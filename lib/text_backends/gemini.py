@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, Set
 
 try:
     from google import genai
@@ -33,11 +32,11 @@ class GeminiTextBackend:
     def __init__(
         self,
         *,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
+        api_key: str | None = None,
+        model: str | None = None,
         backend: str = "aistudio",
-        base_url: Optional[str] = None,
-        gcs_bucket: Optional[str] = None,
+        base_url: str | None = None,
+        gcs_bucket: str | None = None,
     ):
         self._model = model or DEFAULT_MODEL
         raw_backend = backend or "aistudio"
@@ -50,14 +49,9 @@ class GeminiTextBackend:
 
             from ..system_config import resolve_vertex_credentials_path
 
-            credentials_file = resolve_vertex_credentials_path(
-                Path(__file__).parent.parent.parent
-            )
+            credentials_file = resolve_vertex_credentials_path(Path(__file__).parent.parent.parent)
             if credentials_file is None:
-                raise ValueError(
-                    "未找到 Vertex AI 凭证文件\n"
-                    "请将服务账号 JSON 文件放入 vertex_keys/ 目录"
-                )
+                raise ValueError("未找到 Vertex AI 凭证文件\n请将服务账号 JSON 文件放入 vertex_keys/ 目录")
 
             with open(credentials_file) as f:
                 creds_data = json_module.load(f)
@@ -79,9 +73,7 @@ class GeminiTextBackend:
             logger.info("GeminiTextBackend: 使用 Vertex AI 后端（凭证: %s）", credentials_file.name)
         else:
             if not api_key:
-                raise ValueError(
-                    "Gemini API Key 未提供（API Key is required for AI Studio mode）。"
-                )
+                raise ValueError("Gemini API Key 未提供（API Key is required for AI Studio mode）。")
             effective_base_url = normalize_base_url(base_url)
             http_options = {"base_url": effective_base_url} if effective_base_url else None
             self._client = genai.Client(api_key=api_key, http_options=http_options)
@@ -99,7 +91,7 @@ class GeminiTextBackend:
         return self._model
 
     @property
-    def capabilities(self) -> Set[TextCapability]:
+    def capabilities(self) -> set[TextCapability]:
         return {
             TextCapability.TEXT_GENERATION,
             TextCapability.STRUCTURED_OUTPUT,
@@ -109,7 +101,7 @@ class GeminiTextBackend:
     def _build_config(
         self,
         response_schema: dict | type | None,
-        system_prompt: Optional[str],
+        system_prompt: str | None,
     ) -> dict:
         """构建 generate_content 的 config 字典。"""
         config: dict = {}
@@ -153,8 +145,8 @@ class GeminiTextBackend:
 
         text = response.text.strip() if response.text else ""
 
-        input_tokens: Optional[int] = None
-        output_tokens: Optional[int] = None
+        input_tokens: int | None = None
+        output_tokens: int | None = None
         if response.usage_metadata is not None:
             input_tokens = getattr(response.usage_metadata, "prompt_token_count", None)
             output_tokens = getattr(response.usage_metadata, "candidates_token_count", None)

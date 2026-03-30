@@ -10,10 +10,10 @@ from PIL import Image as PILImage
 
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def fake_rate_limiter():
@@ -28,9 +28,12 @@ def _patch_genai():
     mock_genai = MagicMock()
     mock_types = MagicMock()
     mock_genai.Client.return_value = MagicMock()
-    with patch.dict("sys.modules", {"google": MagicMock(), "google.genai": mock_genai, "google.genai.types": mock_types}):
+    with patch.dict(
+        "sys.modules", {"google": MagicMock(), "google.genai": mock_genai, "google.genai.types": mock_types}
+    ):
         # Make `from google import genai` return our mock
         import sys
+
         sys.modules["google"].genai = mock_genai
         mock_genai.types = mock_types
         yield mock_genai, mock_types
@@ -39,6 +42,7 @@ def _patch_genai():
 @pytest.fixture()
 def backend_aistudio(fake_rate_limiter, _patch_genai):
     from lib.image_backends.gemini import GeminiImageBackend
+
     return GeminiImageBackend(
         backend_type="aistudio",
         api_key="fake-key",
@@ -52,13 +56,16 @@ def backend_vertex(fake_rate_limiter, _patch_genai):
     mock_sa = MagicMock()
     mock_sa.Credentials.from_service_account_file.return_value = MagicMock()
     mock_open = MagicMock()
-    with patch("lib.image_backends.gemini.resolve_vertex_credentials_path") as mock_resolve, \
-         patch("lib.image_backends.gemini.json_module") as mock_json, \
-         patch("builtins.open", mock_open), \
-         patch.dict("sys.modules", {"google.oauth2": MagicMock(), "google.oauth2.service_account": mock_sa}):
+    with (
+        patch("lib.image_backends.gemini.resolve_vertex_credentials_path") as mock_resolve,
+        patch("lib.image_backends.gemini.json_module") as mock_json,
+        patch("builtins.open", mock_open),
+        patch.dict("sys.modules", {"google.oauth2": MagicMock(), "google.oauth2.service_account": mock_sa}),
+    ):
         mock_resolve.return_value = Path("/fake/creds.json")
         mock_json.load.return_value = {"project_id": "test-project"}
         from lib.image_backends.gemini import GeminiImageBackend
+
         return GeminiImageBackend(
             backend_type="vertex",
             rate_limiter=fake_rate_limiter,
@@ -68,6 +75,7 @@ def backend_vertex(fake_rate_limiter, _patch_genai):
 # ---------------------------------------------------------------------------
 # Tests: properties
 # ---------------------------------------------------------------------------
+
 
 class TestProperties:
     def test_name_aistudio(self, backend_aistudio):
@@ -88,6 +96,7 @@ class TestProperties:
 # ---------------------------------------------------------------------------
 # Tests: generate
 # ---------------------------------------------------------------------------
+
 
 class TestGenerate:
     async def test_generate_calls_sdk(self, backend_aistudio, fake_rate_limiter, tmp_path):
@@ -171,6 +180,7 @@ class TestGenerate:
 # Tests: helper methods
 # ---------------------------------------------------------------------------
 
+
 class TestHelpers:
     def test_extract_name_from_path_normal(self, backend_aistudio):
         assert backend_aistudio._extract_name_from_path("/path/to/角色A.png") == "角色A"
@@ -189,5 +199,6 @@ class TestHelpers:
         img_path = tmp_path / "test.png"
         PILImage.new("RGB", (10, 10), "red").save(img_path)
         from lib.image_backends.gemini import GeminiImageBackend
+
         loaded = GeminiImageBackend._load_image_detached(img_path)
         assert isinstance(loaded, PILImage.Image)

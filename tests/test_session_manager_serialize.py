@@ -7,12 +7,14 @@ from pydantic import BaseModel
 
 class TextBlock(BaseModel):
     """Mock SDK TextBlock."""
+
     type: str = "text"
     text: str
 
 
 class ContentMessage(BaseModel):
     """Mock SDK message with nested content blocks."""
+
     type: str = "assistant"
     content: list[TextBlock]
 
@@ -20,6 +22,7 @@ class ContentMessage(BaseModel):
 @dataclass
 class DataclassBlock:
     """Dataclass to test __dict__ serialization."""
+
     kind: str
     value: str
 
@@ -27,7 +30,7 @@ class DataclassBlock:
 class TestSerializeValue:
     def test_serialize_primitives(self, session_manager):
         assert session_manager._serialize_value(None) is None
-        assert session_manager._serialize_value(True) == True
+        assert session_manager._serialize_value(True)
         assert session_manager._serialize_value(42) == 42
         assert session_manager._serialize_value(3.14) == 3.14
         assert session_manager._serialize_value("hello") == "hello"
@@ -71,6 +74,7 @@ class TestSerializeValue:
 
     def test_serialize_unknown_object_to_string(self, session_manager):
         """Objects without model_dump or __dict__ are converted to string."""
+
         class CustomObj:
             def __str__(self):
                 return "custom-string"

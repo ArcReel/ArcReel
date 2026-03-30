@@ -1,7 +1,7 @@
 """Agent runtime data models."""
 
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -10,6 +10,7 @@ SessionStatus = Literal["idle", "running", "completed", "error", "interrupted"]
 
 class SessionMeta(BaseModel):
     """Session metadata stored in database."""
+
     id: str  # 对外暴露，填充 sdk_session_id 值
     project_name: str
     title: str = ""
@@ -24,5 +25,5 @@ class AssistantSnapshotV2(BaseModel):
     session_id: str
     status: SessionStatus
     turns: list[dict[str, Any]]
-    draft_turn: Optional[dict[str, Any]] = None
+    draft_turn: dict[str, Any] | None = None
     pending_questions: list[dict[str, Any]] = Field(default_factory=list)

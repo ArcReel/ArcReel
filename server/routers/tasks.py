@@ -6,8 +6,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
@@ -18,7 +17,6 @@ from lib.generation_queue import (
 )
 from server.auth import CurrentUser, CurrentUserFlexible
 
-
 router = APIRouter()
 
 
@@ -27,10 +25,10 @@ def get_task_queue():
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _parse_last_event_id(value: Optional[str]) -> Optional[int]:
+def _parse_last_event_id(value: str | None) -> int | None:
     if value is None:
         return None
     value = value.strip()
@@ -55,7 +53,7 @@ def _transform_task_event(raw_event: dict, stats: dict) -> dict:
 
 
 @router.get("/tasks/stats")
-async def get_task_stats(_user: CurrentUser, project_name: Optional[str] = None):
+async def get_task_stats(_user: CurrentUser, project_name: str | None = None):
     queue = get_task_queue()
     stats = await queue.get_task_stats(project_name=project_name)
     return {"stats": stats}
@@ -64,10 +62,10 @@ async def get_task_stats(_user: CurrentUser, project_name: Optional[str] = None)
 @router.get("/tasks")
 async def list_tasks(
     _user: CurrentUser,
-    project_name: Optional[str] = None,
-    status: Optional[str] = None,
-    task_type: Optional[str] = None,
-    source: Optional[str] = None,
+    project_name: str | None = None,
+    status: str | None = None,
+    task_type: str | None = None,
+    source: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
 ):
@@ -86,9 +84,9 @@ async def list_tasks(
 async def list_project_tasks(
     project_name: str,
     _user: CurrentUser,
-    status: Optional[str] = None,
-    task_type: Optional[str] = None,
-    source: Optional[str] = None,
+    status: str | None = None,
+    task_type: str | None = None,
+    source: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
 ):
@@ -107,9 +105,9 @@ async def list_project_tasks(
 async def stream_tasks(
     request: Request,
     _user: CurrentUserFlexible,
-    project_name: Optional[str] = None,
-    last_event_id: Optional[int] = Query(default=None, ge=0),
-    last_event_header: Optional[str] = Header(default=None, alias="Last-Event-ID"),
+    project_name: str | None = None,
+    last_event_id: int | None = Query(default=None, ge=0),
+    last_event_header: str | None = Header(default=None, alias="Last-Event-ID"),
 ) -> AsyncIterator[ServerSentEvent]:
     queue = get_task_queue()
     poll_interval = read_queue_poll_interval()
@@ -122,9 +120,7 @@ async def stream_tasks(
     cursor = max(0, int(cursor))
 
     latest_event_id = await queue.get_latest_event_id(project_name=project_name)
-    snapshot_last_event_id = (
-        max(cursor, latest_event_id) if resume_requested else latest_event_id
-    )
+    snapshot_last_event_id = max(cursor, latest_event_id) if resume_requested else latest_event_id
     snapshot = {
         "project_name": project_name,
         "tasks": await queue.get_recent_tasks_snapshot(project_name=project_name, limit=1000),

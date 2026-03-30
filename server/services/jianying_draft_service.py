@@ -41,14 +41,10 @@ class JianyingDraftService:
     # 内部方法：数据提取
     # ------------------------------------------------------------------
 
-    def _find_episode_script(
-        self, project_name: str, project: dict, episode: int
-    ) -> tuple[dict, str]:
+    def _find_episode_script(self, project_name: str, project: dict, episode: int) -> tuple[dict, str]:
         """定位指定集的剧本文件，返回 (script_dict, filename)"""
         episodes = project.get("episodes", [])
-        ep_entry = next(
-            (e for e in episodes if e.get("episode") == episode), None
-        )
+        ep_entry = next((e for e in episodes if e.get("episode") == episode), None)
         if ep_entry is None:
             raise FileNotFoundError(f"第 {episode} 集不存在")
 
@@ -57,14 +53,10 @@ class JianyingDraftService:
         script_data = self.pm.load_script(project_name, filename)
         return script_data, filename
 
-    def _collect_video_clips(
-        self, script: dict, project_dir: Path
-    ) -> list[dict[str, Any]]:
+    def _collect_video_clips(self, script: dict, project_dir: Path) -> list[dict[str, Any]]:
         """从剧本中提取已完成视频的片段列表"""
         content_mode = script.get("content_mode", "narration")
-        items = script.get(
-            "segments" if content_mode == "narration" else "scenes", []
-        )
+        items = script.get("segments" if content_mode == "narration" else "scenes", [])
         id_field = "segment_id" if content_mode == "narration" else "scene_id"
 
         clips = []
@@ -93,9 +85,7 @@ class JianyingDraftService:
 
         return clips
 
-    def _resolve_canvas_size(
-        self, project: dict, first_video_path: Path | None = None
-    ) -> tuple[int, int]:
+    def _resolve_canvas_size(self, project: dict, first_video_path: Path | None = None) -> tuple[int, int]:
         """根据项目 aspect_ratio 确定画布尺寸，缺失时从首个视频自动检测"""
         aspect = project.get("aspect_ratio", {}).get("video")
         if aspect is None and first_video_path is not None:
@@ -122,9 +112,7 @@ class JianyingDraftService:
         """使用 pyJianYingDraft 在 draft_dir 中生成草稿文件"""
         draft_dir.parent.mkdir(parents=True, exist_ok=True)
         folder = draft.DraftFolder(str(draft_dir.parent))
-        script_file = folder.create_draft(
-            draft_name, width=width, height=height, allow_replace=True
-        )
+        script_file = folder.create_draft(draft_name, width=width, height=height, allow_replace=True)
 
         # 视频轨
         script_file.add_track(TrackType.video)
@@ -191,9 +179,7 @@ class JianyingDraftService:
 
         script_file.save()
 
-    def _replace_paths_in_draft(
-        self, *, json_path: Path, tmp_prefix: str, target_prefix: str
-    ) -> None:
+    def _replace_paths_in_draft(self, *, json_path: Path, tmp_prefix: str, target_prefix: str) -> None:
         """JSON 安全地替换 draft_content.json 中的临时路径"""
         data = json.loads(json_path.read_text(encoding="utf-8"))
 
@@ -207,9 +193,7 @@ class JianyingDraftService:
             return obj
 
         data = _walk(data)
-        json_path.write_text(
-            json.dumps(data, ensure_ascii=False), encoding="utf-8"
-        )
+        json_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
     # ------------------------------------------------------------------
     # 公开方法

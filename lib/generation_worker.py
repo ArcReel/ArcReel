@@ -12,15 +12,17 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
+from datetime import UTC
+
 from lib.generation_queue import (
-    GenerationQueue,
     TASK_POLL_INTERVAL_SEC,
     TASK_WORKER_HEARTBEAT_SEC,
     TASK_WORKER_LEASE_TTL_SEC,
+    GenerationQueue,
     get_generation_queue,
 )
 
@@ -78,7 +80,7 @@ def _project_level_provider(project: dict, task_type: str) -> str | None:
     return project_backend
 
 
-async def _extract_provider(task: Dict[str, Any]) -> str:
+async def _extract_provider(task: dict[str, Any]) -> str:
     """Extract provider_id from a claimed task dict.
 
     优先级：payload 显式值 > 项目级配置 > 全局默认。
@@ -137,16 +139,8 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
             config = all_configs.get(provider_id, {})
             supports_image = "image" in meta.media_types
             supports_video = "video" in meta.media_types
-            image_max = (
-                int(config.get("image_max_workers", "5"))
-                if supports_image
-                else 0
-            )
-            video_max = (
-                int(config.get("video_max_workers", "3"))
-                if supports_video
-                else 0
-            )
+            image_max = int(config.get("image_max_workers", "5")) if supports_image else 0
+            video_max = int(config.get("video_max_workers", "3")) if supports_video else 0
             pools[provider_id] = ProviderPool(
                 provider_id=provider_id,
                 image_max=max(0, image_max),
@@ -213,17 +207,17 @@ class GenerationWorker:
         return sum(p.video_max for p in self._pools.values())
 
     @property
-    def _image_inflight(self) -> Dict[str, asyncio.Task]:
+    def _image_inflight(self) -> dict[str, asyncio.Task]:
         """Merged view of all image inflight tasks (read-only convenience)."""
-        merged: Dict[str, asyncio.Task] = {}
+        merged: dict[str, asyncio.Task] = {}
         for pool in self._pools.values():
             merged.update(pool.image_inflight)
         return merged
 
     @property
-    def _video_inflight(self) -> Dict[str, asyncio.Task]:
+    def _video_inflight(self) -> dict[str, asyncio.Task]:
         """Merged view of all video inflight tasks (read-only convenience)."""
-        merged: Dict[str, asyncio.Task] = {}
+        merged: dict[str, asyncio.Task] = {}
         for pool in self._pools.values():
             merged.update(pool.video_inflight)
         return merged
@@ -398,7 +392,9 @@ class GenerationWorker:
                     # claiming this media_type (FIFO means we'd get it again).
                     logger.info(
                         "供应商 %s 的 %s 池已满，任务 %s 放回队列",
-                        provider_id, media_type, task["task_id"],
+                        provider_id,
+                        media_type,
+                        task["task_id"],
                     )
                     await self._requeue_single_task(task["task_id"])
                     break
@@ -420,10 +416,12 @@ class GenerationWorker:
     async def _requeue_single_task(self, task_id: str) -> None:
         """Put a claimed (running) task back to queued status."""
         try:
+            from datetime import datetime
+
+            from sqlalchemy import update
+
             from lib.db import safe_session_factory
             from lib.db.models.task import Task
-            from sqlalchemy import update
-            from datetime import datetime, timezone
 
             async with safe_session_factory() as session:
                 await session.execute(
@@ -432,7 +430,7 @@ class GenerationWorker:
                     .values(
                         status="queued",
                         started_at=None,
-                        updated_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(UTC),
                     )
                 )
                 await session.commit()
@@ -463,7 +461,7 @@ class GenerationWorker:
             pool.image_inflight.clear()
             pool.video_inflight.clear()
 
-    async def _process_task(self, task: Dict[str, Any]) -> None:
+    async def _process_task(self, task: dict[str, Any]) -> None:
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
         provider_id = await _extract_provider(task)

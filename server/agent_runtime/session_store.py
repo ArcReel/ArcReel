@@ -6,8 +6,6 @@ Wraps SessionRepository with a convenience class.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from lib.db import safe_session_factory
 from lib.db.repositories.session_repo import SessionRepository
 from server.agent_runtime.models import SessionMeta, SessionStatus
@@ -38,7 +36,7 @@ class SessionMetaStore:
             d = await repo.create(project_name=project_name, sdk_session_id=sdk_session_id)
         return _dict_to_session(d)
 
-    async def get(self, session_id: str) -> Optional[SessionMeta]:
+    async def get(self, session_id: str) -> SessionMeta | None:
 
         async with self._session_factory() as session:
             repo = SessionRepository(session)
@@ -49,8 +47,8 @@ class SessionMetaStore:
 
     async def list(
         self,
-        project_name: Optional[str] = None,
-        status: Optional[SessionStatus] = None,
+        project_name: str | None = None,
+        status: SessionStatus | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[SessionMeta]:

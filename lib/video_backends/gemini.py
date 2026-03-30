@@ -8,14 +8,13 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Optional, Set, Union
 
 from PIL import Image
 
 from lib.config.url_utils import normalize_base_url
 from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, with_retry_async
-from lib.system_config import resolve_vertex_credentials_path
 from lib.providers import PROVIDER_GEMINI
+from lib.system_config import resolve_vertex_credentials_path
 from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
@@ -25,7 +24,6 @@ from lib.video_backends.base import (
 logger = logging.getLogger(__name__)
 
 
-
 class GeminiVideoBackend:
     """Gemini (Veo) 视频生成后端。"""
 
@@ -33,9 +31,9 @@ class GeminiVideoBackend:
         self,
         *,
         backend_type: str = "aistudio",
-        api_key: Optional[str] = None,
-        rate_limiter: Optional[RateLimiter] = None,
-        video_model: Optional[str] = None,
+        api_key: str | None = None,
+        rate_limiter: RateLimiter | None = None,
+        video_model: str | None = None,
     ):
         from google import genai as _genai
         from google.genai import types as _types
@@ -48,18 +46,14 @@ class GeminiVideoBackend:
 
         from lib.cost_calculator import cost_calculator
 
-        self._video_model = video_model or os.environ.get(
-            "GEMINI_VIDEO_MODEL", cost_calculator.DEFAULT_VIDEO_MODEL
-        )
+        self._video_model = video_model or os.environ.get("GEMINI_VIDEO_MODEL", cost_calculator.DEFAULT_VIDEO_MODEL)
 
         if self._backend_type == "vertex":
             import json as json_module
 
             from google.oauth2 import service_account
 
-            credentials_file = resolve_vertex_credentials_path(
-                Path(__file__).parent.parent.parent
-            )
+            credentials_file = resolve_vertex_credentials_path(Path(__file__).parent.parent.parent)
             if credentials_file is None:
                 raise ValueError("未找到 Vertex AI 凭证文件")
 
@@ -67,10 +61,8 @@ class GeminiVideoBackend:
                 creds_data = json_module.load(f)
             self._project_id = creds_data.get("project_id")
 
-            self._credentials = (
-                service_account.Credentials.from_service_account_file(
-                    str(credentials_file), scopes=VERTEX_SCOPES
-                )
+            self._credentials = service_account.Credentials.from_service_account_file(
+                str(credentials_file), scopes=VERTEX_SCOPES
             )
 
             self._client = _genai.Client(
@@ -86,12 +78,10 @@ class GeminiVideoBackend:
 
             base_url = normalize_base_url(os.environ.get("GEMINI_BASE_URL"))
             http_options = {"base_url": base_url} if base_url else None
-            self._client = _genai.Client(
-                api_key=_api_key, http_options=http_options
-            )
+            self._client = _genai.Client(api_key=_api_key, http_options=http_options)
 
         # 缓存 capabilities，避免每次访问创建新 set
-        self._capabilities: Set[VideoCapability] = {
+        self._capabilities: set[VideoCapability] = {
             VideoCapability.TEXT_TO_VIDEO,
             VideoCapability.IMAGE_TO_VIDEO,
             VideoCapability.NEGATIVE_PROMPT,
@@ -109,7 +99,7 @@ class GeminiVideoBackend:
         return self._video_model
 
     @property
-    def capabilities(self) -> Set[VideoCapability]:
+    def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
     @staticmethod
@@ -122,9 +112,7 @@ class GeminiVideoBackend:
         return "8"
 
     @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
-    async def generate(
-        self, request: VideoGenerationRequest
-    ) -> VideoGenerationResult:
+    async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频（仅生成模式，不含延长模式）。"""
         # 1. 限流
         if self._rate_limiter:
@@ -138,27 +126,18 @@ class GeminiVideoBackend:
             "aspect_ratio": request.aspect_ratio,
             "resolution": request.resolution,
             "duration_seconds": duration_str,
-            "negative_prompt": request.negative_prompt
-            or "music, BGM, background music, subtitles, low quality",
+            "negative_prompt": request.negative_prompt or "music, BGM, background music, subtitles, low quality",
         }
         if self._backend_type == "vertex":
             config_params["generate_audio"] = request.generate_audio
         config = self._types.GenerateVideosConfig(**config_params)
 
         # 4. 准备 source（prompt + 可选起始帧）
-        image_param = (
-            self._prepare_image_param(request.start_image)
-            if request.start_image
-            else None
-        )
-        source = self._types.GenerateVideosSource(
-            prompt=request.prompt, image=image_param
-        )
+        image_param = self._prepare_image_param(request.start_image) if request.start_image else None
+        source = self._types.GenerateVideosSource(prompt=request.prompt, image=image_param)
 
         # 5. 调用 API
-        operation = await self._client.aio.models.generate_videos(
-            model=self._video_model, source=source, config=config
-        )
+        operation = await self._client.aio.models.generate_videos(model=self._video_model, source=source, config=config)
 
         # 6. 轮询等待完成
         op_name = getattr(operation, "name", "unknown")
@@ -177,7 +156,8 @@ class GeminiVideoBackend:
                 elapsed = time.monotonic() - start_time
                 logger.info(
                     "视频生成中... 已等待 %.0f 秒 (operation=%s)",
-                    elapsed, op_name,
+                    elapsed,
+                    op_name,
                 )
 
         total_elapsed = time.monotonic() - start_time
@@ -189,7 +169,10 @@ class GeminiVideoBackend:
             metadata = getattr(operation, "metadata", None)
             logger.error(
                 "视频生成返回空结果: operation=%s, error=%s, metadata=%s, elapsed=%.0f秒",
-                op_name, error_detail, metadata, total_elapsed,
+                op_name,
+                error_detail,
+                metadata,
+                total_elapsed,
             )
             if error_detail:
                 raise RuntimeError(f"视频生成失败: {error_detail}")
@@ -216,9 +199,7 @@ class GeminiVideoBackend:
     # 内部辅助方法（从 GeminiClient 提取）
     # ------------------------------------------------------------------
 
-    def _prepare_image_param(
-        self, image: Optional[Union[str, Path, Image.Image]]
-    ):
+    def _prepare_image_param(self, image: str | Path | Image.Image | None):
         """准备图片参数用于 API 调用 — 提取自 GeminiClient。"""
         if image is None:
             return None
@@ -237,27 +218,19 @@ class GeminiVideoBackend:
                 ".webp": "image/webp",
             }
             mime_type = mime_types.get(suffix, mime_type_png)
-            return self._types.Image(
-                image_bytes=image_bytes, mime_type=mime_type
-            )
+            return self._types.Image(image_bytes=image_bytes, mime_type=mime_type)
         elif isinstance(image, Image.Image):
             buffer = io.BytesIO()
             image.save(buffer, format="PNG")
             image_bytes = buffer.getvalue()
-            return self._types.Image(
-                image_bytes=image_bytes, mime_type=mime_type_png
-            )
+            return self._types.Image(image_bytes=image_bytes, mime_type=mime_type_png)
         else:
             return image
 
     def _download_video(self, video_ref, output_path: Path) -> None:
         """下载视频到本地文件 — 提取自 GeminiClient。"""
         if self._backend_type == "vertex":
-            if (
-                video_ref
-                and hasattr(video_ref, "video_bytes")
-                and video_ref.video_bytes
-            ):
+            if video_ref and hasattr(video_ref, "video_bytes") and video_ref.video_bytes:
                 with open(output_path, "wb") as f:
                     f.write(video_ref.video_bytes)
             elif video_ref and hasattr(video_ref, "uri") and video_ref.uri:

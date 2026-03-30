@@ -136,9 +136,7 @@ class CostCalculator:
             (amount, currency) — 金额和币种 (CNY)
         """
         model = model or self.DEFAULT_ARK_VIDEO_MODEL
-        model_costs = self.ARK_VIDEO_COST.get(
-            model, self.ARK_VIDEO_COST[self.DEFAULT_ARK_VIDEO_MODEL]
-        )
+        model_costs = self.ARK_VIDEO_COST.get(model, self.ARK_VIDEO_COST[self.DEFAULT_ARK_VIDEO_MODEL])
         key = (service_tier, generate_audio)
         price_per_million = model_costs.get(
             key,
@@ -203,9 +201,7 @@ class CostCalculator:
             (amount, currency) — 金额和币种 (CNY)
         """
         model = model or self.DEFAULT_ARK_IMAGE_MODEL
-        per_image = self.ARK_IMAGE_COST.get(
-            model, self.ARK_IMAGE_COST[self.DEFAULT_ARK_IMAGE_MODEL]
-        )
+        per_image = self.ARK_IMAGE_COST.get(model, self.ARK_IMAGE_COST[self.DEFAULT_ARK_IMAGE_MODEL])
         return per_image * n, "CNY"
 
     def calculate_grok_image_cost(
@@ -220,9 +216,7 @@ class CostCalculator:
             (amount, currency) — 金额和币种 (USD)
         """
         model = model or self.DEFAULT_GROK_IMAGE_MODEL
-        per_image = self.GROK_IMAGE_COST.get(
-            model, self.GROK_IMAGE_COST[self.DEFAULT_GROK_IMAGE_MODEL]
-        )
+        per_image = self.GROK_IMAGE_COST.get(model, self.GROK_IMAGE_COST[self.DEFAULT_GROK_IMAGE_MODEL])
         return per_image * n, "USD"
 
     def calculate_grok_video_cost(
@@ -241,9 +235,7 @@ class CostCalculator:
             (amount, currency) — 金额和币种 (USD)
         """
         model = model or self.DEFAULT_GROK_MODEL
-        per_second = self.GROK_VIDEO_COST.get(
-            model, self.GROK_VIDEO_COST[self.DEFAULT_GROK_MODEL]
-        )
+        per_second = self.GROK_VIDEO_COST.get(model, self.GROK_VIDEO_COST[self.DEFAULT_GROK_MODEL])
         return duration_seconds * per_second, "USD"
 
     _TEXT_COST_TABLES: dict[str, tuple[dict, str, str]] = {
@@ -261,9 +253,7 @@ class CostCalculator:
         model: str | None = None,
     ) -> tuple[float, str]:
         """计算文本生成费用。返回 (amount, currency)。"""
-        table_attr, default_model, currency = self._TEXT_COST_TABLES.get(
-            provider, self._TEXT_COST_DEFAULT
-        )
+        table_attr, default_model, currency = self._TEXT_COST_TABLES.get(provider, self._TEXT_COST_DEFAULT)
         cost_table = getattr(self, table_attr)
         model = model or default_model
         rates = cost_table.get(model, cost_table.get(default_model, {"input": 0.0, "output": 0.0}))

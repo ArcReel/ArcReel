@@ -1,6 +1,6 @@
 """TextBackend Protocol + data classes tests."""
+
 from pathlib import Path
-from typing import Set
 
 from lib.text_backends.base import (
     ImageInput,
@@ -71,8 +71,11 @@ class TestTextGenerationResult:
 
     def test_with_tokens(self):
         result = TextGenerationResult(
-            text="output", provider="ark", model="seed",
-            input_tokens=100, output_tokens=50,
+            text="output",
+            provider="ark",
+            model="seed",
+            input_tokens=100,
+            output_tokens=50,
         )
         assert result.input_tokens == 100
         assert result.output_tokens == 50
@@ -95,14 +98,14 @@ class TestResolveSchema:
         assert result["properties"]["child"]["properties"]["x"]["type"] == "integer"
 
     def test_pydantic_class(self):
+
         from pydantic import BaseModel
-        from typing import List
 
         class Item(BaseModel):
             value: int
 
         class Container(BaseModel):
-            items: List[Item]
+            items: list[Item]
 
         result = resolve_schema(Container)
         assert "$ref" not in str(result)
@@ -122,6 +125,7 @@ class TestResolveSchema:
             "properties": {"root": {"$ref": "#/$defs/Node"}},
         }
         import pytest
+
         with pytest.raises(ValueError, match="循环引用"):
             resolve_schema(schema)
 
@@ -142,12 +146,15 @@ class TestTextBackendProtocol:
             @property
             def name(self) -> str:
                 return "fake"
+
             @property
             def model(self) -> str:
                 return "fake-model"
+
             @property
-            def capabilities(self) -> Set[TextCapability]:
+            def capabilities(self) -> set[TextCapability]:
                 return {TextCapability.TEXT_GENERATION}
+
             async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
                 return TextGenerationResult(text="ok", provider="fake", model="fake-model")
 

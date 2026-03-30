@@ -12,14 +12,15 @@ import secrets
 import string
 import time
 from collections import OrderedDict
+from datetime import UTC
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import jwt
 from fastapi import Depends, HTTPException, Query
 from fastapi.security import OAuth2PasswordBearer
-from pydantic import BaseModel, ConfigDict
 from pwdlib import PasswordHash
+from pydantic import BaseModel, ConfigDict
 
 from lib import PROJECT_ROOT
 
@@ -37,20 +38,18 @@ class CurrentUserInfo(BaseModel):
 
 
 # JWT 签名密钥缓存
-_cached_token_secret: Optional[str] = None
+_cached_token_secret: str | None = None
 
 # Token 有效期：7 天
 TOKEN_EXPIRY_SECONDS = 7 * 24 * 3600
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
-oauth2_scheme_optional = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/token", auto_error=False
-)
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
 # 密码哈希
 _password_hash = PasswordHash.recommended()
-_cached_password_hash: Optional[str] = None
+_cached_password_hash: str | None = None
 
 
 def generate_password(length: int = 16) -> str:
@@ -96,7 +95,7 @@ def create_token(username: str) -> str:
     return jwt.encode(payload, get_token_secret(), algorithm="HS256")
 
 
-def verify_token(token: str) -> Optional[dict]:
+def verify_token(token: str) -> dict | None:
     """验证 JWT token
 
     Args:
@@ -169,7 +168,7 @@ def check_credentials(username: str, password: str) -> bool:
     return username_ok and password_ok
 
 
-def ensure_auth_password(env_path: Optional[str] = None) -> str:
+def ensure_auth_password(env_path: str | None = None) -> str:
     """确保 AUTH_PASSWORD 已设置
 
     如果 AUTH_PASSWORD 环境变量为空，自动生成密码，写入环境变量，
@@ -218,9 +217,7 @@ def ensure_auth_password(env_path: Optional[str] = None) -> str:
     except OSError:
         logger.warning("无法写入 .env 文件: %s", env_path)
 
-    logger.warning(
-        "已自动生成认证密码，请查看 .env 文件中的 AUTH_PASSWORD 字段"
-    )
+    logger.warning("已自动生成认证密码，请查看 .env 文件中的 AUTH_PASSWORD 字段")
     return password
 
 
@@ -234,7 +231,7 @@ API_KEY_CACHE_TTL = 300  # 5 分钟
 # LRU 缓存：key_hash → (payload_dict | None, expires_at_timestamp)
 # payload 为 None 表示 key 不存在或已过期（负缓存）
 # 使用 OrderedDict 实现 LRU：命中时 move_to_end，淘汰时 popitem(last=False)
-_api_key_cache: OrderedDict[str, tuple[Optional[dict], float]] = OrderedDict()
+_api_key_cache: OrderedDict[str, tuple[dict | None, float]] = OrderedDict()
 _API_KEY_CACHE_MAX = 512
 
 
@@ -248,7 +245,7 @@ def invalidate_api_key_cache(key_hash: str) -> None:
     _api_key_cache.pop(key_hash, None)
 
 
-def _get_cached_api_key_payload(key_hash: str) -> tuple[bool, Optional[dict]]:
+def _get_cached_api_key_payload(key_hash: str) -> tuple[bool, dict | None]:
     """从缓存中查找。返回 (命中, payload 或 None)。命中时将条目移至末尾（LRU）。"""
     entry = _api_key_cache.get(key_hash)
     if entry is None:
@@ -261,7 +258,7 @@ def _get_cached_api_key_payload(key_hash: str) -> tuple[bool, Optional[dict]]:
     return True, payload
 
 
-def _set_api_key_cache(key_hash: str, payload: Optional[dict], expires_at_ts: Optional[float] = None) -> None:
+def _set_api_key_cache(key_hash: str, payload: dict | None, expires_at_ts: float | None = None) -> None:
     """写入缓存（含 LRU 淘汰）。
 
     正向缓存（payload 非 None）TTL 以 key 实际过期时间为上界，
@@ -281,7 +278,7 @@ def _set_api_key_cache(key_hash: str, payload: Optional[dict], expires_at_ts: Op
     _api_key_cache[key_hash] = (payload, time.monotonic() + ttl)
 
 
-async def _verify_api_key(token: str) -> Optional[dict]:
+async def _verify_api_key(token: str) -> dict | None:
     """验证 API Key token，返回 payload dict 或 None（失败/过期/不存在）。
 
     内部先查缓存，缓存未命中再查数据库。
@@ -309,18 +306,19 @@ async def _verify_api_key(token: str) -> Optional[dict]:
 
     # 检查过期
     expires_at = row.get("expires_at")
-    expires_at_monotonic: Optional[float] = None
+    expires_at_monotonic: float | None = None
     if expires_at:
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         try:
             exp_dt = expires_at
             if exp_dt.tzinfo is None:
-                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) >= exp_dt:
+                exp_dt = exp_dt.replace(tzinfo=UTC)
+            if datetime.now(UTC) >= exp_dt:
                 _set_api_key_cache(key_hash, None)
                 return None
             # 将过期时刻转换为 monotonic 时间戳，供缓存 TTL 上界计算
-            remaining_secs = (exp_dt - datetime.now(timezone.utc)).total_seconds()
+            remaining_secs = (exp_dt - datetime.now(UTC)).total_seconds()
             expires_at_monotonic = time.monotonic() + remaining_secs
         except (ValueError, TypeError):
             logger.warning("API Key expires_at 值格式无法解析，忽略过期检查: %r", expires_at)

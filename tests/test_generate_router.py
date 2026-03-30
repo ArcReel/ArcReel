@@ -66,7 +66,7 @@ class _FakePM:
                     "characters_in_segment": ["Alice"],
                     "clues_in_segment": ["玉佩"],
                     "generated_assets": {},
-                }
+                },
             ],
         }
 

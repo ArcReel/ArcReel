@@ -25,12 +25,15 @@ __all__ = [
 # Backend auto-registration
 from lib.providers import PROVIDER_GEMINI
 from lib.text_backends.gemini import GeminiTextBackend
+
 register_backend(PROVIDER_GEMINI, GeminiTextBackend)
 
 from lib.providers import PROVIDER_ARK
 from lib.text_backends.ark import ArkTextBackend
+
 register_backend(PROVIDER_ARK, ArkTextBackend)
 
 from lib.providers import PROVIDER_GROK
 from lib.text_backends.grok import GrokTextBackend
+
 register_backend(PROVIDER_GROK, GrokTextBackend)

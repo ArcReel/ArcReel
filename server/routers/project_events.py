@@ -43,9 +43,7 @@ async def stream_project_events(
     project_name: str,
     request: Request,
     _user: CurrentUserFlexible,
-    subscription: tuple[ProjectEventService, asyncio.Queue, dict[str, Any]] = Depends(
-        _project_events_subscription
-    ),
+    subscription: tuple[ProjectEventService, asyncio.Queue, dict[str, Any]] = Depends(_project_events_subscription),
 ) -> AsyncIterator[ServerSentEvent]:
     service, queue, snapshot = subscription
 
@@ -60,7 +58,7 @@ async def stream_project_events(
                     queue.get(),
                     timeout=PROJECT_EVENTS_SSE_POLL_SECONDS,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             yield ServerSentEvent(event=event_name, data=payload)
     finally:

@@ -1,4 +1,5 @@
 """ArkImageBackend 单元测试。"""
+
 from __future__ import annotations
 
 import base64
@@ -15,7 +16,6 @@ from lib.image_backends.base import (
     ReferenceImage,
 )
 from lib.providers import PROVIDER_ARK
-
 
 # ---------------------------------------------------------------------------
 # Helpers

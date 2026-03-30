@@ -15,17 +15,17 @@ Create Date: 2026-03-18 16:22:16.940767
 
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "3c8b0ae43345"
-down_revision: Union[str, Sequence[str], None] = "b942e8c5d545"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "b942e8c5d545"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 # Tables and their datetime columns that were corrupted by the CAST bug.
 TIMESTAMP_COLUMNS: dict[str, list[str]] = {
@@ -52,10 +52,9 @@ def upgrade() -> None:
         for col in columns:
             # typeof() returns 'integer' for the corrupted rows
             op.execute(
-                sa.text(
-                    f"UPDATE {table} SET {col} = :placeholder "
-                    f"WHERE typeof({col}) = 'integer'"
-                ).bindparams(placeholder=PLACEHOLDER)
+                sa.text(f"UPDATE {table} SET {col} = :placeholder WHERE typeof({col}) = 'integer'").bindparams(
+                    placeholder=PLACEHOLDER
+                )
             )
 
 

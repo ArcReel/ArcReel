@@ -1,17 +1,16 @@
 """ArkVideoBackend 单元测试 — mock Ark SDK。"""
 
 import os
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
-from lib.video_backends.ark import ArkVideoBackend
 
 
 @pytest.fixture
@@ -77,9 +76,7 @@ class TestArkGenerate:
 
         create_result = MagicMock()
         create_result.id = "cgt-20250101-test"
-        backend._client.content_generation.tasks.create = MagicMock(
-            return_value=create_result
-        )
+        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
         get_result.status = "succeeded"
@@ -88,9 +85,7 @@ class TestArkGenerate:
         get_result.seed = 58944
         get_result.usage = MagicMock()
         get_result.usage.completion_tokens = 246840
-        backend._client.content_generation.tasks.get = MagicMock(
-            return_value=get_result
-        )
+        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         patcher = _mock_httpx_stream()
         try:
@@ -118,9 +113,7 @@ class TestArkGenerate:
 
         create_result = MagicMock()
         create_result.id = "cgt-i2v-test"
-        backend._client.content_generation.tasks.create = MagicMock(
-            return_value=create_result
-        )
+        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
         get_result.status = "succeeded"
@@ -129,9 +122,7 @@ class TestArkGenerate:
         get_result.seed = 12345
         get_result.usage = MagicMock()
         get_result.usage.completion_tokens = 200000
-        backend._client.content_generation.tasks.get = MagicMock(
-            return_value=get_result
-        )
+        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         patcher = _mock_httpx_stream()
         try:
@@ -148,9 +139,7 @@ class TestArkGenerate:
         assert result.provider == "ark"
         create_call = backend._client.content_generation.tasks.create
         call_kwargs = create_call.call_args
-        content_arg = call_kwargs.kwargs.get("content") or call_kwargs[1].get(
-            "content"
-        )
+        content_arg = call_kwargs.kwargs.get("content") or call_kwargs[1].get("content")
         assert len(content_arg) == 2
         assert content_arg[1]["type"] == "image_url"
         assert content_arg[1]["image_url"]["url"].startswith("data:image/")
@@ -160,16 +149,12 @@ class TestArkGenerate:
 
         create_result = MagicMock()
         create_result.id = "cgt-fail"
-        backend._client.content_generation.tasks.create = MagicMock(
-            return_value=create_result
-        )
+        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
         get_result.status = "failed"
         get_result.error = "content violation"
-        backend._client.content_generation.tasks.get = MagicMock(
-            return_value=get_result
-        )
+        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with pytest.raises(RuntimeError, match="Ark 视频生成失败"):
@@ -180,9 +165,7 @@ class TestArkGenerate:
 
         create_result = MagicMock()
         create_result.id = "cgt-flex"
-        backend._client.content_generation.tasks.create = MagicMock(
-            return_value=create_result
-        )
+        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
         get_result.status = "succeeded"
@@ -191,9 +174,7 @@ class TestArkGenerate:
         get_result.seed = 42
         get_result.usage = MagicMock()
         get_result.usage.completion_tokens = 100000
-        backend._client.content_generation.tasks.get = MagicMock(
-            return_value=get_result
-        )
+        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         patcher = _mock_httpx_stream()
         try:
@@ -210,14 +191,10 @@ class TestArkGenerate:
         create_call = backend._client.content_generation.tasks.create
         call_kwargs = create_call.call_args
         assert call_kwargs.kwargs.get("seed") == 42 or call_kwargs[1].get("seed") == 42
-        assert (
-            call_kwargs.kwargs.get("service_tier") == "flex"
-            or call_kwargs[1].get("service_tier") == "flex"
-        )
+        assert call_kwargs.kwargs.get("service_tier") == "flex" or call_kwargs[1].get("service_tier") == "flex"
 
     def test_missing_api_key_raises(self):
         with patch.dict(os.environ, {}, clear=True):
             with patch("volcenginesdkarkruntime.Ark"):
                 with pytest.raises(ValueError, match="ARK_API_KEY"):
                     ArkVideoBackend(api_key=None)
-

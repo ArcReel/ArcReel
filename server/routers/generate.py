@@ -6,7 +6,6 @@
 """
 
 import logging
-from typing import Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -40,15 +39,15 @@ def get_project_manager() -> ProjectManager:
 
 
 class GenerateStoryboardRequest(BaseModel):
-    prompt: Union[str, dict]
+    prompt: str | dict
     script_file: str
 
 
 class GenerateVideoRequest(BaseModel):
-    prompt: Union[str, dict]
+    prompt: str | dict
     script_file: str
-    duration_seconds: Optional[int] = 4
-    seed: Optional[int] = None
+    duration_seconds: int | None = 4
+    seed: int | None = None
 
 
 class GenerateCharacterRequest(BaseModel):
@@ -96,7 +95,9 @@ def _snapshot_image_backend(project_name: str) -> dict:
 
 @router.post("/projects/{project_name}/generate/storyboard/{segment_id}")
 async def generate_storyboard(
-    project_name: str, segment_id: str, req: GenerateStoryboardRequest,
+    project_name: str,
+    segment_id: str,
+    req: GenerateStoryboardRequest,
     _user: CurrentUser,
 ):
     """
@@ -112,9 +113,7 @@ async def generate_storyboard(
         items, id_field, _, _ = get_storyboard_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
-            raise HTTPException(
-                status_code=404, detail=f"片段/场景 '{segment_id}' 不存在"
-            )
+            raise HTTPException(status_code=404, detail=f"片段/场景 '{segment_id}' 不存在")
 
         # 验证 prompt 格式
         if isinstance(req.prompt, dict):
@@ -179,9 +178,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
         # 检查分镜图是否存在
         storyboard_file = project_path / "storyboards" / f"scene_{segment_id}.png"
         if not storyboard_file.exists():
-            raise HTTPException(
-                status_code=400, detail=f"请先生成分镜图 scene_{segment_id}.png"
-            )
+            raise HTTPException(status_code=400, detail=f"请先生成分镜图 scene_{segment_id}.png")
 
         # 验证 prompt 格式
         if isinstance(req.prompt, dict):
@@ -195,9 +192,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
                 raise HTTPException(status_code=400, detail="prompt.action 不能为空")
             dialogue = req.prompt.get("dialogue", [])
             if dialogue is not None and not isinstance(dialogue, list):
-                raise HTTPException(
-                    status_code=400, detail="prompt.dialogue 必须是数组"
-                )
+                raise HTTPException(status_code=400, detail="prompt.dialogue 必须是数组")
         elif not isinstance(req.prompt, str):
             raise HTTPException(status_code=400, detail="prompt 必须是字符串或对象")
 
@@ -239,7 +234,9 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
 
 @router.post("/projects/{project_name}/generate/character/{char_name}")
 async def generate_character(
-    project_name: str, char_name: str, req: GenerateCharacterRequest,
+    project_name: str,
+    char_name: str,
+    req: GenerateCharacterRequest,
     _user: CurrentUser,
 ):
     """

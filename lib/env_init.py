@@ -24,7 +24,8 @@ def init_environment():
     # 加载 .env 文件
     try:
         from dotenv import load_dotenv
-        env_path = project_root / '.env'
+
+        env_path = project_root / ".env"
         if env_path.exists():
             load_dotenv(env_path)
         else:

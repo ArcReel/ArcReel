@@ -1,6 +1,6 @@
 """Unit tests for assistant router contract changes."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.routers import assistant
 from tests.factories import make_session_meta
-
 
 PROJECT = "demo"
 PREFIX = f"/api/v1/projects/{PROJECT}/assistant"
@@ -47,14 +46,17 @@ class TestAssistantRoutes:
 
         # Mock get_session for ownership validation
         session_meta = make_session_meta(id="session-1", project_name=PROJECT)
-        with patch.object(
-            assistant.assistant_service,
-            "get_session",
-            return_value=session_meta,
-        ), patch.object(
-            assistant.assistant_service,
-            "get_snapshot",
-            new=AsyncMock(return_value=snapshot_payload),
+        with (
+            patch.object(
+                assistant.assistant_service,
+                "get_session",
+                return_value=session_meta,
+            ),
+            patch.object(
+                assistant.assistant_service,
+                "get_snapshot",
+                new=AsyncMock(return_value=snapshot_payload),
+            ),
         ):
             with _build_client() as client:
                 response = client.get(f"{PREFIX}/sessions/session-1/snapshot")
@@ -71,14 +73,17 @@ class TestAssistantRoutes:
 
         # Mock get_session for ownership validation
         session_meta = make_session_meta(id="session-1", project_name=PROJECT)
-        with patch.object(
-            assistant.assistant_service,
-            "get_session",
-            return_value=session_meta,
-        ), patch.object(
-            assistant.assistant_service,
-            "interrupt_session",
-            new=AsyncMock(return_value=interrupt_payload),
+        with (
+            patch.object(
+                assistant.assistant_service,
+                "get_session",
+                return_value=session_meta,
+            ),
+            patch.object(
+                assistant.assistant_service,
+                "interrupt_session",
+                new=AsyncMock(return_value=interrupt_payload),
+            ),
         ):
             with _build_client() as client:
                 response = client.post(f"{PREFIX}/sessions/session-1/interrupt")

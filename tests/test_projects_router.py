@@ -1,5 +1,5 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -84,7 +84,7 @@ class _FakePM:
 
     def load_script(self, name, script_file):
         if script_file.startswith("scripts/"):
-            script_file = script_file[len("scripts/"):]
+            script_file = script_file[len("scripts/") :]
         key = (name, script_file)
         if key not in self.scripts:
             raise FileNotFoundError(script_file)

@@ -50,11 +50,7 @@ def build_character_prompt(name: str, description: str, style: str = "", style_d
 
 
 def build_clue_prompt(
-    name: str,
-    description: str,
-    clue_type: str = "prop",
-    style: str = "",
-    style_description: str = ""
+    name: str, description: str, clue_type: str = "prop", style: str = "", style_description: str = ""
 ) -> str:
     """
     构建线索设计图 Prompt
@@ -168,13 +164,13 @@ def build_style_prompt(project_data: dict) -> str:
     parts = []
 
     # 基础风格标签
-    style = project_data.get('style', '')
+    style = project_data.get("style", "")
     if style:
         parts.append(f"Style: {style}")
 
     # AI 分析的风格描述
-    style_description = project_data.get('style_description', '')
+    style_description = project_data.get("style_description", "")
     if style_description:
         parts.append(f"Visual style: {style_description}")
 
-    return '\n'.join(parts)
+    return "\n".join(parts)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,31 +21,28 @@ class ProviderConfigRepository:
         self.session = session
 
     async def set(
-        self, provider: str, key: str, value: str, *, is_secret: bool = False,
+        self,
+        provider: str,
+        key: str,
+        value: str,
+        *,
+        is_secret: bool = False,
         flush: bool = True,
     ) -> None:
-        stmt = select(ProviderConfig).where(
-            ProviderConfig.provider == provider, ProviderConfig.key == key
-        )
+        stmt = select(ProviderConfig).where(ProviderConfig.provider == provider, ProviderConfig.key == key)
         result = await self.session.execute(stmt)
         row = result.scalar_one_or_none()
         if row:
             row.value = value
             row.is_secret = is_secret
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
         else:
-            self.session.add(
-                ProviderConfig(
-                    provider=provider, key=key, value=value, is_secret=is_secret
-                )
-            )
+            self.session.add(ProviderConfig(provider=provider, key=key, value=value, is_secret=is_secret))
         if flush:
             await self.session.flush()
 
     async def delete(self, provider: str, key: str, *, flush: bool = True) -> None:
-        stmt = delete(ProviderConfig).where(
-            ProviderConfig.provider == provider, ProviderConfig.key == key
-        )
+        stmt = delete(ProviderConfig).where(ProviderConfig.provider == provider, ProviderConfig.key == key)
         await self.session.execute(stmt)
         if flush:
             await self.session.flush()
@@ -100,7 +97,7 @@ class SystemSettingRepository:
         row = result.scalar_one_or_none()
         if row:
             row.value = value
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
         else:
             self.session.add(SystemSetting(key=key, value=value))
         await self.session.flush()

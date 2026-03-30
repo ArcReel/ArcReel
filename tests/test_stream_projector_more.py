@@ -431,9 +431,7 @@ class TestStreamProjectorMore:
         }
 
         snapshot = projector.build_snapshot("session-1", "running")
-        assert snapshot["draft_turn"] is None, (
-            "Draft that is a middle slice of the committed turn should be hidden"
-        )
+        assert snapshot["draft_turn"] is None, "Draft that is a middle slice of the committed turn should be hidden"
 
     def test_stream_delta_hides_duplicate_resume_draft(self):
         projector = projector_mod.AssistantStreamProjector()

@@ -22,11 +22,7 @@ from lib.project_manager import ProjectManager
 def check_ffmpeg():
     """检查 ffmpeg 是否可用"""
     try:
-        result = subprocess.run(
-            ['ffmpeg', '-version'],
-            capture_output=True,
-            text=True
-        )
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
         return result.returncode == 0
     except FileNotFoundError:
         return False
@@ -34,12 +30,20 @@ def check_ffmpeg():
 
 def get_video_duration(video_path: Path) -> float:
     """获取视频时长"""
-    result = subprocess.run([
-        'ffprobe', '-v', 'error',
-        '-show_entries', 'format=duration',
-        '-of', 'default=noprint_wrappers=1:nokey=1',
-        str(video_path)
-    ], capture_output=True, text=True)
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(video_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
 
     return float(result.stdout.strip())
 
@@ -51,7 +55,7 @@ def concatenate_simple(video_paths: list, output_path: Path):
     使用 concat demuxer 进行快速拼接
     """
     # 创建临时文件列表
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         for path in video_paths:
             # 使用绝对路径，避免 ffmpeg 解析相对路径出错
             abs_path = path.resolve()
@@ -59,14 +63,7 @@ def concatenate_simple(video_paths: list, output_path: Path):
         list_file = f.name
 
     try:
-        cmd = [
-            'ffmpeg', '-y',
-            '-f', 'concat',
-            '-safe', '0',
-            '-i', list_file,
-            '-c', 'copy',
-            str(output_path)
-        ]
+        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", str(output_path)]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -78,10 +75,7 @@ def concatenate_simple(video_paths: list, output_path: Path):
 
 
 def concatenate_with_transitions(
-    video_paths: list,
-    transitions: list,
-    output_path: Path,
-    transition_duration: float = 0.5
+    video_paths: list, transitions: list, output_path: Path, transition_duration: float = 0.5
 ):
     """
     使用转场效果拼接视频
@@ -90,51 +84,45 @@ def concatenate_with_transitions(
     """
     if len(video_paths) < 2:
         # 单个视频直接复制
-        subprocess.run([
-            'ffmpeg', '-y',
-            '-i', str(video_paths[0]),
-            '-c', 'copy',
-            str(output_path)
-        ])
+        subprocess.run(["ffmpeg", "-y", "-i", str(video_paths[0]), "-c", "copy", str(output_path)])
         return
 
     # 构建 filter_complex
     inputs = []
     for i, path in enumerate(video_paths):
-        inputs.extend(['-i', str(path)])
+        inputs.extend(["-i", str(path)])
 
     # 获取每个视频的时长
     durations = [get_video_duration(p) for p in video_paths]
 
     # 构建 xfade 滤镜链
     filter_parts = []
-    current_offset = 0
 
     for i in range(len(video_paths) - 1):
-        transition = transitions[i] if i < len(transitions) else 'fade'
+        transition = transitions[i] if i < len(transitions) else "fade"
 
         # xfade 类型映射
         xfade_type = {
-            'cut': None,  # 不使用转场
-            'fade': 'fade',
-            'dissolve': 'dissolve',
-            'wipe': 'wipeleft'
-        }.get(transition, 'fade')
+            "cut": None,  # 不使用转场
+            "fade": "fade",
+            "dissolve": "dissolve",
+            "wipe": "wipeleft",
+        }.get(transition, "fade")
 
         if xfade_type is None:
             # cut 转场，不需要 xfade
             continue
 
         if i == 0:
-            prev_label = '[0:v]'
+            prev_label = "[0:v]"
         else:
-            prev_label = f'[v{i}]'
+            prev_label = f"[v{i}]"
 
-        next_label = f'[{i+1}:v]'
-        out_label = f'[v{i+1}]' if i < len(video_paths) - 2 else '[vout]'
+        next_label = f"[{i + 1}:v]"
+        out_label = f"[v{i + 1}]" if i < len(video_paths) - 2 else "[vout]"
 
         # 计算偏移量
-        offset = sum(durations[:i+1]) - transition_duration * (i + 1)
+        offset = sum(durations[: i + 1]) - transition_duration * (i + 1)
 
         filter_parts.append(
             f"{prev_label}{next_label}xfade=transition={xfade_type}:"
@@ -143,21 +131,27 @@ def concatenate_with_transitions(
 
     if filter_parts:
         # 音频也需要处理
-        audio_filter = ';'.join([
-            f'[{i}:a]' for i in range(len(video_paths))
-        ]) + f'concat=n={len(video_paths)}:v=0:a=1[aout]'
+        audio_filter = (
+            ";".join([f"[{i}:a]" for i in range(len(video_paths))]) + f"concat=n={len(video_paths)}:v=0:a=1[aout]"
+        )
 
-        filter_complex = ';'.join(filter_parts) + ';' + audio_filter
+        filter_complex = ";".join(filter_parts) + ";" + audio_filter
 
         cmd = [
-            'ffmpeg', '-y',
+            "ffmpeg",
+            "-y",
             *inputs,
-            '-filter_complex', filter_complex,
-            '-map', '[vout]',
-            '-map', '[aout]',
-            '-c:v', 'libx264',
-            '-c:a', 'aac',
-            str(output_path)
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[vout]",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "libx264",
+            "-c:a",
+            "aac",
+            str(output_path),
         ]
     else:
         # 全是 cut 转场，使用简单拼接
@@ -171,12 +165,7 @@ def concatenate_with_transitions(
         concatenate_simple(video_paths, output_path)
 
 
-def add_background_music(
-    video_path: Path,
-    music_path: Path,
-    output_path: Path,
-    music_volume: float = 0.3
-):
+def add_background_music(video_path: Path, music_path: Path, output_path: Path, music_volume: float = 0.3):
     """
     添加背景音乐
 
@@ -187,17 +176,23 @@ def add_background_music(
         music_volume: 背景音乐音量 (0-1)
     """
     cmd = [
-        'ffmpeg', '-y',
-        '-i', str(video_path),
-        '-i', str(music_path),
-        '-filter_complex',
-        f'[1:a]volume={music_volume}[bg];'
-        f'[0:a][bg]amix=inputs=2:duration=first[aout]',
-        '-map', '0:v',
-        '-map', '[aout]',
-        '-c:v', 'copy',
-        '-c:a', 'aac',
-        str(output_path)
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
+        "-i",
+        str(music_path),
+        "-filter_complex",
+        f"[1:a]volume={music_volume}[bg];[0:a][bg]amix=inputs=2:duration=first[aout]",
+        "-map",
+        "0:v",
+        "-map",
+        "[aout]",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        str(output_path),
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -207,10 +202,7 @@ def add_background_music(
 
 
 def compose_video(
-    script_filename: str,
-    output_filename: str = None,
-    music_path: str = None,
-    use_transitions: bool = True
+    script_filename: str, output_filename: str = None, music_path: str = None, use_transitions: bool = True
 ) -> Path:
     """
     合成最终视频
@@ -234,8 +226,8 @@ def compose_video(
     video_paths = []
     transitions = []
 
-    for scene in script['scenes']:
-        video_clip = scene.get('generated_assets', {}).get('video_clip')
+    for scene in script["scenes"]:
+        video_clip = scene.get("generated_assets", {}).get("video_clip")
         if not video_clip:
             raise ValueError(f"场景 {scene['scene_id']} 缺少视频片段")
 
@@ -244,7 +236,7 @@ def compose_video(
             raise FileNotFoundError(f"视频文件不存在: {video_path}")
 
         video_paths.append(video_path)
-        transitions.append(scene.get('transition_to_next', 'cut'))
+        transitions.append(scene.get("transition_to_next", "cut"))
 
     if not video_paths:
         raise ValueError("没有可用的视频片段")
@@ -253,16 +245,16 @@ def compose_video(
 
     # 确定输出路径
     if output_filename is None:
-        chapter = script['novel'].get('chapter', 'output').replace(' ', '_')
+        chapter = script["novel"].get("chapter", "output").replace(" ", "_")
         output_filename = f"{chapter}_final.mp4"
 
-    output_path = project_dir / 'output' / output_filename
+    output_path = project_dir / "output" / output_filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # 合成视频
     print("🎬 正在合成视频...")
 
-    if use_transitions and any(t != 'cut' for t in transitions):
+    if use_transitions and any(t != "cut" for t in transitions):
         concatenate_with_transitions(video_paths, transitions, output_path)
     else:
         concatenate_simple(video_paths, output_path)
@@ -277,7 +269,7 @@ def compose_video(
 
         if music_file.exists():
             print("🎵 正在添加背景音乐...")
-            final_output = output_path.with_stem(output_path.stem + '_with_music')
+            final_output = output_path.with_stem(output_path.stem + "_with_music")
             add_background_music(output_path, music_file, final_output)
             output_path = final_output
             print(f"✅ 背景音乐添加完成: {output_path}")
@@ -288,11 +280,11 @@ def compose_video(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='合成最终视频')
-    parser.add_argument('script', help='剧本文件名')
-    parser.add_argument('--output', help='输出文件名')
-    parser.add_argument('--music', help='背景音乐文件')
-    parser.add_argument('--no-transitions', action='store_true', help='不使用转场效果')
+    parser = argparse.ArgumentParser(description="合成最终视频")
+    parser.add_argument("script", help="剧本文件名")
+    parser.add_argument("--output", help="输出文件名")
+    parser.add_argument("--music", help="背景音乐文件")
+    parser.add_argument("--no-transitions", action="store_true", help="不使用转场效果")
 
     args = parser.parse_args()
 
@@ -303,12 +295,7 @@ def main():
         sys.exit(1)
 
     try:
-        output_path = compose_video(
-            args.script,
-            args.output,
-            args.music,
-            use_transitions=not args.no_transitions
-        )
+        output_path = compose_video(args.script, args.output, args.music, use_transitions=not args.no_transitions)
 
         print(f"\n🎉 最终视频: {output_path}")
         print("   单独片段保留在: videos/")
@@ -318,5 +305,5 @@ def main():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

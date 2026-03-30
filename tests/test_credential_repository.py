@@ -128,7 +128,9 @@ class TestCredentialRepository:
     async def test_base_url_normalized_on_create(self, session: AsyncSession):
         repo = CredentialRepository(session)
         c = await repo.create(
-            provider="gemini-aistudio", name="Key", api_key="AIza-1",
+            provider="gemini-aistudio",
+            name="Key",
+            api_key="AIza-1",
             base_url="https://proxy.example.com/v1",
         )
         await session.flush()

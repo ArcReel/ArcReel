@@ -212,12 +212,8 @@ class TestProjectArchiveService:
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         # Create broken symlinks (targets don't exist)
-        (project_dir / ".claude").symlink_to(
-            Path("../../agent_runtime_profile/.claude")
-        )
-        (project_dir / "CLAUDE.md").symlink_to(
-            Path("../../agent_runtime_profile/CLAUDE.md")
-        )
+        (project_dir / ".claude").symlink_to(Path("../../agent_runtime_profile/.claude"))
+        (project_dir / "CLAUDE.md").symlink_to(Path("../../agent_runtime_profile/CLAUDE.md"))
 
         assert (project_dir / ".claude").is_symlink()
         assert not (project_dir / ".claude").exists()
@@ -431,9 +427,7 @@ class TestProjectArchiveService:
         assert result.project_name == "demo"
         assert result.conflict_resolution == "overwritten"
         assert pm.load_project("demo")["style"] == "Fresh"
-        assert (pm.get_project_path("demo") / "source" / "chapter.txt").read_text(
-            encoding="utf-8"
-        ) == "source"
+        assert (pm.get_project_path("demo") / "source" / "chapter.txt").read_text(encoding="utf-8") == "source"
 
     def test_import_creates_claude_symlink(self, tmp_path):
         """Imported project should get .claude symlink for agent runtime isolation."""
@@ -559,9 +553,7 @@ class TestProjectArchiveService:
 
         imported_project = pm.load_project(result.project_name)
         imported_script = json.loads(
-            (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(
-                encoding="utf-8"
-            )
+            (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
         )
 
         assert "Ghost" in imported_project["characters"]

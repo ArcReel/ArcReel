@@ -6,18 +6,20 @@ from __future__ import annotations
 
 import copy
 import json
-from typing import Any, Optional
+from typing import Any
 
 from server.agent_runtime.turn_grouper import build_turn_patch, group_messages_into_turns
 from server.agent_runtime.turn_schema import (
     normalize_block as _shared_normalize_block,
+)
+from server.agent_runtime.turn_schema import (
     normalize_turn,
 )
 
 _GROUPABLE_TYPES = {"user", "assistant", "result", "system"}
 
 
-def _coerce_index(value: Any) -> Optional[int]:
+def _coerce_index(value: Any) -> int | None:
     """Normalize stream event block index."""
     if isinstance(value, bool):
         return None
@@ -30,7 +32,7 @@ def _coerce_index(value: Any) -> Optional[int]:
     return None
 
 
-def _safe_json_parse(value: str) -> Optional[Any]:
+def _safe_json_parse(value: str) -> Any | None:
     """Parse JSON string and return None when incomplete/invalid."""
     try:
         return json.loads(value)
@@ -45,7 +47,7 @@ def _is_ask_user_question_block(block: Any) -> bool:
     return block.get("type") == "tool_use" and block.get("name") == "AskUserQuestion"
 
 
-def _get_ask_user_question_signature(block: dict[str, Any]) -> Optional[str]:
+def _get_ask_user_question_signature(block: dict[str, Any]) -> str | None:
     """Build a stable signature for AskUserQuestion blocks."""
     block_id = block.get("id")
     if isinstance(block_id, str) and block_id:
@@ -97,7 +99,7 @@ def _canonicalize_block_for_dedupe(
     return canonical
 
 
-def _find_last_assistant_turn(turns: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+def _find_last_assistant_turn(turns: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Find the last assistant turn, skipping trailing system turns."""
     for turn in reversed(turns):
         if isinstance(turn, dict) and turn.get("type") == "assistant":
@@ -107,7 +109,7 @@ def _find_last_assistant_turn(turns: list[dict[str, Any]]) -> Optional[dict[str,
 
 def _draft_matches_last_assistant_turn(
     turns: list[dict[str, Any]],
-    draft_turn: Optional[dict[str, Any]],
+    draft_turn: dict[str, Any] | None,
     *,
     include_tool_result_state: bool = True,
 ) -> bool:
@@ -141,7 +143,7 @@ def _draft_matches_last_assistant_turn(
 
 def _draft_is_contiguous_slice_of_last_assistant_turn(
     turns: list[dict[str, Any]],
-    draft_turn: Optional[dict[str, Any]],
+    draft_turn: dict[str, Any] | None,
     *,
     include_tool_result_state: bool = True,
 ) -> bool:
@@ -181,16 +183,13 @@ def _draft_is_contiguous_slice_of_last_assistant_turn(
     ]
 
     n = len(canonical_draft)
-    return any(
-        canonical_committed[i : i + n] == canonical_draft
-        for i in range(len(canonical_committed) - n + 1)
-    )
+    return any(canonical_committed[i : i + n] == canonical_draft for i in range(len(canonical_committed) - n + 1))
 
 
 def _hide_stale_draft_turn(
     turns: list[dict[str, Any]],
-    draft_turn: Optional[dict[str, Any]],
-) -> Optional[dict[str, Any]]:
+    draft_turn: dict[str, Any] | None,
+) -> dict[str, Any] | None:
     """Hide stale drafts that would duplicate the last committed assistant turn."""
     if not isinstance(draft_turn, dict):
         return None
@@ -233,9 +232,7 @@ def _hide_stale_draft_turn(
     last_turn_signatures = {
         signature
         for signature in (
-            _get_ask_user_question_signature(block)
-            for block in last_turn_blocks
-            if _is_ask_user_question_block(block)
+            _get_ask_user_question_signature(block) for block in last_turn_blocks if _is_ask_user_question_block(block)
         )
         if signature
     }
@@ -243,12 +240,7 @@ def _hide_stale_draft_turn(
         return draft_turn
 
     draft_signatures = [
-        signature
-        for signature in (
-            _get_ask_user_question_signature(block)
-            for block in draft_blocks
-        )
-        if signature
+        signature for signature in (_get_ask_user_question_signature(block) for block in draft_blocks) if signature
     ]
     if not draft_signatures:
         return draft_turn
@@ -265,8 +257,8 @@ class DraftAssistantProjector:
     def __init__(self):
         self._blocks_by_index: dict[int, dict[str, Any]] = {}
         self._tool_input_json: dict[int, str] = {}
-        self._session_id: Optional[str] = None
-        self._parent_tool_use_id: Optional[str] = None
+        self._session_id: str | None = None
+        self._parent_tool_use_id: str | None = None
 
     def clear(self) -> None:
         self._blocks_by_index.clear()
@@ -300,17 +292,14 @@ class DraftAssistantProjector:
             return index
         return self._default_index()
 
-    def apply_stream_event(self, stream_message: dict[str, Any]) -> Optional[dict[str, Any]]:
+    def apply_stream_event(self, stream_message: dict[str, Any]) -> dict[str, Any] | None:
         """Apply one stream_event message and return a delta payload when applicable."""
         event = stream_message.get("event")
         if not isinstance(event, dict):
             return None
 
         self._session_id = stream_message.get("session_id") or self._session_id
-        self._parent_tool_use_id = (
-            stream_message.get("parent_tool_use_id")
-            or self._parent_tool_use_id
-        )
+        self._parent_tool_use_id = stream_message.get("parent_tool_use_id") or self._parent_tool_use_id
 
         event_type = event.get("type")
         if event_type == "message_start":
@@ -394,15 +383,12 @@ class DraftAssistantProjector:
 
         return None
 
-    def build_turn(self) -> Optional[dict[str, Any]]:
+    def build_turn(self) -> dict[str, Any] | None:
         """Build current draft assistant turn for rendering."""
         if not self._blocks_by_index:
             return None
 
-        ordered_blocks = [
-            copy.deepcopy(self._blocks_by_index[index])
-            for index in sorted(self._blocks_by_index)
-        ]
+        ordered_blocks = [copy.deepcopy(self._blocks_by_index[index]) for index in sorted(self._blocks_by_index)]
 
         has_visible_content = False
         for block in ordered_blocks:
@@ -423,21 +409,23 @@ class DraftAssistantProjector:
             return None
 
         draft_id = self._session_id or "unknown"
-        return normalize_turn({
-            "type": "assistant",
-            "content": ordered_blocks,
-            "uuid": f"draft-{draft_id}",
-        })
+        return normalize_turn(
+            {
+                "type": "assistant",
+                "content": ordered_blocks,
+                "uuid": f"draft-{draft_id}",
+            }
+        )
 
 
 class AssistantStreamProjector:
     """Projects mixed runtime messages into snapshot/patch/delta updates."""
 
-    def __init__(self, initial_messages: Optional[list[dict[str, Any]]] = None):
+    def __init__(self, initial_messages: list[dict[str, Any]] | None = None):
         self._groupable_messages: list[dict[str, Any]] = []
         self.turns: list[dict[str, Any]] = []
         self.draft = DraftAssistantProjector()
-        self.last_result: Optional[dict[str, Any]] = None
+        self.last_result: dict[str, Any] | None = None
 
         if initial_messages:
             self._batch_init(initial_messages)
@@ -456,7 +444,7 @@ class AssistantStreamProjector:
         self._groupable_messages = groupable
         self.turns = group_messages_into_turns(groupable) if groupable else []
 
-    def _build_visible_draft_turn(self) -> Optional[dict[str, Any]]:
+    def _build_visible_draft_turn(self) -> dict[str, Any] | None:
         """Build the current draft turn and hide reconnect/resume duplicates."""
         # self.turns are already normalized by group_messages_into_turns
         return _hide_stale_draft_turn(
@@ -510,7 +498,7 @@ class AssistantStreamProjector:
         self,
         session_id: str,
         status: str,
-        pending_questions: Optional[list[dict[str, Any]]] = None,
+        pending_questions: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Build unified snapshot payload for API and SSE."""
         # self.turns are already normalized by group_messages_into_turns

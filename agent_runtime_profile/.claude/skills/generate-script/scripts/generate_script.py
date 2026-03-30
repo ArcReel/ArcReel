@@ -17,9 +17,7 @@ import sys
 from pathlib import Path
 
 # 允许从仓库任意工作目录直接运行该脚本
-PROJECT_ROOT = (
-    Path(__file__).resolve().parents[4]
-)  # .claude/skills/generate-script/scripts -> repo root
+PROJECT_ROOT = Path(__file__).resolve().parents[4]  # .claude/skills/generate-script/scripts -> repo root
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -49,9 +47,7 @@ def main():
         help="输出文件路径（默认: scripts/episode_N.json）",
     )
 
-    parser.add_argument(
-        "--dry-run", action="store_true", help="仅显示 Prompt，不实际调用 API"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="仅显示 Prompt，不实际调用 API")
 
     args = parser.parse_args()
 
@@ -61,6 +57,7 @@ def main():
 
     # 检查中间文件是否存在（根据 content_mode 确定文件名）
     import json as _json
+
     project_json_path = project_path / "project.json"
     content_mode = "narration"
     if project_json_path.exists():

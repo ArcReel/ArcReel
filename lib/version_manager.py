@@ -8,13 +8,11 @@
 import json
 import shutil
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional, Dict, List, Any
-
 
 _LOCKS_GUARD = threading.Lock()
-_LOCKS_BY_VERSIONS_FILE: Dict[str, threading.RLock] = {}
+_LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
 
 
 def _get_versions_file_lock(versions_file: Path) -> threading.RLock:
@@ -31,14 +29,14 @@ class VersionManager:
     """版本管理器"""
 
     # 支持的资源类型
-    RESOURCE_TYPES = ('storyboards', 'videos', 'characters', 'clues')
+    RESOURCE_TYPES = ("storyboards", "videos", "characters", "clues")
 
     # 资源类型对应的文件扩展名
     EXTENSIONS = {
-        'storyboards': '.png',
-        'videos': '.mp4',
-        'characters': '.png',
-        'clues': '.png',
+        "storyboards": ".png",
+        "videos": ".mp4",
+        "characters": ".png",
+        "clues": ".png",
     }
 
     def __init__(self, project_path: Path):
@@ -62,28 +60,28 @@ class VersionManager:
         for resource_type in self.RESOURCE_TYPES:
             (self.versions_dir / resource_type).mkdir(exist_ok=True)
 
-    def _load_versions(self) -> Dict:
+    def _load_versions(self) -> dict:
         """加载版本元数据"""
         if not self.versions_file.exists():
             return {rt: {} for rt in self.RESOURCE_TYPES}
 
-        with open(self.versions_file, 'r', encoding='utf-8') as f:
+        with open(self.versions_file, encoding="utf-8") as f:
             return json.load(f)
 
-    def _save_versions(self, data: Dict) -> None:
+    def _save_versions(self, data: dict) -> None:
         """保存版本元数据"""
-        with open(self.versions_file, 'w', encoding='utf-8') as f:
+        with open(self.versions_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     def _generate_timestamp(self) -> str:
         """生成时间戳字符串（用于文件名）"""
-        return datetime.now().strftime('%Y%m%dT%H%M%S')
+        return datetime.now().strftime("%Y%m%dT%H%M%S")
 
     def _generate_iso_timestamp(self) -> str:
         """生成 ISO 格式时间戳（用于元数据）"""
-        return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    def get_versions(self, resource_type: str, resource_id: str) -> Dict:
+    def get_versions(self, resource_type: str, resource_id: str) -> dict:
         """
         获取资源的所有版本信息
 
@@ -102,23 +100,17 @@ class VersionManager:
             resource_data = data.get(resource_type, {}).get(resource_id)
 
             if not resource_data:
-                return {
-                    "current_version": 0,
-                    "versions": []
-                }
+                return {"current_version": 0, "versions": []}
 
             # 添加 is_current 和 file_url 字段
             versions = []
             for v in resource_data.get("versions", []):
                 version_info = v.copy()
-                version_info["is_current"] = (v["version"] == resource_data["current_version"])
+                version_info["is_current"] = v["version"] == resource_data["current_version"]
                 version_info["file_url"] = f"/api/v1/files/{self.project_path.name}/{v['file']}"
                 versions.append(version_info)
 
-            return {
-                "current_version": resource_data.get("current_version", 0),
-                "versions": versions
-            }
+            return {"current_version": resource_data.get("current_version", 0), "versions": versions}
 
     def get_current_version(self, resource_type: str, resource_id: str) -> int:
         """
@@ -135,12 +127,7 @@ class VersionManager:
         return info["current_version"]
 
     def add_version(
-        self,
-        resource_type: str,
-        resource_id: str,
-        prompt: str,
-        source_file: Optional[Path] = None,
-        **metadata
+        self, resource_type: str, resource_id: str, prompt: str, source_file: Path | None = None, **metadata
     ) -> int:
         """
         添加新版本记录
@@ -167,10 +154,7 @@ class VersionManager:
 
             # 获取或创建资源记录
             if resource_id not in data[resource_type]:
-                data[resource_type][resource_id] = {
-                    "current_version": 0,
-                    "versions": []
-                }
+                data[resource_type][resource_id] = {"current_version": 0, "versions": []}
 
             resource_data = data[resource_type][resource_id]
             existing_versions = resource_data.get("versions", [])
@@ -182,7 +166,7 @@ class VersionManager:
 
             # 生成版本文件名和路径
             timestamp = self._generate_timestamp()
-            ext = self.EXTENSIONS.get(resource_type, '.png')
+            ext = self.EXTENSIONS.get(resource_type, ".png")
             version_filename = f"{resource_id}_v{new_version}_{timestamp}{ext}"
             version_rel_path = f"versions/{resource_type}/{version_filename}"
             version_abs_path = self.project_path / version_rel_path
@@ -197,7 +181,7 @@ class VersionManager:
                 "file": version_rel_path,
                 "prompt": prompt,
                 "created_at": self._generate_iso_timestamp(),
-                **metadata
+                **metadata,
             }
 
             resource_data["versions"].append(version_record)
@@ -207,13 +191,8 @@ class VersionManager:
             return new_version
 
     def backup_current(
-        self,
-        resource_type: str,
-        resource_id: str,
-        current_file: Path,
-        prompt: str,
-        **metadata
-    ) -> Optional[int]:
+        self, resource_type: str, resource_id: str, current_file: Path, prompt: str, **metadata
+    ) -> int | None:
         """
         将当前文件备份到版本目录
 
@@ -234,21 +213,12 @@ class VersionManager:
             return None
 
         return self.add_version(
-            resource_type=resource_type,
-            resource_id=resource_id,
-            prompt=prompt,
-            source_file=current_file,
-            **metadata
+            resource_type=resource_type, resource_id=resource_id, prompt=prompt, source_file=current_file, **metadata
         )
 
     def ensure_current_tracked(
-        self,
-        resource_type: str,
-        resource_id: str,
-        current_file: Path,
-        prompt: str,
-        **metadata
-    ) -> Optional[int]:
+        self, resource_type: str, resource_id: str, current_file: Path, prompt: str, **metadata
+    ) -> int | None:
         """
         确保“当前文件”至少有一个版本记录
 
@@ -280,16 +250,10 @@ class VersionManager:
                 resource_id=resource_id,
                 prompt=prompt,
                 source_file=current_file,
-                **metadata
+                **metadata,
             )
 
-    def restore_version(
-        self,
-        resource_type: str,
-        resource_id: str,
-        version: int,
-        current_file: Path
-    ) -> Dict:
+    def restore_version(self, resource_type: str, resource_id: str, version: int, current_file: Path) -> dict:
         """
         切换到指定版本
 
@@ -342,12 +306,7 @@ class VersionManager:
             "prompt": restored_prompt,
         }
 
-    def get_version_file_url(
-        self,
-        resource_type: str,
-        resource_id: str,
-        version: int
-    ) -> Optional[str]:
+    def get_version_file_url(self, resource_type: str, resource_id: str, version: int) -> str | None:
         """
         获取指定版本的文件 URL
 
@@ -365,12 +324,7 @@ class VersionManager:
                 return v.get("file_url")
         return None
 
-    def get_version_prompt(
-        self,
-        resource_type: str,
-        resource_id: str,
-        version: int
-    ) -> Optional[str]:
+    def get_version_prompt(self, resource_type: str, resource_id: str, version: int) -> str | None:
         """
         获取指定版本的 prompt
 

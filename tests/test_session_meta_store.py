@@ -1,7 +1,7 @@
 """Tests for SessionMetaStore (async wrapper over SessionRepository)."""
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from server.agent_runtime.session_store import SessionMetaStore

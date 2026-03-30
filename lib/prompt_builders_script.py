@@ -6,10 +6,8 @@ prompt_builders_script.py - 剧本生成 Prompt 构建器
 3. 可选值列表约束输出
 """
 
-from typing import Dict, List
 
-
-def _format_character_names(characters: Dict) -> str:
+def _format_character_names(characters: dict) -> str:
     """格式化角色列表"""
     lines = []
     for name in characters.keys():
@@ -17,7 +15,7 @@ def _format_character_names(characters: Dict) -> str:
     return "\n".join(lines)
 
 
-def _format_clue_names(clues: Dict) -> str:
+def _format_clue_names(clues: dict) -> str:
     """格式化线索列表"""
     lines = []
     for name in clues.keys():
@@ -26,11 +24,11 @@ def _format_clue_names(clues: Dict) -> str:
 
 
 def build_narration_prompt(
-    project_overview: Dict,
+    project_overview: dict,
     style: str,
     style_description: str,
-    characters: Dict,
-    clues: Dict,
+    characters: dict,
+    clues: dict,
     segments_md: str,
 ) -> str:
     """
@@ -137,11 +135,11 @@ h. **transition_to_next**：默认为 "cut"。
 
 
 def build_drama_prompt(
-    project_overview: Dict,
+    project_overview: dict,
     style: str,
     style_description: str,
-    characters: Dict,
-    clues: Dict,
+    characters: dict,
+    clues: dict,
     scenes_md: str,
 ) -> str:
     """

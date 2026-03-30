@@ -1,4 +1,5 @@
 """Tests for SessionManager cleanup, LRU eviction, and patrol loop."""
+
 import asyncio
 import time
 from pathlib import Path
@@ -7,13 +8,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tests.fakes import FakeSDKClient
 from server.agent_runtime.session_manager import (
     ManagedSession,
-    SessionManager,
     SessionCapacityError,
+    SessionManager,
 )
 from server.agent_runtime.session_store import SessionMetaStore
+from tests.fakes import FakeSDKClient
 
 
 def _make_manager(tmp_path: Path) -> SessionManager:

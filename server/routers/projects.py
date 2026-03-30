@@ -4,18 +4,23 @@
 处理项目的 CRUD 操作，复用 lib/project_manager.py
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Annotated, Optional, Union
+from typing import TYPE_CHECKING, Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, Path as FastAPIPath, Query, UploadFile
+if TYPE_CHECKING:
+    from server.services.jianying_draft_service import JianyingDraftService
+
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
-
 
 logger = logging.getLogger(__name__)
 
@@ -50,20 +55,20 @@ def get_archive_service() -> ProjectArchiveService:
 
 
 class CreateProjectRequest(BaseModel):
-    name: Optional[str] = None
-    title: Optional[str] = None
-    style: Optional[str] = ""
-    content_mode: Optional[str] = "narration"
+    name: str | None = None
+    title: str | None = None
+    style: str | None = ""
+    content_mode: str | None = "narration"
 
 
 class UpdateProjectRequest(BaseModel):
-    title: Optional[str] = None
-    style: Optional[str] = None
-    content_mode: Optional[str] = None
-    aspect_ratio: Optional[dict] = None
-    video_backend: Optional[str] = None
-    image_backend: Optional[str] = None
-    video_generate_audio: Optional[bool] = None
+    title: str | None = None
+    style: str | None = None
+    content_mode: str | None = None
+    aspect_ratio: dict | None = None
+    video_backend: str | None = None
+    image_backend: str | None = None
+    video_generate_audio: bool | None = None
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -84,7 +89,7 @@ async def import_project_archive(
     conflict_policy: str = Form("prompt"),
 ):
     """从 ZIP 导入项目。"""
-    upload_path: Optional[str] = None
+    upload_path: str | None = None
     try:
         fd, upload_path = tempfile.mkstemp(prefix="arcreel-upload-", suffix=".zip")
         os.close(fd)
@@ -206,8 +211,9 @@ async def export_project_archive(
 # --- 剪映草稿导出 ---
 
 
-def get_jianying_draft_service() -> "JianyingDraftService":
+def get_jianying_draft_service() -> JianyingDraftService:
     from server.services.jianying_draft_service import JianyingDraftService
+
     return JianyingDraftService(get_project_manager())
 
 
@@ -250,7 +256,9 @@ def export_jianying_draft(
     svc = get_jianying_draft_service()
     try:
         zip_path = svc.export_episode_draft(
-            project_name=name, episode=episode, draft_path=draft_path,
+            project_name=name,
+            episode=episode,
+            draft_path=draft_path,
             use_draft_info_name=(jianying_version != "5"),
         )
     except FileNotFoundError as e:
@@ -294,33 +302,32 @@ async def list_projects(_user: CurrentUser):
                 # 使用 StatusCalculator 计算进度（读时计算）
                 status = calculator.calculate_project_status(name, project)
 
-                projects.append({
-                    "name": name,
-                    "title": project.get("title", name),
-                    "style": project.get("style", ""),
-                    "thumbnail": thumbnail,
-                    "status": status,
-                })
+                projects.append(
+                    {
+                        "name": name,
+                        "title": project.get("title", name),
+                        "style": project.get("style", ""),
+                        "thumbnail": thumbnail,
+                        "status": status,
+                    }
+                )
             else:
                 # 没有 project.json 的项目
-                projects.append({
-                    "name": name,
-                    "title": name,
-                    "style": "",
-                    "thumbnail": None,
-                    "status": {},
-                })
+                projects.append(
+                    {
+                        "name": name,
+                        "title": name,
+                        "style": "",
+                        "thumbnail": None,
+                        "status": {},
+                    }
+                )
         except Exception as e:
             # 出错时返回基本信息
             logger.warning("加载项目 '%s' 元数据失败: %s", name, e)
-            projects.append({
-                "name": name,
-                "title": name,
-                "style": "",
-                "thumbnail": None,
-                "status": {},
-                "error": str(e)
-            })
+            projects.append(
+                {"name": name, "title": name, "style": "", "thumbnail": None, "status": {}, "error": str(e)}
+            )
 
     return {"projects": projects}
 
@@ -499,8 +506,15 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
                 scene_found = True
                 # 更新允许的字段
                 for key, value in req.updates.items():
-                    if key in ["duration_seconds", "image_prompt", "video_prompt",
-                               "characters_in_scene", "clues_in_scene", "segment_break", "note"]:
+                    if key in [
+                        "duration_seconds",
+                        "image_prompt",
+                        "video_prompt",
+                        "characters_in_scene",
+                        "clues_in_scene",
+                        "segment_break",
+                        "note",
+                    ]:
                         if value is None and key != "note":
                             continue
                         scene[key] = value
@@ -513,7 +527,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
             manager.save_script(name, script, req.script_file)
         return {"success": True, "scene": scene}
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"剧本不存在")
+        raise HTTPException(status_code=404, detail="剧本不存在")
     except HTTPException:
         raise
     except Exception as e:
@@ -523,19 +537,19 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
 
 class UpdateSegmentRequest(BaseModel):
     script_file: str
-    duration_seconds: Optional[int] = None
-    segment_break: Optional[bool] = None
-    image_prompt: Optional[Union[dict, str]] = None
-    video_prompt: Optional[Union[dict, str]] = None
-    transition_to_next: Optional[str] = None
-    note: Optional[str] = None
+    duration_seconds: int | None = None
+    segment_break: bool | None = None
+    image_prompt: dict | str | None = None
+    video_prompt: dict | str | None = None
+    transition_to_next: str | None = None
+    note: str | None = None
 
 
 class UpdateOverviewRequest(BaseModel):
-    synopsis: Optional[str] = None
-    genre: Optional[str] = None
-    theme: Optional[str] = None
-    world_setting: Optional[str] = None
+    synopsis: str | None = None
+    genre: str | None = None
+    theme: str | None = None
+    world_setting: str | None = None
 
 
 @router.patch("/projects/{name}/segments/{segment_id}")
@@ -546,7 +560,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
         script = manager.load_script(name, req.script_file)
 
         # 检查是否为说书模式
-        if script.get('content_mode') != 'narration' and 'segments' not in script:
+        if script.get("content_mode") != "narration" and "segments" not in script:
             raise HTTPException(status_code=400, detail="该剧本不是说书模式，请使用场景更新接口")
 
         # 找到并更新片段
@@ -576,7 +590,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
             manager.save_script(name, script, req.script_file)
         return {"success": True, "segment": segment}
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"剧本不存在")
+        raise HTTPException(status_code=404, detail="剧本不存在")
     except HTTPException:
         raise
     except Exception as e:
@@ -586,13 +600,14 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
 
 # ==================== 源文件管理 ====================
 
+
 @router.post("/projects/{name}/source")
 async def set_project_source(
     name: Annotated[str, FastAPIPath(pattern=r"^[a-zA-Z0-9_-]+$")],
     _user: CurrentUser,
     generate_overview: Annotated[bool, Form()] = True,
-    content: Annotated[Optional[str], Form()] = None,
-    file: Annotated[Optional[UploadFile], File()] = None,
+    content: Annotated[str | None, Form()] = None,
+    file: Annotated[UploadFile | None, File()] = None,
 ):
     """上传小说源文件或直接提交文本内容，可选触发 AI 概述生成。
 
@@ -637,14 +652,18 @@ async def set_project_source(
                 raise HTTPException(status_code=400, detail="文件编码错误，请使用 UTF-8 编码的文本文件")
 
             if len(text) > MAX_CHARS:
-                raise HTTPException(status_code=400, detail=f"文件内容超出最大限制 {MAX_CHARS} 字符（当前 {len(text)}）")
+                raise HTTPException(
+                    status_code=400, detail=f"文件内容超出最大限制 {MAX_CHARS} 字符（当前 {len(text)}）"
+                )
 
             (source_dir / safe_filename).write_text(text, encoding="utf-8")
             chars = len(text)
         else:
             # 文本内容模式：固定命名为 novel.txt
             if len(content) > MAX_CHARS:
-                raise HTTPException(status_code=400, detail=f"content 超出最大长度 {MAX_CHARS} 字符（当前 {len(content)}）")
+                raise HTTPException(
+                    status_code=400, detail=f"content 超出最大长度 {MAX_CHARS} 字符（当前 {len(content)}）"
+                )
 
             safe_filename = "novel.txt"
             (source_dir / safe_filename).write_text(content, encoding="utf-8")
@@ -674,6 +693,7 @@ async def set_project_source(
 
 
 # ==================== 项目概述管理 ====================
+
 
 @router.post("/projects/{name}/generate-overview")
 async def generate_overview(name: str, _user: CurrentUser):

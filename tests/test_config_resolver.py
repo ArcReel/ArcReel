@@ -1,11 +1,11 @@
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ProviderStatus
+from lib.db.base import Base
 
 
 def _make_ready_provider(name: str, media_types: list[str]) -> ProviderStatus:

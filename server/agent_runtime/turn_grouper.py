@@ -4,15 +4,15 @@ Conversation turn grouping shared by history loading and live SSE streaming.
 
 from __future__ import annotations
 
-import copy
 import re
-from typing import Any, Optional
+from typing import Any
 
 from server.agent_runtime.turn_schema import (
     infer_block_type,
-    normalize_block as _normalize_block,
-    normalize_content as _normalize_content,
     normalize_turn,
+)
+from server.agent_runtime.turn_schema import (
+    normalize_content as _normalize_content,
 )
 
 # Constants for skill content detection
@@ -39,9 +39,7 @@ _SUBAGENT_BOOLEAN_KEYS = ("isSidechain", "is_sidechain")
 
 
 # Regex for SDK-injected task notification user messages.
-_TASK_NOTIFICATION_RE = re.compile(
-    r"<task-notification>\s*.*?</task-notification>", re.DOTALL
-)
+_TASK_NOTIFICATION_RE = re.compile(r"<task-notification>\s*.*?</task-notification>", re.DOTALL)
 
 # Pattern for CLI-injected interrupt echo messages.
 # The exact text is an internal CLI implementation detail (not a stable API),
@@ -49,7 +47,7 @@ _TASK_NOTIFICATION_RE = re.compile(
 _INTERRUPT_ECHO_PREFIX = "[Request interrupted"
 
 
-def _extract_task_notification(content: Any) -> Optional[dict[str, str]]:
+def _extract_task_notification(content: Any) -> dict[str, str] | None:
     """Extract task notification fields from SDK-injected user message.
 
     The SDK injects task completion/failure notifications as plain user
@@ -91,12 +89,7 @@ def _extract_task_notification(content: Any) -> Optional[dict[str, str]]:
 
 def _is_skill_content_text(text: str) -> bool:
     """Check if text is system-injected skill content."""
-    return (
-        text.startswith(_SKILL_BASE_DIR_PREFIX)
-        or text.startswith(_SKILL_CONTENT_PREFIX)
-    )
-
-
+    return text.startswith(_SKILL_BASE_DIR_PREFIX) or text.startswith(_SKILL_CONTENT_PREFIX)
 
 
 def _is_tool_result_block(block: Any) -> bool:
@@ -121,7 +114,6 @@ def _normalize_tool_result_block(block: dict[str, Any]) -> dict[str, Any]:
         "content": block.get("content", ""),
         "is_error": block.get("is_error", False),
     }
-
 
 
 def _all_blocks_are_system_injected(blocks: list[Any]) -> bool:
@@ -158,7 +150,7 @@ def _is_interrupt_echo(content: Any) -> bool:
     return text.startswith(_INTERRUPT_ECHO_PREFIX)
 
 
-def _last_turn_is_interrupt_notice(turn: Optional[dict[str, Any]]) -> bool:
+def _last_turn_is_interrupt_notice(turn: dict[str, Any] | None) -> bool:
     """Check whether *turn* is already an interrupt_notice system turn."""
     if turn is None or turn.get("type") != "system":
         return False
@@ -305,9 +297,7 @@ def _track_tool_uses(
                 tool_use_map[tool_id] = True
 
 
-def _find_task_block(
-    turn: Optional[dict[str, Any]], task_id: str
-) -> Optional[dict[str, Any]]:
+def _find_task_block(turn: dict[str, Any] | None, task_id: str) -> dict[str, Any] | None:
     """Find an existing task_progress block by task_id within a turn."""
     if not isinstance(turn, dict):
         return None
@@ -315,11 +305,7 @@ def _find_task_block(
     if not isinstance(content, list):
         return None
     for block in content:
-        if (
-            isinstance(block, dict)
-            and block.get("type") == "task_progress"
-            and block.get("task_id") == task_id
-        ):
+        if isinstance(block, dict) and block.get("type") == "task_progress" and block.get("task_id") == task_id:
             return block
     return None
 
@@ -340,11 +326,7 @@ def _resolve_stale_task_blocks(turns: list[dict[str, Any]]) -> None:
         for block in content:
             if not isinstance(block, dict):
                 continue
-            if (
-                block.get("type") == "tool_use"
-                and block.get("name") == "Agent"
-                and block.get("result") is not None
-            ):
+            if block.get("type") == "tool_use" and block.get("name") == "Agent" and block.get("result") is not None:
                 tool_id = block.get("id")
                 if tool_id:
                     completed_tool_ids.add(tool_id)
@@ -378,7 +360,7 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
         return []
 
     turns: list[dict[str, Any]] = []
-    current_turn: Optional[dict[str, Any]] = None
+    current_turn: dict[str, Any] | None = None
     tool_use_map: dict[str, bool] = {}
 
     for msg in raw_messages:
@@ -409,11 +391,7 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
                     "tool_use_id": task_info["tool_use_id"] or None,
                 }
                 if task_id:
-                    existing = (
-                        _find_task_block(current_turn, task_id)
-                        if current_turn
-                        else None
-                    )
+                    existing = _find_task_block(current_turn, task_id) if current_turn else None
                     if existing is not None:
                         existing["status"] = "task_notification"
                         if task_block.get("summary"):
@@ -448,19 +426,18 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
                     turns.append(current_turn)
                 current_turn = {
                     "type": "system",
-                    "content": [{
-                        "type": "interrupt_notice",
-                    }],
+                    "content": [
+                        {
+                            "type": "interrupt_notice",
+                        }
+                    ],
                     "uuid": msg.get("uuid"),
                     "timestamp": msg.get("timestamp"),
                 }
                 continue
 
             has_subagent_metadata = _has_subagent_user_metadata(msg)
-            is_system_injected = (
-                _is_system_injected_user_message(content)
-                or has_subagent_metadata
-            )
+            is_system_injected = _is_system_injected_user_message(content) or has_subagent_metadata
             if is_system_injected:
                 filtered_blocks = _filter_system_blocks(
                     content,
@@ -470,9 +447,7 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
                     continue
 
                 if current_turn and current_turn.get("type") == "assistant":
-                    _attach_system_content_to_turn(
-                        current_turn, filtered_blocks, tool_use_map
-                    )
+                    _attach_system_content_to_turn(current_turn, filtered_blocks, tool_use_map)
                 else:
                     if current_turn:
                         turns.append(current_turn)
@@ -567,7 +542,7 @@ def group_messages_into_turns(raw_messages: list[dict[str, Any]]) -> list[dict[s
 def build_turn_patch(
     previous_turns: list[dict[str, Any]],
     current_turns: list[dict[str, Any]],
-) -> Optional[dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Build minimal patch between two turn snapshots."""
     prev = previous_turns or []
     curr = current_turns or []
@@ -578,12 +553,7 @@ def build_turn_patch(
     if len(curr) == len(prev) + 1 and curr[:-1] == prev:
         return {"op": "append", "turn": curr[-1]}
 
-    if (
-        len(curr) == len(prev)
-        and len(curr) > 0
-        and curr[:-1] == prev[:-1]
-        and curr[-1] != prev[-1]
-    ):
+    if len(curr) == len(prev) and len(curr) > 0 and curr[:-1] == prev[:-1] and curr[-1] != prev[-1]:
         return {"op": "replace_last", "turn": curr[-1]}
 
     return {"op": "reset", "turns": curr}

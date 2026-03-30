@@ -1,15 +1,13 @@
 """Unit tests for AssistantService streaming snapshot/replay behavior."""
 
-import pytest
-from pathlib import Path
+import asyncio
 
+import pytest
 from fastapi.sse import ServerSentEvent
 
 from server.agent_runtime.models import SessionMeta
 from server.agent_runtime.service import AssistantService
 from tests.factories import make_session_meta
-
-import asyncio
 
 
 class _FakeMetaStore:
@@ -109,9 +107,7 @@ class TestAssistantServiceStreaming:
         await stream.aclose()
 
         subscribe_idx = call_log.index(("subscribe", "session-1", True))
-        read_raw_idx = call_log.index(
-            ("read_raw_messages", "session-1")
-        )
+        read_raw_idx = call_log.index(("read_raw_messages", "session-1"))
         assert subscribe_idx < read_raw_idx
 
     async def test_stream_replay_overflow_closes_stream_immediately(self, tmp_path):
@@ -258,7 +254,7 @@ class TestAssistantServiceStreaming:
         assert status_payload.get("status") == "completed"
         assert status_payload.get("subtype") == "success"
         assert status_payload.get("stop_reason") == "end_turn"
-        assert status_payload.get("is_error") == False
+        assert not status_payload.get("is_error")
         assert status_payload.get("session_id") == "session-1"
         assert "sdk_session_id" not in status_payload
 
@@ -311,7 +307,7 @@ class TestAssistantServiceStreaming:
         assert second_payload.get("status") == "completed"
         assert second_payload.get("subtype") == "success"
         assert second_payload.get("stop_reason") == "end_turn"
-        assert second_payload.get("is_error") == False
+        assert not second_payload.get("is_error")
         assert second_payload.get("session_id") == "session-1"
         assert "sdk_session_id" not in second_payload
 
@@ -349,7 +345,7 @@ class TestAssistantServiceStreaming:
         assert event_name == "status"
         assert payload.get("status") == "interrupted"
         assert payload.get("subtype") == "interrupted"
-        assert payload.get("is_error") == False
+        assert not payload.get("is_error")
         assert payload.get("session_id") == "session-1"
         assert "sdk_session_id" not in payload
 
@@ -395,7 +391,7 @@ class TestAssistantServiceStreaming:
         assert event_name == "status"
         assert payload.get("status") == "interrupted"
         assert payload.get("subtype") == "error_during_execution"
-        assert payload.get("is_error") == True
+        assert payload.get("is_error")
         assert payload.get("session_id") == "session-1"
         assert "sdk_session_id" not in payload
 
@@ -557,9 +553,7 @@ class TestAssistantServiceStreaming:
 
     def test_echo_in_transcript_list_content_format(self, tmp_path):
         """Content in list format [{"type": "text", "text": "..."}] → should match."""
-        transcript = [
-            {"type": "user", "content": [{"type": "text", "text": "hello"}]}
-        ]
+        transcript = [{"type": "user", "content": [{"type": "text", "text": "hello"}]}]
         echo = {
             "type": "user",
             "content": [{"type": "text", "text": "hello"}],
@@ -576,26 +570,34 @@ class TestAssistantServiceStreaming:
         meta = make_session_meta()
         # R1 complete in transcript
         history = [
-            {"type": "user", "content": "hello", "uuid": "user-r1",
-             "timestamp": "2026-02-09T07:00:00Z"},
-            {"type": "assistant", "content": [{"type": "text", "text": "R1 reply"}],
-             "uuid": "asst-r1", "timestamp": "2026-02-09T07:00:01Z"},
-            {"type": "result", "subtype": "success", "uuid": "result-r1",
-             "timestamp": "2026-02-09T07:00:02Z"},
+            {"type": "user", "content": "hello", "uuid": "user-r1", "timestamp": "2026-02-09T07:00:00Z"},
+            {
+                "type": "assistant",
+                "content": [{"type": "text", "text": "R1 reply"}],
+                "uuid": "asst-r1",
+                "timestamp": "2026-02-09T07:00:01Z",
+            },
+            {"type": "result", "subtype": "success", "uuid": "result-r1", "timestamp": "2026-02-09T07:00:02Z"},
         ]
         # R2 in buffer: echo + assistant response
         buffer = [
-            {"type": "user", "content": "hello", "uuid": "local-user-r2",
-             "local_echo": True, "timestamp": "2026-02-09T08:00:00Z"},
-            {"type": "assistant", "content": [{"type": "text", "text": "R2 reply"}],
-             "timestamp": "2026-02-09T08:00:01Z"},
+            {
+                "type": "user",
+                "content": "hello",
+                "uuid": "local-user-r2",
+                "local_echo": True,
+                "timestamp": "2026-02-09T08:00:00Z",
+            },
+            {
+                "type": "assistant",
+                "content": [{"type": "text", "text": "R2 reply"}],
+                "timestamp": "2026-02-09T08:00:01Z",
+            },
         ]
 
         service.meta_store = _FakeMetaStore(meta)
         service.transcript_adapter = _FakeTranscriptAdapter([], history_raw=history)
-        service.session_manager = _FakeSessionManager(
-            [], status="running", replay_messages=buffer
-        )
+        service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
 
         projector = await service._build_projector(meta, "session-1")
         # R1 user + R1 assistant + R2 echo + R2 assistant = 4 turns
@@ -611,24 +613,27 @@ class TestAssistantServiceStreaming:
         meta = make_session_meta()
         # In-progress round: only user in transcript
         history = [
-            {"type": "user", "content": "hello", "uuid": "user-r1",
-             "timestamp": "2026-02-09T08:00:00Z"},
+            {"type": "user", "content": "hello", "uuid": "user-r1", "timestamp": "2026-02-09T08:00:00Z"},
         ]
         # Buffer: echo (should be deduped) + new assistant response
         buffer = [
-            {"type": "user", "content": "hello", "uuid": "local-user-r1",
-             "local_echo": True, "timestamp": "2026-02-09T08:00:00Z"},
-            {"type": "assistant",
-             "content": [{"type": "thinking", "thinking": "let me think..."},
-                         {"type": "text", "text": "response"}],
-             "timestamp": "2026-02-09T08:00:01Z"},
+            {
+                "type": "user",
+                "content": "hello",
+                "uuid": "local-user-r1",
+                "local_echo": True,
+                "timestamp": "2026-02-09T08:00:00Z",
+            },
+            {
+                "type": "assistant",
+                "content": [{"type": "thinking", "thinking": "let me think..."}, {"type": "text", "text": "response"}],
+                "timestamp": "2026-02-09T08:00:01Z",
+            },
         ]
 
         service.meta_store = _FakeMetaStore(meta)
         service.transcript_adapter = _FakeTranscriptAdapter([], history_raw=history)
-        service.session_manager = _FakeSessionManager(
-            [], status="running", replay_messages=buffer
-        )
+        service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
 
         projector = await service._build_projector(meta, "session-1")
         # Echo deduped → 1 user (from transcript) + 1 assistant (from buffer)
@@ -730,8 +735,7 @@ class TestAssistantServiceStreaming:
                 "type": "assistant",
                 "content": [
                     {"type": "text", "text": "Let me run that."},
-                    {"type": "tool_use", "id": "tool-1", "name": "Bash",
-                     "input": {"command": "ls"}},
+                    {"type": "tool_use", "id": "tool-1", "name": "Bash", "input": {"command": "ls"}},
                 ],
                 "uuid": "assistant-1",
                 "timestamp": "2026-02-09T08:00:02Z",
@@ -743,8 +747,7 @@ class TestAssistantServiceStreaming:
                 "type": "assistant",
                 "content": [
                     {"text": "Let me run that."},
-                    {"id": "tool-1", "name": "Bash",
-                     "input": {"command": "ls"}},
+                    {"id": "tool-1", "name": "Bash", "input": {"command": "ls"}},
                 ],
             },
         ]
@@ -775,38 +778,39 @@ class TestAssistantServiceStreaming:
         call_log: list[tuple] = []
         # Transcript: rounds 1+2 complete, round 3 user written
         history = [
-            {"type": "user", "content": "Q1", "uuid": "u1",
-             "timestamp": "2026-02-09T08:00:01Z"},
-            {"type": "assistant",
-             "content": [{"type": "text", "text": "A1"}],
-             "uuid": "a1", "timestamp": "2026-02-09T08:00:02Z"},
-            {"type": "result", "subtype": "success", "uuid": "r1",
-             "timestamp": "2026-02-09T08:00:03Z"},
-            {"type": "user", "content": "Q2", "uuid": "u2",
-             "timestamp": "2026-02-09T08:00:10Z"},
-            {"type": "assistant",
-             "content": [{"type": "text", "text": "A2"}],
-             "uuid": "a2", "timestamp": "2026-02-09T08:00:11Z"},
-            {"type": "result", "subtype": "success", "uuid": "r2",
-             "timestamp": "2026-02-09T08:00:12Z"},
-            {"type": "user", "content": "Q3", "uuid": "u3",
-             "timestamp": "2026-02-09T08:00:20Z"},
+            {"type": "user", "content": "Q1", "uuid": "u1", "timestamp": "2026-02-09T08:00:01Z"},
+            {
+                "type": "assistant",
+                "content": [{"type": "text", "text": "A1"}],
+                "uuid": "a1",
+                "timestamp": "2026-02-09T08:00:02Z",
+            },
+            {"type": "result", "subtype": "success", "uuid": "r1", "timestamp": "2026-02-09T08:00:03Z"},
+            {"type": "user", "content": "Q2", "uuid": "u2", "timestamp": "2026-02-09T08:00:10Z"},
+            {
+                "type": "assistant",
+                "content": [{"type": "text", "text": "A2"}],
+                "uuid": "a2",
+                "timestamp": "2026-02-09T08:00:11Z",
+            },
+            {"type": "result", "subtype": "success", "uuid": "r2", "timestamp": "2026-02-09T08:00:12Z"},
+            {"type": "user", "content": "Q3", "uuid": "u3", "timestamp": "2026-02-09T08:00:20Z"},
         ]
         # Buffer after prune: local_echo user-Q3 + assistant-A3 (no uuid)
         buffer = [
-            {"type": "user", "content": "Q3",
-             "uuid": "local-user-q3", "local_echo": True,
-             "timestamp": "2026-02-09T08:00:19Z"},
-            {"type": "assistant",
-             "content": [{"text": "A3 - new answer"}]},
-            {"type": "stream_event",
-             "event": {"type": "content_block_delta"}},
+            {
+                "type": "user",
+                "content": "Q3",
+                "uuid": "local-user-q3",
+                "local_echo": True,
+                "timestamp": "2026-02-09T08:00:19Z",
+            },
+            {"type": "assistant", "content": [{"text": "A3 - new answer"}]},
+            {"type": "stream_event", "event": {"type": "content_block_delta"}},
         ]
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_adapter = _FakeTranscriptAdapter(
-            call_log, history_raw=history)
-        service.session_manager = _FakeSessionManager(
-            call_log, status="running", replay_messages=buffer)
+        service.transcript_adapter = _FakeTranscriptAdapter(call_log, history_raw=history)
+        service.session_manager = _FakeSessionManager(call_log, status="running", replay_messages=buffer)
 
         payload = await service.get_snapshot("session-1")
         turns = payload.get("turns", [])
@@ -818,7 +822,12 @@ class TestAssistantServiceStreaming:
         # Result turns are eliminated, but they still flush the current turn,
         # so user-Q2 and user-Q3 correctly start new rounds.
         assert turn_types == [
-            "user", "assistant", "user", "assistant", "user", "assistant",
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+            "user",
+            "assistant",
         ], f"unexpected turns={turn_types}"
 
     async def test_stream_new_session_first_round_preserves_user(self, tmp_path):
@@ -835,15 +844,17 @@ class TestAssistantServiceStreaming:
         call_log: list[tuple] = []
         # Buffer: only local_echo user (SDK hasn't returned anything yet)
         buffer = [
-            {"type": "user", "content": "Hello",
-             "uuid": "local-user-first", "local_echo": True,
-             "timestamp": "2026-02-10T08:00:01Z"},
+            {
+                "type": "user",
+                "content": "Hello",
+                "uuid": "local-user-first",
+                "local_echo": True,
+                "timestamp": "2026-02-10T08:00:01Z",
+            },
         ]
         service.meta_store = _FakeMetaStore(meta)
-        service.transcript_adapter = _FakeTranscriptAdapter(
-            call_log, history_raw=[])
-        service.session_manager = _FakeSessionManager(
-            call_log, status="running", replay_messages=buffer)
+        service.transcript_adapter = _FakeTranscriptAdapter(call_log, history_raw=[])
+        service.session_manager = _FakeSessionManager(call_log, status="running", replay_messages=buffer)
 
         stream = service.stream_events("session-new")
         first_event = await anext(stream)
@@ -913,7 +924,7 @@ class TestAssistantServiceStreaming:
         clears the content-based dedup cache."""
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta()
-        
+
         # Round 1 in transcript: Assistant said "Done"
         history = [
             {
@@ -927,9 +938,9 @@ class TestAssistantServiceStreaming:
                 "content": [{"text": "Done"}],
                 "uuid": "a1",
                 "timestamp": "2026-02-09T08:00:05Z",
-            }
+            },
         ]
-        
+
         # Round 2 in buffer: User asks task 2, Assistant also says "Done" (no uuid from SDK)
         buffer = [
             {
@@ -942,7 +953,7 @@ class TestAssistantServiceStreaming:
                 "type": "assistant",
                 "content": [{"text": "Done"}],
                 # No uuid, mimicking SDK payload
-            }
+            },
         ]
 
         service.meta_store = _FakeMetaStore(meta)
@@ -950,7 +961,7 @@ class TestAssistantServiceStreaming:
         service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
 
         projector = await service._build_projector(meta, "session-1")
-        
+
         # We should have 4 turns total: user1, asst1, user2, asst2
         assert len(projector.turns) == 4
         assert projector.turns[0]["content"][0]["text"] == "task 1"
@@ -963,7 +974,7 @@ class TestAssistantServiceStreaming:
         successfully deduplicated against transcript result messages in the same round."""
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta()
-        
+
         # Round 1 in transcript: has a completed result with timestamp
         history = [
             {
@@ -982,9 +993,9 @@ class TestAssistantServiceStreaming:
                 "is_error": False,
                 "uuid": "r1",
                 "timestamp": "2026-02-09T08:00:05Z",
-            }
+            },
         ]
-        
+
         # Buffer has the same result message but lacks uuid and timestamp (SDK format)
         buffer = [
             {
@@ -999,7 +1010,7 @@ class TestAssistantServiceStreaming:
         service.session_manager = _FakeSessionManager([], status="completed", replay_messages=buffer)
 
         projector = await service._build_projector(meta, "session-1")
-        
+
         # We should have exactly 2 turns total: user, assistant (result eliminated).
         # The buffer result should be deduplicated away.
         assert len(projector.turns) == 2
@@ -1011,7 +1022,7 @@ class TestAssistantServiceStreaming:
         scope. The scope should only begin at the last REAL user message."""
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta()
-        
+
         # Transcript: User asks question, Assistant uses tool, Subagent returns result
         history = [
             {
@@ -1021,9 +1032,7 @@ class TestAssistantServiceStreaming:
             },
             {
                 "type": "assistant",
-                "content": [
-                    {"type": "tool_use", "id": "t1", "name": "Task", "input": {}}
-                ],
+                "content": [{"type": "tool_use", "id": "t1", "name": "Task", "input": {}}],
                 "uuid": "a1",
             },
             {
@@ -1032,17 +1041,15 @@ class TestAssistantServiceStreaming:
                 "uuid": "sys-u1",
                 # This is the subagent metadata that identifies it as system-injected
                 "sourceToolAssistantUUID": "agent-123",
-            }
+            },
         ]
-        
+
         # Buffer: The same assistant tool_use message (replayed by SDK, no uuid).
         # It must be correctly deduplicated against a1.
         buffer = [
             {
                 "type": "assistant",
-                "content": [
-                    {"type": "tool_use", "id": "t1", "name": "Task", "input": {}}
-                ],
+                "content": [{"type": "tool_use", "id": "t1", "name": "Task", "input": {}}],
             }
         ]
 
@@ -1051,7 +1058,7 @@ class TestAssistantServiceStreaming:
         service.session_manager = _FakeSessionManager([], status="running", replay_messages=buffer)
 
         projector = await service._build_projector(meta, "session-1")
-        
+
         # We should have exactly 2 turns total!
         # turn 1: user "task"
         # turn 2: assistant tool_use + system result folded in

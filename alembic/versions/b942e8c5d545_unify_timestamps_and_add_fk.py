@@ -6,17 +6,17 @@ Create Date: 2026-03-17 14:37:11.783399
 
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "b942e8c5d545"
-down_revision: Union[str, Sequence[str], None] = "ecbb53758daa"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "ecbb53758daa"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -44,12 +44,7 @@ def upgrade() -> None:
     is_pg = bind.dialect.name == "postgresql"
 
     # 1. Clean orphan task_events before adding FK constraint
-    op.execute(
-        sa.text(
-            "DELETE FROM task_events "
-            "WHERE task_id NOT IN (SELECT task_id FROM tasks)"
-        )
-    )
+    op.execute(sa.text("DELETE FROM task_events WHERE task_id NOT IN (SELECT task_id FROM tasks)"))
 
     # 2. Convert String timestamp columns → DateTime(timezone=True)
     #    SQLite: skip column type change — SQLAlchemy's DateTime type processor
@@ -119,6 +114,6 @@ def downgrade() -> None:
                         f"ALTER TABLE {table} ALTER COLUMN {col} "
                         f"TYPE VARCHAR "
                         f"USING to_char({col} AT TIME ZONE 'UTC', "
-                        f"'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
+                        f'\'YYYY-MM-DD"T"HH24:MI:SS"Z"\')'
                     )
                 )

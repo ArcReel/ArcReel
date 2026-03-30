@@ -1,9 +1,9 @@
 """Shared message utility functions for agent_runtime."""
 
-from typing import Any, Optional
+from typing import Any
 
 
-def _extract_text_from_block(block: Any) -> Optional[str]:
+def _extract_text_from_block(block: Any) -> str | None:
     """Return stripped text from a content block dict, or None."""
     if not isinstance(block, dict):
         return None
@@ -16,7 +16,7 @@ def _extract_text_from_block(block: Any) -> Optional[str]:
     return text or None
 
 
-def extract_plain_user_content(message: dict[str, Any]) -> Optional[str]:
+def extract_plain_user_content(message: dict[str, Any]) -> str | None:
     """Extract plain text from a user message payload.
 
     Used for echo dedup in both service and session_manager layers.

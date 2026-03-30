@@ -7,7 +7,7 @@ Wraps UsageRepository with a module-level convenience class.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -26,10 +26,10 @@ class UsageTracker:
         project_name: str,
         call_type: str,
         model: str,
-        prompt: Optional[str] = None,
-        resolution: Optional[str] = None,
-        duration_seconds: Optional[int] = None,
-        aspect_ratio: Optional[str] = None,
+        prompt: str | None = None,
+        resolution: str | None = None,
+        duration_seconds: int | None = None,
+        aspect_ratio: str | None = None,
         generate_audio: bool = True,
         provider: str = PROVIDER_GEMINI,
         user_id: str = DEFAULT_USER_ID,
@@ -54,14 +54,14 @@ class UsageTracker:
         self,
         call_id: int,
         status: str,
-        output_path: Optional[str] = None,
-        error_message: Optional[str] = None,
+        output_path: str | None = None,
+        error_message: str | None = None,
         retry_count: int = 0,
-        usage_tokens: Optional[int] = None,
+        usage_tokens: int | None = None,
         service_tier: str = "default",
-        generate_audio: Optional[bool] = None,
-        input_tokens: Optional[int] = None,
-        output_tokens: Optional[int] = None,
+        generate_audio: bool | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
     ) -> None:
 
         async with self._session_factory() as session:
@@ -81,11 +81,11 @@ class UsageTracker:
 
     async def get_stats(
         self,
-        project_name: Optional[str] = None,
-        provider: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
+        project_name: str | None = None,
+        provider: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> dict[str, Any]:
 
         async with self._session_factory() as session:
             repo = UsageRepository(session)
@@ -98,11 +98,11 @@ class UsageTracker:
 
     async def get_stats_grouped_by_provider(
         self,
-        project_name: Optional[str] = None,
-        provider: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
+        project_name: str | None = None,
+        provider: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> dict[str, Any]:
 
         async with self._session_factory() as session:
             repo = UsageRepository(session)
@@ -115,14 +115,14 @@ class UsageTracker:
 
     async def get_calls(
         self,
-        project_name: Optional[str] = None,
-        call_type: Optional[str] = None,
-        status: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        project_name: str | None = None,
+        call_type: str | None = None,
+        status: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
 
         async with self._session_factory() as session:
             repo = UsageRepository(session)
@@ -136,7 +136,7 @@ class UsageTracker:
                 page_size=page_size,
             )
 
-    async def get_projects_list(self) -> List[str]:
+    async def get_projects_list(self) -> list[str]:
 
         async with self._session_factory() as session:
             repo = UsageRepository(session)

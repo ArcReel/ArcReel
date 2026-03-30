@@ -1,6 +1,6 @@
 """Unit tests for SdkTranscriptAdapter."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 
@@ -75,12 +75,15 @@ class TestSdkTranscriptAdapter:
             '"message":{"content":[{"type":"text","text":"Hello"}]}}\n'
         )
 
-        with patch(
-            "server.agent_runtime.sdk_transcript_adapter.get_session_messages",
-            return_value=[mock_msg],
-        ), patch(
-            "server.agent_runtime.sdk_transcript_adapter._read_session_file",
-            return_value=raw_jsonl,
+        with (
+            patch(
+                "server.agent_runtime.sdk_transcript_adapter.get_session_messages",
+                return_value=[mock_msg],
+            ),
+            patch(
+                "server.agent_runtime.sdk_transcript_adapter._read_session_file",
+                return_value=raw_jsonl,
+            ),
         ):
             adapter = SdkTranscriptAdapter()
             result = adapter.read_raw_messages("sdk-session-123")
@@ -96,12 +99,15 @@ class TestSdkTranscriptAdapter:
         mock_msg.parent_tool_use_id = None
         mock_msg.timestamp = None
 
-        with patch(
-            "server.agent_runtime.sdk_transcript_adapter.get_session_messages",
-            return_value=[mock_msg],
-        ), patch(
-            "server.agent_runtime.sdk_transcript_adapter._read_session_file",
-            return_value=None,
+        with (
+            patch(
+                "server.agent_runtime.sdk_transcript_adapter.get_session_messages",
+                return_value=[mock_msg],
+            ),
+            patch(
+                "server.agent_runtime.sdk_transcript_adapter._read_session_file",
+                return_value=None,
+            ),
         ):
             adapter = SdkTranscriptAdapter()
             result = adapter.read_raw_messages("sdk-session-123")

@@ -3,7 +3,7 @@
 import asyncio
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from lib.generation_queue import GenerationQueue
@@ -52,9 +52,7 @@ class TestGenerationQueue:
         assert running["task_id"] == first["task_id"]
         assert running["status"] == "running"
 
-        done = await queue.mark_task_succeeded(
-            first["task_id"], {"file_path": "storyboards/scene_E1S01.png"}
-        )
+        done = await queue.mark_task_succeeded(first["task_id"], {"file_path": "storyboards/scene_E1S01.png"})
         assert done is not None
         assert done["status"] == "succeeded"
         assert done["result"]["file_path"] == "storyboards/scene_E1S01.png"
@@ -123,9 +121,7 @@ class TestGenerationQueue:
         )
         assert takeover_ok
 
-    async def test_claim_next_task_respects_dependencies_without_blocking_other_heads(
-        self, queue
-    ):
+    async def test_claim_next_task_respects_dependencies_without_blocking_other_heads(self, queue):
         head_one = await queue.enqueue_task(
             project_name="demo",
             task_type="storyboard",

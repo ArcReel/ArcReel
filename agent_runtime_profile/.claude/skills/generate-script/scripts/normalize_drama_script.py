@@ -16,17 +16,15 @@ import sys
 from pathlib import Path
 
 # 允许从仓库任意工作目录直接运行该脚本
-PROJECT_ROOT = (
-    Path(__file__).resolve().parents[4]
-)  # .claude/skills/generate-script/scripts -> repo root
+PROJECT_ROOT = Path(__file__).resolve().parents[4]  # .claude/skills/generate-script/scripts -> repo root
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import asyncio
 
-from lib.text_backends.factory import create_text_backend_for_task
-from lib.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.project_manager import ProjectManager
+from lib.text_backends.base import TextGenerationRequest, TextTaskType
+from lib.text_backends.factory import create_text_backend_for_task
 
 
 def build_normalize_prompt(
@@ -113,9 +111,7 @@ def main():
         default=None,
         help="指定小说源文件路径（默认读取 source/ 目录下所有文件）",
     )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="仅显示 Prompt，不实际调用 API"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="仅显示 Prompt，不实际调用 API")
 
     args = parser.parse_args()
 
@@ -186,7 +182,11 @@ def main():
     print(f"✅ 规范化剧本已保存: {step1_path}")
 
     # 简要统计
-    lines = [l for l in response.split("\n") if l.strip().startswith("|") and "场景 ID" not in l and "---" not in l]
+    lines = [
+        line
+        for line in response.split("\n")
+        if line.strip().startswith("|") and "场景 ID" not in line and "---" not in line
+    ]
     scene_count = len(lines)
     print(f"\n📊 生成统计: {scene_count} 个场景")
 

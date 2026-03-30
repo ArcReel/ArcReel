@@ -4,7 +4,7 @@ Assistant session APIs.
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Literal, Optional
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +27,7 @@ def get_assistant_service() -> AssistantService:
     return assistant_service
 
 
-async def _validate_session_ownership(
-    service: AssistantService, session_id: str, project_name: str
-) -> "SessionMeta":
+async def _validate_session_ownership(service: AssistantService, session_id: str, project_name: str) -> "SessionMeta":
     """Validate session belongs to the specified project and return it."""
     session = await service.get_session(session_id)
     if session is None:
@@ -37,6 +35,7 @@ async def _validate_session_ownership(
     if session.project_name != project_name:
         raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
     return session
+
 
 async def _assistant_service_for_stream(
     project_name: str,
@@ -55,7 +54,7 @@ class ImageAttachment(BaseModel):
 class SendRequest(BaseModel):
     content: str = ""
     images: list[ImageAttachment] = Field(default_factory=list, max_length=5)
-    session_id: Optional[str] = None
+    session_id: str | None = None
 
 
 class AnswerQuestionRequest(BaseModel):
@@ -94,7 +93,7 @@ async def send_message(
 async def list_sessions(
     project_name: str,
     _user: CurrentUser,
-    status: Optional[Literal["idle", "running", "completed", "error", "interrupted"]] = None,
+    status: Literal["idle", "running", "completed", "error", "interrupted"] | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
@@ -182,7 +181,9 @@ async def interrupt_session(project_name: str, session_id: str, _user: CurrentUs
 
 
 @router.post("/sessions/{session_id}/questions/{question_id}/answer")
-async def answer_question(project_name: str, session_id: str, question_id: str, req: AnswerQuestionRequest, _user: CurrentUser):
+async def answer_question(
+    project_name: str, session_id: str, question_id: str, req: AnswerQuestionRequest, _user: CurrentUser
+):
     if not req.answers:
         raise HTTPException(status_code=400, detail="answers 不能为空")
     try:

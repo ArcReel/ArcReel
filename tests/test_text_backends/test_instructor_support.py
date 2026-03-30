@@ -1,4 +1,5 @@
 """instructor_support 模块测试。"""
+
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 

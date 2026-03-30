@@ -3,7 +3,6 @@
 """
 
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +27,14 @@ def get_project_manager() -> ProjectManager:
 class CreateCharacterRequest(BaseModel):
     name: str
     description: str
-    voice_style: Optional[str] = ""
+    voice_style: str | None = ""
 
 
 class UpdateCharacterRequest(BaseModel):
-    description: Optional[str] = None
-    voice_style: Optional[str] = None
-    character_sheet: Optional[str] = None
-    reference_image: Optional[str] = None
+    description: str | None = None
+    voice_style: str | None = None
+    character_sheet: str | None = None
+    reference_image: str | None = None
 
 
 @router.post("/projects/{project_name}/characters")
@@ -58,7 +57,9 @@ async def add_character(project_name: str, req: CreateCharacterRequest, _user: C
 
 @router.patch("/projects/{project_name}/characters/{char_name}")
 async def update_character(
-    project_name: str, char_name: str, req: UpdateCharacterRequest,
+    project_name: str,
+    char_name: str,
+    req: UpdateCharacterRequest,
     _user: CurrentUser,
 ):
     """更新角色"""

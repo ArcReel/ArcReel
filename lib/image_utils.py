@@ -28,4 +28,3 @@ def convert_image_bytes_to_png(content: bytes) -> bytes:
             return out.getvalue()
     except Exception as e:
         raise ValueError("Invalid image") from e
-
