@@ -1593,7 +1593,7 @@ class ProjectManager:
         result = await generator.generate(
             TextGenerationRequest(
                 prompt=prompt,
-                response_schema=ProjectOverview.model_json_schema(),
+                response_schema=ProjectOverview,
             ),
             project_name=project_name,
         )
