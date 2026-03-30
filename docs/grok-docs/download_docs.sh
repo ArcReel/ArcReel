@@ -7,15 +7,20 @@ set -euo pipefail
 BASE_URL="https://docs.x.ai/developers"
 OUTPUT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# URL 路径 → 本地文件名
-declare -A DOCS=(
-  ["models.md"]="models.md"
-  ["model-capabilities/images/generation.md"]="images-generation.md"
-  ["model-capabilities/video/generation.md"]="video-generation.md"
+# URL 路径 → 本地文件名（用平行数组兼容 bash 3.x）
+PATHS=(
+  "models.md"
+  "model-capabilities/images/generation.md"
+  "model-capabilities/video/generation.md"
+)
+FILENAMES=(
+  "models.md"
+  "images-generation.md"
+  "video-generation.md"
 )
 
 echo "下载目录: $OUTPUT_DIR"
-echo "共 ${#DOCS[@]} 个文档待下载"
+echo "共 ${#PATHS[@]} 个文档待下载"
 echo "---"
 
 success=0
@@ -25,8 +30,9 @@ fail=0
 incr_success() { success=$((success + 1)); }
 incr_fail() { fail=$((fail + 1)); }
 
-for path in "${!DOCS[@]}"; do
-  filename="${DOCS[$path]}"
+for i in "${!PATHS[@]}"; do
+  path="${PATHS[$i]}"
+  filename="${FILENAMES[$i]}"
   url="${BASE_URL}/${path}"
   output="${OUTPUT_DIR}/${filename}"
 

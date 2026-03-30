@@ -148,45 +148,7 @@ You can provide the source image as:
 
 ## Editing with Multiple Images
 
-You can add up to three images for editing. You can specify the images in the order they are sent in the request. By default, the aspect ratio of the output image follows the first input image. You can override this by setting the `aspect_ratio` parameter to a specific ratio (e.g., `"1:1"`, `"16:9"`).
-
-```python customLanguage="pythonXAI"
-import xai_sdk
-
-client = xai_sdk.Client()
-
-response = client.image.sample(
-    prompt="Add the cat from the first image to the second one.",
-    model="grok-imagine-image",
-    image_urls=[
-        "https://docs.x.ai/assets/api-examples/images/image-edit-1.jpeg",
-        "https://docs.x.ai/assets/api-examples/images/image-edit-2.jpeg",
-    ],
-)
-
-print(response.url)
-```
-
-```bash
-# Using a public URL as the source image
-curl -X POST https://api.x.ai/v1/images/edits \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $XAI_API_KEY" \
-  -d '{
-    "model": "grok-imagine-image",
-    "prompt": "Add the cat from the first image to the second one.",
-    "images": [
-      {
-        "url": "https://docs.x.ai/assets/api-examples/images/image-edit-1.jpeg",
-        "type": "image_url"
-      },
-      {
-        "url": "https://docs.x.ai/assets/api-examples/images/image-edit-2.jpeg",
-        "type": "image_url"
-      }
-    ]
-  }'
-```
+You can add up to 5 images for editing. You can specify the images in the order they are sent in the request. By default, the aspect ratio of the output image follows the first input image. You can override this by setting the `aspect_ratio` parameter to a specific ratio (e.g., `"1:1"`, `"16:9"`).
 
 ## Multi-Turn Editing
 
@@ -293,6 +255,7 @@ const response = await client.images.generate({
 response.data.forEach((image, i) => {
     console.log(`Variation ${i + 1}: ${image.url}`);
 });
+
 ```
 
 ```javascript customLanguage="javascriptAISDK"
@@ -308,6 +271,7 @@ const { images } = await generateImage({
 images.forEach((image, i) => {
     console.log(`Variation ${i + 1}: ${image.base64.slice(0, 50)}...`);
 });
+
 ```
 
 ```bash
@@ -602,3 +566,4 @@ For full pricing details on the `grok-imagine-image` model, see the [model page]
 * [Models](/developers/models) — Available image models
 * [Video Generation](/developers/model-capabilities/video/generation) — Animate generated images
 * [API Reference](/developers/rest-api-reference) — Full endpoint documentation
+* [Imagine API Landing Page](https://x.ai/api/imagine) — Showcase of the Imagine API in action

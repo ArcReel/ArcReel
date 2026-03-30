@@ -6,31 +6,18 @@ An overview of our models' capabilities and their associated pricing.
 
 | Model | Modalities | Capabilities | Context | Rate Limits | Pricing [in (cached in) / out] |
 | --- | --- | --- | --- | --- | --- |
-| grok-4.20-multi-agent-beta-0309 | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 607 RPM | $2.00 ($0.20) / $6.00 |
-| grok-4.20-multi-agent-beta-0309 | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 607 RPM | $2.00 ($0.20) / $6.00 |
-| grok-4.20-beta-0309-reasoning | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 607 RPM | $2.00 ($0.20) / $6.00 |
-| grok-4.20-beta-0309-reasoning | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 607 RPM | $2.00 ($0.20) / $6.00 |
-| grok-4.20-beta-0309-non-reasoning | text, image → text | functions, structured | 2,000,000 | 4M TPM, 607 RPM | $2.00 ($0.20) / $6.00 |
-| grok-4.20-beta-0309-non-reasoning | text, image → text | functions, structured | 2,000,000 | 4M TPM, 607 RPM | $2.00 ($0.20) / $6.00 |
-| grok-4-1-fast-reasoning | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 607 RPM | $0.20 ($0.05) / $0.50 |
-| grok-4-1-fast-reasoning | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 607 RPM | $0.20 ($0.05) / $0.50 |
-| grok-4-1-fast-non-reasoning | text, image → text | functions, structured | 2,000,000 | 4M TPM, 607 RPM | $0.20 ($0.05) / $0.50 |
-| grok-4-1-fast-non-reasoning | text, image → text | functions, structured | 2,000,000 | 4M TPM, 607 RPM | $0.20 ($0.05) / $0.50 |
-| grok-4-1-fast-non-reasoning | text, image → text | functions, structured | 2,000,000 | 4M TPM, 480 RPM | $0.20 ($0.05) / $0.50 |
-| grok-code-fast-1 | text → text | functions, structured, reasoning | 256,000 | 2M TPM, 2,125 RPM | $0.20 ($0.02) / $1.50 |
-| grok-code-fast-1 | text → text | functions, structured, reasoning | 256,000 | 2M TPM, 2,125 RPM | $0.20 ($0.02) / $1.50 |
-| grok-4-0709 | text, image → text | functions, structured, reasoning | 256,000 | 20M TPM, 500 RPM | $3.00 ($0.75) / $15.00 |
-| grok-4-0709 | text, image → text | functions, structured, reasoning | 256,000 | 20M TPM, 500 RPM | $3.00 ($0.75) / $15.00 |
-| grok-3 | text → text | functions, structured | 131,072 | 4M TPM, 900 RPM | $3.00 ($0.75) / $15.00 |
-| grok-3 | text → text | functions, structured | 131,072 | 4M TPM, 900 RPM | $3.00 ($0.75) / $15.00 |
-| grok-3-mini | text → text | functions, structured, reasoning | 131,072 | 4M TPM, 1,450 RPM | $0.30 ($0.07) / $0.50 |
-| grok-3-mini | text → text | functions, structured, reasoning | 131,072 | 4M TPM, 1,450 RPM | $0.30 ($0.07) / $0.50 |
-| grok-4-fast-reasoning | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 607 RPM | $0.20 ($0.05) / $0.50 |
-| grok-4-fast-non-reasoning | text, image → text | functions, structured | 2,000,000 | 10M TPM, 620 RPM | $0.20 ($0.05) / $0.50 |
-| grok-4-fast-reasoning | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 607 RPM | $0.20 ($0.05) / $0.50 |
-| grok-4-fast-non-reasoning | text, image → text | functions, structured | 2,000,000 | 10M TPM, 620 RPM | $0.20 ($0.05) / $0.50 |
-| grok-imagine-image-pro | text, image → image | - | - | 30 RPM | $0.07/image |
+| grok-4.20-0309-reasoning | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 600 RPM | $2.00 ($0.20) / $6.00 |
+| grok-4.20-0309-reasoning | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 600 RPM | $2.00 ($0.20) / $6.00 |
+| grok-4.20-0309-non-reasoning | text, image → text | functions, structured | 2,000,000 | 4M TPM, 600 RPM | $2.00 ($0.20) / $6.00 |
+| grok-4.20-0309-non-reasoning | text, image → text | functions, structured | 2,000,000 | 4M TPM, 600 RPM | $2.00 ($0.20) / $6.00 |
+| grok-4-1-fast-reasoning | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 600 RPM | $0.20 ($0.05) / $0.50 |
+| grok-4-1-fast-reasoning | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 600 RPM | $0.20 ($0.05) / $0.50 |
+| grok-4-1-fast-non-reasoning | text, image → text | functions, structured | 2,000,000 | 4M TPM, 600 RPM | $0.20 ($0.05) / $0.50 |
+| grok-4-1-fast-non-reasoning | text, image → text | functions, structured | 2,000,000 | 4M TPM, 600 RPM | $0.20 ($0.05) / $0.50 |
+| grok-4.20-multi-agent-0309 | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 600 RPM | $2.00 ($0.20) / $6.00 |
+| grok-4.20-multi-agent-0309 | text, image → text | functions, structured, reasoning | 2,000,000 | 4M TPM, 600 RPM | $2.00 ($0.20) / $6.00 |
 | grok-imagine-image | text, image → image | - | - | 300 RPM | $0.02/image |
+| grok-imagine-image-pro | text, image → image | - | - | 30 RPM | $0.07/image |
 | grok-imagine-image-pro | text, image → image | - | - | 30 RPM | $0.07/image |
 | grok-imagine-image | text, image → image | - | - | 300 RPM | $0.02/image |
 | grok-imagine-video | text, image, video → video | - | - | 60 RPM | $0.050/sec |
@@ -89,7 +76,7 @@ The [Batch API](/developers/advanced-api-usage/batch-api) lets you process large
 
 The 50% discount applies to all token types — input tokens, output tokens, cached tokens, and reasoning tokens. To see batch pricing for a specific model, visit the model's detail page and toggle **"Show batch API pricing"**.
 
-Batch API pricing applies to text and language models only. Image and video generation models are not supported in the Batch API. See [Batch API documentation](/developers/advanced-api-usage/batch-api) for full details, limitations, and usage examples.
+The 50% batch discount applies to text and language models only. Image and video generation are supported in the Batch API but are billed at standard rates. See [Batch API documentation](/developers/advanced-api-usage/batch-api) for full details.
 
 ## Voice API Pricing
 
@@ -102,23 +89,21 @@ The [Voice Agent API](/developers/model-capabilities/audio/voice-agent) enables 
 | **Pricing** | $0.05 / minute ($3.00 / hour) |
 | **Concurrent sessions** | 100 per team |
 | **Max session duration** | 30 minutes |
-| **Capabilities** | Function calling (web search, X search, collections, custom functions) |
+| **Capabilities** | Function calling (web search, X search, collections, MCP, custom functions) |
 
-When using the Voice Agent API with tools such as function calling, web search, X search, or collections, you will be charged for the tool invocations in addition to the per-minute voice session cost. See [Tool Invocation Costs](#tool-invocation-costs) above for tool pricing details.
+When using the Voice Agent API with tools such as function calling, web search, X search, collections, or MCP, you will be charged for the tool invocations in addition to the per-minute voice session cost. See [Tool Invocation Costs](#tool-invocation-costs) above for tool pricing details.
 
 For more details on how to get started, see the [Voice Agent API documentation](/developers/model-capabilities/audio/voice-agent).
 
-### Text to Speech API (Beta)
+### Text to Speech API
 
 The [Text to Speech API](/developers/model-capabilities/audio/text-to-speech) converts text into natural speech, billed per input character.
 
 | | Details |
 |---|---|
-| **Pricing** | $4.20 / 1M characters (Beta Pricing)|
+| **Pricing** | $4.20 / 1M characters |
 | **Concurrent requests** | 100 per team |
 | **Capabilities** | Multiple voices, streaming and batch output, MP3 / WAV / PCM / μ-law / A-law formats |
-
-The Text to Speech API is currently in **beta**. Pricing and rate limits may change when the API becomes generally available.
 
 ## Usage Guidelines Violation Fee
 
