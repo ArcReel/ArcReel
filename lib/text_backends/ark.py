@@ -17,6 +17,7 @@ from lib.text_backends.base import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "doubao-seed-2-0-lite-260215"
+_ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 
 
 class ArkTextBackend:
@@ -30,9 +31,14 @@ class ArkTextBackend:
             raise ValueError("Ark API Key 未提供")
 
         self._client = Ark(
-            base_url="https://ark.cn-beijing.volces.com/api/v3",
+            base_url=_ARK_BASE_URL,
             api_key=self._api_key,
         )
+        # Instructor 要求 openai.OpenAI 实例；Ark SDK client 类型不兼容，
+        # 但 Ark API 是 OpenAI 兼容的，因此额外创建原生 OpenAI 客户端供降级使用。
+        from openai import OpenAI
+
+        self._openai_client = OpenAI(base_url=_ARK_BASE_URL, api_key=self._api_key)
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[TextCapability] = self._resolve_capabilities()
 
@@ -104,17 +110,9 @@ class ArkTextBackend:
             from lib.text_backends.instructor_support import generate_structured_via_instructor
 
             messages = self._build_messages(request)
-            # Instructor 要求 openai.OpenAI 实例；Ark SDK client 类型不兼容，
-            # 但 Ark API 是 OpenAI 兼容的，因此创建原生 OpenAI 客户端。
-            from openai import OpenAI
-
-            openai_client = OpenAI(
-                base_url="https://ark.cn-beijing.volces.com/api/v3",
-                api_key=self._api_key,
-            )
             json_text, input_tokens, output_tokens = await asyncio.to_thread(
                 generate_structured_via_instructor,
-                client=openai_client,
+                client=self._openai_client,
                 model=self._model,
                 messages=messages,
                 response_model=request.response_schema,
