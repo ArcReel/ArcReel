@@ -25,6 +25,8 @@ uv run python -m pytest                                # 全部测试
 uv run python -m pytest tests/test_generation_queue.py -v  # 单文件
 uv run python -m pytest -k "test_enqueue" -v           # 按关键字
 uv run python -m pytest --cov --cov-report=html        # 覆盖率
+uv run ruff check .                                    # lint 检查
+uv run ruff format .                                   # 代码格式化
 uv sync                                                # 安装依赖
 uv run alembic upgrade head                            # 数据库迁移
 uv run alembic revision --autogenerate -m "desc"       # 生成迁移
@@ -154,8 +156,16 @@ PYTHONPATH=~/.claude/plugins/cache/claude-plugins-official/skill-creator/*/skill
 API Key、后端选择、模型配置等通过 WebUI 配置页（`/settings`）管理。
 外部工具依赖：`ffmpeg`（视频拼接与后期处理）。
 
-### pytest 配置
+### 代码质量
 
+**ruff**（lint + format）：
+- 规则集：`E`/`F`/`I`/`UP`，忽略 `E402`（既有模式）和 `E501`（由 formatter 管理）
+- line-length：120
+- 排除 `.worktrees`、`.claude/worktrees` 目录
+- CI 中强制检查：`ruff check . && ruff format --check .`
+
+**pytest**：
 - `asyncio_mode = "auto"`（无需手动标记 async 测试）
-- 测试覆盖范围：`lib/` 和 `server/`
+- 测试覆盖范围：`lib/` 和 `server/`，CI 要求 ≥80%
 - 共用 fixtures 在 `tests/conftest.py`，工厂在 `tests/factories.py`，fakes 在 `tests/fakes.py`
+- test 依赖在 `[dependency-groups] dev` 中，`uv sync` 默认安装，生产镜像通过 `--no-dev` 排除
