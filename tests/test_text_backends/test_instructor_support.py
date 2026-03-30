@@ -2,7 +2,6 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
 from pydantic import BaseModel
 
 from lib.text_backends.instructor_support import generate_structured_via_instructor

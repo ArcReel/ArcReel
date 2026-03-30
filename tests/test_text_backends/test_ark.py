@@ -63,29 +63,6 @@ class TestGenerate:
         assert result.input_tokens == 15
         assert result.output_tokens == 8
 
-    async def test_structured_output(self, backend):
-        """默认模型走 Instructor 降级路径生成结构化输出。"""
-        from pydantic import BaseModel
-
-        class SampleModel(BaseModel):
-            key: str
-
-        sample = SampleModel(key="value")
-
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            return_value=(sample.model_dump_json(), 20, 10),
-        ):
-            with patch("asyncio.to_thread", side_effect=lambda fn, **kw: fn(**kw)):
-                result = await backend.generate(
-                    TextGenerationRequest(prompt="gen json", response_schema=SampleModel)
-                )
-
-        assert result.text == '{"key":"value"}'
-        assert result.input_tokens == 20
-        assert result.output_tokens == 10
-
-
 class TestCapabilityAwareStructured:
     """测试基于模型能力的结构化输出路径选择。"""
 
