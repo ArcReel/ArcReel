@@ -69,6 +69,9 @@ class UpdateProjectRequest(BaseModel):
     video_backend: str | None = None
     image_backend: str | None = None
     video_generate_audio: bool | None = None
+    text_backend_script: str | None = None
+    text_backend_overview: str | None = None
+    text_backend_style: str | None = None
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -443,6 +446,13 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                 project.pop("video_generate_audio", None)
             else:
                 project["video_generate_audio"] = req.video_generate_audio
+        for field in ("text_backend_script", "text_backend_overview", "text_backend_style"):
+            if field in req.model_fields_set:
+                value = getattr(req, field)
+                if value:
+                    project[field] = value
+                else:
+                    project.pop(field, None)
 
         with project_change_source("webui"):
             manager.save_project(name, project)

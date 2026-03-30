@@ -104,9 +104,17 @@ class ArkTextBackend:
             from lib.text_backends.instructor_support import generate_structured_via_instructor
 
             messages = self._build_messages(request)
+            # Instructor 要求 openai.OpenAI 实例；Ark SDK client 类型不兼容，
+            # 但 Ark API 是 OpenAI 兼容的，因此创建原生 OpenAI 客户端。
+            from openai import OpenAI
+
+            openai_client = OpenAI(
+                base_url="https://ark.cn-beijing.volces.com/api/v3",
+                api_key=self._api_key,
+            )
             json_text, input_tokens, output_tokens = await asyncio.to_thread(
                 generate_structured_via_instructor,
-                client=self._client,
+                client=openai_client,
                 model=self._model,
                 messages=messages,
                 response_model=request.response_schema,

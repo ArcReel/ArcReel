@@ -20,6 +20,11 @@ def generate_structured_via_instructor(
     返回 (json_text, input_tokens, output_tokens)。
     """
     patched = instructor.from_openai(client, mode=mode)
+    if patched is None:
+        raise TypeError(
+            f"instructor.from_openai() 返回 None — client 类型 {type(client).__name__} 不受支持，"
+            "请传入 openai.OpenAI 或 openai.AsyncOpenAI 实例"
+        )
     result, completion = patched.chat.completions.create_with_completion(
         model=model,
         messages=messages,
