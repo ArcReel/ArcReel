@@ -106,13 +106,13 @@ class TestCapabilityAwareStructured:
         mock_ark.return_value = mock_client
         b = ArkTextBackend(api_key="k", model="mock-model-with-structured")
         b._test_client = mock_client
-        # 手动设置为支持原生
-        b._supports_native_structured = True
+        # 手动添加原生结构化输出能力
+        b._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
         return b
 
     async def test_default_model_does_not_support_native_structured(self, backend_no_structured):
         """默认豆包模型不支持原生结构化输出。"""
-        assert backend_no_structured._supports_native_structured is False
+        assert TextCapability.STRUCTURED_OUTPUT not in backend_no_structured.capabilities
 
     async def test_fallback_uses_instructor(self, backend_no_structured):
         """模型不支持原生时走 Instructor 降级路径。"""
@@ -162,7 +162,7 @@ class TestCapabilityAwareStructured:
         mock_client = MagicMock()
         mock_ark.return_value = mock_client
         b = ArkTextBackend(api_key="k", model="unknown-model-xyz")
-        assert b._supports_native_structured is False
+        assert TextCapability.STRUCTURED_OUTPUT not in b.capabilities
 
     async def test_instructor_fallback_rejects_dict_schema(self, backend_no_structured):
         """Instructor 降级路径传入 dict schema 时应抛出 TypeError。"""

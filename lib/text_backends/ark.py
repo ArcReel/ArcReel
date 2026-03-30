@@ -33,25 +33,20 @@ class ArkTextBackend:
             api_key=self._api_key,
         )
         self._model = model or DEFAULT_MODEL
-        self._supports_native_structured = self._check_native_structured()
-        self._capabilities: Set[TextCapability] = {
-            TextCapability.TEXT_GENERATION,
-            TextCapability.VISION,
-        }
-        if self._supports_native_structured:
-            self._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
+        self._capabilities: Set[TextCapability] = self._resolve_capabilities()
 
-    def _check_native_structured(self) -> bool:
-        """检查当前模型是否支持原生结构化输出。"""
+    def _resolve_capabilities(self) -> Set[TextCapability]:
+        """根据 PROVIDER_REGISTRY 中的模型声明构建能力集合。"""
         from lib.config.registry import PROVIDER_REGISTRY
 
+        base = {TextCapability.TEXT_GENERATION, TextCapability.VISION}
         provider_meta = PROVIDER_REGISTRY.get("ark")
         if provider_meta:
             model_info = provider_meta.models.get(self._model)
-            if model_info:
-                return "structured_output" in model_info.capabilities
-        # 未注册模型保守降级
-        return False
+            if model_info and TextCapability.STRUCTURED_OUTPUT in model_info.capabilities:
+                base.add(TextCapability.STRUCTURED_OUTPUT)
+        # 未注册模型不加 STRUCTURED_OUTPUT：宁可走 Instructor 降级也不调用会报错的原生 API
+        return base
 
     @property
     def name(self) -> str:
@@ -82,7 +77,7 @@ class ArkTextBackend:
         return self._parse_chat_response(response)
 
     async def _generate_structured(self, request: TextGenerationRequest) -> TextGenerationResult:
-        if self._supports_native_structured:
+        if TextCapability.STRUCTURED_OUTPUT in self._capabilities:
             from lib.text_backends.base import resolve_schema
 
             messages = self._build_messages(request)
