@@ -33,3 +33,8 @@ from lib.image_backends.grok import GrokImageBackend
 from lib.providers import PROVIDER_GROK
 
 register_backend(PROVIDER_GROK, GrokImageBackend)
+
+from lib.image_backends.openai import OpenAIImageBackend
+from lib.providers import PROVIDER_OPENAI
+
+register_backend(PROVIDER_OPENAI, OpenAIImageBackend)
