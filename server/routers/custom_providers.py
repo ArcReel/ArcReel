@@ -56,7 +56,7 @@ class UpdateProviderRequest(BaseModel):
     api_key: str | None = None
 
 
-class DiscoverRequest(BaseModel):
+class ProviderConnectionRequest(BaseModel):
     api_format: str
     base_url: str
     api_key: str
@@ -64,12 +64,6 @@ class DiscoverRequest(BaseModel):
 
 class ReplaceModelsRequest(BaseModel):
     models: list[ModelInput]
-
-
-class TestConnectionRequest(BaseModel):
-    api_format: str
-    base_url: str
-    api_key: str
 
 
 class ModelResponse(BaseModel):
@@ -149,12 +143,8 @@ async def list_providers(
 ):
     """列出所有自定义供应商（含模型列表）。"""
     repo = CustomProviderRepository(session)
-    providers = await repo.list_providers()
-    result = []
-    for p in providers:
-        models = await repo.list_models(p.id)
-        result.append(_provider_to_response(p, models))
-    return {"providers": result}
+    pairs = await repo.list_providers_with_models()
+    return {"providers": [_provider_to_response(p, models) for p, models in pairs]}
 
 
 @router.post("", status_code=201)
@@ -174,7 +164,6 @@ async def create_provider(
         models=model_dicts,
     )
     await session.commit()
-    # refresh to get updated created_at
     await session.refresh(provider)
     models = await repo.list_models(provider.id)
     return _provider_to_response(provider, models)
@@ -270,7 +259,7 @@ async def replace_models(
 
 @router.post("/discover")
 async def discover_models_endpoint(
-    body: DiscoverRequest,
+    body: ProviderConnectionRequest,
     _user: CurrentUser,
 ):
     """模型发现：根据 api_format + base_url + api_key 查询可用模型。"""
@@ -295,7 +284,7 @@ async def discover_models_endpoint(
 
 @router.post("/test")
 async def test_connection(
-    body: TestConnectionRequest,
+    body: ProviderConnectionRequest,
     _user: CurrentUser,
 ):
     """连接测试：验证 api_format + base_url + api_key 的连通性。"""

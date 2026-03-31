@@ -1344,7 +1344,7 @@ class API {
     return this.request(`/custom-providers/${id}`, { method: "DELETE" });
   }
 
-  static async replaceCustomProviderModels(id: number, models: CustomProviderModelInput[]): Promise<{ models: CustomProviderModelInfo[] }> {
+  static async replaceCustomProviderModels(id: number, models: CustomProviderModelInput[]): Promise<CustomProviderModelInfo[]> {
     return this.request(`/custom-providers/${id}/models`, { method: "PUT", body: JSON.stringify({ models }) });
   }
 

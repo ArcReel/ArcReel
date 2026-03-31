@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from lib.config.resolver import ConfigResolver
+from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db import async_session_factory
 from lib.providers import PROVIDER_OPENAI
 from lib.text_backends.base import TextBackend, TextTaskType
@@ -26,13 +27,13 @@ async def create_text_backend_for_task(
     provider_id, model_id = await resolver.text_backend_for_task(task_type, project_name)
 
     # Custom providers use a separate factory path
-    if provider_id.startswith("custom-"):
+    if is_custom_provider(provider_id):
         from lib.custom_provider.factory import create_custom_backend
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
         async with async_session_factory() as session:
             repo = CustomProviderRepository(session)
-            db_id = int(provider_id.removeprefix("custom-"))
+            db_id = parse_provider_id(provider_id)
             provider = await repo.get_provider(db_id)
             if provider is None:
                 raise ValueError(f"自定义供应商 {provider_id} 不存在")

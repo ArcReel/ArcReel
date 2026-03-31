@@ -104,6 +104,35 @@ class CustomProviderRepository(BaseRepository):
         await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.id == model_id))
         await self.session.flush()
 
+    async def list_all_enabled_models(self) -> list[CustomProviderModel]:
+        """跨所有供应商获取全部已启用模型。"""
+        stmt = (
+            select(CustomProviderModel)
+            .where(CustomProviderModel.is_enabled == True)  # noqa: E712
+            .order_by(CustomProviderModel.provider_id, CustomProviderModel.id)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars())
+
+    async def list_providers_with_models(self) -> list[tuple[CustomProvider, list[CustomProviderModel]]]:
+        """获取所有供应商及其模型，仅 2 次查询。"""
+        providers = await self.list_providers()
+        if not providers:
+            return []
+        provider_ids = [p.id for p in providers]
+        stmt = (
+            select(CustomProviderModel)
+            .where(CustomProviderModel.provider_id.in_(provider_ids))
+            .order_by(CustomProviderModel.provider_id, CustomProviderModel.id)
+        )
+        result = await self.session.execute(stmt)
+        all_models = list(result.scalars())
+
+        models_by_provider: dict[int, list[CustomProviderModel]] = {p.id: [] for p in providers}
+        for m in all_models:
+            models_by_provider.setdefault(m.provider_id, []).append(m)
+        return [(p, models_by_provider.get(p.id, [])) for p in providers]
+
     async def list_enabled_models_by_media_type(self, media_type: str) -> list[CustomProviderModel]:
         """跨所有供应商获取指定媒体类型的已启用模型。"""
         stmt = (
@@ -116,6 +145,15 @@ class CustomProviderRepository(BaseRepository):
         )
         result = await self.session.execute(stmt)
         return list(result.scalars())
+
+    async def get_model_by_ids(self, provider_id: int, model_id: str) -> CustomProviderModel | None:
+        """根据供应商 ID 和模型 ID 获取模型。"""
+        stmt = select(CustomProviderModel).where(
+            CustomProviderModel.provider_id == provider_id,
+            CustomProviderModel.model_id == model_id,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_default_model(self, provider_id: int, media_type: str) -> CustomProviderModel | None:
         """获取指定供应商 + 媒体类型的默认已启用模型。"""

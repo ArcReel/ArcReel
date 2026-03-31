@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from lib.custom_provider import is_custom_provider
 from lib.providers import PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, CallType
 
 
@@ -358,13 +359,20 @@ class CostCalculator:
         output_tokens: int | None = None,
         quality: str | None = None,
         size: str | None = None,
+        custom_price_input: float | None = None,
+        custom_price_output: float | None = None,
+        custom_currency: str | None = None,
     ) -> tuple[float, str]:
-        """统一费用计算入口。按 (call_type, provider) 显式路由。返回 (amount, currency)。"""
-        if provider.startswith("custom-"):
+        """统一费用计算入口。按 (call_type, provider) 显式路由。返回 (amount, currency)。
+
+        自定义供应商的价格信息通过 custom_price_* 参数传入（调用方需预先查询 DB）。
+        """
+        if is_custom_provider(provider):
             return self._calculate_custom_cost(
-                provider,
                 call_type,
-                model=model,
+                price_input=custom_price_input,
+                price_output=custom_price_output,
+                currency=custom_currency,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 duration_seconds=duration_seconds,
@@ -417,67 +425,32 @@ class CostCalculator:
 
         return 0.0, "USD"
 
+    @staticmethod
     def _calculate_custom_cost(
-        self,
-        provider: str,
         call_type: str,
         *,
-        model: str | None = None,
+        price_input: float | None = None,
+        price_output: float | None = None,
+        currency: str | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         duration_seconds: int | None = None,
     ) -> tuple[float, str]:
-        """Calculate cost for custom provider using user-defined pricing from DB."""
-        price_info = self._get_custom_model_price(provider, model or "")
-        if price_info is None or price_info.price_input is None:
+        """根据调用方预查的价格信息计算自定义供应商费用。"""
+        if price_input is None:
             return 0.0, "USD"
 
-        currency = price_info.currency or "USD"
+        cur = currency or "USD"
 
         if call_type == "text":
-            inp = (input_tokens or 0) * (price_info.price_input or 0)
-            out = (output_tokens or 0) * (price_info.price_output or 0)
-            return (inp + out) / 1_000_000, currency
+            inp = (input_tokens or 0) * price_input
+            out = (output_tokens or 0) * (price_output or 0)
+            return (inp + out) / 1_000_000, cur
         elif call_type == "image":
-            return price_info.price_input, currency
+            return price_input, cur
         elif call_type == "video":
-            return (duration_seconds or 8) * price_info.price_input, currency
-        return 0.0, currency
-
-    def _get_custom_model_price(self, provider: str, model: str):
-        """Query custom provider model price from DB (sync wrapper).
-
-        TODO: 当前使用 sync-async bridge（ThreadPoolExecutor + asyncio.run），每次调用
-        创建新线程和事件循环。应重构为在调用方的 async 上下文中预先查询价格并传入，
-        或在 CostCalculator 中缓存自定义模型价格。
-        """
-        import asyncio
-
-        from sqlalchemy import select
-
-        from lib.db import safe_session_factory
-        from lib.db.models.custom_provider import CustomProviderModel
-
-        async def _query():
-            async with safe_session_factory() as session:
-                provider_db_id = int(provider.removeprefix("custom-"))
-                stmt = select(CustomProviderModel).where(
-                    CustomProviderModel.provider_id == provider_db_id,
-                    CustomProviderModel.model_id == model,
-                )
-                result = await session.execute(stmt)
-                return result.scalar_one_or_none()
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        if loop and loop.is_running():
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, _query()).result()
-        return asyncio.run(_query())
+            return (duration_seconds or 8) * price_input, cur
+        return 0.0, cur
 
 
 # 单例实例，方便使用

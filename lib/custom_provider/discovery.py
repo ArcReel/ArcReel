@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -62,37 +63,39 @@ async def discover_models(api_format: str, base_url: str | None, api_key: str) -
 
 async def _discover_openai(base_url: str | None, api_key: str) -> list[dict]:
     """通过 OpenAI 兼容 API 发现模型。"""
-    client = OpenAI(api_key=api_key, base_url=base_url)
-    raw_models = client.models.list()
 
-    models = sorted(raw_models, key=lambda m: m.id)
+    def _sync():
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        raw_models = client.models.list()
+        models = sorted(raw_models, key=lambda m: m.id)
+        return _build_result_list([(m.id, infer_media_type(m.id)) for m in models])
 
-    return _build_result_list(
-        [(m.id, infer_media_type(m.id)) for m in models],
-    )
+    return await asyncio.to_thread(_sync)
 
 
 async def _discover_google(base_url: str | None, api_key: str) -> list[dict]:
     """通过 Google genai SDK 发现模型。"""
-    kwargs: dict = {"api_key": api_key}
-    if base_url:
-        kwargs["http_options"] = {"base_url": base_url}
-    client = genai.Client(**kwargs)
 
-    raw_models = client.models.list()
+    def _sync():
+        kwargs: dict = {"api_key": api_key}
+        if base_url:
+            kwargs["http_options"] = {"base_url": base_url}
+        client = genai.Client(**kwargs)
 
-    entries: list[tuple[str, str]] = []
-    for m in raw_models:
-        model_id = m.name
-        # 去除 "models/" 前缀
-        if model_id.startswith("models/"):
-            model_id = model_id[len("models/") :]
+        raw_models = client.models.list()
 
-        media_type = _infer_from_generation_methods(m) or infer_media_type(model_id)
-        entries.append((model_id, media_type))
+        entries: list[tuple[str, str]] = []
+        for m in raw_models:
+            model_id = m.name
+            if model_id.startswith("models/"):
+                model_id = model_id[len("models/") :]
+            media_type = _infer_from_generation_methods(m) or infer_media_type(model_id)
+            entries.append((model_id, media_type))
 
-    entries.sort(key=lambda e: e[0])
-    return _build_result_list(entries)
+        entries.sort(key=lambda e: e[0])
+        return _build_result_list(entries)
+
+    return await asyncio.to_thread(_sync)
 
 
 def _infer_from_generation_methods(model) -> str | None:

@@ -21,7 +21,9 @@ class CustomProvider(TimestampMixin, Base):
 
     @property
     def provider_id(self) -> str:
-        return f"custom-{self.id}"
+        from lib.custom_provider import make_provider_id
+
+        return make_provider_id(self.id)
 
 
 class CustomProviderModel(TimestampMixin, Base):

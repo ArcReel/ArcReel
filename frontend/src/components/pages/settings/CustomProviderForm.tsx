@@ -147,7 +147,6 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     try {
       const res = await API.discoverModels({ api_format: apiFormat, base_url: baseUrl, api_key: apiKey });
       const discovered = res.models.map(discoveredToRow);
-      // Merge: keep existing rows that match by model_id, add new ones
       setModels((prev) => {
         const existingIds = new Map(prev.map((r) => [r.model_id, r]));
         const merged: ModelRow[] = [];

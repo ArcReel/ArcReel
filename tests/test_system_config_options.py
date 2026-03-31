@@ -7,7 +7,7 @@ lists returned by the system config endpoint.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -87,8 +87,7 @@ class TestBuildOptionsCustomModels:
         await db_session.commit()
 
         mock_svc = _make_mock_svc()
-        with patch("lib.db.async_session_factory", factory):
-            options = await _build_options(mock_svc)
+        options = await _build_options(mock_svc, db_session)
 
         expected = f"custom-{provider.id}/gpt-4o"
         assert expected in options["text_backends"]
@@ -116,8 +115,7 @@ class TestBuildOptionsCustomModels:
         await db_session.commit()
 
         mock_svc = _make_mock_svc()
-        with patch("lib.db.async_session_factory", factory):
-            options = await _build_options(mock_svc)
+        options = await _build_options(mock_svc, db_session)
 
         expected = f"custom-{provider.id}/dall-e-3"
         assert expected in options["image_backends"]
@@ -143,8 +141,7 @@ class TestBuildOptionsCustomModels:
         await db_session.commit()
 
         mock_svc = _make_mock_svc()
-        with patch("lib.db.async_session_factory", factory):
-            options = await _build_options(mock_svc)
+        options = await _build_options(mock_svc, db_session)
 
         expected = f"custom-{provider.id}/sora-preview"
         assert expected in options["video_backends"]
@@ -170,8 +167,7 @@ class TestBuildOptionsCustomModels:
         await db_session.commit()
 
         mock_svc = _make_mock_svc()
-        with patch("lib.db.async_session_factory", factory):
-            options = await _build_options(mock_svc)
+        options = await _build_options(mock_svc, db_session)
 
         excluded = f"custom-{provider.id}/disabled-model"
         assert excluded not in options["text_backends"]
@@ -219,8 +215,7 @@ class TestBuildOptionsCustomModels:
         await db_session.commit()
 
         mock_svc = _make_mock_svc()
-        with patch("lib.db.async_session_factory", factory):
-            options = await _build_options(mock_svc)
+        options = await _build_options(mock_svc, db_session)
 
         assert f"custom-{p1.id}/model-text" in options["text_backends"]
         assert f"custom-{p2.id}/model-image" in options["image_backends"]
@@ -228,11 +223,10 @@ class TestBuildOptionsCustomModels:
 
     async def test_no_custom_providers_returns_empty_custom_section(self, session):
         """When no custom providers exist, only preset backends are included."""
-        _db_session, factory = session
+        db_session, _factory = session
 
         mock_svc = _make_mock_svc(ready_providers=[])
-        with patch("lib.db.async_session_factory", factory):
-            options = await _build_options(mock_svc)
+        options = await _build_options(mock_svc, db_session)
 
         # No custom- entries
         for key in ("video_backends", "image_backends", "text_backends"):
@@ -242,13 +236,11 @@ class TestBuildOptionsCustomModels:
         """If the DB query raises, _build_options still returns preset backends."""
         mock_svc = _make_mock_svc(ready_providers=[])
 
-        # Patch async_session_factory to raise an exception
-        broken_factory = MagicMock()
-        broken_factory.return_value.__aenter__ = AsyncMock(side_effect=RuntimeError("db unavailable"))
-        broken_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+        # Use a mock session that makes repo queries raise
+        mock_session = MagicMock(spec=AsyncSession)
+        mock_session.execute = AsyncMock(side_effect=RuntimeError("db unavailable"))
 
-        with patch("lib.db.async_session_factory", broken_factory):
-            options = await _build_options(mock_svc)
+        options = await _build_options(mock_svc, mock_session)
 
         # Should still return valid dict with empty lists (no ready preset providers)
         assert "video_backends" in options
@@ -278,8 +270,7 @@ class TestBuildOptionsCustomModels:
 
         # gemini-aistudio as a ready preset provider
         mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio"])
-        with patch("lib.db.async_session_factory", factory):
-            options = await _build_options(mock_svc)
+        options = await _build_options(mock_svc, db_session)
 
         # Preset models present
         assert any("gemini-aistudio/" in v for v in options["video_backends"])
