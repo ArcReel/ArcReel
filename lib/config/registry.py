@@ -240,4 +240,54 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
         },
     ),
+    "openai": ProviderMeta(
+        display_name="OpenAI",
+        description="OpenAI 官方平台，支持 GPT-5.4 文本、GPT Image 图片和 Sora 视频生成。",
+        required_keys=["api_key"],
+        optional_keys=["base_url", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
+        secret_keys=["api_key"],
+        models={
+            # --- text ---
+            "gpt-5.4": ModelInfo(
+                display_name="GPT-5.4",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+            ),
+            "gpt-5.4-mini": ModelInfo(
+                display_name="GPT-5.4 Mini",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+                default=True,
+            ),
+            "gpt-5.4-nano": ModelInfo(
+                display_name="GPT-5.4 Nano",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+            ),
+            # --- image ---
+            "gpt-image-1.5": ModelInfo(
+                display_name="GPT Image 1.5",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                default=True,
+            ),
+            "gpt-image-1-mini": ModelInfo(
+                display_name="GPT Image 1 Mini",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+            ),
+            # --- video ---
+            "sora-2": ModelInfo(
+                display_name="Sora 2",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+                default=True,
+            ),
+            "sora-2-pro": ModelInfo(
+                display_name="Sora 2 Pro",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video"],
+            ),
+        },
+    ),
 }
