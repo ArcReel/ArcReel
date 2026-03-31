@@ -6,3 +6,4 @@ export * from "./workspace";
 export * from "./system";
 export * from "./api-key";
 export * from "./provider";
+export * from "./custom-provider";

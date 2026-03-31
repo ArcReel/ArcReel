@@ -30,6 +30,11 @@ import type {
   ProviderTestResult,
   ProviderCredential,
   UsageStatsResponse,
+  CustomProviderInfo,
+  CustomProviderModelInfo,
+  CustomProviderCreateRequest,
+  CustomProviderModelInput,
+  DiscoveredModel,
 } from "@/types";
 import { getToken, clearToken } from "@/utils/auth";
 
@@ -1315,6 +1320,40 @@ class API {
     );
     await throwIfNotOk(response, "上传凭证失败");
     return response.json();
+  }
+
+  // ==================== 自定义供应商 API ====================
+
+  static async listCustomProviders(): Promise<{ providers: CustomProviderInfo[] }> {
+    return this.request("/custom-providers");
+  }
+
+  static async createCustomProvider(data: CustomProviderCreateRequest): Promise<CustomProviderInfo> {
+    return this.request("/custom-providers", { method: "POST", body: JSON.stringify(data) });
+  }
+
+  static async getCustomProvider(id: number): Promise<CustomProviderInfo> {
+    return this.request(`/custom-providers/${id}`);
+  }
+
+  static async updateCustomProvider(id: number, data: Record<string, unknown>): Promise<void> {
+    return this.request(`/custom-providers/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+  }
+
+  static async deleteCustomProvider(id: number): Promise<void> {
+    return this.request(`/custom-providers/${id}`, { method: "DELETE" });
+  }
+
+  static async replaceCustomProviderModels(id: number, models: CustomProviderModelInput[]): Promise<{ models: CustomProviderModelInfo[] }> {
+    return this.request(`/custom-providers/${id}/models`, { method: "PUT", body: JSON.stringify({ models }) });
+  }
+
+  static async discoverModels(data: { api_format: string; base_url: string; api_key: string }): Promise<{ models: DiscoveredModel[] }> {
+    return this.request("/custom-providers/discover", { method: "POST", body: JSON.stringify(data) });
+  }
+
+  static async testCustomConnection(data: { api_format: string; base_url: string; api_key: string }): Promise<{ success: boolean; message: string }> {
+    return this.request("/custom-providers/test", { method: "POST", body: JSON.stringify(data) });
   }
 
   // ==================== 用量统计（按 provider 分组）API ====================
