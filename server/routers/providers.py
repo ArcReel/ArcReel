@@ -535,12 +535,9 @@ def _extract_gemini_models(pager) -> list[str]:
 
 def _test_ark(config: dict[str, str]) -> ConnectionTestResponse:
     """通过 tasks.list 验证 Ark API Key。"""
-    from volcenginesdkarkruntime import Ark
+    from lib.ark_shared import create_ark_client
 
-    client = Ark(
-        base_url="https://ark.cn-beijing.volces.com/api/v3",
-        api_key=config["api_key"],
-    )
+    client = create_ark_client(api_key=config["api_key"])
     # 轻量级调用验证连通性，不创建任何资源
     client.content_generation.tasks.list(page_size=1)
     return ConnectionTestResponse(
