@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
+import xai_sdk
+
+from lib.grok_shared import create_grok_client
 from lib.providers import PROVIDER_GROK
 from lib.text_backends.base import (
     TextCapability,
@@ -21,13 +23,8 @@ class GrokTextBackend:
     """xAI Grok 文本生成后端。"""
 
     def __init__(self, *, api_key: str | None = None, model: str | None = None):
-        if not api_key:
-            raise ValueError("XAI_API_KEY 未设置")
-
-        import xai_sdk
-
         self._xai_sdk = xai_sdk
-        self._client = xai_sdk.Client(api_key=api_key)
+        self._client = create_grok_client(api_key=api_key or "")
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[TextCapability] = {
             TextCapability.TEXT_GENERATION,
@@ -78,10 +75,10 @@ class GrokTextBackend:
                 from lib.text_backends.base import resolve_schema
 
                 DynamicModel = _schema_to_pydantic(resolve_schema(request.response_schema))
-            response, parsed = await asyncio.to_thread(chat.parse, DynamicModel)
+            response, parsed = await chat.parse(DynamicModel)
             text = response.content if hasattr(response, "content") else parsed.model_dump_json()
         else:
-            response = await asyncio.to_thread(chat.sample)
+            response = await chat.sample()
             text = response.content if hasattr(response, "content") else str(response)
 
         # Try to extract token usage from the response
