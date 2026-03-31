@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
-from lib.ark_shared import ARK_BASE_URL, create_ark_client
+from lib.ark_shared import ARK_BASE_URL, create_ark_client, resolve_ark_api_key
 from lib.providers import PROVIDER_ARK
 from lib.text_backends.base import (
     TextCapability,
@@ -26,12 +26,9 @@ class ArkTextBackend:
         self._client = create_ark_client(api_key=api_key)
         # Instructor 要求 openai.OpenAI 实例；Ark SDK client 类型不兼容，
         # 但 Ark API 是 OpenAI 兼容的，因此额外创建原生 OpenAI 客户端供降级使用。
-        import os
-
         from openai import OpenAI
 
-        resolved_key = api_key or os.environ.get("ARK_API_KEY", "")
-        self._openai_client = OpenAI(base_url=ARK_BASE_URL, api_key=resolved_key)
+        self._openai_client = OpenAI(base_url=ARK_BASE_URL, api_key=resolve_ark_api_key(api_key))
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[TextCapability] = self._resolve_capabilities()
 

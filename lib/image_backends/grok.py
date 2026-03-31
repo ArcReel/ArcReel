@@ -30,7 +30,7 @@ class GrokImageBackend:
         api_key: str | None = None,
         model: str | None = None,
     ):
-        self._client = create_grok_client(api_key=api_key or "")
+        self._client = create_grok_client(api_key=api_key)
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[ImageCapability] = {
             ImageCapability.TEXT_TO_IMAGE,

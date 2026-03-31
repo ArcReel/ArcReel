@@ -16,7 +16,7 @@ import xai_sdk
 logger = logging.getLogger(__name__)
 
 
-def create_grok_client(*, api_key: str) -> xai_sdk.AsyncClient:
+def create_grok_client(*, api_key: str | None = None) -> xai_sdk.AsyncClient:
     """创建 xAI AsyncClient，统一校验和构造。"""
     if not api_key:
         raise ValueError("XAI_API_KEY 未设置\n请在系统配置页中配置 xAI API Key")
