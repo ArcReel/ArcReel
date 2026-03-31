@@ -37,3 +37,9 @@ register_backend(PROVIDER_ARK, ArkVideoBackend)
 from lib.video_backends.grok import GrokVideoBackend
 
 register_backend(PROVIDER_GROK, GrokVideoBackend)
+
+# OpenAI Sora
+from lib.providers import PROVIDER_OPENAI
+from lib.video_backends.openai import OpenAIVideoBackend
+
+register_backend(PROVIDER_OPENAI, OpenAIVideoBackend)
