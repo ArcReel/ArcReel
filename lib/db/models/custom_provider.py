@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Float, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin
@@ -34,7 +34,9 @@ class CustomProviderModel(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    provider_id: Mapped[int] = mapped_column(Integer, nullable=False)  # conceptual FK to custom_provider.id
+    provider_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("custom_provider.id", ondelete="CASCADE"), nullable=False
+    )
     model_id: Mapped[str] = mapped_column(String(128), nullable=False)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     media_type: Mapped[str] = mapped_column(String(16), nullable=False)  # "text" | "image" | "video"

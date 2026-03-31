@@ -112,7 +112,7 @@ export function ProviderSection() {
   return (
     <div className="flex h-full">
       {/* Provider list sidebar */}
-      <div className="w-52 shrink-0 overflow-y-auto border-r border-gray-800 py-3">
+      <nav aria-label="供应商列表" className="w-52 shrink-0 overflow-y-auto border-r border-gray-800 py-3">
         {/* Preset providers */}
         <div className="px-4 pb-2 text-xs uppercase tracking-wide text-gray-500">
           预置供应商
@@ -141,7 +141,7 @@ export function ProviderSection() {
           onSelect={(id) => setSelection({ kind: "custom", id })}
           onAdd={() => setSelection({ kind: "new-custom" })}
         />
-      </div>
+      </nav>
 
       {/* Detail panel */}
       <div className="flex-1 overflow-y-auto p-6">
@@ -167,13 +167,15 @@ export function ProviderSection() {
           <CustomProviderForm
             onSaved={() => {
               // After save, re-fetch to get latest list and select the new one
-              void API.listCustomProviders().then((res) => {
-                setCustomProviders(res.providers);
-                if (res.providers.length > 0) {
-                  const newest = res.providers[res.providers.length - 1];
-                  setSelection({ kind: "custom", id: newest.id });
-                }
-              });
+              void API.listCustomProviders()
+                .then((res) => {
+                  setCustomProviders(res.providers);
+                  if (res.providers.length > 0) {
+                    const newest = res.providers[res.providers.length - 1];
+                    setSelection({ kind: "custom", id: newest.id });
+                  }
+                })
+                .catch(() => void refreshCustom());
             }}
             onCancel={() => {
               if (providers.length > 0) {

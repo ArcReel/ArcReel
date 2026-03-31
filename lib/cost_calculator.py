@@ -445,7 +445,12 @@ class CostCalculator:
         return 0.0, currency
 
     def _get_custom_model_price(self, provider: str, model: str):
-        """Query custom provider model price from DB (sync wrapper)."""
+        """Query custom provider model price from DB (sync wrapper).
+
+        TODO: 当前使用 sync-async bridge（ThreadPoolExecutor + asyncio.run），每次调用
+        创建新线程和事件循环。应重构为在调用方的 async 上下文中预先查询价格并传入，
+        或在 CostCalculator 中缓存自定义模型价格。
+        """
         import asyncio
 
         from sqlalchemy import select

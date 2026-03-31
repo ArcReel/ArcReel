@@ -1356,6 +1356,10 @@ class API {
     return this.request("/custom-providers/test", { method: "POST", body: JSON.stringify(data) });
   }
 
+  static async testCustomConnectionById(id: number): Promise<{ success: boolean; message: string }> {
+    return this.request(`/custom-providers/${id}/test`, { method: "POST" });
+  }
+
   // ==================== 用量统计（按 provider 分组）API ====================
 
   /**

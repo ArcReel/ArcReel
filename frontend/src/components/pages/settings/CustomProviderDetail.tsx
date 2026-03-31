@@ -32,6 +32,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchProvider = useCallback(async () => {
     setLoading(true);
@@ -52,11 +53,12 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
 
   const handleDelete = useCallback(async () => {
     setDeleting(true);
+    setError(null);
     try {
       await API.deleteCustomProvider(providerId);
       onDeleted();
-    } catch {
-      // silently ignore — the UI will stay in current state
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "删除失败");
     } finally {
       setDeleting(false);
       setConfirmDelete(false);
@@ -68,11 +70,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await API.testCustomConnection({
-        api_format: provider.api_format,
-        base_url: provider.base_url,
-        api_key: "", // empty = use stored key
-      });
+      const res = await API.testCustomConnectionById(provider.id);
       setTestResult(res);
     } catch (e) {
       setTestResult({ success: false, message: e instanceof Error ? e.message : "连接测试失败" });
@@ -115,7 +113,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
       {/* Header */}
       <div className="mb-6 flex items-start gap-3">
         <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded bg-gray-700 text-sm font-bold uppercase text-gray-300">
-          {provider.display_name[0]}
+          {provider.display_name?.[0] ?? "?"}
         </span>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -192,9 +190,17 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
         </div>
       )}
 
+      {/* Error display */}
+      {error && (
+        <div role="alert" className="mb-4 rounded-lg border border-red-800/50 bg-red-900/20 px-3 py-2 text-sm text-red-400">
+          {error}
+        </div>
+      )}
+
       {/* Test result */}
       {testResult && (
         <div
+          aria-live="polite"
           className={`mb-4 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
             testResult.success
               ? "border-green-800/50 bg-green-900/20 text-green-400"
@@ -202,9 +208,9 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
           }`}
         >
           {testResult.success ? (
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           ) : (
-            <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <XCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           )}
           <span>{testResult.message}</span>
         </div>
@@ -215,7 +221,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
         <button
           type="button"
           onClick={() => setEditing(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white transition-colors hover:bg-indigo-500"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white transition-colors hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
         >
           <Pencil className="h-3.5 w-3.5" />
           编辑
@@ -225,7 +231,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
           type="button"
           onClick={() => void handleTest()}
           disabled={testing}
-          className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:text-gray-100 disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:text-gray-100 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
         >
           {testing ? (
             <>
@@ -241,7 +247,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
           <button
             type="button"
             onClick={() => setConfirmDelete(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 transition-colors hover:border-red-800 hover:text-red-400"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 transition-colors hover:border-red-800 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
           >
             <Trash2 className="h-3.5 w-3.5" />
             删除
@@ -252,7 +258,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
               type="button"
               onClick={() => void handleDelete()}
               disabled={deleting}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-red-800 bg-red-900/30 px-3 py-1.5 text-sm text-red-400 hover:bg-red-900/50 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-800 bg-red-900/30 px-3 py-1.5 text-sm text-red-400 hover:bg-red-900/50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60"
             >
               {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
               确认删除
@@ -260,7 +266,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
             <button
               type="button"
               onClick={() => setConfirmDelete(false)}
-              className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 hover:border-gray-600 hover:text-gray-200"
+              className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 hover:border-gray-600 hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
             >
               取消
             </button>

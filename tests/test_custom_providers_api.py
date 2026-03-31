@@ -130,7 +130,7 @@ class TestListProviders:
     def test_empty_list(self, client: TestClient):
         resp = client.get("/api/v1/custom-providers")
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert resp.json() == {"providers": []}
 
     def test_lists_created_providers(self, client: TestClient):
         # Create two providers
@@ -154,7 +154,7 @@ class TestListProviders:
         )
         resp = client.get("/api/v1/custom-providers")
         assert resp.status_code == 200
-        body = resp.json()
+        body = resp.json()["providers"]
         assert len(body) == 2
         assert body[0]["display_name"] == "Provider A"
         assert body[1]["display_name"] == "Provider B"
@@ -314,14 +314,14 @@ class TestReplaceModels:
                 "is_default": True,
             },
         ]
-        resp = client.put(f"/api/v1/custom-providers/{pid}/models", json=new_models)
+        resp = client.put(f"/api/v1/custom-providers/{pid}/models", json={"models": new_models})
         assert resp.status_code == 200
         body = resp.json()
         assert len(body) == 2
         assert {m["model_id"] for m in body} == {"new-text", "new-image"}
 
     def test_returns_404_for_nonexistent_provider(self, client: TestClient):
-        resp = client.put("/api/v1/custom-providers/9999/models", json=[])
+        resp = client.put("/api/v1/custom-providers/9999/models", json={"models": []})
         assert resp.status_code == 404
 
     def test_verify_old_models_removed(self, client: TestClient):
@@ -345,13 +345,15 @@ class TestReplaceModels:
 
         client.put(
             f"/api/v1/custom-providers/{pid}/models",
-            json=[
-                {
-                    "model_id": "replacement",
-                    "display_name": "Replacement",
-                    "media_type": "video",
-                }
-            ],
+            json={
+                "models": [
+                    {
+                        "model_id": "replacement",
+                        "display_name": "Replacement",
+                        "media_type": "video",
+                    }
+                ]
+            },
         )
 
         # Verify via get provider

@@ -42,7 +42,7 @@ export function CustomProviderSection({ providers, selectedId, onSelect, onAdd }
             }`}
           >
             <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-gray-700 text-[10px] font-bold uppercase text-gray-300">
-              {p.display_name[0]}
+              {p.display_name?.[0] ?? "?"}
             </span>
             <span className="min-w-0 flex-1 truncate">{p.display_name}</span>
             <CustomStatusDot provider={p} />
@@ -53,7 +53,7 @@ export function CustomProviderSection({ providers, selectedId, onSelect, onAdd }
           onClick={onAdd}
           className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-gray-500 transition-colors hover:bg-gray-800/30 hover:text-gray-300"
         >
-          <Plus className="h-4 w-4 shrink-0" />
+          <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
           <span>添加自定义供应商</span>
         </button>
       </div>

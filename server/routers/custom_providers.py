@@ -62,6 +62,10 @@ class DiscoverRequest(BaseModel):
     api_key: str
 
 
+class ReplaceModelsRequest(BaseModel):
+    models: list[ModelInput]
+
+
 class TestConnectionRequest(BaseModel):
     api_format: str
     base_url: str
@@ -150,7 +154,7 @@ async def list_providers(
     for p in providers:
         models = await repo.list_models(p.id)
         result.append(_provider_to_response(p, models))
-    return result
+    return {"providers": result}
 
 
 @router.post("", status_code=201)
@@ -244,7 +248,7 @@ async def delete_provider(
 @router.put("/{provider_id}/models")
 async def replace_models(
     provider_id: int,
-    models: list[ModelInput],
+    body: ReplaceModelsRequest,
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -253,7 +257,7 @@ async def replace_models(
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail="供应商不存在")
-    model_dicts = [m.model_dump() for m in models]
+    model_dicts = [m.model_dump() for m in body.models]
     new_models = await repo.replace_models(provider_id, model_dicts)
     await session.commit()
     return [_model_to_response(m) for m in new_models]
@@ -295,21 +299,40 @@ async def test_connection(
     _user: CurrentUser,
 ):
     """连接测试：验证 api_format + base_url + api_key 的连通性。"""
+    return await _run_connection_test(body.api_format, body.base_url, body.api_key)
+
+
+@router.post("/{provider_id}/test")
+async def test_connection_by_id(
+    provider_id: int,
+    _user: CurrentUser,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """使用已存储凭证测试指定供应商的连通性。"""
+    repo = CustomProviderRepository(session)
+    provider = await repo.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail="供应商不存在")
+    return await _run_connection_test(provider.api_format, provider.base_url, provider.api_key)
+
+
+async def _run_connection_test(api_format: str, base_url: str, api_key: str) -> ConnectionTestResponse:
+    """共用的连接测试逻辑。"""
     try:
-        if body.api_format == "openai":
+        if api_format == "openai":
             result = await asyncio.wait_for(
-                asyncio.to_thread(_test_openai, body.base_url, body.api_key),
+                asyncio.to_thread(_test_openai, base_url, api_key),
                 timeout=_CONNECTION_TEST_TIMEOUT,
             )
-        elif body.api_format == "google":
+        elif api_format == "google":
             result = await asyncio.wait_for(
-                asyncio.to_thread(_test_google, body.api_key),
+                asyncio.to_thread(_test_google, base_url, api_key),
                 timeout=_CONNECTION_TEST_TIMEOUT,
             )
         else:
             return ConnectionTestResponse(
                 success=False,
-                message=f"不支持的 api_format: {body.api_format}",
+                message=f"不支持的 api_format: {api_format}",
             )
         return result
     except TimeoutError:
@@ -321,7 +344,7 @@ async def test_connection(
         err_msg = str(exc)
         if len(err_msg) > 200:
             err_msg = err_msg[:200] + "..."
-        logger.warning("连接测试失败 [%s]: %s", body.api_format, err_msg)
+        logger.warning("连接测试失败 [%s]: %s", api_format, err_msg)
         return ConnectionTestResponse(
             success=False,
             message=f"连接失败: {err_msg}",
@@ -342,11 +365,15 @@ def _test_openai(base_url: str, api_key: str) -> ConnectionTestResponse:
     )
 
 
-def _test_google(api_key: str) -> ConnectionTestResponse:
+def _test_google(base_url: str, api_key: str) -> ConnectionTestResponse:
     """通过 models.list() 验证 Google genai API。"""
     from google import genai
 
-    client = genai.Client(api_key=api_key)
+    from lib.config.url_utils import normalize_base_url
+
+    effective_url = normalize_base_url(base_url)
+    http_options = {"base_url": effective_url} if effective_url else None
+    client = genai.Client(api_key=api_key, http_options=http_options)
     pager = client.models.list()
     count = sum(1 for _ in pager)
     return ConnectionTestResponse(

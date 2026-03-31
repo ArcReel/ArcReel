@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { API } from "@/api";
 import type { UsageStat } from "@/types";
 
@@ -41,7 +41,10 @@ export function UsageStatsSection() {
   }, [fetchStats]);
 
   // Derive unique providers for filter dropdown
-  const providers = Array.from(new Set(stats.map((s) => s.provider))).sort();
+  const providers = useMemo(
+    () => Array.from(new Set(stats.map((s) => s.provider))).sort(),
+    [stats],
+  );
 
   return (
     <div className="space-y-6 p-6">
@@ -90,8 +93,8 @@ export function UsageStatsSection() {
         <div className="text-sm text-gray-500">暂无数据</div>
       ) : (
         <div className="space-y-3">
-          {stats.map((s, i) => (
-            <div key={i} className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
+          {stats.map((s) => (
+            <div key={`${s.provider}-${s.call_type}`} className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <span className="text-sm font-medium text-gray-100">{s.display_name ?? s.provider}</span>
@@ -101,7 +104,7 @@ export function UsageStatsSection() {
                   {currencyFmt.format(s.total_cost_usd)}
                 </span>
               </div>
-              <div className="mt-2 flex flex-wrap gap-6 text-xs text-gray-400">
+              <div className="mt-2 flex flex-wrap gap-6 text-xs tabular-nums text-gray-400">
                 <span>调用: {s.total_calls}</span>
                 <span>成功: {s.success_calls}</span>
                 <span>

@@ -98,6 +98,7 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
 
 function priceLabel(mediaType: MediaType): { input: string; output: string } {
   if (mediaType === "video") return { input: "/秒", output: "" };
+  if (mediaType === "image") return { input: "/张", output: "" };
   return { input: "/百万输入", output: "/百万输出" };
 }
 
@@ -137,8 +138,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       setError("请先填写 Base URL");
       return;
     }
-    const key = apiKey || (isEdit ? "__keep__" : "");
-    if (!key) {
+    if (!apiKey) {
       setError("请先填写 API Key");
       return;
     }
@@ -216,16 +216,16 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     setSaving(true);
     try {
       if (isEdit && existing) {
-        // Update provider metadata
+        // Update provider metadata + replace models in parallel
         const patch: Record<string, unknown> = {
           display_name: displayName,
-          api_format: apiFormat,
           base_url: baseUrl,
         };
         if (apiKey) patch.api_key = apiKey;
-        await API.updateCustomProvider(existing.id, patch);
-        // Replace models
-        await API.replaceCustomProviderModels(existing.id, models.map(rowToInput));
+        await Promise.all([
+          API.updateCustomProvider(existing.id, patch),
+          API.replaceCustomProviderModels(existing.id, models.map(rowToInput)),
+        ]);
       } else {
         await API.createCustomProvider({
           display_name: displayName,
@@ -294,7 +294,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="例如：我的 NewAPI"
+            placeholder="例如：我的 NewAPI…"
             className={inputCls}
           />
         </div>
@@ -308,6 +308,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             id="cp-format"
             value={apiFormat}
             onChange={(e) => setApiFormat(e.target.value as ApiFormat)}
+            disabled={isEdit}
             className={selectCls}
           >
             {API_FORMAT_OPTIONS.map((o) => (
@@ -398,6 +399,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                           checked={m.is_enabled}
                           onChange={(e) => updateModel(m.key, { is_enabled: e.target.checked })}
                           className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-800 text-indigo-500 focus:ring-indigo-500"
+                          aria-label="启用模型"
                         />
                       </label>
 
@@ -406,14 +408,16 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         type="text"
                         value={m.model_id}
                         onChange={(e) => updateModel(m.key, { model_id: e.target.value })}
-                        placeholder="model-id"
-                        className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
+                        placeholder="model-id…"
+                        aria-label="模型 ID"
+                        className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-100 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
                       />
 
                       {/* Media type */}
                       <select
                         value={m.media_type}
                         onChange={(e) => updateModel(m.key, { media_type: e.target.value as MediaType })}
+                        aria-label="媒体类型"
                         className={selectCls}
                       >
                         {MEDIA_TYPE_OPTIONS.map((o) => (
@@ -456,7 +460,8 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         value={m.price_input}
                         onChange={(e) => updateModel(m.key, { price_input: e.target.value })}
                         placeholder="0.00"
-                        className="w-16 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-xs text-gray-300 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
+                        aria-label="输入价格"
+                        className="w-16 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-xs text-gray-300 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
                       />
                       <span>{pl.input}</span>
                       {pl.output && (
@@ -469,7 +474,8 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                             value={m.price_output}
                             onChange={(e) => updateModel(m.key, { price_output: e.target.value })}
                             placeholder="0.00"
-                            className="w-16 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-xs text-gray-300 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
+                            aria-label="输出价格"
+                            className="w-16 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-xs text-gray-300 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
                           />
                           <span>{pl.output}</span>
                         </>
@@ -508,7 +514,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
         {/* Error display */}
         {error && (
-          <div className="rounded-lg border border-red-800/50 bg-red-900/20 px-3 py-2 text-sm text-red-400">
+          <div role="alert" className="rounded-lg border border-red-800/50 bg-red-900/20 px-3 py-2 text-sm text-red-400">
             {error}
           </div>
         )}
@@ -516,6 +522,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         {/* Test result */}
         {testResult && (
           <div
+            aria-live="polite"
             className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
               testResult.success
                 ? "border-green-800/50 bg-green-900/20 text-green-400"
@@ -523,9 +530,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             }`}
           >
             {testResult.success ? (
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             ) : (
-              <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <XCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             )}
             <span>{testResult.message}</span>
           </div>
