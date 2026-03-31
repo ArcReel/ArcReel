@@ -28,6 +28,7 @@ from server.routers import (
     assistant,
     characters,
     clues,
+    custom_providers,
     files,
     generate,
     project_events,
@@ -179,6 +180,7 @@ app.include_router(providers.router, prefix="/api/v1", tags=["供应商管理"])
 app.include_router(system_config.router, prefix="/api/v1", tags=["系统配置"])
 app.include_router(api_keys.router, prefix="/api/v1", tags=["API Key 管理"])
 app.include_router(agent_chat.router, prefix="/api/v1", tags=["Agent 对话"])
+app.include_router(custom_providers.router, prefix="/api/v1", tags=["自定义供应商"])
 
 
 def create_generation_worker() -> GenerationWorker:
