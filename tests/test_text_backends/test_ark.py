@@ -11,10 +11,9 @@ from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGe
 
 @pytest.fixture
 def mock_ark():
-    with patch("lib.text_backends.ark.Ark", create=True) as MockArk:
-        # Also patch the import inside __init__
-        with patch.dict("sys.modules", {"volcenginesdkarkruntime": MagicMock(Ark=MockArk)}):
-            yield MockArk
+    mock_client = MagicMock()
+    with patch("lib.text_backends.ark.create_ark_client", return_value=mock_client) as mock_create:
+        yield mock_create, mock_client
 
 
 class TestProperties:
@@ -33,7 +32,7 @@ class TestProperties:
             TextCapability.VISION,
         }
 
-    def test_no_api_key_raises(self, mock_ark):
+    def test_no_api_key_raises(self):
         with patch.dict("os.environ", {}, clear=True):
             with pytest.raises(ValueError, match="API Key"):
                 ArkTextBackend()
@@ -42,8 +41,7 @@ class TestProperties:
 class TestGenerate:
     @pytest.fixture
     def backend(self, mock_ark):
-        mock_client = MagicMock()
-        mock_ark.return_value = mock_client
+        _, mock_client = mock_ark
         b = ArkTextBackend(api_key="k")
         b._test_client = mock_client
         return b
@@ -70,8 +68,7 @@ class TestCapabilityAwareStructured:
     @pytest.fixture
     def backend_no_structured(self, mock_ark):
         """创建一个模型不支持原生 structured_output 的 backend。"""
-        mock_client = MagicMock()
-        mock_ark.return_value = mock_client
+        _, mock_client = mock_ark
         # 使用默认模型 doubao-seed-2-0-lite-260215，registry 中已移除 structured_output
         b = ArkTextBackend(api_key="k")
         b._test_client = mock_client
@@ -80,8 +77,7 @@ class TestCapabilityAwareStructured:
     @pytest.fixture
     def backend_with_structured(self, mock_ark):
         """创建一个模型支持原生 structured_output 的 backend（模拟）。"""
-        mock_client = MagicMock()
-        mock_ark.return_value = mock_client
+        _, mock_client = mock_ark
         b = ArkTextBackend(api_key="k", model="mock-model-with-structured")
         b._test_client = mock_client
         # 手动添加原生结构化输出能力
@@ -131,8 +127,6 @@ class TestCapabilityAwareStructured:
 
     async def test_unknown_model_falls_back_to_instructor(self, mock_ark):
         """未注册模型保守降级为 Instructor。"""
-        mock_client = MagicMock()
-        mock_ark.return_value = mock_client
         b = ArkTextBackend(api_key="k", model="unknown-model-xyz")
         assert TextCapability.STRUCTURED_OUTPUT not in b.capabilities
 

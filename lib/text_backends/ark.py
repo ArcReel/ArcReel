@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any
 
+from lib.ark_shared import ARK_BASE_URL, create_ark_client
 from lib.providers import PROVIDER_ARK
 from lib.text_backends.base import (
     TextCapability,
@@ -17,28 +17,21 @@ from lib.text_backends.base import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "doubao-seed-2-0-lite-260215"
-_ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 
 
 class ArkTextBackend:
     """Ark (火山方舟) 文本生成后端。"""
 
     def __init__(self, *, api_key: str | None = None, model: str | None = None):
-        from volcenginesdkarkruntime import Ark
-
-        self._api_key = api_key or os.environ.get("ARK_API_KEY")
-        if not self._api_key:
-            raise ValueError("Ark API Key 未提供")
-
-        self._client = Ark(
-            base_url=_ARK_BASE_URL,
-            api_key=self._api_key,
-        )
+        self._client = create_ark_client(api_key=api_key)
         # Instructor 要求 openai.OpenAI 实例；Ark SDK client 类型不兼容，
         # 但 Ark API 是 OpenAI 兼容的，因此额外创建原生 OpenAI 客户端供降级使用。
+        import os
+
         from openai import OpenAI
 
-        self._openai_client = OpenAI(base_url=_ARK_BASE_URL, api_key=self._api_key)
+        resolved_key = api_key or os.environ.get("ARK_API_KEY", "")
+        self._openai_client = OpenAI(base_url=ARK_BASE_URL, api_key=resolved_key)
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[TextCapability] = self._resolve_capabilities()
 
