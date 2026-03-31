@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 
+import instructor
+from openai import AsyncOpenAI, BadRequestError
+
 from lib.openai_shared import create_openai_client
 from lib.providers import PROVIDER_OPENAI
 from lib.text_backends.base import (
@@ -49,7 +52,12 @@ class OpenAITextBackend:
         return self._capabilities
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """生成文本回复。"""
+        """生成文本回复。
+
+        当 response_schema 已设置且原生 response_format 调用抛出
+        BadRequestError（常见于 Ollama/vLLM 等 OpenAI 兼容服务），
+        自动降级到 Instructor 结构化输出。
+        """
         messages = _build_messages(request)
         kwargs: dict = {"model": self._model, "messages": messages}
 
@@ -64,7 +72,16 @@ class OpenAITextBackend:
                 },
             }
 
-        response = await self._client.chat.completions.create(**kwargs)
+        try:
+            response = await self._client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            if request.response_schema and _is_schema_error(exc):
+                logger.warning(
+                    "原生 response_format 失败 (%s)，降级到 Instructor 路径",
+                    exc,
+                )
+                return await _instructor_fallback(self._client, self._model, request, messages)
+            raise
 
         usage = response.usage
         return TextGenerationResult(
@@ -100,3 +117,56 @@ def _build_messages(request: TextGenerationRequest) -> list[dict]:
         messages.append({"role": "user", "content": request.prompt})
 
     return messages
+
+
+def _is_schema_error(exc: BaseException) -> bool:
+    """判断异常是否为 JSON Schema 不兼容导致的错误。"""
+    return isinstance(exc, BadRequestError)
+
+
+async def _instructor_fallback(
+    client: AsyncOpenAI,
+    model: str,
+    request: TextGenerationRequest,
+    messages: list[dict],
+) -> TextGenerationResult:
+    """Instructor 降级：当原生 response_format 不可用时的备选路径。
+
+    - response_schema 为 Pydantic 类：使用 instructor 的 create_with_completion
+    - response_schema 为 dict：回退到无结构化输出的普通调用
+    """
+    if isinstance(request.response_schema, type):
+        # Pydantic 模型 — 用 Instructor 做 prompt 注入 + 解析 + 重试
+        patched = instructor.from_openai(client, mode=instructor.Mode.MD_JSON)
+        result, completion = await patched.chat.completions.create_with_completion(
+            model=model,
+            messages=messages,
+            response_model=request.response_schema,
+            max_retries=2,
+        )
+        json_text = result.model_dump_json()
+        input_tokens = None
+        output_tokens = None
+        if completion.usage:
+            input_tokens = completion.usage.prompt_tokens
+            output_tokens = completion.usage.completion_tokens
+        return TextGenerationResult(
+            text=json_text,
+            provider=PROVIDER_OPENAI,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+    else:
+        # dict schema — 无法用 Instructor（需要 Pydantic 类），
+        # 回退到不带 response_format 的普通调用
+        logger.info("response_schema 为 dict，无法使用 Instructor，回退到普通调用")
+        response = await client.chat.completions.create(model=model, messages=messages)
+        usage = response.usage
+        return TextGenerationResult(
+            text=response.choices[0].message.content or "",
+            provider=PROVIDER_OPENAI,
+            model=model,
+            input_tokens=usage.prompt_tokens if usage else None,
+            output_tokens=usage.completion_tokens if usage else None,
+        )

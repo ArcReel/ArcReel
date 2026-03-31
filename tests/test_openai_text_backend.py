@@ -5,6 +5,10 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+from openai import BadRequestError
+from pydantic import BaseModel
+
 from lib.providers import PROVIDER_OPENAI
 from lib.text_backends.base import (
     ImageInput,
@@ -163,3 +167,130 @@ class TestOpenAITextBackend:
         assert result.text == "OK"
         assert result.input_tokens is None
         assert result.output_tokens is None
+
+
+def _make_bad_request_error(message: str = "Invalid schema") -> BadRequestError:
+    """构造 OpenAI BadRequestError。"""
+    return BadRequestError(
+        message=message,
+        response=httpx.Response(400, request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions")),
+        body={"error": {"message": message}},
+    )
+
+
+class _PersonSchema(BaseModel):
+    name: str
+    age: int
+
+
+class TestInstructorFallback:
+    """Instructor 降级路径测试。"""
+
+    async def test_native_structured_output_success_no_fallback(self):
+        """原生 response_format 成功时，不走 Instructor 降级。"""
+        schema_response = json.dumps({"name": "Alice", "age": 30})
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(schema_response))
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("lib.text_backends.openai._instructor_fallback") as mock_fallback,
+        ):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            request = TextGenerationRequest(
+                prompt="Extract info",
+                response_schema=_PersonSchema,
+            )
+            result = await backend.generate(request)
+
+        assert result.text == schema_response
+        mock_fallback.assert_not_called()
+
+    async def test_bad_request_error_triggers_instructor_fallback_pydantic(self):
+        """原生 response_format 抛 BadRequestError 且 schema 为 Pydantic 类时，走 Instructor 降级。"""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
+
+        instructor_result = _PersonSchema(name="Bob", age=25)
+        instructor_completion = MagicMock()
+        instructor_completion.usage = MagicMock()
+        instructor_completion.usage.prompt_tokens = 20
+        instructor_completion.usage.completion_tokens = 10
+
+        mock_patched = AsyncMock()
+        mock_patched.chat.completions.create_with_completion = AsyncMock(
+            return_value=(instructor_result, instructor_completion)
+        )
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("instructor.from_openai", return_value=mock_patched),
+        ):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            request = TextGenerationRequest(
+                prompt="Extract info",
+                response_schema=_PersonSchema,
+            )
+            result = await backend.generate(request)
+
+        assert result.text == instructor_result.model_dump_json()
+        assert result.provider == PROVIDER_OPENAI
+        assert result.input_tokens == 20
+        assert result.output_tokens == 10
+
+    async def test_bad_request_error_with_dict_schema_falls_back_to_plain(self):
+        """原生 response_format 抛 BadRequestError 且 schema 为 dict 时，降级为无结构化输出的普通调用。"""
+        mock_client = AsyncMock()
+        # 第一次调用（带 response_format）抛错
+        # 第二次调用（不带 response_format）返回正常结果
+        fallback_json = json.dumps({"name": "Charlie", "age": 35})
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=[_make_bad_request_error(), _make_mock_response(fallback_json, 12, 6)]
+        )
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            request = TextGenerationRequest(
+                prompt="Extract info",
+                response_schema={
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+                },
+            )
+            result = await backend.generate(request)
+
+        assert result.text == fallback_json
+        assert result.input_tokens == 12
+        assert result.output_tokens == 6
+        # 验证第二次调用没有带 response_format
+        second_call_kwargs = mock_client.chat.completions.create.call_args_list[1][1]
+        assert "response_format" not in second_call_kwargs
+
+    async def test_bad_request_error_without_schema_propagates(self):
+        """没有 response_schema 时，BadRequestError 应原样抛出，不做降级。"""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
+
+        import pytest
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key")
+            request = TextGenerationRequest(prompt="Just chat")
+            with pytest.raises(BadRequestError):
+                await backend.generate(request)
+
+    async def test_is_schema_error_recognizes_bad_request(self):
+        """_is_schema_error 正确识别 BadRequestError。"""
+        from lib.text_backends.openai import _is_schema_error
+
+        assert _is_schema_error(_make_bad_request_error()) is True
+        assert _is_schema_error(ValueError("other")) is False
+        assert _is_schema_error(RuntimeError("test")) is False
