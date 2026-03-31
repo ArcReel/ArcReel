@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from lib.providers import PROVIDER_ARK, PROVIDER_GROK, CallType
+from lib.providers import PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, CallType
 
 
 class CostCalculator:
@@ -126,6 +126,23 @@ class CostCalculator:
         "grok-4-1-fast-reasoning": {"input": 2.00, "output": 10.00},
     }
 
+    # OpenAI 文本 token 费率（美元/百万 token）
+    OPENAI_TEXT_COST = {
+        "gpt-5.4": {"input": 2.50, "output": 15.00},
+        "gpt-5.4-mini": {"input": 0.75, "output": 4.50},
+        "gpt-5.4-nano": {"input": 0.20, "output": 1.25},
+    }
+    OPENAI_IMAGE_COST = {
+        "gpt-image-1.5": {"low": 0.009, "medium": 0.034, "high": 0.133},
+        "gpt-image-1-mini": {"low": 0.005, "medium": 0.011, "high": 0.036},
+    }
+    DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-1.5"
+    OPENAI_VIDEO_COST = {
+        "sora-2": {"720p": 0.10},
+        "sora-2-pro": {"720p": 0.30, "1024p": 0.50, "1080p": 0.70},
+    }
+    DEFAULT_OPENAI_VIDEO_MODEL = "sora-2"
+
     def calculate_ark_video_cost(
         self,
         usage_tokens: int,
@@ -242,10 +259,46 @@ class CostCalculator:
         per_second = self.GROK_VIDEO_COST.get(model, self.GROK_VIDEO_COST[self.DEFAULT_GROK_MODEL])
         return duration_seconds * per_second, "USD"
 
+    def calculate_openai_image_cost(
+        self,
+        model: str | None = None,
+        quality: str | None = None,
+    ) -> tuple[float, str]:
+        """
+        OpenAI 图片按质量等级计费。
+
+        Returns:
+            (amount, currency) — 金额和币种 (USD)
+        """
+        model = model or self.DEFAULT_OPENAI_IMAGE_MODEL
+        quality = quality or "medium"
+        model_costs = self.OPENAI_IMAGE_COST.get(model, self.OPENAI_IMAGE_COST[self.DEFAULT_OPENAI_IMAGE_MODEL])
+        per_image = model_costs.get(quality, model_costs.get("medium"))
+        return per_image, "USD"
+
+    def calculate_openai_video_cost(
+        self,
+        duration_seconds: int,
+        model: str | None = None,
+        resolution: str | None = None,
+    ) -> tuple[float, str]:
+        """
+        计算 OpenAI 视频生成费用（按秒计费）。
+
+        Returns:
+            (amount, currency) — 金额和币种 (USD)
+        """
+        model = model or self.DEFAULT_OPENAI_VIDEO_MODEL
+        resolution = resolution or "720p"
+        model_costs = self.OPENAI_VIDEO_COST.get(model, self.OPENAI_VIDEO_COST[self.DEFAULT_OPENAI_VIDEO_MODEL])
+        per_second = model_costs.get(resolution, model_costs.get("720p"))
+        return duration_seconds * per_second, "USD"
+
     _TEXT_COST_TABLES: dict[str, tuple[dict, str, str]] = {
         # provider -> (cost_table_attr, default_model, currency)
         "ark": ("ARK_TEXT_COST", "doubao-seed-2-0-lite-260215", "CNY"),
         "grok": ("GROK_TEXT_COST", "grok-4-1-fast-reasoning", "USD"),
+        "openai": ("OPENAI_TEXT_COST", "gpt-5.4-mini", "USD"),
     }
     _TEXT_COST_DEFAULT = ("GEMINI_TEXT_COST", "gemini-3-flash-preview", "USD")
 
@@ -277,6 +330,7 @@ class CostCalculator:
         service_tier: str = "default",
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        quality: str | None = None,
     ) -> tuple[float, str]:
         """统一费用计算入口。按 (call_type, provider) 显式路由。返回 (amount, currency)。"""
         if call_type == "text":
@@ -294,6 +348,8 @@ class CostCalculator:
                 return self.calculate_ark_image_cost(model=model)
             if provider == PROVIDER_GROK:
                 return self.calculate_grok_image_cost(model=model)
+            if provider == PROVIDER_OPENAI:
+                return self.calculate_openai_image_cost(model=model, quality=quality)
             return self.calculate_image_cost(resolution or "1K", model=model), "USD"
 
         if call_type == "video":
@@ -308,6 +364,12 @@ class CostCalculator:
                 return self.calculate_grok_video_cost(
                     duration_seconds=duration_seconds or 8,
                     model=model,
+                )
+            if provider == PROVIDER_OPENAI:
+                return self.calculate_openai_video_cost(
+                    duration_seconds=duration_seconds or 8,
+                    model=model,
+                    resolution=resolution or "720p",
                 )
             return self.calculate_video_cost(
                 duration_seconds=duration_seconds or 8,
