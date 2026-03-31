@@ -24,7 +24,7 @@ from lib.prompt_utils import (
     is_structured_video_prompt,
     video_prompt_to_yaml,
 )
-from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
+from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_OPENAI
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
@@ -45,6 +45,7 @@ _DEFAULT_VIDEO_RESOLUTION: dict[str, str] = {
     PROVIDER_GEMINI: "1080p",
     PROVIDER_ARK: "720p",
     PROVIDER_GROK: "720p",
+    PROVIDER_OPENAI: "720p",
 }
 
 # 新 provider_id → 旧 backend registry name 的映射
@@ -54,6 +55,7 @@ _PROVIDER_ID_TO_BACKEND: dict[str, str] = {
     PROVIDER_GEMINI: PROVIDER_GEMINI,
     PROVIDER_ARK: PROVIDER_ARK,
     PROVIDER_GROK: PROVIDER_GROK,
+    PROVIDER_OPENAI: PROVIDER_OPENAI,
 }
 
 
@@ -112,6 +114,11 @@ async def _get_or_create_video_backend(
         db_config = await resolver.provider_config("grok")
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["model"] = effective_model
+    elif backend_name == PROVIDER_OPENAI:
+        db_config = await resolver.provider_config("openai")
+        kwargs["api_key"] = db_config.get("api_key")
+        kwargs["base_url"] = db_config.get("base_url")
+        kwargs["model"] = effective_model
 
     backend = create_backend(backend_name, **kwargs)
     _backend_cache[cache_key] = backend
@@ -154,6 +161,11 @@ async def _get_or_create_image_backend(
     elif backend_name == PROVIDER_GROK:
         db_config = await resolver.provider_config("grok")
         kwargs["api_key"] = db_config.get("api_key")
+        kwargs["model"] = effective_model
+    elif backend_name == PROVIDER_OPENAI:
+        db_config = await resolver.provider_config("openai")
+        kwargs["api_key"] = db_config.get("api_key")
+        kwargs["base_url"] = db_config.get("base_url")
         kwargs["model"] = effective_model
 
     backend = create_backend(backend_name, **kwargs)

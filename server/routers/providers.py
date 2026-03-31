@@ -564,11 +564,30 @@ def _test_grok(config: dict[str, str]) -> ConnectionTestResponse:
     )
 
 
+def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
+    """通过 models.list() 验证 OpenAI API Key。"""
+    from openai import OpenAI
+
+    kwargs: dict = {"api_key": config["api_key"]}
+    base_url = config.get("base_url")
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = OpenAI(**kwargs)
+    models = client.models.list()
+    available = sorted(m.id for m in models.data[:10])
+    return ConnectionTestResponse(
+        success=True,
+        available_models=available,
+        message="连接成功",
+    )
+
+
 _TEST_DISPATCH: dict[str, Callable[[dict[str, str]], ConnectionTestResponse]] = {
     "gemini-aistudio": _test_gemini_aistudio,
     "gemini-vertex": _test_gemini_vertex,
     "ark": _test_ark,
     "grok": _test_grok,
+    "openai": _test_openai,
 }
 
 
