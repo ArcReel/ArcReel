@@ -360,6 +360,16 @@ class CostCalculator:
         size: str | None = None,
     ) -> tuple[float, str]:
         """统一费用计算入口。按 (call_type, provider) 显式路由。返回 (amount, currency)。"""
+        if provider.startswith("custom-"):
+            return self._calculate_custom_cost(
+                provider,
+                call_type,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                duration_seconds=duration_seconds,
+            )
+
         if call_type == "text":
             if input_tokens is None:
                 return 0.0, "USD"
@@ -406,6 +416,63 @@ class CostCalculator:
             ), "USD"
 
         return 0.0, "USD"
+
+    def _calculate_custom_cost(
+        self,
+        provider: str,
+        call_type: str,
+        *,
+        model: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        duration_seconds: int | None = None,
+    ) -> tuple[float, str]:
+        """Calculate cost for custom provider using user-defined pricing from DB."""
+        price_info = self._get_custom_model_price(provider, model or "")
+        if price_info is None or price_info.price_input is None:
+            return 0.0, "USD"
+
+        currency = price_info.currency or "USD"
+
+        if call_type == "text":
+            inp = (input_tokens or 0) * (price_info.price_input or 0)
+            out = (output_tokens or 0) * (price_info.price_output or 0)
+            return (inp + out) / 1_000_000, currency
+        elif call_type == "image":
+            return price_info.price_input, currency
+        elif call_type == "video":
+            return (duration_seconds or 8) * price_info.price_input, currency
+        return 0.0, currency
+
+    def _get_custom_model_price(self, provider: str, model: str):
+        """Query custom provider model price from DB (sync wrapper)."""
+        import asyncio
+
+        from sqlalchemy import select
+
+        from lib.db import safe_session_factory
+        from lib.db.models.custom_provider import CustomProviderModel
+
+        async def _query():
+            async with safe_session_factory() as session:
+                provider_db_id = int(provider.removeprefix("custom-"))
+                stmt = select(CustomProviderModel).where(
+                    CustomProviderModel.provider_id == provider_db_id,
+                    CustomProviderModel.model_id == model,
+                )
+                result = await session.execute(stmt)
+                return result.scalar_one_or_none()
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, _query()).result()
+        return asyncio.run(_query())
 
 
 # 单例实例，方便使用

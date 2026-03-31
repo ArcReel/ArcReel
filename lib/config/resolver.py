@@ -224,4 +224,17 @@ class ConfigResolver:
                 if model_info.media_type == media_type and model_info.default:
                     return provider_id, model_id
 
+        # Query custom providers (session_factory may be absent in unit-test stubs)
+        if hasattr(self, "_session_factory"):
+            from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+            async with self._session_factory() as session:
+                repo = CustomProviderRepository(session)
+                custom_models = await repo.list_enabled_models_by_media_type(media_type)
+                for model in custom_models:
+                    if model.is_default:
+                        provider = await repo.get_provider(model.provider_id)
+                        if provider:
+                            return f"custom-{provider.id}", model.model_id
+
         raise ValueError(f"未找到可用的 {media_type} 供应商。请在「全局设置 → 供应商」页面配置至少一个供应商。")
