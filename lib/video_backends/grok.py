@@ -7,8 +7,7 @@ import logging
 from datetime import timedelta
 from pathlib import Path
 
-import xai_sdk
-
+from lib.grok_shared import create_grok_client
 from lib.providers import PROVIDER_GROK
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
@@ -32,10 +31,7 @@ class GrokVideoBackend:
         api_key: str | None = None,
         model: str | None = None,
     ):
-        if not api_key:
-            raise ValueError("XAI_API_KEY 未设置\n请在系统配置页中配置 xAI API Key")
-
-        self._client = xai_sdk.AsyncClient(api_key=api_key)
+        self._client = create_grok_client(api_key=api_key or "")
         self._model = model or self.DEFAULT_MODEL
         self._capabilities: set[VideoCapability] = {
             VideoCapability.TEXT_TO_VIDEO,

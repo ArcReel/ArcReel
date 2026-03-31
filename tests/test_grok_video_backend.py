@@ -20,16 +20,16 @@ def output_path(tmp_path: Path) -> Path:
 
 
 class TestGrokVideoBackend:
-    @patch("lib.video_backends.grok.xai_sdk")
-    def test_name_and_model(self, mock_sdk):
+    @patch("lib.video_backends.grok.create_grok_client")
+    def test_name_and_model(self, mock_create):
         from lib.video_backends.grok import GrokVideoBackend
 
         backend = GrokVideoBackend(api_key="test-key")
         assert backend.name == PROVIDER_GROK
         assert backend.model == "grok-imagine-video"
 
-    @patch("lib.video_backends.grok.xai_sdk")
-    def test_capabilities(self, mock_sdk):
+    @patch("lib.video_backends.grok.create_grok_client")
+    def test_capabilities(self, mock_create):
         from lib.video_backends.grok import GrokVideoBackend
 
         backend = GrokVideoBackend(api_key="test-key")
@@ -39,8 +39,8 @@ class TestGrokVideoBackend:
         assert VideoCapability.NEGATIVE_PROMPT not in backend.capabilities
         assert VideoCapability.SEED_CONTROL not in backend.capabilities
 
-    @patch("lib.video_backends.grok.xai_sdk")
-    def test_custom_model(self, mock_sdk):
+    @patch("lib.video_backends.grok.create_grok_client")
+    def test_custom_model(self, mock_create):
         from lib.video_backends.grok import GrokVideoBackend
 
         backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video-2")
@@ -65,9 +65,7 @@ class TestGrokVideoBackend:
         mock_client = MagicMock()
         mock_client.video = mock_video
 
-        with patch("lib.video_backends.grok.xai_sdk") as mock_sdk:
-            mock_sdk.AsyncClient.return_value = mock_client
-
+        with patch("lib.video_backends.grok.create_grok_client", return_value=mock_client):
             backend = GrokVideoBackend(api_key="test-key")
 
             mock_http_response = AsyncMock()
@@ -120,9 +118,7 @@ class TestGrokVideoBackend:
         mock_client = MagicMock()
         mock_client.video = mock_video
 
-        with patch("lib.video_backends.grok.xai_sdk") as mock_sdk:
-            mock_sdk.AsyncClient.return_value = mock_client
-
+        with patch("lib.video_backends.grok.create_grok_client", return_value=mock_client):
             backend = GrokVideoBackend(api_key="test-key")
 
             mock_http_response = AsyncMock()
