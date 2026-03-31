@@ -61,12 +61,8 @@ class TestOpenAIVideoBackend:
     async def test_text_to_video(self, tmp_path: Path):
         video_data = b"mp4-video-content"
         mock_client = AsyncMock()
-        mock_client.videos.create_and_poll = AsyncMock(
-            return_value=_make_mock_video(seconds="8")
-        )
-        mock_client.videos.download_content = AsyncMock(
-            return_value=_make_mock_content(video_data)
-        )
+        mock_client.videos.create_and_poll = AsyncMock(return_value=_make_mock_video(seconds="8"))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(video_data))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -100,12 +96,8 @@ class TestOpenAIVideoBackend:
         start_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
         mock_client = AsyncMock()
-        mock_client.videos.create_and_poll = AsyncMock(
-            return_value=_make_mock_video(seconds="4")
-        )
-        mock_client.videos.download_content = AsyncMock(
-            return_value=_make_mock_content(b"video")
-        )
+        mock_client.videos.create_and_poll = AsyncMock(return_value=_make_mock_video(seconds="4"))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"video"))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -149,12 +141,8 @@ class TestOpenAIVideoBackend:
 
     async def test_duration_mapping(self, tmp_path: Path):
         mock_client = AsyncMock()
-        mock_client.videos.create_and_poll = AsyncMock(
-            return_value=_make_mock_video(seconds="4")
-        )
-        mock_client.videos.download_content = AsyncMock(
-            return_value=_make_mock_content(b"v")
-        )
+        mock_client.videos.create_and_poll = AsyncMock(return_value=_make_mock_video(seconds="4"))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"v"))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -164,7 +152,9 @@ class TestOpenAIVideoBackend:
             for seconds, expected in [(3, "4"), (4, "4"), (5, "8"), (8, "8"), (10, "12"), (15, "12")]:
                 output_path = tmp_path / f"output_{seconds}.mp4"
                 request = VideoGenerationRequest(
-                    prompt="test", output_path=output_path, duration_seconds=seconds,
+                    prompt="test",
+                    output_path=output_path,
+                    duration_seconds=seconds,
                 )
                 await backend.generate(request)
                 call_kwargs = mock_client.videos.create_and_poll.call_args[1]
@@ -172,12 +162,8 @@ class TestOpenAIVideoBackend:
 
     async def test_size_mapping(self, tmp_path: Path):
         mock_client = AsyncMock()
-        mock_client.videos.create_and_poll = AsyncMock(
-            return_value=_make_mock_video(seconds="4")
-        )
-        mock_client.videos.download_content = AsyncMock(
-            return_value=_make_mock_content(b"v")
-        )
+        mock_client.videos.create_and_poll = AsyncMock(return_value=_make_mock_video(seconds="4"))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"v"))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -187,7 +173,9 @@ class TestOpenAIVideoBackend:
             for aspect, expected_size in [("9:16", "720x1280"), ("16:9", "1280x720")]:
                 output_path = tmp_path / f"output_{aspect.replace(':', '_')}.mp4"
                 request = VideoGenerationRequest(
-                    prompt="test", output_path=output_path, aspect_ratio=aspect,
+                    prompt="test",
+                    output_path=output_path,
+                    aspect_ratio=aspect,
                 )
                 await backend.generate(request)
                 call_kwargs = mock_client.videos.create_and_poll.call_args[1]

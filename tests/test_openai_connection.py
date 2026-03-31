@@ -88,7 +88,8 @@ class TestTestOpenAI:
             _test_openai({"api_key": "sk-test", "base_url": "https://custom.api.com/v1"})
 
         mock_openai_cls.assert_called_once_with(
-            api_key="sk-test", base_url="https://custom.api.com/v1",
+            api_key="sk-test",
+            base_url="https://custom.api.com/v1",
         )
 
     def test_api_error_propagates(self):

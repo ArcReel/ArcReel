@@ -52,9 +52,7 @@ class TestOpenAIImageBackend:
         """T2I 路径应调用 images.generate()。"""
         b64_data = base64.b64encode(b"fake-png-data").decode()
         mock_client = AsyncMock()
-        mock_client.images.generate = AsyncMock(
-            return_value=_make_mock_image_response(b64_data)
-        )
+        mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
@@ -78,16 +76,14 @@ class TestOpenAIImageBackend:
         call_kwargs = mock_client.images.generate.call_args[1]
         assert call_kwargs["model"] == "gpt-image-1.5"
         assert call_kwargs["size"] == "1024x1792"  # 9:16
-        assert call_kwargs["quality"] == "medium"   # 1K
+        assert call_kwargs["quality"] == "medium"  # 1K
         assert call_kwargs["response_format"] == "b64_json"
 
     async def test_image_to_image(self, tmp_path: Path):
         """I2I 路径应调用 images.edit()。"""
         b64_data = base64.b64encode(b"edited-image").decode()
         mock_client = AsyncMock()
-        mock_client.images.edit = AsyncMock(
-            return_value=_make_mock_image_response(b64_data)
-        )
+        mock_client.images.edit = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         ref_path = tmp_path / "ref.png"
         ref_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
@@ -113,9 +109,7 @@ class TestOpenAIImageBackend:
         """验证 aspect_ratio → size 映射。"""
         b64_data = base64.b64encode(b"img").decode()
         mock_client = AsyncMock()
-        mock_client.images.generate = AsyncMock(
-            return_value=_make_mock_image_response(b64_data)
-        )
+        mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
@@ -125,7 +119,9 @@ class TestOpenAIImageBackend:
             for aspect, expected_size in [("16:9", "1792x1024"), ("1:1", "1024x1024"), ("9:16", "1024x1792")]:
                 output_path = tmp_path / f"output_{aspect.replace(':', '_')}.png"
                 request = ImageGenerationRequest(
-                    prompt="test", output_path=output_path, aspect_ratio=aspect,
+                    prompt="test",
+                    output_path=output_path,
+                    aspect_ratio=aspect,
                 )
                 await backend.generate(request)
                 call_kwargs = mock_client.images.generate.call_args[1]
@@ -135,9 +131,7 @@ class TestOpenAIImageBackend:
         """验证 image_size → quality 映射。"""
         b64_data = base64.b64encode(b"img").decode()
         mock_client = AsyncMock()
-        mock_client.images.generate = AsyncMock(
-            return_value=_make_mock_image_response(b64_data)
-        )
+        mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
@@ -147,7 +141,9 @@ class TestOpenAIImageBackend:
             for img_size, expected_quality in [("512PX", "low"), ("1K", "medium"), ("2K", "high"), ("4K", "high")]:
                 output_path = tmp_path / f"output_{img_size}.png"
                 request = ImageGenerationRequest(
-                    prompt="test", output_path=output_path, image_size=img_size,
+                    prompt="test",
+                    output_path=output_path,
+                    image_size=img_size,
                 )
                 await backend.generate(request)
                 call_kwargs = mock_client.images.generate.call_args[1]

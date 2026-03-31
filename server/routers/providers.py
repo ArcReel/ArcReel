@@ -577,9 +577,7 @@ def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
         kwargs["base_url"] = base_url
     client = OpenAI(**kwargs)
     models = client.models.list()
-    available = sorted(
-        m.id for m in models.data if any(k in m.id.lower() for k in _OPENAI_MODEL_KEYWORDS)
-    )
+    available = sorted(m.id for m in models.data if any(k in m.id.lower() for k in _OPENAI_MODEL_KEYWORDS))
     return ConnectionTestResponse(
         success=True,
         available_models=available,

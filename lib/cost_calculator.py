@@ -297,7 +297,9 @@ class CostCalculator:
         quality = quality or "medium"
         size = size or "1024x1024"
         model_costs = self.OPENAI_IMAGE_COST.get(model, self.OPENAI_IMAGE_COST[self.DEFAULT_OPENAI_IMAGE_MODEL])
-        per_image = model_costs.get((quality, size), model_costs.get((quality, "1024x1024"), model_costs.get(("medium", "1024x1024"))))
+        per_image = model_costs.get(
+            (quality, size), model_costs.get((quality, "1024x1024"), model_costs.get(("medium", "1024x1024")))
+        )
         return per_image, "USD"
 
     def calculate_openai_video_cost(
