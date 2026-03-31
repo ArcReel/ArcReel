@@ -15,12 +15,10 @@ from lib.image_backends.base import ImageCapability, ImageGenerationRequest, Ref
 
 @pytest.fixture()
 def _patch_xai_sdk():
-    """Patch xai_sdk 以免依赖真实 SDK。"""
-    mock_sdk = MagicMock()
+    """Patch create_grok_client 以免依赖真实 SDK。"""
     mock_client_instance = MagicMock()
-    mock_sdk.AsyncClient.return_value = mock_client_instance
-    with patch.dict("sys.modules", {"xai_sdk": mock_sdk}):
-        yield mock_sdk, mock_client_instance
+    with patch("lib.image_backends.grok.create_grok_client", return_value=mock_client_instance):
+        yield mock_client_instance
 
 
 @pytest.fixture()
@@ -65,17 +63,19 @@ class TestProperties:
 
 
 class TestInit:
-    def test_missing_api_key_raises(self, _patch_xai_sdk):
-        from lib.image_backends.grok import GrokImageBackend
+    def test_missing_api_key_raises(self):
+        with patch("lib.image_backends.grok.create_grok_client", side_effect=ValueError("XAI_API_KEY 未设置")):
+            from lib.image_backends.grok import GrokImageBackend
 
-        with pytest.raises(ValueError, match="XAI_API_KEY"):
-            GrokImageBackend()
+            with pytest.raises(ValueError, match="XAI_API_KEY"):
+                GrokImageBackend()
 
-    def test_empty_api_key_raises(self, _patch_xai_sdk):
-        from lib.image_backends.grok import GrokImageBackend
+    def test_empty_api_key_raises(self):
+        with patch("lib.image_backends.grok.create_grok_client", side_effect=ValueError("XAI_API_KEY 未设置")):
+            from lib.image_backends.grok import GrokImageBackend
 
-        with pytest.raises(ValueError, match="XAI_API_KEY"):
-            GrokImageBackend(api_key="")
+            with pytest.raises(ValueError, match="XAI_API_KEY"):
+                GrokImageBackend(api_key="")
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +225,7 @@ class TestModeration:
 
 
 class TestResolutionMapping:
-    def test_map_image_size(self, _patch_xai_sdk):
+    def test_map_image_size(self):
         from lib.image_backends.grok import _map_image_size_to_resolution
 
         assert _map_image_size_to_resolution("1K") == "1k"
