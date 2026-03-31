@@ -28,7 +28,7 @@ _SIZE_MAP: dict[str, str] = {
 class OpenAIVideoBackend:
     """OpenAI Sora 视频生成后端。"""
 
-    def __init__(self, *, api_key=None, model=None, base_url=None):
+    def __init__(self, *, api_key: str | None = None, model: str | None = None, base_url: str | None = None):
         self._client = create_openai_client(api_key=api_key, base_url=base_url)
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[VideoCapability] = {

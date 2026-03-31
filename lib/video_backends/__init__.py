@@ -13,6 +13,7 @@ __all__ = [
     "PROVIDER_ARK",
     "PROVIDER_GEMINI",
     "PROVIDER_GROK",
+    "PROVIDER_OPENAI",
     "VideoBackend",
     "VideoCapability",
     "VideoGenerationRequest",

@@ -37,7 +37,7 @@ _QUALITY_MAP: dict[str, str] = {
 class OpenAIImageBackend:
     """OpenAI 图片生成后端，支持 T2I 和 I2I。"""
 
-    def __init__(self, *, api_key=None, model=None, base_url=None):
+    def __init__(self, *, api_key: str | None = None, model: str | None = None, base_url: str | None = None):
         self._client = create_openai_client(api_key=api_key, base_url=base_url)
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[ImageCapability] = {
@@ -82,6 +82,9 @@ class OpenAIImageBackend:
                     logger.warning("参考图不存在，跳过: %s", ref_path)
                     continue
                 image_files.append(open(ref_path, "rb"))  # noqa: SIM115
+            if not image_files:
+                logger.warning("所有参考图均无效，回退到 T2I")
+                return await self._generate_create(request)
             response = await self._client.images.edit(
                 model=self._model,
                 image=image_files,
