@@ -14,9 +14,6 @@ import base64
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # 1 & 2: ImageGenerationResult dataclass
 # ---------------------------------------------------------------------------
@@ -79,8 +76,8 @@ class TestOpenAIImageBackendQuality:
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
-            from lib.image_backends.openai import OpenAIImageBackend
             from lib.image_backends.base import ImageGenerationRequest
+            from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
             output_path = tmp_path / "out.png"
@@ -100,8 +97,8 @@ class TestOpenAIImageBackendQuality:
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
-            from lib.image_backends.openai import OpenAIImageBackend
             from lib.image_backends.base import ImageGenerationRequest
+            from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
 
@@ -128,8 +125,8 @@ class TestOpenAIImageBackendQuality:
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
-            from lib.image_backends.openai import OpenAIImageBackend
             from lib.image_backends.base import ImageGenerationRequest
+            from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
             output_path = tmp_path / "out_unknown.png"
@@ -156,8 +153,9 @@ class TestUsageTrackerQualityPropagation:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("lib.usage_tracker.UsageRepository") as MockRepo, patch(
-            "lib.usage_tracker.safe_session_factory", return_value=mock_session
+        with (
+            patch("lib.usage_tracker.UsageRepository") as MockRepo,
+            patch("lib.usage_tracker.safe_session_factory", return_value=mock_session),
         ):
             MockRepo.return_value = mock_repo
 
@@ -182,8 +180,9 @@ class TestUsageTrackerQualityPropagation:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("lib.usage_tracker.UsageRepository") as MockRepo, patch(
-            "lib.usage_tracker.safe_session_factory", return_value=mock_session
+        with (
+            patch("lib.usage_tracker.UsageRepository") as MockRepo,
+            patch("lib.usage_tracker.safe_session_factory", return_value=mock_session),
         ):
             MockRepo.return_value = mock_repo
 

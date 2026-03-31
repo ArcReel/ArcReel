@@ -61,13 +61,9 @@ class CustomProviderRepository(BaseRepository):
     async def delete_provider(self, provider_id: int) -> None:
         """删除供应商及其所有模型。"""
         # 先删模型
-        await self.session.execute(
-            delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id)
-        )
+        await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id))
         # 再删供应商
-        await self.session.execute(
-            delete(CustomProvider).where(CustomProvider.id == provider_id)
-        )
+        await self.session.execute(delete(CustomProvider).where(CustomProvider.id == provider_id))
         await self.session.flush()
 
     # ── Model management ──────────────────────────────────────────
@@ -83,9 +79,7 @@ class CustomProviderRepository(BaseRepository):
 
     async def replace_models(self, provider_id: int, models: list[dict]) -> list[CustomProviderModel]:
         """删除旧模型，插入新列表。返回新创建的模型。"""
-        await self.session.execute(
-            delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id)
-        )
+        await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id))
         new_models = []
         for m in models:
             model = CustomProviderModel(provider_id=provider_id, **m)
@@ -107,9 +101,7 @@ class CustomProviderRepository(BaseRepository):
 
     async def delete_model(self, model_id: int) -> None:
         """删除单个模型。"""
-        await self.session.execute(
-            delete(CustomProviderModel).where(CustomProviderModel.id == model_id)
-        )
+        await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.id == model_id))
         await self.session.flush()
 
     async def list_enabled_models_by_media_type(self, media_type: str) -> list[CustomProviderModel]:

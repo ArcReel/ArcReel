@@ -8,7 +8,6 @@ import pytest
 
 from lib.custom_provider.discovery import discover_models, infer_media_type
 
-
 # ---------------------------------------------------------------------------
 # infer_media_type
 # ---------------------------------------------------------------------------

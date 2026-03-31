@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from lib.video_backends.openai import _resolve_size
 
 

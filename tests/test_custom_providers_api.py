@@ -6,18 +6,17 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db import get_async_session
 from lib.db.base import Base
-from server.auth import CurrentUser, CurrentUserInfo, get_current_user
+from server.auth import CurrentUserInfo, get_current_user
 from server.routers import custom_providers
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -49,9 +48,7 @@ def app(session_factory) -> FastAPI:
             yield session
 
     _app.dependency_overrides[get_async_session] = _override_session
-    _app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(
-        id="test", sub="test", role="admin"
-    )
+    _app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
     _app.include_router(custom_providers.router, prefix="/api/v1")
     return _app
 
@@ -372,7 +369,13 @@ class TestReplaceModels:
 class TestDiscoverModels:
     def test_discover_openai(self, client: TestClient):
         fake_models = [
-            {"model_id": "gpt-4", "display_name": "gpt-4", "media_type": "text", "is_default": True, "is_enabled": True},
+            {
+                "model_id": "gpt-4",
+                "display_name": "gpt-4",
+                "media_type": "text",
+                "is_default": True,
+                "is_enabled": True,
+            },
         ]
         with patch(
             "lib.custom_provider.discovery.discover_models",
@@ -433,9 +436,7 @@ class TestConnectionTest:
     def test_openai_success(self, client: TestClient):
         with patch(
             "server.routers.custom_providers._test_openai",
-            return_value=custom_providers.ConnectionTestResponse(
-                success=True, message="连接成功", model_count=5
-            ),
+            return_value=custom_providers.ConnectionTestResponse(success=True, message="连接成功", model_count=5),
         ):
             resp = client.post(
                 "/api/v1/custom-providers/test",
@@ -453,9 +454,7 @@ class TestConnectionTest:
     def test_google_success(self, client: TestClient):
         with patch(
             "server.routers.custom_providers._test_google",
-            return_value=custom_providers.ConnectionTestResponse(
-                success=True, message="连接成功", model_count=10
-            ),
+            return_value=custom_providers.ConnectionTestResponse(success=True, message="连接成功", model_count=10),
         ):
             resp = client.post(
                 "/api/v1/custom-providers/test",

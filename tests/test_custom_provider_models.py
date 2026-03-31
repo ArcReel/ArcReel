@@ -170,9 +170,7 @@ class TestCustomProviderModelRoundTrip:
         session.add(model)
         await session.commit()
 
-        result = await session.execute(
-            select(CustomProviderModel).where(CustomProviderModel.model_id == "llama3")
-        )
+        result = await session.execute(select(CustomProviderModel).where(CustomProviderModel.model_id == "llama3"))
         loaded = result.scalar_one()
         assert loaded.price_unit is None
         assert loaded.price_input is None

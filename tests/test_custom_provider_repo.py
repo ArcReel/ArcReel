@@ -6,7 +6,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
-from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
 
@@ -296,7 +295,7 @@ class TestModelManagement:
 
     async def test_list_enabled_models_by_media_type(self, session: AsyncSession):
         repo = CustomProviderRepository(session)
-        p1 = await repo.create_provider(
+        await repo.create_provider(
             display_name="Provider1",
             api_format="openai",
             base_url="https://p1.com",
@@ -307,7 +306,7 @@ class TestModelManagement:
                 {"model_id": "text-off", "display_name": "Text Off", "media_type": "text", "is_enabled": False},
             ],
         )
-        p2 = await repo.create_provider(
+        await repo.create_provider(
             display_name="Provider2",
             api_format="openai",
             base_url="https://p2.com",
