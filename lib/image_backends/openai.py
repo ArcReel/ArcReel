@@ -110,4 +110,5 @@ class OpenAIImageBackend:
             image_path=request.output_path,
             provider=PROVIDER_OPENAI,
             model=self._model,
+            quality=_QUALITY_MAP.get(request.image_size, "medium"),
         )

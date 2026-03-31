@@ -62,6 +62,7 @@ class UsageTracker:
         generate_audio: bool | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        quality: str | None = None,
     ) -> None:
 
         async with self._session_factory() as session:
@@ -77,6 +78,7 @@ class UsageTracker:
                 generate_audio=generate_audio,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                quality=quality,
             )
 
     async def get_stats(

@@ -92,6 +92,7 @@ class UsageRepository(BaseRepository):
         generate_audio: bool | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        quality: str | None = None,
     ) -> None:
         finished_at = utc_now()
 
@@ -127,6 +128,7 @@ class UsageRepository(BaseRepository):
                 service_tier=service_tier,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                quality=quality,
             )
 
         error_truncated = error_message[:500] if error_message else None
