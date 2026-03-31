@@ -67,7 +67,6 @@ class ArkVideoBackend:
             )
 
         # 2. Build API params
-        # Map aspect_ratio format: "9:16" -> "9:16" (same format, no conversion needed)
         create_params = {
             "model": self._model,
             "content": content,

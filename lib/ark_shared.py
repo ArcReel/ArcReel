@@ -11,10 +11,7 @@ Ark (火山方舟) 共享工具模块
 
 from __future__ import annotations
 
-import logging
 import os
-
-logger = logging.getLogger(__name__)
 
 ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 

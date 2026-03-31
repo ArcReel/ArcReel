@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-import xai_sdk
+from xai_sdk import chat as xai_chat
 
 from lib.grok_shared import create_grok_client
 from lib.providers import PROVIDER_GROK
@@ -23,7 +23,6 @@ class GrokTextBackend:
     """xAI Grok 文本生成后端。"""
 
     def __init__(self, *, api_key: str | None = None, model: str | None = None):
-        self._xai_sdk = xai_sdk
         self._client = create_grok_client(api_key=api_key)
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[TextCapability] = {
@@ -49,7 +48,7 @@ class GrokTextBackend:
 
         # System prompt
         if request.system_prompt:
-            chat.append(self._xai_sdk.chat.system(request.system_prompt))
+            chat.append(xai_chat.system(request.system_prompt))
 
         # Build user message parts
         user_parts: list = []
@@ -61,11 +60,11 @@ class GrokTextBackend:
                     from lib.image_backends.base import image_to_base64_data_uri
 
                     data_uri = image_to_base64_data_uri(img_input.path)
-                    user_parts.append(self._xai_sdk.chat.image(image_url=data_uri))
+                    user_parts.append(xai_chat.image(image_url=data_uri))
                 elif img_input.url:
-                    user_parts.append(self._xai_sdk.chat.image(image_url=img_input.url))
+                    user_parts.append(xai_chat.image(image_url=img_input.url))
 
-        chat.append(self._xai_sdk.chat.user(request.prompt, *user_parts))
+        chat.append(xai_chat.user(request.prompt, *user_parts))
 
         # Structured output or plain
         if request.response_schema:
