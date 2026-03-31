@@ -208,17 +208,41 @@ class TestOpenAICost:
         assert currency == "USD"
         assert amount == pytest.approx(0.75)
 
-    def test_openai_image_cost(self):
+    def test_openai_image_cost_square(self):
         calculator = CostCalculator()
         amount, currency = calculator.calculate_openai_image_cost(model="gpt-image-1.5", quality="medium")
         assert currency == "USD"
-        assert amount == pytest.approx(0.034)
+        assert amount == pytest.approx(0.034)  # 默认 1024x1024
+
+    def test_openai_image_cost_portrait(self):
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_openai_image_cost(
+            model="gpt-image-1.5", quality="medium", size="1024x1792",
+        )
+        assert currency == "USD"
+        assert amount == pytest.approx(0.051)
+
+    def test_openai_image_cost_landscape(self):
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_openai_image_cost(
+            model="gpt-image-1.5", quality="high", size="1792x1024",
+        )
+        assert currency == "USD"
+        assert amount == pytest.approx(0.200)
 
     def test_openai_image_cost_low(self):
         calculator = CostCalculator()
         amount, currency = calculator.calculate_openai_image_cost(model="gpt-image-1-mini", quality="low")
         assert currency == "USD"
         assert amount == pytest.approx(0.005)
+
+    def test_openai_image_cost_mini_portrait(self):
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_openai_image_cost(
+            model="gpt-image-1-mini", quality="medium", size="1024x1792",
+        )
+        assert currency == "USD"
+        assert amount == pytest.approx(0.017)
 
     def test_openai_video_cost(self):
         calculator = CostCalculator()
@@ -237,6 +261,8 @@ class TestOpenAICost:
         amount, currency = calculator.calculate_cost("openai", "text", input_tokens=500_000, output_tokens=100_000)
         assert amount == pytest.approx(0.375 + 0.45)
         amount, currency = calculator.calculate_cost("openai", "image", model="gpt-image-1.5", quality="high")
-        assert amount == pytest.approx(0.133)
+        assert amount == pytest.approx(0.133)  # 默认 1024x1024
+        amount, currency = calculator.calculate_cost("openai", "image", model="gpt-image-1.5", quality="high", size="1024x1792")
+        assert amount == pytest.approx(0.200)
         amount, currency = calculator.calculate_cost("openai", "video", duration_seconds=12, model="sora-2")
         assert amount == pytest.approx(1.20)

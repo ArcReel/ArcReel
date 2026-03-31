@@ -132,9 +132,31 @@ class CostCalculator:
         "gpt-5.4-mini": {"input": 0.75, "output": 4.50},
         "gpt-5.4-nano": {"input": 0.20, "output": 1.25},
     }
-    OPENAI_IMAGE_COST = {
-        "gpt-image-1.5": {"low": 0.009, "medium": 0.034, "high": 0.133},
-        "gpt-image-1-mini": {"low": 0.005, "medium": 0.011, "high": 0.036},
+    # OpenAI 图片费用（美元/张），按 (quality, size) 二维查表
+    # 来源：https://platform.openai.com/docs/pricing — GPT Image
+    OPENAI_IMAGE_COST: dict[str, dict[tuple[str, str], float]] = {
+        "gpt-image-1.5": {
+            ("low", "1024x1024"): 0.009,
+            ("low", "1024x1792"): 0.013,
+            ("low", "1792x1024"): 0.013,
+            ("medium", "1024x1024"): 0.034,
+            ("medium", "1024x1792"): 0.051,
+            ("medium", "1792x1024"): 0.051,
+            ("high", "1024x1024"): 0.133,
+            ("high", "1024x1792"): 0.200,
+            ("high", "1792x1024"): 0.200,
+        },
+        "gpt-image-1-mini": {
+            ("low", "1024x1024"): 0.005,
+            ("low", "1024x1792"): 0.008,
+            ("low", "1792x1024"): 0.008,
+            ("medium", "1024x1024"): 0.011,
+            ("medium", "1024x1792"): 0.017,
+            ("medium", "1792x1024"): 0.017,
+            ("high", "1024x1024"): 0.036,
+            ("high", "1024x1792"): 0.054,
+            ("high", "1792x1024"): 0.054,
+        },
     }
     DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-1.5"
     OPENAI_VIDEO_COST = {
@@ -263,17 +285,19 @@ class CostCalculator:
         self,
         model: str | None = None,
         quality: str | None = None,
+        size: str | None = None,
     ) -> tuple[float, str]:
         """
-        OpenAI 图片按质量等级计费。
+        OpenAI 图片按 (quality, size) 计费。
 
         Returns:
             (amount, currency) — 金额和币种 (USD)
         """
         model = model or self.DEFAULT_OPENAI_IMAGE_MODEL
         quality = quality or "medium"
+        size = size or "1024x1024"
         model_costs = self.OPENAI_IMAGE_COST.get(model, self.OPENAI_IMAGE_COST[self.DEFAULT_OPENAI_IMAGE_MODEL])
-        per_image = model_costs.get(quality, model_costs.get("medium"))
+        per_image = model_costs.get((quality, size), model_costs.get((quality, "1024x1024"), model_costs.get(("medium", "1024x1024"))))
         return per_image, "USD"
 
     def calculate_openai_video_cost(
@@ -331,6 +355,7 @@ class CostCalculator:
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         quality: str | None = None,
+        size: str | None = None,
     ) -> tuple[float, str]:
         """统一费用计算入口。按 (call_type, provider) 显式路由。返回 (amount, currency)。"""
         if call_type == "text":
@@ -349,7 +374,7 @@ class CostCalculator:
             if provider == PROVIDER_GROK:
                 return self.calculate_grok_image_cost(model=model)
             if provider == PROVIDER_OPENAI:
-                return self.calculate_openai_image_cost(model=model, quality=quality)
+                return self.calculate_openai_image_cost(model=model, quality=quality, size=size)
             return self.calculate_image_cost(resolution or "1K", model=model), "USD"
 
         if call_type == "video":

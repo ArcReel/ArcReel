@@ -564,6 +564,9 @@ def _test_grok(config: dict[str, str]) -> ConnectionTestResponse:
     )
 
 
+_OPENAI_MODEL_KEYWORDS = ("gpt", "sora", "dall", "o1", "o3", "o4")
+
+
 def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
     """通过 models.list() 验证 OpenAI API Key。"""
     from openai import OpenAI
@@ -574,7 +577,9 @@ def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
         kwargs["base_url"] = base_url
     client = OpenAI(**kwargs)
     models = client.models.list()
-    available = sorted(m.id for m in models.data[:10])
+    available = sorted(
+        m.id for m in models.data if any(k in m.id.lower() for k in _OPENAI_MODEL_KEYWORDS)
+    )
     return ConnectionTestResponse(
         success=True,
         available_models=available,

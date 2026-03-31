@@ -17,6 +17,7 @@ from lib.providers import PROVIDER_OPENAI
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gpt-image-1.5"
+_MAX_REFERENCE_IMAGES = 16
 
 _SIZE_MAP: dict[str, str] = {
     "9:16": "1024x1792",
@@ -74,9 +75,13 @@ class OpenAIImageBackend:
         return self._save_and_return(response, request)
 
     async def _generate_edit(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        refs = request.reference_images
+        if len(refs) > _MAX_REFERENCE_IMAGES:
+            logger.warning("参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
+            refs = refs[:_MAX_REFERENCE_IMAGES]
         image_files = []
         try:
-            for ref in request.reference_images:
+            for ref in refs:
                 ref_path = Path(ref.path)
                 if not ref_path.exists():
                     logger.warning("参考图不存在，跳过: %s", ref_path)

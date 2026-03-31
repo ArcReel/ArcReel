@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import base64
 import logging
 from pathlib import Path
 
+from lib.image_backends.base import image_to_base64_data_uri
 from lib.openai_shared import create_openai_client
 from lib.providers import PROVIDER_OPENAI
 from lib.video_backends.base import (
-    IMAGE_MIME_TYPES,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -91,12 +90,7 @@ def _map_duration(seconds: int) -> str:
 
 
 def _encode_start_image(image_path: Path) -> dict:
-    image_path = Path(image_path)
-    suffix = image_path.suffix.lower()
-    mime_type = IMAGE_MIME_TYPES.get(suffix, "image/png")
-    image_data = image_path.read_bytes()
-    b64 = base64.b64encode(image_data).decode("ascii")
-    data_uri = f"data:{mime_type};base64,{b64}"
+    data_uri = image_to_base64_data_uri(Path(image_path))
     return {
         "type": "image_url",
         "image_url": data_uri,
