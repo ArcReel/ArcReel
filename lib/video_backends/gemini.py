@@ -34,6 +34,7 @@ class GeminiVideoBackend:
         api_key: str | None = None,
         rate_limiter: RateLimiter | None = None,
         video_model: str | None = None,
+        base_url: str | None = None,
     ):
         from google import genai as _genai
         from google.genai import types as _types
@@ -76,8 +77,8 @@ class GeminiVideoBackend:
             if not _api_key:
                 raise ValueError("GEMINI_API_KEY 环境变量未设置")
 
-            base_url = normalize_base_url(os.environ.get("GEMINI_BASE_URL"))
-            http_options = {"base_url": base_url} if base_url else None
+            effective_base_url = normalize_base_url(base_url or os.environ.get("GEMINI_BASE_URL"))
+            http_options = {"base_url": effective_base_url} if effective_base_url else None
             self._client = _genai.Client(api_key=_api_key, http_options=http_options)
 
         # 缓存 capabilities，避免每次访问创建新 set
