@@ -55,6 +55,29 @@ async def _build_options(svc: ConfigService) -> dict[str, list[str]]:
             elif model_info.media_type == "text":
                 text_backends.append(full)
 
+    # Append custom provider models
+    from lib.db import async_session_factory
+    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+    try:
+        async with async_session_factory() as session:
+            repo = CustomProviderRepository(session)
+            providers = await repo.list_providers()
+            for provider in providers:
+                models = await repo.list_models(provider.id)
+                for model in models:
+                    if not model.is_enabled:
+                        continue
+                    full = f"custom-{provider.id}/{model.model_id}"
+                    if model.media_type == "video":
+                        video_backends.append(full)
+                    elif model.media_type == "image":
+                        image_backends.append(full)
+                    elif model.media_type == "text":
+                        text_backends.append(full)
+    except Exception:
+        pass  # Non-fatal: custom providers unavailable shouldn't break the options endpoint
+
     return {
         "video_backends": video_backends,
         "image_backends": image_backends,

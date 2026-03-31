@@ -94,7 +94,7 @@ export function UsageStatsSection() {
             <div key={i} className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-sm font-medium text-gray-100">{s.provider}</span>
+                  <span className="text-sm font-medium text-gray-100">{s.display_name ?? s.provider}</span>
                   <span className="ml-2 text-xs text-gray-500">{s.call_type}</span>
                 </div>
                 <span className="text-sm text-gray-300">

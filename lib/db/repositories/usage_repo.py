@@ -283,6 +283,23 @@ class UsageRepository(BaseRepository):
             for row in rows
         ]
 
+        # Enrich each stat entry with display_name
+        from lib.config.registry import PROVIDER_REGISTRY
+        from lib.db.models.custom_provider import CustomProvider
+
+        for stat in stats:
+            provider_str = stat["provider"]
+            if provider_str and provider_str.startswith("custom-"):
+                try:
+                    db_id = int(provider_str.removeprefix("custom-"))
+                    cp = await self.session.get(CustomProvider, db_id)
+                    stat["display_name"] = cp.display_name if cp else provider_str
+                except (ValueError, Exception):
+                    stat["display_name"] = provider_str
+            else:
+                meta = PROVIDER_REGISTRY.get(provider_str or "")
+                stat["display_name"] = meta.display_name if meta else provider_str
+
         period_start: str | None = None
         period_end: str | None = None
         if start_date:

@@ -50,6 +50,7 @@ export type CallType = "image" | "video" | "text";
 
 export interface UsageStat {
   provider: string;
+  display_name?: string;
   call_type: CallType;
   total_calls: number;
   success_calls: number;
