@@ -83,10 +83,10 @@ class OpenAIImageBackend:
         try:
             for ref in refs:
                 ref_path = Path(ref.path)
-                if not ref_path.exists():
+                try:
+                    image_files.append(open(ref_path, "rb"))  # noqa: SIM115
+                except FileNotFoundError:
                     logger.warning("参考图不存在，跳过: %s", ref_path)
-                    continue
-                image_files.append(open(ref_path, "rb"))  # noqa: SIM115
             if not image_files:
                 logger.warning("所有参考图均无效，回退到 T2I")
                 return await self._generate_create(request)

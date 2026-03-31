@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from lib.image_backends.base import image_to_base64_data_uri
 from lib.openai_shared import create_openai_client
 from lib.providers import PROVIDER_OPENAI
 from lib.video_backends.base import (
@@ -90,6 +89,8 @@ def _map_duration(seconds: int) -> str:
 
 
 def _encode_start_image(image_path: Path) -> dict:
+    from lib.image_backends.base import image_to_base64_data_uri
+
     data_uri = image_to_base64_data_uri(Path(image_path))
     return {
         "type": "image_url",
