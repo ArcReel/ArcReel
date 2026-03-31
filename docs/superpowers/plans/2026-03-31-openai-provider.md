@@ -6,7 +6,9 @@
 
 **Architecture:** 新增 `lib/openai_shared.py` 共享客户端工厂，三个独立 Backend（`OpenAITextBackend`、`OpenAIImageBackend`、`OpenAIVideoBackend`）各自实现对应 Protocol，通过现有 Registry 模式注册。费用计算、连接测试、工厂集成均为最小侵入式修改。
 
-**Tech Stack:** OpenAI Python SDK 2.30.0, AsyncOpenAI, pytest, Instructor (fallback)
+**Tech Stack:** OpenAI Python SDK 2.30.0, AsyncOpenAI, pytest
+
+> **注意：** Instructor fallback 不在本期范围内。本期仅实现原生 `response_format` 结构化输出，Instructor fallback 作为后续优化。
 
 **Design Spec:** `docs/superpowers/specs/2026-03-31-openai-provider-design.md`
 
@@ -823,7 +825,11 @@ class OpenAIImageBackend:
         image_files = []
         try:
             for ref in request.reference_images:
-                image_files.append(open(ref.path, "rb"))
+                ref_path = Path(ref.path)
+                if not ref_path.exists():
+                    logger.warning("参考图不存在，跳过: %s", ref_path)
+                    continue
+                image_files.append(open(ref_path, "rb"))
             response = await self._client.images.edit(
                 model=self._model,
                 image=image_files,
@@ -1010,7 +1016,9 @@ class TestOpenAIVideoBackend:
 
         assert result.duration_seconds == 4
         call_kwargs = mock_client.videos.create_and_poll.call_args[1]
-        assert "input_reference" in call_kwargs
+        ref = call_kwargs["input_reference"]
+        assert ref["type"] == "image_url"
+        assert ref["image_url"].startswith("data:image/png;base64,")
 
     async def test_failed_video_raises(self, tmp_path: Path):
         error = MagicMock()
@@ -1516,16 +1524,18 @@ _TEST_DISPATCH: dict[str, Callable[[dict[str, str]], ConnectionTestResponse]] = 
 from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_OPENAI
 ```
 
-在 `_PROVIDER_ID_TO_BACKEND` 字典中添加：
+在 `_PROVIDER_ID_TO_BACKEND` 字典中**添加一行**（注意：不要替换整个字典，保留已有条目）：
 
 ```python
-_PROVIDER_ID_TO_BACKEND: dict[str, str] = {
-    "gemini-aistudio": PROVIDER_GEMINI,
-    "gemini-vertex": PROVIDER_GEMINI,
-    PROVIDER_ARK: PROVIDER_ARK,
-    PROVIDER_GROK: PROVIDER_GROK,
+# 在现有字典末尾添加：
     PROVIDER_OPENAI: PROVIDER_OPENAI,
-}
+```
+
+在 `_DEFAULT_VIDEO_RESOLUTION` 字典中添加 OpenAI 条目：
+
+```python
+# 在现有字典末尾添加：
+    PROVIDER_OPENAI: "720p",
 ```
 
 在 `_get_or_create_video_backend` 函数中，在 `elif backend_name == PROVIDER_GROK:` 分支之后添加：

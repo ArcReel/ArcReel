@@ -150,7 +150,7 @@ class OpenAITextBackend:
 
 1. **消息构建** — `_build_messages()` 将 `request.prompt` / `system_prompt` / `images` 转为 OpenAI messages 格式，图片用 `{"type": "image_url", "image_url": {"url": data_uri}}`
 2. **结构化输出** — `_build_response_format()` 将 Pydantic model / JSON schema 转为 `{"type": "json_schema", "json_schema": {...}}`，配合现有 `resolve_schema()` 工具
-3. **Instructor fallback** — 原生结构化输出失败时捕获异常，走 Instructor 路径
+3. **Instructor fallback（后续迭代）** — 本期仅实现原生 `response_format` 结构化输出。Instructor fallback 路径作为后续优化，待确认 GPT-5.4 系列的 schema 兼容性边界后再添加
 4. **Usage 容错** — `response.usage` 可能为 None（兼容服务），记为 None 不阻塞
 
 ### 注册与工厂
@@ -343,6 +343,8 @@ OPENAI_VIDEO_COST = {
 
 `calculate_cost()` 签名新增可选 `quality` 参数，仅 OpenAI 图片使用。
 
+> **`quality` 上游传递：** 本期 `UsageTracker` / `usage_repo` 暂不传递 `quality`，OpenAI 图片费用将使用默认值 `"medium"` 计算。完善 `quality` 从 Backend → UsageTracker → CostCalculator 的传递链作为后续优化。
+
 ---
 
 ## 7. 连接测试
@@ -350,21 +352,27 @@ OPENAI_VIDEO_COST = {
 ### `server/routers/providers.py`
 
 ```python
-async def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(
-        api_key=config.get("api_key"),
-        base_url=config.get("base_url") or None,
-    )
-    models = await client.models.list()
-    model_ids = [m.id for m in models.data[:5]]
+def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
+    """通过 models.list() 验证 OpenAI API Key。同步函数，由框架通过 asyncio.to_thread 调用。"""
+    from openai import OpenAI
+
+    kwargs: dict = {"api_key": config["api_key"]}
+    base_url = config.get("base_url")
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = OpenAI(**kwargs)
+    models = client.models.list()
+    available = sorted(m.id for m in models.data[:10])
     return ConnectionTestResponse(
         success=True,
-        message=f"连接成功，可用模型: {', '.join(model_ids)}",
+        available_models=available,
+        message="连接成功",
     )
 ```
 
 注册到 `_TEST_DISPATCH["openai"] = _test_openai`。
+
+> **注意：** 使用同步 `OpenAI` 客户端而非 `AsyncOpenAI`，因为现有框架通过 `asyncio.to_thread(test_fn, config)` 在线程池中运行所有连接测试函数（与 `_test_grok`、`_test_ark` 等一致）。
 
 ---
 
@@ -381,8 +389,8 @@ async def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
 
 ### 需要改的
 
-- **供应商图标** — 使用 lobe-icons 的 OpenAI 图标
-- **`config-status-store.ts`** — 检查是否有硬编码供应商列表需要加入 `"openai"`（如已从 API 动态判断则不需改）
+- **供应商图标** — 使用 lobe-icons 的 OpenAI 图标，同时更新 `PROVIDER_NAMES` 映射
+- **`config-status-store.ts`** — 已确认完全动态判断，无需修改
 
 ---
 
@@ -437,6 +445,6 @@ async def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
 | `lib/image_backends/__init__.py` | 注册 OpenAIImageBackend |
 | `lib/video_backends/__init__.py` | 注册 OpenAIVideoBackend |
 | `server/routers/providers.py` | 新增 `_test_openai` 连接测试 |
+| `server/services/generation_tasks.py` | 新增 `PROVIDER_OPENAI` 到映射表、`_DEFAULT_VIDEO_RESOLUTION`、工厂分支 |
 | `tests/test_cost_calculator.py` | 扩展 OpenAI 定价用例 |
-| 前端：供应商图标组件 | 添加 OpenAI lobe-icons 图标 |
-| 前端：`config-status-store.ts` | 如有硬编码则加入 openai |
+| 前端：`ProviderIcon.tsx` | 添加 OpenAI lobe-icons 图标 + `PROVIDER_NAMES` 映射 |
