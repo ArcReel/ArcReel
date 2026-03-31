@@ -23,7 +23,7 @@ def mock_ark_client():
 
 @pytest.fixture
 def backend(mock_ark_client):
-    with patch("volcenginesdkarkruntime.Ark", return_value=mock_ark_client):
+    with patch("lib.video_backends.ark.create_ark_client", return_value=mock_ark_client):
         b = ArkVideoBackend(
             api_key="test-ark-key",
         )
@@ -195,6 +195,5 @@ class TestArkGenerate:
 
     def test_missing_api_key_raises(self):
         with patch.dict(os.environ, {}, clear=True):
-            with patch("volcenginesdkarkruntime.Ark"):
-                with pytest.raises(ValueError, match="ARK_API_KEY"):
-                    ArkVideoBackend(api_key=None)
+            with pytest.raises(ValueError, match="Ark API Key"):
+                ArkVideoBackend(api_key=None)

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 
+from lib.ark_shared import create_ark_client
 from lib.providers import PROVIDER_ARK
 from lib.video_backends.base import (
     VideoCapability,
@@ -28,16 +28,7 @@ class ArkVideoBackend:
         api_key: str | None = None,
         model: str | None = None,
     ):
-        self._api_key = api_key or os.environ.get("ARK_API_KEY")
-        if not self._api_key:
-            raise ValueError("ARK_API_KEY 环境变量未设置\n请在 .env 文件中添加：ARK_API_KEY=your-api-key")
-
-        from volcenginesdkarkruntime import Ark
-
-        self._client = Ark(
-            base_url="https://ark.cn-beijing.volces.com/api/v3",
-            api_key=self._api_key,
-        )
+        self._client = create_ark_client(api_key=api_key)
         self._model = model or self.DEFAULT_MODEL
         self._capabilities: set[VideoCapability] = {
             VideoCapability.TEXT_TO_VIDEO,
