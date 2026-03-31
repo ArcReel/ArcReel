@@ -24,7 +24,7 @@ def config_service(session: AsyncSession) -> ConfigService:
 
 async def test_get_all_providers_status_empty(config_service: ConfigService):
     statuses = await config_service.get_all_providers_status()
-    assert len(statuses) == 4
+    assert len(statuses) == 5
     for s in statuses:
         assert s.status == "unconfigured"
 

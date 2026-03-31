@@ -2,7 +2,7 @@ from lib.config.registry import PROVIDER_REGISTRY, ProviderMeta
 
 
 def test_all_providers_registered():
-    assert set(PROVIDER_REGISTRY.keys()) == {"gemini-aistudio", "gemini-vertex", "ark", "grok"}
+    assert set(PROVIDER_REGISTRY.keys()) == {"gemini-aistudio", "gemini-vertex", "ark", "grok", "openai"}
 
 
 def test_provider_meta_fields():
