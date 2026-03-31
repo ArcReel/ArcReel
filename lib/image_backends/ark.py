@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import os
 from pathlib import Path
 
+from lib.ark_shared import create_ark_client
 from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
@@ -30,16 +30,7 @@ class ArkImageBackend:
         api_key: str | None = None,
         model: str | None = None,
     ):
-        from volcenginesdkarkruntime import Ark
-
-        self._api_key = api_key or os.environ.get("ARK_API_KEY")
-        if not self._api_key:
-            raise ValueError("Ark API Key 未提供。请在「全局设置 → 供应商」页面配置 API Key。")
-
-        self._client = Ark(
-            base_url="https://ark.cn-beijing.volces.com/api/v3",
-            api_key=self._api_key,
-        )
+        self._client = create_ark_client(api_key=api_key)
         self._model = model or self.DEFAULT_MODEL
         self._capabilities: set[ImageCapability] = {
             ImageCapability.TEXT_TO_IMAGE,

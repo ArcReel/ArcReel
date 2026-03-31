@@ -59,23 +59,20 @@ class TestArkImageBackendInit:
 
     def test_api_key_from_env(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("ARK_API_KEY", "env-key")
-        with patch("volcenginesdkarkruntime.Ark") as MockArk:
+        with patch("lib.image_backends.ark.create_ark_client") as mock_create:
             from lib.image_backends.ark import ArkImageBackend
 
             backend = ArkImageBackend()
-            MockArk.assert_called_once()
+            mock_create.assert_called_once_with(api_key=None)
             assert backend.name == PROVIDER_ARK
 
     def test_api_key_from_param(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("ARK_API_KEY", raising=False)
-        with patch("volcenginesdkarkruntime.Ark") as MockArk:
+        with patch("lib.image_backends.ark.create_ark_client") as mock_create:
             from lib.image_backends.ark import ArkImageBackend
 
             ArkImageBackend(api_key="my-key")
-            MockArk.assert_called_once_with(
-                base_url="https://ark.cn-beijing.volces.com/api/v3",
-                api_key="my-key",
-            )
+            mock_create.assert_called_once_with(api_key="my-key")
 
 
 class TestArkImageBackendProperties:
@@ -84,7 +81,7 @@ class TestArkImageBackendProperties:
     @pytest.fixture()
     def backend(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("ARK_API_KEY", raising=False)
-        with patch("volcenginesdkarkruntime.Ark"):
+        with patch("lib.image_backends.ark.create_ark_client"):
             from lib.image_backends.ark import ArkImageBackend
 
             return ArkImageBackend(api_key="test-key")
@@ -97,7 +94,7 @@ class TestArkImageBackendProperties:
 
     def test_custom_model(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("ARK_API_KEY", raising=False)
-        with patch("volcenginesdkarkruntime.Ark"):
+        with patch("lib.image_backends.ark.create_ark_client"):
             from lib.image_backends.ark import ArkImageBackend
 
             b = ArkImageBackend(api_key="k", model="custom-model")
@@ -117,7 +114,7 @@ class TestArkImageBackendGenerate:
     def backend_and_client(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("ARK_API_KEY", raising=False)
         mock_client = _make_client_mock()
-        with patch("volcenginesdkarkruntime.Ark", return_value=mock_client):
+        with patch("lib.image_backends.ark.create_ark_client", return_value=mock_client):
             from lib.image_backends.ark import ArkImageBackend
 
             backend = ArkImageBackend(api_key="test-key")
