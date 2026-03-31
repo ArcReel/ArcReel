@@ -73,6 +73,7 @@ class TestOpenAIVideoBackend:
                 prompt="A cat walking in the park",
                 output_path=output_path,
                 aspect_ratio="9:16",
+                resolution="720p",
                 duration_seconds=8,
             )
             result = await backend.generate(request)
@@ -88,7 +89,7 @@ class TestOpenAIVideoBackend:
         assert call_kwargs["prompt"] == "A cat walking in the park"
         assert call_kwargs["model"] == "sora-2"
         assert call_kwargs["seconds"] == "8"
-        assert call_kwargs["size"] == "720x1280"  # 9:16
+        assert call_kwargs["size"] == "720x1280"  # 720p 9:16
         assert "input_reference" not in call_kwargs
 
     async def test_image_to_video(self, tmp_path: Path):
@@ -176,6 +177,7 @@ class TestOpenAIVideoBackend:
                     prompt="test",
                     output_path=output_path,
                     aspect_ratio=aspect,
+                    resolution="720p",
                 )
                 await backend.generate(request)
                 call_kwargs = mock_client.videos.create_and_poll.call_args[1]

@@ -17,10 +17,19 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "sora-2"
 
-_SIZE_MAP: dict[str, str] = {
-    "9:16": "720x1280",
-    "16:9": "1280x720",
+_SIZE_MAP: dict[tuple[str, str], str] = {
+    ("720p", "9:16"): "720x1280",
+    ("720p", "16:9"): "1280x720",
+    ("1080p", "9:16"): "1080x1920",
+    ("1080p", "16:9"): "1920x1080",
+    ("1024p", "9:16"): "1024x1792",
+    ("1024p", "16:9"): "1792x1024",
 }
+_DEFAULT_SIZE = "720x1280"
+
+
+def _resolve_size(resolution: str, aspect_ratio: str) -> str:
+    return _SIZE_MAP.get((resolution, aspect_ratio), _DEFAULT_SIZE)
 
 
 class OpenAIVideoBackend:
@@ -51,7 +60,7 @@ class OpenAIVideoBackend:
             "prompt": request.prompt,
             "model": self._model,
             "seconds": _map_duration(request.duration_seconds),
-            "size": _SIZE_MAP.get(request.aspect_ratio, "720x1280"),
+            "size": _resolve_size(request.resolution, request.aspect_ratio),
         }
 
         if request.start_image and Path(request.start_image).exists():
