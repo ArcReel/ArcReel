@@ -37,3 +37,8 @@ from lib.providers import PROVIDER_GROK
 from lib.text_backends.grok import GrokTextBackend
 
 register_backend(PROVIDER_GROK, GrokTextBackend)
+
+from lib.providers import PROVIDER_OPENAI
+from lib.text_backends.openai import OpenAITextBackend
+
+register_backend(PROVIDER_OPENAI, OpenAITextBackend)

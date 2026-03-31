@@ -12,6 +12,7 @@ PROVIDER_ID_TO_BACKEND: dict[str, str] = {
     "gemini-vertex": "gemini",
     "ark": "ark",
     "grok": "grok",
+    "openai": "openai",
 }
 
 
@@ -32,7 +33,7 @@ async def create_text_backend_for_task(
         kwargs["gcs_bucket"] = provider_config.get("gcs_bucket")
     else:
         kwargs["api_key"] = provider_config.get("api_key")
-        if provider_id == "gemini-aistudio":
+        if provider_id in ("gemini-aistudio", "openai"):
             kwargs["base_url"] = provider_config.get("base_url")
 
     return create_backend(backend_name, **kwargs)
