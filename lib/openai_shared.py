@@ -33,7 +33,7 @@ try:
         RateLimitError,
     )
 except ImportError:
-    pass
+    pass  # openai 是必装依赖，此分支仅作防御性保护；回退到空 tuple
 
 
 def create_openai_client(
