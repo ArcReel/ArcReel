@@ -85,11 +85,11 @@ def _build_messages(request: TextGenerationRequest) -> list[dict]:
 
     # 构建 user message
     if request.images:
+        from lib.image_backends.base import image_to_base64_data_uri
+
         content: list[dict] = []
         for img in request.images:
             if img.path:
-                from lib.image_backends.base import image_to_base64_data_uri
-
                 data_uri = image_to_base64_data_uri(img.path)
                 content.append({"type": "image_url", "image_url": {"url": data_uri}})
             elif img.url:

@@ -106,23 +106,26 @@ async def _get_or_create_video_backend(
         kwargs["api_key"] = db_config.get("api_key")
         kwargs["rate_limiter"] = rate_limiter
         kwargs["video_model"] = effective_model
-    elif backend_name == PROVIDER_ARK:
-        db_config = await resolver.provider_config("ark")
-        kwargs["api_key"] = db_config.get("api_key")
-        kwargs["model"] = effective_model
-    elif backend_name == PROVIDER_GROK:
-        db_config = await resolver.provider_config("grok")
-        kwargs["api_key"] = db_config.get("api_key")
-        kwargs["model"] = effective_model
-    elif backend_name == PROVIDER_OPENAI:
-        db_config = await resolver.provider_config("openai")
-        kwargs["api_key"] = db_config.get("api_key")
-        kwargs["base_url"] = db_config.get("base_url")
-        kwargs["model"] = effective_model
+    else:
+        await _fill_simple_provider_kwargs(backend_name, resolver, kwargs, effective_model)
 
     backend = create_backend(backend_name, **kwargs)
     _backend_cache[cache_key] = backend
     return backend
+
+
+async def _fill_simple_provider_kwargs(
+    backend_name: str,
+    resolver: ConfigResolver,
+    kwargs: dict,
+    effective_model: str | None,
+) -> None:
+    """Ark/Grok/OpenAI 等简单供应商的通用配置填充。"""
+    db_config = await resolver.provider_config(backend_name)
+    kwargs["api_key"] = db_config.get("api_key")
+    kwargs["model"] = effective_model
+    if base_url := db_config.get("base_url"):
+        kwargs["base_url"] = base_url
 
 
 async def _get_or_create_image_backend(
@@ -154,19 +157,8 @@ async def _get_or_create_image_backend(
         kwargs["base_url"] = db_config.get("base_url")
         kwargs["rate_limiter"] = rate_limiter
         kwargs["image_model"] = effective_model
-    elif backend_name == PROVIDER_ARK:
-        db_config = await resolver.provider_config("ark")
-        kwargs["api_key"] = db_config.get("api_key")
-        kwargs["model"] = effective_model
-    elif backend_name == PROVIDER_GROK:
-        db_config = await resolver.provider_config("grok")
-        kwargs["api_key"] = db_config.get("api_key")
-        kwargs["model"] = effective_model
-    elif backend_name == PROVIDER_OPENAI:
-        db_config = await resolver.provider_config("openai")
-        kwargs["api_key"] = db_config.get("api_key")
-        kwargs["base_url"] = db_config.get("base_url")
-        kwargs["model"] = effective_model
+    else:
+        await _fill_simple_provider_kwargs(backend_name, resolver, kwargs, effective_model)
 
     backend = create_backend(backend_name, **kwargs)
     _backend_cache[cache_key] = backend

@@ -320,9 +320,9 @@ class CostCalculator:
 
     _TEXT_COST_TABLES: dict[str, tuple[dict, str, str]] = {
         # provider -> (cost_table_attr, default_model, currency)
-        "ark": ("ARK_TEXT_COST", "doubao-seed-2-0-lite-260215", "CNY"),
-        "grok": ("GROK_TEXT_COST", "grok-4-1-fast-reasoning", "USD"),
-        "openai": ("OPENAI_TEXT_COST", "gpt-5.4-mini", "USD"),
+        PROVIDER_ARK: ("ARK_TEXT_COST", "doubao-seed-2-0-lite-260215", "CNY"),
+        PROVIDER_GROK: ("GROK_TEXT_COST", "grok-4-1-fast-reasoning", "USD"),
+        PROVIDER_OPENAI: ("OPENAI_TEXT_COST", "gpt-5.4-mini", "USD"),
     }
     _TEXT_COST_DEFAULT = ("GEMINI_TEXT_COST", "gemini-3-flash-preview", "USD")
 
