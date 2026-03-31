@@ -1,10 +1,13 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
 import { API } from "@/api";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
-import type { ProviderInfo } from "@/types";
+import type { ProviderInfo, CustomProviderInfo } from "@/types";
 import { ProviderDetail } from "./ProviderDetail";
+import { CustomProviderSection } from "./settings/CustomProviderSection";
+import { CustomProviderDetail } from "./settings/CustomProviderDetail";
+import { CustomProviderForm } from "./settings/CustomProviderForm";
 
 // ---------------------------------------------------------------------------
 // Status dot
@@ -25,37 +28,77 @@ function StatusDot({ status }: { status: string }) {
 // Provider Section
 // ---------------------------------------------------------------------------
 
+// Selection can be a preset provider (string id) or custom provider (numeric id) or "new" form
+type Selection =
+  | { kind: "preset"; id: string }
+  | { kind: "custom"; id: number }
+  | { kind: "new-custom" }
+  | null;
+
 export function ProviderSection() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [location, navigate] = useLocation();
   const search = useSearch();
 
-  const selectedId = useMemo(() => new URLSearchParams(search).get("provider"), [search]);
+  // Parse URL-driven selection into typed Selection
+  const selection: Selection = useMemo(() => {
+    const params = new URLSearchParams(search);
+    const preset = params.get("provider");
+    const custom = params.get("custom");
+    if (custom === "new") return { kind: "new-custom" };
+    if (custom) {
+      const id = parseInt(custom, 10);
+      if (!isNaN(id)) return { kind: "custom", id };
+    }
+    if (preset) return { kind: "preset", id: preset };
+    return null;
+  }, [search]);
 
-  const setSelectedId = (id: string) => {
-    const p = new URLSearchParams(search);
-    p.set("provider", id);
-    navigate(`${location}?${p.toString()}`, { replace: true });
-  };
+  const setSelection = useCallback(
+    (sel: Selection) => {
+      const p = new URLSearchParams(search);
+      // Clear both params, then set the relevant one
+      p.delete("provider");
+      p.delete("custom");
+      if (sel?.kind === "preset") p.set("provider", sel.id);
+      else if (sel?.kind === "custom") p.set("custom", String(sel.id));
+      else if (sel?.kind === "new-custom") p.set("custom", "new");
+      navigate(`${location}?${p.toString()}`, { replace: true });
+    },
+    [search, location, navigate],
+  );
+
+  // Fetch preset providers
+  const refreshPreset = useCallback(async () => {
+    const res = await API.getProviders();
+    setProviders(res.providers);
+  }, []);
+
+  // Fetch custom providers
+  const refreshCustom = useCallback(async () => {
+    const res = await API.listCustomProviders();
+    setCustomProviders(res.providers);
+  }, []);
 
   useEffect(() => {
     let disposed = false;
-    API.getProviders().then((res) => {
+    Promise.all([API.getProviders(), API.listCustomProviders()]).then(([presetRes, customRes]) => {
       if (disposed) return;
-      setProviders(res.providers);
-      if (res.providers.length > 0 && !new URLSearchParams(search).get("provider")) {
-        setSelectedId(res.providers[0].id);
+      setProviders(presetRes.providers);
+      setCustomProviders(customRes.providers);
+      // Auto-select first preset if nothing is selected
+      const params = new URLSearchParams(search);
+      if (!params.get("provider") && !params.get("custom") && presetRes.providers.length > 0) {
+        setSelection({ kind: "preset", id: presetRes.providers[0].id });
       }
       setLoading(false);
     });
-    return () => { disposed = true; };
-  }, []);
-
-  const refresh = async () => {
-    const res = await API.getProviders();
-    setProviders(res.providers);
-  };
+    return () => {
+      disposed = true;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (
@@ -68,18 +111,19 @@ export function ProviderSection() {
 
   return (
     <div className="flex h-full">
-      {/* Provider list */}
-      <div className="w-52 shrink-0 border-r border-gray-800 py-3">
+      {/* Provider list sidebar */}
+      <div className="w-52 shrink-0 overflow-y-auto border-r border-gray-800 py-3">
+        {/* Preset providers */}
         <div className="px-4 pb-2 text-xs uppercase tracking-wide text-gray-500">
-          供应商列表
+          预置供应商
         </div>
         {providers.map((p) => (
           <button
             key={p.id}
             type="button"
-            onClick={() => setSelectedId(p.id)}
+            onClick={() => setSelection({ kind: "preset", id: p.id })}
             className={`flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors ${
-              selectedId === p.id
+              selection?.kind === "preset" && selection.id === p.id
                 ? "border-l-2 border-indigo-500 bg-gray-800/50 text-white"
                 : "border-l-2 border-transparent text-gray-400 hover:bg-gray-800/30 hover:text-gray-200"
             }`}
@@ -89,15 +133,58 @@ export function ProviderSection() {
             <StatusDot status={p.status} />
           </button>
         ))}
+
+        {/* Custom providers */}
+        <CustomProviderSection
+          providers={customProviders}
+          selectedId={selection?.kind === "custom" ? selection.id : null}
+          onSelect={(id) => setSelection({ kind: "custom", id })}
+          onAdd={() => setSelection({ kind: "new-custom" })}
+        />
       </div>
 
-      {/* Provider detail */}
+      {/* Detail panel */}
       <div className="flex-1 overflow-y-auto p-6">
-        {selectedId ? (
-          <ProviderDetail providerId={selectedId} onSaved={() => void refresh()} />
-        ) : (
-          <div className="text-sm text-gray-500">请选择供应商</div>
+        {selection?.kind === "preset" && (
+          <ProviderDetail providerId={selection.id} onSaved={() => void refreshPreset()} />
         )}
+        {selection?.kind === "custom" && (
+          <CustomProviderDetail
+            providerId={selection.id}
+            onDeleted={() => {
+              void refreshCustom();
+              // Select first preset provider after delete
+              if (providers.length > 0) {
+                setSelection({ kind: "preset", id: providers[0].id });
+              } else {
+                setSelection(null);
+              }
+            }}
+            onSaved={() => void refreshCustom()}
+          />
+        )}
+        {selection?.kind === "new-custom" && (
+          <CustomProviderForm
+            onSaved={() => {
+              // After save, re-fetch to get latest list and select the new one
+              void API.listCustomProviders().then((res) => {
+                setCustomProviders(res.providers);
+                if (res.providers.length > 0) {
+                  const newest = res.providers[res.providers.length - 1];
+                  setSelection({ kind: "custom", id: newest.id });
+                }
+              });
+            }}
+            onCancel={() => {
+              if (providers.length > 0) {
+                setSelection({ kind: "preset", id: providers[0].id });
+              } else {
+                setSelection(null);
+              }
+            }}
+          />
+        )}
+        {!selection && <div className="text-sm text-gray-500">请选择供应商</div>}
       </div>
     </div>
   );

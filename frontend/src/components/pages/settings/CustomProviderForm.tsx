@@ -1,0 +1,579 @@
+import { useState, useCallback } from "react";
+import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle } from "lucide-react";
+import { API } from "@/api";
+import type {
+  CustomProviderInfo,
+  CustomProviderModelInput,
+  DiscoveredModel,
+} from "@/types";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type ApiFormat = "openai" | "google";
+type MediaType = "text" | "image" | "video";
+
+const API_FORMAT_OPTIONS: { value: ApiFormat; label: string }[] = [
+  { value: "openai", label: "OpenAI 兼容" },
+  { value: "google", label: "Google AI" },
+];
+
+const MEDIA_TYPE_OPTIONS: { value: MediaType; label: string }[] = [
+  { value: "text", label: "文本" },
+  { value: "image", label: "图片" },
+  { value: "video", label: "视频" },
+];
+
+interface ModelRow {
+  key: string; // unique key for React
+  model_id: string;
+  display_name: string;
+  media_type: MediaType;
+  is_default: boolean;
+  is_enabled: boolean;
+  price_unit: string;
+  price_input: string;
+  price_output: string;
+  currency: string;
+}
+
+function newModelRow(partial?: Partial<ModelRow>): ModelRow {
+  return {
+    key: crypto.randomUUID(),
+    model_id: "",
+    display_name: "",
+    media_type: "text",
+    is_default: false,
+    is_enabled: true,
+    price_unit: "",
+    price_input: "",
+    price_output: "",
+    currency: "CNY",
+    ...partial,
+  };
+}
+
+function discoveredToRow(m: DiscoveredModel): ModelRow {
+  return newModelRow({
+    model_id: m.model_id,
+    display_name: m.display_name,
+    media_type: m.media_type,
+    is_default: m.is_default,
+    is_enabled: m.is_enabled,
+  });
+}
+
+function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
+  return newModelRow({
+    model_id: m.model_id,
+    display_name: m.display_name,
+    media_type: m.media_type,
+    is_default: m.is_default,
+    is_enabled: m.is_enabled,
+    price_unit: m.price_unit ?? "",
+    price_input: m.price_input != null ? String(m.price_input) : "",
+    price_output: m.price_output != null ? String(m.price_output) : "",
+    currency: m.currency ?? "CNY",
+  });
+}
+
+function rowToInput(r: ModelRow): CustomProviderModelInput {
+  return {
+    model_id: r.model_id,
+    display_name: r.display_name || r.model_id,
+    media_type: r.media_type,
+    is_default: r.is_default,
+    is_enabled: r.is_enabled,
+    ...(r.price_unit ? { price_unit: r.price_unit } : {}),
+    ...(r.price_input ? { price_input: parseFloat(r.price_input) } : {}),
+    ...(r.price_output ? { price_output: parseFloat(r.price_output) } : {}),
+    ...(r.currency ? { currency: r.currency } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Price label helper
+// ---------------------------------------------------------------------------
+
+function priceLabel(mediaType: MediaType): { input: string; output: string } {
+  if (mediaType === "video") return { input: "/秒", output: "" };
+  return { input: "/百万输入", output: "/百万输出" };
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+interface CustomProviderFormProps {
+  existing?: CustomProviderInfo | null;
+  onSaved: () => void;
+  onCancel: () => void;
+}
+
+export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProviderFormProps) {
+  const isEdit = !!existing;
+
+  // --- Form state ---
+  const [displayName, setDisplayName] = useState(existing?.display_name ?? "");
+  const [apiFormat, setApiFormat] = useState<ApiFormat>(existing?.api_format ?? "openai");
+  const [baseUrl, setBaseUrl] = useState(existing?.base_url ?? "");
+  const [apiKey, setApiKey] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [models, setModels] = useState<ModelRow[]>(
+    existing ? existing.models.map(existingToRow) : [],
+  );
+
+  // --- Loading / status ---
+  const [discovering, setDiscovering] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // --- Discover models ---
+  const handleDiscover = useCallback(async () => {
+    if (!baseUrl) {
+      setError("请先填写 Base URL");
+      return;
+    }
+    const key = apiKey || (isEdit ? "__keep__" : "");
+    if (!key) {
+      setError("请先填写 API Key");
+      return;
+    }
+    setDiscovering(true);
+    setError(null);
+    try {
+      const res = await API.discoverModels({ api_format: apiFormat, base_url: baseUrl, api_key: apiKey });
+      const discovered = res.models.map(discoveredToRow);
+      // Merge: keep existing rows that match by model_id, add new ones
+      setModels((prev) => {
+        const existingIds = new Map(prev.map((r) => [r.model_id, r]));
+        const merged: ModelRow[] = [];
+        for (const d of discovered) {
+          const existing = existingIds.get(d.model_id);
+          if (existing) {
+            merged.push(existing);
+            existingIds.delete(d.model_id);
+          } else {
+            merged.push(d);
+          }
+        }
+        // Keep manually added models that weren't in the discovery response
+        for (const r of existingIds.values()) {
+          merged.push(r);
+        }
+        return merged;
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "获取模型列表失败");
+    } finally {
+      setDiscovering(false);
+    }
+  }, [apiFormat, baseUrl, apiKey, isEdit]);
+
+  // --- Test connection ---
+  const handleTest = useCallback(async () => {
+    if (!baseUrl) {
+      setError("请先填写 Base URL");
+      return;
+    }
+    setTesting(true);
+    setError(null);
+    setTestResult(null);
+    try {
+      const res = await API.testCustomConnection({ api_format: apiFormat, base_url: baseUrl, api_key: apiKey });
+      setTestResult(res);
+    } catch (e) {
+      setTestResult({ success: false, message: e instanceof Error ? e.message : "连接测试失败" });
+    } finally {
+      setTesting(false);
+    }
+  }, [apiFormat, baseUrl, apiKey]);
+
+  // --- Save ---
+  const handleSave = useCallback(async () => {
+    setError(null);
+    // Validation
+    if (!displayName.trim()) {
+      setError("请填写供应商名称");
+      return;
+    }
+    if (!baseUrl.trim()) {
+      setError("请填写 Base URL");
+      return;
+    }
+    if (!isEdit && !apiKey.trim()) {
+      setError("请填写 API Key");
+      return;
+    }
+    const enabledModels = models.filter((m) => m.is_enabled);
+    if (enabledModels.length === 0) {
+      setError("至少启用一个模型");
+      return;
+    }
+    setSaving(true);
+    try {
+      if (isEdit && existing) {
+        // Update provider metadata
+        const patch: Record<string, unknown> = {
+          display_name: displayName,
+          api_format: apiFormat,
+          base_url: baseUrl,
+        };
+        if (apiKey) patch.api_key = apiKey;
+        await API.updateCustomProvider(existing.id, patch);
+        // Replace models
+        await API.replaceCustomProviderModels(existing.id, models.map(rowToInput));
+      } else {
+        await API.createCustomProvider({
+          display_name: displayName,
+          api_format: apiFormat,
+          base_url: baseUrl,
+          api_key: apiKey,
+          models: models.map(rowToInput),
+        });
+      }
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }, [displayName, apiFormat, baseUrl, apiKey, models, isEdit, existing, onSaved]);
+
+  // --- Model row helpers ---
+  const updateModel = (key: string, patch: Partial<ModelRow>) => {
+    setModels((prev) =>
+      prev.map((m) => {
+        if (m.key !== key) return m;
+        const updated = { ...m, ...patch };
+        return updated;
+      }),
+    );
+  };
+
+  const removeModel = (key: string) => {
+    setModels((prev) => prev.filter((m) => m.key !== key));
+  };
+
+  const addManualModel = () => {
+    setModels((prev) => [...prev, newModelRow()]);
+  };
+
+  const toggleDefault = (key: string, mediaType: MediaType) => {
+    setModels((prev) =>
+      prev.map((m) => {
+        if (m.media_type !== mediaType) return m;
+        return { ...m, is_default: m.key === key ? !m.is_default : false };
+      }),
+    );
+  };
+
+  // --- Shared input classes ---
+  const inputCls =
+    "w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+  const selectCls =
+    "rounded-lg border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-gray-100 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+
+  return (
+    <div className="max-w-2xl">
+      <h3 className="mb-6 text-lg font-semibold text-gray-100">
+        {isEdit ? "编辑自定义供应商" : "添加自定义供应商"}
+      </h3>
+
+      <div className="space-y-4">
+        {/* Display name */}
+        <div>
+          <label htmlFor="cp-name" className="mb-1.5 block text-sm text-gray-400">
+            名称 <span className="text-red-400">*</span>
+          </label>
+          <input
+            id="cp-name"
+            type="text"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="例如：我的 NewAPI"
+            className={inputCls}
+          />
+        </div>
+
+        {/* API Format */}
+        <div>
+          <label htmlFor="cp-format" className="mb-1.5 block text-sm text-gray-400">
+            API 格式
+          </label>
+          <select
+            id="cp-format"
+            value={apiFormat}
+            onChange={(e) => setApiFormat(e.target.value as ApiFormat)}
+            className={selectCls}
+          >
+            {API_FORMAT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Base URL */}
+        <div>
+          <label htmlFor="cp-url" className="mb-1.5 block text-sm text-gray-400">
+            Base URL <span className="text-red-400">*</span>
+          </label>
+          <input
+            id="cp-url"
+            type="url"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://api.example.com/v1"
+            className={inputCls}
+          />
+        </div>
+
+        {/* API Key */}
+        <div>
+          <label htmlFor="cp-key" className="mb-1.5 block text-sm text-gray-400">
+            API Key {!isEdit && <span className="text-red-400">*</span>}
+          </label>
+          <div className="relative">
+            <input
+              id="cp-key"
+              type={showApiKey ? "text" : "password"}
+              autoComplete="off"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={isEdit ? existing?.api_key_masked ?? "留空则保留现有密钥" : "输入 API Key"}
+              className={`${inputCls} pr-9`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowApiKey((v) => !v)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-gray-500 hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
+              aria-label={showApiKey ? "隐藏" : "显示"}
+            >
+              {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Discover button */}
+        <div>
+          <button
+            type="button"
+            onClick={() => void handleDiscover()}
+            disabled={discovering}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:text-gray-100 disabled:opacity-50"
+          >
+            {discovering ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                获取中…
+              </>
+            ) : (
+              "获取模型列表"
+            )}
+          </button>
+        </div>
+
+        {/* Model list */}
+        {models.length > 0 && (
+          <div>
+            <div className="mb-2 text-sm text-gray-400">模型列表</div>
+            <div className="space-y-2">
+              {models.map((m) => {
+                const pl = priceLabel(m.media_type);
+                return (
+                  <div
+                    key={m.key}
+                    className="rounded-xl border border-gray-800 bg-gray-950/40 p-3"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Enable toggle */}
+                      <label className="flex cursor-pointer items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          checked={m.is_enabled}
+                          onChange={(e) => updateModel(m.key, { is_enabled: e.target.checked })}
+                          className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-800 text-indigo-500 focus:ring-indigo-500"
+                        />
+                      </label>
+
+                      {/* Model ID */}
+                      <input
+                        type="text"
+                        value={m.model_id}
+                        onChange={(e) => updateModel(m.key, { model_id: e.target.value })}
+                        placeholder="model-id"
+                        className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
+                      />
+
+                      {/* Media type */}
+                      <select
+                        value={m.media_type}
+                        onChange={(e) => updateModel(m.key, { media_type: e.target.value as MediaType })}
+                        className={selectCls}
+                      >
+                        {MEDIA_TYPE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      {/* Default toggle */}
+                      <button
+                        type="button"
+                        onClick={() => toggleDefault(m.key, m.media_type)}
+                        className={`rounded-lg px-2 py-1 text-xs transition-colors ${
+                          m.is_default
+                            ? "bg-indigo-600 text-white"
+                            : "border border-gray-700 text-gray-500 hover:border-gray-600 hover:text-gray-300"
+                        }`}
+                      >
+                        默认
+                      </button>
+
+                      {/* Remove */}
+                      <button
+                        type="button"
+                        onClick={() => removeModel(m.key)}
+                        className="rounded p-1 text-gray-500 hover:text-red-400"
+                        aria-label="删除模型"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Pricing row */}
+                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-6 text-xs text-gray-500">
+                      <span>¥</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={m.price_input}
+                        onChange={(e) => updateModel(m.key, { price_input: e.target.value })}
+                        placeholder="0.00"
+                        className="w-16 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-xs text-gray-300 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
+                      />
+                      <span>{pl.input}</span>
+                      {pl.output && (
+                        <>
+                          <span className="text-gray-600">|</span>
+                          <span>¥</span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={m.price_output}
+                            onChange={(e) => updateModel(m.key, { price_output: e.target.value })}
+                            placeholder="0.00"
+                            className="w-16 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-xs text-gray-300 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
+                          />
+                          <span>{pl.output}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Add manual model */}
+            <button
+              type="button"
+              onClick={addManualModel}
+              className="mt-2 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-300"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              手动添加模型
+            </button>
+          </div>
+        )}
+
+        {/* Empty model hint */}
+        {models.length === 0 && (
+          <div className="rounded-xl border border-dashed border-gray-700 p-4 text-center text-sm text-gray-500">
+            点击「获取模型列表」自动发现，或
+            <button
+              type="button"
+              onClick={addManualModel}
+              className="ml-1 text-indigo-400 hover:text-indigo-300"
+            >
+              手动添加模型
+            </button>
+          </div>
+        )}
+
+        {/* Error display */}
+        {error && (
+          <div className="rounded-lg border border-red-800/50 bg-red-900/20 px-3 py-2 text-sm text-red-400">
+            {error}
+          </div>
+        )}
+
+        {/* Test result */}
+        {testResult && (
+          <div
+            className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+              testResult.success
+                ? "border-green-800/50 bg-green-900/20 text-green-400"
+                : "border-red-800/50 bg-red-900/20 text-red-400"
+            }`}
+          >
+            {testResult.success ? (
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            ) : (
+              <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            )}
+            <span>{testResult.message}</span>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => void handleTest()}
+            disabled={testing}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:text-gray-100 disabled:opacity-50"
+          >
+            {testing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                测试中…
+              </>
+            ) : (
+              "测试连接"
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                保存中…
+              </>
+            ) : (
+              "保存"
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-lg px-3 py-1.5 text-sm text-gray-400 transition-colors hover:text-gray-200"
+          >
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

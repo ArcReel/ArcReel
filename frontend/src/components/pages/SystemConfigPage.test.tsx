@@ -81,6 +81,7 @@ describe("SystemConfigPage", () => {
     // Default: silence child section network calls so tests don't hang
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders());
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(API, "getProviderConfig").mockResolvedValue({
       id: "gemini",
       display_name: "Google Gemini",
