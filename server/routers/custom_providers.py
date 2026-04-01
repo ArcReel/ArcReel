@@ -334,8 +334,10 @@ async def delete_provider(
             await svc.set_setting(key, "")
     await session.commit()
     await _invalidate_caches(request)
-    # 清理引用该 provider 的项目级配置
-    _cleanup_project_refs(prefix, _BACKEND_SETTING_KEYS)
+    # 清理引用该 provider 的项目级配置（同步文件 I/O，放到线程池避免阻塞事件循环）
+    import asyncio
+
+    await asyncio.to_thread(_cleanup_project_refs, prefix, _BACKEND_SETTING_KEYS)
 
 
 # ---------------------------------------------------------------------------

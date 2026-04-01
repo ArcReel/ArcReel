@@ -161,9 +161,13 @@ async def _instructor_fallback(
         # dict schema — 无法用 Instructor（需要 Pydantic 类），
         # 回退到 json_object 模式（比原生 json_schema 兼容性更广）
         logger.info("response_schema 为 dict，无法使用 Instructor，回退到 json_object 模式")
+        # OpenAI API 要求 prompt 中包含 "JSON" 关键字才能启用 json_object 模式
+        fb_messages = list(messages)
+        if not any("JSON" in (m.get("content") or "") for m in fb_messages):
+            fb_messages.insert(0, {"role": "system", "content": "Respond in JSON format."})
         response = await client.chat.completions.create(
             model=model,
-            messages=messages,
+            messages=fb_messages,
             response_format={"type": "json_object"},
         )
         usage = response.usage
