@@ -519,7 +519,7 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
         from lib.text_backends.prompts import STYLE_ANALYSIS_PROMPT
         from lib.text_generator import TextGenerator
 
-        generator = await TextGenerator.create(TextTaskType.STYLE_ANALYSIS)
+        generator = await TextGenerator.create(TextTaskType.STYLE_ANALYSIS, project_name)
         result = await generator.generate(
             TextGenerationRequest(prompt=STYLE_ANALYSIS_PROMPT, images=[ImageInput(path=output_path)]),
             project_name=project_name,

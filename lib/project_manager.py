@@ -1460,7 +1460,7 @@ class ProjectManager:
             raise ValueError("source 目录为空，无法生成概述")
 
         # 创建 TextGenerator（自动追踪用量）
-        generator = await TextGenerator.create(TextTaskType.OVERVIEW)
+        generator = await TextGenerator.create(TextTaskType.OVERVIEW, project_name)
 
         # 调用 TextGenerator（Structured Outputs）
         prompt = f"请分析以下小说内容，提取关键信息：\n\n{source_content}"
