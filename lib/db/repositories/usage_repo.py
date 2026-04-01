@@ -312,7 +312,7 @@ class UsageRepository(BaseRepository):
                 try:
                     custom_ids.add(parse_provider_id(p))
                 except ValueError:
-                    pass
+                    pass  # 防御畸形 provider 字符串（如 "custom-abc"）
 
         custom_names: dict[int, str] = {}
         if custom_ids:

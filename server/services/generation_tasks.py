@@ -68,6 +68,28 @@ def invalidate_backend_cache() -> None:
     _backend_cache.clear()
 
 
+async def _create_custom_backend(provider_name: str, model_id: str | None, media_type: str):
+    """自定义供应商的 backend 创建路径。"""
+    from lib.custom_provider import parse_provider_id
+    from lib.custom_provider.factory import create_custom_backend
+    from lib.db import async_session_factory
+    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+    async with async_session_factory() as session:
+        repo = CustomProviderRepository(session)
+        db_id = parse_provider_id(provider_name)
+        provider = await repo.get_provider(db_id)
+        if provider is None:
+            raise ValueError(f"自定义供应商 {provider_name} 不存在")
+        if not model_id:
+            default_model = await repo.get_default_model(db_id, media_type)
+            if default_model:
+                model_id = default_model.model_id
+            else:
+                raise ValueError(f"自定义供应商 {provider_name} 没有默认 {media_type} 模型")
+        return create_custom_backend(provider=provider, model_id=model_id, media_type=media_type)
+
+
 async def _get_or_create_video_backend(
     provider_name: str,
     provider_settings: dict,
@@ -87,6 +109,12 @@ async def _get_or_create_video_backend(
     cache_key = ("video", provider_name, effective_model)
     if cache_key in _backend_cache:
         return _backend_cache[cache_key]
+
+    # 自定义供应商走独立工厂路径
+    if provider_name.startswith("custom-"):
+        backend = await _create_custom_backend(provider_name, effective_model, "video")
+        _backend_cache[cache_key] = backend
+        return backend
 
     # 解析 provider_id → backend registry name
     backend_name = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
@@ -142,6 +170,12 @@ async def _get_or_create_image_backend(
     cache_key = ("image", provider_name, effective_model)
     if cache_key in _backend_cache:
         return _backend_cache[cache_key]
+
+    # 自定义供应商走独立工厂路径
+    if provider_name.startswith("custom-"):
+        backend = await _create_custom_backend(provider_name, effective_model, "image")
+        _backend_cache[cache_key] = backend
+        return backend
 
     backend_name = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
 

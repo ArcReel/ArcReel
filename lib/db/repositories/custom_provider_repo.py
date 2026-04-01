@@ -59,10 +59,11 @@ class CustomProviderRepository(BaseRepository):
         return provider
 
     async def delete_provider(self, provider_id: int) -> None:
-        """删除供应商及其所有模型。"""
-        # 先删模型
+        """删除供应商及其所有模型。
+
+        显式删除模型而非依赖 FK CASCADE，因为 SQLite 默认不启用 foreign_keys pragma。
+        """
         await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id))
-        # 再删供应商
         await self.session.execute(delete(CustomProvider).where(CustomProvider.id == provider_id))
         await self.session.flush()
 

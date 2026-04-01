@@ -31,7 +31,7 @@ def validate_backend_value(value: str, field_name: str) -> None:
             detail=f"{field_name} 格式应为 provider/model",
         )
     provider_id = value.split("/", 1)[0]
-    if provider_id not in PROVIDER_REGISTRY:
+    if provider_id not in PROVIDER_REGISTRY and not provider_id.startswith("custom-"):
         raise HTTPException(
             status_code=400,
             detail=f"未知供应商: {provider_id}",
