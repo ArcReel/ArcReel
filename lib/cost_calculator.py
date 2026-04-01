@@ -80,7 +80,7 @@ class CostCalculator:
         "veo-3.1-lite-generate-preview",
     ]
 
-    DEFAULT_VIDEO_MODEL = "veo-3.1-fast-generate-preview"
+    DEFAULT_VIDEO_MODEL = "veo-3.1-lite-generate-preview"
 
     # Ark 视频费用（元/百万 token），按 (service_tier, generate_audio) 查表
     ARK_VIDEO_COST = {

@@ -17,12 +17,13 @@ class TestCostCalculator:
 
     def test_calculate_video_cost_known_and_default(self):
         calculator = CostCalculator()
-        # 默认模型 (veo-3.1-fast-generate-preview)
-        assert calculator.calculate_video_cost(8, "1080p", True) == pytest.approx(1.2)
-        assert calculator.calculate_video_cost(8, "1080p", False) == pytest.approx(0.8)
-        assert calculator.calculate_video_cost(6, "4k", True) == pytest.approx(2.1)
-        assert calculator.calculate_video_cost(6, "4k", False) == pytest.approx(1.8)
-        assert calculator.calculate_video_cost(5, "unknown", True) == pytest.approx(0.75)
+        # 默认模型 (veo-3.1-lite-generate-preview)
+        assert calculator.calculate_video_cost(8, "1080p", True) == pytest.approx(0.64)
+        assert calculator.calculate_video_cost(8, "1080p", False) == pytest.approx(0.64)
+        assert calculator.calculate_video_cost(8, "720p", True) == pytest.approx(0.40)
+        assert calculator.calculate_video_cost(8, "720p", False) == pytest.approx(0.40)
+        # Lite 不支持 4K，未知分辨率回退到 1080p+audio 费率 (0.08)
+        assert calculator.calculate_video_cost(5, "unknown", True) == pytest.approx(0.40)
         # Fast 模型 (veo-3.1-fast-generate-001)
         fast = "veo-3.1-fast-generate-001"
         assert calculator.calculate_video_cost(8, "1080p", True, model=fast) == pytest.approx(1.2)
