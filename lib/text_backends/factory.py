@@ -39,7 +39,10 @@ async def create_text_backend_for_task(
             db_id = parse_provider_id(provider_id)
             provider = await repo.get_provider(db_id)
             if provider is None:
-                raise ValueError(f"自定义供应商 {provider_id} 不存在")
+                raise ValueError(
+                    "配置的自定义供应商已被删除，请到项目设置中重新选择文本模型"
+                )
+            name = provider.display_name
             # 校验 model_id 仍存在且已启用，否则回退默认模型
             if model_id:
                 stmt = select(CustomProviderModel).where(
@@ -56,7 +59,9 @@ async def create_text_backend_for_task(
                 if default_model:
                     model_id = default_model.model_id
                 else:
-                    raise ValueError(f"自定义供应商 {provider_id} 没有默认文本模型")
+                    raise ValueError(
+                        f"供应商「{name}」没有可用的文本模型，请到项目设置中重新选择"
+                    )
             return create_custom_backend(provider=provider, model_id=model_id, media_type="text")
 
     provider_config = await resolver.provider_config(provider_id)
