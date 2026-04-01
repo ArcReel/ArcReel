@@ -159,9 +159,13 @@ async def _instructor_fallback(
         )
     else:
         # dict schema — 无法用 Instructor（需要 Pydantic 类），
-        # 回退到不带 response_format 的普通调用
-        logger.info("response_schema 为 dict，无法使用 Instructor，回退到普通调用")
-        response = await client.chat.completions.create(model=model, messages=messages)
+        # 回退到 json_object 模式（比原生 json_schema 兼容性更广）
+        logger.info("response_schema 为 dict，无法使用 Instructor，回退到 json_object 模式")
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            response_format={"type": "json_object"},
+        )
         usage = response.usage
         return TextGenerationResult(
             text=response.choices[0].message.content or "",

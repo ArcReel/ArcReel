@@ -268,9 +268,9 @@ class TestInstructorFallback:
         assert result.text == fallback_json
         assert result.input_tokens == 12
         assert result.output_tokens == 6
-        # 验证第二次调用没有带 response_format
+        # 验证第二次调用使用 json_object 模式（而非原生 json_schema）
         second_call_kwargs = mock_client.chat.completions.create.call_args_list[1][1]
-        assert "response_format" not in second_call_kwargs
+        assert second_call_kwargs.get("response_format") == {"type": "json_object"}
 
     async def test_bad_request_error_without_schema_propagates(self):
         """没有 response_schema 时，BadRequestError 应原样抛出，不做降级。"""
