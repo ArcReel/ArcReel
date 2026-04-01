@@ -450,7 +450,15 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
                     {/* Pricing row */}
                     <div className="mt-2 flex flex-wrap items-center gap-2 pl-6 text-xs text-gray-500">
-                      <span>¥</span>
+                      <select
+                        value={m.currency}
+                        onChange={(e) => updateModel(m.key, { currency: e.target.value })}
+                        aria-label="币种"
+                        className="rounded border border-gray-700 bg-gray-900 px-1 py-0.5 text-xs text-gray-300 focus-visible:border-indigo-500 focus-visible:outline-none"
+                      >
+                        <option value="USD">$</option>
+                        <option value="CNY">&yen;</option>
+                      </select>
                       <input
                         type="text"
                         inputMode="decimal"
@@ -464,7 +472,6 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       {pl.output && (
                         <>
                           <span className="text-gray-600">|</span>
-                          <span>¥</span>
                           <input
                             type="text"
                             inputMode="decimal"

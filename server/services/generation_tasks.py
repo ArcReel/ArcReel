@@ -81,6 +81,22 @@ async def _create_custom_backend(provider_name: str, model_id: str | None, media
         provider = await repo.get_provider(db_id)
         if provider is None:
             raise ValueError(f"自定义供应商 {provider_name} 不存在")
+        if model_id:
+            # 校验 model_id 仍存在且已启用，否则回退到默认模型
+            from sqlalchemy import select
+
+            from lib.db.models.custom_provider import CustomProviderModel
+
+            stmt = select(CustomProviderModel).where(
+                CustomProviderModel.provider_id == db_id,
+                CustomProviderModel.model_id == model_id,
+                CustomProviderModel.is_enabled == True,  # noqa: E712
+            )
+            result = await session.execute(stmt)
+            if result.scalar_one_or_none() is None:
+                logger.warning("自定义模型 %s/%s 已不存在或已禁用，回退到默认模型", provider_name, model_id)
+                model_id = None
+
         if not model_id:
             default_model = await repo.get_default_model(db_id, media_type)
             if default_model:

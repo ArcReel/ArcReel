@@ -131,6 +131,15 @@ def _provider_to_response(provider, models) -> ProviderResponse:
     )
 
 
+def _check_duplicate_model_ids(models: list[ModelInput]) -> None:
+    """校验模型列表中无重复 model_id，重复时抛 422。"""
+    seen: set[str] = set()
+    for m in models:
+        if m.model_id in seen:
+            raise HTTPException(status_code=422, detail=f"model_id 重复: {m.model_id}")
+        seen.add(m.model_id)
+
+
 async def _invalidate_caches(request: Request) -> None:
     """清空 backend 实例缓存 + 刷新 worker 限流配置。"""
     from server.services.generation_tasks import invalidate_backend_cache
@@ -165,6 +174,8 @@ async def create_provider(
     session: AsyncSession = Depends(get_async_session),
 ):
     """创建自定义供应商，可同时创建模型列表。"""
+    if body.models:
+        _check_duplicate_model_ids(body.models)
     repo = CustomProviderRepository(session)
     model_dicts = [m.model_dump() for m in body.models] if body.models else None
     provider = await repo.create_provider(
@@ -235,12 +246,28 @@ async def delete_provider(
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
 ):
-    """删除自定义供应商（级联删除模型）。"""
+    """删除自定义供应商（级联删除模型，清理悬空默认配置）。"""
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail="供应商不存在")
+    prefix = f"custom-{provider_id}/"
     await repo.delete_provider(provider_id)
+    # 清理引用该 provider 的全局默认 backend 配置
+    from lib.config.service import ConfigService
+
+    svc = ConfigService(session)
+    for key in (
+        "default_video_backend",
+        "default_image_backend",
+        "default_text_backend",
+        "text_backend_script",
+        "text_backend_overview",
+        "text_backend_style",
+    ):
+        val = await svc.get_setting(key, "")
+        if val.startswith(prefix):
+            await svc.set_setting(key, "")
     await session.commit()
     await _invalidate_caches(request)
 
@@ -259,6 +286,7 @@ async def replace_models(
     session: AsyncSession = Depends(get_async_session),
 ):
     """替换供应商的整个模型列表。"""
+    _check_duplicate_model_ids(body.models)
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
