@@ -522,7 +522,13 @@ _PROVIDER_PAYLOAD = {
     "api_key": "sk-regression-1234",
     "models": [
         {"model_id": "gpt-4o", "display_name": "GPT-4o", "media_type": "text", "is_default": True, "is_enabled": True},
-        {"model_id": "dall-e-3", "display_name": "DALL-E 3", "media_type": "image", "is_default": True, "is_enabled": True},
+        {
+            "model_id": "dall-e-3",
+            "display_name": "DALL-E 3",
+            "media_type": "image",
+            "is_default": True,
+            "is_enabled": True,
+        },
     ],
 }
 
@@ -608,7 +614,13 @@ class TestReplaceModelsCleansStaleRefs:
                 f"/api/v1/custom-providers/{pid}/models",
                 json={
                     "models": [
-                        {"model_id": "dall-e-3", "display_name": "DALL-E 3", "media_type": "image", "is_default": True, "is_enabled": True},
+                        {
+                            "model_id": "dall-e-3",
+                            "display_name": "DALL-E 3",
+                            "media_type": "image",
+                            "is_default": True,
+                            "is_enabled": True,
+                        },
                     ]
                 },
             )
@@ -685,7 +697,13 @@ class TestFullUpdateProvider:
                     "display_name": "Updated Name",
                     "base_url": "https://new-api.example.com/v1",
                     "models": [
-                        {"model_id": "new-model", "display_name": "New", "media_type": "text", "is_default": True, "is_enabled": True},
+                        {
+                            "model_id": "new-model",
+                            "display_name": "New",
+                            "media_type": "text",
+                            "is_default": True,
+                            "is_enabled": True,
+                        },
                     ],
                 },
             )
