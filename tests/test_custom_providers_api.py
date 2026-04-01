@@ -758,3 +758,142 @@ class TestValidateBackendValueCustomPrefix:
         with pytest.raises(HTTPException) as exc_info:
             validate_backend_value("nonexistent/model", "default_text_backend")
         assert exc_info.value.status_code == 400
+
+
+class TestDuplicateDefaultRejected:
+    """回归: 同一 media_type 下最多只能有一个 is_default=True 的模型。"""
+
+    def test_create_with_duplicate_defaults(self, client: TestClient):
+        """创建供应商时同一 media_type 有两个 is_default=true 的模型，期望 422。"""
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Dup Default Provider",
+                "api_format": "openai",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "sk-dup-default-1234",
+                "models": [
+                    {
+                        "model_id": "text-a",
+                        "display_name": "Text A",
+                        "media_type": "text",
+                        "is_default": True,
+                        "is_enabled": True,
+                    },
+                    {
+                        "model_id": "text-b",
+                        "display_name": "Text B",
+                        "media_type": "text",
+                        "is_default": True,
+                        "is_enabled": True,
+                    },
+                ],
+            },
+        )
+        assert resp.status_code == 422
+        assert "默认模型" in resp.json()["detail"]
+
+    def test_single_default_per_type_allowed(self, client: TestClient):
+        """不同 media_type 各一个 default，期望 201 成功。"""
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Multi Default Provider",
+                "api_format": "openai",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "sk-multi-default-12",
+                "models": [
+                    {
+                        "model_id": "text-model",
+                        "display_name": "Text Model",
+                        "media_type": "text",
+                        "is_default": True,
+                        "is_enabled": True,
+                    },
+                    {
+                        "model_id": "image-model",
+                        "display_name": "Image Model",
+                        "media_type": "image",
+                        "is_default": True,
+                        "is_enabled": True,
+                    },
+                    {
+                        "model_id": "video-model",
+                        "display_name": "Video Model",
+                        "media_type": "video",
+                        "is_default": True,
+                        "is_enabled": True,
+                    },
+                ],
+            },
+        )
+        assert resp.status_code == 201
+
+
+class TestPriceFieldConsistency:
+    """回归: 价格字段 price_output/currency 不能脱离 price_input 单独存在。"""
+
+    def test_output_without_input_rejected(self, client: TestClient):
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Bad Price",
+                "api_format": "openai",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "sk-price-test",
+                "models": [
+                    {
+                        "model_id": "m1",
+                        "display_name": "M1",
+                        "media_type": "text",
+                        "is_enabled": True,
+                        "price_output": 0.5,
+                    },
+                ],
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_currency_without_input_rejected(self, client: TestClient):
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Bad Currency",
+                "api_format": "openai",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "sk-price-test",
+                "models": [
+                    {
+                        "model_id": "m1",
+                        "display_name": "M1",
+                        "media_type": "text",
+                        "is_enabled": True,
+                        "currency": "USD",
+                    },
+                ],
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_valid_price_fields_accepted(self, client: TestClient):
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Good Price",
+                "api_format": "openai",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "sk-price-test",
+                "models": [
+                    {
+                        "model_id": "m1",
+                        "display_name": "M1",
+                        "media_type": "text",
+                        "is_enabled": True,
+                        "price_input": 0.1,
+                        "price_output": 0.2,
+                        "currency": "USD",
+                    },
+                ],
+            },
+        )
+        assert resp.status_code == 201

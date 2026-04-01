@@ -38,10 +38,27 @@ async def db_session():
 
 
 def _make_app_with_mock(mock_svc: ConfigService) -> FastAPI:
-    """App with a fully mocked ConfigService (no DB needed)."""
-    app = FastAPI()
+    """App with a fully mocked ConfigService + in-memory DB (no real DB)."""
+    from contextlib import asynccontextmanager
+
+    mem_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    mem_factory = async_sessionmaker(mem_engine, expire_on_commit=False)
+
+    @asynccontextmanager
+    async def _lifespan(_app: FastAPI):
+        async with mem_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        yield
+
+    app = FastAPI(lifespan=_lifespan)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.dependency_overrides[get_config_service] = lambda: mock_svc
+
+    async def _override_session():
+        async with mem_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_async_session] = _override_session
     app.include_router(system_config_router.router, prefix="/api/v1")
     return app
 

@@ -10,7 +10,7 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
@@ -40,6 +40,14 @@ class ModelInput(BaseModel):
     price_input: float | None = None
     price_output: float | None = None
     currency: str | None = None
+
+    @model_validator(mode="after")
+    def _check_price_consistency(self):
+        if self.price_output is not None and self.price_input is None:
+            raise ValueError("设置 price_output 时必须同时设置 price_input")
+        if self.currency is not None and self.price_input is None:
+            raise ValueError("设置 currency 时必须同时设置 price_input")
+        return self
 
 
 class CreateProviderRequest(BaseModel):
@@ -177,6 +185,21 @@ def _check_duplicate_model_ids(models: list[ModelInput]) -> None:
             seen.add(m.model_id)
 
 
+def _check_unique_defaults(models: list[ModelInput]) -> None:
+    """校验每个 media_type 最多只有一个 is_default=True 的模型。"""
+    defaults_by_type: dict[str, list[str]] = {}
+    for m in models:
+        if m.is_default:
+            defaults_by_type.setdefault(m.media_type, []).append(m.model_id)
+    duplicates = {mt: ids for mt, ids in defaults_by_type.items() if len(ids) > 1}
+    if duplicates:
+        parts = [f"{mt}({', '.join(ids)})" for mt, ids in duplicates.items()]
+        raise HTTPException(
+            status_code=422,
+            detail=f"每个 media_type 最多只能有一个默认模型，冲突: {'; '.join(parts)}",
+        )
+
+
 async def _invalidate_caches(request: Request) -> None:
     """清空 backend 实例缓存 + 刷新 worker 限流配置。"""
     from server.services.generation_tasks import invalidate_backend_cache
@@ -213,6 +236,7 @@ async def create_provider(
     """创建自定义供应商，可同时创建模型列表。"""
     if body.models:
         _check_duplicate_model_ids(body.models)
+        _check_unique_defaults(body.models)
     repo = CustomProviderRepository(session)
     model_dicts = [m.model_dump() for m in body.models] if body.models else None
     provider = await repo.create_provider(
@@ -286,6 +310,7 @@ async def full_update_provider(
 ):
     """原子更新供应商元数据 + 模型列表（单一事务）。"""
     _check_duplicate_model_ids(body.models)
+    _check_unique_defaults(body.models)
     repo = CustomProviderRepository(session)
     kwargs: dict = {"display_name": body.display_name, "base_url": body.base_url}
     if body.api_key is not None:
@@ -355,6 +380,7 @@ async def replace_models(
 ):
     """替换供应商的整个模型列表。"""
     _check_duplicate_model_ids(body.models)
+    _check_unique_defaults(body.models)
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
