@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver
 
 from lib import PROJECT_ROOT
+from lib.custom_provider import is_custom_provider
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
@@ -128,7 +129,7 @@ async def _get_or_create_video_backend(
         return _backend_cache[cache_key]
 
     # 自定义供应商走独立工厂路径
-    if provider_name.startswith("custom-"):
+    if is_custom_provider(provider_name):
         backend = await _create_custom_backend(provider_name, effective_model, "video")
         _backend_cache[cache_key] = backend
         return backend
@@ -189,7 +190,7 @@ async def _get_or_create_image_backend(
         return _backend_cache[cache_key]
 
     # 自定义供应商走独立工厂路径
-    if provider_name.startswith("custom-"):
+    if is_custom_provider(provider_name):
         backend = await _create_custom_backend(provider_name, effective_model, "image")
         _backend_cache[cache_key] = backend
         return backend

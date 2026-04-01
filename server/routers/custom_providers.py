@@ -14,6 +14,7 @@ from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
+from lib.custom_provider import make_provider_id
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
@@ -24,6 +25,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/custom-providers", tags=["自定义供应商"])
 
 _CONNECTION_TEST_TIMEOUT = 15  # 秒
+
+_BACKEND_SETTING_KEYS = (
+    "default_video_backend",
+    "default_image_backend",
+    "default_text_backend",
+    "text_backend_script",
+    "text_backend_overview",
+    "text_backend_style",
+)
 
 # ---------------------------------------------------------------------------
 # Pydantic 模型
@@ -155,12 +165,6 @@ def _cleanup_project_refs(prefix: str, setting_keys: tuple[str, ...]) -> None:
     pm = get_project_manager()
     for proj_name in pm.list_projects():
         try:
-            proj = pm.load_project(proj_name)
-            needs_cleanup = any(
-                isinstance(proj.get(key, ""), str) and proj.get(key, "").startswith(prefix) for key in setting_keys
-            )
-            if not needs_cleanup:
-                continue
 
             def _mutate(p: dict, _prefix=prefix, _keys=setting_keys) -> None:
                 for key in _keys:
@@ -339,29 +343,19 @@ async def delete_provider(
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail="供应商不存在")
-    prefix = f"custom-{provider_id}/"
+    prefix = f"{make_provider_id(provider_id)}/"
     await repo.delete_provider(provider_id)
     # 清理引用该 provider 的全局默认 backend 配置
     from lib.config.service import ConfigService
 
     svc = ConfigService(session)
-    _BACKEND_SETTING_KEYS = (
-        "default_video_backend",
-        "default_image_backend",
-        "default_text_backend",
-        "text_backend_script",
-        "text_backend_overview",
-        "text_backend_style",
-    )
     for key in _BACKEND_SETTING_KEYS:
         val = await svc.get_setting(key, "")
-        if val.startswith(prefix):
+        if val and val.startswith(prefix):
             await svc.set_setting(key, "")
     await session.commit()
     await _invalidate_caches(request)
     # 清理引用该 provider 的项目级配置（同步文件 I/O，放到线程池避免阻塞事件循环）
-    import asyncio
-
     await asyncio.to_thread(_cleanup_project_refs, prefix, _BACKEND_SETTING_KEYS)
 
 
@@ -399,17 +393,10 @@ async def replace_models(
         from lib.config.service import ConfigService
 
         svc = ConfigService(session)
-        prefix = f"custom-{provider_id}/"
-        for key in (
-            "default_video_backend",
-            "default_image_backend",
-            "default_text_backend",
-            "text_backend_script",
-            "text_backend_overview",
-            "text_backend_style",
-        ):
+        prefix = f"{make_provider_id(provider_id)}/"
+        for key in _BACKEND_SETTING_KEYS:
             val = await svc.get_setting(key, "")
-            if val.startswith(prefix):
+            if val and val.startswith(prefix):
                 _, model_part = val.split("/", 1)
                 if model_part in deleted_model_ids:
                     await svc.set_setting(key, "")

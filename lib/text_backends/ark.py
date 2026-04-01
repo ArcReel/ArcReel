@@ -84,32 +84,36 @@ class ArkTextBackend:
         return self._parse_chat_response(response)
 
     async def _generate_structured(self, request: TextGenerationRequest) -> TextGenerationResult:
+        messages = self._build_messages(request)
+
         if TextCapability.STRUCTURED_OUTPUT in self._capabilities:
             from lib.text_backends.base import resolve_schema
 
-            messages = self._build_messages(request)
             schema = resolve_schema(request.response_schema)
-            response = await asyncio.to_thread(
-                self._client.chat.completions.create,
-                model=self._model,
-                messages=messages,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "response",
-                        "schema": schema,
+            try:
+                response = await asyncio.to_thread(
+                    self._client.chat.completions.create,
+                    model=self._model,
+                    messages=messages,
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "response",
+                            "schema": schema,
+                        },
                     },
-                },
-            )
-            return self._parse_chat_response(response)
-        else:
-            if not isinstance(request.response_schema, type):
-                raise TypeError(
-                    f"Instructor 降级路径需要传入 Pydantic 模型类，收到 {type(request.response_schema).__name__}"
                 )
+                return self._parse_chat_response(response)
+            except Exception as exc:
+                logger.warning("原生 response_format 失败 (%s)，降级到 Instructor/json_object 路径", exc)
+
+        return await self._structured_fallback(request, messages)
+
+    async def _structured_fallback(self, request: TextGenerationRequest, messages: list[dict]) -> TextGenerationResult:
+        """Instructor / json_object 降级路径。"""
+        if isinstance(request.response_schema, type):
             from lib.text_backends.instructor_support import generate_structured_via_instructor
 
-            messages = self._build_messages(request)
             json_text, input_tokens, output_tokens = await asyncio.to_thread(
                 generate_structured_via_instructor,
                 client=self._openai_client,
@@ -124,6 +128,27 @@ class ArkTextBackend:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
             )
+        else:
+            # dict schema → json_object 模式
+            logger.info("response_schema 为 dict，回退到 json_object 模式")
+            fb_messages = list(messages)
+            if not any("JSON" in (m.get("content") or "") for m in fb_messages):
+                sys_idx = next((i for i, m in enumerate(fb_messages) if m.get("role") == "system"), None)
+                if sys_idx is not None:
+                    orig = fb_messages[sys_idx]
+                    fb_messages[sys_idx] = {
+                        **orig,
+                        "content": (orig.get("content") or "") + "\nRespond in JSON format.",
+                    }
+                else:
+                    fb_messages.insert(0, {"role": "system", "content": "Respond in JSON format."})
+            response = await asyncio.to_thread(
+                self._openai_client.chat.completions.create,
+                model=self._model,
+                messages=fb_messages,
+                response_format={"type": "json_object"},
+            )
+            return self._parse_chat_response(response)
 
     async def _generate_vision(self, request: TextGenerationRequest) -> TextGenerationResult:
         content: list[dict[str, Any]] = []

@@ -164,7 +164,12 @@ async def _instructor_fallback(
         # OpenAI API 要求 prompt 中包含 "JSON" 关键字才能启用 json_object 模式
         fb_messages = list(messages)
         if not any("JSON" in (m.get("content") or "") for m in fb_messages):
-            fb_messages.insert(0, {"role": "system", "content": "Respond in JSON format."})
+            sys_idx = next((i for i, m in enumerate(fb_messages) if m.get("role") == "system"), None)
+            if sys_idx is not None:
+                orig = fb_messages[sys_idx]
+                fb_messages[sys_idx] = {**orig, "content": (orig.get("content") or "") + "\nRespond in JSON format."}
+            else:
+                fb_messages.insert(0, {"role": "system", "content": "Respond in JSON format."})
         response = await client.chat.completions.create(
             model=model,
             messages=fb_messages,

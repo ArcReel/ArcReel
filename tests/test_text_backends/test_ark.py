@@ -136,9 +136,39 @@ class TestCapabilityAwareStructured:
         b = ArkTextBackend(api_key="k", model="unknown-model-xyz")
         assert TextCapability.STRUCTURED_OUTPUT not in b.capabilities
 
-    async def test_instructor_fallback_rejects_dict_schema(self, backend_no_structured, sync_to_thread):
-        """Instructor 降级路径传入 dict schema 时应抛出 TypeError。"""
-        with pytest.raises(TypeError, match="Pydantic"):
-            await backend_no_structured.generate(
-                TextGenerationRequest(prompt="gen", response_schema={"type": "object"})
-            )
+    async def test_dict_schema_fallback_uses_json_object(self, backend_no_structured, sync_to_thread):
+        """dict schema 走 json_object 降级路径。"""
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
+            usage=SimpleNamespace(prompt_tokens=30, completion_tokens=15),
+        )
+        backend_no_structured._openai_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        result = await backend_no_structured.generate(
+            TextGenerationRequest(prompt="gen", response_schema={"type": "object"})
+        )
+
+        assert result.text == '{"key": "value"}'
+        call_args = backend_no_structured._openai_client.chat.completions.create.call_args
+        assert call_args.kwargs["response_format"] == {"type": "json_object"}
+
+    async def test_native_failure_falls_back(self, backend_with_structured, sync_to_thread):
+        """原生 json_schema 运行时失败后降级到 json_object。"""
+        backend_with_structured._test_client.chat.completions.create = MagicMock(
+            side_effect=Exception("schema not supported")
+        )
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"a": 1}'))],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+        backend_with_structured._openai_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        result = await backend_with_structured.generate(
+            TextGenerationRequest(prompt="gen", response_schema={"type": "object"})
+        )
+
+        assert result.text == '{"a": 1}'
+        # 原生路径应该被尝试过
+        backend_with_structured._test_client.chat.completions.create.assert_called_once()
+        # 降级路径应该被使用
+        backend_with_structured._openai_client.chat.completions.create.assert_called_once()
