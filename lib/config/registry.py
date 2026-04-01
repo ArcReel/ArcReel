@@ -76,6 +76,11 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Veo 3.1 Fast",
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video", "negative_prompt", "video_extend"],
+            ),
+            "veo-3.1-lite-generate-preview": ModelInfo(
+                display_name="Veo 3.1 Lite",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video", "negative_prompt", "video_extend"],
                 default=True,
             ),
         },

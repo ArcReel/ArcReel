@@ -66,11 +66,18 @@ class CostCalculator:
             ("4k", True): 0.35,
             ("4k", False): 0.30,
         },
+        "veo-3.1-lite-generate-preview": {
+            ("720p", True): 0.05,
+            ("720p", False): 0.05,
+            ("1080p", True): 0.08,
+            ("1080p", False): 0.08,
+        },
     }
 
     SELECTABLE_VIDEO_MODELS = [
         "veo-3.1-generate-preview",
         "veo-3.1-fast-generate-preview",
+        "veo-3.1-lite-generate-preview",
     ]
 
     DEFAULT_VIDEO_MODEL = "veo-3.1-fast-generate-preview"
