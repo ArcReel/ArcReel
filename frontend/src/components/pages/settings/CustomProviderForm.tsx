@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle, Search } from "lucide-react";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import type {
   CustomProviderInfo,
   CustomProviderModelInput,
@@ -130,7 +131,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const showError = useCallback((msg: string) => useAppStore.getState().pushToast(msg, "error"), []);
   const [modelFilter, setModelFilter] = useState("");
 
   const filteredModels = useMemo(() => {
@@ -142,15 +143,14 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   // --- Discover models ---
   const handleDiscover = useCallback(async () => {
     if (!baseUrl) {
-      setError("请先填写 Base URL");
+      showError("请先填写 Base URL");
       return;
     }
     if (!apiKey) {
-      setError("请先填写 API Key");
+      showError("请先填写 API Key");
       return;
     }
     setDiscovering(true);
-    setError(null);
     try {
       const res = await API.discoverModels({ api_format: apiFormat, base_url: baseUrl, api_key: apiKey });
       const discovered = res.models.map(discoveredToRow);
@@ -174,7 +174,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       });
       setModelFilter("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "获取模型列表失败");
+      showError(e instanceof Error ? e.message : "获取模型列表失败");
     } finally {
       setDiscovering(false);
     }
@@ -183,11 +183,10 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   // --- Test connection ---
   const handleTest = useCallback(async () => {
     if (!baseUrl) {
-      setError("请先填写 Base URL");
+      showError("请先填写 Base URL");
       return;
     }
     setTesting(true);
-    setError(null);
     setTestResult(null);
     try {
       const res = await API.testCustomConnection({ api_format: apiFormat, base_url: baseUrl, api_key: apiKey });
@@ -201,28 +200,27 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
   // --- Save ---
   const handleSave = useCallback(async () => {
-    setError(null);
     // Validation
     if (!displayName.trim()) {
-      setError("请填写供应商名称");
+      showError("请填写供应商名称");
       return;
     }
     if (!baseUrl.trim()) {
-      setError("请填写 Base URL");
+      showError("请填写 Base URL");
       return;
     }
     if (!isEdit && !apiKey.trim()) {
-      setError("请填写 API Key");
+      showError("请填写 API Key");
       return;
     }
     const enabledModels = models.filter((m) => m.is_enabled);
     if (enabledModels.length === 0) {
-      setError("至少启用一个模型");
+      showError("至少启用一个模型");
       return;
     }
     const emptyId = enabledModels.find((m) => !m.model_id.trim());
     if (emptyId) {
-      setError("已启用的模型必须填写 model_id");
+      showError("已启用的模型必须填写 model_id");
       return;
     }
     setSaving(true);
@@ -246,7 +244,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       }
       onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "保存失败");
+      showError(e instanceof Error ? e.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -576,13 +574,6 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             >
               手动添加模型
             </button>
-          </div>
-        )}
-
-        {/* Error display */}
-        {error && (
-          <div role="alert" className="rounded-lg border border-red-800/50 bg-red-900/20 px-3 py-2 text-sm text-red-400">
-            {error}
           </div>
         )}
 

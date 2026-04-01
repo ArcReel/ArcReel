@@ -222,7 +222,13 @@ class API {
       const error = await response
         .json()
         .catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || "请求失败");
+      let message = "请求失败";
+      if (typeof error.detail === "string") {
+        message = error.detail;
+      } else if (Array.isArray(error.detail) && error.detail.length > 0) {
+        message = error.detail.map((e: { msg?: string }) => e.msg ?? "").filter(Boolean).join("; ") || message;
+      }
+      throw new Error(message);
     }
 
     if (response.status === 204) {

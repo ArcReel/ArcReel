@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Loader2, Pencil, Trash2, CheckCircle2, XCircle } from "lucide-react";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import type { CustomProviderInfo } from "@/types";
 import { CustomProviderForm } from "./CustomProviderForm";
 
@@ -32,7 +33,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const showError = useCallback((msg: string) => useAppStore.getState().pushToast(msg, "error"), []);
 
   const fetchProvider = useCallback(async () => {
     setLoading(true);
@@ -53,12 +54,11 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
 
   const handleDelete = useCallback(async () => {
     setDeleting(true);
-    setError(null);
     try {
       await API.deleteCustomProvider(providerId);
       onDeleted();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "删除失败");
+      showError(e instanceof Error ? e.message : "删除失败");
     } finally {
       setDeleting(false);
       setConfirmDelete(false);
@@ -190,13 +190,6 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Error display */}
-      {error && (
-        <div role="alert" className="mb-4 rounded-lg border border-red-800/50 bg-red-900/20 px-3 py-2 text-sm text-red-400">
-          {error}
         </div>
       )}
 

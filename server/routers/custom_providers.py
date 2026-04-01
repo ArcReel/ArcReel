@@ -55,8 +55,6 @@ class ModelInput(BaseModel):
     def _check_price_consistency(self):
         if self.price_output is not None and self.price_input is None:
             raise ValueError("设置 price_output 时必须同时设置 price_input")
-        if self.currency is not None and self.price_input is None:
-            raise ValueError("设置 currency 时必须同时设置 price_input")
         return self
 
 

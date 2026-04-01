@@ -2,6 +2,7 @@ import { useParams, useLocation } from "wouter";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { ArrowLeft } from "lucide-react";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 
@@ -35,8 +36,6 @@ export function ProjectSettingsPage() {
   const [textOverview, setTextOverview] = useState<string>("");
   const [textStyle, setTextStyle] = useState<string>("");
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedOk, setSavedOk] = useState(false);
   const initialRef = useRef({ videoBackend: "", imageBackend: "", audioOverride: null as boolean | null, textScript: "", textOverview: "", textStyle: "" });
 
   useEffect(() => {
@@ -102,8 +101,6 @@ export function ProjectSettingsPage() {
 
   const handleSave = useCallback(async () => {
     setSaving(true);
-    setSaveError(null);
-    setSavedOk(false);
     try {
       await API.updateProject(projectName, {
         video_backend: videoBackend || undefined,
@@ -114,10 +111,9 @@ export function ProjectSettingsPage() {
         text_backend_style: textStyle || undefined,
       });
       initialRef.current = { videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle };
-      setSavedOk(true);
-      setTimeout(() => setSavedOk(false), 2000);
+      useAppStore.getState().pushToast("已保存", "success");
     } catch (e: unknown) {
-      setSaveError(e instanceof Error ? e.message : "保存失败");
+      useAppStore.getState().pushToast(e instanceof Error ? e.message : "保存失败", "error");
     } finally {
       setSaving(false);
     }
@@ -230,14 +226,6 @@ export function ProjectSettingsPage() {
 
         {!options && (
           <div className="text-sm text-gray-500">加载配置中…</div>
-        )}
-
-        {/* Error / success feedback */}
-        {saveError && (
-          <p className="text-sm text-red-400">{saveError}</p>
-        )}
-        {savedOk && (
-          <p className="text-sm text-green-400">已保存</p>
         )}
 
         {/* Actions */}

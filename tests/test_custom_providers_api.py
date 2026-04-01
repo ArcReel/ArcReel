@@ -831,7 +831,7 @@ class TestDuplicateDefaultRejected:
 
 
 class TestPriceFieldConsistency:
-    """回归: 价格字段 price_output/currency 不能脱离 price_input 单独存在。"""
+    """回归: price_output 不能脱离 price_input 单独存在；currency 可独立存在。"""
 
     def test_output_without_input_rejected(self, client: TestClient):
         resp = client.post(
@@ -854,11 +854,12 @@ class TestPriceFieldConsistency:
         )
         assert resp.status_code == 422
 
-    def test_currency_without_input_rejected(self, client: TestClient):
+    def test_currency_without_input_accepted(self, client: TestClient):
+        """currency 可独立存在（用户先选币种，稍后填价格）。"""
         resp = client.post(
             "/api/v1/custom-providers",
             json={
-                "display_name": "Bad Currency",
+                "display_name": "Currency Only",
                 "api_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-price-test",
@@ -873,7 +874,7 @@ class TestPriceFieldConsistency:
                 ],
             },
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 201
 
     def test_valid_price_fields_accepted(self, client: TestClient):
         resp = client.post(
