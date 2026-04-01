@@ -74,7 +74,7 @@ function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
     price_unit: m.price_unit ?? "",
     price_input: m.price_input != null ? String(m.price_input) : "",
     price_output: m.price_output != null ? String(m.price_output) : "",
-    currency: m.currency ?? "CNY",
+    currency: m.currency ?? "",
   });
 }
 
@@ -215,14 +215,13 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     setSaving(true);
     try {
       if (isEdit && existing) {
-        // Update provider metadata, then replace models (串行确保原子性)
-        const patch = {
+        // 单个事务原子更新 provider + models
+        await API.fullUpdateCustomProvider(existing.id, {
           display_name: displayName,
           base_url: baseUrl,
           ...(apiKey ? { api_key: apiKey } : {}),
-        };
-        await API.updateCustomProvider(existing.id, patch);
-        await API.replaceCustomProviderModels(existing.id, models.map(rowToInput));
+          models: models.map(rowToInput),
+        });
       } else {
         await API.createCustomProvider({
           display_name: displayName,

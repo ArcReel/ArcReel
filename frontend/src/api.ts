@@ -1340,6 +1340,10 @@ class API {
     return this.request(`/custom-providers/${id}`, { method: "PATCH", body: JSON.stringify(data) });
   }
 
+  static async fullUpdateCustomProvider(id: number, data: { display_name: string; base_url: string; api_key?: string; models: CustomProviderModelInput[] }): Promise<CustomProviderInfo> {
+    return this.request(`/custom-providers/${id}`, { method: "PUT", body: JSON.stringify(data) });
+  }
+
   static async deleteCustomProvider(id: number): Promise<void> {
     return this.request(`/custom-providers/${id}`, { method: "DELETE" });
   }

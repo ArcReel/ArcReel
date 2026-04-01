@@ -56,6 +56,15 @@ class UpdateProviderRequest(BaseModel):
     api_key: str | None = None
 
 
+class FullUpdateProviderRequest(BaseModel):
+    """PUT 全量更新：provider 元数据 + 模型列表在同一事务中。"""
+
+    display_name: str
+    base_url: str
+    api_key: str | None = None  # None = 不修改
+    models: list[ModelInput]
+
+
 class ProviderConnectionRequest(BaseModel):
     api_format: str
     base_url: str
@@ -232,6 +241,32 @@ async def update_provider(
     if provider is None:
         raise HTTPException(status_code=404, detail="供应商不存在")
 
+    await session.commit()
+    await _invalidate_caches(request)
+    await session.refresh(provider)
+    models = await repo.list_models(provider_id)
+    return _provider_to_response(provider, models)
+
+
+@router.put("/{provider_id}")
+async def full_update_provider(
+    provider_id: int,
+    body: FullUpdateProviderRequest,
+    request: Request,
+    _user: CurrentUser,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """原子更新供应商元数据 + 模型列表（单一事务）。"""
+    _check_duplicate_model_ids(body.models)
+    repo = CustomProviderRepository(session)
+    kwargs: dict = {"display_name": body.display_name, "base_url": body.base_url}
+    if body.api_key is not None:
+        kwargs["api_key"] = body.api_key
+    provider = await repo.update_provider(provider_id, **kwargs)
+    if provider is None:
+        raise HTTPException(status_code=404, detail="供应商不存在")
+    model_dicts = [m.model_dump() for m in body.models]
+    await repo.replace_models(provider_id, model_dicts)
     await session.commit()
     await _invalidate_caches(request)
     await session.refresh(provider)
