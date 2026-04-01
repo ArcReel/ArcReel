@@ -140,6 +140,31 @@ def _provider_to_response(provider, models) -> ProviderResponse:
     )
 
 
+def _cleanup_project_refs(prefix: str, setting_keys: tuple[str, ...]) -> None:
+    """删除 provider 后，清理所有项目 project.json 中的悬空引用。"""
+    from lib.config.resolver import get_project_manager
+
+    pm = get_project_manager()
+    for proj_name in pm.list_projects():
+        try:
+            proj = pm.load_project(proj_name)
+            needs_cleanup = any(
+                isinstance(proj.get(key, ""), str) and proj.get(key, "").startswith(prefix) for key in setting_keys
+            )
+            if not needs_cleanup:
+                continue
+
+            def _mutate(p: dict, _prefix=prefix, _keys=setting_keys) -> None:
+                for key in _keys:
+                    val = p.get(key, "")
+                    if isinstance(val, str) and val.startswith(_prefix):
+                        p.pop(key, None)
+
+            pm.update_project(proj_name, _mutate)
+        except Exception:
+            pass  # 读取失败或项目不可写，跳过（非致命）
+
+
 def _check_duplicate_model_ids(models: list[ModelInput]) -> None:
     """校验模型列表中无重复 model_id，重复时抛 422。"""
     seen: set[str] = set()
@@ -292,19 +317,22 @@ async def delete_provider(
     from lib.config.service import ConfigService
 
     svc = ConfigService(session)
-    for key in (
+    _BACKEND_SETTING_KEYS = (
         "default_video_backend",
         "default_image_backend",
         "default_text_backend",
         "text_backend_script",
         "text_backend_overview",
         "text_backend_style",
-    ):
+    )
+    for key in _BACKEND_SETTING_KEYS:
         val = await svc.get_setting(key, "")
         if val.startswith(prefix):
             await svc.set_setting(key, "")
     await session.commit()
     await _invalidate_caches(request)
+    # 清理引用该 provider 的项目级配置
+    _cleanup_project_refs(prefix, _BACKEND_SETTING_KEYS)
 
 
 # ---------------------------------------------------------------------------
@@ -326,8 +354,35 @@ async def replace_models(
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail="供应商不存在")
+    # 记录旧模型 ID，用于清理悬空引用
+    old_models = await repo.list_models(provider_id)
+    old_model_ids = {m.model_id for m in old_models}
+    new_model_ids = {m.model_id for m in body.models}
+    deleted_model_ids = old_model_ids - new_model_ids
+
     model_dicts = [m.model_dump() for m in body.models]
     new_models = await repo.replace_models(provider_id, model_dicts)
+
+    # 清理引用已删除模型的全局配置
+    if deleted_model_ids:
+        from lib.config.service import ConfigService
+
+        svc = ConfigService(session)
+        prefix = f"custom-{provider_id}/"
+        for key in (
+            "default_video_backend",
+            "default_image_backend",
+            "default_text_backend",
+            "text_backend_script",
+            "text_backend_overview",
+            "text_backend_style",
+        ):
+            val = await svc.get_setting(key, "")
+            if val.startswith(prefix):
+                _, model_part = val.split("/", 1)
+                if model_part in deleted_model_ids:
+                    await svc.set_setting(key, "")
+
     await session.commit()
     await _invalidate_caches(request)
     return [_model_to_response(m) for m in new_models]
