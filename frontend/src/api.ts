@@ -226,7 +226,7 @@ class API {
       if (typeof error.detail === "string") {
         message = error.detail;
       } else if (Array.isArray(error.detail) && error.detail.length > 0) {
-        message = error.detail.map((e: { msg?: string }) => e.msg ?? "").filter(Boolean).join("; ") || message;
+        message = error.detail.map((e: string | { msg?: string }) => (typeof e === "string" ? e : e?.msg)).filter(Boolean).join("; ") || message;
       }
       throw new Error(message);
     }
