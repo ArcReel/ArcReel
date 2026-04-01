@@ -1336,7 +1336,7 @@ class API {
     return this.request(`/custom-providers/${id}`);
   }
 
-  static async updateCustomProvider(id: number, data: Record<string, unknown>): Promise<void> {
+  static async updateCustomProvider(id: number, data: Partial<Omit<CustomProviderCreateRequest, "api_format" | "models">>): Promise<void> {
     return this.request(`/custom-providers/${id}`, { method: "PATCH", body: JSON.stringify(data) });
   }
 
