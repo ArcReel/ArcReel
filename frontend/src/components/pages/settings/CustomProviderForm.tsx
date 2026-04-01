@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle } from "lucide-react";
+import { useState, useCallback, useMemo } from "react";
+import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle, Search } from "lucide-react";
 import { API } from "@/api";
 import type {
   CustomProviderInfo,
@@ -15,8 +15,8 @@ type ApiFormat = "openai" | "google";
 type MediaType = "text" | "image" | "video";
 
 const API_FORMAT_OPTIONS: { value: ApiFormat; label: string }[] = [
-  { value: "openai", label: "OpenAI 兼容" },
-  { value: "google", label: "Google AI" },
+  { value: "openai", label: "OpenAI" },
+  { value: "google", label: "Google" },
 ];
 
 const MEDIA_TYPE_OPTIONS: { value: MediaType; label: string }[] = [
@@ -99,7 +99,7 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
 function priceLabel(mediaType: MediaType): { input: string; output: string } {
   if (mediaType === "video") return { input: "/秒", output: "" };
   if (mediaType === "image") return { input: "/张", output: "" };
-  return { input: "/百万输入", output: "/百万输出" };
+  return { input: "/M输入", output: "/M输出" };
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +131,13 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [modelFilter, setModelFilter] = useState("");
+
+  const filteredModels = useMemo(() => {
+    if (!modelFilter.trim()) return models;
+    const q = modelFilter.toLowerCase();
+    return models.filter((m) => m.model_id.toLowerCase().includes(q));
+  }, [models, modelFilter]);
 
   // --- Discover models ---
   const handleDiscover = useCallback(async () => {
@@ -165,6 +172,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         }
         return merged;
       });
+      setModelFilter("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "获取模型列表失败");
     } finally {
@@ -278,8 +286,25 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   const selectCls =
     "rounded-lg border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-gray-100 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
 
+  // --- Base URL preview (effective models endpoint) ---
+  const urlPreview = (() => {
+    const trimmed = baseUrl.trim().replace(/\/+$/, "");
+    if (!trimmed) return null;
+    if (apiFormat === "openai") {
+      // OpenAI SDK 需要 /v1 后缀，后端自动补全
+      const base = trimmed.match(/\/v\d+$/) ? trimmed : `${trimmed}/v1`;
+      return `${base}/models`;
+    }
+    // Google SDK 自动拼接 /v1beta，后端会剥离用户误填的版本路径
+    const base = trimmed.replace(/\/v\d+\w*$/, "");
+    return `${base}/v1beta/models`;
+  })();
+
   return (
-    <div className="max-w-2xl">
+    <div className="flex h-full flex-col">
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto p-6">
+      <div className="max-w-2xl">
       <h3 className="mb-6 text-lg font-semibold text-gray-100">
         {isEdit ? "编辑自定义供应商" : "添加自定义供应商"}
       </h3>
@@ -333,6 +358,11 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             placeholder="https://api.example.com/v1"
             className={inputCls}
           />
+          {urlPreview && (
+            <div className="mt-1 truncate text-xs text-gray-500">
+              预览：{urlPreview}
+            </div>
+          )}
         </div>
 
         {/* API Key */}
@@ -383,9 +413,38 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         {/* Model list */}
         {models.length > 0 && (
           <div>
-            <div className="mb-2 text-sm text-gray-400">模型列表</div>
+            <div className="mb-2 flex items-center gap-3 text-sm text-gray-400">
+              <span>模型列表</span>
+              {models.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetKeys = new Set(filteredModels.map((m) => m.key));
+                    const allEnabled = filteredModels.every((m) => m.is_enabled);
+                    setModels((prev) =>
+                      prev.map((m) => (targetKeys.has(m.key) ? { ...m, is_enabled: !allEnabled } : m)),
+                    );
+                  }}
+                  className="text-xs text-indigo-400 hover:text-indigo-300"
+                >
+                  {filteredModels.every((m) => m.is_enabled) ? "取消全选" : "全选"}
+                </button>
+              )}
+            </div>
+            {models.length > 5 && (
+              <div className="relative mb-2">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500" />
+                <input
+                  type="text"
+                  value={modelFilter}
+                  onChange={(e) => setModelFilter(e.target.value)}
+                  placeholder="搜索模型…"
+                  className="w-full rounded-lg border border-gray-700 bg-gray-900 py-1.5 pl-8 pr-3 text-xs text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+            )}
             <div className="space-y-2">
-              {models.map((m) => {
+              {filteredModels.map((m) => {
                 const pl = priceLabel(m.media_type);
                 return (
                   <div
@@ -546,24 +605,13 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           </div>
         )}
 
-        {/* Actions */}
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            type="button"
-            onClick={() => void handleTest()}
-            disabled={testing}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:text-gray-100 disabled:opacity-50"
-          >
-            {testing ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                测试中…
-              </>
-            ) : (
-              "测试连接"
-            )}
-          </button>
+      </div>
+      </div>{/* end max-w-2xl */}
+      </div>{/* end scrollable content */}
 
+      {/* Fixed actions bar — outside scroll area */}
+      <div className="shrink-0 border-t border-gray-800 bg-gray-950 px-6 py-3">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => void handleSave()}
@@ -577,6 +625,22 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
               </>
             ) : (
               "保存"
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleTest()}
+            disabled={testing}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:text-gray-100 disabled:opacity-50"
+          >
+            {testing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                测试中…
+              </>
+            ) : (
+              "测试连接"
             )}
           </button>
 

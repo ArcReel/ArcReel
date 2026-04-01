@@ -276,3 +276,111 @@ class TestBuildOptionsCustomModels:
         assert any("gemini-aistudio/" in v for v in options["video_backends"])
         # Custom model also present
         assert f"custom-{provider.id}/my-text-model" in options["text_backends"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: _build_options returns provider_names
+# ---------------------------------------------------------------------------
+
+
+class TestBuildOptionsProviderNames:
+    async def test_returns_provider_names_for_custom_providers(self, session):
+        """provider_names 应包含自定义供应商的 ID→display_name 映射。"""
+        db_session, factory = session
+        repo = CustomProviderRepository(db_session)
+        provider = await repo.create_provider(
+            display_name="我的 LLM 服务",
+            api_format="openai",
+            base_url="https://api.example.com/v1",
+            api_key="sk-test",
+            models=[
+                {
+                    "model_id": "gpt-4o",
+                    "display_name": "GPT-4o",
+                    "media_type": "text",
+                    "is_default": True,
+                    "is_enabled": True,
+                }
+            ],
+        )
+        await db_session.commit()
+
+        mock_svc = _make_mock_svc()
+        options = await _build_options(mock_svc, db_session)
+
+        assert "provider_names" in options
+        assert options["provider_names"][f"custom-{provider.id}"] == "我的 LLM 服务"
+
+    async def test_multiple_providers_all_have_names(self, session):
+        db_session, factory = session
+        repo = CustomProviderRepository(db_session)
+        p1 = await repo.create_provider(
+            display_name="Provider A",
+            api_format="openai",
+            base_url="https://a.example.com/v1",
+            api_key="sk-a",
+            models=[
+                {
+                    "model_id": "model-a",
+                    "display_name": "Model A",
+                    "media_type": "text",
+                    "is_default": True,
+                    "is_enabled": True,
+                }
+            ],
+        )
+        p2 = await repo.create_provider(
+            display_name="Provider B",
+            api_format="google",
+            base_url="https://b.example.com",
+            api_key="sk-b",
+            models=[
+                {
+                    "model_id": "model-b",
+                    "display_name": "Model B",
+                    "media_type": "image",
+                    "is_default": True,
+                    "is_enabled": True,
+                }
+            ],
+        )
+        await db_session.commit()
+
+        mock_svc = _make_mock_svc()
+        options = await _build_options(mock_svc, db_session)
+
+        assert options["provider_names"][f"custom-{p1.id}"] == "Provider A"
+        assert options["provider_names"][f"custom-{p2.id}"] == "Provider B"
+
+    async def test_empty_provider_names_when_no_custom_providers(self, session):
+        db_session, _factory = session
+        mock_svc = _make_mock_svc()
+        options = await _build_options(mock_svc, db_session)
+
+        assert options["provider_names"] == {}
+
+    async def test_disabled_models_provider_not_in_names(self, session):
+        """如果供应商所有模型都被禁用，则不出现在 provider_names 中。"""
+        db_session, factory = session
+        repo = CustomProviderRepository(db_session)
+        await repo.create_provider(
+            display_name="All Disabled",
+            api_format="openai",
+            base_url="https://api.example.com/v1",
+            api_key="sk-test",
+            models=[
+                {
+                    "model_id": "disabled-model",
+                    "display_name": "Disabled",
+                    "media_type": "text",
+                    "is_default": False,
+                    "is_enabled": False,
+                }
+            ],
+        )
+        await db_session.commit()
+
+        mock_svc = _make_mock_svc()
+        options = await _build_options(mock_svc, db_session)
+
+        assert options["provider_names"] == {}

@@ -143,10 +143,12 @@ export function ProviderSection() {
         />
       </nav>
 
-      {/* Detail panel */}
-      <div className="flex-1 overflow-y-auto p-6">
+      {/* Detail panel — custom provider views manage their own scroll + fixed bottom bar */}
+      <div className="flex flex-1 flex-col overflow-hidden">
         {selection?.kind === "preset" && (
-          <ProviderDetail providerId={selection.id} onSaved={() => void refreshPreset()} />
+          <div className="flex-1 overflow-y-auto p-6">
+            <ProviderDetail providerId={selection.id} onSaved={() => void refreshPreset()} />
+          </div>
         )}
         {selection?.kind === "custom" && (
           <CustomProviderDetail
@@ -186,7 +188,11 @@ export function ProviderSection() {
             }}
           />
         )}
-        {!selection && <div className="text-sm text-gray-500">请选择供应商</div>}
+        {!selection && (
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="text-sm text-gray-500">请选择供应商</div>
+          </div>
+        )}
       </div>
     </div>
   );

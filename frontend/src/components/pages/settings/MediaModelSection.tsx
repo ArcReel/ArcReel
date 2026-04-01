@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { API } from "@/api";
 import type { SystemConfigSettings, SystemConfigOptions, SystemConfigPatch } from "@/types/system";
@@ -25,6 +25,11 @@ export function MediaModelSection() {
 
   const isDirty = Object.keys(draft).length > 0;
   useWarnUnsaved(isDirty);
+
+  const allProviderNames = useMemo(
+    () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
+    [options],
+  );
 
   const fetchConfig = useCallback(async () => {
     const res = await API.getSystemConfig();
@@ -79,7 +84,7 @@ export function MediaModelSection() {
           <ProviderModelSelect
             value={currentVideo}
             options={videoBackends}
-            providerNames={PROVIDER_NAMES}
+            providerNames={allProviderNames}
             onChange={(v) => setDraft((prev) => ({ ...prev, default_video_backend: v }))}
             allowDefault
             defaultLabel="自动选择"
@@ -113,7 +118,7 @@ export function MediaModelSection() {
           <ProviderModelSelect
             value={currentImage}
             options={imageBackends}
-            providerNames={PROVIDER_NAMES}
+            providerNames={allProviderNames}
             onChange={(v) => setDraft((prev) => ({ ...prev, default_image_backend: v }))}
             allowDefault
             defaultLabel="自动选择"
@@ -139,7 +144,7 @@ export function MediaModelSection() {
                 <ProviderModelSelect
                   value={(draft[key] ?? settings[key] ?? "") as string}
                   options={textBackends}
-                  providerNames={PROVIDER_NAMES}
+                  providerNames={allProviderNames}
                   onChange={(v) => setDraft((prev) => ({ ...prev, [key]: v }))}
                   allowDefault
                   defaultHint="自动"

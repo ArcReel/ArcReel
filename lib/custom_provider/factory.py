@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lib.config.url_utils import normalize_base_url
+from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url
 from lib.custom_provider.backends import CustomImageBackend, CustomTextBackend, CustomVideoBackend
 from lib.image_backends.gemini import GeminiImageBackend
 from lib.image_backends.openai import OpenAIImageBackend
@@ -62,14 +62,15 @@ def _create_openai_backend(
 ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend:
     """创建 OpenAI 格式的后端。"""
     pid = provider.provider_id
+    base_url = ensure_openai_base_url(provider.base_url)
     if media_type == "text":
-        delegate = OpenAITextBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+        delegate = OpenAITextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
         return CustomTextBackend(provider_id=pid, delegate=delegate, model=model_id)
     elif media_type == "image":
-        delegate = OpenAIImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+        delegate = OpenAIImageBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
         return CustomImageBackend(provider_id=pid, delegate=delegate, model=model_id)
     else:  # video
-        delegate = OpenAIVideoBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+        delegate = OpenAIVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
         return CustomVideoBackend(provider_id=pid, delegate=delegate, model=model_id)
 
 
@@ -80,7 +81,7 @@ def _create_google_backend(
     media_type: str,
 ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend:
     """创建 Google 格式的后端。"""
-    base_url = normalize_base_url(provider.base_url) or None
+    base_url = ensure_google_base_url(provider.base_url) or None
     pid = provider.provider_id
     if media_type == "text":
         delegate = GeminiTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)

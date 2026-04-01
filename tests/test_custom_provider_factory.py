@@ -110,12 +110,78 @@ class TestGoogleFormat:
 
     @patch("lib.custom_provider.factory.GeminiTextBackend")
     def test_empty_base_url_passes_none(self, mock_cls):
-        """当 base_url 经 normalize 后为空时，传 None 给 backend。"""
+        """当 base_url 经 ensure_google 后为空时，传 None 给 backend。"""
         provider = _make_provider(api_format="google", base_url="")
         result = create_custom_backend(provider=provider, model_id="gemini-3-flash", media_type="text")
 
         assert isinstance(result, CustomTextBackend)
         mock_cls.assert_called_once_with(api_key="sk-test", base_url=None, model="gemini-3-flash")
+
+    @patch("lib.custom_provider.factory.GeminiTextBackend")
+    def test_strips_v1beta_from_base_url(self, mock_cls):
+        """用户误填 /v1beta 时应自动剥离，防止 SDK 重复拼接。"""
+        provider = _make_provider(api_format="google", base_url="https://generativelanguage.googleapis.com/v1beta")
+        create_custom_backend(provider=provider, model_id="gemini-3-flash", media_type="text")
+
+        mock_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://generativelanguage.googleapis.com/",
+            model="gemini-3-flash",
+        )
+
+
+# ---------------------------------------------------------------------------
+# OpenAI URL auto-completion
+# ---------------------------------------------------------------------------
+
+
+class TestOpenAIUrlAutoCompletion:
+    """factory 应自动为 OpenAI 格式的 base_url 追加 /v1。"""
+
+    @patch("lib.custom_provider.factory.OpenAITextBackend")
+    def test_appends_v1_when_missing(self, mock_cls):
+        provider = _make_provider(api_format="openai", base_url="https://api.example.com")
+        create_custom_backend(provider=provider, model_id="gpt-5.4", media_type="text")
+
+        mock_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://api.example.com/v1",
+            model="gpt-5.4",
+        )
+
+    @patch("lib.custom_provider.factory.OpenAITextBackend")
+    def test_preserves_existing_v1(self, mock_cls):
+        provider = _make_provider(api_format="openai", base_url="https://api.example.com/v1")
+        create_custom_backend(provider=provider, model_id="gpt-5.4", media_type="text")
+
+        mock_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://api.example.com/v1",
+            model="gpt-5.4",
+        )
+
+    @patch("lib.custom_provider.factory.OpenAITextBackend")
+    def test_strips_trailing_slash_and_appends_v1(self, mock_cls):
+        provider = _make_provider(api_format="openai", base_url="https://api.example.com/")
+        create_custom_backend(provider=provider, model_id="gpt-5.4", media_type="text")
+
+        mock_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://api.example.com/v1",
+            model="gpt-5.4",
+        )
+
+    @patch("lib.custom_provider.factory.OpenAIVideoBackend")
+    def test_applies_to_all_media_types(self, mock_cls):
+        """video/image 后端同样受 URL 补全影响。"""
+        provider = _make_provider(api_format="openai", base_url="https://api.example.com")
+        create_custom_backend(provider=provider, model_id="sora-2", media_type="video")
+
+        mock_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://api.example.com/v1",
+            model="sora-2",
+        )
 
 
 # ---------------------------------------------------------------------------

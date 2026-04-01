@@ -485,7 +485,9 @@ def _test_openai(base_url: str, api_key: str) -> ConnectionTestResponse:
     """通过 models.list() 验证 OpenAI 兼容 API。"""
     from openai import OpenAI
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    from lib.config.url_utils import ensure_openai_base_url
+
+    client = OpenAI(api_key=api_key, base_url=ensure_openai_base_url(base_url))
     models = client.models.list()
     count = sum(1 for _ in models)
     return ConnectionTestResponse(
@@ -499,9 +501,9 @@ def _test_google(base_url: str, api_key: str) -> ConnectionTestResponse:
     """通过 models.list() 验证 Google genai API。"""
     from google import genai
 
-    from lib.config.url_utils import normalize_base_url
+    from lib.config.url_utils import ensure_google_base_url
 
-    effective_url = normalize_base_url(base_url)
+    effective_url = ensure_google_base_url(base_url)
     http_options = {"base_url": effective_url} if effective_url else None
     client = genai.Client(api_key=api_key, http_options=http_options)
     pager = client.models.list()

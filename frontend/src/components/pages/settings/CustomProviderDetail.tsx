@@ -109,7 +109,10 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
   const ready = provider.base_url && provider.api_key_masked;
 
   return (
-    <div className="max-w-xl">
+    <div className="flex h-full flex-col">
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto p-6">
+      <div className="max-w-xl">
       {/* Header */}
       <div className="mb-6 flex items-start gap-3">
         <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded bg-gray-700 text-sm font-bold uppercase text-gray-300">
@@ -129,7 +132,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
             </span>
           </div>
           <p className="mt-1 text-sm text-gray-500">
-            {provider.api_format === "openai" ? "OpenAI 兼容" : "Google AI"} &middot; {provider.base_url}
+            {provider.api_format === "openai" ? "OpenAI" : "Google"} &middot; {provider.base_url}
           </p>
         </div>
       </div>
@@ -140,7 +143,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
           <div className="flex justify-between">
             <span className="text-gray-500">API 格式</span>
             <span className="text-gray-300">
-              {provider.api_format === "openai" ? "OpenAI 兼容" : "Google AI"}
+              {provider.api_format === "openai" ? "OpenAI" : "Google"}
             </span>
           </div>
           <div className="flex justify-between">
@@ -216,62 +219,67 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
         </div>
       )}
 
-      {/* Actions */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white transition-colors hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-          编辑
-        </button>
+      </div>{/* end max-w-xl */}
+      </div>{/* end scrollable content */}
 
-        <button
-          type="button"
-          onClick={() => void handleTest()}
-          disabled={testing}
-          className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:text-gray-100 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
-        >
-          {testing ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              测试中…
-            </>
-          ) : (
-            "测试连接"
-          )}
-        </button>
-
-        {!confirmDelete ? (
+      {/* Fixed actions bar — outside scroll area */}
+      <div className="shrink-0 border-t border-gray-800 bg-gray-950 px-6 py-3">
+        <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setConfirmDelete(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 transition-colors hover:border-red-800 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
+            onClick={() => setEditing(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white transition-colors hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
           >
-            <Trash2 className="h-3.5 w-3.5" />
-            删除
+            <Pencil className="h-3.5 w-3.5" />
+            编辑
           </button>
-        ) : (
-          <div className="flex items-center gap-1.5">
+
+          <button
+            type="button"
+            onClick={() => void handleTest()}
+            disabled={testing}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:text-gray-100 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
+          >
+            {testing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                测试中…
+              </>
+            ) : (
+              "测试连接"
+            )}
+          </button>
+
+          {!confirmDelete ? (
             <button
               type="button"
-              onClick={() => void handleDelete()}
-              disabled={deleting}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-red-800 bg-red-900/30 px-3 py-1.5 text-sm text-red-400 hover:bg-red-900/50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60"
+              onClick={() => setConfirmDelete(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 transition-colors hover:border-red-800 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
             >
-              {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-              确认删除
+              <Trash2 className="h-3.5 w-3.5" />
+              删除
             </button>
-            <button
-              type="button"
-              onClick={() => setConfirmDelete(false)}
-              className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 hover:border-gray-600 hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
-            >
-              取消
-            </button>
-          </div>
-        )}
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void handleDelete()}
+                disabled={deleting}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-800 bg-red-900/30 px-3 py-1.5 text-sm text-red-400 hover:bg-red-900/50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60"
+              >
+                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                确认删除
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 hover:border-gray-600 hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
+              >
+                取消
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

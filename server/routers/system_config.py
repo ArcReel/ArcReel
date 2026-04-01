@@ -9,7 +9,7 @@ is managed by the providers router.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any
+from typing import Annotated, Any, TypedDict
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -35,7 +35,14 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 
-async def _build_options(svc: ConfigService, session: AsyncSession) -> dict[str, list[str]]:
+class _OptionsDict(TypedDict):
+    video_backends: list[str]
+    image_backends: list[str]
+    text_backends: list[str]
+    provider_names: dict[str, str]
+
+
+async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsDict:
     """Compute available backends from ready providers."""
     statuses = await svc.get_all_providers_status()
     ready_providers = {s.name for s in statuses if s.status == "ready"}
@@ -45,6 +52,7 @@ async def _build_options(svc: ConfigService, session: AsyncSession) -> dict[str,
         "image_backends": [],
         "text_backends": [],
     }
+    provider_names: dict[str, str] = {}
     _MEDIA_TO_BUCKET = {"video": "video_backends", "image": "image_backends", "text": "text_backends"}
 
     for provider_id, meta in PROVIDER_REGISTRY.items():
@@ -60,15 +68,20 @@ async def _build_options(svc: ConfigService, session: AsyncSession) -> dict[str,
 
     try:
         repo = CustomProviderRepository(session)
+        providers = await repo.list_providers()
+        provider_name_map = {p.id: p.display_name for p in providers}
         enabled_models = await repo.list_all_enabled_models()
         for model in enabled_models:
+            pid = make_provider_id(model.provider_id)
             bucket = _MEDIA_TO_BUCKET.get(model.media_type)
             if bucket:
-                buckets[bucket].append(f"{make_provider_id(model.provider_id)}/{model.model_id}")
+                buckets[bucket].append(f"{pid}/{model.model_id}")
+            if pid not in provider_names and model.provider_id in provider_name_map:
+                provider_names[pid] = provider_name_map[model.provider_id]
     except Exception:
         pass  # Non-fatal: custom providers unavailable shouldn't break the options endpoint
 
-    return buckets
+    return {**buckets, "provider_names": provider_names}
 
 
 # ---------------------------------------------------------------------------

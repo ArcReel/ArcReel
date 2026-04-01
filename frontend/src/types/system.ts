@@ -21,6 +21,7 @@ export interface SystemConfigOptions {
   video_backends: string[];
   image_backends: string[];
   text_backends: string[];
+  provider_names?: Record<string, string>;
 }
 
 export interface GetSystemConfigResponse {

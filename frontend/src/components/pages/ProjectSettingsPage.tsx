@@ -1,5 +1,5 @@
 import { useParams, useLocation } from "wouter";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { ArrowLeft } from "lucide-react";
 import { API } from "@/api";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
@@ -14,11 +14,17 @@ export function ProjectSettingsPage() {
     video_backends: string[];
     image_backends: string[];
     text_backends: string[];
+    provider_names?: Record<string, string>;
   } | null>(null);
   const [globalDefaults, setGlobalDefaults] = useState<{
     video: string;
     image: string;
   }>({ video: "", image: "" });
+
+  const allProviderNames = useMemo(
+    () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
+    [options],
+  );
 
   // Project-level overrides (from project.json)
   // "" means "follow global default"
@@ -46,6 +52,7 @@ export function ProjectSettingsPage() {
         video_backends: configRes.options?.video_backends ?? [],
         image_backends: configRes.options?.image_backends ?? [],
         text_backends: configRes.options?.text_backends ?? [],
+        provider_names: configRes.options?.provider_names,
       });
       setGlobalDefaults({
         video: configRes.settings?.default_video_backend ?? "",
@@ -147,7 +154,7 @@ export function ProjectSettingsPage() {
               <ProviderModelSelect
                 value={videoBackend}
                 options={options.video_backends}
-                providerNames={PROVIDER_NAMES}
+                providerNames={allProviderNames}
                 onChange={setVideoBackend}
                 allowDefault
                 defaultHint={
@@ -162,7 +169,7 @@ export function ProjectSettingsPage() {
               <ProviderModelSelect
                 value={imageBackend}
                 options={options.image_backends}
-                providerNames={PROVIDER_NAMES}
+                providerNames={allProviderNames}
                 onChange={setImageBackend}
                 allowDefault
                 defaultHint={
@@ -208,7 +215,7 @@ export function ProjectSettingsPage() {
                     <ProviderModelSelect
                       value={value}
                       options={options.text_backends}
-                      providerNames={PROVIDER_NAMES}
+                      providerNames={allProviderNames}
                       onChange={setter}
                       allowDefault
                       defaultHint="跟随全局默认"

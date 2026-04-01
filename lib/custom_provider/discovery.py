@@ -65,7 +65,9 @@ async def _discover_openai(base_url: str | None, api_key: str) -> list[dict]:
     """通过 OpenAI 兼容 API 发现模型。"""
 
     def _sync():
-        client = OpenAI(api_key=api_key, base_url=base_url)
+        from lib.config.url_utils import ensure_openai_base_url
+
+        client = OpenAI(api_key=api_key, base_url=ensure_openai_base_url(base_url))
         raw_models = client.models.list()
         models = sorted(raw_models, key=lambda m: m.id)
         return _build_result_list([(m.id, infer_media_type(m.id)) for m in models])
@@ -77,10 +79,10 @@ async def _discover_google(base_url: str | None, api_key: str) -> list[dict]:
     """通过 Google genai SDK 发现模型。"""
 
     def _sync():
-        from lib.config.url_utils import normalize_base_url
+        from lib.config.url_utils import ensure_google_base_url
 
         kwargs: dict = {"api_key": api_key}
-        effective_url = normalize_base_url(base_url) if base_url else None
+        effective_url = ensure_google_base_url(base_url) if base_url else None
         if effective_url:
             kwargs["http_options"] = {"base_url": effective_url}
         client = genai.Client(**kwargs)
