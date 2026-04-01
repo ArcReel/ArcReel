@@ -77,9 +77,12 @@ async def _discover_google(base_url: str | None, api_key: str) -> list[dict]:
     """通过 Google genai SDK 发现模型。"""
 
     def _sync():
+        from lib.config.url_utils import normalize_base_url
+
         kwargs: dict = {"api_key": api_key}
-        if base_url:
-            kwargs["http_options"] = {"base_url": base_url}
+        effective_url = normalize_base_url(base_url) if base_url else None
+        if effective_url:
+            kwargs["http_options"] = {"base_url": effective_url}
         client = genai.Client(**kwargs)
 
         raw_models = client.models.list()

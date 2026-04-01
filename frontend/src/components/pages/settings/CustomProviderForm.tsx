@@ -49,7 +49,7 @@ function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     price_unit: "",
     price_input: "",
     price_output: "",
-    currency: "CNY",
+    currency: "USD",
     ...partial,
   };
 }
@@ -215,16 +215,14 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     setSaving(true);
     try {
       if (isEdit && existing) {
-        // Update provider metadata + replace models in parallel
-        const patch: Record<string, unknown> = {
+        // Update provider metadata, then replace models (串行确保原子性)
+        const patch = {
           display_name: displayName,
           base_url: baseUrl,
+          ...(apiKey ? { api_key: apiKey } : {}),
         };
-        if (apiKey) patch.api_key = apiKey;
-        await Promise.all([
-          API.updateCustomProvider(existing.id, patch),
-          API.replaceCustomProviderModels(existing.id, models.map(rowToInput)),
-        ]);
+        await API.updateCustomProvider(existing.id, patch);
+        await API.replaceCustomProviderModels(existing.id, models.map(rowToInput));
       } else {
         await API.createCustomProvider({
           display_name: displayName,

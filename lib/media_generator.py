@@ -238,13 +238,14 @@ class MediaGenerator:
                 image_size=image_size,
                 project_name=self.project_name,
             )
-            await self._image_backend.generate(request)
+            result = await self._image_backend.generate(request)
 
             # 4. 记录调用成功
             await self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="success",
                 output_path=str(output_path),
+                quality=getattr(result, "quality", None),
             )
         except Exception as e:
             # 记录调用失败

@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -131,6 +131,16 @@ def _provider_to_response(provider, models) -> ProviderResponse:
     )
 
 
+async def _invalidate_caches(request: Request) -> None:
+    """清空 backend 实例缓存 + 刷新 worker 限流配置。"""
+    from server.services.generation_tasks import invalidate_backend_cache
+
+    invalidate_backend_cache()
+    worker = getattr(request.app.state, "generation_worker", None)
+    if worker:
+        await worker.reload_limits()
+
+
 # ---------------------------------------------------------------------------
 # Provider CRUD
 # ---------------------------------------------------------------------------
@@ -150,6 +160,7 @@ async def list_providers(
 @router.post("", status_code=201)
 async def create_provider(
     body: CreateProviderRequest,
+    request: Request,
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -164,6 +175,7 @@ async def create_provider(
         models=model_dicts,
     )
     await session.commit()
+    await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider.id)
     return _provider_to_response(provider, models)
@@ -188,6 +200,7 @@ async def get_provider(
 async def update_provider(
     provider_id: int,
     body: UpdateProviderRequest,
+    request: Request,
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -209,6 +222,7 @@ async def update_provider(
         raise HTTPException(status_code=404, detail="供应商不存在")
 
     await session.commit()
+    await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider_id)
     return _provider_to_response(provider, models)
@@ -217,6 +231,7 @@ async def update_provider(
 @router.delete("/{provider_id}", status_code=204)
 async def delete_provider(
     provider_id: int,
+    request: Request,
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -227,6 +242,7 @@ async def delete_provider(
         raise HTTPException(status_code=404, detail="供应商不存在")
     await repo.delete_provider(provider_id)
     await session.commit()
+    await _invalidate_caches(request)
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +254,7 @@ async def delete_provider(
 async def replace_models(
     provider_id: int,
     body: ReplaceModelsRequest,
+    request: Request,
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -249,6 +266,7 @@ async def replace_models(
     model_dicts = [m.model_dump() for m in body.models]
     new_models = await repo.replace_models(provider_id, model_dicts)
     await session.commit()
+    await _invalidate_caches(request)
     return [_model_to_response(m) for m in new_models]
 
 
