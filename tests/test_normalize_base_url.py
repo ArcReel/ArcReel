@@ -94,7 +94,13 @@ class TestEnsureGoogleBaseUrl:
         assert ensure_google_base_url("  https://sub2api.pollochen.com  ") == "https://sub2api.pollochen.com/"
 
     def test_real_world_googleapis(self):
-        assert ensure_google_base_url("https://generativelanguage.googleapis.com") == "https://generativelanguage.googleapis.com/"
+        assert (
+            ensure_google_base_url("https://generativelanguage.googleapis.com")
+            == "https://generativelanguage.googleapis.com/"
+        )
 
     def test_real_world_googleapis_with_v1beta(self):
-        assert ensure_google_base_url("https://generativelanguage.googleapis.com/v1beta") == "https://generativelanguage.googleapis.com/"
+        assert (
+            ensure_google_base_url("https://generativelanguage.googleapis.com/v1beta")
+            == "https://generativelanguage.googleapis.com/"
+        )
