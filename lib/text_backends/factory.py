@@ -45,6 +45,7 @@ async def create_text_backend_for_task(
                 stmt = select(CustomProviderModel).where(
                     CustomProviderModel.provider_id == db_id,
                     CustomProviderModel.model_id == model_id,
+                    CustomProviderModel.media_type == "text",
                     CustomProviderModel.is_enabled == True,  # noqa: E712
                 )
                 result = await session.execute(stmt)

@@ -90,6 +90,7 @@ async def _create_custom_backend(provider_name: str, model_id: str | None, media
             stmt = select(CustomProviderModel).where(
                 CustomProviderModel.provider_id == db_id,
                 CustomProviderModel.model_id == model_id,
+                CustomProviderModel.media_type == media_type,
                 CustomProviderModel.is_enabled == True,  # noqa: E712
             )
             result = await session.execute(stmt)

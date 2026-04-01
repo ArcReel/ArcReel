@@ -166,12 +166,15 @@ def _cleanup_project_refs(prefix: str, setting_keys: tuple[str, ...]) -> None:
 
 
 def _check_duplicate_model_ids(models: list[ModelInput]) -> None:
-    """校验模型列表中无重复 model_id，重复时抛 422。"""
+    """校验模型列表中无重复 model_id 且启用模型有合法 model_id。"""
     seen: set[str] = set()
     for m in models:
+        if m.is_enabled and not m.model_id.strip():
+            raise HTTPException(status_code=422, detail="已启用的模型必须填写 model_id")
         if m.model_id in seen:
             raise HTTPException(status_code=422, detail=f"model_id 重复: {m.model_id}")
-        seen.add(m.model_id)
+        if m.model_id:
+            seen.add(m.model_id)
 
 
 async def _invalidate_caches(request: Request) -> None:

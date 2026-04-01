@@ -212,6 +212,11 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       setError("至少启用一个模型");
       return;
     }
+    const emptyId = enabledModels.find((m) => !m.model_id.trim());
+    if (emptyId) {
+      setError("已启用的模型必须填写 model_id");
+      return;
+    }
     setSaving(true);
     try {
       if (isEdit && existing) {
