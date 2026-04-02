@@ -138,11 +138,12 @@ class TestFilesRouter:
             )
             assert bad_type.status_code == 400
 
+            # 小于 2MB 的文件（即使无效图片格式）原样保存，不做格式校验
             bad_image = client.post(
                 "/api/v1/projects/demo/upload/character?name=Alice",
                 files={"file": ("bad.png", b"not-image", "image/png")},
             )
-            assert bad_image.status_code == 400
+            assert bad_image.status_code == 200
 
             # drafts API
             update_draft = client.put(

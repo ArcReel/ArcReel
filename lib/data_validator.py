@@ -48,6 +48,7 @@ class DataValidator:
     ALLOWED_ROOT_ENTRIES = {
         "project.json",
         "style_reference.png",
+        "style_reference.jpg",
         "source",
         "scripts",
         "drafts",
