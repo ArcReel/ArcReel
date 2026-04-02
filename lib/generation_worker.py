@@ -146,6 +146,10 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
                 image_max=max(0, image_max),
                 video_max=max(0, video_max),
             )
+    logger.info(
+        "从 DB 加载供应商池配置: %s",
+        {pid: (p.image_max, p.video_max) for pid, p in pools.items()},
+    )
     return pools
 
 
@@ -184,6 +188,10 @@ class GenerationWorker:
         self.owner_id = f"worker-{uuid.uuid4().hex[:10]}"
 
         self._pools: dict[str, ProviderPool] = pools or _build_default_pools()
+        logger.info(
+            "Worker 初始池配置: %s",
+            {pid: (p.image_max, p.video_max) for pid, p in self._pools.items()},
+        )
         self.lease_ttl = max(1.0, float(TASK_WORKER_LEASE_TTL_SEC))
         self.heartbeat_interval = max(0.5, float(TASK_WORKER_HEARTBEAT_SEC))
         self.poll_interval = max(0.1, float(TASK_POLL_INTERVAL_SEC))
