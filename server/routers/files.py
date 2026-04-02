@@ -10,8 +10,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from io import BytesIO
+
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
+from PIL import Image
 
 from lib import PROJECT_ROOT
 from lib.image_utils import compress_image_bytes
@@ -140,6 +143,16 @@ async def upload_file(
                     raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
                 # 压缩后替换文件名后缀为 .jpg
                 filename = Path(filename).with_suffix(".jpg").name
+            else:
+                # 小图不转换，但仍校验是否为有效图片
+                try:
+                    with Image.open(BytesIO(content)) as img:
+                        img.verify()
+                except Exception:
+                    raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
+                # 使用上传文件的原始后缀，避免强制 .png 导致后缀不匹配
+                original_ext = Path(file.filename).suffix.lower() or ".png"
+                filename = Path(filename).with_suffix(original_ext).name
 
         target_path = target_dir / filename
         with open(target_path, "wb") as f:
@@ -571,7 +584,6 @@ async def delete_style_image(project_name: str, _user: CurrentUser):
             image_path = project_dir / f"style_reference{suffix}"
             if image_path.exists():
                 image_path.unlink()
-                break
 
         # 清除 project.json 中的相关字段
         project_data = get_project_manager().load_project(project_name)

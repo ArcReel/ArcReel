@@ -103,28 +103,28 @@ class TestFilesRouter:
                 files={"file": ("alice.jpg", _img_bytes("JPEG"), "image/jpeg")},
             )
             assert character.status_code == 200
-            assert character.json()["path"] == "characters/Alice.png"
+            assert character.json()["path"] == "characters/Alice.jpg"
 
             character_ref = client.post(
                 "/api/v1/projects/demo/upload/character_ref?name=Alice",
                 files={"file": ("alice_ref.webp", _img_bytes("WEBP"), "image/webp")},
             )
             assert character_ref.status_code == 200
-            assert character_ref.json()["path"] == "characters/refs/Alice.png"
+            assert character_ref.json()["path"] == "characters/refs/Alice.webp"
 
             clue = client.post(
                 "/api/v1/projects/demo/upload/clue?name=玉佩",
                 files={"file": ("clue.jpg", _img_bytes("JPEG"), "image/jpeg")},
             )
             assert clue.status_code == 200
-            assert clue.json()["path"] == "clues/玉佩.png"
+            assert clue.json()["path"] == "clues/玉佩.jpg"
 
             storyboard = client.post(
                 "/api/v1/projects/demo/upload/storyboard?name=E1S01",
                 files={"file": ("storyboard.jpg", _img_bytes("JPEG"), "image/jpeg")},
             )
             assert storyboard.status_code == 200
-            assert storyboard.json()["path"] == "storyboards/scene_E1S01.png"
+            assert storyboard.json()["path"] == "storyboards/scene_E1S01.jpg"
 
             invalid_ext = client.post(
                 "/api/v1/projects/demo/upload/source",
@@ -138,12 +138,12 @@ class TestFilesRouter:
             )
             assert bad_type.status_code == 400
 
-            # 小于 2MB 的文件（即使无效图片格式）原样保存，不做格式校验
+            # 无效图片格式仍应被拒绝（即使小于 2MB）
             bad_image = client.post(
                 "/api/v1/projects/demo/upload/character?name=Alice",
                 files={"file": ("bad.png", b"not-image", "image/png")},
             )
-            assert bad_image.status_code == 200
+            assert bad_image.status_code == 400
 
             # drafts API
             update_draft = client.put(
@@ -172,9 +172,9 @@ class TestFilesRouter:
 
             # confirm metadata updated for character/clue
             project = pm.load_project("demo")
-            assert project["characters"]["Alice"]["character_sheet"] == "characters/Alice.png"
-            assert project["characters"]["Alice"]["reference_image"] == "characters/refs/Alice.png"
-            assert project["clues"]["玉佩"]["clue_sheet"] == "clues/玉佩.png"
+            assert project["characters"]["Alice"]["character_sheet"] == "characters/Alice.jpg"
+            assert project["characters"]["Alice"]["reference_image"] == "characters/refs/Alice.webp"
+            assert project["clues"]["玉佩"]["clue_sheet"] == "clues/玉佩.jpg"
 
     def test_style_image_endpoints(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
@@ -238,28 +238,28 @@ class TestFilesRouter:
                 files={"file": ("no_name.jpg", _img_bytes("JPEG"), "image/jpeg")},
             )
             assert ref_no_name.status_code == 200
-            assert ref_no_name.json()["path"] == "characters/refs/no_name.png"
+            assert ref_no_name.json()["path"] == "characters/refs/no_name.jpg"
 
             clue_missing_entity = client.post(
                 "/api/v1/projects/demo/upload/clue?name=不存在线索",
                 files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
             )
             assert clue_missing_entity.status_code == 200
-            assert clue_missing_entity.json()["path"] == "clues/不存在线索.png"
+            assert clue_missing_entity.json()["path"] == "clues/不存在线索.jpg"
 
             character_missing_entity = client.post(
                 "/api/v1/projects/demo/upload/character?name=不存在角色",
                 files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
             )
             assert character_missing_entity.status_code == 200
-            assert character_missing_entity.json()["path"] == "characters/不存在角色.png"
+            assert character_missing_entity.json()["path"] == "characters/不存在角色.jpg"
 
             storyboard_no_name = client.post(
                 "/api/v1/projects/demo/upload/storyboard",
                 files={"file": ("board.jpg", _img_bytes("JPEG"), "image/jpeg")},
             )
             assert storyboard_no_name.status_code == 200
-            assert storyboard_no_name.json()["path"] == "storyboards/board.png"
+            assert storyboard_no_name.json()["path"] == "storyboards/board.jpg"
 
     def test_source_decode_and_draft_mode_helpers(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
