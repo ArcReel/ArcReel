@@ -49,6 +49,8 @@ class DataValidator:
         "project.json",
         "style_reference.png",
         "style_reference.jpg",
+        "style_reference.jpeg",
+        "style_reference.webp",
         "source",
         "scripts",
         "drafts",

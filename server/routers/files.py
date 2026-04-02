@@ -566,8 +566,8 @@ async def delete_style_image(project_name: str, _user: CurrentUser):
     try:
         project_dir = get_project_manager().get_project_path(project_name)
 
-        # 删除图片文件（兼容 .jpg 和 .png 两种后缀）
-        for suffix in (".jpg", ".png"):
+        # 删除图片文件（兼容所有可能的后缀）
+        for suffix in (".jpg", ".jpeg", ".png", ".webp"):
             image_path = project_dir / f"style_reference{suffix}"
             if image_path.exists():
                 image_path.unlink()
