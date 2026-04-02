@@ -20,25 +20,23 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "grok-imagine-image"
 
-_SUPPORTED_ASPECT_RATIOS = {"16:9", "9:16", "4:3", "3:4"}
-
-_ASPECT_RATIO_FALLBACK: dict[str, str] = {
-    "1:1": "4:3",
-    "3:2": "16:9",
-    "2:3": "9:16",
+_SUPPORTED_ASPECT_RATIOS = {
+    "1:1",
+    "16:9", "9:16",
+    "4:3", "3:4",
+    "3:2", "2:3",
+    "2:1", "1:2",
+    "19.5:9", "9:19.5",
+    "20:9", "9:20",
+    "auto",
 }
 
 
 def _validate_aspect_ratio(aspect_ratio: str) -> str:
-    """校验 aspect_ratio 是否在 Grok 支持列表中，不支持则映射到最近值。"""
-    if aspect_ratio in _SUPPORTED_ASPECT_RATIOS:
-        return aspect_ratio
-    fallback = _ASPECT_RATIO_FALLBACK.get(aspect_ratio)
-    if fallback:
-        logger.warning("Grok 不支持 aspect_ratio=%s，映射为 %s", aspect_ratio, fallback)
-        return fallback
-    logger.warning("Grok 不支持 aspect_ratio=%s，回退为 16:9", aspect_ratio)
-    return "16:9"
+    """校验 aspect_ratio 是否在 Grok 支持列表中，不支持则 warning 并透传。"""
+    if aspect_ratio not in _SUPPORTED_ASPECT_RATIOS:
+        logger.warning("Grok 可能不支持 aspect_ratio=%s，将透传给 API", aspect_ratio)
+    return aspect_ratio
 
 
 class GrokImageBackend:

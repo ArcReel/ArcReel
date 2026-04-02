@@ -415,21 +415,14 @@ class TestAspectRatioValidation:
     def test_supported_ratios_pass_through(self):
         from lib.image_backends.grok import _validate_aspect_ratio
 
-        for ratio in ("16:9", "9:16", "4:3", "3:4"):
+        for ratio in ("1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "auto"):
             assert _validate_aspect_ratio(ratio) == ratio
 
-    def test_unsupported_ratio_falls_back(self):
+    def test_unsupported_ratio_passed_through_with_warning(self):
         from lib.image_backends.grok import _validate_aspect_ratio
 
-        # 1:1 不支持，应映射到最近的支持比例
-        result = _validate_aspect_ratio("1:1")
-        assert result in ("16:9", "9:16", "4:3", "3:4")
-
-    def test_3_2_falls_back(self):
-        from lib.image_backends.grok import _validate_aspect_ratio
-
-        result = _validate_aspect_ratio("3:2")
-        assert result in ("16:9", "9:16", "4:3", "3:4")
+        # 不支持的比例透传给 API，不做映射
+        assert _validate_aspect_ratio("5:4") == "5:4"
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
@@ -444,12 +437,15 @@ Expected: FAIL — 旧测试断言 `image_url`（单数），新测试断言 `im
 在文件顶部常量区（`DEFAULT_MODEL` 下方）添加：
 
 ```python
-_SUPPORTED_ASPECT_RATIOS = {"16:9", "9:16", "4:3", "3:4"}
-
-_ASPECT_RATIO_FALLBACK: dict[str, str] = {
-    "1:1": "4:3",
-    "3:2": "16:9",
-    "2:3": "9:16",
+_SUPPORTED_ASPECT_RATIOS = {
+    "1:1",
+    "16:9", "9:16",
+    "4:3", "3:4",
+    "3:2", "2:3",
+    "2:1", "1:2",
+    "19.5:9", "9:19.5",
+    "20:9", "9:20",
+    "auto",
 }
 ```
 
@@ -457,15 +453,10 @@ _ASPECT_RATIO_FALLBACK: dict[str, str] = {
 
 ```python
 def _validate_aspect_ratio(aspect_ratio: str) -> str:
-    """校验 aspect_ratio 是否在 Grok 支持列表中，不支持则映射到最近值。"""
-    if aspect_ratio in _SUPPORTED_ASPECT_RATIOS:
-        return aspect_ratio
-    fallback = _ASPECT_RATIO_FALLBACK.get(aspect_ratio)
-    if fallback:
-        logger.warning("Grok 不支持 aspect_ratio=%s，映射为 %s", aspect_ratio, fallback)
-        return fallback
-    logger.warning("Grok 不支持 aspect_ratio=%s，回退为 16:9", aspect_ratio)
-    return "16:9"
+    """校验 aspect_ratio 是否在 Grok 支持列表中，不支持则 warning 并透传。"""
+    if aspect_ratio not in _SUPPORTED_ASPECT_RATIOS:
+        logger.warning("Grok 可能不支持 aspect_ratio=%s，将透传给 API", aspect_ratio)
+    return aspect_ratio
 ```
 
 替换 `generate` 方法中的 I2I 部分（lines 52-86）：

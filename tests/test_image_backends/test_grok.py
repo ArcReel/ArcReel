@@ -280,17 +280,11 @@ class TestAspectRatioValidation:
     def test_supported_ratios_pass_through(self):
         from lib.image_backends.grok import _validate_aspect_ratio
 
-        for ratio in ("16:9", "9:16", "4:3", "3:4"):
+        for ratio in ("1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "auto"):
             assert _validate_aspect_ratio(ratio) == ratio
 
-    def test_unsupported_ratio_falls_back(self):
+    def test_unsupported_ratio_passed_through_with_warning(self):
         from lib.image_backends.grok import _validate_aspect_ratio
 
-        result = _validate_aspect_ratio("1:1")
-        assert result in ("16:9", "9:16", "4:3", "3:4")
-
-    def test_3_2_falls_back(self):
-        from lib.image_backends.grok import _validate_aspect_ratio
-
-        result = _validate_aspect_ratio("3:2")
-        assert result in ("16:9", "9:16", "4:3", "3:4")
+        # 不支持的比例透传给 API，不做映射
+        assert _validate_aspect_ratio("5:4") == "5:4"
