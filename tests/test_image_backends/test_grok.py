@@ -132,9 +132,8 @@ class TestGenerateT2I:
 
 
 class TestGenerateI2I:
-    async def test_i2i_sends_data_uri(self, backend, tmp_path):
-        """I2I 将参考图转为 data URI 传给 image_url。"""
-        # 创建假参考图
+    async def test_i2i_sends_image_urls(self, backend, tmp_path):
+        """I2I 将参考图转为 data URI 列表传给 image_urls。"""
         ref_image = tmp_path / "ref.png"
         ref_image.write_bytes(b"\x89PNG\r\n\x1a\nfake_png_data")
 
@@ -162,11 +161,49 @@ class TestGenerateI2I:
             )
             result = await backend.generate(request)
 
-        # 验证 image_url 参数包含 data URI
         call_kwargs = backend._client.image.sample.call_args.kwargs
-        assert "image_url" in call_kwargs
-        assert call_kwargs["image_url"].startswith("data:image/png;base64,")
+        assert "image_urls" in call_kwargs
+        assert "image_url" not in call_kwargs
+        assert len(call_kwargs["image_urls"]) == 1
+        assert call_kwargs["image_urls"][0].startswith("data:image/png;base64,")
         assert result.provider == "grok"
+
+    async def test_i2i_multiple_refs(self, backend, tmp_path):
+        """多张参考图全部通过 image_urls 传递。"""
+        ref1 = tmp_path / "ref1.png"
+        ref1.write_bytes(b"\x89PNG\r\n\x1a\nfake1")
+        ref2 = tmp_path / "ref2.jpg"
+        ref2.write_bytes(b"\xff\xd8\xff\xe0fake2")
+
+        output = tmp_path / "output.png"
+        mock_response = MagicMock()
+        mock_response.respect_moderation = True
+        mock_response.url = "https://example.com/merged.png"
+        backend._client.image.sample = AsyncMock(return_value=mock_response)
+
+        fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
+
+        with patch("lib.image_backends.grok.httpx.AsyncClient") as MockHttpClient:
+            mock_http = AsyncMock()
+            MockHttpClient.return_value.__aenter__ = AsyncMock(return_value=mock_http)
+            MockHttpClient.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_resp = MagicMock()
+            mock_resp.content = fake_image_bytes
+            mock_resp.raise_for_status = MagicMock()
+            mock_http.get = AsyncMock(return_value=mock_resp)
+
+            request = ImageGenerationRequest(
+                prompt="Merge subjects",
+                output_path=output,
+                reference_images=[
+                    ReferenceImage(path=str(ref1)),
+                    ReferenceImage(path=str(ref2)),
+                ],
+            )
+            await backend.generate(request)
+
+        call_kwargs = backend._client.image.sample.call_args.kwargs
+        assert len(call_kwargs["image_urls"]) == 2
 
     async def test_i2i_skips_missing_ref(self, backend, tmp_path):
         """参考图不存在时退化为 T2I。"""
@@ -195,6 +232,7 @@ class TestGenerateI2I:
             await backend.generate(request)
 
         call_kwargs = backend._client.image.sample.call_args.kwargs
+        assert "image_urls" not in call_kwargs
         assert "image_url" not in call_kwargs
 
 
@@ -231,3 +269,28 @@ class TestResolutionMapping:
         assert _map_image_size_to_resolution("1K") == "1k"
         assert _map_image_size_to_resolution("2K") == "2k"
         assert _map_image_size_to_resolution("unknown") == "1k"
+
+
+# ---------------------------------------------------------------------------
+# aspect_ratio 校验测试
+# ---------------------------------------------------------------------------
+
+
+class TestAspectRatioValidation:
+    def test_supported_ratios_pass_through(self):
+        from lib.image_backends.grok import _validate_aspect_ratio
+
+        for ratio in ("16:9", "9:16", "4:3", "3:4"):
+            assert _validate_aspect_ratio(ratio) == ratio
+
+    def test_unsupported_ratio_falls_back(self):
+        from lib.image_backends.grok import _validate_aspect_ratio
+
+        result = _validate_aspect_ratio("1:1")
+        assert result in ("16:9", "9:16", "4:3", "3:4")
+
+    def test_3_2_falls_back(self):
+        from lib.image_backends.grok import _validate_aspect_ratio
+
+        result = _validate_aspect_ratio("3:2")
+        assert result in ("16:9", "9:16", "4:3", "3:4")
