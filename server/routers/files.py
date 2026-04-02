@@ -530,6 +530,11 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
                 raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
             style_filename = "style_reference.jpg"
         else:
+            try:
+                with Image.open(BytesIO(content)) as img:
+                    img.verify()
+            except Exception:
+                raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
             style_filename = f"style_reference{Path(file.filename).suffix.lower() or '.png'}"
 
         output_path = project_dir / style_filename

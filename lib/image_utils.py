@@ -50,9 +50,7 @@ def compress_image_bytes(
     try:
         with Image.open(BytesIO(content)) as img:
             img = ImageOps.exif_transpose(img)
-            if img.mode in ("RGBA", "P", "LA"):
-                img = img.convert("RGB")
-            elif img.mode != "RGB":
+            if img.mode != "RGB":
                 img = img.convert("RGB")
 
             w, h = img.size

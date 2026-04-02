@@ -485,11 +485,12 @@ class ProjectArchiveService:
         versions_payload = self._load_versions_payload(project_dir)
         project_changed = False
 
+        style_image_rel = project.get("style_image") or "style_reference.png"
         if self._repair_path_to_canonical(
             project_dir,
             project,
             field_name="style_image",
-            canonical_rel="style_reference.png",
+            canonical_rel=style_image_rel,
             location="project.style_image",
             diagnostics=diagnostics,
         ):
