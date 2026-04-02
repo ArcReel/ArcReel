@@ -10,21 +10,16 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-from io import BytesIO
-
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
-from PIL import Image
 
 from lib import PROJECT_ROOT
-from lib.image_utils import compress_image_bytes
+from lib.image_utils import normalize_uploaded_image
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUser
 
 router = APIRouter()
-
-_COMPRESS_THRESHOLD = 2 * 1024 * 1024  # 2MB
 
 # 初始化项目管理器
 pm = ProjectManager(PROJECT_ROOT / "projects")
@@ -133,26 +128,14 @@ async def upload_file(
 
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        # 保存文件（大于 2MB 时压缩为 JPEG，否则原样保存）
+        # 保存文件（大于 2MB 时压缩为 JPEG，否则校验后原样保存）
         content = await file.read()
         if upload_type in ("character", "character_ref", "clue", "storyboard"):
-            if len(content) > _COMPRESS_THRESHOLD:
-                try:
-                    content = compress_image_bytes(content)
-                except ValueError:
-                    raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
-                # 压缩后替换文件名后缀为 .jpg
-                filename = Path(filename).with_suffix(".jpg").name
-            else:
-                # 小图不转换，但仍校验是否为有效图片
-                try:
-                    with Image.open(BytesIO(content)) as img:
-                        img.verify()
-                except Exception:
-                    raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
-                # 使用上传文件的原始后缀，避免强制 .png 导致后缀不匹配
-                original_ext = Path(file.filename).suffix.lower() or ".png"
-                filename = Path(filename).with_suffix(original_ext).name
+            try:
+                content, ext = normalize_uploaded_image(content, Path(file.filename).suffix.lower())
+            except ValueError:
+                raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
+            filename = Path(filename).with_suffix(ext).name
 
         target_path = target_dir / filename
         with open(target_path, "wb") as f:
@@ -521,21 +504,13 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
     try:
         project_dir = get_project_manager().get_project_path(project_name)
 
-        # 保存图片（大于 2MB 时压缩为 JPEG，否则原样保存）
+        # 保存图片（大于 2MB 时压缩为 JPEG，否则校验后原样保存）
         content = await file.read()
-        if len(content) > _COMPRESS_THRESHOLD:
-            try:
-                content = compress_image_bytes(content)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
-            style_filename = "style_reference.jpg"
-        else:
-            try:
-                with Image.open(BytesIO(content)) as img:
-                    img.verify()
-            except Exception:
-                raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
-            style_filename = f"style_reference{Path(file.filename).suffix.lower() or '.png'}"
+        try:
+            content, ext = normalize_uploaded_image(content, Path(file.filename).suffix.lower())
+        except ValueError:
+            raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
+        style_filename = f"style_reference{ext}"
 
         output_path = project_dir / style_filename
         with open(output_path, "wb") as f:
