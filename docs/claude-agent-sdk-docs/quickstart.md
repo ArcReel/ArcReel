@@ -289,7 +289,8 @@ With `Bash` enabled, try: `"Write unit tests for utils.py, run them, and fix any
 | Mode | Behavior | Use case |
 |------|----------|----------|
 | `acceptEdits` | Auto-approves file edits, asks for other actions | Trusted development workflows |
-| `dontAsk` (TypeScript only) | Denies anything not in `allowedTools` | Locked-down headless agents |
+| `dontAsk` | Denies anything not in `allowedTools` | Locked-down headless agents |
+| `auto` (TypeScript only) | A model classifier approves or denies each tool call | Autonomous agents with safety guardrails |
 | `bypassPermissions` | Runs every tool without prompts | Sandboxed CI, fully trusted environments |
 | `default` | Requires a `canUseTool` callback to handle approval | Custom approval flows |
 

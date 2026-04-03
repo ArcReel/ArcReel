@@ -48,7 +48,7 @@ This page focuses on **allow and deny rules** and **permission modes**. For the 
 | `allowed_tools=["Read", "Grep"]` | `Read` and `Grep` are auto-approved. Tools not listed here still exist and fall through to the permission mode and `canUseTool`. |
 | `disallowed_tools=["Bash"]` | `Bash` is always denied. Deny rules are checked first and hold in every permission mode, including `bypassPermissions`. |
 
-For a locked-down agent, pair `allowedTools` with `permissionMode: "dontAsk"` (TypeScript only). Listed tools are approved; anything else is denied outright instead of prompting:
+For a locked-down agent, pair `allowedTools` with `permissionMode: "dontAsk"`. Listed tools are approved; anything else is denied outright instead of prompting:
 
 ```typescript
 const options = {
@@ -56,8 +56,6 @@ const options = {
   permissionMode: "dontAsk"
 };
 ```
-
-In Python, `dontAsk` is not yet available as a permission mode. Without it, Claude may still attempt to call tools not in `allowed_tools`. The call is rejected at runtime, but Claude wastes a turn discovering this. For tighter control in Python, use `disallowed_tools` to explicitly block tools you don't want Claude to attempt.
 
 <Warning>
 **`allowed_tools` does not constrain `bypassPermissions`.** `allowed_tools` only pre-approves the tools you list. Unlisted tools are not matched by any allow rule and fall through to the permission mode, where `bypassPermissions` approves them. Setting `allowed_tools=["Read"]` alongside `permission_mode="bypassPermissions"` still approves every tool, including `Bash`, `Write`, and `Edit`. If you need `bypassPermissions` but want specific tools blocked, use `disallowed_tools`.
@@ -76,10 +74,11 @@ The SDK supports these permission modes:
 | Mode | Description | Tool behavior |
 | :--- | :---------- | :------------ |
 | `default` | Standard permission behavior | No auto-approvals; unmatched tools trigger your `canUseTool` callback |
-| `dontAsk` (TypeScript only) | Deny instead of prompting | Anything not pre-approved by `allowed_tools` or rules is denied; `canUseTool` is never called |
+| `dontAsk` | Deny instead of prompting | Anything not pre-approved by `allowed_tools` or rules is denied; `canUseTool` is never called |
 | `acceptEdits` | Auto-accept file edits | File edits and [filesystem operations](#accept-edits-mode-acceptedits) (`mkdir`, `rm`, `mv`, etc.) are automatically approved |
 | `bypassPermissions` | Bypass all permission checks | All tools run without permission prompts (use with caution) |
 | `plan` | Planning mode | No tool execution; Claude plans without making changes |
+| `auto` (TypeScript only) | Model-classified approvals | A model classifier approves or denies each tool call. See [Auto mode](https://code.claude.com/docs/en/permission-modes#eliminate-prompts-with-auto-mode) for availability |
 
 <Warning>
 **Subagent inheritance:** When using `bypassPermissions`, all subagents inherit this mode and it cannot be overridden. Subagents may have different system prompts and less constrained behavior than your main agent. Enabling `bypassPermissions` grants them full, autonomous system access without any approval prompts.
@@ -206,15 +205,11 @@ Auto-approves file operations so Claude can edit code without prompting. Other t
 
 **Use when:** you trust Claude's edits and want faster iteration, such as during prototyping or when working in an isolated directory.
 
-#### Don't ask mode (`dontAsk`, TypeScript only)
+#### Don't ask mode (`dontAsk`)
 
 Converts any permission prompt into a denial. Tools pre-approved by `allowed_tools`, `settings.json` allow rules, or a hook run as normal. Everything else is denied without calling `canUseTool`.
 
 **Use when:** you want a fixed, explicit tool surface for a headless agent and prefer a hard deny over silent reliance on `canUseTool` being absent.
-
-<Note>
-`dontAsk` is available in the TypeScript SDK only. In Python, there is no exact equivalent. Use `disallowed_tools` to explicitly block tools you don't want Claude to use.
-</Note>
 
 #### Bypass permissions mode (`bypassPermissions`)
 

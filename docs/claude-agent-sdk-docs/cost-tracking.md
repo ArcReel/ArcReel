@@ -10,17 +10,17 @@ For complete API documentation, see the [TypeScript SDK reference](/docs/en/agen
 
 ## Understand token usage
 
-The TypeScript and Python SDKs expose usage data at different levels of detail:
+The TypeScript and Python SDKs expose the same usage data with different field names:
 
-- **TypeScript** provides per-step token breakdowns on each assistant message (`message.message.id`, `message.message.usage`), per-model cost via `modelUsage`, and a cumulative total on the result message.
-- **Python** provides the accumulated total on the result message (`total_cost_usd` and `usage` dict). Per-step breakdowns are not available on individual assistant messages.
+- **TypeScript** provides per-step token breakdowns on each assistant message (`message.message.id`, `message.message.usage`), per-model cost via `modelUsage` on the result message, and a cumulative total on the result message.
+- **Python** provides per-step token breakdowns on each assistant message (`message.usage`, `message.message_id`), per-model cost via `model_usage` on the result message, and the accumulated total on the result message (`total_cost_usd` and `usage` dict).
 
-Both SDKs use the same underlying cost model. The difference is how much granularity each SDK exposes.
+Both SDKs use the same underlying cost model and expose the same granularity. The difference is in field naming and where per-step usage is nested.
 
 Cost tracking depends on understanding how the SDK scopes usage data:
 
 - **`query()` call:** one invocation of the SDK's `query()` function. A single call can involve multiple steps (Claude responds, uses tools, gets results, responds again). Each call produces one [`result`](/docs/en/agent-sdk/typescript#sdk-result-message) message at the end.
-- **Step:** a single request/response cycle within a `query()` call. In TypeScript, each step produces assistant messages with token usage.
+- **Step:** a single request/response cycle within a `query()` call. Each step produces assistant messages with token usage.
 - **Session:** a series of `query()` calls linked by a session ID (using the `resume` option). Each `query()` call within a session reports its own cost independently.
 
 The following diagram shows the message stream from a single `query()` call, with token usage reported at each step and the authoritative total at the end:
@@ -29,7 +29,7 @@ The following diagram shows the message stream from a single `query()` call, wit
 
 <Steps>
   <Step title="Each step produces assistant messages">
-    When Claude responds, it sends one or more assistant messages. In TypeScript, each assistant message contains a nested `BetaMessage` (accessed via `message.message`) with an `id` and a [`usage`](/docs/en/api/messages) object with token counts (`input_tokens`, `output_tokens`). When Claude uses multiple tools in one turn, all messages in that turn share the same `id`, so deduplicate by ID to avoid double-counting. In Python, per-step usage is not available on individual messages.
+    When Claude responds, it sends one or more assistant messages. In TypeScript, each assistant message contains a nested `BetaMessage` (accessed via `message.message`) with an `id` and a [`usage`](/docs/en/api/messages) object with token counts (`input_tokens`, `output_tokens`). In Python, the `AssistantMessage` dataclass exposes the same data directly via `message.usage` and `message.message_id`. When Claude uses multiple tools in one turn, all messages in that turn share the same ID, so deduplicate by ID to avoid double-counting.
   </Step>
   <Step title="The result message provides the authoritative total">
     When the `query()` call completes, the SDK emits a result message with `total_cost_usd` and cumulative `usage`. This is available in both TypeScript ([`SDKResultMessage`](/docs/en/agent-sdk/typescript#sdk-result-message)) and Python ([`ResultMessage`](/docs/en/agent-sdk/python#result-message)). If you make multiple `query()` calls (for example, in a multi-turn session), each result only reflects the cost of that individual call. If you only need the total cost, you can ignore the per-step usage and read this single value.
@@ -70,9 +70,9 @@ asyncio.run(main())
 
 </CodeGroup>
 
-## Track detailed usage in TypeScript
+## Track per-step and per-model usage
 
-The TypeScript SDK exposes additional usage granularity that is not available in Python. The Python SDK's `AssistantMessage` does not expose per-step token usage or per-model breakdowns. Use [`ResultMessage.usage`](/docs/en/agent-sdk/python#result-message) for cumulative totals instead.
+The examples in this section use TypeScript field names. In Python, the equivalent fields are [`AssistantMessage.usage`](/docs/en/agent-sdk/python#assistant-message) and `AssistantMessage.message_id` for per-step usage, and [`ResultMessage.model_usage`](/docs/en/agent-sdk/python#result-message) for per-model breakdowns.
 
 ### Track per-step usage
 
@@ -153,7 +153,7 @@ const prompts = [
 for (const prompt of prompts) {
   for await (const message of query({ prompt })) {
     if (message.type === "result") {
-      totalSpend += message.total_cost_usd ?? 0;
+      totalSpend += message.total_cost_usd;
       console.log(`This call: $${message.total_cost_usd}`);
     }
   }

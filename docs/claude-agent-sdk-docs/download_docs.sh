@@ -33,6 +33,8 @@ DOCS=(
   "todo-tracking"
   "plugins"
 
+  "sessions"
+
   # SDK References
   "python"
 )

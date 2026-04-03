@@ -115,7 +115,7 @@ def tool(
 | `name`         | `str`                        | Unique identifier for the tool                                                                                                   |
 | `description`  | `str`                        | Human-readable description of what the tool does                                                                                 |
 | `input_schema` | `type \| dict[str, Any]`     | Schema defining the tool's input parameters (see below)                                                                          |
-| `annotations`  | `ToolAnnotations \| None`    | Optional MCP tool annotations (e.g., `readOnlyHint`, `destructiveHint`, `openWorldHint`). Imported from `mcp.types`              |
+| `annotations`  | [`ToolAnnotations`](#tool-annotations)` \| None` | Optional MCP tool annotations providing behavioral hints to clients                                                              |
 
 #### Input schema options
 
@@ -151,6 +151,33 @@ from typing import Any
 @tool("greet", "Greet a user", {"name": str})
 async def greet(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": f"Hello, {args['name']}!"}]}
+```
+
+#### `ToolAnnotations`
+
+Re-exported from `mcp.types` (also available as `from claude_agent_sdk import ToolAnnotations`). All fields are optional hints; clients should not rely on them for security decisions.
+
+| Field | Type | Default | Description |
+| :---- | :--- | :------ | :---------- |
+| `title` | `str \| None` | `None` | Human-readable title for the tool |
+| `readOnlyHint` | `bool \| None` | `False` | If `True`, the tool does not modify its environment |
+| `destructiveHint` | `bool \| None` | `True` | If `True`, the tool may perform destructive updates (only meaningful when `readOnlyHint` is `False`) |
+| `idempotentHint` | `bool \| None` | `False` | If `True`, repeated calls with the same arguments have no additional effect (only meaningful when `readOnlyHint` is `False`) |
+| `openWorldHint` | `bool \| None` | `True` | If `True`, the tool interacts with external entities (for example, web search). If `False`, the tool's domain is closed (for example, a memory tool) |
+
+```python
+from claude_agent_sdk import tool, ToolAnnotations
+from typing import Any
+
+
+@tool(
+    "search",
+    "Search the web",
+    {"query": str},
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+)
+async def search(args: dict[str, Any]) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": f"Results for: {args['query']}"}]}
 ```
 
 ### `create_sdk_mcp_server()`
@@ -233,11 +260,13 @@ def list_sessions(
 | `session_id` | `str` | Unique session identifier |
 | `summary` | `str` | Display title: custom title, auto-generated summary, or first prompt |
 | `last_modified` | `int` | Last modified time in milliseconds since epoch |
-| `file_size` | `int` | Session file size in bytes |
+| `file_size` | `int \| None` | Session file size in bytes (`None` for remote storage backends) |
 | `custom_title` | `str \| None` | User-set session title |
 | `first_prompt` | `str \| None` | First meaningful user prompt in the session |
 | `git_branch` | `str \| None` | Git branch at the end of the session |
 | `cwd` | `str \| None` | Working directory for the session |
+| `tag` | `str \| None` | User-set session tag (see [`tag_session()`](#tag-session)) |
+| `created_at` | `int \| None` | Session creation time in milliseconds since epoch |
 
 #### Example
 
@@ -294,6 +323,110 @@ if sessions:
         print(f"[{msg.type}] {msg.uuid}")
 ```
 
+### `get_session_info()`
+
+Reads metadata for a single session by ID without scanning the full project directory. Synchronous; returns immediately.
+
+```python
+def get_session_info(
+    session_id: str,
+    directory: str | None = None,
+) -> SDKSessionInfo | None
+```
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+| :-------- | :--- | :------ | :---------- |
+| `session_id` | `str` | required | UUID of the session to look up |
+| `directory` | `str \| None` | `None` | Project directory path. When omitted, searches all project directories |
+
+Returns [`SDKSessionInfo`](#return-type-sdk-session-info), or `None` if the session is not found.
+
+#### Example
+
+Look up a single session's metadata without scanning the project directory. Useful when you already have a session ID from a previous run.
+
+```python
+from claude_agent_sdk import get_session_info
+
+info = get_session_info("550e8400-e29b-41d4-a716-446655440000")
+if info:
+    print(f"{info.summary} (branch: {info.git_branch}, tag: {info.tag})")
+```
+
+### `rename_session()`
+
+Renames a session by appending a custom-title entry. Repeated calls are safe; the most recent title wins. Synchronous.
+
+```python
+def rename_session(
+    session_id: str,
+    title: str,
+    directory: str | None = None,
+) -> None
+```
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+| :-------- | :--- | :------ | :---------- |
+| `session_id` | `str` | required | UUID of the session to rename |
+| `title` | `str` | required | New title. Must be non-empty after stripping whitespace |
+| `directory` | `str \| None` | `None` | Project directory path. When omitted, searches all project directories |
+
+Raises `ValueError` if `session_id` is not a valid UUID or `title` is empty; `FileNotFoundError` if the session cannot be found.
+
+#### Example
+
+Rename the most recent session so it's easier to find later. The new title appears in [`SDKSessionInfo.custom_title`](#return-type-sdk-session-info) on subsequent reads.
+
+```python
+from claude_agent_sdk import list_sessions, rename_session
+
+sessions = list_sessions(directory="/path/to/project", limit=1)
+if sessions:
+    rename_session(sessions[0].session_id, "Refactor auth module")
+```
+
+### `tag_session()`
+
+Tags a session. Pass `None` to clear the tag. Repeated calls are safe; the most recent tag wins. Synchronous.
+
+```python
+def tag_session(
+    session_id: str,
+    tag: str | None,
+    directory: str | None = None,
+) -> None
+```
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+| :-------- | :--- | :------ | :---------- |
+| `session_id` | `str` | required | UUID of the session to tag |
+| `tag` | `str \| None` | required | Tag string, or `None` to clear. Unicode-sanitized before storing |
+| `directory` | `str \| None` | `None` | Project directory path. When omitted, searches all project directories |
+
+Raises `ValueError` if `session_id` is not a valid UUID or `tag` is empty after sanitization; `FileNotFoundError` if the session cannot be found.
+
+#### Example
+
+Tag a session, then filter by that tag on a later read. Pass `None` to clear an existing tag.
+
+```python
+from claude_agent_sdk import list_sessions, tag_session
+
+# Tag a session
+tag_session("550e8400-e29b-41d4-a716-446655440000", "needs-review")
+
+# Later: find all sessions with that tag
+for session in list_sessions(directory="/path/to/project"):
+    if session.tag == "needs-review":
+        print(session.summary)
+```
+
 ## Classes
 
 ### `ClaudeSDKClient`
@@ -320,9 +453,10 @@ class ClaudeSDKClient:
     async def set_permission_mode(self, mode: str) -> None
     async def set_model(self, model: str | None = None) -> None
     async def rewind_files(self, user_message_id: str) -> None
-    async def get_mcp_status(self) -> list[McpServerStatus]
-    async def add_mcp_server(self, name: str, config: McpServerConfig) -> None
-    async def remove_mcp_server(self, name: str) -> None
+    async def get_mcp_status(self) -> McpStatusResponse
+    async def reconnect_mcp_server(self, server_name: str) -> None
+    async def toggle_mcp_server(self, server_name: str, enabled: bool) -> None
+    async def stop_task(self, task_id: str) -> None
     async def get_server_info(self) -> dict[str, Any] | None
     async def disconnect(self) -> None
 ```
@@ -340,9 +474,10 @@ class ClaudeSDKClient:
 | `set_permission_mode(mode)` | Change the permission mode for the current session                  |
 | `set_model(model)`          | Change the model for the current session. Pass `None` to reset to default |
 | `rewind_files(user_message_id)` | Restore files to their state at the specified user message. Requires `enable_file_checkpointing=True`. See [File checkpointing](/docs/en/agent-sdk/file-checkpointing) |
-| `get_mcp_status()`          | Get the status of all configured MCP servers                        |
-| `add_mcp_server(name, config)` | Add an MCP server to the running session                         |
-| `remove_mcp_server(name)`   | Remove an MCP server from the running session                       |
+| `get_mcp_status()`          | Get the status of all configured MCP servers. Returns [`McpStatusResponse`](#mcp-status-response) |
+| `reconnect_mcp_server(server_name)` | Retry connecting to an MCP server that failed or was disconnected |
+| `toggle_mcp_server(server_name, enabled)` | Enable or disable an MCP server mid-session. Disabling removes its tools |
+| `stop_task(task_id)`        | Stop a running background task. A [`TaskNotificationMessage`](#task-notification-message) with status `"stopped"` follows in the message stream |
 | `get_server_info()`         | Get server information including session ID and capabilities        |
 | `disconnect()`              | Disconnect from Claude                                              |
 
@@ -448,7 +583,7 @@ asyncio.run(main())
 
 ```python
 import asyncio
-from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, ResultMessage
 
 
 async def interruptible_task():
@@ -456,7 +591,7 @@ async def interruptible_task():
 
     async with ClaudeSDKClient(options=options) as client:
         # Start a long-running task
-        await client.query("Count from 1 to 100 slowly")
+        await client.query("Count from 1 to 100 slowly, using the bash sleep command")
 
         # Let it run for a bit
         await asyncio.sleep(2)
@@ -465,16 +600,27 @@ async def interruptible_task():
         await client.interrupt()
         print("Task interrupted!")
 
+        # Drain the interrupted task's messages (including its ResultMessage)
+        async for message in client.receive_response():
+            if isinstance(message, ResultMessage):
+                print(f"Interrupted task finished with subtype={message.subtype!r}")
+                # subtype is "error_during_execution" for interrupted tasks
+
         # Send a new command
         await client.query("Just say hello instead")
 
+        # Now receive the new response
         async for message in client.receive_response():
-            # Process the new response
-            pass
+            if isinstance(message, ResultMessage) and message.subtype == "success":
+                print(f"New result: {message.result}")
 
 
 asyncio.run(interruptible_task())
 ```
+
+<Note>
+**Buffer behavior after interrupt:** `interrupt()` sends a stop signal but does not clear the message buffer. Messages already produced by the interrupted task, including its `ResultMessage` (with `subtype="error_during_execution"`), remain in the stream. You must drain them with `receive_response()` before reading the response to a new query. If you send a new query immediately after `interrupt()` and call `receive_response()` only once, you'll receive the interrupted task's messages, not the new query's response.
+</Note>
 
 #### Example - Advanced permission control
 
@@ -526,6 +672,10 @@ asyncio.run(main())
 ```
 
 ## Types
+
+<Note>
+**`@dataclass` vs `TypedDict`:** This SDK uses two kinds of types. Classes decorated with `@dataclass` (such as `ResultMessage`, `AgentDefinition`, `TextBlock`) are object instances at runtime and support attribute access: `msg.result`. Classes defined with `TypedDict` (such as `ThinkingConfigEnabled`, `McpStdioServerConfig`, `SyncHookJSONOutput`) are **plain dicts at runtime** and require key access: `config["budget_tokens"]`, not `config.budget_tokens`. The `ClassName(field=value)` call syntax works for both, but only dataclasses produce objects with attributes.
+</Note>
 
 ### `SdkMcpTool`
 
@@ -832,14 +982,20 @@ class AgentDefinition:
     prompt: str
     tools: list[str] | None = None
     model: Literal["sonnet", "opus", "haiku", "inherit"] | None = None
+    skills: list[str] | None = None
+    memory: Literal["user", "project", "local"] | None = None
+    mcpServers: list[str | dict[str, Any]] | None = None
 ```
 
 | Field         | Required | Description                                                    |
 | :------------ | :------- | :------------------------------------------------------------- |
 | `description` | Yes      | Natural language description of when to use this agent         |
-| `tools`       | No       | Array of allowed tool names. If omitted, inherits all tools    |
 | `prompt`      | Yes      | The agent's system prompt                                      |
+| `tools`       | No       | Array of allowed tool names. If omitted, inherits all tools    |
 | `model`       | No       | Model override for this agent. If omitted, uses the main model |
+| `skills`      | No       | List of skill names available to this agent                    |
+| `memory`      | No       | Memory source for this agent: `"user"`, `"project"`, or `"local"` |
+| `mcpServers`  | No       | MCP servers available to this agent. Each entry is a server name or an inline `{name: config}` dict |
 
 ### `PermissionMode`
 
@@ -850,6 +1006,7 @@ PermissionMode = Literal[
     "default",  # Standard permission behavior
     "acceptEdits",  # Auto-accept file edits
     "plan",  # Planning mode - no execution
+    "dontAsk",  # Deny anything not pre-approved instead of prompting
     "bypassPermissions",  # Bypass all permission checks (use with caution)
 ]
 ```
@@ -1012,6 +1169,20 @@ ThinkingConfig = ThinkingConfigAdaptive | ThinkingConfigEnabled | ThinkingConfig
 | `enabled` | `type`, `budget_tokens` | Enable thinking with a specific token budget |
 | `disabled` | `type` | Disable thinking |
 
+Because these are `TypedDict` classes, they're plain dicts at runtime. Either construct them as dict literals or call the class like a constructor; both produce a `dict`. Access fields with `config["budget_tokens"]`, not `config.budget_tokens`:
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, ThinkingConfigEnabled
+
+# Option 1: dict literal (recommended, no import needed)
+options = ClaudeAgentOptions(thinking={"type": "enabled", "budget_tokens": 20000})
+
+# Option 2: constructor-style (returns a plain dict)
+config = ThinkingConfigEnabled(type="enabled", budget_tokens=20000)
+print(config["budget_tokens"])  # 20000
+# config.budget_tokens would raise AttributeError
+```
+
 ### `SdkBeta`
 
 Literal type for SDK beta features.
@@ -1021,6 +1192,10 @@ SdkBeta = Literal["context-1m-2025-08-07"]
 ```
 
 Use with the `betas` field in `ClaudeAgentOptions` to enable beta features.
+
+<Warning>
+The `context-1m-2025-08-07` beta is retired as of April 30, 2026. Passing this header with Claude Sonnet 4.5 or Sonnet 4 has no effect, and requests that exceed the standard 200k-token context window return an error. To use a 1M-token context window, migrate to [Claude Sonnet 4.6 or Claude Opus 4.6](/docs/en/about-claude/models/overview), which include 1M context at standard pricing with no beta header required.
+</Warning>
 
 ### `McpSdkServerConfig`
 
@@ -1071,9 +1246,34 @@ class McpHttpServerConfig(TypedDict):
     headers: NotRequired[dict[str, str]]
 ```
 
+### `McpServerStatusConfig`
+
+The configuration of an MCP server as reported by [`get_mcp_status()`](#methods). This is the union of all [`McpServerConfig`](#mcp-server-config) transport variants plus an output-only `claudeai-proxy` variant for servers proxied through claude.ai.
+
+```python
+McpServerStatusConfig = (
+    McpStdioServerConfig
+    | McpSSEServerConfig
+    | McpHttpServerConfig
+    | McpSdkServerConfigStatus
+    | McpClaudeAIProxyServerConfig
+)
+```
+
+`McpSdkServerConfigStatus` is the serializable form of [`McpSdkServerConfig`](#mcp-sdk-server-config) with only `type` (`"sdk"`) and `name` (`str`) fields; the in-process `instance` is omitted. `McpClaudeAIProxyServerConfig` has `type` (`"claudeai-proxy"`), `url` (`str`), and `id` (`str`) fields.
+
+### `McpStatusResponse`
+
+Response from [`ClaudeSDKClient.get_mcp_status()`](#methods). Wraps the list of server statuses under the `mcpServers` key.
+
+```python
+class McpStatusResponse(TypedDict):
+    mcpServers: list[McpServerStatus]
+```
+
 ### `McpServerStatus`
 
-Status of a connected MCP server, returned by `get_mcp_status()`.
+Status of a connected MCP server, contained in [`McpStatusResponse`](#mcp-status-response).
 
 ```python
 class McpServerStatus(TypedDict):
@@ -1081,7 +1281,7 @@ class McpServerStatus(TypedDict):
     status: McpServerConnectionStatus  # "connected" | "failed" | "needs-auth" | "pending" | "disabled"
     serverInfo: NotRequired[McpServerInfo]
     error: NotRequired[str]
-    config: NotRequired[dict[str, Any]]
+    config: NotRequired[McpServerStatusConfig]
     scope: NotRequired[str]
     tools: NotRequired[list[McpToolInfo]]
 ```
@@ -1092,7 +1292,7 @@ class McpServerStatus(TypedDict):
 | `status` | `str` | One of `"connected"`, `"failed"`, `"needs-auth"`, `"pending"`, or `"disabled"` |
 | `serverInfo` | `dict` (optional) | Server name and version (`{"name": str, "version": str}`) |
 | `error` | `str` (optional) | Error message if the server failed to connect |
-| `config` | `dict` (optional) | Server configuration |
+| `config` | [`McpServerStatusConfig`](#mcp-server-status-config) (optional) | Server configuration. Same shape as [`McpServerConfig`](#mcp-server-config) (stdio, SSE, HTTP, or SDK), plus a `claudeai-proxy` variant for servers connected through claude.ai |
 | `scope` | `str` (optional) | Configuration scope |
 | `tools` | `list` (optional) | Tools provided by this server, each with `name`, `description`, and `annotations` fields |
 
@@ -1128,7 +1328,14 @@ For complete information on creating and using plugins, see [Plugins](/docs/en/a
 Union type of all possible messages.
 
 ```python
-Message = UserMessage | AssistantMessage | SystemMessage | ResultMessage | StreamEvent
+Message = (
+    UserMessage
+    | AssistantMessage
+    | SystemMessage
+    | ResultMessage
+    | StreamEvent
+    | RateLimitEvent
+)
 ```
 
 ### `UserMessage`
@@ -1162,6 +1369,8 @@ class AssistantMessage:
     model: str
     parent_tool_use_id: str | None = None
     error: AssistantMessageError | None = None
+    usage: dict[str, Any] | None = None
+    message_id: str | None = None
 ```
 
 | Field                | Type                                  | Description                                            |
@@ -1170,6 +1379,8 @@ class AssistantMessage:
 | `model`              | `str`                                 | Model that generated the response                      |
 | `parent_tool_use_id` | `str \| None`                         | Tool use ID if this is a nested response               |
 | `error`              | [`AssistantMessageError`](#assistant-message-error) ` \| None` | Error type if the response encountered an error |
+| `usage`              | `dict[str, Any] \| None`              | Per-message token usage (same keys as [`ResultMessage.usage`](#result-message)) |
+| `message_id`         | `str \| None`                         | API message ID. Multiple messages from one turn share the same ID |
 
 ### `AssistantMessageError`
 
@@ -1182,6 +1393,7 @@ AssistantMessageError = Literal[
     "rate_limit",
     "invalid_request",
     "server_error",
+    "max_output_tokens",
     "unknown",
 ]
 ```
@@ -1215,6 +1427,7 @@ class ResultMessage:
     result: str | None = None
     stop_reason: str | None = None
     structured_output: Any = None
+    model_usage: dict[str, Any] | None = None
 ```
 
 The `usage` dict contains the following keys when present:
@@ -1225,6 +1438,19 @@ The `usage` dict contains the following keys when present:
 | `output_tokens` | `int` | Total output tokens generated. |
 | `cache_creation_input_tokens` | `int` | Tokens used to create new cache entries. |
 | `cache_read_input_tokens` | `int` | Tokens read from existing cache entries. |
+
+The `model_usage` dict maps model names to per-model usage. The inner dict keys use camelCase because the value is passed through unmodified from the underlying CLI process, matching the TypeScript [`ModelUsage`](/docs/en/agent-sdk/typescript#model-usage) type:
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `inputTokens` | `int` | Input tokens for this model. |
+| `outputTokens` | `int` | Output tokens for this model. |
+| `cacheReadInputTokens` | `int` | Cache read tokens for this model. |
+| `cacheCreationInputTokens` | `int` | Cache creation tokens for this model. |
+| `webSearchRequests` | `int` | Web search requests made by this model. |
+| `costUSD` | `float` | Cost in USD for this model. |
+| `contextWindow` | `int` | Context window size for this model. |
+| `maxOutputTokens` | `int` | Maximum output token limit for this model. |
 
 ### `StreamEvent`
 
@@ -1245,6 +1471,58 @@ class StreamEvent:
 | `session_id` | `str` | Session identifier |
 | `event` | `dict[str, Any]` | The raw Claude API stream event data |
 | `parent_tool_use_id` | `str \| None` | Parent tool use ID if this event is from a subagent |
+
+### `RateLimitEvent`
+
+Emitted when rate limit status changes (for example, from `"allowed"` to `"allowed_warning"`). Use this to warn users before they hit a hard limit, or to back off when status is `"rejected"`.
+
+```python
+@dataclass
+class RateLimitEvent:
+    rate_limit_info: RateLimitInfo
+    uuid: str
+    session_id: str
+```
+
+| Field | Type | Description |
+|:------|:-----|:------------|
+| `rate_limit_info` | [`RateLimitInfo`](#rate-limit-info) | Current rate limit state |
+| `uuid` | `str` | Unique event identifier |
+| `session_id` | `str` | Session identifier |
+
+### `RateLimitInfo`
+
+Rate limit state carried by [`RateLimitEvent`](#rate-limit-event).
+
+```python
+RateLimitStatus = Literal["allowed", "allowed_warning", "rejected"]
+RateLimitType = Literal[
+    "five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet", "overage"
+]
+
+
+@dataclass
+class RateLimitInfo:
+    status: RateLimitStatus
+    resets_at: int | None = None
+    rate_limit_type: RateLimitType | None = None
+    utilization: float | None = None
+    overage_status: RateLimitStatus | None = None
+    overage_resets_at: int | None = None
+    overage_disabled_reason: str | None = None
+    raw: dict[str, Any] = field(default_factory=dict)
+```
+
+| Field | Type | Description |
+|:------|:-----|:------------|
+| `status` | `RateLimitStatus` | Current status. `"allowed_warning"` means approaching the limit; `"rejected"` means the limit was hit |
+| `resets_at` | `int \| None` | Unix timestamp when the rate limit window resets |
+| `rate_limit_type` | `RateLimitType \| None` | Which rate limit window applies |
+| `utilization` | `float \| None` | Fraction of the rate limit consumed (0.0 to 1.0) |
+| `overage_status` | `RateLimitStatus \| None` | Status of pay-as-you-go overage usage, if applicable |
+| `overage_resets_at` | `int \| None` | Unix timestamp when the overage window resets |
+| `overage_disabled_reason` | `str \| None` | Why overage is unavailable, if status is `"rejected"` |
+| `raw` | `dict[str, Any]` | Full raw dict from the CLI, including fields not modeled above |
 
 ### `TaskStartedMessage`
 
@@ -1477,6 +1755,10 @@ HookEvent = Literal[
     "PermissionRequest",  # Called when a permission decision is needed
 ]
 ```
+
+<Note>
+The TypeScript SDK supports additional hook events not yet available in Python: `SessionStart`, `SessionEnd`, `Setup`, `TeammateIdle`, `TaskCompleted`, `ConfigChange`, `WorktreeCreate`, and `WorktreeRemove`.
+</Note>
 
 ### `HookCallback`
 

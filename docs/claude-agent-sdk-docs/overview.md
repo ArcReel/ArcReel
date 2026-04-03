@@ -397,7 +397,7 @@ Everything that makes Claude Code powerful is available in the SDK:
     <CodeGroup>
     ```python Python
     import asyncio
-    from claude_agent_sdk import query, ClaudeAgentOptions
+    from claude_agent_sdk import query, ClaudeAgentOptions, SystemMessage, ResultMessage
 
 
     async def main():
@@ -408,15 +408,15 @@ Everything that makes Claude Code powerful is available in the SDK:
             prompt="Read the authentication module",
             options=ClaudeAgentOptions(allowed_tools=["Read", "Glob"]),
         ):
-            if hasattr(message, "subtype") and message.subtype == "init":
-                session_id = message.session_id
+            if isinstance(message, SystemMessage) and message.subtype == "init":
+                session_id = message.data["session_id"]
 
         # Resume with full context from the first query
         async for message in query(
             prompt="Now find all places that call it",  # "it" = auth module
             options=ClaudeAgentOptions(resume=session_id),
         ):
-            if hasattr(message, "result"):
+            if isinstance(message, ResultMessage):
                 print(message.result)
 
 
@@ -458,14 +458,14 @@ The SDK also supports Claude Code's filesystem-based configuration. To use these
 
 | Feature | Description | Location |
 |---------|-------------|----------|
-| [Skills](/docs/en/agent-sdk/skills) | Specialized capabilities defined in Markdown | `.claude/skills/SKILL.md` |
+| [Skills](/docs/en/agent-sdk/skills) | Specialized capabilities defined in Markdown | `.claude/skills/*/SKILL.md` |
 | [Slash commands](/docs/en/agent-sdk/slash-commands) | Custom commands for common tasks | `.claude/commands/*.md` |
 | [Memory](/docs/en/agent-sdk/modifying-system-prompts) | Project context and instructions | `CLAUDE.md` or `.claude/CLAUDE.md` |
 | [Plugins](/docs/en/agent-sdk/plugins) | Extend with custom commands, agents, and MCP servers | Programmatic via `plugins` option |
 
 ## Compare the Agent SDK to other Claude tools
 
-The Claude platform offers multiple ways to build with Claude. Here's how the Agent SDK fits in:
+The Claude Platform offers multiple ways to build with Claude. Here's how the Agent SDK fits in:
 
 <Tabs>
   <Tab title="Agent SDK vs Client SDK">

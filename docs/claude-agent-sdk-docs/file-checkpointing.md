@@ -261,7 +261,7 @@ for await (const msg of rewindQuery) {
 If you capture the session ID and checkpoint ID, you can also rewind from the CLI:
 
 ```bash
-claude --resume <session-id> --rewind-files <checkpoint-uuid>
+claude -p --resume <session-id> --rewind-files <checkpoint-uuid>
 ```
 
 </Step>

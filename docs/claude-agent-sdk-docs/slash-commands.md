@@ -28,13 +28,13 @@ for await (const message of query({
 
 ```python Python
 import asyncio
-from claude_agent_sdk import query
+from claude_agent_sdk import query, ClaudeAgentOptions, SystemMessage
 
 
 async def main():
-    async for message in query(prompt="Hello Claude", options={"max_turns": 1}):
-        if message.type == "system" and message.subtype == "init":
-            print("Available slash commands:", message.slash_commands)
+    async for message in query(prompt="Hello Claude", options=ClaudeAgentOptions(max_turns=1)):
+        if isinstance(message, SystemMessage) and message.subtype == "init":
+            print("Available slash commands:", message.data["slash_commands"])
             # Example output: ["/compact", "/clear", "/help"]
 
 
@@ -65,13 +65,13 @@ for await (const message of query({
 
 ```python Python
 import asyncio
-from claude_agent_sdk import query
+from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
 
 
 async def main():
     # Send a slash command
-    async for message in query(prompt="/compact", options={"max_turns": 1}):
-        if message.type == "result":
+    async for message in query(prompt="/compact", options=ClaudeAgentOptions(max_turns=1)):
+        if isinstance(message, ResultMessage):
             print("Command executed:", message.result)
 
 
@@ -105,15 +105,15 @@ for await (const message of query({
 
 ```python Python
 import asyncio
-from claude_agent_sdk import query
+from claude_agent_sdk import query, ClaudeAgentOptions, SystemMessage
 
 
 async def main():
-    async for message in query(prompt="/compact", options={"max_turns": 1}):
-        if message.type == "system" and message.subtype == "compact_boundary":
+    async for message in query(prompt="/compact", options=ClaudeAgentOptions(max_turns=1)):
+        if isinstance(message, SystemMessage) and message.subtype == "compact_boundary":
             print("Compaction completed")
-            print("Pre-compaction tokens:", message.compact_metadata.pre_tokens)
-            print("Trigger:", message.compact_metadata.trigger)
+            print("Pre-compaction tokens:", message.data["compact_metadata"]["pre_tokens"])
+            print("Trigger:", message.data["compact_metadata"]["trigger"])
 
 
 asyncio.run(main())
@@ -144,15 +144,15 @@ for await (const message of query({
 
 ```python Python
 import asyncio
-from claude_agent_sdk import query
+from claude_agent_sdk import query, ClaudeAgentOptions, SystemMessage
 
 
 async def main():
     # Clear conversation and start fresh
-    async for message in query(prompt="/clear", options={"max_turns": 1}):
-        if message.type == "system" and message.subtype == "init":
+    async for message in query(prompt="/clear", options=ClaudeAgentOptions(max_turns=1)):
+        if isinstance(message, SystemMessage) and message.subtype == "init":
             print("Conversation cleared, new session started")
-            print("Session ID:", message.session_id)
+            print("Session ID:", message.data["session_id"])
 
 
 asyncio.run(main())
@@ -245,22 +245,24 @@ for await (const message of query({
 
 ```python Python
 import asyncio
-from claude_agent_sdk import query
+from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, SystemMessage
 
 
 async def main():
     # Use a custom command
     async for message in query(
-        prompt="/refactor src/auth/login.py", options={"max_turns": 3}
+        prompt="/refactor src/auth/login.py", options=ClaudeAgentOptions(max_turns=3)
     ):
-        if message.type == "assistant":
-            print("Refactoring suggestions:", message.message)
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if hasattr(block, "text"):
+                    print("Refactoring suggestions:", block.text)
 
     # Custom commands appear in the slash_commands list
-    async for message in query(prompt="Hello", options={"max_turns": 1}):
-        if message.type == "system" and message.subtype == "init":
+    async for message in query(prompt="Hello", options=ClaudeAgentOptions(max_turns=1)):
+        if isinstance(message, SystemMessage) and message.subtype == "init":
             # Will include both built-in and custom commands
-            print("Available commands:", message.slash_commands)
+            print("Available commands:", message.data["slash_commands"])
             # Example: ["/compact", "/clear", "/help", "/refactor", "/security-check"]
 
 
@@ -308,14 +310,14 @@ for await (const message of query({
 
 ```python Python
 import asyncio
-from claude_agent_sdk import query
+from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
 
 
 async def main():
     # Pass arguments to custom command
-    async for message in query(prompt="/fix-issue 123 high", options={"max_turns": 5}):
+    async for message in query(prompt="/fix-issue 123 high", options=ClaudeAgentOptions(max_turns=5)):
         # Command will process with $1="123" and $2="high"
-        if message.type == "result":
+        if isinstance(message, ResultMessage):
             print("Issue fixed:", message.result)
 
 
@@ -457,17 +459,17 @@ for await (const message of query({
 
 ```python Python
 import asyncio
-from claude_agent_sdk import query
+from claude_agent_sdk import query, ClaudeAgentOptions
 
 
 async def main():
     # Run code review
-    async for message in query(prompt="/code-review", options={"max_turns": 3}):
+    async for message in query(prompt="/code-review", options=ClaudeAgentOptions(max_turns=3)):
         # Process review feedback
         pass
 
     # Run specific tests
-    async for message in query(prompt="/test auth", options={"max_turns": 5}):
+    async for message in query(prompt="/test auth", options=ClaudeAgentOptions(max_turns=5)):
         # Handle test results
         pass
 

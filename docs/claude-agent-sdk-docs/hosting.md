@@ -24,8 +24,7 @@ Each SDK instance requires:
 
 - **Runtime dependencies**
   - Python 3.10+ (for Python SDK) or Node.js 18+ (for TypeScript SDK)
-  - Node.js (required by Claude Code CLI)
-  - Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
+  - Node.js (required by the bundled Claude Code CLI that the SDK spawns; both SDK packages include it, so no separate install is needed)
 
 - **Resource allocation**
   - Recommended: 1GiB RAM, 5GiB of disk, and 1 CPU (vary this based on your task as needed)

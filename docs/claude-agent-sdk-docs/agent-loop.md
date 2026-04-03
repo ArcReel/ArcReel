@@ -45,7 +45,7 @@ Without limits, the loop runs until Claude finishes on its own, which is fine fo
 
 As the loop runs, the SDK yields a stream of messages. Each message carries a type that tells you what stage of the loop it came from. The five core types are:
 
-- **`SystemMessage`:** session lifecycle events. The `subtype` field distinguishes them: `"init"` is the first message (session metadata), and `"compact_boundary"` fires after [compaction](#automatic-compaction).
+- **`SystemMessage`:** session lifecycle events. The `subtype` field distinguishes them: `"init"` is the first message (session metadata), and `"compact_boundary"` fires after [compaction](#automatic-compaction). In TypeScript, the compact boundary is its own [`SDKCompactBoundaryMessage`](/docs/en/agent-sdk/typescript#sdk-compact-boundary-message) type rather than a subtype of `SDKSystemMessage`.
 - **`AssistantMessage`:** emitted after each Claude response, including the final text-only one. Contains text content blocks and tool call blocks from that turn.
 - **`UserMessage`:** emitted after each tool execution with the tool result content sent back to Claude. Also emitted for any user inputs you stream mid-loop.
 - **`StreamEvent`:** only emitted when partial messages are enabled. Contains raw API streaming events (text deltas, tool input chunks). See [Stream responses](/docs/en/agent-sdk/streaming-output).
@@ -186,7 +186,8 @@ The permission mode option (`permission_mode` in Python, `permissionMode` in Typ
 | `"default"` | Tools not covered by allow rules trigger your approval callback; no callback means deny |
 | `"acceptEdits"` | Auto-approves file edits, other tools follow default rules |
 | `"plan"` | No tool execution; Claude produces a plan for review |
-| `"dontAsk"` (TypeScript only) | Never prompts. Tools pre-approved by [permission rules](https://code.claude.com/docs/en/settings#permission-settings) run, everything else is denied |
+| `"dontAsk"` | Never prompts. Tools pre-approved by [permission rules](https://code.claude.com/docs/en/settings#permission-settings) run, everything else is denied |
+| `"auto"` (TypeScript only) | Uses a model classifier to approve or deny each tool call. See [Auto mode](https://code.claude.com/docs/en/permission-modes#eliminate-prompts-with-auto-mode) for availability and behavior |
 | `"bypassPermissions"` | Runs all allowed tools without asking. Cannot be used when running as root on Unix. Use only in isolated environments where the agent's actions cannot affect systems you care about |
 
 For interactive applications, use `"default"` with a tool approval callback to surface approval prompts. For autonomous agents on a dev machine, `"acceptEdits"` auto-approves file edits while still gating `Bash` behind allow rules. Reserve `"bypassPermissions"` for CI, containers, or other isolated environments. See [Permissions](/docs/en/agent-sdk/permissions) for full details.
@@ -215,7 +216,7 @@ Large tool outputs consume significant context. Reading a big file or running a 
 
 ### Automatic compaction
 
-When the context window approaches its limit, the SDK automatically compacts the conversation: it summarizes older history to free space, keeping your most recent exchanges and key decisions intact. The SDK emits a `SystemMessage` with subtype `"compact_boundary"` in the stream when this happens.
+When the context window approaches its limit, the SDK automatically compacts the conversation: it summarizes older history to free space, keeping your most recent exchanges and key decisions intact. The SDK emits a message with `type: "system"` and `subtype: "compact_boundary"` in the stream when this happens (in Python this is a `SystemMessage`; in TypeScript it is a separate `SDKCompactBoundaryMessage` type).
 
 Compaction replaces older messages with a summary, so specific instructions from early in the conversation may not be preserved. Persistent rules belong in CLAUDE.md (loaded via [`settingSources`](/docs/en/agent-sdk/claude-code-features)) rather than in the initial prompt, because CLAUDE.md content is re-injected on every request.
 
