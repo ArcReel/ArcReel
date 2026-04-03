@@ -22,6 +22,31 @@ class ArkVideoBackend:
 
     DEFAULT_MODEL = "doubao-seedance-1-5-pro-251215"
 
+    _MODEL_CAPABILITIES: dict[str, set[VideoCapability]] = {
+        "doubao-seedance-2-0-260128": {
+            VideoCapability.TEXT_TO_VIDEO,
+            VideoCapability.IMAGE_TO_VIDEO,
+            VideoCapability.GENERATE_AUDIO,
+            VideoCapability.SEED_CONTROL,
+            VideoCapability.VIDEO_EXTEND,
+        },
+        "doubao-seedance-2-0-fast-260128": {
+            VideoCapability.TEXT_TO_VIDEO,
+            VideoCapability.IMAGE_TO_VIDEO,
+            VideoCapability.GENERATE_AUDIO,
+            VideoCapability.SEED_CONTROL,
+            VideoCapability.VIDEO_EXTEND,
+        },
+    }
+
+    _DEFAULT_CAPABILITIES: set[VideoCapability] = {
+        VideoCapability.TEXT_TO_VIDEO,
+        VideoCapability.IMAGE_TO_VIDEO,
+        VideoCapability.GENERATE_AUDIO,
+        VideoCapability.SEED_CONTROL,
+        VideoCapability.FLEX_TIER,
+    }
+
     def __init__(
         self,
         *,
@@ -30,13 +55,7 @@ class ArkVideoBackend:
     ):
         self._client = create_ark_client(api_key=api_key)
         self._model = model or self.DEFAULT_MODEL
-        self._capabilities: set[VideoCapability] = {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-            VideoCapability.GENERATE_AUDIO,
-            VideoCapability.SEED_CONTROL,
-            VideoCapability.FLEX_TIER,
-        }
+        self._capabilities = self._MODEL_CAPABILITIES.get(self._model, self._DEFAULT_CAPABILITIES)
 
     @property
     def name(self) -> str:

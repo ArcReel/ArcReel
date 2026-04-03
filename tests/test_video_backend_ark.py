@@ -197,3 +197,34 @@ class TestArkGenerate:
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ValueError, match="Ark API Key"):
                 ArkVideoBackend(api_key=None)
+
+
+class TestArkModelCapabilities:
+    """测试不同模型的能力映射。"""
+
+    def test_seedance_2_has_video_extend(self):
+        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
+            b = ArkVideoBackend(api_key="test", model="doubao-seedance-2-0-260128")
+        caps = b.capabilities
+        assert VideoCapability.VIDEO_EXTEND in caps
+        assert VideoCapability.FLEX_TIER not in caps
+
+    def test_seedance_2_fast_has_video_extend(self):
+        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
+            b = ArkVideoBackend(api_key="test", model="doubao-seedance-2-0-fast-260128")
+        caps = b.capabilities
+        assert VideoCapability.VIDEO_EXTEND in caps
+        assert VideoCapability.FLEX_TIER not in caps
+
+    def test_seedance_1_5_has_flex_tier(self):
+        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
+            b = ArkVideoBackend(api_key="test", model="doubao-seedance-1-5-pro-251215")
+        caps = b.capabilities
+        assert VideoCapability.FLEX_TIER in caps
+        assert VideoCapability.VIDEO_EXTEND not in caps
+
+    def test_unknown_model_gets_default_capabilities(self):
+        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
+            b = ArkVideoBackend(api_key="test", model="some-future-model")
+        caps = b.capabilities
+        assert VideoCapability.FLEX_TIER in caps
