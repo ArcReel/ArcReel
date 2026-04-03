@@ -193,6 +193,16 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "flex_tier"],
                 default=True,
             ),
+            "doubao-seedance-2-0-260128": ModelInfo(
+                display_name="Seedance 2.0",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "video_extend"],
+            ),
+            "doubao-seedance-2-0-fast-260128": ModelInfo(
+                display_name="Seedance 2.0 Fast",
+                media_type="video",
+                capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "video_extend"],
+            ),
         },
     ),
     "grok": ProviderMeta(
