@@ -22,9 +22,7 @@ def _valid_narration_response() -> dict:
         "content_mode": "narration",
         "duration_seconds": 4,
         "summary": "摘要",
-        "novel": {"title": "小说", "chapter": "1", "source_file": "source.md"},
-        "characters_in_episode": ["姜月茴"],
-        "clues_in_episode": ["玉佩"],
+        "novel": {"title": "小说", "chapter": "1"},
         "segments": [
             {
                 "segment_id": "E1S01",

@@ -100,7 +100,6 @@ export interface DramaScene {
 export interface NovelInfo {
   title: string;
   chapter: string;
-  source_file: string;
 }
 
 export interface NarrationEpisodeScript {
@@ -110,8 +109,6 @@ export interface NarrationEpisodeScript {
   duration_seconds: number;
   summary: string;
   novel: NovelInfo;
-  characters_in_episode: string[];
-  clues_in_episode: string[];
   segments: NarrationSegment[];
 }
 
@@ -122,8 +119,6 @@ export interface DramaEpisodeScript {
   duration_seconds: number;
   summary: string;
   novel: NovelInfo;
-  characters_in_episode: string[];
-  clues_in_episode: string[];
   scenes: DramaScene[];
 }
 

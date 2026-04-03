@@ -165,9 +165,7 @@ function makeScript(): EpisodeScript {
     content_mode: "narration",
     duration_seconds: 4,
     summary: "summary",
-    novel: { title: "n", chapter: "1", source_file: "source.txt" },
-    characters_in_episode: ["Hero"],
-    clues_in_episode: ["Key"],
+    novel: { title: "n", chapter: "1" },
     segments: [
       {
         segment_id: "SEG-1",

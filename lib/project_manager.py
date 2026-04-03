@@ -49,6 +49,7 @@ class ProjectManager:
         "clues",
         "storyboards",
         "videos",
+        "thumbnails",
         "output",
     ]
 
@@ -290,7 +291,7 @@ class ProjectManager:
 
     # ==================== 分镜剧本操作 ====================
 
-    def create_script(self, project_name: str, title: str, chapter: str, source_file: str) -> dict:
+    def create_script(self, project_name: str, title: str, chapter: str) -> dict:
         """
         创建新的分镜剧本模板
 
@@ -298,13 +299,12 @@ class ProjectManager:
             project_name: 项目名称
             title: 小说标题
             chapter: 章节名称
-            source_file: 源文件路径
 
         Returns:
             剧本字典
         """
         script = {
-            "novel": {"title": title, "chapter": chapter, "source_file": source_file},
+            "novel": {"title": title, "chapter": chapter},
             "scenes": [],
             "metadata": {
                 "created_at": datetime.now().isoformat(),
@@ -661,7 +661,10 @@ class ProjectManager:
 
         # 确保必要的顶层结构存在
         if "novel" not in script:
-            script["novel"] = {"title": "", "chapter": "", "source_file": ""}
+            script["novel"] = {"title": "", "chapter": ""}
+        # 剥离已废弃的 source_file 字段
+        if isinstance(script.get("novel"), dict):
+            script["novel"].pop("source_file", None)
 
         # 处理旧格式：如果有 characters 对象，同步到 project.json
         if "characters" in script and isinstance(script["characters"], dict) and script["characters"]:

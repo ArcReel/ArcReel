@@ -75,8 +75,6 @@ class TestDataValidator:
                 "episode": 1,
                 "title": "第一集",
                 "content_mode": "narration",
-                "characters_in_episode": ["姜月茴"],
-                "clues_in_episode": ["玉佩"],
                 "segments": [
                     {
                         "segment_id": "E1S01",
@@ -93,8 +91,6 @@ class TestDataValidator:
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert result.valid
-        assert any("characters_in_episode 字段已废弃" in w for w in result.warnings)
-        assert any("clues_in_episode 字段已废弃" in w for w in result.warnings)
         assert any("缺少 duration_seconds" in w for w in result.warnings)
 
     def test_validate_episode_accepts_split_segment_ids_and_missing_clues_warning(self, tmp_path):

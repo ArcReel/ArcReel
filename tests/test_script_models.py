@@ -69,18 +69,14 @@ class TestScriptModels:
             episode=1,
             title="第一集",
             summary="摘要",
-            novel={"title": "小说", "chapter": "1", "source_file": "a.md"},
-            characters_in_episode=["姜月茴"],
-            clues_in_episode=["玉佩"],
+            novel={"title": "小说", "chapter": "1"},
             segments=[],
         )
         drama = DramaEpisodeScript(
             episode=1,
             title="第一集",
             summary="摘要",
-            novel={"title": "小说", "chapter": "1", "source_file": "a.md"},
-            characters_in_episode=["姜月茴"],
-            clues_in_episode=["玉佩"],
+            novel={"title": "小说", "chapter": "1"},
             scenes=[
                 DramaScene(
                     scene_id="E1S01",

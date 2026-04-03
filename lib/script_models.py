@@ -101,7 +101,6 @@ class NovelInfo(BaseModel):
 
     title: str = Field(description="小说标题")
     chapter: str = Field(description="章节名称")
-    source_file: str = Field(description="源文件路径")
 
 
 class NarrationEpisodeScript(BaseModel):
@@ -113,8 +112,6 @@ class NarrationEpisodeScript(BaseModel):
     duration_seconds: int = Field(default=0, description="总时长（秒）")
     summary: str = Field(description="剧集摘要")
     novel: NovelInfo = Field(description="小说来源信息")
-    characters_in_episode: list[str] = Field(description="本集出场角色列表")
-    clues_in_episode: list[str] = Field(description="本集出场线索列表")
     segments: list[NarrationSegment] = Field(description="片段列表")
 
 
@@ -146,6 +143,4 @@ class DramaEpisodeScript(BaseModel):
     duration_seconds: int = Field(default=0, description="总时长（秒）")
     summary: str = Field(description="剧集摘要")
     novel: NovelInfo = Field(description="小说来源信息")
-    characters_in_episode: list[str] = Field(description="本集出场角色列表")
-    clues_in_episode: list[str] = Field(description="本集出场线索列表")
     scenes: list[DramaScene] = Field(description="场景列表")

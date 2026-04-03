@@ -40,7 +40,6 @@ def _build_episode_payload(*, video_uri: str | None = None) -> dict:
         "novel": {
             "title": "Demo",
             "chapter": "第一章",
-            "source_file": "source/chapter.txt",
         },
         "segments": [
             {
@@ -521,7 +520,6 @@ class TestProjectArchiveService:
                 "novel": {
                     "title": "Demo",
                     "chapter": "第一章",
-                    "source_file": "novel_text.txt",
                 },
                 "segments": [
                     {
@@ -557,7 +555,7 @@ class TestProjectArchiveService:
         )
 
         assert "Ghost" in imported_project["characters"]
-        assert imported_script["novel"]["source_file"] == "source/1-7-0227.txt"
+        assert "source_file" not in imported_script["novel"]
         assert imported_script["segments"][0]["clues_in_segment"] == []
         assert imported_script["segments"][0]["generated_assets"]["video_clip"] == "videos/scene_E1S01_1.mp4"
         assert result.diagnostics["auto_fixed"]
@@ -576,7 +574,6 @@ class TestProjectArchiveService:
                 "novel": {
                     "title": "Demo",
                     "chapter": "第一章",
-                    "source_file": "source/chapter.txt",
                 },
                 "segments": [
                     {
@@ -635,7 +632,6 @@ class TestProjectArchiveService:
                 "novel": {
                     "title": "Demo",
                     "chapter": "第一章",
-                    "source_file": "source/chapter.txt",
                 },
                 "segments": [
                     {

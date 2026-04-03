@@ -12,7 +12,8 @@ import { WorkspaceNotificationsDrawer } from "./WorkspaceNotificationsDrawer";
 import { ExportScopeDialog } from "./ExportScopeDialog";
 
 import { API } from "@/api";
-import type { WorkspaceNotification } from "@/types";
+import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
+import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
 
 /** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
 function triggerBrowserDownload(url: string) {
@@ -114,6 +115,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const [exportingProject, setExportingProject] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [jianyingExporting, setJianyingExporting] = useState(false);
+  const [exportDiagnostics, setExportDiagnostics] = useState<ExportDiagnostics | null>(null);
   const usageAnchorRef = useRef<HTMLDivElement>(null);
   const notificationAnchorRef = useRef<HTMLDivElement>(null);
   const taskHudAnchorRef = useRef<HTMLDivElement>(null);
@@ -203,12 +205,15 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       triggerBrowserDownload(url);
       const diagnosticCount =
         diagnostics.blocking.length + diagnostics.auto_fixed.length + diagnostics.warnings.length;
-      useAppStore.getState().pushToast(
-        diagnosticCount > 0
-          ? `项目 ZIP 已开始下载，导出包包含 ${diagnosticCount} 条诊断`
-          : "项目 ZIP 已开始下载",
-        diagnosticCount > 0 ? "warning" : "success",
-      );
+      if (diagnosticCount > 0) {
+        setExportDiagnostics(diagnostics);
+        useAppStore.getState().pushToast(
+          `项目 ZIP 已开始下载，导出包包含 ${diagnosticCount} 条诊断，点击查看详情`,
+          "warning",
+        );
+      } else {
+        useAppStore.getState().pushToast("项目 ZIP 已开始下载", "success");
+      }
     } catch (err) {
       useAppStore
         .getState()
@@ -383,6 +388,19 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
         </button>
 
       </div>
+
+      {exportDiagnostics !== null && (
+        <ArchiveDiagnosticsDialog
+          title="导出诊断"
+          description="导出已完成预检查并生成 ZIP。以下问题在导出包中被检测到。"
+          sections={[
+            { key: "blocking", title: "阻断问题", tone: "border-red-400/25 bg-red-500/10 text-red-100", items: exportDiagnostics.blocking },
+            { key: "auto_fixed", title: "已自动修复", tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100", items: exportDiagnostics.auto_fixed },
+            { key: "warnings", title: "警告", tone: "border-amber-400/25 bg-amber-500/10 text-amber-100", items: exportDiagnostics.warnings },
+          ]}
+          onClose={() => setExportDiagnostics(null)}
+        />
+      )}
     </header>
   );
 }
