@@ -253,8 +253,8 @@ flowchart TB
 
 - 📖 [完整入门教程](docs/getting-started.md) — 从零开始的手把手指南
 - 📦 [剪映草稿导出指南](docs/jianying-export-guide.md) — 将视频片段导入剪映桌面版进行二次编辑
-- 💰 [Google GenAI 费用说明](docs/Google视频&图片生成费用参考.md) — Gemini 图像 / Veo 视频生成费用参考
-- 💰 [火山方舟费用说明](docs/火山方舟视频&图片生成费用参考.md) — 火山方舟图片 / 视频生成费用参考
+- 💰 [Google GenAI 费用说明](docs/google-genai-docs/Google视频&图片生成费用参考.md) — Gemini 图像 / Veo 视频生成费用参考
+- 💰 [火山方舟费用说明](docs/ark-docs/火山方舟视频&图片生成费用参考.md) — 火山方舟图片 / 视频生成费用参考
 
 ## 贡献
 

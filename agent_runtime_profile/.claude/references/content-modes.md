@@ -30,4 +30,4 @@
 - 图片/视频生成 prompt 使用**中文**
 - 采用叙事式描述，不使用关键词罗列
 
-> 参考 `docs/nano-banana.md` 第 365 行起的 Prompting guide and strategies。
+> 参考 `docs/google-genai-docs/nano-banana.md` 第 365 行起的 Prompting guide and strategies。
