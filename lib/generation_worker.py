@@ -153,9 +153,8 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
 
         # 加载自定义供应商的池配置（使用与内置供应商相同的默认值）
         repo = CustomProviderRepository(session)
-        for provider in await repo.list_providers():
+        for provider, models in await repo.list_providers_with_models():
             pid = provider.provider_id  # "custom-{id}"
-            models = await repo.list_models(provider.id)
             media_types = {m.media_type for m in models if m.is_enabled}
             pools[pid] = ProviderPool(
                 provider_id=pid,
