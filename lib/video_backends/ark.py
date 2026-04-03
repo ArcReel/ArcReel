@@ -28,14 +28,12 @@ class ArkVideoBackend:
             VideoCapability.IMAGE_TO_VIDEO,
             VideoCapability.GENERATE_AUDIO,
             VideoCapability.SEED_CONTROL,
-            VideoCapability.VIDEO_EXTEND,
         },
         "doubao-seedance-2-0-fast-260128": {
             VideoCapability.TEXT_TO_VIDEO,
             VideoCapability.IMAGE_TO_VIDEO,
             VideoCapability.GENERATE_AUDIO,
             VideoCapability.SEED_CONTROL,
-            VideoCapability.VIDEO_EXTEND,
         },
     }
 
