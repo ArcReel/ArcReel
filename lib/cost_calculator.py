@@ -91,6 +91,14 @@ class CostCalculator:
             ("flex", True): 8.00,
             ("flex", False): 4.00,
         },
+        "doubao-seedance-2-0-260128": {
+            ("default", True): 46.00,
+            ("default", False): 46.00,
+        },
+        "doubao-seedance-2-0-fast-260128": {
+            ("default", True): 37.00,
+            ("default", False): 37.00,
+        },
     }
 
     DEFAULT_ARK_VIDEO_MODEL = "doubao-seedance-1-5-pro-251215"
