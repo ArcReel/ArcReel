@@ -409,9 +409,26 @@ class GenerationWorker:
                 pool = self._get_or_create_pool(provider_id)
 
                 if media_type == "image":
+                    max_capacity = pool.image_max
                     has_room = pool.has_image_room()
                 else:
+                    max_capacity = pool.video_max
                     has_room = pool.has_video_room()
+
+                if max_capacity == 0:
+                    # 供应商不支持此媒体类型（容量为 0），直接失败而非无限 requeue
+                    logger.warning(
+                        "供应商 %s 不支持 %s 生成，任务 %s 标记失败",
+                        provider_id,
+                        media_type,
+                        task["task_id"],
+                    )
+                    await self.queue.mark_task_failed(
+                        task["task_id"],
+                        f"供应商 {provider_id} 不支持 {media_type} 生成",
+                    )
+                    claimed_any = True
+                    continue
 
                 if not has_room:
                     # Provider pool is full — requeue the task and stop
