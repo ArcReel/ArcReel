@@ -19,13 +19,13 @@ user-invocable: false
 
 ```bash
 # 生成指定剧集的剧本
-cd projects/{project_name} && python ../../.claude/skills/generate-script/scripts/generate_script.py --episode {N}
+python .claude/skills/generate-script/scripts/generate_script.py --episode {N}
 
 # 自定义输出路径
-cd projects/{project_name} && python ../../.claude/skills/generate-script/scripts/generate_script.py --episode {N} --output scripts/ep1.json
+python .claude/skills/generate-script/scripts/generate_script.py --episode {N} --output scripts/ep1.json
 
 # 预览 Prompt（不实际调用 API）
-cd projects/{project_name} && python ../../.claude/skills/generate-script/scripts/generate_script.py --episode {N} --dry-run
+python .claude/skills/generate-script/scripts/generate_script.py --episode {N} --dry-run
 ```
 
 ## 生成流程
@@ -53,4 +53,4 @@ cd projects/{project_name} && python ../../.claude/skills/generate-script/script
 
 打印将发送给 Gemini 的完整 prompt 文本，不调用 API、不写文件。用于检查 prompt 质量和长度。
 
-> 支持的两种模式规格详见 `references/content-modes.md`。
+> 支持的两种模式规格详见 `.claude/references/content-modes.md`。

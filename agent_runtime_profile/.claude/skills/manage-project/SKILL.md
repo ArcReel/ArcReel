@@ -23,7 +23,7 @@ user-invocable: false
 ### Step 1: 探测切分点
 
 ```bash
-cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts/peek_split_point.py --source {源文件} --target {目标字数}
+python .claude/skills/manage-project/scripts/peek_split_point.py --source {源文件} --target {目标字数}
 ```
 
 **参数**：
@@ -41,10 +41,10 @@ cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts
 
 ```bash
 # Dry run（仅预览）
-cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts/split_episode.py --source {源文件} --episode {N} --target {目标字数} --anchor "{锚点文本}" --dry-run
+python .claude/skills/manage-project/scripts/split_episode.py --source {源文件} --episode {N} --target {目标字数} --anchor "{锚点文本}" --dry-run
 
 # 实际执行
-cd projects/{project_name} && python ../../.claude/skills/manage-project/scripts/split_episode.py --source {源文件} --episode {N} --target {目标字数} --anchor "{锚点文本}"
+python .claude/skills/manage-project/scripts/split_episode.py --source {源文件} --episode {N} --target {目标字数} --anchor "{锚点文本}"
 ```
 
 **参数**：

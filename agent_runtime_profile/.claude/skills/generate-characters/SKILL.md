@@ -7,7 +7,7 @@ description: 生成角色设计参考图（三视图）。当用户说"生成角
 
 使用 Gemini 3 Pro Image API 创建角色设计图，确保整个视频中的视觉一致性。
 
-> Prompt 编写原则详见 `references/content-modes.md` 的"Prompt 语言"章节。
+> Prompt 编写原则详见 `.claude/references/content-modes.md` 的"Prompt 语言"章节。
 
 ## 角色描述编写指南
 
@@ -22,16 +22,16 @@ description: 生成角色设计参考图（三视图）。当用户说"生成角
 
 ```bash
 # 生成所有待处理的角色
-cd projects/{project_name} && python ../../.claude/skills/generate-characters/scripts/generate_character.py --all
+python .claude/skills/generate-characters/scripts/generate_character.py --all
 
 # 生成指定单个角色
-cd projects/{project_name} && python ../../.claude/skills/generate-characters/scripts/generate_character.py --character "{角色名}"
+python .claude/skills/generate-characters/scripts/generate_character.py --character "{角色名}"
 
 # 生成指定多个角色
-cd projects/{project_name} && python ../../.claude/skills/generate-characters/scripts/generate_character.py --characters "{角色1}" "{角色2}" "{角色3}"
+python .claude/skills/generate-characters/scripts/generate_character.py --characters "{角色1}" "{角色2}" "{角色3}"
 
 # 列出待生成的角色
-cd projects/{project_name} && python ../../.claude/skills/generate-characters/scripts/generate_character.py --list
+python .claude/skills/generate-characters/scripts/generate_character.py --list
 ```
 
 ## 工作流程

@@ -26,7 +26,6 @@
       "Bash(python .claude/skills/manage-project/scripts/peek_split_point.py:*)",
       "Bash(python .claude/skills/manage-project/scripts/split_episode.py:*)",
       "Bash(python .claude/skills/compose-video/scripts/compose_video.py:*)",
-      "Bash(python .claude/skills/edit-script-items/scripts/edit_script_items.py:*)",
       "Bash(ffmpeg:*)",
       "Bash(ffprobe:*)",
       "BashOutput",

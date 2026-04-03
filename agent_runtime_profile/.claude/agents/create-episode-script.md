@@ -39,7 +39,7 @@ skills:
 
 在项目目录下运行：
 ```bash
-cd projects/{项目名} && python ../../.claude/skills/generate-script/scripts/generate_script.py --episode {N}
+python .claude/skills/generate-script/scripts/generate_script.py --episode {N}
 ```
 
 等待执行完成。如果失败，查看错误信息并尝试修复或报告问题。

@@ -36,7 +36,7 @@ description: "剧集动画模式单集规范化剧本 subagent（drama 模式专
 
 在项目目录下运行（使用分集后的单集文件）：
 ```bash
-cd projects/{项目名} && python ../../.claude/skills/generate-script/scripts/normalize_drama_script.py --episode {N} --source source/episode_{N}.txt
+python .claude/skills/generate-script/scripts/normalize_drama_script.py --episode {N} --source source/episode_{N}.txt
 ```
 
 **Step 3**: 验证输出

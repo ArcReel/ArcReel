@@ -37,32 +37,9 @@
 
 ## 内容模式
 
-系统支持两种内容模式，通过 `project.json` 中的 `content_mode` 字段切换：
+系统支持两种内容模式（说书+画面 / 剧集动画），通过 `project.json` 的 `content_mode` 字段切换。
 
-| 维度 | 说书+画面模式（默认） | 剧集动画模式 |
-|------|----------------------|-------------|
-| content_mode | `narration` | `drama` |
-| 内容形式 | 严格保留小说原文，不改编 | 小说改编为剧本 |
-| 数据结构 | `segments` 数组 | `scenes` 数组 |
-| 默认时长 | 4 秒/片段 | 8 秒/场景 |
-| 对白来源 | 后期人工配音（小说原文） | 演员对话 |
-| 视频 Prompt | 仅包含角色对话（如有），无旁白 | 包含对话、旁白、音效 |
-| 画面比例 | 9:16 竖屏（分镜图+视频） | 16:9 横屏 |
-| 使用 Agent | `novel-to-narration-script` | `novel-to-storyboard-script` |
-
-### 说书+画面模式（默认）
-
-- **保留原文**：不改编、不删减、不添加小说原文内容
-- **片段拆分**：按朗读节奏拆分为约 4 秒的片段
-- **视觉设计**：为每个片段设计画面（9:16 竖屏）
-- **人工配音**：原文旁白由后期人工配音，不写入视频 Prompt
-- **对话保留**：仅当原文有角色对话时，将对话写入视频 Prompt
-
-### 剧集动画模式
-
-- **剧本改编**：将小说改编为剧本形式
-- **场景设计**：每个场景默认 8 秒（16:9 横屏）
-- **完整音频**：视频包含对话、旁白、音效
+> 详细规格（画面比例、时长、数据结构、预处理 Agent 等）见 `.claude/references/content-modes.md`。
 
 ---
 
@@ -83,7 +60,7 @@
   ├─ dispatch → split-narration-segments     说书模式片段拆分
   ├─ dispatch → normalize-drama-script       剧集模式规范化剧本
   ├─ dispatch → create-episode-script        JSON 剧本生成（预加载 generate-script skill）
-  └─ dispatch → general-purpose subagent     资产生成（调用脚本）
+  └─ dispatch → generate-assets              资产生成（角色/线索/分镜/视频）
 ```
 
 ### Skill/Agent 边界原则
@@ -111,7 +88,6 @@
 | generate-clues | `/generate-clues` | 生成线索设计图 |
 | generate-storyboard | `/generate-storyboard` | 生成分镜图片 |
 | generate-video | `/generate-video` | 生成视频 |
-| compose-video | `/compose-video` | 后期处理 |
 
 ## 快速开始
 
@@ -126,13 +102,12 @@
 3. **分集规划** → 主 agent 直接执行 peek+split 切分（manage-project 工具集）
 4. **单集预处理** → dispatch `split-narration-segments`（narration）或 `normalize-drama-script`（drama）
 5. **JSON 剧本生成** → dispatch `create-episode-script` subagent
-6. **角色设计** → dispatch 资产生成 subagent（调用 generate_character.py）
-7. **线索设计** → dispatch 资产生成 subagent（调用 generate_clue.py）
-8. **分镜图生成** → dispatch 资产生成 subagent（调用 generate_storyboard.py）
-9. **视频生成** → dispatch 资产生成 subagent（调用 generate_video.py）
-10. **最终合成** → dispatch 资产生成 subagent（调用 compose_video.py）
+6. **角色设计 + 线索设计**（可并行） → dispatch `generate-assets` subagent
+7. **分镜图生成** → dispatch `generate-assets` subagent
+8. **视频生成** → dispatch `generate-assets` subagent
 
 工作流支持**灵活入口**：状态检测自动定位到第一个未完成的阶段，支持中断后恢复。
+视频生成完成后，用户可在 Web 端导出为剪映草稿。
 
 ## 关键原则
 
