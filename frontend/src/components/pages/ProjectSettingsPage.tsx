@@ -103,12 +103,12 @@ export function ProjectSettingsPage() {
     setSaving(true);
     try {
       await API.updateProject(projectName, {
-        video_backend: videoBackend || undefined,
-        image_backend: imageBackend || undefined,
+        video_backend: videoBackend || null,
+        image_backend: imageBackend || null,
         video_generate_audio: audioOverride,
-        text_backend_script: textScript || undefined,
-        text_backend_overview: textOverview || undefined,
-        text_backend_style: textStyle || undefined,
+        text_backend_script: textScript || null,
+        text_backend_overview: textOverview || null,
+        text_backend_style: textStyle || null,
       });
       initialRef.current = { videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle };
       useAppStore.getState().pushToast("已保存", "success");

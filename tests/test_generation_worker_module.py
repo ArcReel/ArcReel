@@ -304,8 +304,8 @@ class TestGenerationWorker:
         worker = GenerationWorker(queue=_FakeQueue())
         pool = worker._get_or_create_pool("unknown-provider")
         assert pool.provider_id == "unknown-provider"
-        assert pool.image_max == 1
-        assert pool.video_max == 1
+        assert pool.image_max == 5
+        assert pool.video_max == 3
         assert "unknown-provider" in worker._pools
 
     async def test_any_pool_has_room(self):

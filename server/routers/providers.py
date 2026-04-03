@@ -378,7 +378,16 @@ async def delete_credential(
 ) -> Response:
     _validate_provider(provider_id)
     repo = CredentialRepository(session)
-    await _get_credential_or_404(repo, provider_id, cred_id)
+    cred = await _get_credential_or_404(repo, provider_id, cred_id)
+    # 删除关联的凭证文件（如 vertex_keys/ 下的 JSON）
+    if cred.credentials_path:
+        cred_file = Path(cred.credentials_path)
+        if cred_file.is_file():
+            try:
+                cred_file.unlink()
+                logger.info("已删除凭证文件: %s", cred_file)
+            except OSError:
+                logger.warning("删除凭证文件失败: %s", cred_file, exc_info=True)
     await repo.delete(cred_id)
     await session.commit()
     await _invalidate_caches(request)

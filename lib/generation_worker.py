@@ -126,10 +126,14 @@ def _normalize_provider_id(raw: str) -> str:
 
 
 async def _load_pools_from_db() -> dict[str, ProviderPool]:
-    """Load per-provider pool configs from ConfigService + PROVIDER_REGISTRY."""
+    """Load per-provider pool configs from ConfigService + PROVIDER_REGISTRY + custom providers."""
     from lib.config.registry import PROVIDER_REGISTRY
     from lib.config.service import ConfigService
     from lib.db import safe_session_factory
+    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+    default_image = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
+    default_video = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
 
     pools: dict[str, ProviderPool] = {}
     async with safe_session_factory() as session:
@@ -139,13 +143,26 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
             config = all_configs.get(provider_id, {})
             supports_image = "image" in meta.media_types
             supports_video = "video" in meta.media_types
-            image_max = int(config.get("image_max_workers", "5")) if supports_image else 0
-            video_max = int(config.get("video_max_workers", "3")) if supports_video else 0
+            image_max = int(config.get("image_max_workers", str(default_image))) if supports_image else 0
+            video_max = int(config.get("video_max_workers", str(default_video))) if supports_video else 0
             pools[provider_id] = ProviderPool(
                 provider_id=provider_id,
                 image_max=max(0, image_max),
                 video_max=max(0, video_max),
             )
+
+        # 加载自定义供应商的池配置（使用与内置供应商相同的默认值）
+        repo = CustomProviderRepository(session)
+        for provider in await repo.list_providers():
+            pid = provider.provider_id  # "custom-{id}"
+            models = await repo.list_models(provider.id)
+            media_types = {m.media_type for m in models if m.is_enabled}
+            pools[pid] = ProviderPool(
+                provider_id=pid,
+                image_max=default_image if "image" in media_types else 0,
+                video_max=default_video if "video" in media_types else 0,
+            )
+
     logger.info(
         "从 DB 加载供应商池配置: %s",
         {pid: (p.image_max, p.video_max) for pid, p in pools.items()},
@@ -239,14 +256,16 @@ class GenerationWorker:
         pool = self._pools.get(provider_id)
         if pool is not None:
             return pool
-        # Unknown provider — create a pool with conservative defaults
+        # Unknown provider — use same defaults as built-in providers
+        image_max = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
+        video_max = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
         pool = ProviderPool(
             provider_id=provider_id,
-            image_max=1,
-            video_max=1,
+            image_max=image_max,
+            video_max=video_max,
         )
         self._pools[provider_id] = pool
-        logger.warning("为未知供应商 %s 创建默认池 (image=1, video=1)", provider_id)
+        logger.info("为供应商 %s 创建默认池 (image=%d, video=%d)", provider_id, image_max, video_max)
         return pool
 
     def _any_pool_has_room(self, media_type: str) -> bool:
