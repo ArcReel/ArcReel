@@ -208,7 +208,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       if (diagnosticCount > 0) {
         setExportDiagnostics(diagnostics);
         useAppStore.getState().pushToast(
-          `项目 ZIP 已开始下载，导出包包含 ${diagnosticCount} 条诊断，点击查看详情`,
+          `项目 ZIP 已开始下载，导出包包含 ${diagnosticCount} 条诊断`,
           "warning",
         );
       } else {

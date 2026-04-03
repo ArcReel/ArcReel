@@ -324,13 +324,23 @@ class ProjectArchiveService:
         diagnostics = self._repair_project_tree(snapshot_dir)
         diagnostics.extend_validation(self.validator.validate_project_tree(snapshot_dir))
 
+        # 从源目录收集非标准顶层条目，记录到诊断中（即使已被过滤不导出）
+        excluded_entries = self._collect_pass_through_entries(source_dir)
+        for entry in excluded_entries:
+            diagnostics.add(
+                "warnings",
+                "non_standard_entry_excluded",
+                f"非标准顶层目录/文件 '{entry}' 未包含在导出中",
+                location=entry,
+            )
+
         snapshot_project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE)
         manifest = self._build_archive_manifest(
             project_name,
             snapshot_project,
             scope=scope,
             diagnostics=diagnostics.to_export_payload(),
-            pass_through_entries=self._collect_pass_through_entries(snapshot_dir),
+            pass_through_entries=excluded_entries,
         )
         return temp_dir, snapshot_dir, manifest, diagnostics
 
