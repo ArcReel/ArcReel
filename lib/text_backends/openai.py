@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 
 import instructor
-from openai import AsyncOpenAI, BadRequestError
+from openai import AsyncOpenAI, BadRequestError, RateLimitError
 
 from lib.openai_shared import create_openai_client
 from lib.providers import PROVIDER_OPENAI
@@ -17,6 +19,10 @@ from lib.text_backends.base import (
 )
 
 logger = logging.getLogger(__name__)
+
+# 429 重试配置
+_MAX_RETRY_ATTEMPTS = 4
+_RETRY_BACKOFF_SECONDS = (2, 4, 8, 16)
 
 DEFAULT_MODEL = "gpt-5.4-mini"
 
@@ -57,6 +63,10 @@ class OpenAITextBackend:
         当 response_schema 已设置且原生 response_format 调用抛出
         BadRequestError（常见于 Ollama/vLLM 等 OpenAI 兼容服务），
         自动降级到 Instructor 结构化输出。
+
+        RateLimitError (429) 会自动重试（指数退避），但如果错误信息
+        表明是上游 schema 不兼容（常见于 Gemini 兼容代理），则直接降级
+        到 Instructor 路径而不做无效重试。
         """
         messages = _build_messages(request)
         kwargs: dict = {"model": self._model, "messages": messages}
@@ -72,25 +82,44 @@ class OpenAITextBackend:
                 },
             }
 
-        try:
-            response = await self._client.chat.completions.create(**kwargs)
-        except Exception as exc:
-            if request.response_schema and _is_schema_error(exc):
-                logger.warning(
-                    "原生 response_format 失败 (%s)，降级到 Instructor 路径",
-                    exc,
+        last_error: Exception | None = None
+        for attempt in range(_MAX_RETRY_ATTEMPTS):
+            try:
+                response = await self._client.chat.completions.create(**kwargs)
+                usage = response.usage
+                return TextGenerationResult(
+                    text=response.choices[0].message.content or "",
+                    provider=PROVIDER_OPENAI,
+                    model=self._model,
+                    input_tokens=usage.prompt_tokens if usage else None,
+                    output_tokens=usage.completion_tokens if usage else None,
                 )
-                return await _instructor_fallback(self._client, self._model, request, messages)
-            raise
+            except Exception as exc:
+                # schema 不兼容（可能被代理包装成任意状态码）→ 降级到 Instructor
+                if request.response_schema and _is_schema_error(exc):
+                    logger.warning(
+                        "原生 response_format 失败 (%s)，降级到 Instructor 路径",
+                        exc,
+                    )
+                    return await _instructor_fallback(self._client, self._model, request, messages)
 
-        usage = response.usage
-        return TextGenerationResult(
-            text=response.choices[0].message.content or "",
-            provider=PROVIDER_OPENAI,
-            model=self._model,
-            input_tokens=usage.prompt_tokens if usage else None,
-            output_tokens=usage.completion_tokens if usage else None,
-        )
+                # 真正的 429 限流 → 指数退避重试
+                if isinstance(exc, RateLimitError) and attempt < _MAX_RETRY_ATTEMPTS - 1:
+                    last_error = exc
+                    wait = _RETRY_BACKOFF_SECONDS[attempt] + random.uniform(0, 1)
+                    logger.warning(
+                        "RateLimitError (429)，第 %d/%d 次重试，等待 %.1f 秒...",
+                        attempt + 1,
+                        _MAX_RETRY_ATTEMPTS,
+                        wait,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+
+                raise
+
+        # 理论上不应到达此处，但作为安全兜底
+        raise last_error  # type: ignore[misc]
 
 
 def _build_messages(request: TextGenerationRequest) -> list[dict]:
@@ -119,9 +148,27 @@ def _build_messages(request: TextGenerationRequest) -> list[dict]:
     return messages
 
 
+_SCHEMA_ERROR_KEYWORDS = (
+    "response_schema",
+    "json_schema",
+    "Unknown name",
+    "Cannot find field",
+    "Invalid JSON payload",
+)
+
+
 def _is_schema_error(exc: BaseException) -> bool:
-    """判断异常是否为 JSON Schema 不兼容导致的错误。"""
-    return isinstance(exc, BadRequestError)
+    """判断异常是否为 JSON Schema 不兼容导致的错误。
+
+    除了标准的 400 BadRequestError，一些 OpenAI 兼容代理（如 Gemini
+    兼容端点）会将上游 schema 错误包装成其他状态码（如 429），
+    因此也检查错误信息中是否包含 schema 相关关键字。
+    """
+    if isinstance(exc, BadRequestError):
+        return True
+    # 代理可能把上游 schema 错误包装成非 400 状态码
+    error_str = str(exc)
+    return any(kw in error_str for kw in _SCHEMA_ERROR_KEYWORDS)
 
 
 async def _instructor_fallback(
