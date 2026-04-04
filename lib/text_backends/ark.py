@@ -8,6 +8,7 @@ from typing import Any
 
 from lib.ark_shared import ARK_BASE_URL, create_ark_client, resolve_ark_api_key
 from lib.providers import PROVIDER_ARK
+from lib.retry import with_retry_async
 from lib.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
@@ -57,6 +58,7 @@ class ArkTextBackend:
     def capabilities(self) -> set[TextCapability]:
         return self._capabilities
 
+    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
         if request.images:
             return await self._generate_vision(request)

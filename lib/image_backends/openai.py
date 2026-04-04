@@ -11,8 +11,9 @@ from lib.image_backends.base import (
     ImageGenerationRequest,
     ImageGenerationResult,
 )
-from lib.openai_shared import create_openai_client
+from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
+from lib.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class OpenAIImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return self._capabilities
 
+    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         if request.reference_images:
             return await self._generate_edit(request)

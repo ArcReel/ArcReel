@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from lib.openai_shared import create_openai_client
+from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
+from lib.retry import with_retry_async
 from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
@@ -55,6 +56,7 @@ class OpenAIVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
+    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         kwargs: dict = {
             "prompt": request.prompt,

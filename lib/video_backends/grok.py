@@ -9,6 +9,7 @@ from pathlib import Path
 
 from lib.grok_shared import create_grok_client
 from lib.providers import PROVIDER_GROK
+from lib.retry import with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
     VideoCapability,
@@ -50,6 +51,7 @@ class GrokVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
+    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。"""
         generate_kwargs = {

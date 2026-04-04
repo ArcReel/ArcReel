@@ -7,8 +7,9 @@ import logging
 import instructor
 from openai import AsyncOpenAI, BadRequestError
 
-from lib.openai_shared import create_openai_client
+from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
+from lib.retry import with_retry_async
 from lib.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
@@ -31,7 +32,8 @@ class OpenAITextBackend:
         model: str | None = None,
         base_url: str | None = None,
     ):
-        self._client = create_openai_client(api_key=api_key, base_url=base_url)
+        # 禁用 SDK 内置重试，由本层 generate() 统一管理重试策略
+        self._client = create_openai_client(api_key=api_key, base_url=base_url, max_retries=0)
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[TextCapability] = {
             TextCapability.TEXT_GENERATION,
@@ -54,9 +56,9 @@ class OpenAITextBackend:
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
         """生成文本回复。
 
-        当 response_schema 已设置且原生 response_format 调用抛出
-        BadRequestError（常见于 Ollama/vLLM 等 OpenAI 兼容服务），
-        自动降级到 Instructor 结构化输出。
+        瞬态错误（429/500/503/网络）由 _call_api 的 @with_retry_async 自动重试。
+        当 response_schema 已设置且调用抛出 schema 不兼容错误时，
+        自动降级到 Instructor 结构化输出（不做无效重试）。
         """
         messages = _build_messages(request)
         kwargs: dict = {"model": self._model, "messages": messages}
@@ -73,8 +75,9 @@ class OpenAITextBackend:
             }
 
         try:
-            response = await self._client.chat.completions.create(**kwargs)
+            return await self._call_api(**kwargs)
         except Exception as exc:
+            # schema 不兼容（可能被代理包装成任意状态码）→ 降级到 Instructor
             if request.response_schema and _is_schema_error(exc):
                 logger.warning(
                     "原生 response_format 失败 (%s)，降级到 Instructor 路径",
@@ -83,6 +86,10 @@ class OpenAITextBackend:
                 return await _instructor_fallback(self._client, self._model, request, messages)
             raise
 
+    @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
+    async def _call_api(self, **kwargs) -> TextGenerationResult:
+        """调用 OpenAI API，由装饰器处理瞬态错误重试。"""
+        response = await self._client.chat.completions.create(**kwargs)
         usage = response.usage
         return TextGenerationResult(
             text=response.choices[0].message.content or "",
@@ -119,9 +126,27 @@ def _build_messages(request: TextGenerationRequest) -> list[dict]:
     return messages
 
 
+_SCHEMA_ERROR_KEYWORDS = (
+    "response_schema",
+    "json_schema",
+    "Unknown name",
+    "Cannot find field",
+    "Invalid JSON payload",
+)
+
+
 def _is_schema_error(exc: BaseException) -> bool:
-    """判断异常是否为 JSON Schema 不兼容导致的错误。"""
-    return isinstance(exc, BadRequestError)
+    """判断异常是否为 JSON Schema 不兼容导致的错误。
+
+    除了标准的 400 BadRequestError，一些 OpenAI 兼容代理（如 Gemini
+    兼容端点）会将上游 schema 错误包装成其他状态码（如 429），
+    因此也检查错误信息中是否包含 schema 相关关键字。
+    """
+    if isinstance(exc, BadRequestError):
+        return True
+    # 代理可能把上游 schema 错误包装成非 400 状态码
+    error_str = str(exc)
+    return any(kw in error_str for kw in _SCHEMA_ERROR_KEYWORDS)
 
 
 async def _instructor_fallback(

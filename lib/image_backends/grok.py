@@ -15,6 +15,7 @@ from lib.image_backends.base import (
     image_to_base64_data_uri,
 )
 from lib.providers import PROVIDER_GROK
+from lib.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ class GrokImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return self._capabilities
 
+    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         """生成图片（T2I 或 I2I）。"""
         generate_kwargs: dict = {
