@@ -2,13 +2,8 @@
 """
 add_characters_clues.py - 批量添加角色/线索到 project.json
 
-用法（需从项目目录内执行）:
-    python .claude/skills/manage-project/scripts/add_characters_clues.py \
-        --characters '{"角色名": {"description": "...", "voice_style": "..."}}' \
-        --clues '{"线索名": {"type": "prop", "description": "...", "importance": "major"}}'
-
-    # 通过 stdin 接收 JSON
-    echo '{"characters": {...}, "clues": {...}}' | python .claude/skills/manage-project/scripts/add_characters_clues.py --stdin
+用法（需从项目目录内执行，必须单行）:
+    python .claude/skills/manage-project/scripts/add_characters_clues.py --characters '{"角色名": {"description": "...", "voice_style": "..."}}' --clues '{"线索名": {"type": "prop", "description": "...", "importance": "major"}}'
 """
 
 import argparse
@@ -30,10 +25,9 @@ def main():
         description="批量添加角色/线索到 project.json",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-示例（需从项目目录内执行）:
+示例（需从项目目录内执行，必须单行）:
     %(prog)s --characters '{"李白": {"description": "白衣剑客", "voice_style": "豪放"}}'
     %(prog)s --clues '{"玉佩": {"type": "prop", "description": "温润白玉", "importance": "major"}}'
-    echo '{"characters": {...}}' | %(prog)s --stdin
         """,
     )
 
