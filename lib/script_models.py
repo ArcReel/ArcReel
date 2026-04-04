@@ -6,9 +6,20 @@ script_models.py - 剧本数据模型
 2. 输出验证
 """
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field, field_serializer
+
+
+def _coerce_to_str(v: int | str) -> str:
+    """将 int/str 统一转为 str，兼容已有 JSON 中的整数值。"""
+    return str(v)
+
+
+# Gemini API 的 structured output 只接受字符串枚举，
+# 因此使用 Literal["4", "6", "8"] 而非 Literal[4, 6, 8]。
+# BeforeValidator 保证已有 JSON 中的整数值也能通过验证。
+DurationLiteral = Annotated[Literal["4", "6", "8"], BeforeValidator(_coerce_to_str)]
 
 # ============ 枚举类型定义 ============
 
@@ -84,7 +95,11 @@ class NarrationSegment(BaseModel):
 
     segment_id: str = Field(description="片段 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     episode: int = Field(description="所属剧集")
-    duration_seconds: Literal[4, 6, 8] = Field(description="片段时长（秒）")
+    duration_seconds: DurationLiteral = Field(description="片段时长（秒）")
+
+    @field_serializer("duration_seconds")
+    def _serialize_duration(self, v: str) -> int:
+        return int(v)
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     novel_text: str = Field(description="小说原文（必须原样保留，用于后期配音）")
     characters_in_segment: list[str] = Field(description="出场角色名称列表")
@@ -122,7 +137,11 @@ class DramaScene(BaseModel):
     """剧集动画模式的场景"""
 
     scene_id: str = Field(description="场景 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
-    duration_seconds: Literal[4, 6, 8] = Field(default=8, description="场景时长（秒）")
+    duration_seconds: DurationLiteral = Field(default="8", description="场景时长（秒）")
+
+    @field_serializer("duration_seconds")
+    def _serialize_duration(self, v: str) -> int:
+        return int(v)
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     scene_type: str = Field(default="剧情", description="场景类型")
     characters_in_scene: list[str] = Field(description="出场角色名称列表")

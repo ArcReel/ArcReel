@@ -19,32 +19,11 @@ from .base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
-    resolve_schema,
 )
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
-
-
-def _stringify_integer_enums(schema: dict) -> None:
-    """递归地将 JSON Schema 中的整数枚举值转为字符串。
-
-    Gemini API 的 structured output 只接受字符串枚举，
-    但 Pydantic 的 Literal[4, 6, 8] 会生成整数枚举。
-    就地修改传入的 schema dict。
-    """
-    if isinstance(schema, dict):
-        if "enum" in schema and all(isinstance(v, int) for v in schema["enum"]):
-            schema["enum"] = [str(v) for v in schema["enum"]]
-            schema.pop("type", None)  # 移除 "type": "integer"，让 Gemini 推断为字符串
-        for v in schema.values():
-            if isinstance(v, dict):
-                _stringify_integer_enums(v)
-            elif isinstance(v, list):
-                for item in v:
-                    if isinstance(item, dict):
-                        _stringify_integer_enums(item)
 
 
 class GeminiTextBackend:
@@ -129,12 +108,7 @@ class GeminiTextBackend:
         if response_schema:
             config["response_mime_type"] = "application/json"
             if isinstance(response_schema, type):
-                # Pydantic type → dict schema，修复整数枚举后以 JSON Schema 传递。
-                # Gemini API 不支持整数枚举值（如 Literal[4, 6, 8]），
-                # 需转为字符串枚举才能通过验证。
-                schema_dict = resolve_schema(response_schema)
-                _stringify_integer_enums(schema_dict)
-                config["response_json_schema"] = schema_dict
+                config["response_schema"] = response_schema
             else:
                 config["response_json_schema"] = response_schema
         if system_prompt:
