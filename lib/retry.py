@@ -49,13 +49,10 @@ def with_retry_async(
 
             context_str = f"[{Path(output_path).name}] " if output_path else ""
 
-            last_error = None
             for attempt in range(max_attempts):
                 try:
                     return await func(*args, **kwargs)
                 except Exception as e:
-                    last_error = e
-
                     if not _should_retry(e, retryable_errors):
                         raise
 
@@ -78,7 +75,11 @@ def with_retry_async(
                             wait_time,
                         )
                         await asyncio.sleep(wait_time)
-            raise last_error
+                    else:
+                        raise
+
+            # max_attempts=0 的防御性兜底
+            raise RuntimeError(f"with_retry_async: max_attempts={max_attempts}，未执行任何尝试")
 
         return wrapper
 

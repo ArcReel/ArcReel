@@ -20,7 +20,10 @@ from collections import deque
 from typing import Optional
 
 from .cost_calculator import cost_calculator
-from .retry import BASE_RETRYABLE_ERRORS, with_retry_async  # noqa: F401 — re-export
+from .retry import BASE_RETRYABLE_ERRORS, with_retry_async
+
+# 显式声明 re-export，供 Gemini 后端 `from ..gemini_shared import with_retry_async` 使用
+__all__ = ["BASE_RETRYABLE_ERRORS", "with_retry_async", "RETRYABLE_ERRORS", "VERTEX_SCOPES", "RateLimiter"]
 
 logger = logging.getLogger(__name__)
 
