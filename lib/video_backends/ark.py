@@ -7,6 +7,7 @@ import logging
 
 from lib.ark_shared import create_ark_client
 from lib.providers import PROVIDER_ARK
+from lib.retry import with_retry_async
 from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
@@ -67,6 +68,7 @@ class ArkVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
+    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。"""
         # 1. Build content list

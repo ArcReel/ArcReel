@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import random
 
 import instructor
-from openai import AsyncOpenAI, BadRequestError, RateLimitError
+from openai import AsyncOpenAI, BadRequestError
 
-from lib.openai_shared import create_openai_client
+from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
+from lib.retry import with_retry_async
 from lib.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
@@ -19,10 +18,6 @@ from lib.text_backends.base import (
 )
 
 logger = logging.getLogger(__name__)
-
-# 429 重试配置
-_MAX_RETRY_ATTEMPTS = 4
-_RETRY_BACKOFF_SECONDS = (2, 4, 8)
 
 DEFAULT_MODEL = "gpt-5.4-mini"
 
@@ -61,13 +56,9 @@ class OpenAITextBackend:
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
         """生成文本回复。
 
-        当 response_schema 已设置且原生 response_format 调用抛出
-        BadRequestError（常见于 Ollama/vLLM 等 OpenAI 兼容服务），
-        自动降级到 Instructor 结构化输出。
-
-        RateLimitError (429) 会自动重试（指数退避），但如果错误信息
-        表明是上游 schema 不兼容（常见于 Gemini 兼容代理），则直接降级
-        到 Instructor 路径而不做无效重试。
+        瞬态错误（429/500/503/网络）由 _call_api 的 @with_retry_async 自动重试。
+        当 response_schema 已设置且调用抛出 schema 不兼容错误时，
+        自动降级到 Instructor 结构化输出（不做无效重试）。
         """
         messages = _build_messages(request)
         kwargs: dict = {"model": self._model, "messages": messages}
@@ -83,39 +74,30 @@ class OpenAITextBackend:
                 },
             }
 
-        for attempt in range(_MAX_RETRY_ATTEMPTS):
-            try:
-                response = await self._client.chat.completions.create(**kwargs)
-                usage = response.usage
-                return TextGenerationResult(
-                    text=response.choices[0].message.content or "",
-                    provider=PROVIDER_OPENAI,
-                    model=self._model,
-                    input_tokens=usage.prompt_tokens if usage else None,
-                    output_tokens=usage.completion_tokens if usage else None,
+        try:
+            return await self._call_api(**kwargs)
+        except Exception as exc:
+            # schema 不兼容（可能被代理包装成任意状态码）→ 降级到 Instructor
+            if request.response_schema and _is_schema_error(exc):
+                logger.warning(
+                    "原生 response_format 失败 (%s)，降级到 Instructor 路径",
+                    exc,
                 )
-            except Exception as exc:
-                # schema 不兼容（可能被代理包装成任意状态码）→ 降级到 Instructor
-                if request.response_schema and _is_schema_error(exc):
-                    logger.warning(
-                        "原生 response_format 失败 (%s)，降级到 Instructor 路径",
-                        exc,
-                    )
-                    return await _instructor_fallback(self._client, self._model, request, messages)
+                return await _instructor_fallback(self._client, self._model, request, messages)
+            raise
 
-                # 真正的 429 限流 → 指数退避重试
-                if isinstance(exc, RateLimitError) and attempt < _MAX_RETRY_ATTEMPTS - 1:
-                    wait = _RETRY_BACKOFF_SECONDS[attempt] + random.uniform(0, 1)
-                    logger.warning(
-                        "RateLimitError (429)，第 %d/%d 次重试，等待 %.1f 秒...",
-                        attempt + 1,
-                        _MAX_RETRY_ATTEMPTS,
-                        wait,
-                    )
-                    await asyncio.sleep(wait)
-                    continue
-
-                raise
+    @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
+    async def _call_api(self, **kwargs) -> TextGenerationResult:
+        """调用 OpenAI API，由装饰器处理瞬态错误重试。"""
+        response = await self._client.chat.completions.create(**kwargs)
+        usage = response.usage
+        return TextGenerationResult(
+            text=response.choices[0].message.content or "",
+            provider=PROVIDER_OPENAI,
+            model=self._model,
+            input_tokens=usage.prompt_tokens if usage else None,
+            output_tokens=usage.completion_tokens if usage else None,
+        )
 
 
 def _build_messages(request: TextGenerationRequest) -> list[dict]:
