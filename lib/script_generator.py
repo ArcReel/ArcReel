@@ -266,13 +266,13 @@ class ScriptGenerator:
         if self.content_mode == "narration":
             segments = script_data.get("segments", [])
             script_data["metadata"]["total_segments"] = len(segments)
-            script_data["duration_seconds"] = sum(s.get("duration_seconds", 4) for s in segments)
+            script_data["duration_seconds"] = sum(int(s.get("duration_seconds", 4)) for s in segments)
             chars_field, clues_field = "characters_in_segment", "clues_in_segment"
             items = segments
         else:
             scenes = script_data.get("scenes", [])
             script_data["metadata"]["total_scenes"] = len(scenes)
-            script_data["duration_seconds"] = sum(s.get("duration_seconds", 8) for s in scenes)
+            script_data["duration_seconds"] = sum(int(s.get("duration_seconds", 8)) for s in scenes)
             chars_field, clues_field = "characters_in_scene", "clues_in_scene"
             items = scenes
 
