@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from "react";
 import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle, Search } from "lucide-react";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { uid } from "@/utils/id";
 import type {
   CustomProviderInfo,
   CustomProviderModelInput,
@@ -41,7 +42,7 @@ interface ModelRow {
 
 function newModelRow(partial?: Partial<ModelRow>): ModelRow {
   return {
-    key: crypto.randomUUID(),
+    key: uid(),
     model_id: "",
     display_name: "",
     media_type: "text",
