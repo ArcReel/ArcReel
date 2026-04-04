@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # 429 重试配置
 _MAX_RETRY_ATTEMPTS = 4
-_RETRY_BACKOFF_SECONDS = (2, 4, 8, 16)
+_RETRY_BACKOFF_SECONDS = (2, 4, 8)
 
 DEFAULT_MODEL = "gpt-5.4-mini"
 
@@ -37,7 +37,8 @@ class OpenAITextBackend:
         model: str | None = None,
         base_url: str | None = None,
     ):
-        self._client = create_openai_client(api_key=api_key, base_url=base_url)
+        # 禁用 SDK 内置重试，由本层 generate() 统一管理重试策略
+        self._client = create_openai_client(api_key=api_key, base_url=base_url, max_retries=0)
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[TextCapability] = {
             TextCapability.TEXT_GENERATION,
@@ -82,7 +83,6 @@ class OpenAITextBackend:
                 },
             }
 
-        last_error: Exception | None = None
         for attempt in range(_MAX_RETRY_ATTEMPTS):
             try:
                 response = await self._client.chat.completions.create(**kwargs)
@@ -105,7 +105,6 @@ class OpenAITextBackend:
 
                 # 真正的 429 限流 → 指数退避重试
                 if isinstance(exc, RateLimitError) and attempt < _MAX_RETRY_ATTEMPTS - 1:
-                    last_error = exc
                     wait = _RETRY_BACKOFF_SECONDS[attempt] + random.uniform(0, 1)
                     logger.warning(
                         "RateLimitError (429)，第 %d/%d 次重试，等待 %.1f 秒...",
@@ -117,9 +116,6 @@ class OpenAITextBackend:
                     continue
 
                 raise
-
-        # 理论上不应到达此处，但作为安全兜底
-        raise last_error  # type: ignore[misc]
 
 
 def _build_messages(request: TextGenerationRequest) -> list[dict]:

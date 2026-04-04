@@ -40,6 +40,7 @@ def create_openai_client(
     *,
     api_key: str | None = None,
     base_url: str | None = None,
+    max_retries: int | None = None,
 ) -> AsyncOpenAI:
     """创建 AsyncOpenAI 客户端，统一处理 api_key 和 base_url。"""
     kwargs: dict = {}
@@ -47,4 +48,6 @@ def create_openai_client(
         kwargs["api_key"] = api_key
     if base_url:
         kwargs["base_url"] = base_url
+    if max_retries is not None:
+        kwargs["max_retries"] = max_retries
     return AsyncOpenAI(**kwargs)
