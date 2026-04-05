@@ -56,8 +56,14 @@ class TestShouldRetry:
 
     def test_case_insensitive_matching(self):
         assert _should_retry(RuntimeError("RESOURCE_EXHAUSTED: quota"), ()) is True
-        assert _should_retry(RuntimeError("Internal Server Error"), ()) is False  # 不含 "internalservererror"
+        assert _should_retry(RuntimeError("Internal Server Error"), ()) is True
         assert _should_retry(RuntimeError("InternalServerError"), ()) is True
+        assert _should_retry(RuntimeError("Service Unavailable"), ()) is True
+
+    def test_timeout_patterns(self):
+        assert _should_retry(RuntimeError("Connection timed out"), ()) is True
+        assert _should_retry(RuntimeError("read timeout"), ()) is True
+        assert _should_retry(RuntimeError("httpx.ReadTimeout"), ()) is True
 
     def test_unrelated_error_message(self):
         exc = RuntimeError("Invalid API key")

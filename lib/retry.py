@@ -28,9 +28,13 @@ RETRYABLE_STATUS_PATTERNS = (
     "503",
     "504",
     "internalservererror",
+    "internal server error",
     "serviceunavailable",
+    "service unavailable",
     "bad gateway",
     "gateway timeout",
+    "timed out",
+    "timeout",
 )
 
 # 默认重试配置，供各后端直接引用，避免魔法数字分散在 9+ 处
