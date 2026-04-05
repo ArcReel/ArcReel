@@ -250,9 +250,7 @@ class TestGeminiRetryBehavior:
 
         backend._client.aio.models.generate_videos = AsyncMock(return_value=pending_op)
         # 第一次轮询抛 ConnectionError，第二次返回完成
-        backend._client.aio.operations.get = AsyncMock(
-            side_effect=[ConnectionError("connection reset"), done_op]
-        )
+        backend._client.aio.operations.get = AsyncMock(side_effect=[ConnectionError("connection reset"), done_op])
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with patch("lib.video_backends.gemini.asyncio.sleep", new_callable=AsyncMock):
@@ -293,9 +291,7 @@ class TestGeminiRetryBehavior:
         pending_op.done = False
 
         backend._client.aio.models.generate_videos = AsyncMock(return_value=pending_op)
-        backend._client.aio.operations.get = AsyncMock(
-            side_effect=ValueError("invalid response")
-        )
+        backend._client.aio.operations.get = AsyncMock(side_effect=ValueError("invalid response"))
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with pytest.raises(ValueError, match="invalid response"):
