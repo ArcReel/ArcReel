@@ -8,6 +8,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from typing import Any
 
 from PIL import Image
 
@@ -119,7 +120,7 @@ class GeminiVideoBackend:
         return await self._poll_until_done(operation, request)
 
     @with_retry_async()
-    async def _create_task(self, request: VideoGenerationRequest):
+    async def _create_task(self, request: VideoGenerationRequest) -> Any:
         """创建 Gemini 视频生成任务（带重试保护）。"""
         # 1. 限流
         if self._rate_limiter:
@@ -149,7 +150,7 @@ class GeminiVideoBackend:
         logger.info("视频生成已提交, operation=%s", op_name)
         return operation
 
-    async def _poll_until_done(self, operation, request: VideoGenerationRequest) -> VideoGenerationResult:
+    async def _poll_until_done(self, operation: Any, request: VideoGenerationRequest) -> VideoGenerationResult:
         """轮询任务状态直到完成，瞬态错误仅重试当次轮询请求。"""
         op_name = getattr(operation, "name", "unknown")
         logger.info("开始轮询 operation=%s ...", op_name)
@@ -201,7 +202,7 @@ class GeminiVideoBackend:
         video_uri = video_ref.uri if video_ref else None
 
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(self._download_video, video_ref, request.output_path)
+        await self._download_video_with_retry(video_ref, request.output_path)
 
         return VideoGenerationResult(
             video_path=request.output_path,
@@ -243,6 +244,11 @@ class GeminiVideoBackend:
             return self._types.Image(image_bytes=image_bytes, mime_type=mime_type_png)
         else:
             return image
+
+    @with_retry_async()
+    async def _download_video_with_retry(self, video_ref, output_path: Path) -> None:
+        """下载视频（含瞬态错误重试）。"""
+        await asyncio.to_thread(self._download_video, video_ref, output_path)
 
     def _download_video(self, video_ref, output_path: Path) -> None:
         """下载视频到本地文件 — 提取自 GeminiClient。"""

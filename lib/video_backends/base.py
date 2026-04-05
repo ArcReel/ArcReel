@@ -9,6 +9,8 @@ from typing import Protocol
 
 import httpx
 
+from lib.retry import with_retry_async
+
 # 图片后缀 → MIME 类型映射（多个后端共用）
 IMAGE_MIME_TYPES: dict[str, str] = {
     ".png": "image/png",
@@ -19,8 +21,9 @@ IMAGE_MIME_TYPES: dict[str, str] = {
 }
 
 
+@with_retry_async()
 async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> None:
-    """从 URL 流式下载视频到本地文件。"""
+    """从 URL 流式下载视频到本地文件（含瞬态错误重试）。"""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     async with httpx.AsyncClient() as http_client:
         async with http_client.stream("GET", url, timeout=timeout) as resp:
