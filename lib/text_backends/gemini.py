@@ -131,7 +131,7 @@ class GeminiTextBackend:
         contents.append(request.prompt)
         return contents
 
-    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
+    @with_retry_async()
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
         """异步生成文本，支持结构化输出和 vision。"""
         config = self._build_config(request.response_schema, request.system_prompt)

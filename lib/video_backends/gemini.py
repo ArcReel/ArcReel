@@ -112,7 +112,7 @@ class GeminiVideoBackend:
             return "6"
         return "8"
 
-    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
+    @with_retry_async()
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频（仅生成模式，不含延长模式）。"""
         # 1. 限流

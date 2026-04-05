@@ -56,7 +56,7 @@ class OpenAIVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
-    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
+    @with_retry_async(retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         kwargs: dict = {
             "prompt": request.prompt,

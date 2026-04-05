@@ -68,7 +68,7 @@ class ArkVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
-    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
+    @with_retry_async()
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。"""
         # 1. Build content list

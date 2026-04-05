@@ -59,7 +59,7 @@ class OpenAIImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return self._capabilities
 
-    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
+    @with_retry_async(retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         if request.reference_images:
             return await self._generate_edit(request)

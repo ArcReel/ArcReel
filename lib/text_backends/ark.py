@@ -58,7 +58,7 @@ class ArkTextBackend:
     def capabilities(self) -> set[TextCapability]:
         return self._capabilities
 
-    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
+    @with_retry_async()
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
         if request.images:
             return await self._generate_vision(request)

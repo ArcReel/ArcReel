@@ -44,7 +44,7 @@ class GrokTextBackend:
     def capabilities(self) -> set[TextCapability]:
         return self._capabilities
 
-    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
+    @with_retry_async()
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
         chat = self._client.chat.create(model=self._model)
 

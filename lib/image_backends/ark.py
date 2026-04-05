@@ -50,7 +50,7 @@ class ArkImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return self._capabilities
 
-    @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
+    @with_retry_async()
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         """异步生成图片（T2I / I2I）。"""
         # 构建 SDK 参数
