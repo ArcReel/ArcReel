@@ -199,6 +199,99 @@ class TestArkGenerate:
                 ArkVideoBackend(api_key=None)
 
 
+class TestArkRetryBehavior:
+    """测试任务创建与轮询的重试分离行为。"""
+
+    async def test_poll_transient_error_retries_without_recreating_task(self, backend, tmp_path):
+        """轮询阶段瞬态错误应重试轮询，而不是重新创建任务。"""
+        output = tmp_path / "out.mp4"
+
+        create_result = MagicMock()
+        create_result.id = "cgt-retry-test"
+        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+
+        get_success = MagicMock()
+        get_success.status = "succeeded"
+        get_success.content = MagicMock()
+        get_success.content.video_url = "https://cdn.example.com/video.mp4"
+        get_success.seed = None
+        get_success.usage = None
+
+        # 第一次轮询抛 ConnectionError，第二次成功
+        backend._client.content_generation.tasks.get = MagicMock(
+            side_effect=[ConnectionError("connection reset"), get_success]
+        )
+
+        patcher = _mock_httpx_stream()
+        try:
+            request = VideoGenerationRequest(prompt="test", output_path=output)
+            with patch("lib.video_backends.ark.asyncio.sleep", new_callable=AsyncMock):
+                result = await backend.generate(request)
+        finally:
+            patcher.stop()
+
+        assert result.task_id == "cgt-retry-test"
+        # 关键断言：任务只创建了一次
+        assert backend._client.content_generation.tasks.create.call_count == 1
+        # 轮询调用了两次（一次失败 + 一次成功）
+        assert backend._client.content_generation.tasks.get.call_count == 2
+
+    async def test_create_retries_on_transient_error(self, backend, tmp_path):
+        """任务创建阶段的瞬态错误应由 @with_retry_async 重试。"""
+        output = tmp_path / "out.mp4"
+
+        create_result = MagicMock()
+        create_result.id = "cgt-create-retry"
+        # 第一次创建抛 ConnectionError，第二次成功
+        backend._client.content_generation.tasks.create = MagicMock(
+            side_effect=[ConnectionError("connection reset"), create_result]
+        )
+
+        get_result = MagicMock()
+        get_result.status = "succeeded"
+        get_result.content = MagicMock()
+        get_result.content.video_url = "https://cdn.example.com/video.mp4"
+        get_result.seed = None
+        get_result.usage = None
+        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+
+        patcher = _mock_httpx_stream()
+        try:
+            request = VideoGenerationRequest(prompt="test", output_path=output)
+            with (
+                patch("lib.video_backends.ark.asyncio.sleep", new_callable=AsyncMock),
+                patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            ):
+                result = await backend.generate(request)
+        finally:
+            patcher.stop()
+
+        assert result.task_id == "cgt-create-retry"
+        # 创建调用了两次（一次失败 + 一次成功）
+        assert backend._client.content_generation.tasks.create.call_count == 2
+
+    async def test_poll_non_retryable_error_propagates(self, backend, tmp_path):
+        """轮询阶段不可重试的错误应直接抛出。"""
+        output = tmp_path / "out.mp4"
+
+        create_result = MagicMock()
+        create_result.id = "cgt-no-retry"
+        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+
+        backend._client.content_generation.tasks.get = MagicMock(
+            side_effect=ValueError("invalid response")
+        )
+
+        request = VideoGenerationRequest(prompt="test", output_path=output)
+        with pytest.raises(ValueError, match="invalid response"):
+            with patch("lib.video_backends.ark.asyncio.sleep", new_callable=AsyncMock):
+                await backend.generate(request)
+
+        # 创建只调用一次，轮询只尝试一次就抛出
+        assert backend._client.content_generation.tasks.create.call_count == 1
+        assert backend._client.content_generation.tasks.get.call_count == 1
+
+
 class TestArkModelCapabilities:
     """测试不同模型的能力映射。"""
 
