@@ -20,16 +20,27 @@ BASE_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     TimeoutError,
 )
 
-# 字符串模式匹配：覆盖异常类型不在列表中但属于瞬态的情况
-RETRYABLE_STATUS_PATTERNS = ("429", "RESOURCE_EXHAUSTED", "500", "503", "InternalServerError", "ServiceUnavailable")
+# 字符串模式匹配：覆盖异常类型不在列表中但属于瞬态的情况（大小写不敏感）
+RETRYABLE_STATUS_PATTERNS = (
+    "429",
+    "resource_exhausted",
+    "500",
+    "502",
+    "503",
+    "504",
+    "internalservererror",
+    "serviceunavailable",
+    "bad gateway",
+    "gateway timeout",
+)
 
 
 def _should_retry(exc: Exception, retryable_errors: tuple[type[Exception], ...]) -> bool:
     """判断异常是否应当重试。"""
     if isinstance(exc, retryable_errors):
         return True
-    error_str = str(exc)
-    return any(pattern in error_str for pattern in RETRYABLE_STATUS_PATTERNS)
+    error_lower = str(exc).lower()
+    return any(pattern in error_lower for pattern in RETRYABLE_STATUS_PATTERNS)
 
 
 def with_retry_async(
@@ -42,11 +53,7 @@ def with_retry_async(
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
-            # 尝试提取 output_path 以便在日志中显示上下文
             output_path = kwargs.get("output_path")
-            if not output_path and len(args) > 4:
-                output_path = args[4]
-
             context_str = f"[{Path(output_path).name}] " if output_path else ""
 
             for attempt in range(max_attempts):

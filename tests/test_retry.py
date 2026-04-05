@@ -46,6 +46,19 @@ class TestShouldRetry:
             exc = RuntimeError(f"Error: {pattern}")
             assert _should_retry(exc, ()) is True, f"Pattern '{pattern}' not detected"
 
+    def test_string_pattern_502(self):
+        exc = RuntimeError("502 Bad Gateway")
+        assert _should_retry(exc, ()) is True
+
+    def test_string_pattern_504(self):
+        exc = RuntimeError("504 Gateway Timeout")
+        assert _should_retry(exc, ()) is True
+
+    def test_case_insensitive_matching(self):
+        assert _should_retry(RuntimeError("RESOURCE_EXHAUSTED: quota"), ()) is True
+        assert _should_retry(RuntimeError("Internal Server Error"), ()) is False  # 不含 "internalservererror"
+        assert _should_retry(RuntimeError("InternalServerError"), ()) is True
+
     def test_unrelated_error_message(self):
         exc = RuntimeError("Invalid API key")
         assert _should_retry(exc, ()) is False

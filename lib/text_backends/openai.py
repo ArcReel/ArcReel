@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "gpt-5.4-mini"
 
 
+class _SchemaIncompatibleError(Exception):
+    """Schema 不兼容错误，不应被重试装饰器重试。"""
+
+    pass
+
+
 class OpenAITextBackend:
     """OpenAI 文本生成后端，支持 Chat Completions API。"""
 
@@ -76,20 +82,29 @@ class OpenAITextBackend:
 
         try:
             return await self._call_api(**kwargs)
-        except Exception as exc:
-            # schema 不兼容（可能被代理包装成任意状态码）→ 降级到 Instructor
-            if request.response_schema and _is_schema_error(exc):
+        except _SchemaIncompatibleError as exc:
+            # schema 不兼容 → 降级到 Instructor（已在 _call_api 中识别，跳过重试）
+            if request.response_schema:
                 logger.warning(
                     "原生 response_format 失败 (%s)，降级到 Instructor 路径",
-                    exc,
+                    exc.__cause__,
                 )
                 return await _instructor_fallback(self._client, self._model, request, messages)
-            raise
+            raise exc.__cause__  # type: ignore[union-attr]
 
     @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def _call_api(self, **kwargs) -> TextGenerationResult:
-        """调用 OpenAI API，由装饰器处理瞬态错误重试。"""
-        response = await self._client.chat.completions.create(**kwargs)
+        """调用 OpenAI API，由装饰器处理瞬态错误重试。
+
+        Schema 不兼容错误会被包装为 _SchemaIncompatibleError 立即抛出，
+        不会被重试装饰器捕获重试。
+        """
+        try:
+            response = await self._client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            if _is_schema_error(exc):
+                raise _SchemaIncompatibleError(str(exc)) from exc
+            raise
         usage = response.usage
         return TextGenerationResult(
             text=response.choices[0].message.content or "",
