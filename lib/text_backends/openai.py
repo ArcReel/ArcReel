@@ -22,12 +22,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "gpt-5.4-mini"
 
 
-class _SchemaIncompatibleError(Exception):
-    """Schema 不兼容错误，不应被重试装饰器重试。"""
-
-    pass
-
-
 class OpenAITextBackend:
     """OpenAI 文本生成后端，支持 Chat Completions API。"""
 
@@ -59,12 +53,16 @@ class OpenAITextBackend:
     def capabilities(self) -> set[TextCapability]:
         return self._capabilities
 
+    @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
         """生成文本回复。
 
-        瞬态错误（429/500/503/网络）由 _call_api 的 @with_retry_async 自动重试。
-        当 response_schema 已设置且调用抛出 schema 不兼容错误时，
-        自动降级到 Instructor 结构化输出（不做无效重试）。
+        单一重试循环包裹整个流程：
+        1. 尝试原生 response_format 调用
+        2. 若遇 schema 不兼容错误 → 本次 attempt 内降级到 Instructor
+        3. 若遇瞬态错误（429/500/503/网络）→ 由装饰器自动重试整个流程
+
+        这样无论是原生调用还是降级路径遇到瞬态错误，都统一由外层重试处理。
         """
         messages = _build_messages(request)
         kwargs: dict = {"model": self._model, "messages": messages}
@@ -81,30 +79,16 @@ class OpenAITextBackend:
             }
 
         try:
-            return await self._call_api(**kwargs)
-        except _SchemaIncompatibleError as exc:
-            # schema 不兼容 → 降级到 Instructor（已在 _call_api 中识别，跳过重试）
-            if request.response_schema:
-                logger.warning(
-                    "原生 response_format 失败 (%s)，降级到 Instructor 路径",
-                    exc.__cause__,
-                )
-                return await _instructor_fallback(self._client, self._model, request, messages)
-            raise exc.__cause__  # type: ignore[union-attr]
-
-    @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
-    async def _call_api(self, **kwargs) -> TextGenerationResult:
-        """调用 OpenAI API，由装饰器处理瞬态错误重试。
-
-        Schema 不兼容错误会被包装为 _SchemaIncompatibleError 立即抛出，
-        不会被重试装饰器捕获重试。
-        """
-        try:
             response = await self._client.chat.completions.create(**kwargs)
         except Exception as exc:
-            if _is_schema_error(exc):
-                raise _SchemaIncompatibleError(str(exc)) from exc
+            if request.response_schema and _is_schema_error(exc):
+                logger.warning(
+                    "原生 response_format 失败 (%s)，降级到 Instructor 路径",
+                    exc,
+                )
+                return await _instructor_fallback(self._client, self._model, request, messages)
             raise
+
         usage = response.usage
         return TextGenerationResult(
             text=response.choices[0].message.content or "",
@@ -164,32 +148,6 @@ def _is_schema_error(exc: BaseException) -> bool:
     return any(kw in error_str for kw in _SCHEMA_ERROR_KEYWORDS)
 
 
-@with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
-async def _instructor_call(
-    patched_client,
-    model: str,
-    messages: list[dict],
-    response_model: type,
-) -> tuple:
-    """Instructor 结构化生成调用（带瞬态错误重试）。"""
-    return await patched_client.chat.completions.create_with_completion(
-        model=model,
-        messages=messages,
-        response_model=response_model,
-        max_retries=2,
-    )
-
-
-@with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
-async def _json_object_call(client: AsyncOpenAI, model: str, messages: list[dict]):
-    """json_object 模式调用（带瞬态错误重试）。"""
-    return await client.chat.completions.create(
-        model=model,
-        messages=messages,
-        response_format={"type": "json_object"},
-    )
-
-
 async def _instructor_fallback(
     client: AsyncOpenAI,
     model: str,
@@ -198,13 +156,20 @@ async def _instructor_fallback(
 ) -> TextGenerationResult:
     """Instructor 降级：当原生 response_format 不可用时的备选路径。
 
+    本函数不做重试，瞬态错误会抛出到调用方的重试循环中统一处理。
+
     - response_schema 为 Pydantic 类：使用 instructor 的 create_with_completion
     - response_schema 为 dict：回退到无结构化输出的普通调用
     """
     if isinstance(request.response_schema, type):
         # Pydantic 模型 — 用 Instructor 做 prompt 注入 + 解析 + 重试
         patched = instructor.from_openai(client, mode=instructor.Mode.MD_JSON)
-        result, completion = await _instructor_call(patched, model, messages, request.response_schema)
+        result, completion = await patched.chat.completions.create_with_completion(
+            model=model,
+            messages=messages,
+            response_model=request.response_schema,
+            max_retries=2,
+        )
         json_text = result.model_dump_json()
         input_tokens = None
         output_tokens = None
@@ -231,7 +196,11 @@ async def _instructor_fallback(
                 fb_messages[sys_idx] = {**orig, "content": (orig.get("content") or "") + "\nRespond in JSON format."}
             else:
                 fb_messages.insert(0, {"role": "system", "content": "Respond in JSON format."})
-        response = await _json_object_call(client, model, fb_messages)
+        response = await client.chat.completions.create(
+            model=model,
+            messages=fb_messages,
+            response_format={"type": "json_object"},
+        )
         usage = response.usage
         return TextGenerationResult(
             text=response.choices[0].message.content or "",
