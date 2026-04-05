@@ -278,9 +278,7 @@ class TestArkRetryBehavior:
         create_result.id = "cgt-no-retry"
         backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
-        backend._client.content_generation.tasks.get = MagicMock(
-            side_effect=ValueError("invalid response")
-        )
+        backend._client.content_generation.tasks.get = MagicMock(side_effect=ValueError("invalid response"))
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with pytest.raises(ValueError, match="invalid response"):
