@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 
-import instructor
 from openai import AsyncOpenAI, BadRequestError
 
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
@@ -161,21 +160,18 @@ async def _instructor_fallback(
     - response_schema 为 Pydantic 类：使用 instructor 的 create_with_completion
     - response_schema 为 dict：回退到无结构化输出的普通调用
     """
+    from lib.text_backends.instructor_support import (
+        generate_structured_via_instructor_async,
+        inject_json_instruction,
+    )
+
     if isinstance(request.response_schema, type):
-        # Pydantic 模型 — 用 Instructor 做 prompt 注入 + 解析 + 重试
-        patched = instructor.from_openai(client, mode=instructor.Mode.MD_JSON)
-        result, completion = await patched.chat.completions.create_with_completion(
+        json_text, input_tokens, output_tokens = await generate_structured_via_instructor_async(
+            client=client,
             model=model,
             messages=messages,
             response_model=request.response_schema,
-            max_retries=2,
         )
-        json_text = result.model_dump_json()
-        input_tokens = None
-        output_tokens = None
-        if completion.usage:
-            input_tokens = completion.usage.prompt_tokens
-            output_tokens = completion.usage.completion_tokens
         return TextGenerationResult(
             text=json_text,
             provider=PROVIDER_OPENAI,
@@ -184,18 +180,8 @@ async def _instructor_fallback(
             output_tokens=output_tokens,
         )
     else:
-        # dict schema — 无法用 Instructor（需要 Pydantic 类），
-        # 回退到 json_object 模式（比原生 json_schema 兼容性更广）
         logger.info("response_schema 为 dict，无法使用 Instructor，回退到 json_object 模式")
-        # OpenAI API 要求 prompt 中包含 "JSON" 关键字才能启用 json_object 模式
-        fb_messages = list(messages)
-        if not any("JSON" in (m.get("content") or "") for m in fb_messages):
-            sys_idx = next((i for i, m in enumerate(fb_messages) if m.get("role") == "system"), None)
-            if sys_idx is not None:
-                orig = fb_messages[sys_idx]
-                fb_messages[sys_idx] = {**orig, "content": (orig.get("content") or "") + "\nRespond in JSON format."}
-            else:
-                fb_messages.insert(0, {"role": "system", "content": "Respond in JSON format."})
+        fb_messages = inject_json_instruction(messages)
         response = await client.chat.completions.create(
             model=model,
             messages=fb_messages,

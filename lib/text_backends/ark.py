@@ -103,9 +103,9 @@ class ArkTextBackend:
 
     async def _structured_fallback(self, request: TextGenerationRequest, messages: list[dict]) -> TextGenerationResult:
         """Instructor / json_object 降级路径。"""
-        if isinstance(request.response_schema, type):
-            from lib.text_backends.instructor_support import generate_structured_via_instructor
+        from lib.text_backends.instructor_support import generate_structured_via_instructor, inject_json_instruction
 
+        if isinstance(request.response_schema, type):
             json_text, input_tokens, output_tokens = await asyncio.to_thread(
                 generate_structured_via_instructor,
                 client=self._openai_client,
@@ -121,19 +121,8 @@ class ArkTextBackend:
                 output_tokens=output_tokens,
             )
         else:
-            # dict schema → json_object 模式
             logger.info("response_schema 为 dict，回退到 json_object 模式")
-            fb_messages = list(messages)
-            if not any("JSON" in (m.get("content") or "") for m in fb_messages):
-                sys_idx = next((i for i, m in enumerate(fb_messages) if m.get("role") == "system"), None)
-                if sys_idx is not None:
-                    orig = fb_messages[sys_idx]
-                    fb_messages[sys_idx] = {
-                        **orig,
-                        "content": (orig.get("content") or "") + "\nRespond in JSON format.",
-                    }
-                else:
-                    fb_messages.insert(0, {"role": "system", "content": "Respond in JSON format."})
+            fb_messages = inject_json_instruction(messages)
             response = await asyncio.to_thread(
                 self._openai_client.chat.completions.create,
                 model=self._model,
