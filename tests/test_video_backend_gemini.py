@@ -236,6 +236,78 @@ class TestGeminiVideoBackendGenerate:
         assert "music" in config_call.kwargs.get("negative_prompt", "")
 
 
+class TestGeminiRetryBehavior:
+    """测试任务创建与轮询的重试分离行为。"""
+
+    async def test_poll_transient_error_retries_without_recreating_task(self, backend, tmp_path):
+        """轮询阶段瞬态错误应重试轮询，而不是重新创建任务。"""
+        output = tmp_path / "out.mp4"
+
+        pending_op = MagicMock()
+        pending_op.done = False
+
+        done_op = _make_done_operation()
+
+        backend._client.aio.models.generate_videos = AsyncMock(return_value=pending_op)
+        # 第一次轮询抛 ConnectionError，第二次返回完成
+        backend._client.aio.operations.get = AsyncMock(
+            side_effect=[ConnectionError("connection reset"), done_op]
+        )
+
+        request = VideoGenerationRequest(prompt="test", output_path=output)
+        with patch("lib.video_backends.gemini.asyncio.sleep", new_callable=AsyncMock):
+            result = await backend.generate(request)
+
+        assert result.provider == "gemini"
+        # 关键断言：任务只创建了一次
+        backend._client.aio.models.generate_videos.assert_awaited_once()
+        # 轮询调用了两次（一次失败 + 一次成功）
+        assert backend._client.aio.operations.get.await_count == 2
+
+    async def test_create_retries_on_transient_error(self, backend, tmp_path):
+        """任务创建阶段的瞬态错误应由 @with_retry_async 重试。"""
+        output = tmp_path / "out.mp4"
+
+        done_op = _make_done_operation()
+        # 第一次创建抛 ConnectionError，第二次成功
+        backend._client.aio.models.generate_videos = AsyncMock(
+            side_effect=[ConnectionError("connection reset"), done_op]
+        )
+
+        request = VideoGenerationRequest(prompt="test", output_path=output)
+        with (
+            patch("lib.video_backends.gemini.asyncio.sleep", new_callable=AsyncMock),
+            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            result = await backend.generate(request)
+
+        assert result.provider == "gemini"
+        # 创建调用了两次（一次失败 + 一次成功）
+        assert backend._client.aio.models.generate_videos.await_count == 2
+
+    async def test_poll_non_retryable_error_propagates(self, backend, tmp_path):
+        """轮询阶段不可重试的错误应直接抛出。"""
+        output = tmp_path / "out.mp4"
+
+        pending_op = MagicMock()
+        pending_op.done = False
+
+        backend._client.aio.models.generate_videos = AsyncMock(return_value=pending_op)
+        backend._client.aio.operations.get = AsyncMock(
+            side_effect=ValueError("invalid response")
+        )
+
+        request = VideoGenerationRequest(prompt="test", output_path=output)
+        with pytest.raises(ValueError, match="invalid response"):
+            with patch("lib.video_backends.gemini.asyncio.sleep", new_callable=AsyncMock):
+                await backend.generate(request)
+
+        # 创建只调用一次
+        backend._client.aio.models.generate_videos.assert_awaited_once()
+        # 轮询只尝试一次就抛出
+        assert backend._client.aio.operations.get.await_count == 1
+
+
 # ── _prepare_image_param 测试 ─────────────────────────────
 
 

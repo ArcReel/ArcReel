@@ -7,7 +7,7 @@ import logging
 
 from lib.ark_shared import create_ark_client
 from lib.providers import PROVIDER_ARK
-from lib.retry import with_retry_async
+from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry, with_retry_async
 from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
@@ -68,9 +68,14 @@ class ArkVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
-    @with_retry_async()
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """生成视频。"""
+        """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
+        task_id = await self._create_task(request)
+        return await self._poll_until_done(task_id, request)
+
+    @with_retry_async()
+    async def _create_task(self, request: VideoGenerationRequest) -> str:
+        """创建 Ark 视频生成任务（带重试保护）。"""
         # 1. Build content list
         content = [{"type": "text", "text": request.prompt}]
 
@@ -104,19 +109,30 @@ class ArkVideoBackend:
             self._client.content_generation.tasks.create,
             **create_params,
         )
-        task_id = create_result.id
-        logger.info("Ark 任务已创建: %s", task_id)
+        logger.info("Ark 任务已创建: %s", create_result.id)
+        return create_result.id
 
-        # 4. Poll until done
+    async def _poll_until_done(self, task_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """轮询任务状态直到完成，瞬态错误仅重试当次轮询请求。"""
         poll_interval = 10 if request.service_tier == "default" else 60
         max_wait_time = 600 if request.service_tier == "default" else 3600
         elapsed = 0
 
         while True:
-            result = await asyncio.to_thread(
-                self._client.content_generation.tasks.get,
-                task_id=task_id,
-            )
+            try:
+                result = await asyncio.to_thread(
+                    self._client.content_generation.tasks.get,
+                    task_id=task_id,
+                )
+            except Exception as e:
+                if _should_retry(e, BASE_RETRYABLE_ERRORS):
+                    logger.warning("Ark 轮询异常（将重试）: %s - %s", type(e).__name__, str(e)[:200])
+                    elapsed += poll_interval
+                    if elapsed >= max_wait_time:
+                        raise
+                    await asyncio.sleep(poll_interval)
+                    continue
+                raise
 
             if result.status == "succeeded":
                 break
@@ -135,11 +151,11 @@ class ArkVideoBackend:
             )
             await asyncio.sleep(poll_interval)
 
-        # 5. Download video
+        # Download video
         video_url = result.content.video_url
         await download_video(video_url, request.output_path)
 
-        # 6. Extract result metadata
+        # Extract result metadata
         seed = getattr(result, "seed", None)
         usage_tokens = None
         if hasattr(result, "usage") and result.usage:
