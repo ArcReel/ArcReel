@@ -164,6 +164,32 @@ def _is_schema_error(exc: BaseException) -> bool:
     return any(kw in error_str for kw in _SCHEMA_ERROR_KEYWORDS)
 
 
+@with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
+async def _instructor_call(
+    patched_client,
+    model: str,
+    messages: list[dict],
+    response_model: type,
+) -> tuple:
+    """Instructor 结构化生成调用（带瞬态错误重试）。"""
+    return await patched_client.chat.completions.create_with_completion(
+        model=model,
+        messages=messages,
+        response_model=response_model,
+        max_retries=2,
+    )
+
+
+@with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
+async def _json_object_call(client: AsyncOpenAI, model: str, messages: list[dict]):
+    """json_object 模式调用（带瞬态错误重试）。"""
+    return await client.chat.completions.create(
+        model=model,
+        messages=messages,
+        response_format={"type": "json_object"},
+    )
+
+
 async def _instructor_fallback(
     client: AsyncOpenAI,
     model: str,
@@ -178,12 +204,7 @@ async def _instructor_fallback(
     if isinstance(request.response_schema, type):
         # Pydantic 模型 — 用 Instructor 做 prompt 注入 + 解析 + 重试
         patched = instructor.from_openai(client, mode=instructor.Mode.MD_JSON)
-        result, completion = await patched.chat.completions.create_with_completion(
-            model=model,
-            messages=messages,
-            response_model=request.response_schema,
-            max_retries=2,
-        )
+        result, completion = await _instructor_call(patched, model, messages, request.response_schema)
         json_text = result.model_dump_json()
         input_tokens = None
         output_tokens = None
@@ -210,11 +231,7 @@ async def _instructor_fallback(
                 fb_messages[sys_idx] = {**orig, "content": (orig.get("content") or "") + "\nRespond in JSON format."}
             else:
                 fb_messages.insert(0, {"role": "system", "content": "Respond in JSON format."})
-        response = await client.chat.completions.create(
-            model=model,
-            messages=fb_messages,
-            response_format={"type": "json_object"},
-        )
+        response = await _json_object_call(client, model, fb_messages)
         usage = response.usage
         return TextGenerationResult(
             text=response.choices[0].message.content or "",
