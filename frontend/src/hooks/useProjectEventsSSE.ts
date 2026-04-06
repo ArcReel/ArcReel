@@ -24,6 +24,7 @@ const CHANGE_PRIORITY: Record<string, number> = {
   "clue:updated": 4,
   "episode:created": 5,
   "episode:updated": 6,
+  "draft:created": 6.5,
   storyboard_ready: 7,
   video_ready: 8,
 };
@@ -244,22 +245,41 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           }
 
           if (payload.source !== "webui") {
-            const nextFocusTarget =
-              groupedChanges
-                .map((group) => {
-                  const target = getPrimaryGroupTarget(group);
-                  if (!target) {
-                    return null;
-                  }
-                  pushWorkspaceNotification({
-                    text: formatGroupedDeferredText(group),
-                    target,
-                  });
-                  return target;
-                })
-                .find(Boolean) ?? null;
+            // Draft 事件 — 自动导航到剧集预处理 Tab
+            let draftHandled = false;
+            for (const change of payload.changes) {
+              if (
+                change.entity_type === "draft" &&
+                change.action === "created" &&
+                typeof change.episode === "number" &&
+                !isWorkspaceEditing()
+              ) {
+                startTransition(() => {
+                  setLocation(`/episodes/${change.episode}`);
+                });
+                draftHandled = true;
+                break;
+              }
+            }
 
-            queuedFocusRef.current = isWorkspaceEditing() ? null : nextFocusTarget;
+            if (!draftHandled) {
+              const nextFocusTarget =
+                groupedChanges
+                  .map((group) => {
+                    const target = getPrimaryGroupTarget(group);
+                    if (!target) {
+                      return null;
+                    }
+                    pushWorkspaceNotification({
+                      text: formatGroupedDeferredText(group),
+                      target,
+                    });
+                    return target;
+                  })
+                  .find(Boolean) ?? null;
+
+              queuedFocusRef.current = isWorkspaceEditing() ? null : nextFocusTarget;
+            }
           }
 
           void refreshProject();
