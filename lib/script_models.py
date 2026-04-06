@@ -8,35 +8,7 @@ script_models.py - 剧本数据模型
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, GetCoreSchemaHandler, GetJsonSchemaHandler
-from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import core_schema
-
-
-class DurationSeconds(int):
-    """片段/场景时长（秒），限定为 4、6、8。
-
-    运行时为 int，JSON Schema 生成字符串枚举以兼容 Gemini API。
-    """
-
-    @classmethod
-    def __get_pydantic_core_schema__(cls, source_type, handler: GetCoreSchemaHandler):
-        return core_schema.no_info_plain_validator_function(
-            cls._validate,
-            serialization=core_schema.plain_serializer_function_ser_schema(int),
-        )
-
-    @classmethod
-    def _validate(cls, v):
-        v = int(v)
-        if v not in (4, 6, 8):
-            raise ValueError(f"duration must be 4, 6, or 8, got {v}")
-        return v
-
-    @classmethod
-    def __get_pydantic_json_schema__(cls, _schema, handler: GetJsonSchemaHandler) -> JsonSchemaValue:
-        return {"enum": ["4", "6", "8"]}
-
+from pydantic import BaseModel, Field
 
 # ============ 枚举类型定义 ============
 
@@ -112,7 +84,7 @@ class NarrationSegment(BaseModel):
 
     segment_id: str = Field(description="片段 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     episode: int = Field(description="所属剧集")
-    duration_seconds: DurationSeconds = Field(description="片段时长（秒）")
+    duration_seconds: int = Field(ge=1, le=60, description="片段时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     novel_text: str = Field(description="小说原文（必须原样保留，用于后期配音）")
     characters_in_segment: list[str] = Field(description="出场角色名称列表")
@@ -150,12 +122,12 @@ class DramaScene(BaseModel):
     """剧集动画模式的场景"""
 
     scene_id: str = Field(description="场景 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
-    duration_seconds: DurationSeconds = Field(default=8, description="场景时长（秒）")
+    duration_seconds: int = Field(default=8, ge=1, le=60, description="场景时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     scene_type: str = Field(default="剧情", description="场景类型")
     characters_in_scene: list[str] = Field(description="出场角色名称列表")
     clues_in_scene: list[str] = Field(default_factory=list, description="出场线索名称列表")
-    image_prompt: ImagePrompt = Field(description="分镜图生成提示词（16:9 横屏）")
+    image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
     transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="转场类型")
     note: str | None = Field(default=None, description="用户备注（不参与生成）")

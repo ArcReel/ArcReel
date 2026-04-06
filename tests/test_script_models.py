@@ -41,28 +41,63 @@ class TestScriptModels:
         assert segment.transition_to_next == "cut"
         assert segment.generated_assets.status == "pending"
 
-    def test_invalid_duration_raises_validation_error(self):
+    def test_duration_accepts_any_positive_int_within_range(self):
+        """duration_seconds 接受 1-60 范围内任意整数。"""
+        segment = NarrationSegment(
+            segment_id="E1S01",
+            episode=1,
+            duration_seconds=10,  # 之前会被 DurationSeconds 拒绝
+            novel_text="原文",
+            characters_in_segment=["姜月茴"],
+            image_prompt=ImagePrompt(
+                scene="场景",
+                composition=Composition(shot_type="Medium Shot", lighting="暖光", ambiance="薄雾"),
+            ),
+            video_prompt=VideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声"),
+        )
+        assert segment.duration_seconds == 10
+
+    def test_duration_rejects_out_of_range(self):
+        """duration_seconds 拒绝范围外的值。"""
         with pytest.raises(ValidationError):
             NarrationSegment(
                 segment_id="E1S01",
                 episode=1,
-                duration_seconds=5,
+                duration_seconds=0,
                 novel_text="原文",
                 characters_in_segment=["姜月茴"],
                 image_prompt=ImagePrompt(
                     scene="场景",
-                    composition=Composition(
-                        shot_type="Medium Shot",
-                        lighting="暖光",
-                        ambiance="薄雾",
-                    ),
+                    composition=Composition(shot_type="Medium Shot", lighting="暖光", ambiance="薄雾"),
                 ),
-                video_prompt=VideoPrompt(
-                    action="转身",
-                    camera_motion="Static",
-                    ambiance_audio="风声",
-                ),
+                video_prompt=VideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声"),
             )
+        with pytest.raises(ValidationError):
+            NarrationSegment(
+                segment_id="E1S01",
+                episode=1,
+                duration_seconds=61,
+                novel_text="原文",
+                characters_in_segment=["姜月茴"],
+                image_prompt=ImagePrompt(
+                    scene="场景",
+                    composition=Composition(shot_type="Medium Shot", lighting="暖光", ambiance="薄雾"),
+                ),
+                video_prompt=VideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声"),
+            )
+
+    def test_drama_scene_default_duration_is_8(self):
+        """DramaScene 的默认 duration_seconds 仍为 8。"""
+        scene = DramaScene(
+            scene_id="E1S01",
+            characters_in_scene=["姜月茴"],
+            image_prompt=ImagePrompt(
+                scene="场景",
+                composition=Composition(shot_type="Medium Shot", lighting="暖光", ambiance="薄雾"),
+            ),
+            video_prompt=VideoPrompt(action="前进", camera_motion="Static", ambiance_audio="雨声"),
+        )
+        assert scene.duration_seconds == 8
 
     def test_episode_models_build_successfully(self):
         narration = NarrationEpisodeScript(
