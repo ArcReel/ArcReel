@@ -26,6 +26,7 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     error_message: Mapped[str | None] = mapped_column(Text)
     output_path: Mapped[str | None] = mapped_column(Text)
+    segment_id: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_ms: Mapped[int | None] = mapped_column(Integer)

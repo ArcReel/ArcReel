@@ -29,6 +29,7 @@ def _row_to_dict(row: ApiCall) -> dict[str, Any]:
         "status": row.status,
         "error_message": row.error_message,
         "output_path": row.output_path,
+        "segment_id": row.segment_id,
         "started_at": dt_to_iso(row.started_at),
         "finished_at": dt_to_iso(row.finished_at),
         "duration_ms": row.duration_ms,
