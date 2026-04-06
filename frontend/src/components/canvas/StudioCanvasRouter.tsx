@@ -334,6 +334,7 @@ export function StudioCanvasRouter() {
           return (
             <TimelineCanvas
               projectName={currentProjectName}
+              episode={epNum}
               episodeScript={script}
               scriptFile={scriptFile ?? undefined}
               projectData={currentProjectData}

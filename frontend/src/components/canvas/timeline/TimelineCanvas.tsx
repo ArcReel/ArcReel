@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SegmentCard } from "./SegmentCard";
+import { PreprocessingView } from "./PreprocessingView";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
 import type {
   EpisodeScript,
@@ -23,12 +24,37 @@ function getSegmentId(segment: Segment, mode: "narration" | "drama"): string {
     : (segment as DramaScene).scene_id;
 }
 
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-4 py-2 text-sm font-medium transition-colors ${
+        active
+          ? "border-b-2 border-indigo-500 text-white"
+          : "border-b-2 border-transparent text-gray-400 hover:text-gray-300"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
 interface TimelineCanvasProps {
   projectName: string;
+  episode: number;
   episodeScript: EpisodeScript | null;
   scriptFile?: string;
   projectData: ProjectData | null;
@@ -52,6 +78,7 @@ interface TimelineCanvasProps {
  */
 export function TimelineCanvas({
   projectName,
+  episode,
   episodeScript,
   scriptFile,
   projectData,
@@ -63,6 +90,7 @@ export function TimelineCanvas({
 }: TimelineCanvasProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentMode = projectData?.content_mode ?? "narration";
+  const [activeTab, setActiveTab] = useState<"segments" | "preprocessing">("segments");
 
   // Determine aspect ratio — use project config if available, otherwise defaults
   const aspectRatio =
@@ -127,58 +155,85 @@ export function TimelineCanvas({
   const virtualItems = virtualizer.getVirtualItems();
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto">
-      <div className="p-4">
-        {/* ---- Episode header ---- */}
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold text-gray-100">
-            E{episodeScript.episode}: {episodeScript.title}
-          </h2>
-          <p className="text-xs text-gray-500">
-            {segments.length} {segmentLabel} · 约 {totalDuration}s
-          </p>
-        </div>
-
-        {/* ---- Segment cards ---- */}
-        <div
-          className="relative"
-          style={{ height: `${virtualizer.getTotalSize()}px` }}
+    <div className="flex h-full flex-col">
+      {/* Tab bar */}
+      <div className="flex border-b border-gray-800 px-4">
+        <TabButton
+          active={activeTab === "segments"}
+          onClick={() => setActiveTab("segments")}
         >
-          {virtualItems.map((virtualItem) => {
-            const segment = segments[virtualItem.index];
-            const segId = getSegmentId(segment, contentMode);
-            return (
-              <div
-                id={`segment-${segId}`}
-                key={segId}
-                data-index={virtualItem.index}
-                ref={virtualizer.measureElement}
-                className="absolute left-0 top-0 w-full"
-                style={{
-                  transform: `translateY(${virtualItem.start}px)`,
-                  paddingBottom: virtualItem.index === segments.length - 1 ? 0 : 16,
-                }}
-              >
-                <SegmentCard
-                  segment={segment}
-                  contentMode={contentMode}
-                  aspectRatio={aspectRatio}
-                  characters={projectData.characters}
-                  clues={projectData.clues}
-                  projectName={projectName}
-                  onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}
-                  onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
-                  onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
-                  onRestoreStoryboard={onRestoreStoryboard}
-                  onRestoreVideo={onRestoreVideo}
-                />
-              </div>
-            );
-          })}
-        </div>
+          分镜编辑
+        </TabButton>
+        <TabButton
+          active={activeTab === "preprocessing"}
+          onClick={() => setActiveTab("preprocessing")}
+        >
+          预处理内容
+        </TabButton>
+      </div>
 
-        {/* Bottom spacer for scroll comfort */}
-        <div className="h-16" />
+      {/* Content */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div className="p-4">
+          {/* ---- Episode header ---- */}
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-gray-100">
+              E{episodeScript.episode}: {episodeScript.title}
+            </h2>
+            <p className="text-xs text-gray-500">
+              {segments.length} {segmentLabel} · 约 {totalDuration}s
+            </p>
+          </div>
+
+          {/* ---- Segment cards or Preprocessing view ---- */}
+          {activeTab === "segments" ? (
+            <div
+              className="relative"
+              style={{ height: `${virtualizer.getTotalSize()}px` }}
+            >
+              {virtualItems.map((virtualItem) => {
+                const segment = segments[virtualItem.index];
+                const segId = getSegmentId(segment, contentMode);
+                return (
+                  <div
+                    id={`segment-${segId}`}
+                    key={segId}
+                    data-index={virtualItem.index}
+                    ref={virtualizer.measureElement}
+                    className="absolute left-0 top-0 w-full"
+                    style={{
+                      transform: `translateY(${virtualItem.start}px)`,
+                      paddingBottom: virtualItem.index === segments.length - 1 ? 0 : 16,
+                    }}
+                  >
+                    <SegmentCard
+                      segment={segment}
+                      contentMode={contentMode}
+                      aspectRatio={aspectRatio}
+                      characters={projectData.characters}
+                      clues={projectData.clues}
+                      projectName={projectName}
+                      onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}
+                      onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
+                      onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
+                      onRestoreStoryboard={onRestoreStoryboard}
+                      onRestoreVideo={onRestoreVideo}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <PreprocessingView
+              projectName={projectName}
+              episode={episode}
+              contentMode={contentMode}
+            />
+          )}
+
+          {/* Bottom spacer for scroll comfort */}
+          <div className="h-16" />
+        </div>
       </div>
     </div>
   );
