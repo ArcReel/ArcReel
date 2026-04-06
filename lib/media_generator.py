@@ -211,6 +211,7 @@ class MediaGenerator:
             aspect_ratio=aspect_ratio,
             provider=self._image_backend.name,
             user_id=self._user_id,
+            segment_id=resource_id,
         )
 
         try:
@@ -382,6 +383,7 @@ class MediaGenerator:
             generate_audio=effective_generate_audio,
             provider=provider_name,
             user_id=self._user_id,
+            segment_id=resource_id,
         )
 
         try:
