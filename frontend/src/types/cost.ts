@@ -1,14 +1,14 @@
-/** 费用明细：货币 → 金额 映射 */
+/** Chi tiết chi phí: tiền tệ → số tiền */
 export type CostBreakdown = Record<string, number>;
 
-/** 按类型拆分的费用 */
+/** Chi phí phân theo loại */
 export interface CostByType {
   image?: CostBreakdown;
   video?: CostBreakdown;
   character_and_clue?: CostBreakdown;
 }
 
-/** 单个 segment 的费用 */
+/** Chi phí của một segment */
 export interface SegmentCost {
   segment_id: string;
   duration_seconds: number;
@@ -16,7 +16,7 @@ export interface SegmentCost {
   actual: { image: CostBreakdown; video: CostBreakdown };
 }
 
-/** 单集费用 */
+/** Chi phí một tập */
 export interface EpisodeCost {
   episode: number;
   title: string;
@@ -24,13 +24,13 @@ export interface EpisodeCost {
   totals: { estimate: CostByType; actual: CostByType };
 }
 
-/** 模型信息 */
+/** Thông tin mô hình */
 export interface ModelInfo {
   provider: string;
   model: string;
 }
 
-/** 费用估算 API 响应 */
+/** Phản hồi API ước tính chi phí */
 export interface CostEstimateResponse {
   project_name: string;
   models: { image: ModelInfo; video: ModelInfo };

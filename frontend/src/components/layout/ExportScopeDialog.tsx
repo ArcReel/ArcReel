@@ -13,8 +13,8 @@ function getDefaultDraftPath(): string {
     typeof navigator !== "undefined" &&
     navigator.userAgent.includes("Windows");
   return isWindows
-    ? String.raw`C:\Users\你的用户名\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`
-    : "/Users/你的用户名/Movies/JianyingPro/User Data/Projects/com.lveditor.draft";
+    ? String.raw`C:\Users\tên người dùng của bạn\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`
+    : "/Users/tên người dùng của bạn/Movies/JianyingPro/User Data/Projects/com.lveditor.draft";
 }
 
 interface ExportScopeDialogProps {
@@ -75,7 +75,7 @@ export function ExportScopeDialog({
     >
       {mode === "select" ? (
         <>
-          <p className="mb-3 text-xs font-medium text-gray-300">选择导出范围</p>
+          <p className="mb-3 text-xs font-medium text-gray-300">Chọn phạm vi xuất</p>
           <div className="flex flex-col gap-2">
             <button
               type="button"
@@ -85,13 +85,13 @@ export function ExportScopeDialog({
               <Package className="mt-0.5 h-4 w-4 shrink-0 text-indigo-400" />
               <div>
                 <div className="text-sm font-medium text-gray-200">
-                  仅当前版本
+                  Chỉ phiên bản hiện tại
                   <span className="ml-1.5 rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] text-indigo-300">
-                    推荐
+                    Đề xuất
                   </span>
                 </div>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  不含版本历史，体积更小
+                  Không bao gồm lịch sử phiên bản, dung lượng nhỏ hơn
                 </p>
               </div>
             </button>
@@ -102,9 +102,9 @@ export function ExportScopeDialog({
             >
               <History className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
               <div>
-                <div className="text-sm font-medium text-gray-200">全部数据</div>
+                <div className="text-sm font-medium text-gray-200">Tất cả dữ liệu</div>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  包含完整版本历史
+                  Bao gồm lịch sử phiên bản đầy đủ
                 </p>
               </div>
             </button>
@@ -116,10 +116,10 @@ export function ExportScopeDialog({
               <Clapperboard className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
               <div>
                 <div className="text-sm font-medium text-gray-200">
-                  导出为剪映草稿
+                  Xuất thành bản nháp Jianying
                 </div>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  生成剪映可导入的草稿 ZIP
+                  Tạo ZIP bản nháp có thể nhập vào Jianying
                 </p>
               </div>
             </button>
@@ -132,18 +132,18 @@ export function ExportScopeDialog({
               type="button"
               onClick={() => setMode("select")}
               className="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-              aria-label="返回"
+              aria-label="Quay lại"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-            <p className="text-xs font-medium text-gray-300">导出为剪映草稿</p>
+            <p className="text-xs font-medium text-gray-300">Xuất thành bản nháp Jianying</p>
           </div>
           <div className="flex flex-col gap-3">
             {/* Episode selector — hidden when only one episode */}
             {episodes.length > 1 && (
               <div>
                 <label htmlFor="jianying-episode-select" className="mb-1 block text-xs text-gray-400">
-                  选择集数
+                  Chọn tập
                 </label>
                 <select
                   id="jianying-episode-select"
@@ -153,7 +153,7 @@ export function ExportScopeDialog({
                 >
                   {episodes.map((ep) => (
                     <option key={ep.episode} value={ep.episode}>
-                      第 {ep.episode} 集 — {ep.title}
+                      Tập {ep.episode} — {ep.title}
                     </option>
                   ))}
                 </select>
@@ -163,7 +163,7 @@ export function ExportScopeDialog({
             {/* JianYing version selector */}
             <div>
               <label htmlFor="jianying-version-select" className="mb-1 block text-xs text-gray-400">
-                剪映版本
+                Phiên bản Jianying
               </label>
               <select
                 id="jianying-version-select"

@@ -1,14 +1,14 @@
 """
-MediaGenerator 中间层
+MediaGenerator - Lớp trung gian
 
-封装 GeminiClient + VersionManager，提供"调用方无感"的版本管理。
-调用方只需传入 project_path 和 resource_id，版本管理自动完成。
+Đóng gói GeminiClient + VersionManager, cung cấp quản lý phiên bản "trong suốt với bên gọi".
+Bên gọi chỉ cần truyền project_path và resource_id, quản lý phiên bản tự động hoàn thành.
 
-覆盖的 4 种资源类型：
-- storyboards: 分镜图 (scene_E1S01.png)
-- videos: 视频 (scene_E1S01.mp4)
-- characters: 角色设计图 (姜月茴.png)
-- clues: 线索设计图 (玉佩.png)
+Bao gồm 4 loại tài nguyên:
+- storyboards: Hình phân cảnh (scene_E1S01.png)
+- videos: Video (scene_E1S01.mp4)
+- characters: Hình thiết kế nhân vật (姜月茴.png)
+- clues: Hình thiết kế manh mối (玉佩.png)
 """
 
 import asyncio

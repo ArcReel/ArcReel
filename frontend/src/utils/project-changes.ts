@@ -156,13 +156,13 @@ export function formatGroupedDeferredText(
   const summary = summarizeGroupNames(group);
 
   if (group.action === "storyboard_ready" || group.action === "video_ready") {
-    return `AI 刚生成了 ${count} 个${entityLabel}：${summary}，点击查看`;
+    return `AI vừa tạo ${count} ${entityLabel}: ${summary}, nhấn để xem`;
   }
   if (group.action === "created") {
-    return `AI 刚新增了 ${count} 个${entityLabel}：${summary}，点击查看`;
+    return `AI vừa thêm ${count} ${entityLabel}: ${summary}, nhấn để xem`;
   }
   if (group.action === "deleted") {
-    return `AI 刚删除了 ${count} 个${entityLabel}：${summary}，点击查看`;
+    return `AI vừa xóa ${count} ${entityLabel}: ${summary}, nhấn để xem`;
   }
-  return `AI 刚更新了 ${count} 个${entityLabel}：${summary}，点击查看`;
+  return `AI vừa cập nhật ${count} ${entityLabel}: ${summary}, nhấn để xem`;
 }

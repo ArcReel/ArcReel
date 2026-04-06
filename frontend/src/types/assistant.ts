@@ -10,7 +10,7 @@
 export type SessionStatus = "idle" | "running" | "completed" | "error" | "interrupted";
 
 export interface SessionMeta {
-  id: string;              // 现在就是 sdk_session_id
+  id: string;              // chính là sdk_session_id
   project_name: string;
   title: string;
   status: SessionStatus;

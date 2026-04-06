@@ -6,9 +6,9 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 
 const STYLE_OPTIONS = [
-  { value: "Photographic", label: "写实摄影" },
-  { value: "Anime", label: "动漫风格" },
-  { value: "3D Animation", label: "3D 动画" },
+  { value: "Photographic", label: "Nhiếp ảnh chân thực" },
+  { value: "Anime", label: "Phong cách anime" },
+  { value: "3D Animation", label: "Hoạt hình 3D" },
 ] as const;
 
 export function CreateProjectModal() {
@@ -28,7 +28,7 @@ export function CreateProjectModal() {
     const file = e.target.files?.[0];
     if (!file) return;
     setStyleImageFile(file);
-    // 创建预览 URL
+    // Tạo URL xem trước
     const url = URL.createObjectURL(file);
     setStyleImagePreview(url);
   };
@@ -46,7 +46,7 @@ export function CreateProjectModal() {
     e.preventDefault();
 
     if (!title.trim()) {
-      setTitleError("项目标题不能为空");
+      setTitleError("Tiêu đề dự án không được để trống");
       return;
     }
 
@@ -55,14 +55,14 @@ export function CreateProjectModal() {
       const response = await API.createProject(title.trim(), style, contentMode);
       const projectName = response.name;
 
-      // 如果用户选择了风格参考图，在项目创建后上传
+      // Nếu người dùng chọn ảnh tham chiếu phong cách, tải lên sau khi tạo dự án
       if (styleImageFile) {
         try {
           await API.uploadStyleImage(projectName, styleImageFile);
         } catch {
-          // 风格图上传失败不阻塞项目创建
+          // Tải ảnh phong cách thất bại không chặn việc tạo dự án
           useAppStore.getState().pushToast(
-            "风格参考图上传失败，可稍后在项目设置中重新上传",
+            "Tải lên ảnh tham chiếu phong cách thất bại, có thể tải lên lại sau trong cài đặt dự án",
             "warning"
           );
         }
@@ -72,7 +72,7 @@ export function CreateProjectModal() {
       navigate(`/app/projects/${projectName}`);
     } catch (err) {
       useAppStore.getState().pushToast(
-        `创建项目失败: ${(err as Error).message}`,
+        `Tạo dự án thất bại: ${(err as Error).message}`,
         "error"
       );
     } finally {
@@ -85,7 +85,7 @@ export function CreateProjectModal() {
       <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold text-gray-100">新建项目</h2>
+          <h2 className="text-lg font-semibold text-gray-100">Tạo dự án mới</h2>
           <button
             type="button"
             onClick={() => setShowCreateModal(false)}
@@ -99,7 +99,7 @@ export function CreateProjectModal() {
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">
-              项目标题 <span className="text-red-400">*</span>
+              Tiêu đề dự án <span className="text-red-400">*</span>
             </label>
             <input
               type="text"
@@ -108,21 +108,21 @@ export function CreateProjectModal() {
                 setTitle(e.target.value);
                 setTitleError("");
               }}
-              placeholder="例如：重生之皇后威武"
+              placeholder="Ví dụ: Tái sinh chi Hoàng hậu uy vũ"
               className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
             />
             {titleError && (
               <p className="mt-1 text-xs text-red-400">{titleError}</p>
             )}
             <p className="mt-1 text-xs text-gray-600">
-              系统会自动生成内部项目标识并用于 URL 与文件存储
+              Hệ thống sẽ tự động tạo mã định danh dự án nội bộ dùng cho URL và lưu trữ tệp
             </p>
           </div>
 
           {/* Content Mode */}
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">
-              内容模式
+              Chế độ nội dung
             </label>
             <div className="flex gap-3">
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${

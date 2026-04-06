@@ -167,18 +167,18 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
           </p>
         </div>
         <div className="inline-flex items-center rounded-full border border-gray-700 bg-gray-800 px-3 py-1 text-xs text-gray-300">
-          {projectData.style || "未设置风格标签"}
+          {projectData.style || "Chưa đặt nhãn phong cách"}
         </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
         <div className="space-y-3">
           {styleImageUrl ? (
-            <PreviewableImageFrame src={styleImageUrl} alt="项目风格参考图">
+            <PreviewableImageFrame src={styleImageUrl} alt="Ảnh tham chiếu phong cách dự án">
               <div className="overflow-hidden rounded-xl border border-gray-700 bg-gray-950/70">
                 <img
                   src={styleImageUrl}
-                  alt="项目风格参考图"
+                  alt="Ảnh tham chiếu phong cách dự án"
                   className="aspect-[4/3] w-full object-cover"
                 />
               </div>
@@ -191,17 +191,17 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
               className={`flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-gray-700 bg-gray-950/40 px-4 text-sm text-gray-500 transition-colors hover:border-gray-500 hover:text-gray-300 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
             >
               <Upload className="h-4 w-4" />
-              <span>{uploadingStyleImage ? "上传中..." : "上传风格参考图"}</span>
-              <span className="text-xs text-gray-600">支持 PNG / JPG / WEBP</span>
+              <span>{uploadingStyleImage ? "Đang tải lên..." : "Tải lên ảnh tham chiếu phong cách"}</span>
+              <span className="text-xs text-gray-600">Hỗ trợ PNG / JPG / WEBP</span>
             </button>
           )}
 
           <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-3">
-            <p className="text-xs font-medium text-gray-400">使用说明</p>
+            <p className="text-xs font-medium text-gray-400">Hướng dẫn sử dụng</p>
             <p className="mt-1 text-sm leading-6 text-gray-300">
               {styleImageUrl
-                ? "当前参考图会作为统一视觉基线，用于角色图、分镜图和视频生成。"
-                : "还没有绑定项目级参考图，可以先上传一张目标风格样片作为统一基线。"}
+                ? "Ảnh tham chiếu hiện tại sẽ được dùng làm chuẩn thị giác thống nhất cho ảnh nhân vật, phân cảnh và tạo video."
+                : "Chưa có ảnh tham chiếu cấp dự án, bạn có thể tải lên một ảnh mẫu phong cách mục tiêu làm chuẩn thống nhất."}
             </p>
 
             <div className="mt-3 flex flex-wrap gap-2">
@@ -212,7 +212,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                 className={`inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
               >
                 <ImagePlus className="h-4 w-4" />
-                {styleImageUrl ? "替换参考图" : "上传参考图"}
+                {styleImageUrl ? "Thay thế ảnh tham chiếu" : "Tải lên ảnh tham chiếu"}
               </button>
               {styleImageUrl && (
                 <button
@@ -222,7 +222,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                   className={`inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-2 text-sm text-red-300 transition-colors hover:border-red-400/50 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
                 >
                   <Trash2 className="h-4 w-4" />
-                  {deletingStyleImage ? "删除中..." : "删除参考图"}
+                  {deletingStyleImage ? "Đang xóa..." : "Xóa ảnh tham chiếu"}
                 </button>
               )}
             </div>
@@ -234,19 +234,19 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             accept=".png,.jpg,.jpeg,.webp"
             onChange={handleStyleImageChange}
             className="hidden"
-            aria-label="上传风格参考图"
+            aria-label="Tải lên ảnh tham chiếu phong cách"
           />
         </div>
 
         <div className="rounded-xl border border-gray-800 bg-gray-950/35 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <label htmlFor="style-description-textarea" className="text-xs font-medium text-gray-400">风格描述</label>
+            <label htmlFor="style-description-textarea" className="text-xs font-medium text-gray-400">Mô tả phong cách</label>
             <span className="text-[11px] text-gray-600">
-              {styleDescriptionDraft.trim().length} 字
+              {styleDescriptionDraft.trim().length} ký tự
             </span>
           </div>
           <p className="mt-1 text-xs leading-5 text-gray-500">
-            上传参考图后系统会自动分析并填充风格描述；你也可以继续手动校准。
+            Sau khi tải lên ảnh tham chiếu, hệ thống sẽ tự động phân tích và điền mô tả phong cách; bạn cũng có thể tiếp tục chỉnh sửa thủ công.
           </p>
 
           <textarea
@@ -255,14 +255,14 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             onChange={(e) => setStyleDescriptionDraft(e.target.value)}
             rows={8}
             className={`mt-3 min-h-44 w-full rounded-xl border border-gray-700 bg-gray-800/80 px-4 py-3 text-sm leading-relaxed text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
-            placeholder="上传风格参考图后，系统会自动分析并填充风格描述；也可以手动编辑。"
+            placeholder="Sau khi tải lên ảnh tham chiếu phong cách, hệ thống sẽ tự động phân tích và điền mô tả phong cách; cũng có thể chỉnh sửa thủ công."
           />
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs leading-5 text-gray-500">
               {styleImageUrl
-                ? "建议把风格描述用于补充光线、色彩、材质与镜头语言。"
-                : "没有参考图时，也可以先用文字明确画面风格和审美约束。"}
+                ? "Nên dùng mô tả phong cách để bổ sung ánh sáng, màu sắc, chất liệu và ngôn ngữ ống kính."
+                : "Khi chưa có ảnh tham chiếu, bạn cũng có thể dùng văn bản để xác định phong cách hình ảnh và ràng buộc thẩm mỹ."}
             </p>
             {styleDescriptionDirty && (
               <button
@@ -271,7 +271,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                 disabled={savingStyleDescription}
                 className={`rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
               >
-                {savingStyleDescription ? "保存中..." : "保存风格描述"}
+                {savingStyleDescription ? "Đang lưu..." : "Lưu mô tả phong cách"}
               </button>
             )}
           </div>

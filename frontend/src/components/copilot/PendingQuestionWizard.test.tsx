@@ -41,18 +41,18 @@ describe("PendingQuestionWizard", () => {
       />,
     );
 
-    expect(screen.getByText("问题 1/2")).toBeInTheDocument();
+    expect(screen.getByText("Câu hỏi 1/2")).toBeInTheDocument();
     expect(screen.getByText("输出格式是什么？")).toBeInTheDocument();
     expect(screen.queryByText("包含哪些部分？")).not.toBeInTheDocument();
 
-    const nextButton = screen.getByRole("button", { name: "下一题" });
+    const nextButton = screen.getByRole("button", { name: "Câu tiếp theo" });
     expect(nextButton).toBeDisabled();
 
     fireEvent.click(screen.getByLabelText("摘要"));
     expect(nextButton).toBeEnabled();
 
     fireEvent.click(nextButton);
-    expect(screen.getByText("问题 2/2")).toBeInTheDocument();
+    expect(screen.getByText("Câu hỏi 2/2")).toBeInTheDocument();
     expect(screen.getByText("包含哪些部分？")).toBeInTheDocument();
     expect(screen.queryByText("输出格式是什么？")).not.toBeInTheDocument();
   });

@@ -44,14 +44,14 @@ export function SkillContentBlock({ text }: SkillContentBlockProps) {
       >
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-purple-400">
-            Skill 内容
+            Nội dung Skill
           </span>
           <span className="text-xs text-slate-400">
             {skillName}
           </span>
         </div>
         <span className="text-xs text-slate-500">
-          {isExpanded ? "\u25BC 收起" : "\u25B6 展开"}
+          {isExpanded ? "\u25BC Thu gọn" : "\u25B6 Mở rộng"}
         </span>
       </button>
       {isExpanded && (

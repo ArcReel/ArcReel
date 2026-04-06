@@ -77,10 +77,10 @@ describe("AgentCopilot", () => {
 
     render(<AgentCopilot />);
 
-    expect(screen.getByText("需要你的选择")).toBeInTheDocument();
-    expect(screen.getByLabelText("助手输入")).toBeDisabled();
-    expect(screen.getByLabelText("发送消息")).toBeDisabled();
-    expect(screen.getByPlaceholderText("请先回答上方问题")).toBeInTheDocument();
+    expect(screen.getByText("Cần sự lựa chọn của bạn")).toBeInTheDocument();
+    expect(screen.getByLabelText("Nhập trợ lý")).toBeDisabled();
+    expect(screen.getByLabelText("Gửi tin nhắn")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Vui lòng trả lời câu hỏi phía trên trước")).toBeInTheDocument();
   });
 
   it("submits wizard answers through answerQuestion", () => {
@@ -91,7 +91,7 @@ describe("AgentCopilot", () => {
     render(<AgentCopilot />);
 
     fireEvent.click(screen.getByLabelText("摘要"));
-    fireEvent.click(screen.getByRole("button", { name: "完成并提交" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hoàn thành và gửi" }));
 
     expect(answerQuestion).toHaveBeenCalledWith("q-1", {
       "输出格式是什么？": "摘要",
@@ -117,7 +117,7 @@ describe("AgentCopilot", () => {
 
     expect(container.firstElementChild).toHaveClass("isolate");
 
-    fireEvent.click(screen.getByTitle("切换会话"));
+    fireEvent.click(screen.getByTitle("Chuyển phiên"));
     expect(document.querySelector(`.${UI_LAYERS.assistantLocalPopover}`)).toBeTruthy();
   });
 });
