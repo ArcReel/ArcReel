@@ -9,6 +9,7 @@ const ENTITY_LABELS: Record<ProjectChange["entity_type"], string> = {
   segment: "分镜",
   episode: "剧集",
   overview: "项目概览",
+  draft: "预处理",
 };
 
 export interface GroupedProjectChange {

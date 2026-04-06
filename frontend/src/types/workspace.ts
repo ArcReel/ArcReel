@@ -5,10 +5,11 @@ export interface ProjectChangeFocus {
   episode?: number;
   anchor_type?: "character" | "clue" | "segment";
   anchor_id?: string;
+  tab?: string;
 }
 
 export interface ProjectChange {
-  entity_type: "project" | "character" | "clue" | "segment" | "episode" | "overview";
+  entity_type: "project" | "character" | "clue" | "segment" | "episode" | "overview" | "draft";
   action:
     | "created"
     | "updated"
