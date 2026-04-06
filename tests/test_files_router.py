@@ -289,6 +289,17 @@ class TestFilesRouter:
             missing_step = client.delete("/api/v1/projects/demo/drafts/2/step9")
             assert missing_step.status_code == 400
 
+            # step2 and step3 should now be invalid
+            step2_resp = client.get("/api/v1/projects/demo/drafts/1/step2")
+            assert step2_resp.status_code == 400
+
+            step3_resp = client.put(
+                "/api/v1/projects/demo/drafts/1/step3",
+                content="test",
+                headers={"content-type": "text/plain"},
+            )
+            assert step3_resp.status_code == 400
+
             unknown_draft = client.delete("/api/v1/projects/demo/drafts/9/step1")
             assert unknown_draft.status_code == 404
 
@@ -332,9 +343,10 @@ class TestFilesRouter:
     def test_files_helper_functions(self, tmp_path):
         assert files._extract_step_number("step12_x.md") == 12
         assert files._extract_step_number("not-match.md") == 0
-        assert files._get_step_files("narration")[1] == "step1_segments.md"
-        assert files._get_step_files("drama")[2] == "step2_shot_budget.md"
-        assert files._get_step_title("step2_grid_plan.md") == "宫格切分规划"
+        assert files._get_step_files("narration") == {1: "step1_segments.md"}
+        assert files._get_step_files("drama") == {1: "step1_normalized_script.md"}
+        assert files._get_step_title("step1_segments.md") == "片段拆分"
+        assert files._get_step_title("step1_normalized_script.md") == "规范化剧本"
         assert files._get_step_title("unknown.md") == "unknown.md"
 
         assert files._get_content_mode(tmp_path) == "drama"

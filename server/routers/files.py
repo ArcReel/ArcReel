@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib import PROJECT_ROOT
 from lib.image_utils import normalize_uploaded_image
-from lib.project_change_hints import project_change_source
+from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUser
 
@@ -368,30 +368,16 @@ def _extract_step_number(filename: str) -> int:
 def _get_step_files(content_mode: str) -> dict:
     """根据 content_mode 获取步骤文件名映射"""
     if content_mode == "narration":
-        return {
-            1: "step1_segments.md",
-            2: "step2_grid_plan.md",
-            3: "step3_character_clue_tables.md",
-        }
+        return {1: "step1_segments.md"}
     else:
-        return {
-            1: "step1_normalized_script.md",
-            2: "step2_shot_budget.md",
-            3: "step3_character_clue_tables.md",
-        }
+        return {1: "step1_normalized_script.md"}
 
 
 def _get_step_title(filename: str) -> str:
     """获取步骤标题"""
     titles = {
-        # drama 模式
         "step1_normalized_script.md": "规范化剧本",
-        "step2_shot_budget.md": "镜头预算表",
-        # narration 模式
         "step1_segments.md": "片段拆分",
-        "step2_grid_plan.md": "宫格切分规划",
-        # 共用
-        "step3_character_clue_tables.md": "角色表/线索表",
     }
     return titles.get(filename, filename)
 
@@ -450,7 +436,28 @@ async def update_draft_content(
         drafts_dir.mkdir(parents=True, exist_ok=True)
 
         draft_path = drafts_dir / step_files[step_num]
+        is_new = not draft_path.exists()
         draft_path.write_text(content, encoding="utf-8")
+
+        # 发射 draft 事件通知前端
+        action = "created" if is_new else "updated"
+        label_prefix = "片段拆分" if content_mode == "narration" else "规范化剧本"
+        change = {
+            "entity_type": "draft",
+            "action": action,
+            "entity_id": f"episode_{episode}_step{step_num}",
+            "label": f"第 {episode} 集{label_prefix}",
+            "episode": episode,
+            "focus": {
+                "pane": "episode",
+                "episode": episode,
+            },
+            "important": is_new,
+        }
+        try:
+            emit_project_change_batch(project_name, [change], source="worker")
+        except Exception:
+            pass  # 事件发射失败不影响主流程
 
         return {"success": True, "path": str(draft_path.relative_to(project_dir))}
 
