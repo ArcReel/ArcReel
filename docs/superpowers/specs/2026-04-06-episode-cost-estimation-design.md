@@ -79,8 +79,7 @@
     "actual": {
       "image": { "USD": 1.08, "CNY": 1.20 },
       "video": { "USD": 10.50 },
-      "character": { "USD": 0.30 },
-      "clue": { "USD": 0.15 }
+      "character_and_clue": { "USD": 0.45 }
     }
   }
 }
@@ -107,7 +106,7 @@
 **实际**：
 1. 从 UsageRepository 按 `project_name` + `segment_id` 查询所有成功的 ApiCall 记录
 2. 按 segment_id + call_type + currency 分组累加费用（含重新生成的累计）
-3. 项目级：额外查询 `segment_id IS NULL` 且 `call_type` 为 character/clue 的记录
+3. 项目级：额外查询 `segment_id IS NULL` 的 image 记录（角色+线索图片共用 `call_type=image`，合并为 `character_and_clue`）
 
 ### 新增服务层
 
