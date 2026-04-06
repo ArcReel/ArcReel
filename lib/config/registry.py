@@ -9,6 +9,8 @@ class ModelInfo:
     media_type: str
     capabilities: list[str]
     default: bool = False
+    supported_durations: list[int] = field(default_factory=list)
+    duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -71,17 +73,23 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Veo 3.1",
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video", "negative_prompt", "video_extend"],
+                supported_durations=[4, 6, 8],
+                duration_resolution_constraints={"1080p": [8]},
             ),
             "veo-3.1-fast-generate-preview": ModelInfo(
                 display_name="Veo 3.1 Fast",
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video", "negative_prompt", "video_extend"],
+                supported_durations=[4, 6, 8],
+                duration_resolution_constraints={"1080p": [8]},
             ),
             "veo-3.1-lite-generate-preview": ModelInfo(
                 display_name="Veo 3.1 Lite",
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video", "negative_prompt", "video_extend"],
                 default=True,
+                supported_durations=[4, 6, 8],
+                duration_resolution_constraints={"1080p": [8]},
             ),
         },
     ),
@@ -126,12 +134,14 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Veo 3.1",
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "negative_prompt", "video_extend"],
+                supported_durations=[4, 6, 8],
             ),
             "veo-3.1-fast-generate-001": ModelInfo(
                 display_name="Veo 3.1 Fast",
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "negative_prompt", "video_extend"],
                 default=True,
+                supported_durations=[4, 6, 8],
             ),
         },
     ),
@@ -192,16 +202,19 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "flex_tier"],
                 default=True,
+                supported_durations=list(range(4, 13)),
             ),
             "doubao-seedance-2-0-260128": ModelInfo(
                 display_name="Seedance 2.0",
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "video_extend"],
+                supported_durations=list(range(4, 16)),
             ),
             "doubao-seedance-2-0-fast-260128": ModelInfo(
                 display_name="Seedance 2.0 Fast",
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control", "video_extend"],
+                supported_durations=list(range(4, 16)),
             ),
         },
     ),
@@ -252,6 +265,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video"],
                 default=True,
+                supported_durations=list(range(1, 16)),
             ),
         },
     ),
@@ -297,11 +311,13 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video"],
                 default=True,
+                supported_durations=[4, 8, 12],
             ),
             "sora-2-pro": ModelInfo(
                 display_name="Sora 2 Pro",
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video"],
+                supported_durations=[4, 8, 12],
             ),
         },
     ),
