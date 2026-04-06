@@ -335,6 +335,7 @@ export function StudioCanvasRouter() {
 
           return (
             <TimelineCanvas
+              key={epNum}
               projectName={currentProjectName}
               episode={epNum}
               episodeTitle={episode?.title}

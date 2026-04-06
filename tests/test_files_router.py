@@ -353,3 +353,40 @@ class TestFilesRouter:
         project_json = tmp_path / "project.json"
         project_json.write_text('{"content_mode":"narration"}', encoding="utf-8")
         assert files._get_content_mode(tmp_path) == "narration"
+
+    def test_draft_event_emission(self, tmp_path, monkeypatch):
+        """PUT drafts 端点应发射 draft:created/updated 事件"""
+        from unittest.mock import patch
+
+        client, _ = _client(monkeypatch, tmp_path)
+
+        with client, patch("server.routers.files.emit_project_change_batch") as mock_emit:
+            # 首次创建 → action="created", important=True
+            resp = client.put(
+                "/api/v1/projects/demo/drafts/1/step1",
+                content="new draft",
+                headers={"content-type": "text/plain"},
+            )
+            assert resp.status_code == 200
+            mock_emit.assert_called_once()
+            args = mock_emit.call_args
+            change = args[0][1][0]  # second positional arg, first item in list
+            assert change["entity_type"] == "draft"
+            assert change["action"] == "created"
+            assert change["episode"] == 1
+            assert change["important"] is True
+            assert "片段拆分" in change["label"]
+
+            mock_emit.reset_mock()
+
+            # 再次更新 → action="updated", important=False
+            resp2 = client.put(
+                "/api/v1/projects/demo/drafts/1/step1",
+                content="updated draft",
+                headers={"content-type": "text/plain"},
+            )
+            assert resp2.status_code == 200
+            mock_emit.assert_called_once()
+            change2 = mock_emit.call_args[0][1][0]
+            assert change2["action"] == "updated"
+            assert change2["important"] is False

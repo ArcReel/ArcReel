@@ -457,7 +457,7 @@ async def update_draft_content(
         try:
             emit_project_change_batch(project_name, [change], source="worker")
         except Exception:
-            pass  # 事件发射失败不影响主流程
+            logger.warning("发送 draft 事件失败 project=%s episode=%s", project_name, episode, exc_info=True)
 
         return {"success": True, "path": str(draft_path.relative_to(project_dir))}
 
