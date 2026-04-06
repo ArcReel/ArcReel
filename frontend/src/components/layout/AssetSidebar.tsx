@@ -415,8 +415,9 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
             {episodes.map((ep) => {
               const episodePath = `/episodes/${ep.episode}`;
               const active = isActive(episodePath);
+              const isSegmented = ep.script_status === "segmented";
               const statusClass =
-                STATUS_DOT_CLASSES[ep.status ?? "draft"] ??
+                STATUS_DOT_CLASSES[isSegmented ? "draft" : (ep.status ?? "draft")] ??
                 STATUS_DOT_CLASSES.draft;
 
               return (
@@ -436,6 +437,11 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                     <span className="truncate">
                       E{ep.episode}: {ep.title}
                     </span>
+                    {isSegmented && !ep.scenes_count && (
+                      <span className="ml-auto shrink-0 rounded bg-indigo-950 px-1.5 py-0.5 text-[10px] text-indigo-400">
+                        预处理
+                      </span>
+                    )}
                   </button>
                 </li>
               );
