@@ -58,6 +58,7 @@ class UsageRepository(BaseRepository):
         generate_audio: bool = True,
         provider: str = PROVIDER_GEMINI,
         user_id: str = DEFAULT_USER_ID,
+        segment_id: str | None = None,
     ) -> int:
         now = utc_now()
         prompt_truncated = prompt[:500] if prompt else None
@@ -75,6 +76,7 @@ class UsageRepository(BaseRepository):
             started_at=now,
             provider=provider,
             user_id=user_id,
+            segment_id=segment_id,
         )
         self.session.add(row)
         await self.session.commit()

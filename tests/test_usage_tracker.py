@@ -129,3 +129,30 @@ class TestUsageTracker:
         stats = await tracker.get_stats(project_name="demo")
         assert stats["text_count"] == 1
         assert stats["total_count"] == 1
+
+    async def test_start_call_with_segment_id(self, tracker):
+        call_id = await tracker.start_call(
+            project_name="demo",
+            call_type="image",
+            model="gemini-3.1-flash-image-preview",
+            resolution="1K",
+            segment_id="E1S001",
+        )
+        await tracker.finish_call(call_id, status="success", output_path="a.png")
+
+        result = await tracker.get_calls(project_name="demo")
+        item = result["items"][0]
+        assert item["segment_id"] == "E1S001"
+
+    async def test_start_call_without_segment_id(self, tracker):
+        call_id = await tracker.start_call(
+            project_name="demo",
+            call_type="image",
+            model="gemini-3.1-flash-image-preview",
+            resolution="1K",
+        )
+        await tracker.finish_call(call_id, status="success", output_path="a.png")
+
+        result = await tracker.get_calls(project_name="demo")
+        item = result["items"][0]
+        assert item["segment_id"] is None
