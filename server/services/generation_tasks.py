@@ -297,18 +297,14 @@ async def get_media_generator(
 
 
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
-    content_mode = project.get("content_mode", "narration")
-    custom_ratios = project.get("aspect_ratio", {})
-    if resource_type in custom_ratios:
-        return custom_ratios[resource_type]
-
     if resource_type == "characters":
         return "3:4"
     if resource_type == "clues":
         return "16:9"
-    if content_mode == "narration":
-        return "9:16"
-    return "16:9"
+    # 优先读顶层字段；缺失时按 content_mode 推导（向后兼容）
+    if "aspect_ratio" in project and isinstance(project["aspect_ratio"], str):
+        return project["aspect_ratio"]
+    return "9:16" if project.get("content_mode", "narration") == "narration" else "16:9"
 
 
 def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
@@ -625,7 +621,7 @@ async def execute_video_task(
 
     prompt_text = _normalize_video_prompt(prompt)
     aspect_ratio = get_aspect_ratio(project, "videos")
-    duration_seconds = payload.get("duration_seconds") or 4
+    duration_seconds = payload.get("duration_seconds") or project.get("default_duration") or 4
     seed = payload.get("seed")
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 

@@ -60,13 +60,16 @@ class CreateProjectRequest(BaseModel):
     title: str | None = None
     style: str | None = ""
     content_mode: str | None = "narration"
+    aspect_ratio: str | None = "9:16"
+    default_duration: int | None = None
 
 
 class UpdateProjectRequest(BaseModel):
     title: str | None = None
     style: str | None = None
     content_mode: str | None = None
-    aspect_ratio: dict | None = None
+    aspect_ratio: str | None = None
+    default_duration: int | None = None
     video_backend: str | None = None
     image_backend: str | None = None
     video_generate_audio: bool | None = None
@@ -356,6 +359,8 @@ async def create_project(req: CreateProjectRequest, _user: CurrentUser):
                 title or manual_name,
                 req.style,
                 req.content_mode,
+                aspect_ratio=req.aspect_ratio,
+                default_duration=req.default_duration,
             )
         return {"success": True, "name": project_name, "project": project}
     except FileExistsError:
@@ -422,10 +427,10 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
         manager = get_project_manager()
         project = manager.load_project(name)
 
-        if req.content_mode is not None or req.aspect_ratio is not None:
+        if req.content_mode is not None:
             raise HTTPException(
                 status_code=400,
-                detail="项目创建后不支持修改 content_mode 或 aspect_ratio",
+                detail="项目创建后不支持修改 content_mode",
             )
 
         if req.title is not None:
@@ -451,6 +456,13 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                 project.pop("video_generate_audio", None)
             else:
                 project["video_generate_audio"] = req.video_generate_audio
+        if "aspect_ratio" in req.model_fields_set and req.aspect_ratio is not None:
+            project["aspect_ratio"] = req.aspect_ratio
+        if "default_duration" in req.model_fields_set:
+            if req.default_duration is None:
+                project.pop("default_duration", None)
+            else:
+                project["default_duration"] = req.default_duration
 
         with project_change_source("webui"):
             manager.save_project(name, project)

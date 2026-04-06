@@ -74,8 +74,16 @@ class _FakePM:
     def generate_project_name(self, title):
         return self.generated_names.pop(0)
 
-    def create_project_metadata(self, name, title, style, content_mode):
-        payload = {"title": (title or name), "style": style or "", "content_mode": content_mode, "episodes": []}
+    def create_project_metadata(self, name, title, style, content_mode, aspect_ratio="9:16", default_duration=None):
+        payload = {
+            "title": (title or name),
+            "style": style or "",
+            "content_mode": content_mode,
+            "aspect_ratio": aspect_ratio,
+            "episodes": [],
+        }
+        if default_duration is not None:
+            payload["default_duration"] = default_duration
         self.project_data[name] = payload
         return payload
 
@@ -205,11 +213,20 @@ class TestProjectsRouter:
             )
             assert rejected_mode.status_code == 400
 
-            rejected_ratio = client.patch(
+            # aspect_ratio 现在允许修改（字符串），dict 类型将被 Pydantic 拒绝（422）
+            rejected_ratio_dict = client.patch(
                 "/api/v1/projects/ready",
                 json={"aspect_ratio": {"videos": "16:9"}},
             )
-            assert rejected_ratio.status_code == 400
+            assert rejected_ratio_dict.status_code == 422
+
+            # aspect_ratio 字符串更新应成功
+            updated_ratio = client.patch(
+                "/api/v1/projects/ready",
+                json={"aspect_ratio": "16:9"},
+            )
+            assert updated_ratio.status_code == 200
+            assert updated_ratio.json()["project"]["aspect_ratio"] == "16:9"
 
             get_script = client.get("/api/v1/projects/ready/scripts/episode_1.json")
             assert get_script.status_code == 200

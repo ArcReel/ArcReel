@@ -46,7 +46,7 @@ class GenerateStoryboardRequest(BaseModel):
 class GenerateVideoRequest(BaseModel):
     prompt: str | dict
     script_file: str
-    duration_seconds: int | None = 4
+    duration_seconds: int | None = None  # 改为 None，由服务层解析
     seed: int | None = None
 
 

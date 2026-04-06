@@ -967,6 +967,8 @@ class ProjectManager:
         title: str | None = None,
         style: str | None = None,
         content_mode: str = "narration",
+        aspect_ratio: str = "9:16",
+        default_duration: int | None = None,
     ) -> dict:
         """
         创建新的项目元数据文件
@@ -976,6 +978,8 @@ class ProjectManager:
             title: 项目标题，留空时默认使用项目标识
             style: 整体视觉风格描述
             content_mode: 内容模式 ('narration' 或 'drama')
+            aspect_ratio: 视频宽高比（独立于 content_mode）
+            default_duration: 默认视频时长（秒），None 表示使用系统默认值
 
         Returns:
             项目元数据字典
@@ -986,6 +990,7 @@ class ProjectManager:
         project = {
             "title": project_title or project_name,
             "content_mode": content_mode,
+            "aspect_ratio": aspect_ratio,
             "style": style or "",
             "episodes": [],
             "characters": {},
@@ -995,6 +1000,8 @@ class ProjectManager:
                 "updated_at": datetime.now().isoformat(),
             },
         }
+        if default_duration is not None:
+            project["default_duration"] = default_duration
 
         self.save_project(project_name, project)
         return project
