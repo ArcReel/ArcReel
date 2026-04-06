@@ -146,6 +146,7 @@ interface SegmentCardProps {
   characters: Record<string, Character>;
   clues: Record<string, Clue>;
   projectName: string;
+  durationOptions?: number[];
   onUpdatePrompt?: (
     segmentId: string,
     field: string,
@@ -163,17 +164,17 @@ interface SegmentCardProps {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-const DURATION_OPTIONS = [4, 6, 8];
-
 /** Duration selector — clickable when onUpdatePrompt is provided, read-only otherwise. */
 function DurationSelector({
   seconds,
   segmentId,
   onUpdatePrompt,
+  durationOptions = [4, 6, 8],
 }: {
   seconds: number;
   segmentId: string;
   onUpdatePrompt?: (segmentId: string, field: string, value: unknown) => void;
+  durationOptions?: number[];
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
@@ -207,7 +208,7 @@ function DurationSelector({
         sideOffset={6}
       >
         <div className="flex gap-1">
-          {DURATION_OPTIONS.map((d) => (
+          {durationOptions.map((d) => (
             <button
               key={d}
               onClick={() => {
@@ -668,6 +669,7 @@ export function SegmentCard({
   characters,
   clues,
   projectName,
+  durationOptions,
   onUpdatePrompt,
   onGenerateStoryboard,
   onGenerateVideo,
@@ -699,6 +701,7 @@ export function SegmentCard({
               seconds={segment.duration_seconds}
               segmentId={segmentId}
               onUpdatePrompt={onUpdatePrompt}
+              durationOptions={durationOptions}
             />
             {segCost && (
               <span className="tabular-nums contents">
