@@ -161,7 +161,7 @@ export function TimelineCanvas({
             <button
               type="button"
               onClick={() => setActiveTab("preprocessing")}
-              className={`border-b-2 px-4 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 focus-visible:rounded-t ${
+              className={`border-b-2 px-4 py-2 text-sm transition-colors focus-ring rounded-t ${
                 activeTab === "preprocessing"
                   ? "border-indigo-500 text-indigo-400 font-medium"
                   : "border-transparent text-gray-500 hover:text-gray-300"
@@ -173,7 +173,7 @@ export function TimelineCanvas({
               type="button"
               onClick={() => hasScript && setActiveTab("timeline")}
               disabled={!hasScript}
-              className={`border-b-2 px-4 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 focus-visible:rounded-t ${
+              className={`border-b-2 px-4 py-2 text-sm transition-colors focus-ring rounded-t ${
                 activeTab === "timeline"
                   ? "border-indigo-500 text-indigo-400 font-medium"
                   : !hasScript

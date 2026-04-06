@@ -16,6 +16,8 @@ export function PreprocessingView({
   contentMode,
 }: PreprocessingViewProps) {
   const pushToast = useAppStore((s) => s.pushToast);
+  const draftRevisionKey = `draft:episode_${episode}_step1`;
+  const draftRevision = useAppStore((s) => s.getEntityRevision(draftRevisionKey));
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -44,7 +46,7 @@ export function PreprocessingView({
     return () => {
       cancelled = true;
     };
-  }, [projectName, episode]);
+  }, [projectName, episode, draftRevision]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);

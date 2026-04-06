@@ -42,7 +42,7 @@ function CollapsibleSection({
         <button
           type="button"
           onClick={() => setOpen(!open)}
-          className="flex flex-1 items-center gap-1.5 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-gray-500 transition-colors hover:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 focus-visible:rounded"
+          className="flex flex-1 items-center gap-1.5 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-gray-500 transition-colors hover:text-gray-400 focus-ring rounded"
         >
           {open ? (
             <ChevronDown className="h-3 w-3 shrink-0" />
@@ -252,7 +252,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       <button
         type="button"
         onClick={() => setLocation("/")}
-        className={`flex w-full items-center gap-2 px-3 py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
+        className={`flex w-full items-center gap-2 px-3 py-2.5 text-sm transition-colors focus-ring ${
           isActive("/")
             ? "bg-gray-800 text-white"
             : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
@@ -274,7 +274,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 focus-ring"
               title="上传源文件"
             >
               <Upload className="h-3.5 w-3.5" />
@@ -308,7 +308,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                     <button
                       type="button"
                       onClick={() => setLocation(filePath)}
-                      className="flex flex-1 items-center gap-2 truncate text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 focus-visible:rounded"
+                      className="flex flex-1 items-center gap-2 truncate text-left focus-ring rounded"
                     >
                       <FileText className="h-3.5 w-3.5 shrink-0 text-gray-500" />
                       <span className="truncate">{name}</span>
@@ -316,7 +316,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); handleDeleteFile(name); }}
-                      className="shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 focus-visible:opacity-100"
+                      className="shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100 focus-ring focus-visible:opacity-100"
                       title="删除文件"
                     >
                       <X className="h-3 w-3" />
@@ -349,7 +349,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   <button
                     type="button"
                     onClick={() => setLocation("/characters")}
-                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
                       isActive("/characters")
                         ? "bg-gray-800 text-white"
                         : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
@@ -383,7 +383,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   <button
                     type="button"
                     onClick={() => setLocation("/clues")}
-                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
                       isActive("/clues")
                         ? "bg-gray-800 text-white"
                         : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
@@ -425,7 +425,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   <button
                     type="button"
                     onClick={() => setLocation(episodePath)}
-                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
                       active
                         ? "bg-gray-800 text-white"
                         : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
