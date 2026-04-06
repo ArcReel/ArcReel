@@ -35,6 +35,7 @@ import type {
   CustomProviderCreateRequest,
   CustomProviderModelInput,
   DiscoveredModel,
+  CostEstimateResponse,
 } from "@/types";
 import { getToken, clearToken } from "@/utils/auth";
 
@@ -1385,6 +1386,16 @@ class API {
     if (params.start) searchParams.append("start_date", params.start);
     if (params.end) searchParams.append("end_date", params.end);
     return this.request(`/usage/stats?${searchParams.toString()}`);
+  }
+
+  // ==================== 费用估算 API ====================
+
+  /**
+   * 获取项目费用估算。
+   * @param projectName - 项目名称
+   */
+  static async getCostEstimate(projectName: string): Promise<CostEstimateResponse> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/cost-estimate`);
   }
 }
 
