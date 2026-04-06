@@ -131,22 +131,21 @@ def build_location_prompt(name: str, description: str, style: str = "", style_de
 主画面占据四分之三区域展示环境整体外观与氛围，右下角小图为细节特写。柔和自然光线。"""
 
 
-def build_storyboard_suffix(content_mode: str = "narration") -> str:
+def build_storyboard_suffix(content_mode: str = "narration", *, aspect_ratio: str | None = None) -> str:
     """
     获取分镜图 Prompt 后缀
 
-    根据内容模式返回对应的构图后缀。
-
-    Args:
-        content_mode: 内容模式 ("narration" 说书模式 或 "drama" 剧集模式)
-
-    Returns:
-        构图后缀字符串
+    优先使用 aspect_ratio 参数；若未传，按 content_mode 推导（向后兼容）。
     """
-    if content_mode == "narration":
-        return "竖屏构图。"
+    if aspect_ratio is None:
+        ratio = "9:16" if content_mode == "narration" else "16:9"
     else:
-        return ""
+        ratio = aspect_ratio
+    if ratio == "9:16":
+        return "竖屏构图。"
+    elif ratio == "16:9":
+        return "横屏构图。"
+    return ""
 
 
 def build_style_prompt(project_data: dict) -> str:

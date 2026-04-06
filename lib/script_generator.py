@@ -89,6 +89,9 @@ class ScriptGenerator:
                 characters=characters,
                 clues=clues,
                 segments_md=step1_md,
+                supported_durations=self.project_json.get("_supported_durations"),
+                default_duration=self.project_json.get("default_duration"),
+                aspect_ratio=self._resolve_aspect_ratio(),
             )
             schema = NarrationEpisodeScript
         else:
@@ -99,6 +102,9 @@ class ScriptGenerator:
                 characters=characters,
                 clues=clues,
                 scenes_md=step1_md,
+                supported_durations=self.project_json.get("_supported_durations"),
+                default_duration=self.project_json.get("default_duration"),
+                aspect_ratio=self._resolve_aspect_ratio(),
             )
             schema = DramaEpisodeScript
 
@@ -150,6 +156,9 @@ class ScriptGenerator:
                 characters=characters,
                 clues=clues,
                 segments_md=step1_md,
+                supported_durations=self.project_json.get("_supported_durations"),
+                default_duration=self.project_json.get("default_duration"),
+                aspect_ratio=self._resolve_aspect_ratio(),
             )
         else:
             return build_drama_prompt(
@@ -159,7 +168,16 @@ class ScriptGenerator:
                 characters=characters,
                 clues=clues,
                 scenes_md=step1_md,
+                supported_durations=self.project_json.get("_supported_durations"),
+                default_duration=self.project_json.get("default_duration"),
+                aspect_ratio=self._resolve_aspect_ratio(),
             )
+
+    def _resolve_aspect_ratio(self) -> str:
+        """解析项目的 aspect_ratio，向后兼容。"""
+        if "aspect_ratio" in self.project_json and isinstance(self.project_json["aspect_ratio"], str):
+            return self.project_json["aspect_ratio"]
+        return "9:16" if self.content_mode == "narration" else "16:9"
 
     def _load_project_json(self) -> dict:
         """加载 project.json"""

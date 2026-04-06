@@ -23,6 +23,23 @@ def _format_clue_names(clues: dict) -> str:
     return "\n".join(lines)
 
 
+def _format_duration_constraint(supported_durations: list[int], default_duration: int | None) -> str:
+    """根据参数生成时长约束描述。"""
+    durations_str = ", ".join(str(d) for d in supported_durations)
+    if default_duration is not None:
+        return f"时长：从 [{durations_str}] 秒中选择，默认使用 {default_duration} 秒"
+    return f"时长：从 [{durations_str}] 秒中选择，根据内容节奏自行决定"
+
+
+def _format_aspect_ratio_desc(aspect_ratio: str) -> str:
+    """根据宽高比返回构图描述。"""
+    if aspect_ratio == "9:16":
+        return "竖屏构图"
+    elif aspect_ratio == "16:9":
+        return "横屏构图"
+    return f"{aspect_ratio} 构图"
+
+
 def build_narration_prompt(
     project_overview: dict,
     style: str,
@@ -30,6 +47,9 @@ def build_narration_prompt(
     characters: dict,
     clues: dict,
     segments_md: str,
+    supported_durations: list[int] | None = None,
+    default_duration: int | None = None,
+    aspect_ratio: str = "9:16",
 ) -> str:
     """
     构建说书模式的 Prompt
@@ -86,7 +106,7 @@ def build_narration_prompt(
 segments 为片段拆分表，每行是一个片段，包含：
 - 片段 ID：格式为 E{{集数}}S{{序号}}
 - 小说原文：必须原样保留到 novel_text 字段
-- 时长：4、6 或 8 秒
+- {_format_duration_constraint(supported_durations or [4, 6, 8], default_duration)}
 - 是否有对话：用于判断是否需要填写 video_prompt.dialogue
 - 是否为 segment_break：场景切换点，需设置 segment_break 为 true
 
@@ -114,7 +134,7 @@ d. **image_prompt**：生成包含以下字段的对象：
 
 e. **video_prompt**：生成包含以下字段的对象：
    - action：用中文精确描述该时长内主体的具体动作——身体移动、手势变化、表情转换。
-     聚焦单一连贯动作，确保在指定时长（4/6/8秒）内可完成。
+     聚焦单一连贯动作，确保在指定时长内可完成。
      排除多场景切换、蒙太奇、快速剪辑等单次生成无法实现的效果。
      排除比喻性动作描述（如"像蝴蝶般飞舞"）。
    - camera_motion：镜头运动（Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot）
@@ -125,7 +145,7 @@ e. **video_prompt**：生成包含以下字段的对象：
 
 f. **segment_break**：如果在片段表中标记为"是"，则设为 true。
 
-g. **duration_seconds**：使用片段表中的时长（4、6 或 8）。
+g. **duration_seconds**：使用片段表中的时长。
 
 h. **transition_to_next**：默认为 "cut"。
 
@@ -141,6 +161,9 @@ def build_drama_prompt(
     characters: dict,
     clues: dict,
     scenes_md: str,
+    supported_durations: list[int] | None = None,
+    default_duration: int | None = None,
+    aspect_ratio: str = "16:9",
 ) -> str:
     """
     构建剧集动画模式的 Prompt
@@ -197,7 +220,7 @@ def build_drama_prompt(
 scenes 为场景拆分表，每行是一个场景，包含：
 - 场景 ID：格式为 E{{集数}}S{{序号}}
 - 场景描述：剧本改编后的场景内容
-- 时长：4、6 或 8 秒（默认 8 秒）
+- {_format_duration_constraint(supported_durations or [4, 6, 8], default_duration)}
 - 场景类型：剧情、动作、对话等
 - 是否为 segment_break：场景切换点，需设置 segment_break 为 true
 
@@ -212,7 +235,7 @@ b. **clues_in_scene**：列出本场景中涉及的线索名称。
    - 仅包含明确提及或明显暗示的线索
 
 c. **image_prompt**：生成包含以下字段的对象：
-   - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。16:9 横屏构图。
+   - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。{_format_aspect_ratio_desc(aspect_ratio)}。
      聚焦当下瞬间的可见画面。仅描述摄像机能够捕捉到的具体视觉元素。
      确保描述避免超出此刻画面的元素。排除比喻、隐喻、抽象情绪词、主观评价、多场景切换等无法直接渲染的描述。
      画面应自包含，不暗示过去事件或未来发展。
@@ -223,7 +246,7 @@ c. **image_prompt**：生成包含以下字段的对象：
 
 d. **video_prompt**：生成包含以下字段的对象：
    - action：用中文精确描述该时长内主体的具体动作——身体移动、手势变化、表情转换。
-     聚焦单一连贯动作，确保在指定时长（4/6/8秒）内可完成。
+     聚焦单一连贯动作，确保在指定时长内可完成。
      排除多场景切换、蒙太奇、快速剪辑等单次生成无法实现的效果。
      排除比喻性动作描述（如"像蝴蝶般飞舞"）。
    - camera_motion：镜头运动（Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot）
@@ -234,12 +257,12 @@ d. **video_prompt**：生成包含以下字段的对象：
 
 e. **segment_break**：如果在场景表中标记为"是"，则设为 true。
 
-f. **duration_seconds**：使用场景表中的时长（4、6 或 8），默认为 8。
+f. **duration_seconds**：使用场景表中的时长。
 
 g. **scene_type**：使用场景表中的场景类型，默认为"剧情"。
 
 h. **transition_to_next**：默认为 "cut"。
 
-目标：创建生动、视觉一致的分镜提示词，用于指导 AI 图像和视频生成。保持创意、具体，适合 16:9 横屏动画呈现。
+目标：创建生动、视觉一致的分镜提示词，用于指导 AI 图像和视频生成。保持创意、具体，适合{_format_aspect_ratio_desc(aspect_ratio)}动画呈现。
 """
     return prompt

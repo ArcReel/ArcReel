@@ -28,9 +28,11 @@ class TestPromptBuilders:
         assert prop_prompt == build_prop_prompt("玉佩", "古朴", "写实", "")
         assert location_prompt == build_location_prompt("祠堂", "昏暗", "写实", "")
 
-    def test_build_storyboard_suffix(self):
-        assert build_storyboard_suffix("narration") == "竖屏构图。"
-        assert build_storyboard_suffix("drama") == ""
+    def test_build_storyboard_suffix_by_aspect_ratio(self):
+        assert build_storyboard_suffix(aspect_ratio="9:16") == "竖屏构图。"
+        assert build_storyboard_suffix(aspect_ratio="16:9") == "横屏构图。"
+        # 向后兼容：不传 aspect_ratio 时默认竖屏
+        assert build_storyboard_suffix() == "竖屏构图。"
 
     def test_build_style_prompt_combines_available_parts(self):
         project_data = {
