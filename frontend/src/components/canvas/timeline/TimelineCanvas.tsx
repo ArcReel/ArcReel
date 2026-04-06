@@ -24,30 +24,6 @@ function getSegmentId(segment: Segment, mode: "narration" | "drama"): string {
     : (segment as DramaScene).scene_id;
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`px-4 py-2 text-sm font-medium transition-colors ${
-        active
-          ? "border-b-2 border-indigo-500 text-white"
-          : "border-b-2 border-transparent text-gray-400 hover:text-gray-300"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -55,6 +31,8 @@ function TabButton({
 interface TimelineCanvasProps {
   projectName: string;
   episode: number;
+  episodeTitle?: string;
+  hasDraft?: boolean;
   episodeScript: EpisodeScript | null;
   scriptFile?: string;
   projectData: ProjectData | null;
@@ -79,6 +57,8 @@ interface TimelineCanvasProps {
 export function TimelineCanvas({
   projectName,
   episode,
+  episodeTitle,
+  hasDraft,
   episodeScript,
   scriptFile,
   projectData,
@@ -90,7 +70,11 @@ export function TimelineCanvas({
 }: TimelineCanvasProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentMode = projectData?.content_mode ?? "narration";
-  const [activeTab, setActiveTab] = useState<"segments" | "preprocessing">("segments");
+
+  const hasScript = Boolean(episodeScript);
+  const showTabs = Boolean(hasDraft);
+  const defaultTab = hasScript ? "timeline" : "preprocessing";
+  const [activeTab, setActiveTab] = useState<"preprocessing" | "timeline">(defaultTab);
 
   // Determine aspect ratio — use project config if available, otherwise defaults
   const aspectRatio =
@@ -136,8 +120,8 @@ export function TimelineCanvas({
   // Respond to agent-triggered scroll targets for segments
   useScrollTarget("segment", { prepareTarget: prepareScrollTarget });
 
-  // Empty state — no episode selected
-  if (!episodeScript || !projectData) {
+  // Empty state — no episode selected or no content at all
+  if (!projectData || (!episodeScript && !hasDraft)) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
         请在左侧选择剧集
@@ -147,7 +131,7 @@ export function TimelineCanvas({
 
   // Compute total duration from actual segments if available
   const totalDuration =
-    episodeScript.duration_seconds ??
+    episodeScript?.duration_seconds ??
     segments.reduce((sum, s) => sum + s.duration_seconds, 0);
 
   // Label depends on content mode
@@ -155,85 +139,101 @@ export function TimelineCanvas({
   const virtualItems = virtualizer.getVirtualItems();
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Tab bar */}
-      <div className="flex border-b border-gray-800 px-4">
-        <TabButton
-          active={activeTab === "segments"}
-          onClick={() => setActiveTab("segments")}
-        >
-          分镜编辑
-        </TabButton>
-        <TabButton
-          active={activeTab === "preprocessing"}
-          onClick={() => setActiveTab("preprocessing")}
-        >
-          预处理内容
-        </TabButton>
-      </div>
-
-      {/* Content */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <div className="p-4">
-          {/* ---- Episode header ---- */}
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold text-gray-100">
-              E{episodeScript.episode}: {episodeScript.title}
-            </h2>
+    <div ref={scrollRef} className="h-full overflow-y-auto">
+      <div className="p-4">
+        {/* ---- Episode header ---- */}
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-gray-100">
+            {episodeScript
+              ? `E${episodeScript.episode}: ${episodeScript.title}`
+              : `E${episode}${episodeTitle ? `: ${episodeTitle}` : ""}`}
+          </h2>
+          {episodeScript && (
             <p className="text-xs text-gray-500">
               {segments.length} {segmentLabel} · 约 {totalDuration}s
             </p>
-          </div>
-
-          {/* ---- Segment cards or Preprocessing view ---- */}
-          {activeTab === "segments" ? (
-            <div
-              className="relative"
-              style={{ height: `${virtualizer.getTotalSize()}px` }}
-            >
-              {virtualItems.map((virtualItem) => {
-                const segment = segments[virtualItem.index];
-                const segId = getSegmentId(segment, contentMode);
-                return (
-                  <div
-                    id={`segment-${segId}`}
-                    key={segId}
-                    data-index={virtualItem.index}
-                    ref={virtualizer.measureElement}
-                    className="absolute left-0 top-0 w-full"
-                    style={{
-                      transform: `translateY(${virtualItem.start}px)`,
-                      paddingBottom: virtualItem.index === segments.length - 1 ? 0 : 16,
-                    }}
-                  >
-                    <SegmentCard
-                      segment={segment}
-                      contentMode={contentMode}
-                      aspectRatio={aspectRatio}
-                      characters={projectData.characters}
-                      clues={projectData.clues}
-                      projectName={projectName}
-                      onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}
-                      onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
-                      onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
-                      onRestoreStoryboard={onRestoreStoryboard}
-                      onRestoreVideo={onRestoreVideo}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <PreprocessingView
-              projectName={projectName}
-              episode={episode}
-              contentMode={contentMode}
-            />
           )}
-
-          {/* Bottom spacer for scroll comfort */}
-          <div className="h-16" />
         </div>
+
+        {/* ---- Tab bar (only when draft exists) ---- */}
+        {showTabs && (
+          <div className="mb-4 flex gap-0 border-b border-gray-800">
+            <button
+              type="button"
+              onClick={() => setActiveTab("preprocessing")}
+              className={`border-b-2 px-4 py-2 text-sm transition-colors ${
+                activeTab === "preprocessing"
+                  ? "border-indigo-500 text-indigo-400 font-medium"
+                  : "border-transparent text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              预处理
+            </button>
+            <button
+              type="button"
+              onClick={() => hasScript && setActiveTab("timeline")}
+              disabled={!hasScript}
+              className={`border-b-2 px-4 py-2 text-sm transition-colors ${
+                activeTab === "timeline"
+                  ? "border-indigo-500 text-indigo-400 font-medium"
+                  : !hasScript
+                    ? "border-transparent text-gray-700 cursor-not-allowed"
+                    : "border-transparent text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              剧本时间线
+            </button>
+          </div>
+        )}
+
+        {/* ---- Tab content ---- */}
+        {activeTab === "preprocessing" && hasDraft ? (
+          <PreprocessingView
+            projectName={projectName}
+            episode={episode}
+            contentMode={contentMode}
+          />
+        ) : episodeScript ? (
+          <div
+            className="relative"
+            style={{ height: `${virtualizer.getTotalSize()}px` }}
+          >
+            {virtualItems.map((virtualItem) => {
+              const segment = segments[virtualItem.index];
+              const segId = getSegmentId(segment, contentMode);
+              return (
+                <div
+                  id={`segment-${segId}`}
+                  key={segId}
+                  data-index={virtualItem.index}
+                  ref={virtualizer.measureElement}
+                  className="absolute left-0 top-0 w-full"
+                  style={{
+                    transform: `translateY(${virtualItem.start}px)`,
+                    paddingBottom: virtualItem.index === segments.length - 1 ? 0 : 16,
+                  }}
+                >
+                  <SegmentCard
+                    segment={segment}
+                    contentMode={contentMode}
+                    aspectRatio={aspectRatio}
+                    characters={projectData.characters}
+                    clues={projectData.clues}
+                    projectName={projectName}
+                    onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}
+                    onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
+                    onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
+                    onRestoreStoryboard={onRestoreStoryboard}
+                    onRestoreVideo={onRestoreVideo}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {/* Bottom spacer for scroll comfort */}
+        <div className="h-16" />
       </div>
     </div>
   );
