@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { API } from "@/api";
-import type { CostEstimateResponse, SegmentCost, EpisodeCost, CostByType } from "@/types";
+import type { CostEstimateResponse, SegmentCost, EpisodeCost } from "@/types";
 
 interface CostState {
   costData: CostEstimateResponse | null;
@@ -10,7 +10,6 @@ interface CostState {
   /** Internal indexes — rebuilt on each fetchCost success */
   _segmentIndex: Map<string, SegmentCost>;
   _episodeIndex: Map<number, EpisodeCost>;
-  _debounceTimer: ReturnType<typeof setTimeout> | null;
 
   fetchCost: (projectName: string) => Promise<void>;
   debouncedFetch: (projectName: string) => void;
@@ -18,7 +17,6 @@ interface CostState {
 
   getEpisodeCost: (episode: number) => EpisodeCost | undefined;
   getSegmentCost: (segmentId: string) => SegmentCost | undefined;
-  getProjectTotals: () => { estimate: CostByType; actual: CostByType } | undefined;
 }
 
 function buildIndexes(data: CostEstimateResponse): {
@@ -36,13 +34,14 @@ function buildIndexes(data: CostEstimateResponse): {
   return { _segmentIndex: segmentIndex, _episodeIndex: episodeIndex };
 }
 
+let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
 export const useCostStore = create<CostState>((set, get) => ({
   costData: null,
   loading: false,
   error: null,
   _segmentIndex: new Map(),
   _episodeIndex: new Map(),
-  _debounceTimer: null,
 
   fetchCost: async (projectName: string) => {
     set({ loading: true, error: null });
@@ -55,25 +54,22 @@ export const useCostStore = create<CostState>((set, get) => ({
   },
 
   debouncedFetch: (projectName: string) => {
-    const prev = get()._debounceTimer;
-    if (prev) clearTimeout(prev);
-    const timer = setTimeout(() => {
-      set({ _debounceTimer: null });
+    if (_debounceTimer) clearTimeout(_debounceTimer);
+    _debounceTimer = setTimeout(() => {
+      _debounceTimer = null;
       void get().fetchCost(projectName);
     }, 500);
-    set({ _debounceTimer: timer });
   },
 
   clear: () => {
-    const prev = get()._debounceTimer;
-    if (prev) clearTimeout(prev);
+    if (_debounceTimer) clearTimeout(_debounceTimer);
+    _debounceTimer = null;
     set({
       costData: null,
       loading: false,
       error: null,
       _segmentIndex: new Map(),
       _episodeIndex: new Map(),
-      _debounceTimer: null,
     });
   },
 
@@ -83,14 +79,5 @@ export const useCostStore = create<CostState>((set, get) => ({
 
   getSegmentCost: (segmentId: string) => {
     return get()._segmentIndex.get(segmentId);
-  },
-
-  getProjectTotals: () => {
-    const data = get().costData;
-    if (!data) return undefined;
-    return {
-      estimate: data.project_totals.estimate,
-      actual: data.project_totals.actual,
-    };
   },
 }));

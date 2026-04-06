@@ -16,12 +16,12 @@ from server.services.cost_estimation import CostEstimationService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+pm = ProjectManager(PROJECT_ROOT / "projects")
 
 
 @router.get("/projects/{project_name}/cost-estimate")
 async def get_cost_estimate(project_name: str, _user: CurrentUser):
     """获取项目费用估算（预估 + 实际）。"""
-    pm = ProjectManager(PROJECT_ROOT / "projects")
     if not pm.project_exists(project_name):
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
 

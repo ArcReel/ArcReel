@@ -20,7 +20,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     (s) => projectData?.style_image ? s.getAssetFingerprint(projectData.style_image) : null,
   );
   const projectTotals = useCostStore((s) => s.costData?.project_totals);
-  const episodeCosts = useCostStore((s) => s.costData?.episodes);
+  const getEpisodeCost = useCostStore((s) => s.getEpisodeCost);
   const costLoading = useCostStore((s) => s.loading);
   const costError = useCostStore((s) => s.error);
   const debouncedFetch = useCostStore((s) => s.debouncedFetch);
@@ -429,7 +429,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                 </p>
               ) : (
                 (projectData.episodes ?? []).map((ep) => {
-                  const epCost = episodeCosts?.find((e) => e.episode === ep.episode);
+                  const epCost = getEpisodeCost(ep.episode);
                   return (
                     <div
                       key={ep.episode}

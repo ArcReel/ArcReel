@@ -7,6 +7,7 @@ from typing import Any
 
 from lib.config.resolver import ConfigResolver
 from lib.cost_calculator import cost_calculator
+from lib.storyboard_sequence import get_storyboard_items
 from lib.usage_tracker import UsageTracker
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,6 @@ class CostEstimationService:
         *,
         project_name: str,
     ) -> dict[str, Any]:
-        content_mode = project_data.get("content_mode", "narration")
         episodes_meta = project_data.get("episodes", [])
 
         # Resolve current model config
@@ -65,6 +65,18 @@ class CostEstimationService:
         # Get actual costs
         actual_by_segment = await self._tracker.get_actual_costs_by_segment(project_name)
 
+        # 预计算图片单价（所有 segment 相同）
+        image_unit_cost: tuple[float, str] | None = None
+        try:
+            image_unit_cost = cost_calculator.calculate_cost(
+                provider=image_provider,
+                call_type="image",
+                model=image_model,
+                resolution="1K",
+            )
+        except Exception:
+            logger.debug("无法计算 image 预估单价", exc_info=True)
+
         episodes_result = []
         proj_est: dict[str, CostBreakdown] = {}
         proj_act: dict[str, CostBreakdown] = {}
@@ -75,9 +87,7 @@ class CostEstimationService:
             if not script:
                 continue
 
-            segments_key = "segments" if content_mode == "narration" else "scenes"
-            id_key = "segment_id" if content_mode == "narration" else "scene_id"
-            raw_segments = script.get(segments_key, [])
+            raw_segments, id_key, _, _ = get_storyboard_items(script)
 
             segments_result = []
             ep_est: dict[str, CostBreakdown] = {}
@@ -90,16 +100,8 @@ class CostEstimationService:
                 est_image: CostBreakdown = {}
                 est_video: CostBreakdown = {}
 
-                try:
-                    img_amount, img_currency = cost_calculator.calculate_cost(
-                        provider=image_provider,
-                        call_type="image",
-                        model=image_model,
-                        resolution="1K",
-                    )
-                    _add_cost(est_image, img_amount, img_currency)
-                except Exception:
-                    logger.debug("无法计算 image 预估 for %s", seg_id, exc_info=True)
+                if image_unit_cost:
+                    _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
 
                 try:
                     vid_amount, vid_currency = cost_calculator.calculate_cost(
