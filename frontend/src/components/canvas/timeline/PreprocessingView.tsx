@@ -26,7 +26,7 @@ export function PreprocessingView({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    if (!content) setLoading(true);
     setEditing(false);
 
     API.getDraftContent(projectName, episode, 1)
@@ -131,7 +131,7 @@ export function PreprocessingView({
         <textarea
           value={editContent}
           onChange={(e) => setEditContent(e.target.value)}
-          className="min-h-[400px] w-full resize-y rounded-lg border border-gray-700 bg-gray-800 p-4 font-mono text-sm leading-relaxed text-gray-200 outline-none focus-visible:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+          className="min-h-[400px] w-full resize-y rounded-lg border border-gray-700 bg-gray-800 p-4 font-mono text-sm leading-relaxed text-gray-200 outline-none focus-ring focus-visible:border-indigo-500"
         />
       ) : (
         <div className="prose-invert max-w-none overflow-x-auto rounded-lg border border-gray-800 bg-gray-900/50 p-4 text-sm">

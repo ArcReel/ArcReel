@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SegmentCard } from "./SegmentCard";
 import { PreprocessingView } from "./PreprocessingView";
@@ -75,6 +75,11 @@ export function TimelineCanvas({
   const showTabs = Boolean(hasDraft);
   const defaultTab = hasScript ? "timeline" : "preprocessing";
   const [activeTab, setActiveTab] = useState<"preprocessing" | "timeline">(defaultTab);
+
+  // Auto-switch to timeline when script becomes available
+  useEffect(() => {
+    if (hasScript) setActiveTab("timeline");
+  }, [hasScript]);
 
   // Determine aspect ratio — use project config if available, otherwise defaults
   const aspectRatio =
