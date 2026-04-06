@@ -409,6 +409,7 @@ class UsageRepository(BaseRepository):
             )
             .group_by(ApiCall.segment_id, ApiCall.call_type, ApiCall.currency)
         )
+        stmt = self._scope_query(stmt, ApiCall)
         rows = (await self.session.execute(stmt)).all()
 
         result: dict[str, dict[str, dict[str, float]]] = {}

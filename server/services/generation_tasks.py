@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 _backend_cache: dict[tuple[str, ...], Any] = {}
 
 # 各供应商默认视频分辨率
-_DEFAULT_VIDEO_RESOLUTION: dict[str, str] = {
+DEFAULT_VIDEO_RESOLUTION: dict[str, str] = {
     PROVIDER_GEMINI: "1080p",
     PROVIDER_ARK: "720p",
     PROVIDER_GROK: "720p",
@@ -647,7 +647,7 @@ async def execute_video_task(
     model_name = provider_settings.get("model")
     video_model_settings = project.get("video_model_settings", {})
     model_settings = video_model_settings.get(model_name, {}) if model_name else {}
-    resolution = model_settings.get("resolution") or _DEFAULT_VIDEO_RESOLUTION.get(resolution_key, "1080p")
+    resolution = model_settings.get("resolution") or DEFAULT_VIDEO_RESOLUTION.get(resolution_key, "1080p")
 
     _, version, _, video_uri = await generator.generate_video_async(
         prompt=prompt_text,

@@ -45,22 +45,22 @@ class CostEstimationService:
         # Resolve current model config
         try:
             image_provider, image_model = await self._resolver.default_image_backend()
-        except (ValueError, Exception):
+        except Exception:
             image_provider, image_model = "unknown", "unknown"
 
         try:
             video_provider, video_model = await self._resolver.default_video_backend()
-        except (ValueError, Exception):
+        except Exception:
             video_provider, video_model = "unknown", "unknown"
 
         try:
             generate_audio = await self._resolver.video_generate_audio(project_name)
-        except (FileNotFoundError, Exception):
+        except Exception:
             generate_audio = False
 
-        from server.services.generation_tasks import _DEFAULT_VIDEO_RESOLUTION
+        from server.services.generation_tasks import DEFAULT_VIDEO_RESOLUTION
 
-        video_resolution = _DEFAULT_VIDEO_RESOLUTION.get(video_provider, "1080p")
+        video_resolution = DEFAULT_VIDEO_RESOLUTION.get(video_provider, "1080p")
 
         # Get actual costs
         actual_by_segment = await self._tracker.get_actual_costs_by_segment(project_name)

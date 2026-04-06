@@ -46,6 +46,6 @@ async def get_cost_estimate(project_name: str, _user: CurrentUser):
 
     try:
         return await service.compute(project_data, scripts, project_name=project_name)
-    except Exception as e:
+    except Exception:
         logger.exception("费用估算失败")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="费用估算失败，请稍后重试")
