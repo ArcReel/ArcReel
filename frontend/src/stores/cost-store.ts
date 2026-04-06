@@ -35,6 +35,7 @@ function buildIndexes(data: CostEstimateResponse): {
 }
 
 let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let _fetchId = 0;
 
 export const useCostStore = create<CostState>((set, get) => ({
   costData: null,
@@ -44,11 +45,15 @@ export const useCostStore = create<CostState>((set, get) => ({
   _episodeIndex: new Map(),
 
   fetchCost: async (projectName: string) => {
+    const currentId = ++_fetchId;
     set({ loading: true, error: null });
     try {
       const data = await API.getCostEstimate(projectName);
+      // 如果在请求期间又触发了新请求，丢弃旧响应
+      if (currentId !== _fetchId) return;
       set({ costData: data, loading: false, ...buildIndexes(data) });
     } catch (err) {
+      if (currentId !== _fetchId) return;
       set({ error: (err as Error).message, loading: false });
     }
   },

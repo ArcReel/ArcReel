@@ -58,6 +58,20 @@ class CostEstimationService:
         except Exception:
             generate_audio = False
 
+        # 项目级视频配置覆盖
+        project_video_provider = project_data.get("video_provider")
+        if project_video_provider:
+            video_provider = project_video_provider
+            # 项目级可能有自己的模型设置
+            project_video_settings = project_data.get("video_provider_settings", {}).get(project_video_provider, {})
+            if project_video_settings.get("model"):
+                video_model = project_video_settings["model"]
+
+        # 项目级图片配置覆盖
+        project_image_provider = project_data.get("image_provider")
+        if project_image_provider:
+            image_provider = project_image_provider
+
         from server.services.generation_tasks import DEFAULT_VIDEO_RESOLUTION
 
         video_resolution = DEFAULT_VIDEO_RESOLUTION.get(video_provider, "1080p")

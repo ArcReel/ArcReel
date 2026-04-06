@@ -38,7 +38,7 @@ async def get_cost_estimate(project_name: str, _user: CurrentUser):
             try:
                 scripts[script_file] = pm.load_script(project_name, script_file)
             except FileNotFoundError:
-                pass
+                logger.debug("剧本文件不存在，跳过: %s/%s", project_name, script_file)
 
     resolver = ConfigResolver(async_session_factory)
     tracker = UsageTracker(session_factory=async_session_factory)
