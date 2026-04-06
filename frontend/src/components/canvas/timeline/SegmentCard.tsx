@@ -192,7 +192,7 @@ function DurationSelector({
       <button
         ref={ref}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex cursor-pointer items-center gap-0.5 rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-300 hover:bg-gray-600"
+        className="inline-flex cursor-pointer items-center gap-0.5 rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-300 hover:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
       >
         <Clock className="h-3 w-3" />
         {seconds}s
@@ -214,7 +214,7 @@ function DurationSelector({
                 onUpdatePrompt(segmentId, "duration_seconds", d);
                 setOpen(false);
               }}
-              className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`rounded px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                 d === seconds
                   ? "bg-indigo-600 text-white"
                   : "text-gray-300 hover:bg-gray-700"
@@ -287,9 +287,10 @@ function TextColumn({
         备注
       </span>
       <textarea
-        className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 text-sm text-gray-300 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
+        className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 text-sm text-gray-300 placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         rows={4}
         placeholder="添加备注..."
+        aria-label="备注"
         value={noteDraft}
         onChange={(e) => setNoteDraft(e.target.value)}
         onBlur={handleNoteBlur}
@@ -700,7 +701,7 @@ export function SegmentCard({
               onUpdatePrompt={onUpdatePrompt}
             />
             {segCost && (
-              <>
+              <span className="tabular-nums contents">
                 <span className="text-gray-700">|</span>
                 <span className="text-[11px] text-gray-600">预估</span>
                 <span className="text-[11px] text-gray-500">分镜 <span className="text-gray-400">{formatCost(segCost.estimate.image)}</span></span>
@@ -709,7 +710,7 @@ export function SegmentCard({
                 <span className="text-[11px] text-gray-600">实际</span>
                 <span className="text-[11px] text-gray-500">分镜 <span className="text-gray-400">{formatCost(segCost.actual.image)}</span></span>
                 <span className="text-[11px] text-gray-500">视频 <span className="text-gray-400">{formatCost(segCost.actual.video)}</span></span>
-              </>
+              </span>
             )}
           </div>
 

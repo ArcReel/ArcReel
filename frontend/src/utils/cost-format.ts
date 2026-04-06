@@ -1,11 +1,20 @@
 import type { CostBreakdown, CostByType } from "@/types";
 
-const SYMBOLS: Record<string, string> = { USD: "$", CNY: "¥" };
-
 export function formatCost(breakdown: CostBreakdown | undefined): string {
-  if (!breakdown || Object.keys(breakdown).length === 0) return "—";
+  if (!breakdown || Object.keys(breakdown).length === 0) return "\u2014";
   return Object.entries(breakdown)
-    .map(([cur, amt]) => `${SYMBOLS[cur] ?? cur}${amt.toFixed(2)}`)
+    .map(([cur, amt]) => {
+      try {
+        return new Intl.NumberFormat("en", {
+          style: "currency",
+          currency: cur,
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 4,
+        }).format(amt);
+      } catch {
+        return `${cur} ${amt.toFixed(2)}`;
+      }
+    })
     .join(" + ");
 }
 
@@ -18,7 +27,7 @@ export function totalBreakdown(byType: CostByType): CostBreakdown {
     }
   }
   for (const cur of Object.keys(result)) {
-    result[cur] = Math.round(result[cur] * 100) / 100;
+    result[cur] = Math.round(result[cur] * 10000) / 10000;
   }
   return result;
 }

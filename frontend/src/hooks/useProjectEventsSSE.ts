@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useCostStore } from "@/stores/cost-store";
 import type {
   ProjectChange,
   ProjectChangeBatchPayload,
@@ -283,6 +284,14 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           }
 
           void refreshProject();
+
+          // Refresh cost data when generation completes
+          const hasGenerationEvent = payload.changes.some(
+            (c) => c.action === "storyboard_ready" || c.action === "video_ready",
+          );
+          if (hasGenerationEvent && projectName) {
+            useCostStore.getState().debouncedFetch(projectName);
+          }
         },
         onError() {
           if (disposed) return;
