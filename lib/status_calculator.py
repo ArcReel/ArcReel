@@ -100,9 +100,7 @@ class StatusCalculator:
                 safe_num = int(episode_num)
             except (ValueError, TypeError):
                 return "none", None
-            draft_filename = (
-                "step1_segments.md" if content_mode == "narration" else "step1_normalized_script.md"
-            )
+            draft_filename = "step1_segments.md" if content_mode == "narration" else "step1_normalized_script.md"
             draft_file = project_dir / f"drafts/episode_{safe_num}/{draft_filename}"
             return ("segmented" if draft_file.exists() else "none"), None
         except ValueError as e:
