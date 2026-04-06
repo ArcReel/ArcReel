@@ -18,6 +18,7 @@ export function CreateProjectModal() {
 
   const [title, setTitle] = useState("");
   const [contentMode, setContentMode] = useState<"narration" | "drama">("narration");
+  const [aspectRatio, setAspectRatio] = useState<"9:16" | "16:9">("9:16");
   const [style, setStyle] = useState("Photographic");
   const [titleError, setTitleError] = useState("");
   const [styleImageFile, setStyleImageFile] = useState<File | null>(null);
@@ -52,7 +53,7 @@ export function CreateProjectModal() {
 
     setCreatingProject(true);
     try {
-      const response = await API.createProject(title.trim(), style, contentMode);
+      const response = await API.createProject(title.trim(), style, contentMode, aspectRatio);
       const projectName = response.name;
 
       // 如果用户选择了风格参考图，在项目创建后上传
@@ -154,6 +155,45 @@ export function CreateProjectModal() {
                   className="sr-only"
                 />
                 剧集动画
+              </label>
+            </div>
+          </div>
+
+          {/* Aspect Ratio */}
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">
+              画面比例
+            </label>
+            <div className="flex gap-3">
+              <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
+                aspectRatio === "9:16"
+                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
+                  : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
+              }`}>
+                <input
+                  type="radio"
+                  name="aspectRatio"
+                  value="9:16"
+                  checked={aspectRatio === "9:16"}
+                  onChange={() => setAspectRatio("9:16")}
+                  className="sr-only"
+                />
+                竖屏 9:16
+              </label>
+              <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
+                aspectRatio === "16:9"
+                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
+                  : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
+              }`}>
+                <input
+                  type="radio"
+                  name="aspectRatio"
+                  value="16:9"
+                  checked={aspectRatio === "16:9"}
+                  onChange={() => setAspectRatio("16:9")}
+                  className="sr-only"
+                />
+                横屏 16:9
               </label>
             </div>
           </div>
