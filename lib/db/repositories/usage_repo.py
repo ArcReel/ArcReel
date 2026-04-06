@@ -385,6 +385,38 @@ class UsageRepository(BaseRepository):
             "page_size": page_size,
         }
 
+    async def get_actual_costs_by_segment(
+        self,
+        project_name: str,
+    ) -> dict[str, dict[str, dict[str, float]]]:
+        """按 segment_id + call_type + currency 汇总实际费用。
+
+        Returns:
+            {segment_id: {call_type: {currency: total_amount}}}
+            segment_id 为 None 的记录归入 "__project__" 键。
+        """
+        stmt = (
+            select(
+                ApiCall.segment_id,
+                ApiCall.call_type,
+                ApiCall.currency,
+                func.sum(ApiCall.cost_amount).label("total"),
+            )
+            .where(
+                ApiCall.project_name == project_name,
+                ApiCall.status == "success",
+                ApiCall.cost_amount > 0,
+            )
+            .group_by(ApiCall.segment_id, ApiCall.call_type, ApiCall.currency)
+        )
+        rows = (await self.session.execute(stmt)).all()
+
+        result: dict[str, dict[str, dict[str, float]]] = {}
+        for seg_id, call_type, currency, total in rows:
+            key = seg_id if seg_id is not None else "__project__"
+            result.setdefault(key, {}).setdefault(call_type, {})[currency] = round(total, 6)
+        return result
+
     async def get_projects_list(self) -> list[str]:
         stmt = select(ApiCall.project_name).distinct().order_by(ApiCall.project_name)
         stmt = self._scope_query(stmt, ApiCall)

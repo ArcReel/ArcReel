@@ -156,3 +156,50 @@ class TestUsageTracker:
         result = await tracker.get_calls(project_name="demo")
         item = result["items"][0]
         assert item["segment_id"] is None
+
+
+class TestActualCostsBySegment:
+    async def test_aggregates_costs_by_segment_and_type(self, tracker):
+        # E1S001: image 两次成功（累计）
+        c1 = await tracker.start_call(
+            "proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001"
+        )
+        await tracker.finish_call(c1, status="success", output_path="a.png")
+        c2 = await tracker.start_call(
+            "proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001"
+        )
+        await tracker.finish_call(c2, status="success", output_path="b.png")
+
+        # E1S001: video 一次成功
+        c3 = await tracker.start_call(
+            "proj", "video", "veo-3.1-generate-001", resolution="1080p", duration_seconds=6, segment_id="E1S001"
+        )
+        await tracker.finish_call(c3, status="success", output_path="v.mp4")
+
+        # E1S002: image 一次成功
+        c4 = await tracker.start_call(
+            "proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S002"
+        )
+        await tracker.finish_call(c4, status="success", output_path="c.png")
+
+        # 失败的不计入
+        c5 = await tracker.start_call(
+            "proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001"
+        )
+        await tracker.finish_call(c5, status="failed", error_message="err")
+
+        result = await tracker.get_actual_costs_by_segment("proj")
+
+        assert "E1S001" in result
+        assert result["E1S001"]["image"]["USD"] == pytest.approx(0.067 * 2)
+        assert result["E1S001"]["video"]["USD"] == pytest.approx(2.4)
+        assert "E1S002" in result
+        assert result["E1S002"]["image"]["USD"] == pytest.approx(0.067)
+
+    async def test_project_level_costs(self, tracker):
+        # 角色生成（无 segment_id）
+        c1 = await tracker.start_call("proj", "image", "gemini-3.1-flash-image-preview", resolution="1K")
+        await tracker.finish_call(c1, status="success", output_path="char.png")
+
+        result = await tracker.get_actual_costs_by_segment("proj")
+        assert result.get("__project__", {}).get("image", {}).get("USD") == pytest.approx(0.067)
