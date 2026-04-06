@@ -105,6 +105,21 @@ class TestStatusCalculator:
         assert status3 == "none"
         assert script3 is None
 
+        # Case 4: drama 模式 — step1_normalized_script.md 存在 → ("segmented", None)
+        draft_dir_drama = project_path / "drafts" / "episode_4"
+        draft_dir_drama.mkdir(parents=True)
+        (draft_dir_drama / "step1_normalized_script.md").write_text("drama draft")
+        calc4 = StatusCalculator(_FakePM(project_root, {}, {}))
+        status4, script4 = calc4._load_episode_script("demo", 4, "scripts/episode_4.json", content_mode="drama")
+        assert status4 == "segmented"
+        assert script4 is None
+
+        # Case 5: drama 模式 — 无 step1_normalized_script.md → ("none", None)
+        calc5 = StatusCalculator(_FakePM(project_root, {}, {}))
+        status5, script5 = calc5._load_episode_script("demo", 5, "scripts/episode_5.json", content_mode="drama")
+        assert status5 == "none"
+        assert script5 is None
+
     def test_calculate_current_phase_setup(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         project_no_overview = {}

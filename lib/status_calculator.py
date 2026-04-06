@@ -85,7 +85,9 @@ class StatusCalculator:
         except (OSError, ValueError):
             return False
 
-    def _load_episode_script(self, project_name: str, episode_num: int, script_file: str) -> tuple:
+    def _load_episode_script(
+        self, project_name: str, episode_num: int, script_file: str, *, content_mode: str = "narration"
+    ) -> tuple:
         """加载单集剧本，返回 (script_status, script|None)，避免重复读取文件。
         script_status: 'generated' | 'segmented' | 'none'
         """
@@ -98,7 +100,10 @@ class StatusCalculator:
                 safe_num = int(episode_num)
             except (ValueError, TypeError):
                 return "none", None
-            draft_file = project_dir / f"drafts/episode_{safe_num}/step1_segments.md"
+            draft_filename = (
+                "step1_segments.md" if content_mode == "narration" else "step1_normalized_script.md"
+            )
+            draft_file = project_dir / f"drafts/episode_{safe_num}/{draft_filename}"
             return ("segmented" if draft_file.exists() else "none"), None
         except ValueError as e:
             logger.warning(
@@ -162,13 +167,16 @@ class StatusCalculator:
         clues_done = sum(1 for c in clues.values() if self._safe_exists(project_dir, c.get("clue_sheet", "")))
 
         # 每集状态
+        content_mode = project.get("content_mode", "narration")
         episodes_stats = []
         for ep in project.get("episodes", []):
             script_file = ep.get("script_file", "")
             episode_num = ep.get("episode", 0)
 
             if script_file:
-                script_status, script = self._load_episode_script(project_name, episode_num, script_file)
+                script_status, script = self._load_episode_script(
+                    project_name, episode_num, script_file, content_mode=content_mode
+                )
             else:
                 script_status, script = "none", None
 
@@ -213,13 +221,16 @@ class StatusCalculator:
         不修改原始 JSON 文件，仅用于 API 响应。
         """
         # 计算每集明细（注入到 episode 对象）
+        content_mode = project.get("content_mode", "narration")
         episodes_stats = []
         for ep in project.get("episodes", []):
             script_file = ep.get("script_file", "")
             episode_num = ep.get("episode", 0)
 
             if script_file:
-                script_status, script = self._load_episode_script(project_name, episode_num, script_file)
+                script_status, script = self._load_episode_script(
+                    project_name, episode_num, script_file, content_mode=content_mode
+                )
             else:
                 script_status, script = "none", None
 
