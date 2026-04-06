@@ -3,6 +3,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { SegmentCard } from "./SegmentCard";
 import { PreprocessingView } from "./PreprocessingView";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
+import { useCostStore } from "@/stores/cost-store";
+import { formatCost, totalBreakdown } from "@/utils/cost-format";
 import type {
   EpisodeScript,
   NarrationEpisodeScript,
@@ -81,6 +83,16 @@ export function TimelineCanvas({
     if (hasScript) setActiveTab("timeline");
   }, [hasScript]);
 
+  const episodeCost = useCostStore((s) =>
+    episodeScript ? s.getEpisodeCost(episodeScript.episode) : undefined,
+  );
+  const debouncedFetch = useCostStore((s) => s.debouncedFetch);
+
+  useEffect(() => {
+    if (!projectName) return;
+    debouncedFetch(projectName);
+  }, [projectName, episodeScript?.episode, debouncedFetch]);
+
   // Determine aspect ratio — use project config if available, otherwise defaults
   const aspectRatio =
     projectData?.aspect_ratio?.storyboard ??
@@ -157,6 +169,19 @@ export function TimelineCanvas({
             <p className="text-xs text-gray-500">
               {segments.length} {segmentLabel} · 约 {totalDuration}s
             </p>
+          )}
+          {episodeCost && (
+            <div className="mt-2 flex items-center gap-4 rounded-lg bg-gray-900 border border-gray-800 px-3 py-2 text-xs tabular-nums">
+              <span className="text-gray-600">预估</span>
+              <span className="text-gray-500">分镜 <span className="text-gray-300">{formatCost(episodeCost.totals.estimate.image)}</span></span>
+              <span className="text-gray-500">视频 <span className="text-gray-300">{formatCost(episodeCost.totals.estimate.video)}</span></span>
+              <span className="text-gray-500">总计 <span className="font-medium text-amber-400">{formatCost(totalBreakdown(episodeCost.totals.estimate))}</span></span>
+              <span className="text-gray-700">|</span>
+              <span className="text-gray-600">实际</span>
+              <span className="text-gray-500">分镜 <span className="text-gray-300">{formatCost(episodeCost.totals.actual.image)}</span></span>
+              <span className="text-gray-500">视频 <span className="text-gray-300">{formatCost(episodeCost.totals.actual.video)}</span></span>
+              <span className="text-gray-500">总计 <span className="font-medium text-emerald-400">{formatCost(totalBreakdown(episodeCost.totals.actual))}</span></span>
+            </div>
           )}
         </div>
 

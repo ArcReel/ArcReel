@@ -4,7 +4,9 @@ import type { ProjectData } from "@/types";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
+import { useCostStore } from "@/stores/cost-store";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
+import { formatCost, totalBreakdown } from "@/utils/cost-format";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
 
@@ -17,6 +19,15 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const styleImageFp = useProjectsStore(
     (s) => projectData?.style_image ? s.getAssetFingerprint(projectData.style_image) : null,
   );
+  const costData = useCostStore((s) => s.costData);
+  const fetchCost = useCostStore((s) => s.fetchCost);
+
+  useEffect(() => {
+    if (!projectName) return;
+    const timer = setTimeout(() => void fetchCost(projectName), 500);
+    return () => clearTimeout(timer);
+  }, [projectName, projectData?.episodes, fetchCost]);
+
   const [regenerating, setRegenerating] = useState(false);
   const [uploadingStyleImage, setUploadingStyleImage] = useState(false);
   const [deletingStyleImage, setDeletingStyleImage] = useState(false);
@@ -351,6 +362,43 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
               </div>
             )}
 
+            {costData && (
+              <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+                <p className="mb-3 text-sm font-semibold text-gray-300">项目总费用</p>
+                <div className="flex flex-wrap items-start justify-between gap-6">
+                  <div>
+                    <p className="mb-1 text-[11px] text-gray-600">预估</p>
+                    <p className="text-sm text-gray-400">
+                      <span className="text-gray-500">分镜 </span>
+                      <span className="text-gray-200">{formatCost(costData.project_totals.estimate.image)}</span>
+                      <span className="ml-3 text-gray-500">视频 </span>
+                      <span className="text-gray-200">{formatCost(costData.project_totals.estimate.video)}</span>
+                      <span className="ml-3 text-gray-500">总计 </span>
+                      <span className="font-semibold text-amber-400">{formatCost(totalBreakdown(costData.project_totals.estimate))}</span>
+                    </p>
+                  </div>
+                  <div className="h-8 w-px bg-gray-800" />
+                  <div>
+                    <p className="mb-1 text-[11px] text-gray-600">实际</p>
+                    <p className="text-sm text-gray-400">
+                      <span className="text-gray-500">分镜 </span>
+                      <span className="text-gray-200">{formatCost(costData.project_totals.actual.image)}</span>
+                      <span className="ml-3 text-gray-500">视频 </span>
+                      <span className="text-gray-200">{formatCost(costData.project_totals.actual.video)}</span>
+                      {costData.project_totals.actual.character_and_clue && (
+                        <>
+                          <span className="ml-3 text-gray-500">角色/线索 </span>
+                          <span className="text-gray-200">{formatCost(costData.project_totals.actual.character_and_clue)}</span>
+                        </>
+                      )}
+                      <span className="ml-3 text-gray-500">总计 </span>
+                      <span className="font-semibold text-emerald-400">{formatCost(totalBreakdown(costData.project_totals.actual))}</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
               <h3 className="text-sm font-semibold text-gray-300">剧集</h3>
               {(projectData.episodes?.length ?? 0) === 0 ? (
@@ -358,20 +406,40 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                   暂无剧集。使用 AI 助手生成剧本。
                 </p>
               ) : (
-                (projectData.episodes ?? []).map((ep) => (
-                  <div
-                    key={ep.episode}
-                    className="flex items-center gap-3 rounded-lg border border-gray-800 bg-gray-900 px-4 py-2.5"
-                  >
-                    <span className="font-mono text-xs text-gray-400">
-                      E{ep.episode}
-                    </span>
-                    <span className="text-sm text-gray-200">{ep.title}</span>
-                    <span className="ml-auto text-xs text-gray-500">
-                      {ep.scenes_count ?? "?"} 片段 · {ep.status ?? "draft"}
-                    </span>
-                  </div>
-                ))
+                (projectData.episodes ?? []).map((ep) => {
+                  const epCost = costData?.episodes.find((e) => e.episode === ep.episode);
+                  return (
+                    <div
+                      key={ep.episode}
+                      className="flex items-center gap-3 rounded-lg border border-gray-800 bg-gray-900 px-4 py-2.5"
+                    >
+                      <span className="font-mono text-xs text-gray-400">
+                        E{ep.episode}
+                      </span>
+                      <span className="text-sm text-gray-200">{ep.title}</span>
+                      <span className="text-xs text-gray-500">
+                        {ep.scenes_count ?? "?"} 片段 · {ep.status ?? "draft"}
+                      </span>
+                      {epCost && (
+                        <span className="ml-auto flex gap-4 text-xs text-gray-400">
+                          <span>
+                            <span className="text-gray-500">预估 </span>
+                            <span className="text-gray-500">分镜 </span><span className="text-gray-300">{formatCost(epCost.totals.estimate.image)}</span>
+                            <span className="ml-2 text-gray-500">视频 </span><span className="text-gray-300">{formatCost(epCost.totals.estimate.video)}</span>
+                            <span className="ml-2 text-gray-500">总计 </span><span className="font-medium text-amber-400">{formatCost(totalBreakdown(epCost.totals.estimate))}</span>
+                          </span>
+                          <span className="text-gray-700">|</span>
+                          <span>
+                            <span className="text-gray-500">实际 </span>
+                            <span className="text-gray-500">分镜 </span><span className="text-gray-300">{formatCost(epCost.totals.actual.image)}</span>
+                            <span className="ml-2 text-gray-500">视频 </span><span className="text-gray-300">{formatCost(epCost.totals.actual.video)}</span>
+                            <span className="ml-2 text-gray-500">总计 </span><span className="font-medium text-emerald-400">{formatCost(totalBreakdown(epCost.totals.actual))}</span>
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
           </>

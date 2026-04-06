@@ -11,8 +11,10 @@ import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
 import { Popover } from "@/components/ui/Popover";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useCostStore } from "@/stores/cost-store";
 import { ImagePromptEditor } from "./ImagePromptEditor";
 import { VideoPromptEditor } from "./VideoPromptEditor";
+import { formatCost } from "@/utils/cost-format";
 import type {
   NarrationSegment,
   DramaScene,
@@ -674,6 +676,7 @@ export function SegmentCard({
   generatingVideo = false,
 }: SegmentCardProps) {
   const segmentId = getSegmentId(segment, contentMode);
+  const segCost = useCostStore((s) => s.getSegmentCost(segmentId));
   const charNames = getCharacterNames(segment, contentMode);
   const clueNames = getClueNames(segment, contentMode);
 
@@ -696,6 +699,18 @@ export function SegmentCard({
               segmentId={segmentId}
               onUpdatePrompt={onUpdatePrompt}
             />
+            {segCost && (
+              <>
+                <span className="text-gray-700">|</span>
+                <span className="text-[11px] text-gray-600">预估</span>
+                <span className="text-[11px] text-gray-500">分镜 <span className="text-gray-400">{formatCost(segCost.estimate.image)}</span></span>
+                <span className="text-[11px] text-gray-500">视频 <span className="text-gray-400">{formatCost(segCost.estimate.video)}</span></span>
+                <span className="text-gray-700">|</span>
+                <span className="text-[11px] text-gray-600">实际</span>
+                <span className="text-[11px] text-gray-500">分镜 <span className="text-gray-400">{formatCost(segCost.actual.image)}</span></span>
+                <span className="text-[11px] text-gray-500">视频 <span className="text-gray-400">{formatCost(segCost.actual.video)}</span></span>
+              </>
+            )}
           </div>
 
           {/* Right: AvatarStack + ClueStack */}
