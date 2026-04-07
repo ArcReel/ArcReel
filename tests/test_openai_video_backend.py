@@ -116,8 +116,10 @@ class TestOpenAIVideoBackend:
         assert result.duration_seconds == 4
         call_kwargs = mock_client.videos.create_and_poll.call_args[1]
         ref = call_kwargs["input_reference"]
-        assert ref["type"] == "image_url"
-        assert ref["image_url"].startswith("data:image/png;base64,")
+        assert isinstance(ref, tuple)
+        assert ref[0] == "start.png"
+        assert isinstance(ref[1], bytes)
+        assert ref[2] == "image/png"
 
     async def test_failed_video_raises(self, tmp_path: Path):
         error = MagicMock()

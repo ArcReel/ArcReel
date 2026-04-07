@@ -9,6 +9,7 @@ from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
 from lib.retry import with_retry_async
 from lib.video_backends.base import (
+    IMAGE_MIME_TYPES,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -99,9 +100,6 @@ def _map_duration(seconds: int) -> str:
         return "12"
 
 
-def _encode_start_image(image_path: Path) -> tuple:
-    from lib.video_backends.base import IMAGE_MIME_TYPES
-
-    path = Path(image_path)
-    mime = IMAGE_MIME_TYPES.get(path.suffix.lower(), "image/png")
-    return (path.name, path.read_bytes(), mime)
+def _encode_start_image(image_path: Path) -> tuple[str, bytes, str]:
+    mime = IMAGE_MIME_TYPES.get(image_path.suffix.lower(), "image/png")
+    return (image_path.name, image_path.read_bytes(), mime)
