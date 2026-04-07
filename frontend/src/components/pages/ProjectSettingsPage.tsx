@@ -5,8 +5,8 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
-import { getProviderModels, lookupSupportedDurations, DEFAULT_DURATIONS } from "@/utils/provider-models";
-import type { ProviderInfo } from "@/types";
+import { getProviderModels, getCustomProviderModels, lookupSupportedDurations, DEFAULT_DURATIONS } from "@/utils/provider-models";
+import type { CustomProviderInfo, ProviderInfo } from "@/types";
 
 export function ProjectSettingsPage() {
   const params = useParams<{ projectName: string }>();
@@ -40,6 +40,7 @@ export function ProjectSettingsPage() {
   const [aspectRatio, setAspectRatio] = useState<string>("");
   const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [saving, setSaving] = useState(false);
   const initialRef = useRef({
     videoBackend: "", imageBackend: "", audioOverride: null as boolean | null,
@@ -54,7 +55,8 @@ export function ProjectSettingsPage() {
       API.getSystemConfig(),
       API.getProject(projectName),
       getProviderModels().catch(() => [] as ProviderInfo[]),
-    ]).then(([configRes, projectRes, providerList]) => {
+      getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
+    ]).then(([configRes, projectRes, providerList, customProviderList]) => {
       if (disposed) return;
 
       setOptions({
@@ -68,6 +70,7 @@ export function ProjectSettingsPage() {
         image: configRes.settings?.default_image_backend ?? "",
       });
       setProviders(providerList);
+      setCustomProviders(customProviderList);
 
       const project = projectRes.project as unknown as Record<string, unknown>;
       const vb = (project.video_backend as string | undefined) ?? "";
@@ -103,8 +106,8 @@ export function ProjectSettingsPage() {
 
   const effectiveVideoBackend = videoBackend || globalDefaults.video;
   const supportedDurations = useMemo(
-    () => lookupSupportedDurations(providers, effectiveVideoBackend),
-    [providers, effectiveVideoBackend],
+    () => lookupSupportedDurations(providers, effectiveVideoBackend, customProviders),
+    [providers, effectiveVideoBackend, customProviders],
   );
 
   // Derive effective default duration during render — if current value
@@ -119,11 +122,11 @@ export function ProjectSettingsPage() {
     // When video model changes, reset default duration so the UI
     // re-evaluates against the new model's supported durations.
     const effective = value || globalDefaults.video;
-    const durations = lookupSupportedDurations(providers, effective);
+    const durations = lookupSupportedDurations(providers, effective, customProviders);
     if (durations && defaultDuration !== null && !durations.includes(defaultDuration)) {
       setDefaultDuration(null);
     }
-  }, [globalDefaults.video, providers, defaultDuration]);
+  }, [globalDefaults.video, providers, customProviders, defaultDuration]);
 
   const isDirty =
     videoBackend !== initialRef.current.videoBackend ||

@@ -11,8 +11,8 @@ import { AddCharacterForm } from "./lorebook/AddCharacterForm";
 import { AddClueForm } from "./lorebook/AddClueForm";
 import { API } from "@/api";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
-import { getProviderModels, lookupSupportedDurations } from "@/utils/provider-models";
-import type { Clue, ProviderInfo } from "@/types";
+import { getProviderModels, getCustomProviderModels, lookupSupportedDurations } from "@/utils/provider-models";
+import type { Clue, CustomProviderInfo, ProviderInfo } from "@/types";
 
 // ---------------------------------------------------------------------------
 // StudioCanvasRouter — reads Zustand store data and renders the correct
@@ -27,14 +27,16 @@ export function StudioCanvasRouter() {
   const [addingClue, setAddingClue] = useState(false);
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [globalVideoBackend, setGlobalVideoBackend] = useState("");
 
   useEffect(() => {
     let disposed = false;
-    Promise.all([getProviderModels(), API.getSystemConfig()]).then(
-      ([provList, configRes]) => {
+    Promise.all([getProviderModels(), getCustomProviderModels(), API.getSystemConfig()]).then(
+      ([provList, customList, configRes]) => {
         if (disposed) return;
         setProviders(provList);
+        setCustomProviders(customList);
         setGlobalVideoBackend(configRes.settings?.default_video_backend ?? "");
       },
     ).catch(() => {});
@@ -44,8 +46,8 @@ export function StudioCanvasRouter() {
   const durationOptions = useMemo(() => {
     const backend = currentProjectData?.video_backend || globalVideoBackend;
     if (!backend) return undefined;
-    return lookupSupportedDurations(providers, backend);
-  }, [providers, globalVideoBackend, currentProjectData?.video_backend]);
+    return lookupSupportedDurations(providers, backend, customProviders);
+  }, [providers, customProviders, globalVideoBackend, currentProjectData?.video_backend]);
 
   // 从任务队列派生 loading 状态（替代本地 state）
   const tasks = useTasksStore((s) => s.tasks);

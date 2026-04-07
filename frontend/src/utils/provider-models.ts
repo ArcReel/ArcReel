@@ -1,12 +1,18 @@
 import { API } from "@/api";
-import type { ProviderInfo } from "@/types";
+import type { CustomProviderInfo, ProviderInfo } from "@/types";
 
 export const DEFAULT_DURATIONS: readonly number[] = [4, 6, 8];
+
+const CUSTOM_PREFIX = "custom-";
+
+// ---------------------------------------------------------------------------
+// Built-in providers cache
+// ---------------------------------------------------------------------------
 
 let _cache: ProviderInfo[] | null = null;
 let _promise: Promise<ProviderInfo[]> | null = null;
 
-/** Fetch (or return cached) provider list including models. */
+/** Fetch (or return cached) built-in provider list including models. */
 export async function getProviderModels(): Promise<ProviderInfo[]> {
   if (_cache) return _cache;
   if (!_promise) {
@@ -24,25 +30,74 @@ export async function getProviderModels(): Promise<ProviderInfo[]> {
   return _promise;
 }
 
-/** Invalidate cache (call after provider config changes). */
+// ---------------------------------------------------------------------------
+// Custom providers cache
+// ---------------------------------------------------------------------------
+
+let _customCache: CustomProviderInfo[] | null = null;
+let _customPromise: Promise<CustomProviderInfo[]> | null = null;
+
+/** Fetch (or return cached) custom provider list. */
+export async function getCustomProviderModels(): Promise<CustomProviderInfo[]> {
+  if (_customCache) return _customCache;
+  if (!_customPromise) {
+    _customPromise = API.listCustomProviders()
+      .then((res) => {
+        _customCache = res.providers;
+        _customPromise = null;
+        return _customCache;
+      })
+      .catch((err) => {
+        _customPromise = null;
+        throw err;
+      });
+  }
+  return _customPromise;
+}
+
+// ---------------------------------------------------------------------------
+// Cache invalidation
+// ---------------------------------------------------------------------------
+
+/** Invalidate all provider caches (call after provider config changes). */
 export function invalidateProviderModelsCache(): void {
   _cache = null;
   _promise = null;
+  _customCache = null;
+  _customPromise = null;
 }
 
+// ---------------------------------------------------------------------------
+// Lookup
+// ---------------------------------------------------------------------------
+
 /**
- * Given a video backend string like "gemini-aistudio/veo-3.1-generate-preview",
- * look up supported_durations from the provider models data.
+ * Given a video backend string like "gemini-aistudio/veo-3.1-generate-preview"
+ * or "custom-3/my-model", look up supported_durations.
  * Returns undefined if provider/model not found.
  */
 export function lookupSupportedDurations(
   providers: ProviderInfo[],
   videoBackend: string,
+  customProviders?: CustomProviderInfo[],
 ): number[] | undefined {
   const slashIdx = videoBackend.indexOf("/");
   if (slashIdx === -1) return undefined;
   const providerId = videoBackend.slice(0, slashIdx);
   const modelId = videoBackend.slice(slashIdx + 1);
+
+  // Custom provider: "custom-{db_id}/{model_id}"
+  if (providerId.startsWith(CUSTOM_PREFIX) && customProviders) {
+    const dbId = parseInt(providerId.slice(CUSTOM_PREFIX.length), 10);
+    const cp = customProviders.find((p) => p.id === dbId);
+    const model = cp?.models?.find((m) => m.model_id === modelId);
+    if (model?.supported_durations?.length) {
+      return model.supported_durations;
+    }
+    return undefined;
+  }
+
+  // Built-in provider
   const provider = providers.find((p) => p.id === providerId);
   const model = provider?.models?.[modelId];
   return model?.supported_durations?.length

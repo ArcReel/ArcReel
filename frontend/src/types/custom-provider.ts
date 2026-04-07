@@ -19,6 +19,7 @@ export interface CustomProviderModelInfo {
   price_input: number | null;
   price_output: number | null;
   currency: string | null;
+  supported_durations: number[] | null;
 }
 
 export interface DiscoveredModel {
@@ -47,4 +48,5 @@ export interface CustomProviderModelInput {
   price_input?: number;
   price_output?: number;
   currency?: string;
+  supported_durations?: number[] | null;
 }
