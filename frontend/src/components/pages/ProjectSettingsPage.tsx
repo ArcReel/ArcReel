@@ -235,7 +235,15 @@ export function ProjectSettingsPage() {
                         name="aspectRatio"
                         value={ar}
                         checked={aspectRatio === ar}
-                        onChange={() => setAspectRatio(ar)}
+                        onChange={() => {
+                          setAspectRatio(ar);
+                          if (initialRef.current.aspectRatio && ar !== initialRef.current.aspectRatio) {
+                            useAppStore.getState().pushToast(
+                              "已生成的分镜图/视频仍为原比例，建议重新生成",
+                              "warning",
+                            );
+                          }
+                        }}
                         className="sr-only"
                       />
                       {ar === "9:16" ? "竖屏 9:16" : "横屏 16:9"}

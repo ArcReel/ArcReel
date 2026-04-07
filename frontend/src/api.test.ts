@@ -194,6 +194,7 @@ describe("API", () => {
           style: "",
           content_mode: "narration",
           aspect_ratio: "9:16",
+          default_duration: null,
         }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects", {
@@ -203,6 +204,7 @@ describe("API", () => {
           style: "",
           content_mode: "narration",
           aspect_ratio: "9:16",
+          default_duration: null,
         }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b");

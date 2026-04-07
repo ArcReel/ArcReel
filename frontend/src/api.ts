@@ -265,6 +265,7 @@ class API {
     style: string = "",
     contentMode: string = "narration",
     aspectRatio: string = "9:16",
+    defaultDuration: number | null = null,
   ): Promise<{ success: boolean; name: string; project: ProjectData }> {
     return this.request("/projects", {
       method: "POST",
@@ -273,6 +274,7 @@ class API {
         style,
         content_mode: contentMode,
         aspect_ratio: aspectRatio,
+        default_duration: defaultDuration,
       }),
     });
   }

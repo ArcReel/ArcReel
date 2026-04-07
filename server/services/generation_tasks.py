@@ -25,6 +25,7 @@ from lib.prompt_utils import (
     is_structured_video_prompt,
     video_prompt_to_yaml,
 )
+from lib.config.registry import PROVIDER_REGISTRY
 from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_OPENAI
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
@@ -371,6 +372,17 @@ def _normalize_video_prompt(prompt: str | dict) -> str:
     return video_prompt_to_yaml(normalized_prompt)
 
 
+def _get_model_default_duration(provider_name: str, model_name: str | None) -> int:
+    """从 PROVIDER_REGISTRY 查找模型的 supported_durations[0]，找不到则 fallback 4。"""
+    provider_meta = PROVIDER_REGISTRY.get(provider_name)
+    if provider_meta and model_name:
+        model_info = provider_meta.models.get(model_name)
+        if model_info and model_info.supported_durations:
+            return model_info.supported_durations[0]
+    # 自定义供应商或 registry 中无此模型时 fallback
+    return 4
+
+
 def _collect_reference_images(
     project: dict,
     project_path: Path,
@@ -621,12 +633,12 @@ async def execute_video_task(
 
     prompt_text = _normalize_video_prompt(prompt)
     aspect_ratio = get_aspect_ratio(project, "videos")
-    duration_seconds = payload.get("duration_seconds") or project.get("default_duration") or 4
     seed = payload.get("seed")
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
-    # 模型级分辨率：从 video_model_settings.{model}.resolution 读取
+    # 解析 provider / model，供 duration fallback 和分辨率查找共用
     provider_name = payload.get("video_provider") or project.get("video_provider")
+    registry_provider_id = provider_name  # 用于 PROVIDER_REGISTRY 查找的原始 provider_id
     if not provider_name:
         from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
@@ -636,6 +648,7 @@ async def execute_video_task(
             default_provider_id, _ = await _resolver.default_video_backend()
         except Exception:
             default_provider_id = "gemini-aistudio"
+        registry_provider_id = default_provider_id
         provider_name = _PROVIDER_ID_TO_BACKEND.get(default_provider_id, default_provider_id)
     # 将新 provider_id 映射为旧名称以查找分辨率
     resolution_key = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
@@ -644,6 +657,11 @@ async def execute_video_task(
     video_model_settings = project.get("video_model_settings", {})
     model_settings = video_model_settings.get(model_name, {}) if model_name else {}
     resolution = model_settings.get("resolution") or DEFAULT_VIDEO_RESOLUTION.get(resolution_key, "1080p")
+
+    # duration fallback: payload > project.default_duration > supported_durations[0] > 4
+    duration_seconds = payload.get("duration_seconds") or project.get("default_duration")
+    if not duration_seconds:
+        duration_seconds = _get_model_default_duration(registry_provider_id, model_name)
 
     _, version, _, video_uri = await generator.generate_video_async(
         prompt=prompt_text,
