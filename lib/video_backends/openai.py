@@ -99,11 +99,9 @@ def _map_duration(seconds: int) -> str:
         return "12"
 
 
-def _encode_start_image(image_path: Path) -> dict:
-    from lib.image_backends.base import image_to_base64_data_uri
+def _encode_start_image(image_path: Path) -> tuple:
+    from lib.video_backends.base import IMAGE_MIME_TYPES
 
-    data_uri = image_to_base64_data_uri(Path(image_path))
-    return {
-        "type": "image_url",
-        "image_url": data_uri,
-    }
+    path = Path(image_path)
+    mime = IMAGE_MIME_TYPES.get(path.suffix.lower(), "image/png")
+    return (path.name, path.read_bytes(), mime)
