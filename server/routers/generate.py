@@ -5,6 +5,7 @@
 所有生成请求入队到 GenerationQueue，由 GenerationWorker 异步执行。
 """
 
+import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
@@ -106,14 +107,17 @@ async def generate_storyboard(
     生成由 GenerationWorker 异步执行，状态通过 SSE 推送。
     """
     try:
-        get_project_manager().load_project(project_name)
 
-        # 加载剧本验证片段存在
-        script = get_project_manager().load_script(project_name, req.script_file)
-        items, id_field, _, _ = get_storyboard_items(script)
-        resolved = find_storyboard_item(items, id_field, segment_id)
-        if resolved is None:
-            raise HTTPException(status_code=404, detail=f"片段/场景 '{segment_id}' 不存在")
+        def _sync():
+            get_project_manager().load_project(project_name)
+            script = get_project_manager().load_script(project_name, req.script_file)
+            items, id_field, _, _ = get_storyboard_items(script)
+            resolved = find_storyboard_item(items, id_field, segment_id)
+            if resolved is None:
+                raise HTTPException(status_code=404, detail=f"片段/场景 '{segment_id}' 不存在")
+            return _snapshot_image_backend(project_name)
+
+        image_snapshot = await asyncio.to_thread(_sync)
 
         # 验证 prompt 格式
         if isinstance(req.prompt, dict):
@@ -130,7 +134,6 @@ async def generate_storyboard(
 
         # 入队
         queue = get_generation_queue()
-        image_snapshot = _snapshot_image_backend(project_name)
         result = await queue.enqueue_task(
             project_name=project_name,
             task_type="storyboard",
@@ -172,13 +175,15 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
     需要先有分镜图作为起始帧。生成由 GenerationWorker 异步执行。
     """
     try:
-        get_project_manager().load_project(project_name)
-        project_path = get_project_manager().get_project_path(project_name)
 
-        # 检查分镜图是否存在
-        storyboard_file = project_path / "storyboards" / f"scene_{segment_id}.png"
-        if not storyboard_file.exists():
-            raise HTTPException(status_code=400, detail=f"请先生成分镜图 scene_{segment_id}.png")
+        def _sync():
+            get_project_manager().load_project(project_name)
+            project_path = get_project_manager().get_project_path(project_name)
+            storyboard_file = project_path / "storyboards" / f"scene_{segment_id}.png"
+            if not storyboard_file.exists():
+                raise HTTPException(status_code=400, detail=f"请先生成分镜图 scene_{segment_id}.png")
+
+        await asyncio.to_thread(_sync)
 
         # 验证 prompt 格式
         if isinstance(req.prompt, dict):
@@ -243,15 +248,17 @@ async def generate_character(
     提交角色设计图生成任务到队列，立即返回 task_id。
     """
     try:
-        project = get_project_manager().load_project(project_name)
 
-        # 检查角色是否存在
-        if char_name not in project.get("characters", {}):
-            raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
+        def _sync():
+            project = get_project_manager().load_project(project_name)
+            if char_name not in project.get("characters", {}):
+                raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
+            return _snapshot_image_backend(project_name)
+
+        image_snapshot = await asyncio.to_thread(_sync)
 
         # 入队
         queue = get_generation_queue()
-        image_snapshot = _snapshot_image_backend(project_name)
         result = await queue.enqueue_task(
             project_name=project_name,
             task_type="character",
@@ -289,15 +296,17 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
     提交线索设计图生成任务到队列，立即返回 task_id。
     """
     try:
-        project = get_project_manager().load_project(project_name)
 
-        # 检查线索是否存在
-        if clue_name not in project.get("clues", {}):
-            raise HTTPException(status_code=404, detail=f"线索 '{clue_name}' 不存在")
+        def _sync():
+            project = get_project_manager().load_project(project_name)
+            if clue_name not in project.get("clues", {}):
+                raise HTTPException(status_code=404, detail=f"线索 '{clue_name}' 不存在")
+            return _snapshot_image_backend(project_name)
+
+        image_snapshot = await asyncio.to_thread(_sync)
 
         # 入队
         queue = get_generation_queue()
-        image_snapshot = _snapshot_image_backend(project_name)
         result = await queue.enqueue_task(
             project_name=project_name,
             task_type="clue",

@@ -145,26 +145,20 @@ class StatusCalculator:
             return done_videos / total_videos if total_videos > 0 else 0.0
         return 1.0  # completed
 
-    def calculate_project_status(self, project_name: str, project: dict) -> dict:
-        """
-        计算项目整体状态（用于列表 API）。
+    @staticmethod
+    def _make_fallback_ep_stats(script_status: str) -> dict:
+        """构造未生成/无剧本集数的默认统计字典。"""
+        return {
+            "script_status": script_status,
+            "status": "draft",
+            "storyboards": {"total": 0, "completed": 0},
+            "videos": {"total": 0, "completed": 0},
+            "scenes_count": 0,
+            "duration_seconds": 0,
+        }
 
-        Returns:
-            ProjectStatus 字典：current_phase, phase_progress, characters, clues, episodes_summary
-        """
-        project_dir = self.pm.get_project_path(project_name)
-
-        # 角色统计
-        chars = project.get("characters", {})
-        chars_total = len(chars)
-        chars_done = sum(1 for c in chars.values() if self._safe_exists(project_dir, c.get("character_sheet", "")))
-
-        # 线索统计（所有线索，不限 major）
-        clues = project.get("clues", {})
-        clues_total = len(clues)
-        clues_done = sum(1 for c in clues.values() if self._safe_exists(project_dir, c.get("clue_sheet", "")))
-
-        # 每集状态
+    def _build_episodes_stats(self, project_name: str, project: dict) -> list[dict]:
+        """遍历所有集数，加载剧本并计算每集统计。"""
         content_mode = project.get("content_mode", "narration")
         episodes_stats = []
         for ep in project.get("episodes", []):
@@ -184,15 +178,39 @@ class StatusCalculator:
                     ep_stats["status"] = "scripted"
                 ep_stats["script_status"] = "generated"
             else:
-                ep_stats = {
-                    "script_status": script_status,
-                    "storyboards": {"total": 0, "completed": 0},
-                    "videos": {"total": 0, "completed": 0},
-                    "status": "draft",
-                    "scenes_count": 0,
-                    "duration_seconds": 0,
-                }
+                ep_stats = self._make_fallback_ep_stats(script_status)
             episodes_stats.append(ep_stats)
+        return episodes_stats
+
+    def calculate_project_status(
+        self, project_name: str, project: dict, *, _preloaded_episodes_stats: list[dict] | None = None
+    ) -> dict:
+        """
+        计算项目整体状态（用于列表 API）。
+
+        Args:
+            _preloaded_episodes_stats: 若已由 enrich_project 预先计算，直接传入以避免重复 I/O。
+
+        Returns:
+            ProjectStatus 字典：current_phase, phase_progress, characters, clues, episodes_summary
+        """
+        project_dir = self.pm.get_project_path(project_name)
+
+        # 角色统计
+        chars = project.get("characters", {})
+        chars_total = len(chars)
+        chars_done = sum(1 for c in chars.values() if self._safe_exists(project_dir, c.get("character_sheet", "")))
+
+        # 线索统计（所有线索，不限 major）
+        clues = project.get("clues", {})
+        clues_total = len(clues)
+        clues_done = sum(1 for c in clues.values() if self._safe_exists(project_dir, c.get("clue_sheet", "")))
+
+        # 每集状态：优先使用预加载数据，否则自行加载
+        if _preloaded_episodes_stats is not None:
+            episodes_stats = _preloaded_episodes_stats
+        else:
+            episodes_stats = self._build_episodes_stats(project_name, project)
 
         phase = self.calculate_current_phase(project, episodes_stats)
         phase_progress = self._calculate_phase_progress(project, phase, episodes_stats)
@@ -218,40 +236,16 @@ class StatusCalculator:
         为项目数据注入所有计算字段（用于详情 API）。
         不修改原始 JSON 文件，仅用于 API 响应。
         """
-        # 计算每集明细（注入到 episode 对象）
-        content_mode = project.get("content_mode", "narration")
-        episodes_stats = []
-        for ep in project.get("episodes", []):
-            script_file = ep.get("script_file", "")
-            episode_num = ep.get("episode", 0)
+        # 计算每集明细（注入到 episode 对象）并收集统计
+        episodes_stats = self._build_episodes_stats(project_name, project)
 
-            if script_file:
-                script_status, script = self._load_episode_script(
-                    project_name, episode_num, script_file, content_mode=content_mode
-                )
-            else:
-                script_status, script = "none", None
-
-            if script_status == "generated" and script is not None:
-                ep_stats = self.calculate_episode_stats(project_name, script)
-                if ep_stats["status"] == "draft":
-                    ep_stats["status"] = "scripted"
-                ep_stats["script_status"] = "generated"
-            else:
-                ep_stats = {
-                    "script_status": script_status,
-                    "status": "draft",
-                    "storyboards": {"total": 0, "completed": 0},
-                    "videos": {"total": 0, "completed": 0},
-                    "scenes_count": 0,
-                    "duration_seconds": 0,
-                }
-
+        for ep, ep_stats in zip(project.get("episodes", []), episodes_stats):
             ep.update(ep_stats)
-            episodes_stats.append(ep_stats)
 
-        # 计算项目状态
-        project["status"] = self.calculate_project_status(project_name, project)
+        # 传入预加载的 episodes_stats，避免 calculate_project_status 重复加载剧本
+        project["status"] = self.calculate_project_status(
+            project_name, project, _preloaded_episodes_stats=episodes_stats
+        )
         return project
 
     def enrich_script(self, script: dict) -> dict:

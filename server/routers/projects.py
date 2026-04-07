@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import shutil
@@ -108,11 +109,14 @@ async def import_project_archive(
                     break
                 target.write(chunk)
 
-        result = get_archive_service().import_project_archive(
-            Path(upload_path),
-            uploaded_filename=file.filename,
-            conflict_policy=conflict_policy,
-        )
+        def _sync():
+            return get_archive_service().import_project_archive(
+                Path(upload_path),
+                uploaded_filename=file.filename,
+                conflict_policy=conflict_policy,
+            )
+
+        result = await asyncio.to_thread(_sync)
         return {
             "success": True,
             "project_name": result.project_name,
@@ -156,14 +160,17 @@ async def create_export_token(
 ):
     """签发短时效下载 token，用于浏览器原生下载认证。"""
     try:
-        if not get_project_manager().project_exists(name):
-            raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在或未初始化")
         if scope not in ("full", "current"):
             raise HTTPException(status_code=422, detail="scope 必须为 full 或 current")
 
+        def _sync():
+            if not get_project_manager().project_exists(name):
+                raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在或未初始化")
+            return get_archive_service().get_export_diagnostics(name, scope=scope)
+
+        diagnostics = await asyncio.to_thread(_sync)
         username = current_user.sub
         download_token = create_download_token(username, name)
-        diagnostics = get_archive_service().get_export_diagnostics(name, scope=scope)
         return {
             "download_token": download_token,
             "expires_in": 300,
@@ -199,7 +206,9 @@ async def export_project_archive(
         raise HTTPException(status_code=401, detail="下载 token 无效")
 
     try:
-        archive_path, download_name = get_archive_service().export_project(name, scope=scope)
+        archive_path, download_name = await asyncio.to_thread(
+            lambda: get_archive_service().export_project(name, scope=scope)
+        )
         return FileResponse(
             archive_path,
             media_type="application/zip",
@@ -289,82 +298,90 @@ def export_jianying_draft(
 @router.get("/projects")
 async def list_projects(_user: CurrentUser):
     """列出所有项目"""
-    manager = get_project_manager()
-    calculator = get_status_calculator()
-    projects = []
-    for name in manager.list_projects():
-        try:
-            # 尝试加载项目元数据
-            if manager.project_exists(name):
-                project = manager.load_project(name)
-                # 获取缩略图（第一个分镜图）
-                project_dir = manager.get_project_path(name)
-                storyboards_dir = project_dir / "storyboards"
-                thumbnail = None
-                if storyboards_dir.exists():
-                    scene_images = sorted(storyboards_dir.glob("scene_*.png"))
-                    if scene_images:
-                        thumbnail = f"/api/v1/files/{name}/storyboards/{scene_images[0].name}"
 
-                # 使用 StatusCalculator 计算进度（读时计算）
-                status = calculator.calculate_project_status(name, project)
+    def _sync():
+        manager = get_project_manager()
+        calculator = get_status_calculator()
+        projects = []
+        for name in manager.list_projects():
+            try:
+                # 尝试加载项目元数据
+                if manager.project_exists(name):
+                    project = manager.load_project(name)
+                    # 获取缩略图（第一个分镜图）
+                    project_dir = manager.get_project_path(name)
+                    storyboards_dir = project_dir / "storyboards"
+                    thumbnail = None
+                    if storyboards_dir.exists():
+                        scene_images = sorted(storyboards_dir.glob("scene_*.png"))
+                        if scene_images:
+                            thumbnail = f"/api/v1/files/{name}/storyboards/{scene_images[0].name}"
 
+                    # 使用 StatusCalculator 计算进度（读时计算）
+                    status = calculator.calculate_project_status(name, project)
+
+                    projects.append(
+                        {
+                            "name": name,
+                            "title": project.get("title", name),
+                            "style": project.get("style", ""),
+                            "thumbnail": thumbnail,
+                            "status": status,
+                        }
+                    )
+                else:
+                    # 没有 project.json 的项目
+                    projects.append(
+                        {
+                            "name": name,
+                            "title": name,
+                            "style": "",
+                            "thumbnail": None,
+                            "status": {},
+                        }
+                    )
+            except Exception as e:
+                # 出错时返回基本信息
+                logger.warning("加载项目 '%s' 元数据失败: %s", name, e)
                 projects.append(
-                    {
-                        "name": name,
-                        "title": project.get("title", name),
-                        "style": project.get("style", ""),
-                        "thumbnail": thumbnail,
-                        "status": status,
-                    }
+                    {"name": name, "title": name, "style": "", "thumbnail": None, "status": {}, "error": str(e)}
                 )
-            else:
-                # 没有 project.json 的项目
-                projects.append(
-                    {
-                        "name": name,
-                        "title": name,
-                        "style": "",
-                        "thumbnail": None,
-                        "status": {},
-                    }
-                )
-        except Exception as e:
-            # 出错时返回基本信息
-            logger.warning("加载项目 '%s' 元数据失败: %s", name, e)
-            projects.append(
-                {"name": name, "title": name, "style": "", "thumbnail": None, "status": {}, "error": str(e)}
-            )
 
-    return {"projects": projects}
+        return {"projects": projects}
+
+    return await asyncio.to_thread(_sync)
 
 
 @router.post("/projects")
 async def create_project(req: CreateProjectRequest, _user: CurrentUser):
     """创建新项目"""
     try:
-        manager = get_project_manager()
-        title = (req.title or "").strip()
-        manual_name = (req.name or "").strip()
-        if not title and not manual_name:
-            raise HTTPException(status_code=400, detail="项目标题不能为空")
-        project_name = manual_name or manager.generate_project_name(title)
 
-        # 创建项目目录结构
-        manager.create_project(project_name)
-        # 创建项目元数据
-        with project_change_source("webui"):
-            project = manager.create_project_metadata(
-                project_name,
-                title or manual_name,
-                req.style,
-                req.content_mode,
-                aspect_ratio=req.aspect_ratio,
-                default_duration=req.default_duration,
-            )
-        return {"success": True, "name": project_name, "project": project}
+        def _sync():
+            manager = get_project_manager()
+            title = (req.title or "").strip()
+            manual_name = (req.name or "").strip()
+            if not title and not manual_name:
+                raise HTTPException(status_code=400, detail="项目标题不能为空")
+            project_name = manual_name or manager.generate_project_name(title)
+
+            # 创建项目目录结构
+            manager.create_project(project_name)
+            # 创建项目元数据
+            with project_change_source("webui"):
+                project = manager.create_project_metadata(
+                    project_name,
+                    title or manual_name,
+                    req.style,
+                    req.content_mode,
+                    aspect_ratio=req.aspect_ratio,
+                    default_duration=req.default_duration,
+                )
+            return {"success": True, "name": project_name, "project": project}
+
+        return await asyncio.to_thread(_sync)
     except FileExistsError:
-        raise HTTPException(status_code=400, detail=f"项目 '{project_name}' 已存在")
+        raise HTTPException(status_code=400, detail="项目已存在")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
@@ -378,39 +395,46 @@ async def create_project(req: CreateProjectRequest, _user: CurrentUser):
 async def get_project(name: str, _user: CurrentUser):
     """获取项目详情（含实时计算字段）"""
     try:
-        manager = get_project_manager()
-        calculator = get_status_calculator()
-        if not manager.project_exists(name):
-            raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在或未初始化")
 
-        project = manager.load_project(name)
+        def _sync():
+            manager = get_project_manager()
+            calculator = get_status_calculator()
+            if not manager.project_exists(name):
+                raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在或未初始化")
 
-        # 注入计算字段（不写入 JSON，仅用于 API 响应）
-        project = calculator.enrich_project(name, project)
+            project = manager.load_project(name)
 
-        # 加载所有剧本并注入计算字段
-        scripts = {}
-        for ep in project.get("episodes", []):
-            script_file = ep.get("script_file", "")
-            if script_file:
-                try:
-                    script = manager.load_script(name, script_file)
-                    script = calculator.enrich_script(script)
-                    # 使用纯文件名作为 key（去掉 scripts/ 前缀）
-                    key = script_file.replace("scripts/", "", 1) if script_file.startswith("scripts/") else script_file
-                    scripts[key] = script
-                except FileNotFoundError:
-                    pass
+            # 注入计算字段（不写入 JSON，仅用于 API 响应）
+            project = calculator.enrich_project(name, project)
 
-        # 计算媒体文件指纹（用于前端内容寻址缓存）
-        project_path = manager.get_project_path(name)
-        fingerprints = compute_asset_fingerprints(project_path)
+            # 加载所有剧本并注入计算字段
+            scripts = {}
+            for ep in project.get("episodes", []):
+                script_file = ep.get("script_file", "")
+                if script_file:
+                    try:
+                        script = manager.load_script(name, script_file)
+                        script = calculator.enrich_script(script)
+                        key = (
+                            script_file.replace("scripts/", "", 1)
+                            if script_file.startswith("scripts/")
+                            else script_file
+                        )
+                        scripts[key] = script
+                    except FileNotFoundError:
+                        pass
 
-        return {
-            "project": project,
-            "scripts": scripts,
-            "asset_fingerprints": fingerprints,
-        }
+            # 计算媒体文件指纹（用于前端内容寻址缓存）
+            project_path = manager.get_project_path(name)
+            fingerprints = compute_asset_fingerprints(project_path)
+
+            return {
+                "project": project,
+                "scripts": scripts,
+                "asset_fingerprints": fingerprints,
+            }
+
+        return await asyncio.to_thread(_sync)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
     except HTTPException:
@@ -424,49 +448,53 @@ async def get_project(name: str, _user: CurrentUser):
 async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUser):
     """更新项目元数据"""
     try:
-        manager = get_project_manager()
-        project = manager.load_project(name)
 
-        if req.content_mode is not None:
-            raise HTTPException(
-                status_code=400,
-                detail="项目创建后不支持修改 content_mode",
-            )
+        def _sync():
+            manager = get_project_manager()
+            project = manager.load_project(name)
 
-        if req.title is not None:
-            project["title"] = req.title
-        if req.style is not None:
-            project["style"] = req.style
-        for field in (
-            "video_backend",
-            "image_backend",
-            "text_backend_script",
-            "text_backend_overview",
-            "text_backend_style",
-        ):
-            if field in req.model_fields_set:
-                value = getattr(req, field)
-                if value:
-                    validate_backend_value(value, field)
-                    project[field] = value
+            if req.content_mode is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="项目创建后不支持修改 content_mode",
+                )
+
+            if req.title is not None:
+                project["title"] = req.title
+            if req.style is not None:
+                project["style"] = req.style
+            for field in (
+                "video_backend",
+                "image_backend",
+                "text_backend_script",
+                "text_backend_overview",
+                "text_backend_style",
+            ):
+                if field in req.model_fields_set:
+                    value = getattr(req, field)
+                    if value:
+                        validate_backend_value(value, field)
+                        project[field] = value
+                    else:
+                        project.pop(field, None)
+            if "video_generate_audio" in req.model_fields_set:
+                if req.video_generate_audio is None:
+                    project.pop("video_generate_audio", None)
                 else:
-                    project.pop(field, None)
-        if "video_generate_audio" in req.model_fields_set:
-            if req.video_generate_audio is None:
-                project.pop("video_generate_audio", None)
-            else:
-                project["video_generate_audio"] = req.video_generate_audio
-        if "aspect_ratio" in req.model_fields_set and req.aspect_ratio is not None:
-            project["aspect_ratio"] = req.aspect_ratio
-        if "default_duration" in req.model_fields_set:
-            if req.default_duration is None:
-                project.pop("default_duration", None)
-            else:
-                project["default_duration"] = req.default_duration
+                    project["video_generate_audio"] = req.video_generate_audio
+            if "aspect_ratio" in req.model_fields_set and req.aspect_ratio is not None:
+                project["aspect_ratio"] = req.aspect_ratio
+            if "default_duration" in req.model_fields_set:
+                if req.default_duration is None:
+                    project.pop("default_duration", None)
+                else:
+                    project["default_duration"] = req.default_duration
 
-        with project_change_source("webui"):
-            manager.save_project(name, project)
-        return {"success": True, "project": project}
+            with project_change_source("webui"):
+                manager.save_project(name, project)
+            return {"success": True, "project": project}
+
+        return await asyncio.to_thread(_sync)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
     except HTTPException:
@@ -480,9 +508,13 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
 async def delete_project(name: str, _user: CurrentUser):
     """删除项目"""
     try:
-        project_dir = get_project_manager().get_project_path(name)
-        shutil.rmtree(project_dir)
-        return {"success": True, "message": f"项目 '{name}' 已删除"}
+
+        def _sync():
+            project_dir = get_project_manager().get_project_path(name)
+            shutil.rmtree(project_dir)
+            return {"success": True, "message": f"项目 '{name}' 已删除"}
+
+        return await asyncio.to_thread(_sync)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
     except HTTPException:
@@ -496,7 +528,7 @@ async def delete_project(name: str, _user: CurrentUser):
 async def get_script(name: str, script_file: str, _user: CurrentUser):
     """获取剧本内容"""
     try:
-        script = get_project_manager().load_script(name, script_file)
+        script = await asyncio.to_thread(get_project_manager().load_script, name, script_file)
         return {"script": script}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"剧本 '{script_file}' 不存在")
@@ -516,36 +548,40 @@ class UpdateSceneRequest(BaseModel):
 async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user: CurrentUser):
     """更新场景"""
     try:
-        manager = get_project_manager()
-        script = manager.load_script(name, req.script_file)
 
-        # 找到并更新场景
-        scene_found = False
-        for scene in script.get("scenes", []):
-            if scene.get("scene_id") == scene_id:
-                scene_found = True
-                # 更新允许的字段
-                for key, value in req.updates.items():
-                    if key in [
-                        "duration_seconds",
-                        "image_prompt",
-                        "video_prompt",
-                        "characters_in_scene",
-                        "clues_in_scene",
-                        "segment_break",
-                        "note",
-                    ]:
-                        if value is None and key != "note":
-                            continue
-                        scene[key] = value
-                break
+        def _sync():
+            manager = get_project_manager()
+            script = manager.load_script(name, req.script_file)
 
-        if not scene_found:
-            raise HTTPException(status_code=404, detail=f"场景 '{scene_id}' 不存在")
+            # 找到并更新场景
+            scene_found = False
+            for scene in script.get("scenes", []):
+                if scene.get("scene_id") == scene_id:
+                    scene_found = True
+                    # 更新允许的字段
+                    for key, value in req.updates.items():
+                        if key in [
+                            "duration_seconds",
+                            "image_prompt",
+                            "video_prompt",
+                            "characters_in_scene",
+                            "clues_in_scene",
+                            "segment_break",
+                            "note",
+                        ]:
+                            if value is None and key != "note":
+                                continue
+                            scene[key] = value
+                    break
 
-        with project_change_source("webui"):
-            manager.save_script(name, script, req.script_file)
-        return {"success": True, "scene": scene}
+            if not scene_found:
+                raise HTTPException(status_code=404, detail=f"场景 '{scene_id}' 不存在")
+
+            with project_change_source("webui"):
+                manager.save_script(name, script, req.script_file)
+            return {"success": True, "scene": scene}
+
+        return await asyncio.to_thread(_sync)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="剧本不存在")
     except HTTPException:
@@ -576,39 +612,42 @@ class UpdateOverviewRequest(BaseModel):
 async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _user: CurrentUser):
     """更新说书模式片段"""
     try:
-        manager = get_project_manager()
-        script = manager.load_script(name, req.script_file)
 
-        # 检查是否为说书模式
-        if script.get("content_mode") != "narration" and "segments" not in script:
-            raise HTTPException(status_code=400, detail="该剧本不是说书模式，请使用场景更新接口")
+        def _sync():
+            manager = get_project_manager()
+            script = manager.load_script(name, req.script_file)
 
-        # 找到并更新片段
-        segment_found = False
-        for segment in script.get("segments", []):
-            if segment.get("segment_id") == segment_id:
-                segment_found = True
-                # 更新字段
-                if req.duration_seconds is not None:
-                    segment["duration_seconds"] = req.duration_seconds
-                if req.segment_break is not None:
-                    segment["segment_break"] = req.segment_break
-                if req.image_prompt is not None:
-                    segment["image_prompt"] = req.image_prompt
-                if req.video_prompt is not None:
-                    segment["video_prompt"] = req.video_prompt
-                if req.transition_to_next is not None:
-                    segment["transition_to_next"] = req.transition_to_next
-                if "note" in req.model_fields_set:
-                    segment["note"] = req.note
-                break
+            # 检查是否为说书模式
+            if script.get("content_mode") != "narration" and "segments" not in script:
+                raise HTTPException(status_code=400, detail="该剧本不是说书模式，请使用场景更新接口")
 
-        if not segment_found:
-            raise HTTPException(status_code=404, detail=f"片段 '{segment_id}' 不存在")
+            # 找到并更新片段
+            segment_found = False
+            for segment in script.get("segments", []):
+                if segment.get("segment_id") == segment_id:
+                    segment_found = True
+                    if req.duration_seconds is not None:
+                        segment["duration_seconds"] = req.duration_seconds
+                    if req.segment_break is not None:
+                        segment["segment_break"] = req.segment_break
+                    if req.image_prompt is not None:
+                        segment["image_prompt"] = req.image_prompt
+                    if req.video_prompt is not None:
+                        segment["video_prompt"] = req.video_prompt
+                    if req.transition_to_next is not None:
+                        segment["transition_to_next"] = req.transition_to_next
+                    if "note" in req.model_fields_set:
+                        segment["note"] = req.note
+                    break
 
-        with project_change_source("webui"):
-            manager.save_script(name, script, req.script_file)
-        return {"success": True, "segment": segment}
+            if not segment_found:
+                raise HTTPException(status_code=404, detail=f"片段 '{segment_id}' 不存在")
+
+            with project_change_source("webui"):
+                manager.save_script(name, script, req.script_file)
+            return {"success": True, "segment": segment}
+
+        return await asyncio.to_thread(_sync)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="剧本不存在")
     except HTTPException:
@@ -647,47 +686,48 @@ async def set_project_source(
 
     try:
         manager = get_project_manager()
-        if not manager.project_exists(name):
-            raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
 
-        project_dir = manager.get_project_path(name)
-        source_dir = project_dir / "source"
-        source_dir.mkdir(parents=True, exist_ok=True)
-
+        # 异步读取上传文件
+        raw: bytes | None = None
         if file:
-            # 文件上传模式：文件名取自上传文件
             original_name = file.filename or "novel.txt"
             suffix = Path(original_name).suffix.lower()
             if suffix not in ALLOWED_SUFFIXES:
                 raise HTTPException(status_code=400, detail=f"仅支持 .txt / .md 文件，收到: {original_name!r}")
-
-            safe_filename = Path(original_name).name  # 防止路径穿越
-            # 若 Content-Length 可用则提前拒绝超大文件，避免读入内存后才检查
             if file.size is not None and file.size > MAX_CHARS * 4:
                 raise HTTPException(status_code=400, detail=f"文件大小超出限制（最大约 {MAX_CHARS} 字符）")
             raw = await file.read()
-            try:
-                text = raw.decode("utf-8")
-            except UnicodeDecodeError:
-                raise HTTPException(status_code=400, detail="文件编码错误，请使用 UTF-8 编码的文本文件")
 
-            if len(text) > MAX_CHARS:
-                raise HTTPException(
-                    status_code=400, detail=f"文件内容超出最大限制 {MAX_CHARS} 字符（当前 {len(text)}）"
-                )
+        # 同步文件 I/O 在线程中执行
+        def _sync_write():
+            if not manager.project_exists(name):
+                raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
+            project_dir = manager.get_project_path(name)
+            source_dir = project_dir / "source"
+            source_dir.mkdir(parents=True, exist_ok=True)
 
-            (source_dir / safe_filename).write_text(text, encoding="utf-8")
-            chars = len(text)
-        else:
-            # 文本内容模式：固定命名为 novel.txt
-            if len(content) > MAX_CHARS:
-                raise HTTPException(
-                    status_code=400, detail=f"content 超出最大长度 {MAX_CHARS} 字符（当前 {len(content)}）"
-                )
+            if raw is not None:
+                safe_filename = Path(original_name).name
+                try:
+                    text = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    raise HTTPException(status_code=400, detail="文件编码错误，请使用 UTF-8 编码的文本文件")
+                if len(text) > MAX_CHARS:
+                    raise HTTPException(
+                        status_code=400, detail=f"文件内容超出最大限制 {MAX_CHARS} 字符（当前 {len(text)}）"
+                    )
+                (source_dir / safe_filename).write_text(text, encoding="utf-8")
+                return safe_filename, len(text)
+            else:
+                if len(content) > MAX_CHARS:
+                    raise HTTPException(
+                        status_code=400, detail=f"content 超出最大长度 {MAX_CHARS} 字符（当前 {len(content)}）"
+                    )
+                safe_filename = "novel.txt"
+                (source_dir / safe_filename).write_text(content, encoding="utf-8")
+                return safe_filename, len(content)
 
-            safe_filename = "novel.txt"
-            (source_dir / safe_filename).write_text(content, encoding="utf-8")
-            chars = len(content)
+        safe_filename, chars = await asyncio.to_thread(_sync_write)
 
         result: dict = {"success": True, "filename": safe_filename, "chars": chars}
 
@@ -697,7 +737,6 @@ async def set_project_source(
                     overview = await manager.generate_overview(name)
                 result["overview"] = overview
             except Exception as ov_err:
-                # 概述生成失败不影响文件写入成功
                 result["overview"] = None
                 result["overview_error"] = str(ov_err)
 
@@ -737,26 +776,28 @@ async def generate_overview(name: str, _user: CurrentUser):
 async def update_overview(name: str, req: UpdateOverviewRequest, _user: CurrentUser):
     """更新项目概述（手动编辑）"""
     try:
-        manager = get_project_manager()
-        project = manager.load_project(name)
 
-        # 确保 overview 字段存在
-        if "overview" not in project:
-            project["overview"] = {}
+        def _sync():
+            manager = get_project_manager()
+            project = manager.load_project(name)
 
-        # 更新非空字段
-        if req.synopsis is not None:
-            project["overview"]["synopsis"] = req.synopsis
-        if req.genre is not None:
-            project["overview"]["genre"] = req.genre
-        if req.theme is not None:
-            project["overview"]["theme"] = req.theme
-        if req.world_setting is not None:
-            project["overview"]["world_setting"] = req.world_setting
+            if "overview" not in project:
+                project["overview"] = {}
 
-        with project_change_source("webui"):
-            manager.save_project(name, project)
-        return {"success": True, "overview": project["overview"]}
+            if req.synopsis is not None:
+                project["overview"]["synopsis"] = req.synopsis
+            if req.genre is not None:
+                project["overview"]["genre"] = req.genre
+            if req.theme is not None:
+                project["overview"]["theme"] = req.theme
+            if req.world_setting is not None:
+                project["overview"]["world_setting"] = req.world_setting
+
+            with project_change_source("webui"):
+                manager.save_project(name, project)
+            return {"success": True, "overview": project["overview"]}
+
+        return await asyncio.to_thread(_sync)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
     except HTTPException:

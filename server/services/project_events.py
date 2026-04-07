@@ -93,7 +93,7 @@ class ProjectEventService:
         self._loop = None
 
     async def subscribe(self, project_name: str) -> tuple[asyncio.Queue, dict[str, Any]]:
-        self.pm.get_project_path(project_name)
+        await asyncio.to_thread(self.pm.get_project_path, project_name)
         channel = self._channels.get(project_name)
         if channel is None:
             channel = _ProjectChannel()
@@ -189,32 +189,44 @@ class ProjectEventService:
 
         channel.scan_now.clear()
 
-        try:
-            self._ensure_script_index_synced(project_name)
-            snapshot = self._build_snapshot(project_name)
-            fingerprint = _fingerprint(snapshot)
-            channel.snapshot = snapshot
-            channel.fingerprint = fingerprint
-            channel.pending_sources.clear()
-        except Exception:
-            logger.exception("构建显式项目事件快照失败 project=%s", project_name)
+        # 将同步文件 I/O 放到线程池执行，避免阻塞事件循环
+        loop = self._loop
+        if loop is None or loop.is_closed():
             return
 
-        payload = {
-            "project_name": project_name,
-            "batch_id": uuid.uuid4().hex,
-            "fingerprint": fingerprint,
-            "generated_at": _utc_now_iso(),
-            "source": source,
-            "changes": [dict(change) for change in changes],
-        }
-        self._broadcast(project_name, channel, "changes", payload)
+        async def _do():
+            try:
+                snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
+                channel.snapshot = snapshot
+                channel.fingerprint = fingerprint
+                channel.pending_sources.clear()
+            except Exception:
+                logger.exception("构建显式项目事件快照失败 project=%s", project_name)
+                return
+
+            payload = {
+                "project_name": project_name,
+                "batch_id": uuid.uuid4().hex,
+                "fingerprint": fingerprint,
+                "generated_at": _utc_now_iso(),
+                "source": source,
+                "changes": [dict(change) for change in changes],
+            }
+            self._broadcast(project_name, channel, "changes", payload)
+
+        asyncio.ensure_future(_do())
+
+    def _rebuild_snapshot(self, project_name: str) -> tuple[dict[str, Any], str]:
+        """同步方法：重建快照并返回 (snapshot, fingerprint)。"""
+        self._ensure_script_index_synced(project_name)
+        snapshot = self._build_snapshot(project_name)
+        return snapshot, _fingerprint(snapshot)
 
     async def _watch_project(self, project_name: str, channel: _ProjectChannel) -> None:
         try:
             while channel.subscribers:
                 try:
-                    self._scan_project(project_name, channel)
+                    await asyncio.to_thread(self._scan_project, project_name, channel)
                 except asyncio.CancelledError:
                     raise
                 except Exception:

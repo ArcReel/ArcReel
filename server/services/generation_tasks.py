@@ -4,6 +4,7 @@ Task execution service for queued generation jobs.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -235,7 +236,7 @@ async def _resolve_video_backend(
 
     if payload:
         # provider 统一从项目配置 → 全局默认解析，调用方无需传递
-        project = get_project_manager().load_project(project_name)
+        project = await asyncio.to_thread(get_project_manager().load_project, project_name)
         provider_name = project.get("video_provider")
         if not provider_name:
             provider_name = default_video_provider_id
@@ -264,7 +265,7 @@ async def get_media_generator(
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
 
-    project_path = get_project_manager().get_project_path(project_name)
+    project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
     resolver = ConfigResolver(async_session_factory)
 
     image_backend = None
@@ -552,33 +553,31 @@ async def execute_storyboard_task(
     if prompt is None:
         raise ValueError("prompt is required for storyboard task")
 
-    project = get_project_manager().load_project(project_name)
-    project_path = get_project_manager().get_project_path(project_name)
-    script = get_project_manager().load_script(project_name, script_file)
-    items, id_field, char_field, clue_field = get_storyboard_items(script)
+    def _prepare():
+        _project = get_project_manager().load_project(project_name)
+        _project_path = get_project_manager().get_project_path(project_name)
+        _script = get_project_manager().load_script(project_name, script_file)
+        _items, _id_field, _char_field, _clue_field = get_storyboard_items(_script)
 
-    resolved = find_storyboard_item(items, id_field, resource_id)
-    if resolved is None:
-        raise ValueError(f"scene/segment not found: {resource_id}")
-    target_item, _ = resolved
+        _resolved = find_storyboard_item(_items, _id_field, resource_id)
+        if _resolved is None:
+            raise ValueError(f"scene/segment not found: {resource_id}")
+        _target_item, _ = _resolved
 
-    previous_storyboard_path = resolve_previous_storyboard_path(
-        project_path,
-        items,
-        id_field,
-        resource_id,
-    )
+        _prev_path = resolve_previous_storyboard_path(_project_path, _items, _id_field, resource_id)
+        _prompt_text = _normalize_storyboard_prompt(prompt, _project.get("style", ""))
+        _ref_images = _collect_reference_images(
+            _project,
+            _project_path,
+            _target_item,
+            char_field=_char_field,
+            clue_field=_clue_field,
+            extra_reference_images=payload.get("extra_reference_images") or [],
+            previous_storyboard_path=_prev_path,
+        )
+        return _project, _project_path, _prompt_text, _ref_images
 
-    prompt_text = _normalize_storyboard_prompt(prompt, project.get("style", ""))
-    reference_images = _collect_reference_images(
-        project,
-        project_path,
-        target_item,
-        char_field=char_field,
-        clue_field=clue_field,
-        extra_reference_images=payload.get("extra_reference_images") or [],
-        previous_storyboard_path=previous_storyboard_path,
-    )
+    project, project_path, prompt_text, reference_images = await asyncio.to_thread(_prepare)
 
     generator = await get_media_generator(
         project_name,
@@ -596,15 +595,17 @@ async def execute_storyboard_task(
         image_size="1K",
     )
 
-    get_project_manager().update_scene_asset(
-        project_name=project_name,
-        script_filename=script_file,
-        scene_id=resource_id,
-        asset_type="storyboard_image",
-        asset_path=f"storyboards/scene_{resource_id}.png",
-    )
+    def _finalize():
+        get_project_manager().update_scene_asset(
+            project_name=project_name,
+            script_filename=script_file,
+            scene_id=resource_id,
+            asset_type="storyboard_image",
+            asset_path=f"storyboards/scene_{resource_id}.png",
+        )
+        return generator.versions.get_versions("storyboards", resource_id)["versions"][-1]["created_at"]
 
-    created_at = generator.versions.get_versions("storyboards", resource_id)["versions"][-1]["created_at"]
+    created_at = await asyncio.to_thread(_finalize)
 
     return {
         "version": version,
@@ -626,8 +627,10 @@ async def execute_video_task(
     if prompt is None:
         raise ValueError("prompt is required for video task")
 
-    project = get_project_manager().load_project(project_name)
-    project_path = get_project_manager().get_project_path(project_name)
+    def _load():
+        return get_project_manager().load_project(project_name), get_project_manager().get_project_path(project_name)
+
+    project, project_path = await asyncio.to_thread(_load)
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
 
     storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
@@ -685,28 +688,31 @@ async def execute_video_task(
         service_tier=service_tier,
     )
 
-    get_project_manager().update_scene_asset(
-        project_name=project_name,
-        script_filename=script_file,
-        scene_id=resource_id,
-        asset_type="video_clip",
-        asset_path=f"videos/scene_{resource_id}.mp4",
-    )
-
-    if video_uri:
+    def _update_video_metadata():
         get_project_manager().update_scene_asset(
             project_name=project_name,
             script_filename=script_file,
             scene_id=resource_id,
-            asset_type="video_uri",
-            asset_path=video_uri,
+            asset_type="video_clip",
+            asset_path=f"videos/scene_{resource_id}.mp4",
         )
+        if video_uri:
+            get_project_manager().update_scene_asset(
+                project_name=project_name,
+                script_filename=script_file,
+                scene_id=resource_id,
+                asset_type="video_uri",
+                asset_path=video_uri,
+            )
+
+    await asyncio.to_thread(_update_video_metadata)
 
     # 提取视频首帧作为缩略图
     video_file = project_path / f"videos/scene_{resource_id}.mp4"
     thumbnail_file = project_path / f"thumbnails/scene_{resource_id}.jpg"
     if await extract_video_thumbnail(video_file, thumbnail_file):
-        get_project_manager().update_scene_asset(
+        await asyncio.to_thread(
+            get_project_manager().update_scene_asset,
             project_name=project_name,
             script_filename=script_file,
             scene_id=resource_id,
@@ -714,10 +720,11 @@ async def execute_video_task(
             asset_path=f"thumbnails/scene_{resource_id}.jpg",
         )
     else:
-        # 提取失败时清除旧缩略图文件，避免展示与新视频不匹配的封面
         thumbnail_file.unlink(missing_ok=True)
 
-    created_at = generator.versions.get_versions("videos", resource_id)["versions"][-1]["created_at"]
+    created_at = await asyncio.to_thread(
+        lambda: generator.versions.get_versions("videos", resource_id)["versions"][-1]["created_at"]
+    )
 
     return {
         "version": version,
@@ -736,23 +743,24 @@ async def execute_character_task(
     if not prompt:
         raise ValueError("prompt is required for character task")
 
-    project = get_project_manager().load_project(project_name)
-    project_path = get_project_manager().get_project_path(project_name)
+    def _prepare_char():
+        _project = get_project_manager().load_project(project_name)
+        _project_path = get_project_manager().get_project_path(project_name)
+        if resource_id not in _project.get("characters", {}):
+            raise ValueError(f"character not found: {resource_id}")
+        _char_data = _project["characters"][resource_id]
+        _style = _project.get("style", "")
+        _style_desc = _project.get("style_description", "")
+        _full_prompt = build_character_prompt(resource_id, prompt, _style, _style_desc)
+        _ref_images = None
+        _ref_path = _char_data.get("reference_image")
+        if _ref_path:
+            _full_ref = _project_path / _ref_path
+            if _full_ref.exists():
+                _ref_images = [_full_ref]
+        return _project, _full_prompt, _ref_images
 
-    if resource_id not in project.get("characters", {}):
-        raise ValueError(f"character not found: {resource_id}")
-
-    char_data = project["characters"][resource_id]
-    style = project.get("style", "")
-    style_description = project.get("style_description", "")
-    full_prompt = build_character_prompt(resource_id, prompt, style, style_description)
-
-    reference_images = None
-    ref_path = char_data.get("reference_image")
-    if ref_path:
-        full_ref = project_path / ref_path
-        if full_ref.exists():
-            reference_images = [full_ref]
+    project, full_prompt, reference_images = await asyncio.to_thread(_prepare_char)
 
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
     aspect_ratio = get_aspect_ratio(project, "characters")
@@ -768,12 +776,14 @@ async def execute_character_task(
 
     sheet_path = f"characters/{resource_id}.png"
 
-    def _set_character_sheet(p: dict) -> None:
-        p["characters"][resource_id]["character_sheet"] = sheet_path
+    def _finalize_char():
+        def _set_character_sheet(p: dict) -> None:
+            p["characters"][resource_id]["character_sheet"] = sheet_path
 
-    get_project_manager().update_project(project_name, _set_character_sheet)
+        get_project_manager().update_project(project_name, _set_character_sheet)
+        return generator.versions.get_versions("characters", resource_id)["versions"][-1]["created_at"]
 
-    created_at = generator.versions.get_versions("characters", resource_id)["versions"][-1]["created_at"]
+    created_at = await asyncio.to_thread(_finalize_char)
 
     return {
         "version": version,
@@ -791,16 +801,18 @@ async def execute_clue_task(
     if not prompt:
         raise ValueError("prompt is required for clue task")
 
-    project = get_project_manager().load_project(project_name)
+    def _prepare_clue():
+        _project = get_project_manager().load_project(project_name)
+        if resource_id not in _project.get("clues", {}):
+            raise ValueError(f"clue not found: {resource_id}")
+        _clue_data = _project["clues"][resource_id]
+        _style = _project.get("style", "")
+        _style_desc = _project.get("style_description", "")
+        _clue_type = _clue_data.get("type", "prop")
+        _full_prompt = build_clue_prompt(resource_id, prompt, _clue_type, _style, _style_desc)
+        return _project, _full_prompt
 
-    if resource_id not in project.get("clues", {}):
-        raise ValueError(f"clue not found: {resource_id}")
-
-    clue_data = project["clues"][resource_id]
-    style = project.get("style", "")
-    style_description = project.get("style_description", "")
-    clue_type = clue_data.get("type", "prop")
-    full_prompt = build_clue_prompt(resource_id, prompt, clue_type, style, style_description)
+    project, full_prompt = await asyncio.to_thread(_prepare_clue)
 
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
     aspect_ratio = get_aspect_ratio(project, "clues")
@@ -815,12 +827,14 @@ async def execute_clue_task(
 
     sheet_path = f"clues/{resource_id}.png"
 
-    def _set_clue_sheet(p: dict) -> None:
-        p["clues"][resource_id]["clue_sheet"] = sheet_path
+    def _finalize_clue():
+        def _set_clue_sheet(p: dict) -> None:
+            p["clues"][resource_id]["clue_sheet"] = sheet_path
 
-    get_project_manager().update_project(project_name, _set_clue_sheet)
+        get_project_manager().update_project(project_name, _set_clue_sheet)
+        return generator.versions.get_versions("clues", resource_id)["versions"][-1]["created_at"]
 
-    created_at = generator.versions.get_versions("clues", resource_id)["versions"][-1]["created_at"]
+    created_at = await asyncio.to_thread(_finalize_clue)
 
     return {
         "version": version,

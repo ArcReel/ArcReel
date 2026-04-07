@@ -4,6 +4,7 @@
 处理版本查询和还原请求。
 """
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -123,10 +124,13 @@ async def get_versions(
         resource_id: 资源 ID
     """
     try:
-        vm = get_version_manager(project_name)
-        versions_info = vm.get_versions(resource_type, resource_id)
 
-        return {"resource_type": resource_type, "resource_id": resource_id, **versions_info}
+        def _sync():
+            vm = get_version_manager(project_name)
+            versions_info = vm.get_versions(resource_type, resource_id)
+            return {"resource_type": resource_type, "resource_id": resource_id, **versions_info}
+
+        return await asyncio.to_thread(_sync)
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -160,37 +164,41 @@ async def restore_version(
         version: 要还原的版本号
     """
     try:
-        vm = get_version_manager(project_name)
-        project_path = get_project_manager().get_project_path(project_name)
-        current_file, file_path = _resolve_resource_path(resource_type, resource_id, project_path)
 
-        result = vm.restore_version(
-            resource_type=resource_type,
-            resource_id=resource_id,
-            version=version,
-            current_file=current_file,
-        )
+        def _sync():
+            vm = get_version_manager(project_name)
+            project_path = get_project_manager().get_project_path(project_name)
+            current_file, file_path = _resolve_resource_path(resource_type, resource_id, project_path)
 
-        _sync_metadata(resource_type, project_name, resource_id, file_path, project_path)
+            result = vm.restore_version(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                version=version,
+                current_file=current_file,
+            )
 
-        # 计算还原后文件的 fingerprint；视频还原时同步删除缩略图（内容已失效）
-        asset_fingerprints: dict[str, int] = {}
-        if current_file.exists():
-            asset_fingerprints[file_path] = current_file.stat().st_mtime_ns
+            _sync_metadata(resource_type, project_name, resource_id, file_path, project_path)
 
-        if resource_type == "videos":
-            thumbnail_path = project_path / "thumbnails" / f"scene_{resource_id}.jpg"
-            thumbnail_key = f"thumbnails/scene_{resource_id}.jpg"
-            thumbnail_path.unlink(missing_ok=True)
-            # fingerprint=0 通知前端该文件已失效（poster 消失直到重新生成）
-            asset_fingerprints[thumbnail_key] = 0
+            # 计算还原后文件的 fingerprint；视频还原时同步删除缩略图（内容已失效）
+            asset_fingerprints: dict[str, int] = {}
+            if current_file.exists():
+                asset_fingerprints[file_path] = current_file.stat().st_mtime_ns
 
-        return {
-            "success": True,
-            **result,
-            "file_path": file_path,
-            "asset_fingerprints": asset_fingerprints,
-        }
+            if resource_type == "videos":
+                thumbnail_path = project_path / "thumbnails" / f"scene_{resource_id}.jpg"
+                thumbnail_key = f"thumbnails/scene_{resource_id}.jpg"
+                thumbnail_path.unlink(missing_ok=True)
+                # fingerprint=0 通知前端该文件已失效（poster 消失直到重新生成）
+                asset_fingerprints[thumbnail_key] = 0
+
+            return {
+                "success": True,
+                **result,
+                "file_path": file_path,
+                "asset_fingerprints": asset_fingerprints,
+            }
+
+        return await asyncio.to_thread(_sync)
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
