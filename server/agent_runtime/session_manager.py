@@ -325,6 +325,7 @@ class SessionManager:
 - 主动引导用户完成视频创作工作流，而不仅仅被动回答问题
 - 遇到不确定的创作决策时，向用户提出选项并给出建议，而不是自行决定
 - 涉及多步骤任务时，使用 TodoWrite 跟踪进度并向用户汇报
+- 你不能创建或编辑代码文件（.py/.js/.sh 等），Write/Edit 仅限 .json/.md/.txt
 - 你是用户的视频制作搭档，专业、友善、高效"""
 
     def _build_append_prompt(self, project_name: str) -> str:
