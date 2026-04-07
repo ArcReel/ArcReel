@@ -71,6 +71,16 @@ def invalidate_backend_cache() -> None:
     _backend_cache.clear()
 
 
+def _parse_project_backend(raw: str | None) -> tuple[str | None, str | None]:
+    """解析 project.json 中 ``video_backend`` / ``image_backend`` 的 ``"provider/model"`` 格式。"""
+    if not raw:
+        return None, None
+    if "/" in raw:
+        provider, model = raw.split("/", 1)
+        return provider, model
+    return raw, None
+
+
 async def _create_custom_backend(provider_name: str, model_id: str | None, media_type: str):
     """自定义供应商的 backend 创建路径。"""
     from lib.custom_provider import parse_provider_id
@@ -237,13 +247,17 @@ async def _resolve_video_backend(
     if payload:
         # provider 统一从项目配置 → 全局默认解析，调用方无需传递
         project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-        provider_name = project.get("video_provider")
+
+        # 从 project.json 的 video_backend（"provider/model" 格式）解析
+        provider_name, project_model = _parse_project_backend(project.get("video_backend"))
+
         if not provider_name:
             provider_name = default_video_provider_id
             mapped = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
             if mapped == PROVIDER_GEMINI:
                 video_backend_type = "vertex" if default_video_provider_id == "gemini-vertex" else "aistudio"
-        provider_settings = project.get("video_provider_settings", {}).get(provider_name, {})
+
+        provider_settings: dict = {"model": project_model} if project_model else {}
         video_backend = await _get_or_create_video_backend(
             provider_name,
             provider_settings,
@@ -273,9 +287,17 @@ async def get_media_generator(
         image_backend = None
         if require_image_backend:
             image_provider_id, image_model = await r.default_image_backend()
+            # payload 中的 image_provider（由入队时 _snapshot_image_backend 注入）
             if payload and payload.get("image_provider"):
                 image_provider_id = payload["image_provider"]
                 image_model = payload.get("image_model", "") or image_model
+            else:
+                # 直接从 project.json 的 image_backend（"provider/model" 格式）读取
+                project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+                proj_provider, proj_model = _parse_project_backend(project.get("image_backend"))
+                if proj_provider:
+                    image_provider_id = proj_provider
+                    image_model = proj_model or image_model
             image_backend = await _get_or_create_image_backend(
                 image_provider_id,
                 {},
