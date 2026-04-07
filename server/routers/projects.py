@@ -422,7 +422,7 @@ async def get_project(name: str, _user: CurrentUser):
                         )
                         scripts[key] = script
                     except FileNotFoundError:
-                        pass
+                        logger.debug("剧本文件不存在，跳过: %s/%s", name, script_file)
 
             # 计算媒体文件指纹（用于前端内容寻址缓存）
             project_path = manager.get_project_path(name)
