@@ -415,6 +415,93 @@ class TestSessionManagerMore:
         await engine.dispose()
 
     @pytest.mark.asyncio
+    async def test_file_access_hook_blocks_write_non_whitelisted_ext(self, tmp_path):
+        """Hook denies Write/Edit for non-whitelisted file extensions in project dir."""
+        own_project = tmp_path / "projects" / "alpha"
+        own_project.mkdir(parents=True)
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        meta_store = SessionMetaStore(session_factory=factory)
+
+        mgr = sm_mod.SessionManager(
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=meta_store,
+        )
+
+        hook = mgr._build_file_access_hook(own_project)
+
+        # Write .py in project dir — denied
+        result = await hook(
+            {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "helper.py")}},
+            None,
+            None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert ".json" in result["hookSpecificOutput"]["permissionDecisionReason"]
+
+        # Edit .sh in project dir — denied
+        result = await hook(
+            {"tool_name": "Edit", "tool_input": {"file_path": str(own_project / "run.sh")}},
+            None,
+            None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+        # Write .json — allowed
+        result = await hook(
+            {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "project.json")}},
+            None,
+            None,
+        )
+        assert result.get("continue_") is True
+
+        # Write .md — allowed
+        result = await hook(
+            {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "notes.md")}},
+            None,
+            None,
+        )
+        assert result.get("continue_") is True
+
+        # Write .txt — allowed
+        result = await hook(
+            {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "episode.txt")}},
+            None,
+            None,
+        )
+        assert result.get("continue_") is True
+
+        # Read .py — allowed (only write is restricted)
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": str(own_project / "helper.py")}},
+            None,
+            None,
+        )
+        assert result.get("continue_") is True
+
+        # Write file without extension (e.g. Makefile) — denied
+        result = await hook(
+            {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "Makefile")}},
+            None,
+            None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+        # Write .JSON (uppercase) — allowed (case-insensitive check)
+        result = await hook(
+            {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "data.JSON")}},
+            None,
+            None,
+        )
+        assert result.get("continue_") is True
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
     async def test_file_access_hook_allows_read_agent_profile(self, tmp_path):
         """Hook allows Read for agent_runtime_profile/ files."""
         own_project = tmp_path / "projects" / "alpha"

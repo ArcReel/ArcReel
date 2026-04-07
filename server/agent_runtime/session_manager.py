@@ -252,6 +252,7 @@ class SessionManager:
         "Grep": "path",
     }
     _WRITE_TOOLS = {"Write", "Edit"}
+    _WRITABLE_EXTENSIONS = {".json", ".md", ".txt"}
 
     # Sentinel used in pending_user_echoes for image-only messages (no text).
     # The SDK parser drops image blocks, so the replayed UserMessage arrives
@@ -508,18 +509,20 @@ class SessionManager:
             path_key = self._PATH_TOOLS[tool_name]
             file_path = tool_input.get(path_key)
 
-            if file_path and not self._is_path_allowed(
-                file_path,
-                tool_name,
-                project_cwd,
-            ):
-                return {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": ("访问被拒绝：不允许访问当前项目和公共目录之外的路径"),
-                    },
-                }
+            if file_path:
+                allowed, deny_reason = self._is_path_allowed(
+                    file_path,
+                    tool_name,
+                    project_cwd,
+                )
+                if not allowed:
+                    return {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": deny_reason,
+                        },
+                    }
 
             return {"continue_": True}
 
@@ -1540,10 +1543,13 @@ class SessionManager:
         file_path: str,
         tool_name: str,
         project_cwd: Path,
-    ) -> bool:
+    ) -> tuple[bool, str | None]:
         """Check if file_path is allowed for the given tool.
 
-        Write tools: only project_cwd.
+        Returns (allowed, deny_reason).  deny_reason is a human-readable
+        message when allowed is False, None otherwise.
+
+        Write tools: only project_cwd, restricted to _WRITABLE_EXTENSIONS.
         Read tools: project_cwd + project_root + SDK session dir for
         this project (sensitive files protected by settings.json deny rules).
         """
@@ -1551,20 +1557,28 @@ class SessionManager:
             p = Path(file_path)
             resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
         except (ValueError, OSError):
-            return False
+            return False, "访问被拒绝：无效的文件路径"
 
-        # 1. Within project directory — full access (read + write)
+        # 1. Within project directory
         if resolved.is_relative_to(project_cwd):
-            return True
+            if tool_name in self._WRITE_TOOLS:
+                ext = resolved.suffix.lower()
+                if ext not in self._WRITABLE_EXTENSIONS:
+                    return False, (
+                        f"不允许创建/编辑 {ext} 类型的文件。"
+                        "Write/Edit 仅限 .json、.md、.txt 文件。"
+                        "如果你需要执行数据处理，请使用现有的 skill 脚本。"
+                    )
+            return True, None
 
         # 2. Write tools: only project directory allowed
         if tool_name in self._WRITE_TOOLS:
-            return False
+            return False, "访问被拒绝：不允许访问当前项目目录之外的路径"
 
         # 3. Read tools: allow entire project_root for shared resources
         #    Sensitive files protected by settings.json deny rules
         if resolved.is_relative_to(self.project_root):
-            return True
+            return True, None
 
         # 4. Read tools: allow SDK tool-results for THIS project only.
         #    When tool output exceeds the inline limit, the SDK saves the
@@ -1575,7 +1589,7 @@ class SessionManager:
         encoded = self._encode_sdk_project_path(project_cwd)
         sdk_project_dir = self._CLAUDE_PROJECTS_DIR / encoded
         if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
-            return True
+            return True, None
 
         # 5. Read tools: allow SDK task output files.
         #    Background tasks (Agent/Bash run_in_background) write their
@@ -1586,9 +1600,9 @@ class SessionManager:
         _SDK_TMP_PREFIXES = ("/tmp/claude-", "/private/tmp/claude-")
         resolved_str = str(resolved)
         if resolved_str.startswith(_SDK_TMP_PREFIXES) and "tasks" in resolved.parts:
-            return True
+            return True, None
 
-        return False
+        return False, "访问被拒绝：不允许访问当前项目和公共目录之外的路径"
 
     async def _handle_ask_user_question(
         self,
