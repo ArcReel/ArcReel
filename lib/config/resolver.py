@@ -84,8 +84,11 @@ class ConfigResolver:
     @asynccontextmanager
     async def session(self) -> AsyncIterator[ConfigResolver]:
         """打开共享 session，返回绑定到该 session 的 ConfigResolver。"""
-        async with self._session_factory() as sess:
-            yield ConfigResolver(self._session_factory, _bound_session=sess)
+        if self._bound_session is not None:
+            yield self
+        else:
+            async with self._session_factory() as sess:
+                yield ConfigResolver(self._session_factory, _bound_session=sess)
 
     @asynccontextmanager
     async def _open_session(self) -> AsyncIterator[tuple[AsyncSession, ConfigService]]:

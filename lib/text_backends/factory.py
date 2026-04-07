@@ -36,7 +36,7 @@ async def create_text_backend_for_task(
             from lib.db.models.custom_provider import CustomProviderModel
             from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
-            async with async_session_factory() as session:
+            async with r._open_session() as (session, _):
                 repo = CustomProviderRepository(session)
                 db_id = parse_provider_id(provider_id)
                 provider = await repo.get_provider(db_id)
