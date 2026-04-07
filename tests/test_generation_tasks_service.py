@@ -1,3 +1,4 @@
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -295,6 +296,10 @@ class TestGenerationTasks:
         class _FakeResolver:
             def __init__(self, session_factory):
                 self.session_factory = session_factory
+
+            @contextlib.asynccontextmanager
+            async def session(self):
+                yield self
 
             async def default_image_backend(self):
                 raise AssertionError("video tasks should not resolve image backend")

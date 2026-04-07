@@ -8,6 +8,15 @@ from lib.config.service import ProviderStatus
 from lib.db.base import Base
 
 
+async def _make_session():
+    """创建内存 SQLite 数据库并返回 (factory, engine)。"""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    return factory, engine
+
+
 def _make_ready_provider(name: str, media_types: list[str]) -> ProviderStatus:
     return ProviderStatus(
         name=name,
@@ -131,23 +140,33 @@ class TestDefaultBackends:
         fake_svc = _FakeConfigService(
             settings={"default_video_backend": "ark/doubao-seedance-1-5-pro"},
         )
-        result = await resolver._resolve_default_video_backend(fake_svc)
+        result = await resolver._resolve_default_video_backend(fake_svc, None)
         assert result == ("ark", "doubao-seedance-1-5-pro")
 
     async def test_video_backend_auto_resolve(self):
         """DB 无值时走 auto-resolve，选第一个 ready 供应商的默认 video 模型。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
-        result = await resolver._resolve_default_video_backend(fake_svc)
-        # auto-resolve 从 PROVIDER_REGISTRY 找第一个 ready + default video model
-        assert result[0] in ("gemini-aistudio", "gemini-vertex", "ark", "grok")
+        # auto-resolve 会在 PROVIDER_REGISTRY 中找到 ready 供应商，不会走到 custom provider 分支
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                result = await resolver._resolve_default_video_backend(fake_svc, session)
+            assert result[0] in ("gemini-aistudio", "gemini-vertex", "ark", "grok")
+        finally:
+            await engine.dispose()
 
     async def test_video_backend_auto_resolve_no_ready_provider(self):
-        """无 ready 供应商时抛出 ValueError。"""
+        """无 ready 供应商且无自定义供应商时抛出 ValueError。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={}, ready_providers=[])
-        with pytest.raises(ValueError, match="未找到可用的 video 供应商"):
-            await resolver._resolve_default_video_backend(fake_svc)
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                with pytest.raises(ValueError, match="未找到可用的 video 供应商"):
+                    await resolver._resolve_default_video_backend(fake_svc, session)
+        finally:
+            await engine.dispose()
 
     async def test_image_backend_explicit(self):
         """DB 有显式值时直接返回。"""
@@ -155,36 +174,39 @@ class TestDefaultBackends:
         fake_svc = _FakeConfigService(
             settings={"default_image_backend": "grok/grok-2-image"},
         )
-        result = await resolver._resolve_default_image_backend(fake_svc)
+        result = await resolver._resolve_default_image_backend(fake_svc, None)
         assert result == ("grok", "grok-2-image")
 
     async def test_image_backend_auto_resolve(self):
         """DB 无值时走 auto-resolve。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
-        result = await resolver._resolve_default_image_backend(fake_svc)
-        assert result[0] in ("gemini-aistudio", "gemini-vertex", "ark", "grok")
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                result = await resolver._resolve_default_image_backend(fake_svc, session)
+            assert result[0] in ("gemini-aistudio", "gemini-vertex", "ark", "grok")
+        finally:
+            await engine.dispose()
 
     async def test_image_backend_auto_resolve_no_ready_provider(self):
-        """无 ready 供应商时抛出 ValueError。"""
+        """无 ready 供应商且无自定义供应商时抛出 ValueError。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={}, ready_providers=[])
-        with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
-            await resolver._resolve_default_image_backend(fake_svc)
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
+                    await resolver._resolve_default_image_backend(fake_svc, session)
+        finally:
+            await engine.dispose()
 
 
 class TestProviderConfig:
     """验证供应商配置方法委托给 ConfigService。"""
 
-    async def _make_session(self):
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        return factory, engine
-
     async def test_provider_config(self):
-        factory, engine = await self._make_session()
+        factory, engine = await _make_session()
         try:
             resolver = ConfigResolver.__new__(ConfigResolver)
             fake_svc = _FakeConfigService()
@@ -195,12 +217,92 @@ class TestProviderConfig:
             await engine.dispose()
 
     async def test_all_provider_configs(self):
-        factory, engine = await self._make_session()
+        factory, engine = await _make_session()
         try:
             resolver = ConfigResolver.__new__(ConfigResolver)
             fake_svc = _FakeConfigService()
             async with factory() as session:
                 result = await resolver._resolve_all_provider_configs(fake_svc, session)
             assert "gemini-aistudio" in result
+        finally:
+            await engine.dispose()
+
+
+class TestSessionReuse:
+    """验证 session() 上下文管理器的 session 复用行为。"""
+
+    async def test_session_context_manager_reuses_single_session(self):
+        """resolver.session() 下多次调用只创建 1 个 session。"""
+        factory, engine = await _make_session()
+        try:
+            call_count = 0
+            real_call = factory.__call__
+
+            def counting_factory():
+                nonlocal call_count
+                call_count += 1
+                return real_call()
+
+            resolver = ConfigResolver(factory)
+            fake_backend = ("gemini-aistudio", "test-model")
+
+            # 不使用 session()：每次调用创建新 session
+            call_count = 0
+            with (
+                patch.object(resolver, "_session_factory", side_effect=counting_factory),
+                patch.object(resolver, "_resolve_default_video_backend", return_value=fake_backend),
+                patch.object(resolver, "_resolve_default_image_backend", return_value=fake_backend),
+            ):
+                await resolver.default_video_backend()
+                await resolver.default_image_backend()
+            assert call_count == 2, f"不使用 session() 应创建 2 个 session，实际 {call_count}"
+
+            # 使用 session()：只创建 1 个 session
+            call_count = 0
+            with patch.object(resolver, "_session_factory", side_effect=counting_factory):
+                async with resolver.session() as r:
+                    with (
+                        patch.object(r, "_resolve_default_video_backend", return_value=fake_backend),
+                        patch.object(r, "_resolve_default_image_backend", return_value=fake_backend),
+                        patch.object(r, "_resolve_video_generate_audio", return_value=False),
+                    ):
+                        await r.default_video_backend()
+                        await r.default_image_backend()
+                        await r.video_generate_audio()
+            # session() 自身创建 1 个，内部调用复用 bound session 不再创建
+            assert call_count == 1, f"使用 session() 应只创建 1 个 session，实际 {call_count}"
+        finally:
+            await engine.dispose()
+
+    async def test_bound_resolver_shares_session_object(self):
+        """bound resolver 的 _open_session 返回同一个 session 对象。"""
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            sessions_seen = []
+
+            async with resolver.session() as r:
+                async with r._open_session() as (s1, _):
+                    sessions_seen.append(s1)
+                async with r._open_session() as (s2, _):
+                    sessions_seen.append(s2)
+
+            assert sessions_seen[0] is sessions_seen[1]
+        finally:
+            await engine.dispose()
+
+    async def test_unbound_resolver_creates_separate_sessions(self):
+        """未绑定的 resolver 每次 _open_session 创建不同 session。"""
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            sessions_seen = []
+
+            async with resolver._open_session() as (s1, _):
+                sessions_seen.append(s1)
+            async with resolver._open_session() as (s2, _):
+                sessions_seen.append(s2)
+
+            assert sessions_seen[0] is not sessions_seen[1]
         finally:
             await engine.dispose()

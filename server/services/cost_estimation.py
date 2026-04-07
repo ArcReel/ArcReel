@@ -42,21 +42,22 @@ class CostEstimationService:
     ) -> dict[str, Any]:
         episodes_meta = project_data.get("episodes", [])
 
-        # Resolve current model config
-        try:
-            image_provider, image_model = await self._resolver.default_image_backend()
-        except Exception:
-            image_provider, image_model = "unknown", "unknown"
+        # Resolve current model config（共享单一 session）
+        async with self._resolver.session() as r:
+            try:
+                image_provider, image_model = await r.default_image_backend()
+            except Exception:
+                image_provider, image_model = "unknown", "unknown"
 
-        try:
-            video_provider, video_model = await self._resolver.default_video_backend()
-        except Exception:
-            video_provider, video_model = "unknown", "unknown"
+            try:
+                video_provider, video_model = await r.default_video_backend()
+            except Exception:
+                video_provider, video_model = "unknown", "unknown"
 
-        try:
-            generate_audio = await self._resolver.video_generate_audio(project_name)
-        except Exception:
-            generate_audio = False
+            try:
+                generate_audio = await r.video_generate_audio(project_name)
+            except Exception:
+                generate_audio = False
 
         # 项目级视频配置覆盖
         project_video_provider = project_data.get("video_provider")

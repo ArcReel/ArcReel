@@ -24,43 +24,45 @@ async def create_text_backend_for_task(
 ) -> TextBackend:
     """从 DB 配置创建文本 backend。"""
     resolver = ConfigResolver(async_session_factory)
-    provider_id, model_id = await resolver.text_backend_for_task(task_type, project_name)
 
-    # Custom providers use a separate factory path
-    if is_custom_provider(provider_id):
-        from sqlalchemy import select
+    async with resolver.session() as r:
+        provider_id, model_id = await r.text_backend_for_task(task_type, project_name)
 
-        from lib.custom_provider.factory import create_custom_backend
-        from lib.db.models.custom_provider import CustomProviderModel
-        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+        # Custom providers use a separate factory path
+        if is_custom_provider(provider_id):
+            from sqlalchemy import select
 
-        async with async_session_factory() as session:
-            repo = CustomProviderRepository(session)
-            db_id = parse_provider_id(provider_id)
-            provider = await repo.get_provider(db_id)
-            if provider is None:
-                raise ValueError("配置的自定义供应商已被删除，请到项目设置中重新选择文本模型")
-            name = provider.display_name
-            # 校验 model_id 仍存在且已启用，否则回退默认模型
-            if model_id:
-                stmt = select(CustomProviderModel).where(
-                    CustomProviderModel.provider_id == db_id,
-                    CustomProviderModel.model_id == model_id,
-                    CustomProviderModel.media_type == "text",
-                    CustomProviderModel.is_enabled == True,  # noqa: E712
-                )
-                result = await session.execute(stmt)
-                if result.scalar_one_or_none() is None:
-                    model_id = None
-            if not model_id:
-                default_model = await repo.get_default_model(db_id, "text")
-                if default_model:
-                    model_id = default_model.model_id
-                else:
-                    raise ValueError(f"供应商「{name}」没有可用的文本模型，请到项目设置中重新选择")
-            return create_custom_backend(provider=provider, model_id=model_id, media_type="text")
+            from lib.custom_provider.factory import create_custom_backend
+            from lib.db.models.custom_provider import CustomProviderModel
+            from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
-    provider_config = await resolver.provider_config(provider_id)
+            async with async_session_factory() as session:
+                repo = CustomProviderRepository(session)
+                db_id = parse_provider_id(provider_id)
+                provider = await repo.get_provider(db_id)
+                if provider is None:
+                    raise ValueError("配置的自定义供应商已被删除，请到项目设置中重新选择文本模型")
+                name = provider.display_name
+                # 校验 model_id 仍存在且已启用，否则回退默认模型
+                if model_id:
+                    stmt = select(CustomProviderModel).where(
+                        CustomProviderModel.provider_id == db_id,
+                        CustomProviderModel.model_id == model_id,
+                        CustomProviderModel.media_type == "text",
+                        CustomProviderModel.is_enabled == True,  # noqa: E712
+                    )
+                    result = await session.execute(stmt)
+                    if result.scalar_one_or_none() is None:
+                        model_id = None
+                if not model_id:
+                    default_model = await repo.get_default_model(db_id, "text")
+                    if default_model:
+                        model_id = default_model.model_id
+                    else:
+                        raise ValueError(f"供应商「{name}」没有可用的文本模型，请到项目设置中重新选择")
+                return create_custom_backend(provider=provider, model_id=model_id, media_type="text")
+
+        provider_config = await r.provider_config(provider_id)
 
     backend_name = PROVIDER_ID_TO_BACKEND.get(provider_id, provider_id)
     kwargs: dict = {"model": model_id}

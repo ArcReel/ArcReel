@@ -267,26 +267,29 @@ async def get_media_generator(
     project_path = get_project_manager().get_project_path(project_name)
     resolver = ConfigResolver(async_session_factory)
 
-    image_backend = None
-    if require_image_backend:
-        image_provider_id, image_model = await resolver.default_image_backend()
-        if payload and payload.get("image_provider"):
-            image_provider_id = payload["image_provider"]
-            image_model = payload.get("image_model", "") or image_model
-        image_backend = await _get_or_create_image_backend(
-            image_provider_id,
-            {},
-            resolver,
-            default_image_model=image_model,
+    # 初始化阶段共享单一 session
+    async with resolver.session() as r:
+        image_backend = None
+        if require_image_backend:
+            image_provider_id, image_model = await r.default_image_backend()
+            if payload and payload.get("image_provider"):
+                image_provider_id = payload["image_provider"]
+                image_model = payload.get("image_model", "") or image_model
+            image_backend = await _get_or_create_image_backend(
+                image_provider_id,
+                {},
+                r,
+                default_image_model=image_model,
+            )
+
+        # 解析 video backend（保持现有逻辑）
+        video_backend, _, _ = await _resolve_video_backend(
+            project_name,
+            r,
+            payload,
         )
 
-    # 解析 video backend（保持现有逻辑）
-    video_backend, _, _ = await _resolve_video_backend(
-        project_name,
-        resolver,
-        payload,
-    )
-
+    # 传原始 resolver 给 MediaGenerator（后续调用在 session scope 外）
     return MediaGenerator(
         project_path,
         rate_limiter=rate_limiter,
