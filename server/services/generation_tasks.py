@@ -642,8 +642,14 @@ async def execute_video_task(
     # 解析 provider / model，供 duration fallback 和分辨率查找共用
     provider_settings = payload.get("video_provider_settings", {})
     model_name = provider_settings.get("model")
-    provider_name = payload.get("video_provider") or project.get("video_provider")
+    # payload 中 video_provider 由任务入队时设置；project 中存的是 video_backend（"provider/model" 格式）
+    provider_name = payload.get("video_provider")
     registry_provider_id = provider_name  # 用于 PROVIDER_REGISTRY 查找的原始 provider_id
+    if not provider_name:
+        video_backend = project.get("video_backend") or ""
+        if "/" in video_backend:
+            provider_name, model_name = video_backend.split("/", 1)
+            registry_provider_id = provider_name
     if not provider_name:
         from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
