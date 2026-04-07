@@ -8,6 +8,8 @@ import instructor
 from instructor import Mode
 from pydantic import BaseModel
 
+from lib.text_backends.base import TextGenerationResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -114,8 +116,6 @@ def instructor_fallback_sync(
     供 Ark 等同步 SDK 后端使用（调用方用 asyncio.to_thread 包装）。
     不做重试，瞬态错误由调用方的重试循环统一处理。
     """
-    from lib.text_backends.base import TextGenerationResult
-
     if isinstance(response_schema, type):
         json_text, input_tokens, output_tokens = generate_structured_via_instructor(
             client=client,
@@ -138,7 +138,7 @@ def instructor_fallback_sync(
         messages=fb_messages,
         response_format={"type": "json_object"},
     )
-    usage = response.usage
+    usage = getattr(response, "usage", None)
     text = response.choices[0].message.content or ""
     return TextGenerationResult(
         text=text.strip() if isinstance(text, str) else str(text),
@@ -188,11 +188,12 @@ async def instructor_fallback_async(
         messages=fb_messages,
         response_format={"type": "json_object"},
     )
-    usage = response.usage
+    usage = getattr(response, "usage", None)
+    text = response.choices[0].message.content or ""
     return TextGenerationResult(
-        text=response.choices[0].message.content or "",
+        text=text.strip() if isinstance(text, str) else str(text),
         provider=provider,
         model=model,
-        input_tokens=usage.prompt_tokens if usage else None,
-        output_tokens=usage.completion_tokens if usage else None,
+        input_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
+        output_tokens=getattr(usage, "completion_tokens", None) if usage else None,
     )
