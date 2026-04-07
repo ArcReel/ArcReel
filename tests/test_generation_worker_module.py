@@ -151,7 +151,7 @@ class TestExtractProvider:
         assert await _extract_provider(task) == "gemini-vertex"
 
     async def test_project_level_video_provider_takes_precedence(self, monkeypatch):
-        """项目级 video_provider 优先于全局默认。"""
+        """项目级 video_backend 优先于全局默认。"""
 
         async def should_not_be_called(self):
             raise AssertionError("ConfigResolver should not be called")
@@ -162,7 +162,7 @@ class TestExtractProvider:
         )
         monkeypatch.setattr(
             "lib.config.resolver.get_project_manager",
-            lambda: type("PM", (), {"load_project": lambda self, name: {"video_provider": "ark"}})(),
+            lambda: type("PM", (), {"load_project": lambda self, name: {"video_backend": "ark"}})(),
         )
         task = {"payload": {}, "project_name": "test", "task_type": "video"}
         assert await _extract_provider(task) == "ark"
@@ -200,7 +200,10 @@ class TestExtractProvider:
 
 class TestProjectLevelProvider:
     def test_video_provider(self):
-        assert _project_level_provider({"video_provider": "ark"}, "video") == "ark"
+        assert _project_level_provider({"video_backend": "ark"}, "video") == "ark"
+
+    def test_video_backend_with_slash(self):
+        assert _project_level_provider({"video_backend": "grok/grok-imagine-video"}, "video") == "grok"
 
     def test_video_no_override(self):
         assert _project_level_provider({}, "video") is None

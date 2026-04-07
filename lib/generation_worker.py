@@ -71,10 +71,12 @@ class ProviderPool:
 
 
 def _project_level_provider(project: dict, task_type: str) -> str | None:
-    """Read project-level provider override, if any."""
-    if task_type == "video":
-        return project.get("video_provider")
-    project_backend = project.get("image_backend")
+    """Read project-level provider override, if any.
+
+    video/image 均统一从 ``video_backend`` / ``image_backend``（"provider/model" 格式）解析。
+    """
+    field = "video_backend" if task_type == "video" else "image_backend"
+    project_backend = project.get(field)
     if project_backend and "/" in project_backend:
         return project_backend.split("/", 1)[0]
     return project_backend

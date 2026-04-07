@@ -296,8 +296,9 @@ async def get_media_generator(
                 project = await asyncio.to_thread(get_project_manager().load_project, project_name)
                 proj_provider, proj_model = _parse_project_backend(project.get("image_backend"))
                 if proj_provider:
+                    # 仅当 provider 相同时才复用全局默认 model，避免跨 provider model 不匹配
+                    image_model = proj_model or (image_model if proj_provider == image_provider_id else None)
                     image_provider_id = proj_provider
-                    image_model = proj_model or image_model
             image_backend = await _get_or_create_image_backend(
                 image_provider_id,
                 {},
