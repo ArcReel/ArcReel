@@ -865,11 +865,24 @@ class SessionManager:
 
         managed.consumer_task = asyncio.create_task(self._consume_messages(managed))
 
-        # Wait for sdk_session_id with timeout
+        # Wait for sdk_session_id with timeout; also monitor consumer task
+        # so we fail fast if the background task crashes before the event fires.
+        event_task = asyncio.create_task(managed.sdk_id_event.wait())
         try:
-            await asyncio.wait_for(managed.sdk_id_event.wait(), timeout=self._SDK_ID_TIMEOUT)
-        except TimeoutError:
-            logger.error("等待 sdk_session_id 超时 temp_id=%s", temp_id)
+            await asyncio.wait(
+                {event_task, managed.consumer_task},
+                timeout=self._SDK_ID_TIMEOUT,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            if not event_task.done():
+                event_task.cancel()
+
+        if not managed.sdk_id_event.is_set():
+            if managed.consumer_task.done():
+                logger.error("consumer_task 提前退出，未获得 sdk_session_id temp_id=%s", temp_id)
+            else:
+                logger.error("等待 sdk_session_id 超时 temp_id=%s", temp_id)
             managed.cancel_pending_questions("session creation timed out")
             if managed.consumer_task and not managed.consumer_task.done():
                 managed.consumer_task.cancel()
@@ -878,7 +891,7 @@ class SessionManager:
             try:
                 await client.disconnect()
             except Exception as disconnect_err:
-                logger.warning("超时清理断开连接失败: %s", disconnect_err)
+                logger.warning("清理断开连接失败: %s", disconnect_err)
             raise TimeoutError("SDK 会话创建超时")
 
         sdk_id = managed.resolved_sdk_id
