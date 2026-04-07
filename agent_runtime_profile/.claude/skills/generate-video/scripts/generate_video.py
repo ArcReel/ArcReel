@@ -119,7 +119,7 @@ def get_supported_durations(project: dict) -> list[int]:
                 if model_info and model_info.supported_durations:
                     return list(model_info.supported_durations)
         except ImportError:
-            pass
+            pass  # registry 不可用时（如独立运行），回退到 DEFAULT_DURATIONS_FALLBACK
     return DEFAULT_DURATIONS_FALLBACK
 
 

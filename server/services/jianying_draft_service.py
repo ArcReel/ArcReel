@@ -88,7 +88,8 @@ class JianyingDraftService:
 
     def _resolve_canvas_size(self, project: dict, first_video_path: Path | None = None) -> tuple[int, int]:
         """根据项目 aspect_ratio 确定画布尺寸，缺失时从首个视频自动检测"""
-        aspect = project.get("aspect_ratio", {}).get("video")
+        ar = project.get("aspect_ratio")
+        aspect = ar if isinstance(ar, str) else (ar.get("video") if isinstance(ar, dict) else None)
         if aspect is None and first_video_path is not None:
             mat = VideoMaterial(str(first_video_path))
             aspect = "9:16" if mat.height > mat.width else "16:9"

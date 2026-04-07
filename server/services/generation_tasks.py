@@ -303,8 +303,11 @@ def get_aspect_ratio(project: dict, resource_type: str) -> str:
     if resource_type == "clues":
         return "16:9"
     # 优先读顶层字段；缺失时按 content_mode 推导（向后兼容）
-    if "aspect_ratio" in project and isinstance(project["aspect_ratio"], str):
-        return project["aspect_ratio"]
+    val = project.get("aspect_ratio")
+    if isinstance(val, str):
+        return val
+    if isinstance(val, dict) and resource_type in val:
+        return val[resource_type]
     return "9:16" if project.get("content_mode", "narration") == "narration" else "16:9"
 
 
@@ -637,6 +640,8 @@ async def execute_video_task(
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
     # 解析 provider / model，供 duration fallback 和分辨率查找共用
+    provider_settings = payload.get("video_provider_settings", {})
+    model_name = provider_settings.get("model")
     provider_name = payload.get("video_provider") or project.get("video_provider")
     registry_provider_id = provider_name  # 用于 PROVIDER_REGISTRY 查找的原始 provider_id
     if not provider_name:
@@ -645,15 +650,14 @@ async def execute_video_task(
 
         _resolver = ConfigResolver(async_session_factory)
         try:
-            default_provider_id, _ = await _resolver.default_video_backend()
+            default_provider_id, default_model_id = await _resolver.default_video_backend()
         except Exception:
-            default_provider_id = "gemini-aistudio"
+            default_provider_id, default_model_id = "gemini-aistudio", "veo-3.1-lite-generate-preview"
         registry_provider_id = default_provider_id
+        model_name = model_name or default_model_id
         provider_name = _PROVIDER_ID_TO_BACKEND.get(default_provider_id, default_provider_id)
     # 将新 provider_id 映射为旧名称以查找分辨率
     resolution_key = _PROVIDER_ID_TO_BACKEND.get(provider_name, provider_name)
-    provider_settings = payload.get("video_provider_settings", {})
-    model_name = provider_settings.get("model")
     video_model_settings = project.get("video_model_settings", {})
     model_settings = video_model_settings.get(model_name, {}) if model_name else {}
     resolution = model_settings.get("resolution") or DEFAULT_VIDEO_RESOLUTION.get(resolution_key, "1080p")
