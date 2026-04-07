@@ -82,11 +82,13 @@ class OpenAIVideoBackend:
 
         logger.info("OpenAI 视频下载完成: %s", request.output_path)
 
+        duration = video.seconds if video.seconds is not None else int(kwargs["seconds"])
+
         return VideoGenerationResult(
             video_path=request.output_path,
             provider=PROVIDER_OPENAI,
             model=self._model,
-            duration_seconds=int(video.seconds),
+            duration_seconds=int(duration),
             task_id=video.id,
         )
 

@@ -163,6 +163,27 @@ class TestOpenAIVideoBackend:
                 call_kwargs = mock_client.videos.create_and_poll.call_args[1]
                 assert call_kwargs["seconds"] == expected, f"duration={seconds}"
 
+    async def test_video_seconds_none_fallback(self, tmp_path: Path):
+        """当 API 返回 video.seconds=None 时，应回退到请求的 duration。"""
+        mock_client = AsyncMock()
+        mock_client.videos.create_and_poll = AsyncMock(return_value=_make_mock_video(seconds=None))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"v"))
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="test",
+                output_path=output_path,
+                duration_seconds=5,
+            )
+            result = await backend.generate(request)
+
+        # 请求 5 秒 → _map_duration → "8"，回退应返回 8
+        assert result.duration_seconds == 8
+
     async def test_size_mapping(self, tmp_path: Path):
         mock_client = AsyncMock()
         mock_client.videos.create_and_poll = AsyncMock(return_value=_make_mock_video(seconds="4"))
