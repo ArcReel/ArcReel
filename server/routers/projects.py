@@ -365,9 +365,10 @@ async def create_project(req: CreateProjectRequest, _user: CurrentUser):
                 raise HTTPException(status_code=400, detail="项目标题不能为空")
             project_name = manual_name or manager.generate_project_name(title)
 
-            # 创建项目目录结构
-            manager.create_project(project_name)
-            # 创建项目元数据
+            try:
+                manager.create_project(project_name)
+            except FileExistsError:
+                raise HTTPException(status_code=400, detail=f"项目 '{project_name}' 已存在")
             with project_change_source("webui"):
                 project = manager.create_project_metadata(
                     project_name,
@@ -380,8 +381,6 @@ async def create_project(req: CreateProjectRequest, _user: CurrentUser):
             return {"success": True, "name": project_name, "project": project}
 
         return await asyncio.to_thread(_sync)
-    except FileExistsError:
-        raise HTTPException(status_code=400, detail="项目已存在")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
