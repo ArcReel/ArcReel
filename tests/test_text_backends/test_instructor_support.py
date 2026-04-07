@@ -1,11 +1,15 @@
 """instructor_support 模块测试。"""
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import BaseModel
 
-from lib.text_backends.instructor_support import generate_structured_via_instructor
+from lib.text_backends.instructor_support import (
+    generate_structured_via_instructor,
+    instructor_fallback_async,
+    instructor_fallback_sync,
+)
 
 
 class SampleModel(BaseModel):
@@ -102,3 +106,101 @@ class TestGenerateStructuredViaInstructor:
         assert json_text == sample.model_dump_json()
         assert input_tokens is None
         assert output_tokens is None
+
+
+class TestInstructorFallbackSync:
+    """instructor_fallback_sync 高层函数测试。"""
+
+    def test_pydantic_schema_uses_instructor(self):
+        """Pydantic schema 走 instructor 路径，返回正确的 TextGenerationResult。"""
+        sample = SampleModel(name="Alice", age=30)
+
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            return_value=(sample.model_dump_json(), 50, 20),
+        ):
+            result = instructor_fallback_sync(
+                client=MagicMock(),
+                model="test-model",
+                messages=[{"role": "user", "content": "test"}],
+                response_schema=SampleModel,
+                provider="test-provider",
+            )
+
+        assert result.text == sample.model_dump_json()
+        assert result.provider == "test-provider"
+        assert result.model == "test-model"
+        assert result.input_tokens == 50
+        assert result.output_tokens == 20
+
+    def test_dict_schema_uses_json_object(self):
+        """dict schema 走 json_object 路径。"""
+        mock_client = MagicMock()
+        mock_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
+            usage=SimpleNamespace(prompt_tokens=30, completion_tokens=15),
+        )
+        mock_client.chat.completions.create.return_value = mock_response
+
+        result = instructor_fallback_sync(
+            client=mock_client,
+            model="test-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema={"type": "object"},
+            provider="test-provider",
+        )
+
+        assert result.text == '{"key": "value"}'
+        assert result.provider == "test-provider"
+        assert result.input_tokens == 30
+        assert result.output_tokens == 15
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["response_format"] == {"type": "json_object"}
+
+
+class TestInstructorFallbackAsync:
+    """instructor_fallback_async 高层函数测试。"""
+
+    async def test_pydantic_schema_uses_instructor_async(self):
+        """Pydantic schema 走异步 instructor 路径。"""
+        sample = SampleModel(name="Bob", age=25)
+
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor_async",
+            return_value=(sample.model_dump_json(), 40, 18),
+        ):
+            result = await instructor_fallback_async(
+                client=AsyncMock(),
+                model="async-model",
+                messages=[{"role": "user", "content": "test"}],
+                response_schema=SampleModel,
+                provider="async-provider",
+            )
+
+        assert result.text == sample.model_dump_json()
+        assert result.provider == "async-provider"
+        assert result.model == "async-model"
+        assert result.input_tokens == 40
+        assert result.output_tokens == 18
+
+    async def test_dict_schema_uses_json_object_async(self):
+        """dict schema 走异步 json_object 路径。"""
+        mock_client = AsyncMock()
+        mock_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"k": "v"}'))],
+            usage=SimpleNamespace(prompt_tokens=25, completion_tokens=12),
+        )
+        mock_client.chat.completions.create.return_value = mock_response
+
+        result = await instructor_fallback_async(
+            client=mock_client,
+            model="async-model",
+            messages=[{"role": "user", "content": "test"}],
+            response_schema={"type": "object"},
+            provider="async-provider",
+        )
+
+        assert result.text == '{"k": "v"}'
+        assert result.provider == "async-provider"
+        assert result.input_tokens == 25
+        assert result.output_tokens == 12

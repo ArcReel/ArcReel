@@ -153,45 +153,13 @@ async def _instructor_fallback(
     request: TextGenerationRequest,
     messages: list[dict],
 ) -> TextGenerationResult:
-    """Instructor 降级：当原生 response_format 不可用时的备选路径。
+    """Instructor 降级：当原生 response_format 不可用时的备选路径。"""
+    from lib.text_backends.instructor_support import instructor_fallback_async
 
-    本函数不做重试，瞬态错误会抛出到调用方的重试循环中统一处理。
-
-    - response_schema 为 Pydantic 类：使用 instructor 的 create_with_completion
-    - response_schema 为 dict：回退到无结构化输出的普通调用
-    """
-    from lib.text_backends.instructor_support import (
-        generate_structured_via_instructor_async,
-        inject_json_instruction,
+    return await instructor_fallback_async(
+        client=client,
+        model=model,
+        messages=messages,
+        response_schema=request.response_schema,
+        provider=PROVIDER_OPENAI,
     )
-
-    if isinstance(request.response_schema, type):
-        json_text, input_tokens, output_tokens = await generate_structured_via_instructor_async(
-            client=client,
-            model=model,
-            messages=messages,
-            response_model=request.response_schema,
-        )
-        return TextGenerationResult(
-            text=json_text,
-            provider=PROVIDER_OPENAI,
-            model=model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-        )
-    else:
-        logger.info("response_schema 为 dict，无法使用 Instructor，回退到 json_object 模式")
-        fb_messages = inject_json_instruction(messages)
-        response = await client.chat.completions.create(
-            model=model,
-            messages=fb_messages,
-            response_format={"type": "json_object"},
-        )
-        usage = response.usage
-        return TextGenerationResult(
-            text=response.choices[0].message.content or "",
-            provider=PROVIDER_OPENAI,
-            model=model,
-            input_tokens=usage.prompt_tokens if usage else None,
-            output_tokens=usage.completion_tokens if usage else None,
-        )

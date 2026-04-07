@@ -103,33 +103,16 @@ class ArkTextBackend:
 
     async def _structured_fallback(self, request: TextGenerationRequest, messages: list[dict]) -> TextGenerationResult:
         """Instructor / json_object 降级路径。"""
-        from lib.text_backends.instructor_support import generate_structured_via_instructor, inject_json_instruction
+        from lib.text_backends.instructor_support import instructor_fallback_sync
 
-        if isinstance(request.response_schema, type):
-            json_text, input_tokens, output_tokens = await asyncio.to_thread(
-                generate_structured_via_instructor,
-                client=self._openai_client,
-                model=self._model,
-                messages=messages,
-                response_model=request.response_schema,
-            )
-            return TextGenerationResult(
-                text=json_text,
-                provider=PROVIDER_ARK,
-                model=self._model,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-            )
-        else:
-            logger.info("response_schema 为 dict，回退到 json_object 模式")
-            fb_messages = inject_json_instruction(messages)
-            response = await asyncio.to_thread(
-                self._openai_client.chat.completions.create,
-                model=self._model,
-                messages=fb_messages,
-                response_format={"type": "json_object"},
-            )
-            return self._parse_chat_response(response)
+        return await asyncio.to_thread(
+            instructor_fallback_sync,
+            client=self._openai_client,
+            model=self._model,
+            messages=messages,
+            response_schema=request.response_schema,
+            provider=PROVIDER_ARK,
+        )
 
     async def _generate_vision(self, request: TextGenerationRequest) -> TextGenerationResult:
         content: list[dict[str, Any]] = []

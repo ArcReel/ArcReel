@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 import instructor
 from instructor import Mode
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 def generate_structured_via_instructor(
@@ -93,3 +97,102 @@ def inject_json_instruction(messages: list[dict]) -> list[dict]:
     else:
         fb_messages.insert(0, {"role": "system", "content": "Respond in JSON format."})
     return fb_messages
+
+
+def instructor_fallback_sync(
+    client,
+    model: str,
+    messages: list[dict],
+    response_schema: dict | type,
+    provider: str,
+):
+    """同步 Instructor 降级路径。
+
+    - response_schema 为 Pydantic 类 → instructor create_with_completion
+    - response_schema 为 dict → inject JSON instruction + json_object 模式
+
+    供 Ark 等同步 SDK 后端使用（调用方用 asyncio.to_thread 包装）。
+    不做重试，瞬态错误由调用方的重试循环统一处理。
+    """
+    from lib.text_backends.base import TextGenerationResult
+
+    if isinstance(response_schema, type):
+        json_text, input_tokens, output_tokens = generate_structured_via_instructor(
+            client=client,
+            model=model,
+            messages=messages,
+            response_model=response_schema,
+        )
+        return TextGenerationResult(
+            text=json_text,
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+
+    logger.info("response_schema 为 dict，无法使用 Instructor，回退到 json_object 模式")
+    fb_messages = inject_json_instruction(messages)
+    response = client.chat.completions.create(
+        model=model,
+        messages=fb_messages,
+        response_format={"type": "json_object"},
+    )
+    usage = response.usage
+    text = response.choices[0].message.content or ""
+    return TextGenerationResult(
+        text=text.strip() if isinstance(text, str) else str(text),
+        provider=provider,
+        model=model,
+        input_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
+        output_tokens=getattr(usage, "completion_tokens", None) if usage else None,
+    )
+
+
+async def instructor_fallback_async(
+    client,
+    model: str,
+    messages: list[dict],
+    response_schema: dict | type,
+    provider: str,
+):
+    """异步 Instructor 降级路径。
+
+    - response_schema 为 Pydantic 类 → instructor create_with_completion (async)
+    - response_schema 为 dict → inject JSON instruction + json_object 模式 (async)
+
+    供 OpenAI 等原生异步 SDK 后端使用。
+    不做重试，瞬态错误由调用方的重试循环统一处理。
+    """
+    from lib.text_backends.base import TextGenerationResult
+
+    if isinstance(response_schema, type):
+        json_text, input_tokens, output_tokens = await generate_structured_via_instructor_async(
+            client=client,
+            model=model,
+            messages=messages,
+            response_model=response_schema,
+        )
+        return TextGenerationResult(
+            text=json_text,
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+
+    logger.info("response_schema 为 dict，无法使用 Instructor，回退到 json_object 模式")
+    fb_messages = inject_json_instruction(messages)
+    response = await client.chat.completions.create(
+        model=model,
+        messages=fb_messages,
+        response_format={"type": "json_object"},
+    )
+    usage = response.usage
+    return TextGenerationResult(
+        text=response.choices[0].message.content or "",
+        provider=provider,
+        model=model,
+        input_tokens=usage.prompt_tokens if usage else None,
+        output_tokens=usage.completion_tokens if usage else None,
+    )

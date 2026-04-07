@@ -149,7 +149,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         display_name="火山方舟",
         description="字节跳动火山方舟 AI 平台，支持 Seedance 视频生成和 Seedream 图片生成，具备音频生成和种子控制能力。",
         required_keys=["api_key"],
-        optional_keys=["video_rpm", "image_rpm", "request_gap", "video_max_workers", "image_max_workers"],
+        optional_keys=["video_max_workers", "image_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -222,7 +222,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         display_name="Grok",
         description="xAI Grok 模型，支持视频和图片生成。",
         required_keys=["api_key"],
-        optional_keys=["video_rpm", "image_rpm", "request_gap", "video_max_workers", "image_max_workers"],
+        optional_keys=["video_max_workers", "image_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -273,7 +273,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         display_name="OpenAI",
         description="OpenAI 官方平台，支持 GPT-5.4 文本、GPT Image 图片和 Sora 视频生成。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
