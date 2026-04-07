@@ -37,6 +37,11 @@ class _FakePM:
     def save_project(self, project_name, project):
         self.projects[project_name] = project
 
+    def update_project(self, project_name, mutate_fn):
+        project = self.load_project(project_name)
+        mutate_fn(project)
+        self.save_project(project_name, project)
+
 
 def _client(monkeypatch, fake_pm):
     monkeypatch.setattr(characters, "get_project_manager", lambda: fake_pm)

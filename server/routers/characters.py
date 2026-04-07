@@ -72,26 +72,29 @@ async def update_character(
 
         def _sync():
             manager = get_project_manager()
-            project = manager.load_project(project_name)
+            result_char = {}
 
-            if char_name not in project["characters"]:
-                raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
-
-            char = project["characters"][char_name]
-            if req.description is not None:
-                char["description"] = req.description
-            if req.voice_style is not None:
-                char["voice_style"] = req.voice_style
-            if req.character_sheet is not None:
-                char["character_sheet"] = req.character_sheet
-            if req.reference_image is not None:
-                char["reference_image"] = req.reference_image
+            def _mutate(project):
+                if char_name not in project.get("characters", {}):
+                    raise KeyError(char_name)
+                char = project["characters"][char_name]
+                if req.description is not None:
+                    char["description"] = req.description
+                if req.voice_style is not None:
+                    char["voice_style"] = req.voice_style
+                if req.character_sheet is not None:
+                    char["character_sheet"] = req.character_sheet
+                if req.reference_image is not None:
+                    char["reference_image"] = req.reference_image
+                result_char.update(char)
 
             with project_change_source("webui"):
-                manager.save_project(project_name, project)
-            return {"success": True, "character": char}
+                manager.update_project(project_name, _mutate)
+            return {"success": True, "character": result_char}
 
         return await asyncio.to_thread(_sync)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except HTTPException:
@@ -108,17 +111,19 @@ async def delete_character(project_name: str, char_name: str, _user: CurrentUser
 
         def _sync():
             manager = get_project_manager()
-            project = manager.load_project(project_name)
 
-            if char_name not in project["characters"]:
-                raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
+            def _mutate(project):
+                if char_name not in project.get("characters", {}):
+                    raise KeyError(char_name)
+                del project["characters"][char_name]
 
-            del project["characters"][char_name]
             with project_change_source("webui"):
-                manager.save_project(project_name, project)
+                manager.update_project(project_name, _mutate)
             return {"success": True, "message": f"角色 '{char_name}' 已删除"}
 
         return await asyncio.to_thread(_sync)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
     except HTTPException:

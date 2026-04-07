@@ -66,6 +66,7 @@ class ProjectEventService:
         self._listener_unregister = None
         self._batch_listener_unregister = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._pending_batch_tasks: set[asyncio.Task] = set()
 
     async def start(self) -> None:
         if self._listener_unregister is not None or self._batch_listener_unregister is not None:
@@ -85,10 +86,12 @@ class ProjectEventService:
             batch_unregister()
 
         tasks = [channel.task for channel in self._channels.values() if channel.task is not None]
+        tasks.extend(self._pending_batch_tasks)
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        self._pending_batch_tasks.clear()
         self._channels.clear()
         self._loop = None
 
@@ -189,35 +192,45 @@ class ProjectEventService:
 
         channel.scan_now.clear()
 
-        # 将同步文件 I/O 放到线程池执行，避免阻塞事件循环
-        loop = self._loop
-        if loop is None or loop.is_closed():
+        # 文件 I/O 下沉到线程池，状态更新和广播留在事件循环
+        task = asyncio.create_task(
+            self._async_rebuild_and_broadcast(project_name, channel, source, changes),
+            name=f"batch-rebuild-{project_name}",
+        )
+        self._pending_batch_tasks.add(task)
+        task.add_done_callback(self._pending_batch_tasks.discard)
+
+    async def _async_rebuild_and_broadcast(
+        self,
+        project_name: str,
+        channel: _ProjectChannel,
+        source: ProjectChangeSource,
+        changes: tuple[ProjectChangeBatch, ...],
+    ) -> None:
+        """文件 I/O 在线程中执行，状态更新和广播在事件循环线程中执行。"""
+        try:
+            snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
+        except Exception:
+            logger.exception("构建显式项目事件快照失败 project=%s", project_name)
             return
 
-        async def _do():
-            try:
-                snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
-                channel.snapshot = snapshot
-                channel.fingerprint = fingerprint
-                channel.pending_sources.clear()
-            except Exception:
-                logger.exception("构建显式项目事件快照失败 project=%s", project_name)
-                return
+        # 以下在事件循环线程中执行，线程安全
+        channel.snapshot = snapshot
+        channel.fingerprint = fingerprint
+        channel.pending_sources.clear()
 
-            payload = {
-                "project_name": project_name,
-                "batch_id": uuid.uuid4().hex,
-                "fingerprint": fingerprint,
-                "generated_at": _utc_now_iso(),
-                "source": source,
-                "changes": [dict(change) for change in changes],
-            }
-            self._broadcast(project_name, channel, "changes", payload)
-
-        asyncio.ensure_future(_do())
+        payload = {
+            "project_name": project_name,
+            "batch_id": uuid.uuid4().hex,
+            "fingerprint": fingerprint,
+            "generated_at": _utc_now_iso(),
+            "source": source,
+            "changes": [dict(change) for change in changes],
+        }
+        self._broadcast(project_name, channel, "changes", payload)
 
     def _rebuild_snapshot(self, project_name: str) -> tuple[dict[str, Any], str]:
-        """同步方法：重建快照并返回 (snapshot, fingerprint)。"""
+        """同步方法（在线程池中执行）：重建快照并返回 (snapshot, fingerprint)。"""
         self._ensure_script_index_synced(project_name)
         snapshot = self._build_snapshot(project_name)
         return snapshot, _fingerprint(snapshot)
@@ -226,7 +239,10 @@ class ProjectEventService:
         try:
             while channel.subscribers:
                 try:
-                    await asyncio.to_thread(self._scan_project, project_name, channel)
+                    # 仅文件 I/O 在线程中执行
+                    snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
+                    # 状态更新和广播在事件循环线程中执行（线程安全）
+                    self._apply_scan_result(project_name, channel, snapshot, fingerprint)
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -243,11 +259,14 @@ class ProjectEventService:
         except asyncio.CancelledError:
             raise
 
-    def _scan_project(self, project_name: str, channel: _ProjectChannel) -> None:
-        self._ensure_script_index_synced(project_name)
-        snapshot = self._build_snapshot(project_name)
-        fingerprint = _fingerprint(snapshot)
-
+    def _apply_scan_result(
+        self,
+        project_name: str,
+        channel: _ProjectChannel,
+        snapshot: dict[str, Any],
+        fingerprint: str,
+    ) -> None:
+        """在事件循环线程中更新 channel 状态并广播变更。"""
         if channel.snapshot is None:
             channel.snapshot = snapshot
             channel.fingerprint = fingerprint
