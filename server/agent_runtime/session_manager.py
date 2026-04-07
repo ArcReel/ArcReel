@@ -239,6 +239,7 @@ class SessionManager:
     _DISCONNECT_TIMEOUT = 8.0
     _TERMINATE_WAIT_TIMEOUT = 2.0
     _KILL_WAIT_TIMEOUT = 2.0
+    _SDK_ID_TIMEOUT = 60.0
 
     # Bash is NOT in DEFAULT_ALLOWED_TOOLS — it is controlled by declarative
     # allow rules in settings.json (whitelist approach, default deny).
@@ -866,7 +867,7 @@ class SessionManager:
 
         # Wait for sdk_session_id with timeout
         try:
-            await asyncio.wait_for(managed.sdk_id_event.wait(), timeout=10.0)
+            await asyncio.wait_for(managed.sdk_id_event.wait(), timeout=self._SDK_ID_TIMEOUT)
         except TimeoutError:
             logger.error("等待 sdk_session_id 超时 temp_id=%s", temp_id)
             managed.cancel_pending_questions("session creation timed out")
