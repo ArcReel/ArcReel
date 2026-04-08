@@ -1,4 +1,4 @@
-"""OpenAI 视频后端 resolution 参数映射测试。"""
+"""Tests for the OpenAI video backend resolution parameter mapping."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from lib.video_backends.openai import _resolve_size
 
 
 class TestResolveSizeFunction:
-    """直接测试 _resolve_size 辅助函数。"""
+    """Direct tests for the _resolve_size helper function."""
 
     def test_sora2_720p_9_16(self):
         assert _resolve_size("720p", "9:16") == "720x1280"
@@ -27,20 +27,20 @@ class TestResolveSizeFunction:
         assert _resolve_size("1024p", "16:9") == "1792x1024"
 
     def test_default_fallback_unknown_resolution(self):
-        """未知 resolution 应回退到默认值 720x1280。"""
+        """Unknown resolution should fall back to the default 720x1280."""
         assert _resolve_size("2160p", "9:16") == "720x1280"
 
     def test_default_fallback_unknown_aspect_ratio(self):
-        """未知 aspect_ratio 应回退到默认值 720x1280。"""
+        """Unknown aspect_ratio should fall back to the default 720x1280."""
         assert _resolve_size("720p", "4:3") == "720x1280"
 
     def test_default_fallback_both_unknown(self):
-        """resolution 和 aspect_ratio 均未知时回退到默认值。"""
+        """Both unknown resolution and aspect_ratio should fall back to 720x1280."""
         assert _resolve_size("unknown", "unknown") == "720x1280"
 
 
 class TestGenerateUsesResolution:
-    """验证 generate() 实际传递给 API 的 size 参数会根据 resolution 变化。"""
+    """Verify that the size parameter actually passed to the API by generate() varies with resolution."""
 
     async def _run_generate(self, tmp_path, resolution, aspect_ratio, mock_client):
         from lib.video_backends.base import VideoGenerationRequest
@@ -101,7 +101,7 @@ class TestGenerateUsesResolution:
         assert size == "1920x1080"
 
     async def test_generate_default_fallback(self, tmp_path):
-        """不支持的 resolution + aspect_ratio 组合应回退到 720x1280。"""
+        """Unsupported resolution + aspect_ratio combination should fall back to 720x1280."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
         mock_video = MagicMock()

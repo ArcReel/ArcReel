@@ -78,7 +78,7 @@ class _FakeUsage:
 
 
 class _FakeConfigResolver:
-    """Fake ConfigResolver，返回可控的配置值。"""
+    """Fake ConfigResolver that returns controllable configuration values."""
 
     def __init__(self, video_generate_audio: bool = False):
         self._video_generate_audio = video_generate_audio
@@ -161,7 +161,7 @@ class TestMediaGenerator:
 
     @pytest.mark.asyncio
     async def test_video_generate_audio_from_config_resolver(self, tmp_path):
-        """验证 generate_video_async 通过 ConfigResolver 获取 audio 设置。"""
+        """Verify that generate_video_async retrieves the audio setting via ConfigResolver."""
         gen = _build_generator(tmp_path)
         gen._config = _FakeConfigResolver(video_generate_audio=False)
 
@@ -170,12 +170,12 @@ class TestMediaGenerator:
             resource_type="videos",
             resource_id="E1S03",
         )
-        # VideoBackend 路径尊重 ConfigResolver 返回的值
+        # The VideoBackend path respects the value returned by ConfigResolver
         assert gen.usage_tracker.started[-1]["generate_audio"] is False
 
     @pytest.mark.asyncio
     async def test_video_generate_audio_respects_config_true(self, tmp_path):
-        """验证 video_backend 尊重 ConfigResolver 返回的 True。"""
+        """Verify that video_backend respects the True value returned by ConfigResolver."""
         gen = _build_generator(tmp_path)
         gen._config = _FakeConfigResolver(video_generate_audio=True)
 

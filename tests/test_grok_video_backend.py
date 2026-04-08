@@ -1,4 +1,4 @@
-"""GrokVideoBackend 单元测试。"""
+"""Unit tests for GrokVideoBackend."""
 
 from __future__ import annotations
 

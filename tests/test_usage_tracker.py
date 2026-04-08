@@ -109,7 +109,7 @@ class TestUsageTracker:
             project_name="demo",
             call_type="text",
             model="gemini-3-flash-preview",
-            prompt="测试 prompt",
+            prompt="test prompt",
             provider="gemini",
         )
         await tracker.finish_call(
@@ -160,7 +160,7 @@ class TestUsageTracker:
 
 class TestActualCostsBySegment:
     async def test_aggregates_costs_by_segment_and_type(self, tracker):
-        # E1S001: image 两次成功（累计）
+        # E1S001: image, two successes (cumulative)
         c1 = await tracker.start_call(
             "proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001"
         )
@@ -170,19 +170,19 @@ class TestActualCostsBySegment:
         )
         await tracker.finish_call(c2, status="success", output_path="b.png")
 
-        # E1S001: video 一次成功
+        # E1S001: video, one success
         c3 = await tracker.start_call(
             "proj", "video", "veo-3.1-generate-001", resolution="1080p", duration_seconds=6, segment_id="E1S001"
         )
         await tracker.finish_call(c3, status="success", output_path="v.mp4")
 
-        # E1S002: image 一次成功
+        # E1S002: image, one success
         c4 = await tracker.start_call(
             "proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S002"
         )
         await tracker.finish_call(c4, status="success", output_path="c.png")
 
-        # 失败的不计入
+        # Failed calls are not counted
         c5 = await tracker.start_call(
             "proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001"
         )
@@ -197,7 +197,7 @@ class TestActualCostsBySegment:
         assert result["E1S002"]["image"]["USD"] == pytest.approx(0.067)
 
     async def test_project_level_costs(self, tracker):
-        # 角色生成（无 segment_id）
+        # Character generation (no segment_id)
         c1 = await tracker.start_call("proj", "image", "gemini-3.1-flash-image-preview", resolution="1K")
         await tracker.finish_call(c1, status="success", output_path="char.png")
 

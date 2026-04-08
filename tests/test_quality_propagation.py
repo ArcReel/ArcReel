@@ -1,11 +1,11 @@
-"""quality 参数传递链单元测试。
+"""Unit tests for the quality parameter propagation chain.
 
-覆盖范围：
-1. ImageGenerationResult 接受并存储 quality 字段
-2. ImageGenerationResult quality 默认为 None
-3. OpenAIImageBackend._save_and_return 在结果中填充 quality
-4. UsageTracker.finish_call 透传 quality 到 UsageRepository
-5. UsageRepository.finish_call 透传 quality 到 CostCalculator
+Coverage:
+1. ImageGenerationResult accepts and stores the quality field
+2. ImageGenerationResult quality defaults to None
+3. OpenAIImageBackend._save_and_return populates quality in the result
+4. UsageTracker.finish_call passes quality through to UsageRepository
+5. UsageRepository.finish_call passes quality through to CostCalculator
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ class TestImageGenerationResultQualityField:
 
 
 def _make_mock_image_response(b64_data: str = "aW1hZ2VfZGF0YQ=="):
-    """构造 mock ImagesResponse。"""
+    """Build a mock ImagesResponse."""
     datum = MagicMock()
     datum.b64_json = b64_data
     response = MagicMock()
@@ -70,7 +70,7 @@ def _make_mock_image_response(b64_data: str = "aW1hZ2VfZGF0YQ=="):
 
 class TestOpenAIImageBackendQuality:
     async def test_generate_result_contains_quality(self, tmp_path: Path):
-        """generate() 返回的 ImageGenerationResult 应包含正确的 quality 值。"""
+        """generate() should return an ImageGenerationResult with the correct quality value."""
         b64_data = base64.b64encode(b"fake-png").decode()
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
@@ -91,7 +91,7 @@ class TestOpenAIImageBackendQuality:
         assert result.quality == "medium"
 
     async def test_quality_propagated_for_all_sizes(self, tmp_path: Path):
-        """所有 image_size 值都应正确映射到 quality 字段。"""
+        """All image_size values should map correctly to the quality field."""
         b64_data = base64.b64encode(b"img").decode()
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
@@ -119,7 +119,7 @@ class TestOpenAIImageBackendQuality:
                 assert result.quality == expected_quality, f"image_size={img_size}"
 
     async def test_unknown_size_defaults_to_medium(self, tmp_path: Path):
-        """未知 image_size 应 fallback 到 'medium'。"""
+        """Unknown image_size should fall back to 'medium'."""
         b64_data = base64.b64encode(b"img").decode()
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
@@ -141,13 +141,13 @@ class TestOpenAIImageBackendQuality:
 
 
 # ---------------------------------------------------------------------------
-# 4: UsageTracker.finish_call 透传 quality
+# 4: UsageTracker.finish_call passes quality through
 # ---------------------------------------------------------------------------
 
 
 class TestUsageTrackerQualityPropagation:
     async def test_finish_call_passes_quality_to_repo(self):
-        """UsageTracker.finish_call 应将 quality 传递给 UsageRepository.finish_call。"""
+        """UsageTracker.finish_call should pass quality to UsageRepository.finish_call."""
         mock_repo = AsyncMock()
         mock_session = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
@@ -174,7 +174,7 @@ class TestUsageTrackerQualityPropagation:
         assert call_kwargs.get("quality") == "high"
 
     async def test_finish_call_quality_defaults_none(self):
-        """未传 quality 时，UsageTracker 应传 quality=None 给 repo。"""
+        """When quality is not provided, UsageTracker should pass quality=None to the repo."""
         mock_repo = AsyncMock()
         mock_session = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
@@ -196,13 +196,13 @@ class TestUsageTrackerQualityPropagation:
 
 
 # ---------------------------------------------------------------------------
-# 5: UsageRepository.finish_call 透传 quality 到 CostCalculator
+# 5: UsageRepository.finish_call passes quality through to CostCalculator
 # ---------------------------------------------------------------------------
 
 
 class TestUsageRepositoryQualityToCostCalculator:
     async def test_quality_passed_to_calculate_cost(self):
-        """UsageRepository.finish_call 应将 quality 传给 CostCalculator.calculate_cost。"""
+        """UsageRepository.finish_call should pass quality to CostCalculator.calculate_cost."""
         from lib.db.models.api_call import ApiCall
         from lib.providers import PROVIDER_OPENAI
 
@@ -242,7 +242,7 @@ class TestUsageRepositoryQualityToCostCalculator:
         assert call_kwargs.get("quality") == "high"
 
     async def test_quality_none_when_not_provided(self):
-        """未传 quality 时，CostCalculator 应收到 quality=None。"""
+        """When quality is not provided, CostCalculator should receive quality=None."""
         from lib.db.models.api_call import ApiCall
         from lib.providers import PROVIDER_OPENAI
 

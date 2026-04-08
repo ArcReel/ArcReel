@@ -118,8 +118,8 @@ class TestBatchEnqueueAndWaitSync:
         ]
 
         specs = [
-            BatchTaskSpec(task_type="character", media_type="image", resource_id="张三"),
-            BatchTaskSpec(task_type="character", media_type="image", resource_id="李四"),
+            BatchTaskSpec(task_type="character", media_type="image", resource_id="Alice"),
+            BatchTaskSpec(task_type="character", media_type="image", resource_id="Bob"),
         ]
         successes, failures = batch_enqueue_and_wait_sync(
             project_name="demo",
@@ -128,7 +128,7 @@ class TestBatchEnqueueAndWaitSync:
 
         assert len(successes) == 2
         assert len(failures) == 0
-        assert {s.resource_id for s in successes} == {"张三", "李四"}
+        assert {s.resource_id for s in successes} == {"Alice", "Bob"}
         assert mock_enqueue.call_count == 2
         assert mock_wait.call_count == 2
 
@@ -145,8 +145,8 @@ class TestBatchEnqueueAndWaitSync:
         ]
 
         specs = [
-            BatchTaskSpec(task_type="clue", media_type="image", resource_id="玉佩"),
-            BatchTaskSpec(task_type="clue", media_type="image", resource_id="老槐树"),
+            BatchTaskSpec(task_type="clue", media_type="image", resource_id="jade-pendant"),
+            BatchTaskSpec(task_type="clue", media_type="image", resource_id="old-tree"),
         ]
         successes, failures = batch_enqueue_and_wait_sync(
             project_name="demo",
@@ -155,7 +155,7 @@ class TestBatchEnqueueAndWaitSync:
 
         assert len(successes) == 1
         assert len(failures) == 1
-        assert failures[0].resource_id in ("玉佩", "老槐树")
+        assert failures[0].resource_id in ("jade-pendant", "old-tree")
         assert failures[0].status == "failed"
 
     @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)

@@ -125,7 +125,7 @@ class TestVersionsRouter:
         assert sorted(fake_pm.update_calls) == ["a.json", "b.json", "c.json"]
 
     def test_restore_returns_asset_fingerprints(self, monkeypatch, tmp_path):
-        """版本还原应返回受影响文件的 fingerprint"""
+        """Version restore should return fingerprints of affected files."""
         fake_pm = _FakePM()
         fake_pm.get_project_path = lambda name: tmp_path
 

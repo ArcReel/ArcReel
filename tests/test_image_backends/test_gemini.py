@@ -1,4 +1,4 @@
-"""GeminiImageBackend 单元测试。"""
+"""Unit tests for GeminiImageBackend."""
 
 from __future__ import annotations
 
@@ -134,7 +134,7 @@ class TestGenerate:
     async def test_generate_with_reference_images(self, backend_aistudio, tmp_path):
         """generate() should build contents with reference images."""
         output_file = tmp_path / "out.png"
-        ref_img_path = tmp_path / "characters" / "角色A.png"
+        ref_img_path = tmp_path / "characters" / "CharacterA.png"
         ref_img_path.parent.mkdir(parents=True, exist_ok=True)
         # Create a small test image
         PILImage.new("RGB", (10, 10), "blue").save(ref_img_path)
@@ -151,7 +151,7 @@ class TestGenerate:
         request = ImageGenerationRequest(
             prompt="draw character",
             output_path=output_file,
-            reference_images=[ReferenceImage(path=str(ref_img_path), label="角色A")],
+            reference_images=[ReferenceImage(path=str(ref_img_path), label="CharacterA")],
         )
         await backend_aistudio.generate(request)
 
@@ -160,7 +160,7 @@ class TestGenerate:
         contents = call_kwargs.kwargs.get("contents") or call_kwargs[1].get("contents")
         # At minimum: label string, PIL image, prompt string
         assert len(contents) >= 3
-        assert contents[0] == "角色A"
+        assert contents[0] == "CharacterA"
         assert contents[-1] == "draw character"
 
     async def test_generate_raises_on_empty_response(self, backend_aistudio, tmp_path):
@@ -172,7 +172,7 @@ class TestGenerate:
         backend_aistudio._client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
         request = ImageGenerationRequest(prompt="test", output_path=output_file)
-        with pytest.raises(RuntimeError, match="未返回图片"):
+        with pytest.raises(RuntimeError, match="did not return an image"):
             await backend_aistudio.generate(request)
 
 
@@ -183,7 +183,7 @@ class TestGenerate:
 
 class TestHelpers:
     def test_extract_name_from_path_normal(self, backend_aistudio):
-        assert backend_aistudio._extract_name_from_path("/path/to/角色A.png") == "角色A"
+        assert backend_aistudio._extract_name_from_path("/path/to/CharacterA.png") == "CharacterA"
 
     def test_extract_name_skips_scene_prefix(self, backend_aistudio):
         assert backend_aistudio._extract_name_from_path("/path/scene_001.png") is None

@@ -1,4 +1,4 @@
-"""base_url 归一化工具函数测试。"""
+"""Tests for the base_url normalisation utility functions."""
 
 from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url, normalize_base_url
 
@@ -27,7 +27,7 @@ class TestNormalizeBaseUrl:
 
 
 class TestEnsureOpenaiBaseUrl:
-    """ensure_openai_base_url 自动追加 /v1 后缀。"""
+    """ensure_openai_base_url automatically appends the /v1 suffix."""
 
     def test_none_returns_none(self):
         assert ensure_openai_base_url(None) is None
@@ -64,7 +64,7 @@ class TestEnsureOpenaiBaseUrl:
 
 
 class TestEnsureGoogleBaseUrl:
-    """ensure_google_base_url 剥离版本路径，防止 SDK 重复拼接。"""
+    """ensure_google_base_url strips version path segments to prevent the SDK from doubling them."""
 
     def test_none_returns_none(self):
         assert ensure_google_base_url(None) is None

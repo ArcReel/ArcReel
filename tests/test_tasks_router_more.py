@@ -127,7 +127,7 @@ class TestTasksRouterMore:
         with TestClient(app) as client:
             resp = client.get("/api/v1/tasks/missing-task")
             assert resp.status_code == 404
-            assert "不存在" in resp.json()["detail"]
+            assert "does not exist" in resp.json()["detail"]
 
     def test_transform_task_event_queued_maps_to_created(self):
         raw = {"event_type": "queued", "data": {"task_id": "t1", "status": "queued"}}

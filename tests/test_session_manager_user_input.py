@@ -43,14 +43,14 @@ class TestSessionManagerUserInput:
             message_buffer=[
                 {
                     "type": "assistant",
-                    "content": [{"type": "text", "text": "上一轮回复"}],
+                    "content": [{"type": "text", "text": "previous reply"}],
                     "uuid": "assistant-old-1",
                 },
                 {
                     "type": "stream_event",
                     "event": {
                         "type": "content_block_delta",
-                        "delta": {"type": "text_delta", "text": "旧增量"},
+                        "delta": {"type": "text_delta", "text": "old delta"},
                     },
                     "uuid": "stream-old-1",
                 },
@@ -64,7 +64,7 @@ class TestSessionManagerUserInput:
         )
         session_manager.sessions[meta.id] = managed
 
-        await session_manager.send_message(meta.id, "新问题")
+        await session_manager.send_message(meta.id, "new question")
         if managed.consumer_task:
             await managed.consumer_task
 
@@ -130,12 +130,12 @@ class TestSessionManagerUserInput:
         question_input = {
             "questions": [
                 {
-                    "question": "请选择时长",
-                    "header": "时长",
+                    "question": "select duration",
+                    "header": "Duration",
                     "multiSelect": False,
                     "options": [
-                        {"label": "2分钟", "description": "更短"},
-                        {"label": "4分钟", "description": "更完整"},
+                        {"label": "2 minutes", "description": "shorter"},
+                        {"label": "4 minutes", "description": "more complete"},
                     ],
                 }
             ],
@@ -154,11 +154,11 @@ class TestSessionManagerUserInput:
         await session_manager.answer_user_question(
             session_id=meta.id,
             question_id=question_id,
-            answers={"请选择时长": "2分钟"},
+            answers={"select duration": "2 minutes"},
         )
 
         allow_result = await task
-        assert allow_result.updated_input.get("answers", {}).get("请选择时长") == "2分钟"
+        assert allow_result.updated_input.get("answers", {}).get("select duration") == "2 minutes"
 
     async def test_answer_user_question_raises_for_unknown_question(self, session_manager, meta_store):
         meta = await meta_store.create("demo", "sdk-user-input")

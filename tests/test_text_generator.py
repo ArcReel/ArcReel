@@ -28,7 +28,7 @@ def _make_backend(provider="gemini", model="gemini-3-flash-preview"):
     backend.model = model
     backend.generate = AsyncMock(
         return_value=TextGenerationResult(
-            text="生成的文本",
+            text="generated text",
             provider=provider,
             model=model,
             input_tokens=100,
@@ -44,11 +44,11 @@ class TestTextGenerator:
         gen = TextGenerator(backend, tracker)
 
         result = await gen.generate(
-            TextGenerationRequest(prompt="测试"),
+            TextGenerationRequest(prompt="test"),
             project_name="demo",
         )
 
-        assert result.text == "生成的文本"
+        assert result.text == "generated text"
         assert result.input_tokens == 100
         assert result.output_tokens == 50
 
@@ -64,12 +64,12 @@ class TestTextGenerator:
 
     async def test_generate_records_usage_on_failure(self, tracker):
         backend = _make_backend()
-        backend.generate = AsyncMock(side_effect=RuntimeError("API 超时"))
+        backend.generate = AsyncMock(side_effect=RuntimeError("API timeout"))
         gen = TextGenerator(backend, tracker)
 
-        with pytest.raises(RuntimeError, match="API 超时"):
+        with pytest.raises(RuntimeError, match="API timeout"):
             await gen.generate(
-                TextGenerationRequest(prompt="测试"),
+                TextGenerationRequest(prompt="test"),
                 project_name="demo",
             )
 
@@ -78,15 +78,15 @@ class TestTextGenerator:
         item = calls["items"][0]
         assert item["status"] == "failed"
         assert item["cost_amount"] == 0.0
-        assert "API 超时" in item["error_message"]
+        assert "API timeout" in item["error_message"]
 
     async def test_generate_without_project_name(self, tracker):
         backend = _make_backend()
         gen = TextGenerator(backend, tracker)
 
-        result = await gen.generate(TextGenerationRequest(prompt="工具箱调用"))
+        result = await gen.generate(TextGenerationRequest(prompt="toolbox call"))
 
-        assert result.text == "生成的文本"
+        assert result.text == "generated text"
         calls = await tracker.get_calls()
         assert calls["total"] == 1
         item = calls["items"][0]

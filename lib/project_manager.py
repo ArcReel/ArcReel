@@ -511,7 +511,7 @@ class ProjectManager:
             "scene_id": scene_id,
             "episode": episode,
             "title": "",
-            "scene_type": "剧情",
+            "scene_type": "drama",
             "duration_seconds": duration_seconds,
             "segment_break": False,
             "characters_in_scene": [],
@@ -576,7 +576,7 @@ class ProjectManager:
         top_level_defaults = {
             "episode": episode,
             "title": "",
-            "scene_type": "剧情",
+            "scene_type": "drama",
             "segment_break": False,
             "characters_in_scene": [],
             "clues_in_scene": [],

@@ -1,4 +1,4 @@
-"""OpenAITextBackend 单元测试。"""
+"""Unit tests for OpenAITextBackend."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from lib.text_backends.base import (
 
 
 def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
-    """构造 mock ChatCompletion 响应。"""
+    """Build a mock ChatCompletion response."""
     usage = MagicMock()
     usage.prompt_tokens = input_tokens
     usage.completion_tokens = output_tokens
@@ -150,7 +150,7 @@ class TestOpenAITextBackend:
         assert "response_format" in call_kwargs
 
     async def test_generate_usage_none_tolerant(self):
-        """usage 为 None 时不应崩溃。"""
+        """Should not crash when usage is None."""
         response = _make_mock_response("OK")
         response.usage = None
 
@@ -170,7 +170,7 @@ class TestOpenAITextBackend:
 
 
 def _make_bad_request_error(message: str = "Invalid schema") -> BadRequestError:
-    """构造 OpenAI BadRequestError。"""
+    """Build an OpenAI BadRequestError."""
     return BadRequestError(
         message=message,
         response=httpx.Response(400, request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions")),
@@ -184,10 +184,10 @@ class _PersonSchema(BaseModel):
 
 
 class TestInstructorFallback:
-    """Instructor 降级路径测试。"""
+    """Tests for the Instructor fallback path."""
 
     async def test_native_structured_output_success_no_fallback(self):
-        """原生 response_format 成功时，不走 Instructor 降级。"""
+        """When native response_format succeeds, the Instructor fallback should not be used."""
         schema_response = json.dumps({"name": "Alice", "age": 30})
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(schema_response))
@@ -209,7 +209,7 @@ class TestInstructorFallback:
         mock_fallback.assert_not_called()
 
     async def test_bad_request_error_triggers_instructor_fallback_pydantic(self):
-        """原生 response_format 抛 BadRequestError 且 schema 为 Pydantic 类时，走 Instructor 降级。"""
+        """When native response_format raises BadRequestError and schema is a Pydantic class, falls back to Instructor."""
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
 
@@ -243,10 +243,10 @@ class TestInstructorFallback:
         assert result.output_tokens == 10
 
     async def test_bad_request_error_with_dict_schema_falls_back_to_plain(self):
-        """原生 response_format 抛 BadRequestError 且 schema 为 dict 时，降级为无结构化输出的普通调用。"""
+        """When native response_format raises BadRequestError and schema is a dict, falls back to a plain call without structured output."""
         mock_client = AsyncMock()
-        # 第一次调用（带 response_format）抛错
-        # 第二次调用（不带 response_format）返回正常结果
+        # First call (with response_format) raises error
+        # Second call (without response_format) returns normal result
         fallback_json = json.dumps({"name": "Charlie", "age": 35})
         mock_client.chat.completions.create = AsyncMock(
             side_effect=[_make_bad_request_error(), _make_mock_response(fallback_json, 12, 6)]
@@ -268,12 +268,12 @@ class TestInstructorFallback:
         assert result.text == fallback_json
         assert result.input_tokens == 12
         assert result.output_tokens == 6
-        # 验证第二次调用使用 json_object 模式（而非原生 json_schema）
+        # Verify the second call uses json_object mode (not native json_schema)
         second_call_kwargs = mock_client.chat.completions.create.call_args_list[1][1]
         assert second_call_kwargs.get("response_format") == {"type": "json_object"}
 
     async def test_bad_request_error_without_schema_propagates(self):
-        """没有 response_schema 时，BadRequestError 应原样抛出，不做降级。"""
+        """BadRequestError should propagate as-is when there is no response_schema."""
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
 
@@ -288,7 +288,7 @@ class TestInstructorFallback:
                 await backend.generate(request)
 
     async def test_is_schema_error_recognizes_bad_request(self):
-        """_is_schema_error 正确识别 BadRequestError。"""
+        """_is_schema_error correctly identifies BadRequestError."""
         from lib.text_backends.openai import _is_schema_error
 
         assert _is_schema_error(_make_bad_request_error()) is True

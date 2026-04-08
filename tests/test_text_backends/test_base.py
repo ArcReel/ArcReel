@@ -126,7 +126,7 @@ class TestResolveSchema:
         }
         import pytest
 
-        with pytest.raises(ValueError, match="循环引用"):
+        with pytest.raises(ValueError, match="Circular reference"):
             resolve_schema(schema)
 
     def test_preserves_extra_keys_on_ref(self):

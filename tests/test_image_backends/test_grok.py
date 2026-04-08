@@ -1,4 +1,4 @@
-"""GrokImageBackend 单元测试。"""
+"""Unit tests for GrokImageBackend."""
 
 from __future__ import annotations
 
@@ -8,14 +8,13 @@ import pytest
 
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
 
-# ---------------------------------------------------------------------------
+
 # Fixtures
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture()
 def _patch_xai_sdk():
-    """Patch create_grok_client 以免依赖真实 SDK。"""
+    """Patch create_grok_client to avoid depending on the real SDK."""
     mock_client_instance = MagicMock()
     with patch("lib.image_backends.grok.create_grok_client", return_value=mock_client_instance):
         yield mock_client_instance
@@ -35,11 +34,6 @@ def backend_pro(_patch_xai_sdk):
     return GrokImageBackend(api_key="fake-xai-key", model="grok-imagine-image-pro")
 
 
-# ---------------------------------------------------------------------------
-# 属性测试
-# ---------------------------------------------------------------------------
-
-
 class TestProperties:
     def test_name(self, backend):
         assert backend.name == "grok"
@@ -57,35 +51,28 @@ class TestProperties:
         }
 
 
-# ---------------------------------------------------------------------------
-# 构造函数测试
-# ---------------------------------------------------------------------------
-
-
 class TestInit:
     def test_missing_api_key_raises(self):
-        with patch("lib.image_backends.grok.create_grok_client", side_effect=ValueError("XAI_API_KEY 未设置")):
+        with patch("lib.image_backends.grok.create_grok_client", side_effect=ValueError("XAI_API_KEY not set")):
             from lib.image_backends.grok import GrokImageBackend
 
             with pytest.raises(ValueError, match="XAI_API_KEY"):
                 GrokImageBackend()
 
     def test_empty_api_key_raises(self):
-        with patch("lib.image_backends.grok.create_grok_client", side_effect=ValueError("XAI_API_KEY 未设置")):
+        with patch("lib.image_backends.grok.create_grok_client", side_effect=ValueError("XAI_API_KEY not set")):
             from lib.image_backends.grok import GrokImageBackend
 
             with pytest.raises(ValueError, match="XAI_API_KEY"):
                 GrokImageBackend(api_key="")
 
 
-# ---------------------------------------------------------------------------
-# generate() T2I 测试
-# ---------------------------------------------------------------------------
+# generate() T2I tests
 
 
 class TestGenerateT2I:
     async def test_t2i_calls_image_sample(self, backend, tmp_path):
-        """T2I 调用 client.image.sample 并下载结果。"""
+        """T2I calls client.image.sample and downloads the result."""
         output = tmp_path / "output.png"
         mock_response = MagicMock()
         mock_response.respect_moderation = True
@@ -111,7 +98,7 @@ class TestGenerateT2I:
             )
             result = await backend.generate(request)
 
-        # 验证 SDK 调用参数
+        # Verify SDK call arguments
         backend._client.image.sample.assert_awaited_once_with(
             prompt="A beautiful sunset",
             model="grok-imagine-image",
@@ -122,18 +109,16 @@ class TestGenerateT2I:
         assert result.provider == "grok"
         assert result.model == "grok-imagine-image"
         assert result.image_uri == "https://example.com/generated.png"
-        # 验证文件已写入
+
         assert output.read_bytes() == fake_image_bytes
 
 
-# ---------------------------------------------------------------------------
-# generate() I2I 测试
-# ---------------------------------------------------------------------------
+# generate() I2I tests
 
 
 class TestGenerateI2I:
     async def test_i2i_sends_image_urls(self, backend, tmp_path):
-        """I2I 将参考图转为 data URI 列表传给 image_urls。"""
+        """I2I converts reference images to data URIs and passes them via image_urls."""
         ref_image = tmp_path / "ref.png"
         ref_image.write_bytes(b"\x89PNG\r\n\x1a\nfake_png_data")
 
@@ -169,7 +154,7 @@ class TestGenerateI2I:
         assert result.provider == "grok"
 
     async def test_i2i_multiple_refs(self, backend, tmp_path):
-        """多张参考图全部通过 image_urls 传递。"""
+        """Multiple reference images are all passed via image_urls."""
         ref1 = tmp_path / "ref1.png"
         ref1.write_bytes(b"\x89PNG\r\n\x1a\nfake1")
         ref2 = tmp_path / "ref2.jpg"
@@ -206,7 +191,7 @@ class TestGenerateI2I:
         assert len(call_kwargs["image_urls"]) == 2
 
     async def test_i2i_skips_missing_ref(self, backend, tmp_path):
-        """参考图不存在时退化为 T2I。"""
+        """Falls back to T2I when the reference image does not exist."""
         output = tmp_path / "output.png"
         mock_response = MagicMock()
         mock_response.respect_moderation = True
@@ -236,14 +221,9 @@ class TestGenerateI2I:
         assert "image_url" not in call_kwargs
 
 
-# ---------------------------------------------------------------------------
-# 审核测试
-# ---------------------------------------------------------------------------
-
-
 class TestModeration:
     async def test_moderation_failure_raises(self, backend, tmp_path):
-        """respect_moderation=False 时抛出 RuntimeError。"""
+        """Raises RuntimeError when respect_moderation=False."""
         output = tmp_path / "output.png"
         mock_response = MagicMock()
         mock_response.respect_moderation = False
@@ -253,13 +233,11 @@ class TestModeration:
             prompt="Something problematic",
             output_path=output,
         )
-        with pytest.raises(RuntimeError, match="内容审核"):
+        with pytest.raises(RuntimeError, match="content moderation"):
             await backend.generate(request)
 
 
-# ---------------------------------------------------------------------------
-# resolution 映射测试
-# ---------------------------------------------------------------------------
+# resolution mapping tests
 
 
 class TestResolutionMapping:
@@ -271,9 +249,7 @@ class TestResolutionMapping:
         assert _map_image_size_to_resolution("unknown") == "1k"
 
 
-# ---------------------------------------------------------------------------
-# aspect_ratio 校验测试
-# ---------------------------------------------------------------------------
+# aspect_ratio validation tests
 
 
 class TestAspectRatioValidation:
@@ -286,5 +262,5 @@ class TestAspectRatioValidation:
     def test_unsupported_ratio_passed_through_with_warning(self):
         from lib.image_backends.grok import _validate_aspect_ratio
 
-        # 不支持的比例透传给 API，不做映射
+        # Unsupported ratios are passed through to the API without mapping
         assert _validate_aspect_ratio("5:4") == "5:4"

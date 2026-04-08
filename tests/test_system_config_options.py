@@ -285,11 +285,11 @@ class TestBuildOptionsCustomModels:
 
 class TestBuildOptionsProviderNames:
     async def test_returns_provider_names_for_custom_providers(self, session):
-        """provider_names 应包含自定义供应商的 ID→display_name 映射。"""
+        """provider_names should include the ID→display_name mapping for custom providers."""
         db_session, factory = session
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
-            display_name="我的 LLM 服务",
+            display_name="My LLM Service",
             api_format="openai",
             base_url="https://api.example.com/v1",
             api_key="sk-test",
@@ -309,7 +309,7 @@ class TestBuildOptionsProviderNames:
         options = await _build_options(mock_svc, db_session)
 
         assert "provider_names" in options
-        assert options["provider_names"][f"custom-{provider.id}"] == "我的 LLM 服务"
+        assert options["provider_names"][f"custom-{provider.id}"] == "My LLM Service"
 
     async def test_multiple_providers_all_have_names(self, session):
         db_session, factory = session
@@ -360,7 +360,7 @@ class TestBuildOptionsProviderNames:
         assert options["provider_names"] == {}
 
     async def test_disabled_models_provider_not_in_names(self, session):
-        """如果供应商所有模型都被禁用，则不出现在 provider_names 中。"""
+        """If all models of a provider are disabled, it should not appear in provider_names."""
         db_session, factory = session
         repo = CustomProviderRepository(db_session)
         await repo.create_provider(

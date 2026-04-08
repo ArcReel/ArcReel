@@ -186,9 +186,9 @@ class TestAssistantServiceStreaming:
                 "question_id": "aq-1",
                 "questions": [
                     {
-                        "header": "风格",
-                        "question": "选择一种风格",
-                        "options": [{"label": "悬疑", "description": "更紧张"}],
+                        "header": "Style",
+                        "question": "Choose a style",
+                        "options": [{"label": "Mystery", "description": "more intense"}],
                     }
                 ],
             }

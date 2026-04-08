@@ -86,7 +86,7 @@ class TestGenerate:
         assert config["response_json_schema"] == schema
 
     async def test_structured_output_pydantic_class_uses_response_schema(self, backend):
-        """传入 Pydantic 类时应使用 response_schema 而非 response_json_schema。"""
+        """When a Pydantic class is passed, response_schema should be used instead of response_json_schema."""
         from pydantic import BaseModel
 
         class MyModel(BaseModel):

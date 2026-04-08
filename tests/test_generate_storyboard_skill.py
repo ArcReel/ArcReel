@@ -79,7 +79,7 @@ class _FakeQueueProjectManager:
             "segments": [
                 {
                     "segment_id": "E1S05",
-                    "image_prompt": "雨夜街道",
+                    "image_prompt": "rainy night street",
                     "generated_assets": {},
                 }
             ],

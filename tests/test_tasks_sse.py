@@ -56,7 +56,7 @@ class TestTaskRouterAndEvents:
         assert any(event["event_type"] == "failed" for event in incremental)
 
     async def test_sse_task_event_has_frontend_shape(self, generation_queue):
-        """SSE task 事件应匹配前端 TaskStreamTaskPayload 结构。"""
+        """SSE task events should match the frontend TaskStreamTaskPayload structure."""
         from server.routers.tasks import _transform_task_event
 
         queue = generation_queue

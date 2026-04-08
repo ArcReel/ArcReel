@@ -1,4 +1,4 @@
-"""OpenAI 连接测试 (_test_openai) 单元测试。"""
+"""Unit tests for the OpenAI connection test helper (_test_openai)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def _make_model(model_id: str) -> MagicMock:
 
 class TestTestOpenAI:
     def test_success_filters_relevant_models(self):
-        """应只返回匹配关键词的模型。"""
+        """Should return only models matching the relevant keywords."""
         mock_models = MagicMock()
         mock_models.data = [
             _make_model("gpt-5.4"),
@@ -34,7 +34,7 @@ class TestTestOpenAI:
             result = _test_openai({"api_key": "sk-test"})
 
         assert result.success is True
-        assert result.message == "连接成功"
+        assert result.message == "Connection successful"
         assert "gpt-5.4" in result.available_models
         assert "sora-2" in result.available_models
         assert "dall-e-3" in result.available_models
@@ -42,7 +42,7 @@ class TestTestOpenAI:
         assert "whisper-1" not in result.available_models
 
     def test_empty_relevant_models(self):
-        """所有模型都不匹配关键词时，返回空列表但仍成功。"""
+        """When no models match the keywords, return an empty list but still succeed."""
         mock_models = MagicMock()
         mock_models.data = [
             _make_model("text-embedding-3-large"),
@@ -59,7 +59,7 @@ class TestTestOpenAI:
         assert result.available_models == []
 
     def test_models_sorted(self):
-        """返回的模型列表应按字母序排列。"""
+        """Returned model list should be sorted alphabetically."""
         mock_models = MagicMock()
         mock_models.data = [
             _make_model("sora-2"),
@@ -76,7 +76,7 @@ class TestTestOpenAI:
         assert result.available_models == ["dall-e-3", "gpt-5.4", "sora-2"]
 
     def test_custom_base_url(self):
-        """传入 base_url 时应转发到 OpenAI 客户端。"""
+        """When base_url is provided it should be forwarded to the OpenAI client."""
         mock_models = MagicMock()
         mock_models.data = [_make_model("gpt-5.4")]
 
@@ -93,7 +93,7 @@ class TestTestOpenAI:
         )
 
     def test_api_error_propagates(self):
-        """API 异常应向上传播（由调用方 test_provider_connection 统一捕获）。"""
+        """API errors should propagate (to be caught uniformly by test_provider_connection)."""
         from openai import AuthenticationError
 
         mock_client = MagicMock()
@@ -106,6 +106,6 @@ class TestTestOpenAI:
         with patch("openai.OpenAI", return_value=mock_client):
             try:
                 _test_openai({"api_key": "sk-invalid"})
-                assert False, "应抛出异常"
+                assert False, "Should have raised an exception"
             except AuthenticationError:
-                pass  # 预期行为
+                pass  # Expected behaviour

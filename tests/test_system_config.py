@@ -18,7 +18,7 @@ class TestSystemConfigMigration:
         return manager
 
     def test_migrate_001_to_preview(self, tmp_path):
-        """AI Studio 的 001 后缀应迁移为 preview。"""
+        """The 001 suffix for AI Studio models should be migrated to preview."""
         self._write_config(tmp_path, {"video_model": "veo-3.1-generate-001"})
         manager = self._make_manager(tmp_path)
         overrides = manager.read_overrides()

@@ -33,20 +33,20 @@ def _write_json(path: Path, payload: dict) -> None:
 def _build_episode_payload(*, video_uri: str | None = None) -> dict:
     return {
         "episode": 1,
-        "title": "第一集",
+        "title": "Episode 1",
         "content_mode": "narration",
         "duration_seconds": 4,
         "summary": "",
         "novel": {
             "title": "Demo",
-            "chapter": "第一章",
+            "chapter": "Chapter 1",
         },
         "segments": [
             {
                 "segment_id": "E1S01",
                 "duration_seconds": 4,
                 "segment_break": False,
-                "novel_text": "原文",
+                "novel_text": "original text",
                 "characters_in_segment": ["Hero"],
                 "clues_in_segment": ["Key"],
                 "image_prompt": "img",
@@ -95,7 +95,7 @@ def _create_project(
     project["episodes"] = [
         {
             "episode": 1,
-            "title": "第一集",
+            "title": "Episode 1",
             "script_file": "scripts/episode_1.json",
         }
     ]
@@ -272,7 +272,7 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="broken.zip")
 
-        assert exc_info.value.detail == "导入包校验失败"
+        assert exc_info.value.detail == "Import archive validation failed"
         assert any("project.json" in error for error in exc_info.value.errors)
 
     def test_import_rejects_missing_script_reference(self, tmp_path):
@@ -403,7 +403,7 @@ class TestProjectArchiveService:
             )
 
         assert exc_info.value.status_code == 409
-        assert exc_info.value.detail == "检测到项目编号冲突"
+        assert exc_info.value.detail == "Project name conflict detected"
         assert exc_info.value.extra["conflict_project_name"] == "demo"
 
     def test_import_overwrite_replaces_existing_project(self, tmp_path):
@@ -515,17 +515,17 @@ class TestProjectArchiveService:
             project_dir / "scripts" / "episode_1.json",
             {
                 "episode": 1,
-                "title": "第一集",
+                "title": "Episode 1",
                 "content_mode": "narration",
                 "novel": {
                     "title": "Demo",
-                    "chapter": "第一章",
+                    "chapter": "Chapter 1",
                 },
                 "segments": [
                     {
                         "segment_id": "E1S01_1",
                         "duration_seconds": 4,
-                        "novel_text": "原文",
+                        "novel_text": "original text",
                         "characters_in_segment": ["Ghost"],
                         "image_prompt": "img",
                         "video_prompt": "vid",
@@ -569,17 +569,17 @@ class TestProjectArchiveService:
             project_dir / "scripts" / "episode_1.json",
             {
                 "episode": 1,
-                "title": "第一集",
+                "title": "Episode 1",
                 "content_mode": "narration",
                 "novel": {
                     "title": "Demo",
-                    "chapter": "第一章",
+                    "chapter": "Chapter 1",
                 },
                 "segments": [
                     {
                         "segment_id": "E1S01",
                         "duration_seconds": 4,
-                        "novel_text": "原文",
+                        "novel_text": "original text",
                         "characters_in_segment": ["Hero"],
                         "clues_in_segment": ["Missing"],
                         "image_prompt": "img",
@@ -595,7 +595,7 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="missing-clue.zip")
 
-        assert any("不存在于 project.json 的线索" in error for error in exc_info.value.errors)
+        assert any("clues not found in project.json" in error for error in exc_info.value.errors)
         assert exc_info.value.extra["diagnostics"]["blocking"]
 
     def test_export_dirty_project_emits_diagnostics_and_repairs_snapshot(self, tmp_path):
@@ -627,17 +627,17 @@ class TestProjectArchiveService:
             project_dir / "scripts" / "episode_1.json",
             {
                 "episode": 1,
-                "title": "第一集",
+                "title": "Episode 1",
                 "content_mode": "narration",
                 "novel": {
                     "title": "Demo",
-                    "chapter": "第一章",
+                    "chapter": "Chapter 1",
                 },
                 "segments": [
                     {
                         "segment_id": "E1S01",
                         "duration_seconds": 4,
-                        "novel_text": "原文",
+                        "novel_text": "original text",
                         "characters_in_segment": ["Hero"],
                         "image_prompt": "img",
                         "video_prompt": "vid",
@@ -668,17 +668,17 @@ class TestProjectArchiveService:
 
 class TestExportScope:
     def _create_project_with_versions(self, pm: ProjectManager) -> Path:
-        """创建带有 versions 历史的项目"""
+        """Create a project with version history."""
         project_dir = _create_project(pm)
 
-        # 添加版本历史文件
+        # Add version history files
         _write_bytes(project_dir / "versions" / "storyboards" / "E1S01_v1.png", b"png-v1")
         _write_bytes(project_dir / "versions" / "storyboards" / "E1S01_v2.png", b"png-v2")
         _write_bytes(project_dir / "versions" / "videos" / "E1S01_v1.mp4", b"mp4-v1")
         _write_bytes(project_dir / "versions" / "characters" / "Hero_v1.png", b"char-v1")
         _write_bytes(project_dir / "versions" / "clues" / "Key_v1.png", b"clue-v1")
 
-        # 创建 versions/versions.json
+        # Create versions/versions.json
         versions_data = {
             "storyboards": {
                 "E1S01": {
@@ -727,16 +727,16 @@ class TestExportScope:
 
         with zipfile.ZipFile(archive_path) as archive:
             names = set(archive.namelist())
-            # 历史版本文件不应包含
+            # Version history files should not be included
             assert "demo/versions/storyboards/E1S01_v1.png" not in names
             assert "demo/versions/storyboards/E1S01_v2.png" not in names
             assert "demo/versions/videos/E1S01_v1.mp4" not in names
             assert "demo/versions/characters/Hero_v1.png" not in names
             assert "demo/versions/clues/Key_v1.png" not in names
-            # 主资源应保留
+            # Primary assets should be retained
             assert "demo/storyboards/scene_E1S01.png" in names
             assert "demo/videos/scene_E1S01.mp4" in names
-            # versions.json 应保留（裁剪后）
+            # versions.json should be retained (trimmed)
             assert "demo/versions/versions.json" in names
 
     def test_export_scope_current_trims_versions_json(self, tmp_path):
@@ -748,12 +748,12 @@ class TestExportScope:
 
         with zipfile.ZipFile(archive_path) as archive:
             versions_content = json.loads(archive.read("demo/versions/versions.json"))
-            # storyboards.E1S01 应只保留 version 3
+            # storyboards.E1S01 should retain only version 3
             sb_versions = versions_content["storyboards"]["E1S01"]["versions"]
             assert len(sb_versions) == 1
             assert sb_versions[0]["version"] == 3
             assert sb_versions[0]["prompt"] == "p3"
-            # videos.E1S01 应只保留 version 2
+            # videos.E1S01 should retain only version 2
             vid_versions = versions_content["videos"]["E1S01"]["versions"]
             assert len(vid_versions) == 1
             assert vid_versions[0]["version"] == 2

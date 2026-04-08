@@ -34,7 +34,7 @@ class _FakePM:
                     "reference_image": "characters/refs/Alice-ref.png",
                 }
             },
-            "clues": {"玉佩": {"type": "prop", "clue_sheet": "clues/玉佩.png"}},
+            "clues": {"jade-pendant": {"type": "prop", "clue_sheet": "clues/jade-pendant.png"}},
         }
         self.script = {
             "content_mode": "narration",
@@ -45,20 +45,20 @@ class _FakePM:
                     "segment_break": False,
                     "characters_in_segment": [],
                     "clues_in_segment": [],
-                    "image_prompt": "首镜头",
+                    "image_prompt": "opening shot",
                 },
                 {
                     "segment_id": "E1S02",
                     "duration_seconds": 4,
                     "segment_break": False,
                     "characters_in_segment": ["Alice"],
-                    "clues_in_segment": ["玉佩"],
+                    "clues_in_segment": ["jade-pendant"],
                     "image_prompt": {
-                        "scene": "在雨夜街道",
+                        "scene": "rainy night street",
                         "composition": {
                             "shot_type": "Medium Shot",
-                            "lighting": "暖光",
-                            "ambiance": "薄雾",
+                            "lighting": "warm light",
+                            "ambiance": "thin mist",
                         },
                     },
                 },
@@ -67,8 +67,8 @@ class _FakePM:
                     "duration_seconds": 4,
                     "segment_break": True,
                     "characters_in_segment": ["Alice"],
-                    "clues_in_segment": ["玉佩"],
-                    "image_prompt": "切场后的镜头",
+                    "clues_in_segment": ["jade-pendant"],
+                    "image_prompt": "post-cut shot",
                 },
             ],
         }
@@ -131,7 +131,7 @@ def _prepare_files(tmp_path: Path):
     (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
     (project_path / "characters" / "Alice.png").write_bytes(b"png")
     (project_path / "characters" / "refs" / "Alice-ref.png").write_bytes(b"png")
-    (project_path / "clues" / "玉佩.png").write_bytes(b"png")
+    (project_path / "clues" / "jade-pendant.png").write_bytes(b"png")
     return project_path
 
 
@@ -150,9 +150,9 @@ class TestGenerationTasks:
 
         video_yaml = generation_tasks._normalize_video_prompt(
             {
-                "action": "行走",
+                "action": "walking",
                 "camera_motion": "",
-                "ambiance_audio": "风声",
+                "ambiance_audio": "wind sound",
                 "dialogue": [{"speaker": "Alice", "line": "hello"}],
             }
         )
@@ -194,7 +194,7 @@ class TestGenerationTasks:
         storyboard_refs = fake_generator.image_calls[0]["reference_images"]
         assert storyboard_refs == [
             project_path / "characters" / "Alice.png",
-            project_path / "clues" / "玉佩.png",
+            project_path / "clues" / "jade-pendant.png",
             project_path / "characters" / "Alice.png",
             {
                 "image": project_path / "storyboards" / "scene_E1S01.png",
@@ -210,13 +210,13 @@ class TestGenerationTasks:
         )
         assert fake_generator.image_calls[1]["reference_images"] == [
             project_path / "characters" / "Alice.png",
-            project_path / "clues" / "玉佩.png",
+            project_path / "clues" / "jade-pendant.png",
         ]
 
         video_result = await generation_tasks.execute_video_task(
             "demo",
             "E1S01",
-            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+            {"script_file": "episode_1.json", "prompt": {"action": "run", "camera_motion": "Static", "dialogue": []}},
         )
         assert video_result["resource_type"] == "videos"
         assert video_result["video_uri"] == "uri"
@@ -224,15 +224,15 @@ class TestGenerationTasks:
         character_result = await generation_tasks.execute_character_task(
             "demo",
             "Alice",
-            {"prompt": "角色描述"},
+            {"prompt": "character description"},
         )
         assert character_result["resource_type"] == "characters"
         assert fake_pm.project["characters"]["Alice"]["character_sheet"] == "characters/Alice.png"
 
         clue_result = await generation_tasks.execute_clue_task(
             "demo",
-            "玉佩",
-            {"prompt": "线索描述"},
+            "jade-pendant",
+            {"prompt": "clue description"},
         )
         assert clue_result["resource_type"] == "clues"
 
@@ -258,7 +258,7 @@ class TestGenerationTasks:
             )
 
     async def test_execute_video_task_generates_thumbnail(self, monkeypatch, tmp_path):
-        """视频生成后应自动提取首帧缩略图"""
+
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
@@ -278,17 +278,17 @@ class TestGenerationTasks:
         result = await generation_tasks.execute_video_task(
             "demo",
             "E1S01",
-            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+            {"script_file": "episode_1.json", "prompt": {"action": "run", "camera_motion": "Static", "dialogue": []}},
         )
 
         assert result["resource_type"] == "videos"
-        # 验证 update_scene_asset 被调用，其中包含 video_thumbnail
+        # Verify update_scene_asset was called with video_thumbnail
         asset_types = [call["asset_type"] for call in fake_pm.updated_assets]
         assert "video_thumbnail" in asset_types
         assert thumbnail_path.exists()
 
     async def test_get_media_generator_skips_image_backend_for_video_tasks(self, monkeypatch, tmp_path):
-        """视频任务只应初始化视频 backend，避免图片配置缺失导致提前失败。"""
+        """Video tasks should only initialise the video backend to avoid early failures from missing image config."""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_video_backend = object()
@@ -326,7 +326,7 @@ class TestGenerationTasks:
         assert generator._video_backend is fake_video_backend
 
     def test_emit_success_batch_includes_fingerprints(self, monkeypatch, tmp_path):
-        """生成成功事件应携带 asset_fingerprints"""
+        """Generation success events should include asset_fingerprints."""
         captured = []
         monkeypatch.setattr(
             generation_tasks,
@@ -376,7 +376,7 @@ class TestGenerationTasks:
             await generation_tasks.execute_character_task("demo", "Alice", {"prompt": ""})
 
         with pytest.raises(ValueError):
-            await generation_tasks.execute_clue_task("demo", "玉佩", {"prompt": ""})
+            await generation_tasks.execute_clue_task("demo", "jade-pendant", {"prompt": ""})
 
 
 class TestGetAspectRatio:

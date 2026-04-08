@@ -163,7 +163,7 @@ class TestDataValidator:
                 "scenes": [
                     {
                         "scene_id": "E2S01",
-                        "scene_type": "剧情",
+                        "scene_type": "drama",
                         "duration_seconds": 8,
                         "characters_in_scene": ["Jiang Yuehui"],
                         "clues_in_scene": ["Jade Pendant"],

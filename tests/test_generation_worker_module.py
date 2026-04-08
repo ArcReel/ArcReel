@@ -117,7 +117,7 @@ class TestExtractProvider:
         assert await _extract_provider(task) == "gemini-aistudio"
 
     async def test_resolves_video_from_global_config(self, monkeypatch):
-        """payload 无 provider、项目无覆盖时，从全局 ConfigResolver 解析。"""
+        """When payload has no provider and the project has no override, resolves from the global ConfigResolver."""
 
         async def fake_video_backend(self):
             return ("gemini-vertex", "veo-2.0-generate-001")
@@ -134,7 +134,7 @@ class TestExtractProvider:
         assert await _extract_provider(task) == "gemini-vertex"
 
     async def test_resolves_image_from_global_config(self, monkeypatch):
-        """payload 无 provider、项目无覆盖时，从全局 ConfigResolver 解析。"""
+        """When payload has no provider and the project has no override, resolves from the global ConfigResolver."""
 
         async def fake_image_backend(self):
             return ("gemini-vertex", "imagen-3.0-generate-002")
@@ -151,7 +151,7 @@ class TestExtractProvider:
         assert await _extract_provider(task) == "gemini-vertex"
 
     async def test_project_level_video_provider_takes_precedence(self, monkeypatch):
-        """项目级 video_backend 优先于全局默认。"""
+        """Project-level video_backend takes priority over the global default."""
 
         async def should_not_be_called(self):
             raise AssertionError("ConfigResolver should not be called")
@@ -168,7 +168,7 @@ class TestExtractProvider:
         assert await _extract_provider(task) == "ark"
 
     async def test_project_level_image_backend_takes_precedence(self, monkeypatch):
-        """项目级 image_backend 优先于全局默认。"""
+        """Project-level image_backend takes priority over the global default."""
 
         async def should_not_be_called(self):
             raise AssertionError("ConfigResolver should not be called")
@@ -185,7 +185,7 @@ class TestExtractProvider:
         assert await _extract_provider(task) == "gemini-vertex"
 
     async def test_payload_provider_takes_precedence_over_config(self, monkeypatch):
-        """payload 中有 provider 时优先使用，不走项目/全局配置。"""
+        """When the payload contains a provider, it takes priority over project/global config."""
 
         async def should_not_be_called(self):
             raise AssertionError("ConfigResolver should not be called")

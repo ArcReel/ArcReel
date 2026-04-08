@@ -42,7 +42,7 @@ class DataValidator:
     VALID_DURATIONS = {4, 6, 8}
     VALID_CLUE_TYPES = {"prop", "location"}
     VALID_CLUE_IMPORTANCE = {"major", "minor"}
-    VALID_SCENE_TYPES = {"剧情", "空镜"}
+    VALID_SCENE_TYPES = {"drama", "cutaway"}
     ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
     ALLOWED_ROOT_ENTRIES = {

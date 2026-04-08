@@ -19,7 +19,7 @@ class TestProjectEventService:
                 "demo",
                 {
                     "episode": 1,
-                    "title": "第一集",
+                    "title": "Episode 1",
                     "content_mode": "narration",
                     "segments": [
                         {
@@ -47,8 +47,8 @@ class TestProjectEventService:
 
         project = pm.load_project("demo")
         project["characters"]["Hero"] = {
-            "description": "主角",
-            "voice_style": "冷静",
+            "description": "protagonist",
+            "voice_style": "calm",
             "character_sheet": "",
             "reference_image": "",
         }
@@ -80,7 +80,7 @@ class TestProjectEventService:
                 "demo",
                 {
                     "episode": 1,
-                    "title": "第一集",
+                    "title": "Episode 1",
                     "content_mode": "narration",
                     "segments": [
                         {
@@ -159,7 +159,7 @@ class TestProjectEventService:
             json.dumps(
                 {
                     "episode": 2,
-                    "title": "第二集",
+                    "title": "Episode 2",
                     "content_mode": "narration",
                     "segments": [],
                 },
@@ -199,7 +199,7 @@ class TestProjectEventService:
                     "entity_type": "segment",
                     "action": "storyboard_ready",
                     "entity_id": "E1S01",
-                    "label": "分镜「E1S01」",
+                    "label": "Storyboard E1S01",
                     "focus": None,
                     "important": True,
                 }

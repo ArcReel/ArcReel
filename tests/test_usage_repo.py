@@ -175,7 +175,7 @@ class TestMultiProviderUsage:
             project_name="demo",
             call_type="text",
             model="gemini-3-flash-preview",
-            prompt="分析小说内容",
+            prompt="analyse novel content",
             provider="gemini",
         )
 
@@ -201,7 +201,7 @@ class TestMultiProviderUsage:
             project_name="demo",
             call_type="text",
             model="doubao-seed-2-0-lite-260215",
-            prompt="分析小说内容",
+            prompt="analyse novel content",
             provider="ark",
         )
 

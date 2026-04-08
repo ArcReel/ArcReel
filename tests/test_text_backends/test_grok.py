@@ -45,7 +45,7 @@ class TestProperties:
         }
 
     def test_no_api_key_raises(self, mock_xai):
-        with patch("lib.text_backends.grok.create_grok_client", side_effect=ValueError("XAI_API_KEY 未设置")):
+        with patch("lib.text_backends.grok.create_grok_client", side_effect=ValueError("XAI_API_KEY not set")):
             from lib.text_backends.grok import GrokTextBackend
 
             with pytest.raises(ValueError, match="XAI_API_KEY"):

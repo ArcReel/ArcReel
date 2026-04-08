@@ -38,7 +38,7 @@ class TestStatusCalculator:
     def test_calculate_episode_stats_statuses(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
 
-        # draft：无任何资源
+        # draft: no resources at all
         draft = calc.calculate_episode_stats(
             "demo",
             {"content_mode": "narration", "segments": [{"duration_seconds": 4}]},
@@ -49,7 +49,7 @@ class TestStatusCalculator:
         assert draft["scenes_count"] == 1
         assert draft["duration_seconds"] == 4
 
-        # in_production：有分镜图
+        # in_production: has at least one storyboard image
         in_prod = calc.calculate_episode_stats(
             "demo",
             {
@@ -64,7 +64,7 @@ class TestStatusCalculator:
         assert in_prod["storyboards"] == {"total": 2, "completed": 1}
         assert in_prod["videos"] == {"total": 2, "completed": 0}
 
-        # completed：所有场景有视频
+        # completed: all scenes have a video clip
         completed = calc.calculate_episode_stats(
             "demo",
             {
@@ -82,7 +82,7 @@ class TestStatusCalculator:
         project_root = tmp_path / "projects"
         project_path = project_root / "demo"
 
-        # Case 1: 脚本 JSON 存在 → ("generated", script)
+        # Case 1: script JSON exists → ("generated", script)
         script_data = {"content_mode": "narration", "segments": []}
         scripts = {"episode_1.json": script_data}
         calc = StatusCalculator(_FakePM(project_root, {}, scripts))
@@ -90,7 +90,7 @@ class TestStatusCalculator:
         assert status == "generated"
         assert script == script_data
 
-        # Case 2: 脚本不存在，draft 文件存在 → ("segmented", None)
+        # Case 2: script missing, draft file exists → ("segmented", None)
         draft_dir = project_path / "drafts" / "episode_2"
         draft_dir.mkdir(parents=True)
         (draft_dir / "step1_segments.md").write_text("ok")
@@ -99,13 +99,13 @@ class TestStatusCalculator:
         assert status2 == "segmented"
         assert script2 is None
 
-        # Case 3: 两者都不存在 → ("none", None)
+        # Case 3: neither exists → ("none", None)
         calc3 = StatusCalculator(_FakePM(project_root, {}, {}))
         status3, script3 = calc3._load_episode_script("demo", 3, "scripts/episode_3.json")
         assert status3 == "none"
         assert script3 is None
 
-        # Case 4: drama 模式 — step1_normalized_script.md 存在 → ("segmented", None)
+        # Case 4: drama mode — step1_normalized_script.md exists → ("segmented", None)
         draft_dir_drama = project_path / "drafts" / "episode_4"
         draft_dir_drama.mkdir(parents=True)
         (draft_dir_drama / "step1_normalized_script.md").write_text("drama draft")
@@ -114,7 +114,7 @@ class TestStatusCalculator:
         assert status4 == "segmented"
         assert script4 is None
 
-        # Case 5: drama 模式 — 无 step1_normalized_script.md → ("none", None)
+        # Case 5: drama mode — no step1_normalized_script.md → ("none", None)
         calc5 = StatusCalculator(_FakePM(project_root, {}, {}))
         status5, script5 = calc5._load_episode_script("demo", 5, "scripts/episode_5.json", content_mode="drama")
         assert status5 == "none"
@@ -128,16 +128,16 @@ class TestStatusCalculator:
     def test_calculate_current_phase_worldbuilding(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         project = {"overview": {"synopsis": "test"}}
-        # 无任何 generated 脚本 → worldbuilding
+        # No generated scripts at all → worldbuilding
         episodes_stats = [{"script_status": "none"}, {"script_status": "segmented"}]
         assert calc.calculate_current_phase(project, episodes_stats) == "worldbuilding"
-        # 无集 → worldbuilding
+        # No episodes → worldbuilding
         assert calc.calculate_current_phase(project, []) == "worldbuilding"
 
     def test_calculate_current_phase_scripting(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         project = {"overview": {"synopsis": "test"}}
-        # 有至少一集 generated，但未全部 → scripting
+        # At least one generated episode, but not all → scripting
         episodes_stats = [
             {"script_status": "generated", "status": "draft"},
             {"script_status": "none"},
@@ -147,13 +147,13 @@ class TestStatusCalculator:
     def test_calculate_current_phase_production_and_completed(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         project = {"overview": {"synopsis": "test"}}
-        # 全部 generated，有未完成视频 → production
+        # All generated, some videos incomplete → production
         episodes_stats = [
             {"script_status": "generated", "status": "in_production"},
             {"script_status": "generated", "status": "draft"},
         ]
         assert calc.calculate_current_phase(project, episodes_stats) == "production"
-        # 全部 completed → completed
+        # All completed → completed
         episodes_stats_done = [
             {"script_status": "generated", "status": "completed"},
         ]
@@ -264,7 +264,7 @@ class TestStatusCalculator:
         assert enriched_script["clues_in_episode"] == ["C"]
 
     def test_load_episode_script_corrupted_json(self, tmp_path):
-        """JSON 损坏时应降级返回 ('generated', None)，而不是上抛异常。"""
+        """When JSON is corrupted, should degrade to ('generated', None) rather than raising."""
         import json
 
         class _CorruptPM(_FakePM):

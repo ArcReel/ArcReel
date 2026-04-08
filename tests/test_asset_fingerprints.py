@@ -26,7 +26,7 @@ class TestComputeAssetFingerprints:
         for subdir, name in [
             ("thumbnails", "scene_E1S01.jpg"),
             ("characters", "Alice.png"),
-            ("clues", "玉佩.png"),
+            ("clues", "jade-pendant.png"),
         ]:
             (tmp_path / subdir).mkdir()
             (tmp_path / subdir / name).write_bytes(b"x")
@@ -34,7 +34,7 @@ class TestComputeAssetFingerprints:
         result = compute_asset_fingerprints(tmp_path)
         assert "thumbnails/scene_E1S01.jpg" in result
         assert "characters/Alice.png" in result
-        assert "clues/玉佩.png" in result
+        assert "clues/jade-pendant.png" in result
 
     def test_includes_root_level_assets(self, tmp_path):
         (tmp_path / "style_reference.png").write_bytes(b"style")

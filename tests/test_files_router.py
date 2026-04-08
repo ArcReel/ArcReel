@@ -361,7 +361,7 @@ class TestFilesRouter:
         client, _ = _client(monkeypatch, tmp_path)
 
         with client, patch("server.routers.files.emit_project_change_batch") as mock_emit:
-            # 首次创建 → action="created", important=True
+            # First creation → action="created", important=True
             resp = client.put(
                 "/api/v1/projects/demo/drafts/1/step1",
                 content="new draft",
@@ -379,7 +379,7 @@ class TestFilesRouter:
 
             mock_emit.reset_mock()
 
-            # 再次更新 → action="updated", important=False
+            # Second update → action="updated", important=False
             resp2 = client.put(
                 "/api/v1/projects/demo/drafts/1/step1",
                 content="updated draft",

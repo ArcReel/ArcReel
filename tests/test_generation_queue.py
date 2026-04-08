@@ -57,7 +57,7 @@ class TestGenerationQueue:
         assert done["status"] == "succeeded"
         assert done["result"]["file_path"] == "storyboards/scene_E1S01.png"
 
-        # 终态后允许再次入队
+        # Re-enqueue is allowed after a terminal state
         second = await queue.enqueue_task(
             project_name="demo",
             task_type="storyboard",

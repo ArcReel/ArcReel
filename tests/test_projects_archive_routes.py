@@ -31,7 +31,7 @@ def _create_demo_project(pm: ProjectManager) -> None:
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     project = pm.load_project("demo")
-    project["episodes"] = [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}]
+    project["episodes"] = [{"episode": 1, "title": "Episode 1", "script_file": "scripts/episode_1.json"}]
     project["characters"] = {"Hero": {"description": "Lead", "character_sheet": "characters/Hero.png"}}
     project["clues"] = {
         "Key": {
@@ -53,14 +53,14 @@ def _create_demo_project(pm: ProjectManager) -> None:
         project_dir / "scripts" / "episode_1.json",
         {
             "episode": 1,
-            "title": "第一集",
+            "title": "Episode 1",
             "content_mode": "narration",
-            "novel": {"title": "Demo", "chapter": "第一章"},
+            "novel": {"title": "Demo", "chapter": "Chapter 1"},
             "segments": [
                 {
                     "segment_id": "E1S01",
                     "duration_seconds": 4,
-                    "novel_text": "原文",
+                    "novel_text": "original text",
                     "characters_in_segment": ["Hero"],
                     "clues_in_segment": ["Key"],
                     "image_prompt": "img",
@@ -122,7 +122,7 @@ class TestProjectArchiveRoutes:
             )
 
         assert response.status_code == 400
-        assert response.json()["detail"] == "导入包校验失败"
+        assert response.json()["detail"] == "Import archive validation failed"
         assert any("project.json" in error for error in response.json()["errors"])
         assert "diagnostics" in response.json()
 
@@ -151,7 +151,7 @@ class TestProjectArchiveRoutes:
                 )
 
         assert response.status_code == 409
-        assert response.json()["detail"] == "检测到项目编号冲突"
+        assert response.json()["detail"] == "Project name conflict detected"
         assert response.json()["conflict_project_name"] == "demo"
 
     def test_export_token_endpoint(self, tmp_path, monkeypatch):

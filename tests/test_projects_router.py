@@ -65,7 +65,7 @@ class _FakePM:
 
     def create_project(self, name):
         if not name or not re.fullmatch(r"[A-Za-z0-9-]+", name):
-            raise ValueError("项目标识仅允许英文字母、数字和中划线")
+            raise ValueError("Project identifier may only contain letters, digits, and hyphens")
         if name == "exists":
             raise FileExistsError(name)
         self.created.add(name)
@@ -213,14 +213,14 @@ class TestProjectsRouter:
             )
             assert rejected_mode.status_code == 400
 
-            # aspect_ratio 现在允许修改（字符串），dict 类型将被 Pydantic 拒绝（422）
+            # aspect_ratio now allows modification (string); dict type is rejected by Pydantic (422)
             rejected_ratio_dict = client.patch(
                 "/api/v1/projects/ready",
                 json={"aspect_ratio": {"videos": "16:9"}},
             )
             assert rejected_ratio_dict.status_code == 422
 
-            # aspect_ratio 字符串更新应成功
+            # aspect_ratio string update should succeed
             updated_ratio = client.patch(
                 "/api/v1/projects/ready",
                 json={"aspect_ratio": "16:9"},
@@ -287,13 +287,13 @@ class TestProjectsRouter:
 
             update_overview = client.patch(
                 "/api/v1/projects/ready/overview",
-                json={"synopsis": "new synopsis", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},
+                json={"synopsis": "new synopsis", "genre": "Mystery", "theme": "Truth", "world_setting": "Ancient"},
             )
             assert update_overview.status_code == 200
             assert update_overview.json()["overview"]["synopsis"] == "new synopsis"
 
     def test_get_project_includes_asset_fingerprints(self, tmp_path, monkeypatch):
-        """项目 API 应返回 asset_fingerprints 字段"""
+        """The project API should return an asset_fingerprints field."""
         fake_pm = _FakePM(tmp_path)
         client = _client(monkeypatch, fake_pm, _FakeCalc())
 

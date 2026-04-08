@@ -203,7 +203,7 @@ class TestSessionManagerMore:
         # Non-AskUserQuestion tools should be denied (whitelist fallback)
         result = await allow_cb("Read", {"x": 1}, None)
         assert isinstance(result, _FakeDeny)
-        assert "未授权" in result.message
+        assert "Unauthorized" in result.message
         # AskUserQuestion still handled
         result2 = await allow_cb("AskUserQuestion", {"questions": []}, None)
         assert result2.updated_input == {"questions": []}
@@ -745,10 +745,7 @@ class TestJsonValidationHook:
             },
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-        assert (
-            "无效 JSON" in result["hookSpecificOutput"]["permissionDecisionReason"]
-            or "JSON" in result["hookSpecificOutput"]["permissionDecisionReason"]
-        )
+        assert "JSON" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
     # --- Edit: replace_all ---
 
@@ -882,7 +879,7 @@ class TestJsonValidationHook:
             },
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-        assert "弯引号" in result["hookSpecificOutput"]["permissionDecisionReason"]
+        assert "curly" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
     async def test_edit_curly_quotes_old_only_is_allowed(self, tmp_path):
         """If only old_string has curly quotes but new_string is clean,
@@ -918,7 +915,7 @@ class TestJsonValidationHook:
             },
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-        assert "弯引号" in result["hookSpecificOutput"]["permissionDecisionReason"]
+        assert "curly" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 class TestJsonPostValidationHook:
@@ -997,7 +994,7 @@ class TestJsonPostValidationHook:
 
         # Should report the issue via additionalContext
         assert "additionalContext" in result.get("hookSpecificOutput", {})
-        assert "回滚" in result["hookSpecificOutput"]["additionalContext"]
+        assert "rolled back" in result["hookSpecificOutput"]["additionalContext"]
 
         # File should be restored
         assert json_file.read_text() == original_content
@@ -1021,8 +1018,8 @@ class TestJsonPostValidationHook:
         )
 
         ctx = result.get("hookSpecificOutput", {}).get("additionalContext", "")
-        assert "无法恢复" in ctx
-        assert "回滚" not in ctx
+        assert "could not be recovered" in ctx
+        assert "rolled back" not in ctx
 
     # --- Non-.json file → skip ---
 

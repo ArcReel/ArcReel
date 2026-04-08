@@ -14,39 +14,39 @@ from lib.prompt_utils import (
 class TestPromptUtils:
     def test_image_prompt_to_yaml_keeps_expected_shape(self):
         data = {
-            "scene": "夜雨中的街道",
+            "scene": "rainy night street",
             "composition": {
                 "shot_type": "Medium Shot",
-                "lighting": "路灯暖光",
-                "ambiance": "薄雾",
+                "lighting": "warm street lamp",
+                "ambiance": "thin mist",
             },
         }
 
         text = image_prompt_to_yaml(data, "Anime")
         parsed = yaml.safe_load(text)
         assert parsed["Style"] == "Anime"
-        assert parsed["Scene"] == "夜雨中的街道"
+        assert parsed["Scene"] == "rainy night street"
         assert parsed["Composition"]["shot_type"] == "Medium Shot"
 
     def test_video_prompt_to_yaml_includes_dialogue_conditionally(self):
         with_dialogue = {
-            "action": "抬头观察",
+            "action": "looks up to observe",
             "camera_motion": "Static",
-            "ambiance_audio": "雨声",
-            "dialogue": [{"speaker": "姜月茴", "line": "有人吗"}],
+            "ambiance_audio": "rain sound",
+            "dialogue": [{"speaker": "Jiang Yuehui", "line": "Is anyone there"}],
         }
         without_dialogue = {
-            "action": "快步前进",
+            "action": "walks quickly forward",
             "camera_motion": "Pan Left",
-            "ambiance_audio": "脚步声",
+            "ambiance_audio": "footstep sound",
             "dialogue": [],
         }
 
         parsed_a = yaml.safe_load(video_prompt_to_yaml(with_dialogue))
         parsed_b = yaml.safe_load(video_prompt_to_yaml(without_dialogue))
 
-        assert parsed_a["Action"] == "抬头观察"
-        assert parsed_a["Dialogue"][0]["Speaker"] == "姜月茴"
+        assert parsed_a["Action"] == "looks up to observe"
+        assert parsed_a["Dialogue"][0]["Speaker"] == "Jiang Yuehui"
         assert "Dialogue" not in parsed_b
 
     def test_structured_checks(self):

@@ -1,4 +1,4 @@
-"""lib/retry.py 通用重试装饰器单元测试。"""
+"""Unit tests for the generic retry decorator in lib/retry.py."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from lib.retry import (
 
 
 class TestShouldRetry:
-    """_should_retry 判断逻辑测试。"""
+    """Tests for _should_retry logic."""
 
     def test_retryable_error_type(self):
         assert _should_retry(ConnectionError("reset"), BASE_RETRYABLE_ERRORS) is True
@@ -78,7 +78,7 @@ class TestShouldRetry:
 
 
 class TestWithRetryAsync:
-    """with_retry_async 装饰器测试。"""
+    """Tests for the with_retry_async decorator."""
 
     async def test_success_no_retry(self):
         mock_fn = AsyncMock(return_value="ok")
@@ -105,7 +105,7 @@ class TestWithRetryAsync:
         assert mock_fn.call_count == 2
 
     async def test_retry_on_string_pattern(self):
-        """错误信息中包含 429 时应重试。"""
+        """Should retry when the error message contains 429."""
         mock_fn = AsyncMock(side_effect=[RuntimeError("Error code: 429"), "ok"])
 
         @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0))
@@ -174,7 +174,7 @@ class TestWithRetryAsync:
         assert mock_sleep.call_args[0][0] == 5.5
 
     async def test_backoff_index_clamped(self):
-        """backoff_seconds 长度不足时，使用最后一个值。"""
+        """When backoff_seconds is shorter than needed, the last value should be used."""
         errors = [ConnectionError(f"e{i}") for i in range(4)]
         mock_fn = AsyncMock(side_effect=[*errors, "ok"])
 

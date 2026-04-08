@@ -80,7 +80,7 @@ class TestSessionManagerSdkSessionId:
         sdk_session_id = "sdk-consume-456"
         client = FakeClient([StreamEvent(sdk_session_id), ResultMessage(sdk_session_id, "success")])
         managed = ManagedSession(
-            session_id=sdk_session_id,  # 模拟 send_new_session 已将 temp_id 替换为 sdk_id
+            session_id=sdk_session_id,  # simulates send_new_session having replaced temp_id with sdk_id
             client=client,
             status="running",
             project_name="demo",
