@@ -42,3 +42,8 @@ from lib.providers import PROVIDER_OPENAI
 from lib.text_backends.openai import OpenAITextBackend
 
 register_backend(PROVIDER_OPENAI, OpenAITextBackend)
+
+from lib.providers import PROVIDER_MINIMAX
+from lib.text_backends.minimax import MiniMaxTextBackend
+
+register_backend(PROVIDER_MINIMAX, MiniMaxTextBackend)
