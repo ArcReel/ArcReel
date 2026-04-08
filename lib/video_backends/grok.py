@@ -51,9 +51,29 @@ class GrokVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
-    @with_retry_async()
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """生成视频。"""
+        """生成视频。生成与下载分离重试，避免下载失败导致重新生成浪费额度。"""
+        response = await self._create_video(request)
+
+        video_url = response.url
+        actual_duration = getattr(response, "duration", request.duration_seconds)
+
+        await self._download_video_with_retry(video_url, request.output_path)
+
+        logger.info("Grok 视频下载完成: %s", request.output_path)
+
+        return VideoGenerationResult(
+            video_path=request.output_path,
+            provider=PROVIDER_GROK,
+            model=self._model,
+            duration_seconds=actual_duration,
+            video_uri=video_url,
+            generate_audio=True,
+        )
+
+    @with_retry_async()
+    async def _create_video(self, request: VideoGenerationRequest):
+        """创建视频生成任务（带独立重试）。"""
         generate_kwargs = {
             "prompt": request.prompt,
             "model": self._model,
@@ -73,20 +93,13 @@ class GrokVideoBackend:
             generate_kwargs["image_url"] = f"data:{mime_type};base64,{b64}"
 
         logger.info("Grok 视频生成开始: model=%s, duration=%ds", self._model, request.duration_seconds)
-        response = await self._client.video.generate(**generate_kwargs)
+        return await self._client.video.generate(**generate_kwargs)
 
-        video_url = response.url
-        actual_duration = getattr(response, "duration", request.duration_seconds)
-
-        await download_video(video_url, request.output_path)
-
-        logger.info("Grok 视频下载完成: %s", request.output_path)
-
-        return VideoGenerationResult(
-            video_path=request.output_path,
-            provider=PROVIDER_GROK,
-            model=self._model,
-            duration_seconds=actual_duration,
-            video_uri=video_url,
-            generate_audio=True,
-        )
+    @staticmethod
+    @with_retry_async(
+        max_attempts=5,
+        backoff_seconds=(4, 8, 15, 30),
+    )
+    async def _download_video_with_retry(video_url: str, output_path) -> None:
+        """单独重试视频下载，避免下载失败导致重新生成视频而浪费额度。"""
+        await download_video(video_url, output_path)
