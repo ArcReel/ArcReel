@@ -90,7 +90,5 @@ def _create_google_backend(
         delegate = GeminiImageBackend(api_key=provider.api_key, base_url=base_url, image_model=model_id)
         return CustomImageBackend(provider_id=pid, delegate=delegate, model=model_id)
     else:  # video
-        delegate = GeminiVideoBackend(
-            api_key=provider.api_key, base_url=base_url, video_model=model_id, use_content_api=True
-        )
+        delegate = GeminiVideoBackend(api_key=provider.api_key, base_url=base_url, video_model=model_id)
         return CustomVideoBackend(provider_id=pid, delegate=delegate, model=model_id)
