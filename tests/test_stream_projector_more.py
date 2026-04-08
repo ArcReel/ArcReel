@@ -160,11 +160,11 @@ class TestStreamProjectorMore:
                         "input": {
                             "questions": [
                                 {
-                                    "header": "镜头效果",
-                                    "question": "请选择镜头效果",
+                                    "header": "Camera Effects",
+                                    "question": "Please select camera effects",
                                     "multiSelect": True,
                                     "options": [
-                                        {"label": "手持摄影感", "description": "增加紧张感"},
+                                        {"label": "Handheld Camera Feel", "description": "Increases tension"},
                                     ],
                                 },
                             ],
@@ -182,11 +182,11 @@ class TestStreamProjectorMore:
             "input": {
                 "questions": [
                     {
-                        "header": "镜头效果",
-                        "question": "请选择镜头效果",
+                        "header": "Camera Effects",
+                        "question": "Please select camera effects",
                         "multiSelect": True,
                         "options": [
-                            {"label": "手持摄影感", "description": "增加紧张感"},
+                            {"label": "Handheld Camera Feel", "description": "Increases tension"},
                         ],
                     },
                 ],
@@ -206,7 +206,7 @@ class TestStreamProjectorMore:
                 "content": [
                     {
                         "type": "thinking",
-                        "thinking": "正在整理提问内容",
+                        "thinking": "Organizing question content",
                         "signature": "",
                     },
                     {
@@ -216,11 +216,11 @@ class TestStreamProjectorMore:
                         "input": {
                             "questions": [
                                 {
-                                    "header": "测试提问",
-                                    "question": "请选择一个模式",
+                                    "header": "Test Question",
+                                    "question": "Please select a mode",
                                     "multiSelect": False,
                                     "options": [
-                                        {"label": "说书+画面模式", "description": "默认模式"},
+                                        {"label": "Narration + Visual Mode", "description": "Default mode"},
                                     ],
                                 },
                             ],
@@ -233,7 +233,7 @@ class TestStreamProjectorMore:
         projector.draft._session_id = "sdk-1"
         projector.draft._blocks_by_index[0] = {
             "type": "thinking",
-            "thinking": "正在整理提问内容",
+            "thinking": "Organizing question content",
         }
         projector.draft._blocks_by_index[1] = {
             "type": "tool_use",
@@ -242,11 +242,11 @@ class TestStreamProjectorMore:
             "input": {
                 "questions": [
                     {
-                        "header": "测试提问",
-                        "question": "请选择一个模式",
+                        "header": "Test Question",
+                        "question": "Please select a mode",
                         "multiSelect": False,
                         "options": [
-                            {"label": "说书+画面模式", "description": "默认模式"},
+                            {"label": "Narration + Visual Mode", "description": "Default mode"},
                         ],
                     },
                 ],
@@ -270,8 +270,8 @@ class TestStreamProjectorMore:
                         "input": {
                             "questions": [
                                 {
-                                    "header": "镜头效果",
-                                    "question": "请选择镜头效果",
+                                    "header": "Camera Effects",
+                                    "question": "Please select camera effects",
                                     "multiSelect": True,
                                     "options": [],
                                 },
@@ -290,15 +290,15 @@ class TestStreamProjectorMore:
             "input": {
                 "questions": [
                     {
-                        "header": "镜头效果",
-                        "question": "请选择镜头效果",
+                        "header": "Camera Effects",
+                        "question": "Please select camera effects",
                         "multiSelect": True,
                         "options": [],
                     },
                 ],
             },
         }
-        projector.draft._blocks_by_index[1] = {"type": "text", "text": "继续补充说明"}
+        projector.draft._blocks_by_index[1] = {"type": "text", "text": "Continuing with additional notes"}
 
         snapshot = projector.build_snapshot("session-1", "running")
 
@@ -312,7 +312,7 @@ class TestStreamProjectorMore:
                 "content": [
                     {
                         "type": "thinking",
-                        "thinking": "第一次准备提问",
+                        "thinking": "Preparing to ask the first question",
                         "signature": "",
                     },
                     {
@@ -322,8 +322,8 @@ class TestStreamProjectorMore:
                         "input": {
                             "questions": [
                                 {
-                                    "header": "无效提问",
-                                    "question": "无效",
+                                    "header": "Invalid Question",
+                                    "question": "Invalid",
                                     "multiSelect": False,
                                     "options": [{"label": "A", "description": "A"}],
                                 },
@@ -335,7 +335,7 @@ class TestStreamProjectorMore:
                     },
                     {
                         "type": "thinking",
-                        "thinking": "修正参数后重新提问",
+                        "thinking": "Corrected parameters and re-asking",
                         "signature": "",
                     },
                     {
@@ -345,10 +345,10 @@ class TestStreamProjectorMore:
                         "input": {
                             "questions": [
                                 {
-                                    "header": "视觉风格",
-                                    "question": "请选择风格",
+                                    "header": "Visual Style",
+                                    "question": "Please select a style",
                                     "multiSelect": True,
-                                    "options": [{"label": "赛博朋克", "description": "高对比"}],
+                                    "options": [{"label": "Cyberpunk", "description": "High contrast"}],
                                 },
                             ],
                         },
@@ -360,7 +360,7 @@ class TestStreamProjectorMore:
         projector.draft._session_id = "sdk-1"
         projector.draft._blocks_by_index[0] = {
             "type": "thinking",
-            "thinking": "修正参数后重新提问",
+            "thinking": "Corrected parameters and re-asking",
         }
         projector.draft._blocks_by_index[1] = {
             "type": "tool_use",
@@ -369,10 +369,10 @@ class TestStreamProjectorMore:
             "input": {
                 "questions": [
                     {
-                        "header": "视觉风格",
-                        "question": "请选择风格",
+                        "header": "Visual Style",
+                        "question": "Please select a style",
                         "multiSelect": True,
-                        "options": [{"label": "赛博朋克", "description": "高对比"}],
+                        "options": [{"label": "Cyberpunk", "description": "High contrast"}],
                     },
                 ],
             },

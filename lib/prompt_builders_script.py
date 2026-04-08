@@ -182,27 +182,27 @@ def build_drama_prompt(
     character_names = list(characters.keys())
     clue_names = list(clues.keys())
 
-    prompt = f"""你的任务是为剧集动画生成分镜剧本。请仔细遵循以下指示：
+    prompt = f"""Your task is to generate a storyboard script for an animated drama series. Follow the instructions below carefully.
 
-**重要：所有输出内容必须使用中文。仅 JSON 键名和枚举值使用英文。**
+**Important: All descriptive content in image_prompt and video_prompt fields must be written in Chinese. Only JSON key names and enum values use English.**
 
-1. 你将获得故事概述、视觉风格、角色列表、线索列表，以及已拆分的场景列表。
+1. You will be given the story overview, visual style, character list, clue list, and pre-split scene list.
 
-2. 为每个场景生成：
-   - image_prompt：第一帧的图像生成提示词（中文描述）
-   - video_prompt：动作和音效的视频生成提示词（中文描述）
+2. For each scene generate:
+   - image_prompt: image generation prompt for the first frame (Chinese description)
+   - video_prompt: video generation prompt for actions and audio (Chinese description)
 
 <overview>
 {project_overview.get("synopsis", "")}
 
-题材类型：{project_overview.get("genre", "")}
-核心主题：{project_overview.get("theme", "")}
-世界观设定：{project_overview.get("world_setting", "")}
+Genre: {project_overview.get("genre", "")}
+Core theme: {project_overview.get("theme", "")}
+World setting: {project_overview.get("world_setting", "")}
 </overview>
 
 <style>
-风格：{style}
-描述：{style_description}
+Style: {style}
+Description: {style_description}
 </style>
 
 <characters>
@@ -217,52 +217,52 @@ def build_drama_prompt(
 {scenes_md}
 </scenes>
 
-scenes 为场景拆分表，每行是一个场景，包含：
-- 场景 ID：格式为 E{{集数}}S{{序号}}
-- 场景描述：剧本改编后的场景内容
+The scenes table lists each scene per row, containing:
+- Scene ID: format E{{episode}}S{{number}}
+- Scene description: the scene content as adapted from the script
 - {_format_duration_constraint(supported_durations or [4, 6, 8], default_duration)}
-- 场景类型：剧情、动作、对话等
-- 是否为 segment_break：场景切换点，需设置 segment_break 为 true
+- Scene type: drama, action, dialogue, etc.
+- Is segment_break: scene transition point — set segment_break to true
 
-3. 为每个场景生成时，遵循以下规则：
+3. When generating for each scene, follow these rules:
 
-a. **characters_in_scene**：列出本场景中出场的角色名称。
-   - 可选值：[{", ".join(character_names)}]
-   - 仅包含明确提及或明显暗示的角色
+a. **characters_in_scene**: List the names of characters appearing in this scene.
+   - Allowed values: [{", ".join(character_names)}]
+   - Include only characters explicitly mentioned or clearly implied
 
-b. **clues_in_scene**：列出本场景中涉及的线索名称。
-   - 可选值：[{", ".join(clue_names)}]
-   - 仅包含明确提及或明显暗示的线索
+b. **clues_in_scene**: List the names of clues relevant to this scene.
+   - Allowed values: [{", ".join(clue_names)}]
+   - Include only clues explicitly mentioned or clearly implied
 
-c. **image_prompt**：生成包含以下字段的对象：
-   - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。{_format_aspect_ratio_desc(aspect_ratio)}。
-     聚焦当下瞬间的可见画面。仅描述摄像机能够捕捉到的具体视觉元素。
-     确保描述避免超出此刻画面的元素。排除比喻、隐喻、抽象情绪词、主观评价、多场景切换等无法直接渲染的描述。
-     画面应自包含，不暗示过去事件或未来发展。
-   - composition：
-     - shot_type：镜头类型（Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view）
-     - lighting：用中文描述具体的光源类型、方向和色温（如"左侧窗户透入的暖黄色晨光"）
-     - ambiance：用中文描述可见的环境效果（如"薄雾弥漫"、"尘埃飞扬"），避免抽象情绪词
+c. **image_prompt**: Generate an object with the following fields:
+   - scene: describe in Chinese the specific scene visible at this moment — character positions, postures, expressions, costume details, and visible environmental elements and objects. {_format_aspect_ratio_desc(aspect_ratio)}.
+     Focus on the visible instant. Describe only specific visual elements the camera can capture.
+     Ensure the description avoids elements beyond the current frame. Exclude metaphors, similes, abstract emotional words, subjective evaluations, and multi-scene cuts that cannot be rendered directly.
+     The frame should be self-contained, implying no past events or future developments.
+   - composition:
+     - shot_type: shot type (Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view)
+     - lighting: describe in Chinese the specific light source type, direction, and colour temperature (e.g. "warm golden morning light streaming in from the left window")
+     - ambiance: describe in Chinese visible environmental effects (e.g. "thin mist", "dust in the air"); avoid abstract emotional words
 
-d. **video_prompt**：生成包含以下字段的对象：
-   - action：用中文精确描述该时长内主体的具体动作——身体移动、手势变化、表情转换。
-     聚焦单一连贯动作，确保在指定时长内可完成。
-     排除多场景切换、蒙太奇、快速剪辑等单次生成无法实现的效果。
-     排除比喻性动作描述（如"像蝴蝶般飞舞"）。
-   - camera_motion：镜头运动（Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot）
-     每个片段仅选择一种镜头运动。
-   - ambiance_audio：用中文描述画内音（diegetic sound）——环境声、脚步声、物体声音。
-     仅描述场景内真实存在的声音。排除音乐、BGM、旁白、画外音。
-   - dialogue：{{speaker, line}} 数组。包含角色对话。speaker 必须来自 characters_in_scene。
+d. **video_prompt**: Generate an object with the following fields:
+   - action: describe in Chinese the precise actions of the subject within this duration — body movement, gesture changes, expression transitions.
+     Focus on a single continuous action completable within the specified duration.
+     Exclude multi-scene cuts, montage, rapid editing, and other effects unachievable in a single generation.
+     Exclude metaphorical action descriptions (e.g. "dancing like a butterfly").
+   - camera_motion: camera motion (Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot)
+     Choose only one camera motion per segment.
+   - ambiance_audio: describe in Chinese diegetic sounds — ambient noise, footsteps, object sounds.
+     Describe only sounds that actually exist within the scene. Exclude music, BGM, narration, and off-screen audio.
+   - dialogue: {{speaker, line}} array. Include character dialogue. speaker must come from characters_in_scene.
 
-e. **segment_break**：如果在场景表中标记为"是"，则设为 true。
+e. **segment_break**: Set to true if marked as a break point in the scene table.
 
-f. **duration_seconds**：使用场景表中的时长。
+f. **duration_seconds**: Use the duration from the scene table.
 
-g. **scene_type**：使用场景表中的场景类型，默认为"剧情"。
+g. **scene_type**: Use the scene type from the scene table; default is "drama".
 
-h. **transition_to_next**：默认为 "cut"。
+h. **transition_to_next**: Default to "cut".
 
-目标：创建生动、视觉一致的分镜提示词，用于指导 AI 图像和视频生成。保持创意、具体，适合{_format_aspect_ratio_desc(aspect_ratio)}动画呈现。
+Goal: Create vivid, visually consistent storyboard prompts to guide AI image and video generation. Be creative, specific, and suitable for {_format_aspect_ratio_desc(aspect_ratio)} animated presentation.
 """
     return prompt

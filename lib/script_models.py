@@ -124,7 +124,7 @@ class DramaScene(BaseModel):
     scene_id: str = Field(description="Scene ID, format E{episode}S{number} or E{episode}S{number}_{sub-number}")
     duration_seconds: int = Field(default=8, ge=1, le=60, description="Scene duration (seconds)")
     segment_break: bool = Field(default=False, description="Whether this is a scene transition point")
-    scene_type: str = Field(default="剧情", description="Scene type")
+    scene_type: str = Field(default="drama", description="Scene type")
     characters_in_scene: list[str] = Field(description="List of character names appearing in this scene")
     clues_in_scene: list[str] = Field(default_factory=list, description="List of clue names appearing in this scene")
     image_prompt: ImagePrompt = Field(description="Storyboard image generation prompt")

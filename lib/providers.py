@@ -1,4 +1,4 @@
-"""供应商名称常量，image_backends / video_backends 共用。"""
+"""Provider name constants, shared by image_backends and video_backends."""
 
 from typing import Literal
 

@@ -17,7 +17,7 @@ export interface AttachedImage {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers — 从旧 use-assistant-state.js 移植
+// Helpers — ported from the old use-assistant-state.js
 // ---------------------------------------------------------------------------
 
 function parseSsePayload(event: MessageEvent): Record<string, unknown> {
@@ -33,7 +33,7 @@ function applyTurnPatch(prev: Turn[], patch: Record<string, unknown>): Turn[] {
   if (op === "reset") return (patch.turns as Turn[]) ?? [];
   if (op === "append" && patch.turn) {
     const newTurn = patch.turn as Turn;
-    // 当后端 append 真实 user turn 时，移除末尾的 optimistic turn 避免重复
+    // When the backend appends a real user turn, remove the trailing optimistic turn to avoid duplicates
     if (
       newTurn.type === "user" &&
       prev.length > 0 &&
@@ -77,7 +77,7 @@ function findLatestUserTurn(turns: Turn[]): Turn | null {
 }
 
 // ---------------------------------------------------------------------------
-// localStorage helpers — 记住每个项目最后使用的会话
+// localStorage helpers — remember the last used session per project
 // ---------------------------------------------------------------------------
 
 const LAST_SESSION_KEY = "arcreel:lastSessionByProject";
@@ -97,7 +97,7 @@ function saveLastSessionId(projectName: string, sessionId: string): void {
     map[projectName] = sessionId;
     localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(map));
   } catch {
-    // 静默失败
+    // silently fail
   }
 }
 
@@ -106,11 +106,11 @@ function saveLastSessionId(projectName: string, sessionId: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * 管理 AI 助手会话生命周期：
- * - 加载/创建会话
- * - 发送消息
- * - SSE 流式接收
- * - 中断会话
+ * Manages the AI assistant session lifecycle:
+ * - Load / create sessions
+ * - Send messages
+ * - SSE streaming reception
+ * - Interrupt sessions
  */
 export function useAssistantSession(projectName: string | null) {
   const store = useAssistantStore;
@@ -153,8 +153,8 @@ export function useAssistantSession(projectName: string | null) {
     const snapshotTurns = (snapshot.turns as Turn[]) ?? [];
     const currentTurns = store.getState().turns;
 
-    // 保留末尾的 optimistic turn：仅当 snapshot 尚未包含当前轮 user 时。
-    // 使用内容匹配而非 UUID（optimistic UUID 永远不会匹配后端真实 UUID）。
+    // Preserve the trailing optimistic turn only when the snapshot does not yet contain the current user turn.
+    // Use content matching instead of UUID (optimistic UUIDs will never match real backend UUIDs).
     const lastTurn = currentTurns.at(-1);
     let shouldPreserveOptimistic = false;
 
@@ -187,7 +187,7 @@ export function useAssistantSession(projectName: string | null) {
     syncPendingQuestion(getPendingQuestionFromSnapshot(snapshot));
   }, [store, syncPendingQuestion]);
 
-  // 关闭流
+  // Close stream
   const closeStream = useCallback(() => {
     if (reconnectRef.current) {
       clearTimeout(reconnectRef.current);
@@ -200,10 +200,10 @@ export function useAssistantSession(projectName: string | null) {
     streamSessionRef.current = null;
   }, []);
 
-  // 连接 SSE 流
+  // Connect SSE stream
   const connectStream = useCallback(
     (sessionId: string) => {
-      // 如果已连接到同一 session 且连接健康，跳过重连
+      // Skip reconnection if already connected to the same session and the connection is healthy
       if (
         streamRef.current &&
         streamSessionRef.current === sessionId &&
@@ -228,9 +228,9 @@ export function useAssistantSession(projectName: string | null) {
         const data = parseSsePayload(event as MessageEvent);
         const isSending = store.getState().sending;
 
-        // 正在发送消息时，后端可能尚未将 session 切为 "running"，
-        // 此时 SSE 连接到旧 "completed" session 会立即收到旧 snapshot + status 后断开。
-        // 忽略这种 stale snapshot 的 turns 和 status，保留前端的 optimistic 状态。
+        // While a message is being sent, the backend may not yet have switched the session to "running".
+        // At this point, connecting SSE to the old "completed" session will immediately receive the old snapshot + status and then close.
+        // Ignore the turns and status of such a stale snapshot and keep the frontend's optimistic state.
         if (isSending && typeof data.status === "string" && data.status !== "running") {
           return;
         }
@@ -240,9 +240,9 @@ export function useAssistantSession(projectName: string | null) {
         if (typeof data.status === "string") {
           store.getState().setSessionStatus(data.status as "idle");
           statusRef.current = data.status as string;
-          // 收到任何有效 status 都清除 sending（stale 的已在上方过滤）。
-          // 特别是 "running" 表示后端已确认收到消息，必须清除 sending，
-          // 否则后续的 "completed" 会被 status handler 的 isSending 守卫过滤掉。
+          // Clear sending on any valid status (stale ones are already filtered above).
+          // In particular "running" means the backend confirmed receipt of the message, so sending must be cleared;
+          // otherwise the subsequent "completed" would be filtered out by the isSending guard in the status handler.
           store.getState().setSending(false);
         }
       });
@@ -271,10 +271,10 @@ export function useAssistantSession(projectName: string | null) {
         const status = (data.status as string) ?? statusRef.current;
         const isSending = store.getState().sending;
 
-        // 正在发送消息时，忽略旧 session 的 terminal status。
-        // 后端对非 running session 的 SSE 会发 status:"completed" 后关闭连接，
-        // 不应让这个 stale status 触发 closeStream / setSending(false)。
-        // onerror 回调会在连接断开后自动重连到已变为 "running" 的 session。
+        // While a message is being sent, ignore terminal statuses from the old session.
+        // The backend sends status:"completed" and closes the SSE connection for non-running sessions;
+        // this stale status must not trigger closeStream / setSending(false).
+        // The onerror callback will automatically reconnect to the session once it becomes "running".
         if (isSending && TERMINAL.has(status) && status !== "error") {
           return;
         }
@@ -291,12 +291,12 @@ export function useAssistantSession(projectName: string | null) {
           }
           closeStream();
 
-          // Turn 结束后刷新会话列表，获取 SDK summary 标题
+          // Refresh the session list after a turn ends to pick up the SDK summary title
           if (projectName) {
             API.listAssistantSessions(projectName).then((res) => {
               const fresh = res.sessions ?? [];
               if (fresh.length > 0) store.getState().setSessions(fresh);
-            }).catch(() => {/* 静默失败 */});
+            }).catch(() => {/* silently fail */});
           }
         }
       });
@@ -312,9 +312,9 @@ export function useAssistantSession(projectName: string | null) {
 
       source.onerror = () => {
         if (!isActiveStream()) return;
-        // 重连条件：session 正在运行，或者前端正在发送消息。
-        // 后者处理后端对旧 "completed" session 的 SSE 立即关闭的情况：
-        // 连接断开后需要重连，此时后端已将 session 设为 "running"。
+        // Reconnect conditions: the session is running, or the frontend is currently sending a message.
+        // The latter handles the case where the backend immediately closes SSE for the old "completed" session:
+        // after the connection drops we need to reconnect, at which point the backend has set the session to "running".
         if (statusRef.current === "running" || store.getState().sending) {
           reconnectRef.current = setTimeout(() => {
             connectStream(sessionId);
@@ -325,7 +325,7 @@ export function useAssistantSession(projectName: string | null) {
     [applySnapshot, clearPendingQuestion, projectName, closeStream, store, syncPendingQuestion],
   );
 
-  // 加载会话
+  // Load sessions
   useEffect(() => {
     if (!projectName) return;
     let cancelled = false;
@@ -333,12 +333,12 @@ export function useAssistantSession(projectName: string | null) {
     async function init() {
       store.getState().setMessagesLoading(true);
       try {
-        // 获取会话列表
+        // Fetch session list
         const res = await API.listAssistantSessions(projectName!);
         const sessions = res.sessions ?? [];
         store.getState().setSessions(sessions);
 
-        // 优先使用上次选择的会话（如果仍存在于列表中）
+        // Prefer the previously selected session (if it still exists in the list)
         const lastId = getLastSessionId(projectName!);
         const sessionId = (lastId && sessions.some((s: SessionMeta) => s.id === lastId))
           ? lastId
@@ -353,7 +353,7 @@ export function useAssistantSession(projectName: string | null) {
 
         store.getState().setCurrentSessionId(sessionId);
 
-        // 加载会话快照
+        // Load session snapshot
         const session = await API.getAssistantSession(projectName!, sessionId);
         const raw = session as Record<string, unknown>;
         const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
@@ -369,13 +369,13 @@ export function useAssistantSession(projectName: string | null) {
           applySnapshot(snapshot);
         }
       } catch {
-        // 静默失败
+        // silently fail
       } finally {
         if (!cancelled) store.getState().setMessagesLoading(false);
       }
     }
 
-    // 加载技能列表
+    // Load skill list
     API.listAssistantSkills(projectName)
       .then((res) => {
         if (!cancelled) store.getState().setSkills(res.skills ?? []);
@@ -399,7 +399,7 @@ export function useAssistantSession(projectName: string | null) {
     store,
   ]);
 
-  // 发送消息
+  // Send message
   const sendMessage = useCallback(
     async (content: string, images?: AttachedImage[]) => {
       if ((!content.trim() && (!images || images.length === 0)) || store.getState().sending) return;
@@ -413,7 +413,7 @@ export function useAssistantSession(projectName: string | null) {
       store.getState().setError(null);
 
       try {
-        // 提取 base64 数据
+        // Extract base64 data
         const imagePayload = images?.map((img) => ({
           data: img.dataUrl.split(",")[1] ?? "",
           media_type: img.mimeType,
