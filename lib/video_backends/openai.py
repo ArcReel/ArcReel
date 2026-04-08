@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 from pathlib import Path
 
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
@@ -76,7 +78,7 @@ class OpenAIVideoBackend:
         if video.status == "failed":
             raise RuntimeError(f"Sora 视频生成失败: {video.error}")
 
-        content = await self._client.videos.download_content(video.id)
+        content = await self._download_content_with_retry(video.id)
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
         request.output_path.write_bytes(content.content)
 
@@ -89,6 +91,27 @@ class OpenAIVideoBackend:
             duration_seconds=int(video.seconds if video.seconds is not None else kwargs["seconds"]),
             task_id=video.id,
         )
+
+    async def _download_content_with_retry(
+        self, video_id: str, *, max_attempts: int = 5, backoff: tuple[int, ...] = (4, 8, 15, 30)
+    ):
+        """单独重试内容下载，避免因下载失败重新触发视频生成。"""
+        for attempt in range(max_attempts):
+            try:
+                return await self._client.videos.download_content(video_id)
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    wait = backoff[min(attempt, len(backoff) - 1)] + random.uniform(0, 2)
+                    logger.warning(
+                        "视频内容下载失败 (尝试 %d/%d): %s — %.1f 秒后重试",
+                        attempt + 1,
+                        max_attempts,
+                        str(e)[:200],
+                        wait,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    raise
 
 
 def _map_duration(seconds: int) -> str:
