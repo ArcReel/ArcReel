@@ -13,6 +13,7 @@ import secrets
 import tempfile
 import unicodedata
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -894,6 +895,47 @@ class ProjectManager:
         with open(project_file, encoding="utf-8") as f:
             return json.load(f)
 
+    @contextmanager
+    def _project_lock(self, project_name: str):
+        """通过专用 lock file 获取项目元数据的排他锁。
+
+        使用独立的 .project.json.lock 而非数据文件本身，避免 os.replace
+        更换 inode 后锁失效的问题。
+        """
+        lock_path = self._get_project_file_path(project_name).with_suffix(".lock")
+        lock_path.touch(exist_ok=True)
+        fd = open(lock_path)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            fd.close()
+
+    @staticmethod
+    def _atomic_write_json(path: Path, data: dict) -> None:
+        """通过临时文件 + os.replace 原子写入 JSON。"""
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=str(path.parent),
+                prefix=".project.",
+                suffix=".tmp",
+                delete=False,
+            ) as tmp:
+                json.dump(data, tmp, ensure_ascii=False, indent=2)
+                tmp_path = Path(tmp.name)
+            os.replace(tmp_path, path)
+            tmp_path = None
+        finally:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+
     def save_project(self, project_name: str, project: dict) -> Path:
         """
         保存项目元数据
@@ -909,18 +951,8 @@ class ProjectManager:
 
         self._touch_metadata(project)
 
-        serialized = json.dumps(project, ensure_ascii=False, indent=2)
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=str(project_file.parent),
-            prefix=".project.",
-            suffix=".tmp",
-            delete=False,
-        ) as tmp:
-            tmp.write(serialized)
-            tmp_path = Path(tmp.name)
-        os.replace(tmp_path, project_file)
+        with self._project_lock(project_name):
+            self._atomic_write_json(project_file, project)
 
         emit_project_change_hint(
             project_name,
@@ -934,7 +966,7 @@ class ProjectManager:
         project_name: str,
         mutate_fn: Callable[[dict], None],
     ) -> Path:
-        """原子性地更新 project.json：加文件锁 → 读 → 修改 → 写回。
+        """原子性地更新 project.json：加文件锁 → 读 → 修改 → 原子写回。
 
         避免并发任务（如同时生成多张角色图片）之间的 lost-update 竞态。
 
@@ -944,18 +976,12 @@ class ProjectManager:
         """
         project_file = self._get_project_file_path(project_name)
 
-        with open(project_file, "r+", encoding="utf-8") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            try:
+        with self._project_lock(project_name):
+            with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
-                mutate_fn(project)
-                self._touch_metadata(project)
-
-                f.seek(0)
-                json.dump(project, f, ensure_ascii=False, indent=2)
-                f.truncate()
-            finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
+            mutate_fn(project)
+            self._touch_metadata(project)
+            self._atomic_write_json(project_file, project)
 
         emit_project_change_hint(
             project_name,
