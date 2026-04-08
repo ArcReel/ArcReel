@@ -1,14 +1,14 @@
 """
-MediaGenerator 中间层
+MediaGenerator middleware layer
 
-封装 GeminiClient + VersionManager，提供"调用方无感"的版本管理。
-调用方只需传入 project_path 和 resource_id，版本管理自动完成。
+Wraps GeminiClient + VersionManager to provide transparent version management.
+Callers only need to pass project_path and resource_id; version management is automatic.
 
-覆盖的 4 种资源类型：
-- storyboards: 分镜图 (scene_E1S01.png)
-- videos: 视频 (scene_E1S01.mp4)
-- characters: 角色设计图 (姜月茴.png)
-- clues: 线索设计图 (玉佩.png)
+Covers 4 resource types:
+- storyboards: storyboard images (scene_E1S01.png)
+- videos: video clips (scene_E1S01.mp4)
+- characters: character design sheets (character_name.png)
+- clues: clue design sheets (clue_name.png)
 """
 
 import asyncio
