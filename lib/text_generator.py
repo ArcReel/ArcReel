@@ -1,7 +1,7 @@
-"""TextGenerator — 文本生成 + 用量追踪包装层。
+"""TextGenerator — text generation + usage tracking wrapper layer.
 
-类似 MediaGenerator，组合 TextBackend + UsageTracker，
-调用方无需关心 usage tracking 细节。
+Similar to MediaGenerator, combines TextBackend + UsageTracker so that
+callers do not need to worry about usage tracking details.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class TextGenerator:
-    """组合 TextBackend + UsageTracker，统一封装文本生成 + 用量追踪。"""
+    """Combines TextBackend + UsageTracker to uniformly encapsulate text generation + usage tracking."""
 
     def __init__(self, backend: TextBackend, usage_tracker: UsageTracker):
         self.backend = backend

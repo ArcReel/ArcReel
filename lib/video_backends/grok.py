@@ -1,4 +1,4 @@
-"""GrokVideoBackend — xAI Grok 视频生成后端。"""
+"""GrokVideoBackend — xAI Grok video generation backend."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class GrokVideoBackend:
-    """xAI Grok 视频生成后端。"""
+    """xAI Grok video generation backend."""
 
     DEFAULT_MODEL = "grok-imagine-video"
 
@@ -53,7 +53,7 @@ class GrokVideoBackend:
 
     @with_retry_async()
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """生成视频。"""
+        """Generate a video."""
         generate_kwargs = {
             "prompt": request.prompt,
             "model": self._model,
@@ -72,7 +72,7 @@ class GrokVideoBackend:
             b64 = base64.b64encode(image_data).decode("ascii")
             generate_kwargs["image_url"] = f"data:{mime_type};base64,{b64}"
 
-        logger.info("Grok 视频生成开始: model=%s, duration=%ds", self._model, request.duration_seconds)
+        logger.info("Grok video generation started: model=%s, duration=%ds", self._model, request.duration_seconds)
         response = await self._client.video.generate(**generate_kwargs)
 
         video_url = response.url
@@ -80,7 +80,7 @@ class GrokVideoBackend:
 
         await download_video(video_url, request.output_path)
 
-        logger.info("Grok 视频下载完成: %s", request.output_path)
+        logger.info("Grok video download complete: %s", request.output_path)
 
         return VideoGenerationResult(
             video_path=request.output_path,

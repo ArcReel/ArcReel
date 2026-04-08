@@ -47,7 +47,7 @@ class VideoCapability(StrEnum):
 
 @dataclass
 class VideoGenerationRequest:
-    """通用视频生成请求。各 Backend 忽略不支持的字段。"""
+    """Generic video generation request. Each backend ignores unsupported fields."""
 
     prompt: str
     output_path: Path
@@ -57,20 +57,20 @@ class VideoGenerationRequest:
     start_image: Path | None = None
     generate_audio: bool = True
 
-    # Veo 特有
+    # Veo-specific
     negative_prompt: str | None = None
 
-    # 项目上下文（用于构建文件服务 URL 等）
+    # Project context (used to build file-service URLs etc.)
     project_name: str | None = None
 
-    # Seedance 特有
+    # Seedance-specific
     service_tier: str = "default"
     seed: int | None = None
 
 
 @dataclass
 class VideoGenerationResult:
-    """通用视频生成结果。"""
+    """Generic video generation result."""
 
     video_path: Path
     provider: str
@@ -85,7 +85,7 @@ class VideoGenerationResult:
 
 
 class VideoBackend(Protocol):
-    """视频生成后端协议。"""
+    """Video generation backend protocol."""
 
     @property
     def name(self) -> str: ...
