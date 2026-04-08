@@ -143,7 +143,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   }, [projectName, refreshProject, styleDescriptionDraft, t]);
 
   // If no overview has been generated yet, show the Welcome/Setup screen
-  if (projectData && !projectData.synopsis && !projectData.genre) {
+  if (projectData && !projectData.overview?.synopsis && !projectData.overview?.genre) {
     return (
       <WelcomeCanvas
         projectName={projectName}
@@ -190,7 +190,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
               {t("故事梗概")}
             </h2>
             <p className="mt-4 text-sm leading-relaxed text-gray-300">
-              {projectData?.synopsis || t("暂无描述")}
+              {projectData?.overview?.synopsis || t("暂无描述")}
             </p>
           </section>
 
@@ -201,7 +201,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                 {t("题材")}
               </h2>
               <p className="mt-3 text-sm font-medium text-gray-200">
-                {projectData?.genre || t("暂无描述")}
+                {projectData?.overview?.genre || t("暂无描述")}
               </p>
             </section>
             <section className="rounded-2xl border border-gray-800 bg-gray-900/50 p-6">
@@ -209,7 +209,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                 {t("主题")}
               </h2>
               <p className="mt-3 text-sm font-medium text-gray-200">
-                {projectData?.theme || t("暂无描述")}
+                {projectData?.overview?.theme || t("暂无描述")}
               </p>
             </section>
           </div>
@@ -220,7 +220,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
               {t("世界观设定")}
             </h2>
             <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-gray-300">
-              {projectData?.world_setting || t("暂无描述")}
+              {projectData?.overview?.world_setting || t("暂无描述")}
             </p>
           </section>
 
@@ -257,38 +257,40 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
               </div>
             ) : projectTotals ? (
               <div className="space-y-8">
-                {/* Total Cost Bar */}
-                <div>
-                  <div className="mb-2 flex items-end justify-between">
-                    <span className="text-xs text-gray-400">{t("总计")}</span>
-                    <span className="text-lg font-bold text-gray-100">
-                      {formatCost(projectTotals.total)}
-                    </span>
-                  </div>
-                  <div className="flex h-2.5 overflow-hidden rounded-full bg-gray-800">
-                    <div
-                      className="bg-indigo-500 transition-all duration-500"
-                      style={{ width: `${(projectTotals.text / projectTotals.total) * 100}%` }}
-                    />
-                    <div
-                      className="bg-emerald-500 transition-all duration-500"
-                      style={{ width: `${(projectTotals.image / projectTotals.total) * 100}%` }}
-                    />
-                    <div
-                      className="bg-amber-500 transition-all duration-500"
-                      style={{ width: `${(projectTotals.video / projectTotals.total) * 100}%` }}
-                    />
-                  </div>
-                  <div className="mt-3 grid grid-cols-3 gap-4">
-                    {totalBreakdown(projectTotals).map((item) => (
-                      <div key={item.label}>
-                        <div className="text-[10px] text-gray-500 uppercase">{t(item.label)}</div>
-                        <div className="text-sm font-medium text-gray-200">
-                          {formatCost(item.value)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                {/* Project Totals */}
+                <div className="tabular-nums">
+                  <div className="mb-3 text-sm font-semibold text-gray-300">{t("项目总费用")}</div>
+                  <dl className="flex flex-wrap items-start justify-between gap-6">
+                    <div className="min-w-0">
+                      <dt className="mb-1 text-[11px] text-gray-600">{t("预估")}</dt>
+                      <dd className="text-sm text-gray-400">
+                        <span className="text-gray-500">{t("分镜")} </span>
+                        <span className="text-gray-200">{formatCost(projectTotals.estimate.image)}</span>
+                        <span className="ml-3 text-gray-500">{t("视频")} </span>
+                        <span className="text-gray-200">{formatCost(projectTotals.estimate.video)}</span>
+                        <span className="ml-3 text-gray-500">{t("总计")} </span>
+                        <span className="font-semibold text-amber-400">{formatCost(totalBreakdown(projectTotals.estimate))}</span>
+                      </dd>
+                    </div>
+                    <div role="separator" className="h-8 w-px bg-gray-800" />
+                    <div className="min-w-0">
+                      <dt className="mb-1 text-[11px] text-gray-600">{t("实际")}</dt>
+                      <dd className="text-sm text-gray-400">
+                        <span className="text-gray-500">{t("分镜")} </span>
+                        <span className="text-gray-200">{formatCost(projectTotals.actual.image)}</span>
+                        <span className="ml-3 text-gray-500">{t("视频")} </span>
+                        <span className="text-gray-200">{formatCost(projectTotals.actual.video)}</span>
+                        {projectTotals.actual.character_and_clue && (
+                          <>
+                            <span className="ml-3 text-gray-500">{t("角色/线索")} </span>
+                            <span className="text-gray-200">{formatCost(projectTotals.actual.character_and_clue)}</span>
+                          </>
+                        )}
+                        <span className="ml-3 text-gray-500">{t("总计")} </span>
+                        <span className="font-semibold text-emerald-400">{formatCost(totalBreakdown(projectTotals.actual))}</span>
+                      </dd>
+                    </div>
+                  </dl>
                 </div>
 
                 {/* Per Episode Estimates */}
@@ -298,26 +300,30 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                   </h3>
                   <div className="space-y-3">
                     {episodes.map((ep) => {
-                      const cost = getEpisodeCost(ep.episode);
-                      if (!cost) return null;
+                      const epCost = getEpisodeCost(ep.episode);
+                      if (!epCost) return null;
                       return (
                         <div
                           key={ep.episode}
-                          className="flex items-center justify-between rounded-xl bg-gray-950/50 px-4 py-3"
+                          className="flex flex-wrap items-center gap-3 rounded-xl bg-gray-950/50 px-4 py-3 tabular-nums"
                         >
-                          <div className="min-w-0 flex-1">
-                            <div className="text-xs font-medium text-gray-300 truncate">
-                              E{ep.episode}: {ep.title}
-                            </div>
-                            <div className="mt-1 flex gap-3">
-                              <span className="text-[10px] text-indigo-400/70">T: {formatCost(cost.text)}</span>
-                              <span className="text-[10px] text-emerald-400/70">I: {formatCost(cost.image)}</span>
-                              <span className="text-[10px] text-amber-400/70">V: {formatCost(cost.video)}</span>
-                            </div>
-                          </div>
-                          <div className="ml-4 text-sm font-semibold text-gray-200">
-                            {formatCost(cost.total)}
-                          </div>
+                          <span className="font-mono text-xs text-gray-400">E{ep.episode}</span>
+                          <span className="text-sm text-gray-200">{ep.title}</span>
+                          <span className="ml-auto flex min-w-0 flex-shrink flex-wrap gap-4 text-xs text-gray-400">
+                            <span>
+                              <span className="text-gray-500">{t("预估")} </span>
+                              <span className="text-gray-500">{t("分镜")} </span><span className="text-gray-300">{formatCost(epCost.totals.estimate.image)}</span>
+                              <span className="ml-2 text-gray-500">{t("视频")} </span><span className="text-gray-300">{formatCost(epCost.totals.estimate.video)}</span>
+                              <span className="ml-2 text-gray-500">{t("总计")} </span><span className="font-medium text-amber-400">{formatCost(totalBreakdown(epCost.totals.estimate))}</span>
+                            </span>
+                            <span className="text-gray-700">|</span>
+                            <span>
+                              <span className="text-gray-500">{t("实际")} </span>
+                              <span className="text-gray-500">{t("分镜")} </span><span className="text-gray-300">{formatCost(epCost.totals.actual.image)}</span>
+                              <span className="ml-2 text-gray-500">{t("视频")} </span><span className="text-gray-300">{formatCost(epCost.totals.actual.video)}</span>
+                              <span className="ml-2 text-gray-500">{t("总计")} </span><span className="font-medium text-emerald-400">{formatCost(totalBreakdown(epCost.totals.actual))}</span>
+                            </span>
+                          </span>
                         </div>
                       );
                     })}
@@ -382,11 +388,15 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             <div className="aspect-[4/3] overflow-hidden rounded-2xl border border-gray-800 bg-gray-900">
               {projectData?.style_image ? (
                 <PreviewableImageFrame
-                  src={projectData.style_image}
+                  src={API.getFileUrl(projectName, projectData.style_image, styleImageFp)}
                   alt={t("视觉风格参考")}
-                  fingerprint={styleImageFp}
-                  className="h-full w-full object-cover"
-                />
+                >
+                  <img
+                    src={API.getFileUrl(projectName, projectData.style_image, styleImageFp)}
+                    alt={t("视觉风格参考")}
+                    className="h-full w-full object-cover"
+                  />
+                </PreviewableImageFrame>
               ) : (
                 <button
                   type="button"

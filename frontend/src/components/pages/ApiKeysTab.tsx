@@ -231,12 +231,12 @@ export function ApiKeysTab() {
   const [keys, setApiKeys] = useState<ApiKeyInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const fetchKeys = useCallback(async () => {
     try {
       const res = await API.listApiKeys();
-      setApiKeys(res.keys);
+      setApiKeys(res);
     } catch (err) {
       useAppStore.getState().pushToast(`${t("加载失败: ")}${(err as Error).message}`, "error");
     } finally {

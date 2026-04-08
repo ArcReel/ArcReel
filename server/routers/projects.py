@@ -11,13 +11,14 @@ import logging
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 if TYPE_CHECKING:
     from server.services.jianying_draft_service import JianyingDraftService
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -26,8 +27,8 @@ from starlette.background import BackgroundTask
 logger = logging.getLogger(__name__)
 
 from lib import PROJECT_ROOT
-from lib.i18n import get_translator
 from lib.asset_fingerprints import compute_asset_fingerprints
+from lib.i18n import get_translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator

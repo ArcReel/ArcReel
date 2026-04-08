@@ -1,4 +1,3 @@
-
 MESSAGES = {
     "project_not_found": "项目 '{name}' 不存在或未初始化",
     "scope_invalid": "scope 必须为 full 或 current",

@@ -5,10 +5,11 @@ import { Loader2, Plus, FolderOpen, Upload, AlertTriangle, Settings } from "luci
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import { OpenClawModal } from "./OpenClawModal";
-import type { ProjectStatus, ProjectSummary, ExportDiagnostics } from "@/types";
+import type { ProjectStatus, ProjectSummary, ImportConflictPolicy, ImportFailureDiagnostics } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Phase display helpers
@@ -125,7 +126,7 @@ export function ProjectsPage() {
   const [importingProject, setImportingProject] = useState(false);
   const [conflictProject, setConflictProject] = useState<string | null>(null);
   const [conflictFile, setConflictFile] = useState<File | null>(null);
-  const [importDiagnostics, setImportDiagnostics] = useState<ExportDiagnostics | null>(null);
+  const [importDiagnostics, setImportDiagnostics] = useState<ImportFailureDiagnostics | null>(null);
   const [showOpenClaw, setShowOpenClaw] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
@@ -151,24 +152,44 @@ export function ProjectsPage() {
     e.target.value = "";
   };
 
-  const doImport = async (file: File, policy: "prompt" | "overwrite" | "rename" = "prompt") => {
+  const doImport = async (file: File, policy: ImportConflictPolicy = "prompt") => {
     setImportingProject(true);
     try {
-      const res = await API.importProject(file, policy);
-      if (res.conflict && res.project_name) {
-        setConflictProject(res.project_name);
-        setConflictFile(file);
-      } else {
-        setConflictProject(null);
-        setConflictFile(null);
-        if (res.diagnostics) {
-          const total = res.diagnostics.blocking.length + res.diagnostics.warnings.length + res.diagnostics.auto_fixed.length;
-          if (total > 0) setImportDiagnostics(res.diagnostics);
-        }
-        await fetchProjects();
+      const result = await API.importProject(file, policy);
+      setConflictProject(null);
+      setConflictFile(null);
+      setImportDiagnostics(null);
+      await fetchProjects();
+
+      const autoFixedCount = result.diagnostics.auto_fixed.length;
+      const warningCount = result.diagnostics.warnings.length;
+      if (warningCount > 0 || autoFixedCount > 0) {
+        useAppStore.getState().pushToast(
+          autoFixedCount > 0
+            ? t("dashboard:import_auto_fixed", { title: result.project.title || result.project_name, count: autoFixedCount })
+            : t("dashboard:import_success", { title: result.project.title || result.project_name }),
+          "success"
+        );
       }
+      navigate(`/app/projects/${result.project_name}`);
     } catch (err) {
-      alert(`${t("dashboard:import_failed")}: ${(err as Error).message}`);
+      const error = err as Error & {
+        status?: number;
+        conflict_project_name?: string;
+        diagnostics?: ImportFailureDiagnostics;
+      };
+
+      if (error.status === 409 && error.conflict_project_name && policy === "prompt") {
+        setConflictFile(file);
+        setConflictProject(error.conflict_project_name);
+        return;
+      }
+
+      if (error.diagnostics) {
+        setImportDiagnostics(error.diagnostics);
+      } else {
+        alert(`${t("dashboard:import_failed")}: ${error.message}`);
+      }
     } finally {
       setImportingProject(false);
     }
@@ -284,7 +305,7 @@ export function ProjectsPage() {
           description={t("dashboard:import_success_with_diagnostics")}
           sections={[
             { key: "blocking", title: t("dashboard:blocking_issues"), tone: "border-red-400/25 bg-red-500/10 text-red-100", items: importDiagnostics.blocking },
-            { key: "auto_fixed", title: t("dashboard:auto_fixed_issues"), tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100", items: importDiagnostics.auto_fixed },
+            { key: "auto_fixed", title: t("dashboard:auto_fixed_issues"), tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100", items: importDiagnostics.auto_fixable },
             { key: "warnings", title: t("common:error"), tone: "border-amber-400/25 bg-amber-500/10 text-amber-100", items: importDiagnostics.warnings },
           ]}
           onClose={() => setImportDiagnostics(null)}

@@ -1,4 +1,3 @@
-
 MESSAGES = {
     "project_not_found": "Project '{name}' does not exist or is not initialized",
     "scope_invalid": "scope must be full or current",

@@ -10,13 +10,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from typing import Annotated, Callable
-from fastapi import APIRouter, HTTPException, Depends
+from collections.abc import Callable
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from lib import PROJECT_ROOT
-from lib.i18n import get_translator
 from lib.generation_queue import get_generation_queue
+from lib.i18n import get_translator
 from lib.project_manager import ProjectManager
 from lib.prompt_utils import (
     is_structured_image_prompt,

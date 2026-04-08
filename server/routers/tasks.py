@@ -5,18 +5,18 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
+from typing import Annotated
 
-from typing import Annotated, Callable
-from fastapi import APIRouter, Header, HTTPException, Query, Request, Depends
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
-from lib.i18n import get_translator
 from lib.generation_queue import (
     get_generation_queue,
     read_queue_poll_interval,
 )
+from lib.i18n import get_translator
 from server.auth import CurrentUser, CurrentUserFlexible
 
 router = APIRouter()

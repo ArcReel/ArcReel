@@ -18,8 +18,6 @@ import {
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
-import { CharacterThumbnail, ClueThumbnail } from "@/components/ui/LoreThumbnails";
-
 // ---------------------------------------------------------------------------
 // Sidebar Dot Status mapping
 // ---------------------------------------------------------------------------
@@ -76,6 +74,90 @@ function CollapsibleSection({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// CharacterThumbnail — round avatar with fallback
+// ---------------------------------------------------------------------------
+
+function CharacterThumbnail({
+  name,
+  sheetPath,
+  projectName,
+}: {
+  name: string;
+  sheetPath: string | undefined;
+  projectName: string;
+}) {
+  const sheetFp = useProjectsStore((s) =>
+    sheetPath ? s.getAssetFingerprint(sheetPath) : null,
+  );
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [sheetFp, sheetPath]);
+
+  if (!sheetPath || imgError) {
+    return (
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-700 text-gray-400">
+        <User className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={API.getFileUrl(projectName, sheetPath, sheetFp)}
+      alt={name}
+      className="h-6 w-6 shrink-0 rounded-full object-cover"
+      onError={() => setImgError(true)}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ClueThumbnail — square icon with fallback
+// ---------------------------------------------------------------------------
+
+function ClueThumbnail({
+  name,
+  sheetPath,
+  projectName,
+}: {
+  name: string;
+  sheetPath: string | undefined;
+  projectName: string;
+}) {
+  const sheetFp = useProjectsStore((s) =>
+    sheetPath ? s.getAssetFingerprint(sheetPath) : null,
+  );
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [sheetFp, sheetPath]);
+
+  if (!sheetPath || imgError) {
+    return (
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-gray-700 text-gray-400">
+        <Puzzle className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={API.getFileUrl(projectName, sheetPath, sheetFp)}
+      alt={name}
+      className="h-6 w-6 shrink-0 rounded object-cover"
+      onError={() => setImgError(true)}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EmptyState — shared empty placeholder
+// ---------------------------------------------------------------------------
 
 function EmptyState({ text }: { text: string }) {
   return (
