@@ -253,8 +253,8 @@ flowchart TB
 
 - 📖 [Full Getting Started Guide](docs/getting-started.md) — Step-by-step guide from scratch
 - 📦 [CapCut Draft Export Guide](docs/jianying-export-guide.md) — Import video clips into CapCut desktop for secondary editing
-- 💰 [Google GenAI Cost Reference](docs/google-genai-docs/Google视频&图片生成费用参考.md) — Gemini image / Veo video generation cost reference
-- 💰 [Volcano Engine Cost Reference](docs/ark-docs/火山方舟费用参考.md) — Volcano Engine video / image / text model cost reference
+- 💰 [Google GenAI Cost Reference](docs/google-genai-docs/Google-Video-Image-Generation-Cost-Reference.md) — Gemini image / Veo video generation cost reference
+- 💰 [Volcano Engine Cost Reference](docs/ark-docs/Volcano-Engine-Cost-Reference.md) — Volcano Engine video / image / text model cost reference
 
 ## Contributing
 

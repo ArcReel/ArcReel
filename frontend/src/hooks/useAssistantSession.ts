@@ -419,7 +419,7 @@ export function useAssistantSession(projectName: string | null) {
           media_type: img.mimeType,
         }));
 
-        // 乐观更新：立即在 UI 上显示用户消息
+        // Optimistic update: immediately display the user message in the UI
         const optimisticContent: import("@/types").ContentBlock[] = [
           ...(imagePayload ?? []).map((img) => ({
             type: "image" as const,
@@ -442,7 +442,7 @@ export function useAssistantSession(projectName: string | null) {
         statusRef.current = "running";
         store.getState().setSessionStatus("running");
 
-        // 统一发送（新建或已有会话）
+        // Unified send (new or existing session)
         const result = await API.sendAssistantMessage(
           projectName!,
           content,
@@ -454,12 +454,12 @@ export function useAssistantSession(projectName: string | null) {
 
         const returnedSessionId = result.session_id;
 
-        // 新会话：更新 store
+        // New session: update store
         if (!sessionId) {
           const newSession: SessionMeta = {
             id: returnedSessionId,
             project_name: projectName!,
-            title: content.trim().slice(0, 30) || "图片消息",
+            title: content.trim().slice(0, 30) || "Image message",
             status: "running",
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
