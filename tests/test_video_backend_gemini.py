@@ -436,8 +436,13 @@ class TestContentApiGenerate:
 
     async def test_generate_with_start_image(self, content_api_backend, tmp_path):
         output = tmp_path / "out.mp4"
+
+        # 创建有效的 PNG 图片文件
+        from PIL import Image as PILImage
+
+        img = PILImage.new("RGB", (10, 10), color="red")
         frame = tmp_path / "frame.png"
-        frame.write_bytes(b"\x89PNG\r\n\x1a\n")
+        img.save(frame)
 
         mock_resp = _make_content_api_response()
         content_api_backend._client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
@@ -446,10 +451,12 @@ class TestContentApiGenerate:
         result = await content_api_backend.generate(request)
 
         assert result.video_path == output
-        # contents 应包含图片 + prompt
+        # contents 应包含 PIL.Image + prompt（str）
         call_kwargs = content_api_backend._client.aio.models.generate_content.call_args.kwargs
         contents = call_kwargs["contents"]
-        assert len(contents) == 2  # image + prompt
+        assert len(contents) == 2
+        assert isinstance(contents[0], PILImage.Image)
+        assert isinstance(contents[1], str)
 
     async def test_generate_empty_response_raises(self, content_api_backend, tmp_path):
         """API 返回空候选时应抛出 RuntimeError。"""

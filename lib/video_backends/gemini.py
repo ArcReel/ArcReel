@@ -131,11 +131,12 @@ class GeminiVideoBackend:
             await self._rate_limiter.acquire_async(self._video_model)
 
         # 构建 contents（可选起始帧 + prompt）
+        # 注意：generate_content 接受 PIL.Image，不接受 types.Image（_prepare_image_param 的返回类型）
         contents: list = []
         if request.start_image:
-            image_param = self._prepare_image_param(request.start_image)
-            if image_param:
-                contents.append(image_param)
+            pil_img = Image.open(request.start_image)
+            contents.append(pil_img.copy())
+            pil_img.close()
         contents.append(request.prompt)
 
         # 构建配置
@@ -168,7 +169,7 @@ class GeminiVideoBackend:
                         generate_audio=True,
                     )
 
-        raise RuntimeError("视频生成失败: API 未返回视频数据")
+        raise RuntimeError(f"视频生成失败 (model={self._video_model}): API 未返回视频数据")
 
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> Any:
