@@ -47,8 +47,8 @@ async def init_db() -> None:
     from alembic import command
 
     def _run_alembic():
-        # 编程式构造 Config，不读 alembic.ini，
-        # 从而跳过 env.py 的 fileConfig()，保护应用日志配置
+        # Construct Config programmatically, without reading alembic.ini,
+        # skipping env.py's fileConfig() to protect application log configuration
         project_root = Path(__file__).parent.parent.parent
         cfg = Config()
         cfg.set_main_option("script_location", str(project_root / "alembic"))

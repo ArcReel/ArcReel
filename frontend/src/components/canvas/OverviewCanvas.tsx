@@ -240,13 +240,13 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
 
         <div className="rounded-xl border border-gray-800 bg-gray-950/35 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <label htmlFor="style-description-textarea" className="text-xs font-medium text-gray-400">风格描述</label>
+            <label htmlFor="style-description-textarea" className="text-xs font-medium text-gray-400">Style Description</label>
             <span className="text-[11px] text-gray-600">
-              {styleDescriptionDraft.trim().length} 字
+              {styleDescriptionDraft.trim().length} chars
             </span>
           </div>
           <p className="mt-1 text-xs leading-5 text-gray-500">
-            上传参考图后系统会自动分析并填充风格描述；你也可以继续手动校准。
+            After uploading a reference image, the system will automatically analyze and populate the style description; you can also continue to fine-tune it manually.
           </p>
 
           <textarea
@@ -255,14 +255,14 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             onChange={(e) => setStyleDescriptionDraft(e.target.value)}
             rows={8}
             className={`mt-3 min-h-44 w-full rounded-xl border border-gray-700 bg-gray-800/80 px-4 py-3 text-sm leading-relaxed text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
-            placeholder="上传风格参考图后，系统会自动分析并填充风格描述；也可以手动编辑。"
+            placeholder="After uploading a style reference image, the system will automatically analyze and populate the style description; you can also edit it manually."
           />
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs leading-5 text-gray-500">
               {styleImageUrl
-                ? "建议把风格描述用于补充光线、色彩、材质与镜头语言。"
-                : "没有参考图时，也可以先用文字明确画面风格和审美约束。"}
+                ? "It is recommended to use the style description to supplement lighting, color, texture, and cinematographic language."
+                : "Without a reference image, you can still use text to define the visual style and aesthetic constraints."}
             </p>
             {styleDescriptionDirty && (
               <button
@@ -271,7 +271,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                 disabled={savingStyleDescription}
                 className={`rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
               >
-                {savingStyleDescription ? "保存中..." : "保存风格描述"}
+                {savingStyleDescription ? "Saving..." : "Save style description"}
               </button>
             )}
           </div>
@@ -287,9 +287,9 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
           <h1 className="text-2xl font-bold text-gray-100">{projectData.title}</h1>
           <p className="mt-1 text-sm text-gray-400">
             {projectData.content_mode === "narration"
-              ? "说书+画面模式"
-              : "剧集动画模式"}{" "}
-            · {projectData.style || "未设置风格"}
+              ? "Narration + Visuals mode"
+              : "Drama animation mode"}{" "}
+            · {projectData.style || "No style set"}
           </p>
         </div>
 
@@ -305,24 +305,24 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             {overview && (
               <div className="space-y-3 rounded-xl border border-gray-800 bg-gray-900 p-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-gray-300">项目概述</h3>
+                  <h3 className="text-sm font-semibold text-gray-300">Project Overview</h3>
                   <button
                     type="button"
                     onClick={() => void handleRegenerate()}
                     disabled={regenerating}
                     className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-                    title="重新生成概述"
+                    title="Regenerate overview"
                   >
                     <RefreshCw
                       className={`h-3 w-3 ${regenerating ? "animate-spin" : ""}`}
                     />
-                    <span>{regenerating ? "生成中..." : "重新生成"}</span>
+                    <span>{regenerating ? "Generating..." : "Regenerate"}</span>
                   </button>
                 </div>
                 <p className="text-sm text-gray-400">{overview.synopsis}</p>
                 <div className="flex gap-4 text-xs text-gray-500">
-                  <span>题材: {overview.genre}</span>
-                  <span>主题: {overview.theme}</span>
+                  <span>Genre: {overview.genre}</span>
+                  <span>Theme: {overview.theme}</span>
                 </div>
               </div>
             )}
@@ -340,8 +340,8 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                         ? Math.round((cat.completed / cat.total) * 100)
                         : 0;
                     const labels: Record<string, string> = {
-                      characters: "角色",
-                      clues: "线索",
+                      characters: "Characters",
+                      clues: "Clues",
                     };
                     return (
                       <div
@@ -375,45 +375,45 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
 
             {costLoading && (
               <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-                <p className="text-sm text-gray-500 animate-pulse">正在计算费用...</p>
+                <p className="text-sm text-gray-500 animate-pulse">Calculating costs...</p>
               </div>
             )}
             {costError && (
               <div className="rounded-xl border border-red-900/50 bg-red-950/30 p-4">
-                <p className="text-sm text-red-400">费用估算失败: {costError}</p>
+                <p className="text-sm text-red-400">Cost estimation failed: {costError}</p>
               </div>
             )}
 
             {projectTotals && (
               <div className="rounded-xl border border-gray-800 bg-gray-900 p-4 tabular-nums">
-                <p className="mb-3 text-sm font-semibold text-gray-300">项目总费用</p>
+                <p className="mb-3 text-sm font-semibold text-gray-300">Total Project Cost</p>
                 <dl className="flex flex-wrap items-start justify-between gap-6">
                   <div className="min-w-0">
-                    <dt className="mb-1 text-[11px] text-gray-600">预估</dt>
+                    <dt className="mb-1 text-[11px] text-gray-600">Estimated</dt>
                     <dd className="text-sm text-gray-400">
-                      <span className="text-gray-500">分镜 </span>
+                      <span className="text-gray-500">Storyboard </span>
                       <span className="text-gray-200">{formatCost(projectTotals.estimate.image)}</span>
-                      <span className="ml-3 text-gray-500">视频 </span>
+                      <span className="ml-3 text-gray-500">Video </span>
                       <span className="text-gray-200">{formatCost(projectTotals.estimate.video)}</span>
-                      <span className="ml-3 text-gray-500">总计 </span>
+                      <span className="ml-3 text-gray-500">Total </span>
                       <span className="font-semibold text-amber-400">{formatCost(totalBreakdown(projectTotals.estimate))}</span>
                     </dd>
                   </div>
                   <div role="separator" className="h-8 w-px bg-gray-800" />
                   <div className="min-w-0">
-                    <dt className="mb-1 text-[11px] text-gray-600">实际</dt>
+                    <dt className="mb-1 text-[11px] text-gray-600">Actual</dt>
                     <dd className="text-sm text-gray-400">
-                      <span className="text-gray-500">分镜 </span>
+                      <span className="text-gray-500">Storyboard </span>
                       <span className="text-gray-200">{formatCost(projectTotals.actual.image)}</span>
-                      <span className="ml-3 text-gray-500">视频 </span>
+                      <span className="ml-3 text-gray-500">Video </span>
                       <span className="text-gray-200">{formatCost(projectTotals.actual.video)}</span>
                       {projectTotals.actual.character_and_clue && (
                         <>
-                          <span className="ml-3 text-gray-500">角色/线索 </span>
+                          <span className="ml-3 text-gray-500">Characters/Clues </span>
                           <span className="text-gray-200">{formatCost(projectTotals.actual.character_and_clue)}</span>
                         </>
                       )}
-                      <span className="ml-3 text-gray-500">总计 </span>
+                      <span className="ml-3 text-gray-500">Total </span>
                       <span className="font-semibold text-emerald-400">{formatCost(totalBreakdown(projectTotals.actual))}</span>
                     </dd>
                   </div>
@@ -422,10 +422,10 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             )}
 
             <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-gray-300">剧集</h3>
+              <h3 className="text-sm font-semibold text-gray-300">Episodes</h3>
               {(projectData.episodes?.length ?? 0) === 0 ? (
                 <p className="text-sm text-gray-500">
-                  暂无剧集。使用 AI 助手生成剧本。
+                  No episodes yet. Use the AI assistant to generate a script.
                 </p>
               ) : (
                 (projectData.episodes ?? []).map((ep) => {
@@ -440,22 +440,22 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                       </span>
                       <span className="text-sm text-gray-200">{ep.title}</span>
                       <span className="text-xs text-gray-500">
-                        {ep.scenes_count ?? "?"} 片段 · {ep.status ?? "draft"}
+                        {ep.scenes_count ?? "?"} segments · {ep.status ?? "draft"}
                       </span>
                       {epCost && (
                         <span className="ml-auto flex min-w-0 flex-shrink flex-wrap gap-4 text-xs text-gray-400">
                           <span>
-                            <span className="text-gray-500">预估 </span>
-                            <span className="text-gray-500">分镜 </span><span className="text-gray-300">{formatCost(epCost.totals.estimate.image)}</span>
-                            <span className="ml-2 text-gray-500">视频 </span><span className="text-gray-300">{formatCost(epCost.totals.estimate.video)}</span>
-                            <span className="ml-2 text-gray-500">总计 </span><span className="font-medium text-amber-400">{formatCost(totalBreakdown(epCost.totals.estimate))}</span>
+                            <span className="text-gray-500">Est. </span>
+                            <span className="text-gray-500">Storyboard </span><span className="text-gray-300">{formatCost(epCost.totals.estimate.image)}</span>
+                            <span className="ml-2 text-gray-500">Video </span><span className="text-gray-300">{formatCost(epCost.totals.estimate.video)}</span>
+                            <span className="ml-2 text-gray-500">Total </span><span className="font-medium text-amber-400">{formatCost(totalBreakdown(epCost.totals.estimate))}</span>
                           </span>
                           <span className="text-gray-700">|</span>
                           <span>
-                            <span className="text-gray-500">实际 </span>
-                            <span className="text-gray-500">分镜 </span><span className="text-gray-300">{formatCost(epCost.totals.actual.image)}</span>
-                            <span className="ml-2 text-gray-500">视频 </span><span className="text-gray-300">{formatCost(epCost.totals.actual.video)}</span>
-                            <span className="ml-2 text-gray-500">总计 </span><span className="font-medium text-emerald-400">{formatCost(totalBreakdown(epCost.totals.actual))}</span>
+                            <span className="text-gray-500">Act. </span>
+                            <span className="text-gray-500">Storyboard </span><span className="text-gray-300">{formatCost(epCost.totals.actual.image)}</span>
+                            <span className="ml-2 text-gray-500">Video </span><span className="text-gray-300">{formatCost(epCost.totals.actual.video)}</span>
+                            <span className="ml-2 text-gray-500">Total </span><span className="font-medium text-emerald-400">{formatCost(totalBreakdown(epCost.totals.actual))}</span>
                           </span>
                         </span>
                       )}

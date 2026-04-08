@@ -74,7 +74,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
       data-workspace-editing="true"
     >
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-200">添加角色</h3>
+        <h3 className="text-sm font-semibold text-gray-200">Add Character</h3>
         <button
           type="button"
           onClick={onCancel}
@@ -87,13 +87,13 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-1">
-            名称 <span className="text-red-400">*</span>
+            Name <span className="text-red-400">*</span>
           </label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="角色名称"
+            placeholder="Character name"
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
             autoFocus
           />
@@ -101,12 +101,12 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
 
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-1">
-            描述 <span className="text-red-400">*</span>
+            Description <span className="text-red-400">*</span>
           </label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="角色外貌、性格、背景等描述..."
+            placeholder="Character appearance, personality, background, etc..."
             rows={3}
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500 resize-none"
           />
@@ -114,13 +114,13 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
 
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-1">
-            声音风格
+            Voice Style
           </label>
           <input
             type="text"
             value={voiceStyle}
             onChange={(e) => setVoiceStyle(e.target.value)}
-            placeholder="可选，例如：温柔但有威严"
+            placeholder="Optional, e.g.: gentle yet authoritative"
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
           />
         </div>
@@ -128,7 +128,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
         <div>
           <div className="mb-1 flex items-center justify-between">
             <label className="block text-xs font-medium text-gray-400">
-              参考图 <span className="text-gray-600">（可选）</span>
+              Reference Image <span className="text-gray-600">(optional)</span>
             </label>
             {referenceFile && (
               <span className="text-[11px] text-gray-500">{referenceFile.name}</span>
@@ -139,13 +139,13 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
             <div className="relative overflow-hidden rounded-lg border border-gray-700 bg-gray-800">
               <img
                 src={referencePreview}
-                alt="角色参考图预览"
+                alt="Character reference image preview"
                 className="h-32 w-full object-cover"
               />
               <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
                 <span className="flex items-center gap-1.5 text-xs text-gray-200">
                   <ImagePlus className="h-3.5 w-3.5" />
-                  已选择参考图
+                  Reference image selected
                 </span>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -153,14 +153,14 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
                     onClick={() => fileInputRef.current?.click()}
                     className="rounded bg-black/40 px-2 py-1 text-xs text-gray-200 transition-colors hover:bg-black/60"
                   >
-                    更换
+                    Replace
                   </button>
                   <button
                     type="button"
                     onClick={clearReference}
                     className="rounded bg-black/40 px-2 py-1 text-xs text-gray-200 transition-colors hover:bg-black/60"
                   >
-                    清除
+                    Clear
                   </button>
                 </div>
               </div>
@@ -172,7 +172,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
               className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-gray-700 bg-gray-800/50 px-3 py-4 text-sm text-gray-500 transition-colors hover:border-gray-500 hover:text-gray-300"
             >
               <Upload className="h-4 w-4" />
-              上传参考图片
+              Upload reference image
             </button>
           )}
 
@@ -184,7 +184,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
             className="hidden"
           />
           <p className="mt-1 text-xs text-gray-600">
-            用于后续角色设计图生成时保持角色一致性
+            Used to maintain character consistency during subsequent character design image generation
           </p>
         </div>
 
@@ -194,7 +194,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
             onClick={onCancel}
             className="rounded-lg px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors"
           >
-            取消
+            Cancel
           </button>
           <button
             type="submit"
@@ -204,10 +204,10 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
             {submitting ? (
               <span className="inline-flex items-center gap-1.5">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                添加中...
+                Adding...
               </span>
             ) : (
-              "添加"
+              "Add"
             )}
           </button>
         </div>

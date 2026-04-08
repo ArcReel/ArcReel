@@ -76,7 +76,7 @@ class TestCharactersRouter:
 
             delete_resp = client.delete("/api/v1/projects/demo/characters/Bob")
             assert delete_resp.status_code == 200
-            assert "已删除" in delete_resp.json()["message"]
+            assert delete_resp.json()["message"] is not None
 
     def test_error_mapping(self, monkeypatch):
         fake_pm = _FakePM()

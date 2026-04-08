@@ -49,7 +49,7 @@ export function StudioCanvasRouter() {
     return lookupSupportedDurations(providers, backend, customProviders);
   }, [providers, customProviders, globalVideoBackend, currentProjectData?.video_backend]);
 
-  // 从任务队列派生 loading 状态（替代本地 state）
+  // Derive loading state from the task queue (replaces local state)
   const tasks = useTasksStore((s) => s.tasks);
   const generatingCharacterNames = useMemo(() => {
     const names = new Set<string>();
@@ -78,7 +78,7 @@ export function StudioCanvasRouter() {
     return names;
   }, [tasks, currentProjectName]);
 
-  // 刷新项目数据
+  // Refresh project data
   const refreshProject = useCallback(async (invalidateKeys: string[] = []) => {
     if (!currentProjectName) return;
     try {
@@ -93,7 +93,7 @@ export function StudioCanvasRouter() {
         useAppStore.getState().invalidateEntities(invalidateKeys);
       }
     } catch {
-      // 静默失败
+      // Fail silently
     }
   }, [currentProjectName]);
 
@@ -110,7 +110,7 @@ export function StudioCanvasRouter() {
       }
       await refreshProject();
     } catch (err) {
-      useAppStore.getState().pushToast(`更新 Prompt 失败: ${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`Failed to update prompt: ${(err as Error).message}`, "error");
     }
   }, [currentProjectName, currentProjectData, refreshProject]);
 
@@ -129,9 +129,9 @@ export function StudioCanvasRouter() {
     const prompt = seg?.image_prompt ?? "";
     try {
       await API.generateStoryboard(currentProjectName, segmentId, prompt as string | Record<string, unknown>, resolvedFile);
-      useAppStore.getState().pushToast(`已提交分镜 "${segmentId}" 生成任务`, "success");
+      useAppStore.getState().pushToast(`Storyboard generation task submitted for "${segmentId}"`, "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`生成分镜失败: ${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`Failed to generate storyboard: ${(err as Error).message}`, "error");
     }
   }, [currentProjectName, currentScripts]);
 
@@ -151,9 +151,9 @@ export function StudioCanvasRouter() {
     const duration = seg?.duration_seconds ?? 4;
     try {
       await API.generateVideo(currentProjectName, segmentId, prompt as string | Record<string, unknown>, resolvedFile, duration);
-      useAppStore.getState().pushToast(`已提交视频 "${segmentId}" 生成任务`, "success");
+      useAppStore.getState().pushToast(`Video generation task submitted for "${segmentId}"`, "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`生成视频失败: ${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`Failed to generate video: ${(err as Error).message}`, "error");
     }
   }, [currentProjectName, currentScripts]);
 
@@ -187,9 +187,9 @@ export function StudioCanvasRouter() {
           ? [buildEntityRevisionKey("character", name)]
           : [],
       );
-      useAppStore.getState().pushToast(`角色 "${name}" 已更新`, "success");
+      useAppStore.getState().pushToast(`Character "${name}" updated`, "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`更新角色失败: ${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`Failed to update character: ${(err as Error).message}`, "error");
     }
   }, [currentProjectName, refreshProject]);
 
@@ -203,9 +203,9 @@ export function StudioCanvasRouter() {
       );
       useAppStore
         .getState()
-        .pushToast(`角色 "${name}" 生成任务已提交`, "success");
+        .pushToast(`Character "${name}" generation task submitted`, "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`提交失败: ${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`Submission failed: ${(err as Error).message}`, "error");
     }
   }, [currentProjectName, currentProjectData]);
 
@@ -229,9 +229,9 @@ export function StudioCanvasRouter() {
           : [],
       );
       setAddingCharacter(false);
-      useAppStore.getState().pushToast(`角色 "${name}" 已添加`, "success");
+      useAppStore.getState().pushToast(`Character "${name}" added`, "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`添加失败: ${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`Add failed: ${(err as Error).message}`, "error");
     }
   }, [currentProjectName, refreshProject]);
 
@@ -242,7 +242,7 @@ export function StudioCanvasRouter() {
       await API.updateClue(currentProjectName, name, updates);
       await refreshProject();
     } catch (err) {
-      useAppStore.getState().pushToast(`更新线索失败: ${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`Failed to update clue: ${(err as Error).message}`, "error");
     }
   }, [currentProjectName, refreshProject]);
 
@@ -256,9 +256,9 @@ export function StudioCanvasRouter() {
       );
       useAppStore
         .getState()
-        .pushToast(`线索 "${name}" 生成任务已提交`, "success");
+        .pushToast(`Clue "${name}" generation task submitted`, "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`提交失败: ${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`Submission failed: ${(err as Error).message}`, "error");
     }
   }, [currentProjectName, currentProjectData]);
 
@@ -268,9 +268,9 @@ export function StudioCanvasRouter() {
       await API.addClue(currentProjectName, name, clueType, description, importance);
       await refreshProject();
       setAddingClue(false);
-      useAppStore.getState().pushToast(`线索 "${name}" 已添加`, "success");
+      useAppStore.getState().pushToast(`Clue "${name}" added`, "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`添加失败: ${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`Add failed: ${(err as Error).message}`, "error");
     }
   }, [currentProjectName, refreshProject]);
 
@@ -283,7 +283,7 @@ export function StudioCanvasRouter() {
   if (!currentProjectName) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
-        加载中...
+        Loading...
       </div>
     );
   }

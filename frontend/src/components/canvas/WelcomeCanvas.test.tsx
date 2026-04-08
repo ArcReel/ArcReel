@@ -20,7 +20,7 @@ describe("WelcomeCanvas", () => {
       />,
     );
 
-    expect(await screen.findByText("欢迎来到 哈喽项目！")).toBeInTheDocument();
-    expect(screen.queryByText("欢迎来到 halou-92d19a04！")).not.toBeInTheDocument();
+    expect(await screen.findByText("Welcome to 哈喽项目!")).toBeInTheDocument();
+    expect(screen.queryByText("Welcome to halou-92d19a04!")).not.toBeInTheDocument();
   });
 });

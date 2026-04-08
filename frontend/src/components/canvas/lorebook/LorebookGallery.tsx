@@ -31,9 +31,9 @@ interface LorebookGalleryProps {
   onRestoreClueVersion?: () => Promise<void> | void;
   generatingCharacterNames?: Set<string>;
   generatingClueNames?: Set<string>;
-  /** Called when the user clicks "添加角色". */
+  /** Called when the user clicks "Add Character". */
   onAddCharacter?: () => void;
-  /** Called when the user clicks "添加线索". */
+  /** Called when the user clicks "Add Clue". */
   onAddClue?: () => void;
 }
 
@@ -105,13 +105,13 @@ export function LorebookGallery({
           active={activeTab === "characters"}
           onClick={() => setActiveTab("characters")}
         >
-          角色 ({charCount})
+          Characters ({charCount})
         </TabButton>
         <TabButton
           active={activeTab === "clues"}
           onClick={() => setActiveTab("clues")}
         >
-          线索 ({clueCount})
+          Clues ({clueCount})
         </TabButton>
       </div>
       )}
@@ -122,7 +122,7 @@ export function LorebookGallery({
           {charCount === 0 ? (
             <EmptyState
               icon={<User className="h-12 w-12 text-gray-600" />}
-              message="暂无角色，点击下方按钮添加"
+              message="No characters yet, click the button below to add one"
             />
           ) : (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -143,7 +143,7 @@ export function LorebookGallery({
           )}
 
           {onAddCharacter && (
-            <AddButton onClick={onAddCharacter}>添加角色</AddButton>
+            <AddButton onClick={onAddCharacter}>Add Character</AddButton>
           )}
         </>
       )}
@@ -154,7 +154,7 @@ export function LorebookGallery({
           {clueCount === 0 ? (
             <EmptyState
               icon={<Puzzle className="h-12 w-12 text-gray-600" />}
-              message="暂无线索，点击下方按钮添加"
+              message="No clues yet, click the button below to add one"
             />
           ) : (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -174,7 +174,7 @@ export function LorebookGallery({
             </div>
           )}
 
-          {onAddClue && <AddButton onClick={onAddClue}>添加线索</AddButton>}
+          {onAddClue && <AddButton onClick={onAddClue}>Add Clue</AddButton>}
         </>
       )}
     </div>

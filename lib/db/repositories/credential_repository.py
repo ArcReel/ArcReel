@@ -20,7 +20,7 @@ class CredentialRepository(BaseRepository):
         credentials_path: str | None = None,
         base_url: str | None = None,
     ) -> ProviderCredential:
-        """创建凭证。若为该供应商的第一条，自动设为活跃。"""
+        """Create a credential. If it is the first one for this provider, automatically set it as active."""
         is_first = not await self.has_active_credential(provider)
         cred = ProviderCredential(
             provider=provider,
@@ -60,7 +60,7 @@ class CredentialRepository(BaseRepository):
         return await self.get_active(provider) is not None
 
     async def get_active_credentials_bulk(self) -> dict[str, ProviderCredential]:
-        """批量获取所有供应商的活跃凭证。"""
+        """Bulk-fetch the active credential for every provider."""
         stmt = select(ProviderCredential).where(
             ProviderCredential.is_active == True,  # noqa: E712
         )
@@ -68,7 +68,7 @@ class CredentialRepository(BaseRepository):
         return {c.provider: c for c in result.scalars()}
 
     async def activate(self, cred_id: int, provider: str) -> None:
-        """激活指定凭证，同时取消同供应商的其他活跃标记。"""
+        """Activate the specified credential and deactivate all other credentials for the same provider."""
         await self.session.execute(
             update(ProviderCredential).where(ProviderCredential.provider == provider).values(is_active=False)
         )
@@ -85,7 +85,7 @@ class CredentialRepository(BaseRepository):
         credentials_path: str | None = None,
         base_url: str | None | object = _UNSET,
     ) -> None:
-        """更新凭证字段。仅更新非 None 参数（base_url 用 _UNSET 表示未传入）。"""
+        """Update credential fields. Only updates non-None parameters (base_url uses _UNSET to indicate not provided)."""
         cred = await self.get_by_id(cred_id)
         if cred is None:
             return
@@ -99,7 +99,7 @@ class CredentialRepository(BaseRepository):
             cred.base_url = normalize_base_url(base_url)  # type: ignore[arg-type]
 
     async def delete(self, cred_id: int) -> None:
-        """删除凭证。若删除的是活跃凭证，自动将最早的另一条设为活跃。"""
+        """Delete a credential. If the deleted credential was active, automatically activate the earliest remaining one."""
         cred = await self.get_by_id(cred_id)
         if cred is None:
             return

@@ -54,21 +54,21 @@ export function PreprocessingView({
       await API.saveDraft(projectName, episode, 1, editContent);
       setContent(editContent);
       setEditing(false);
-      pushToast("预处理内容已保存", "success");
+      pushToast("Pre-processing content saved", "success");
     } catch {
-      pushToast("保存失败", "error");
+      pushToast("Save failed", "error");
     } finally {
       setSaving(false);
     }
   }, [projectName, episode, editContent, pushToast]);
 
   const statusLabel =
-    contentMode === "narration" ? "片段拆分已完成" : "规范化剧本已完成";
+    contentMode === "narration" ? "Segment splitting complete" : "Normalized script complete";
 
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center text-gray-500">
-        加载预处理内容...
+        Loading pre-processing content...
       </div>
     );
   }
@@ -76,7 +76,7 @@ export function PreprocessingView({
   if (content === null) {
     return (
       <div className="flex h-64 items-center justify-center text-gray-500">
-        暂无预处理内容
+        No pre-processing content available
       </div>
     );
   }
@@ -99,7 +99,7 @@ export function PreprocessingView({
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-green-400 transition-colors hover:bg-gray-800 disabled:opacity-50"
               >
                 <Save className="h-3.5 w-3.5" />
-                {saving ? "保存中..." : "保存"}
+                {saving ? "Saving..." : "Save"}
               </button>
               <button
                 type="button"
@@ -110,7 +110,7 @@ export function PreprocessingView({
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800"
               >
                 <X className="h-3.5 w-3.5" />
-                取消
+                Cancel
               </button>
             </>
           ) : (
@@ -120,7 +120,7 @@ export function PreprocessingView({
               className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
             >
               <Edit3 className="h-3.5 w-3.5" />
-              编辑
+              Edit
             </button>
           )}
         </div>

@@ -88,11 +88,11 @@ class TestProviderRegistry:
         assert len(video_models) == 3
         assert "doubao-seedance-2-0-260128" in video_models
         assert "doubao-seedance-2-0-fast-260128" in video_models
-        # 2.0 系列应声明 video_extend 但不声明 flex_tier
+        # 2.0 series should declare video_extend but not flex_tier
         for mid in ("doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128"):
             caps = video_models[mid].capabilities
             assert "video_extend" in caps
             assert "flex_tier" not in caps
-        # 1.5 Pro 仍然是默认模型
+        # 1.5 Pro should still be the default model
         assert video_models["doubao-seedance-1-5-pro-251215"].default is True
         assert video_models["doubao-seedance-2-0-260128"].default is False

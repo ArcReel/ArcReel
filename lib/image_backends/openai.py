@@ -1,4 +1,4 @@
-"""OpenAIImageBackend — OpenAI 图片生成后端。"""
+"""OpenAIImageBackend — OpenAI image generation backend."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ _QUALITY_MAP: dict[str, str] = {
 
 
 class OpenAIImageBackend:
-    """OpenAI 图片生成后端，支持 T2I 和 I2I。"""
+    """OpenAI image generation backend, supporting T2I and I2I."""
 
     def __init__(self, *, api_key: str | None = None, model: str | None = None, base_url: str | None = None):
         self._client = create_openai_client(api_key=api_key, base_url=base_url)
@@ -79,7 +79,7 @@ class OpenAIImageBackend:
     async def _generate_edit(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         refs = request.reference_images
         if len(refs) > _MAX_REFERENCE_IMAGES:
-            logger.warning("参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
+            logger.warning("Reference image count %d exceeds limit %d, truncating", len(refs), _MAX_REFERENCE_IMAGES)
             refs = refs[:_MAX_REFERENCE_IMAGES]
         image_files = []
         try:
@@ -88,9 +88,9 @@ class OpenAIImageBackend:
                 try:
                     image_files.append(open(ref_path, "rb"))  # noqa: SIM115
                 except FileNotFoundError:
-                    logger.warning("参考图不存在，跳过: %s", ref_path)
+                    logger.warning("Reference image does not exist, skipping: %s", ref_path)
             if not image_files:
-                logger.warning("所有参考图均无效，回退到 T2I")
+                logger.warning("All reference images are invalid, falling back to T2I")
                 return await self._generate_create(request)
             response = await self._client.images.edit(
                 model=self._model,
@@ -107,7 +107,7 @@ class OpenAIImageBackend:
         image_bytes = base64.b64decode(response.data[0].b64_json)
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
         request.output_path.write_bytes(image_bytes)
-        logger.info("OpenAI 图片生成完成: %s", request.output_path)
+        logger.info("OpenAI image generation complete: %s", request.output_path)
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=PROVIDER_OPENAI,

@@ -1,4 +1,4 @@
-"""供应商凭证管理 API 测试。"""
+"""Provider credential management API tests."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def _make_app() -> tuple[FastAPI, MagicMock]:
 def _fake_cred(
     id: int = 1,
     provider: str = "gemini-aistudio",
-    name: str = "测试Key",
+    name: str = "TestKey",
     api_key: str = "AIzaSyFAKE12345678",
     is_active: bool = True,
     base_url: str | None = None,
@@ -61,7 +61,7 @@ class TestListCredentials:
         assert resp.status_code == 200
         body = resp.json()
         assert len(body["credentials"]) == 1
-        assert body["credentials"][0]["name"] == "测试Key"
+        assert body["credentials"][0]["name"] == "TestKey"
         assert body["credentials"][0]["api_key_masked"] is not None
         assert "FAKE" not in body["credentials"][0]["api_key_masked"]
 
@@ -81,7 +81,7 @@ class TestCreateCredential:
             with TestClient(app) as client:
                 resp = client.post(
                     "/api/v1/providers/gemini-aistudio/credentials",
-                    json={"name": "测试Key", "api_key": "AIza-new"},
+                    json={"name": "TestKey", "api_key": "AIza-new"},
                 )
         assert resp.status_code == 201
 

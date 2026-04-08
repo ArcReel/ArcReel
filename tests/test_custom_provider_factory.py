@@ -1,4 +1,4 @@
-"""create_custom_backend 工厂函数单元测试。"""
+"""Unit tests for the create_custom_backend factory function."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from lib.custom_provider.factory import create_custom_backend
 def _make_provider(
     *, api_format: str = "openai", base_url: str = "https://api.example.com/v1", api_key: str = "sk-test"
 ) -> MagicMock:
-    """创建模拟的 CustomProvider 对象。"""
+    """Create a mock CustomProvider object."""
     provider = MagicMock()
     provider.api_format = api_format
     provider.base_url = base_url
@@ -73,7 +73,7 @@ class TestGoogleFormat:
         assert isinstance(result, CustomTextBackend)
         assert result.name == "custom-42"
         assert result.model == "gemini-3-flash"
-        # base_url 经过 normalize_base_url 处理后会加 /
+        # base_url gets a trailing slash added after normalize_base_url processing
         mock_cls.assert_called_once_with(
             api_key="sk-test",
             base_url="https://generativelanguage.googleapis.com/",
@@ -111,7 +111,7 @@ class TestGoogleFormat:
 
     @patch("lib.custom_provider.factory.GeminiTextBackend")
     def test_empty_base_url_passes_none(self, mock_cls):
-        """当 base_url 经 ensure_google 后为空时，传 None 给 backend。"""
+        """When base_url is empty after ensure_google processing, passes None to backend."""
         provider = _make_provider(api_format="google", base_url="")
         result = create_custom_backend(provider=provider, model_id="gemini-3-flash", media_type="text")
 
@@ -120,7 +120,7 @@ class TestGoogleFormat:
 
     @patch("lib.custom_provider.factory.GeminiTextBackend")
     def test_strips_v1beta_from_base_url(self, mock_cls):
-        """用户误填 /v1beta 时应自动剥离，防止 SDK 重复拼接。"""
+        """When user mistakenly enters /v1beta, it should be stripped automatically to prevent SDK double-appending."""
         provider = _make_provider(api_format="google", base_url="https://generativelanguage.googleapis.com/v1beta")
         create_custom_backend(provider=provider, model_id="gemini-3-flash", media_type="text")
 
@@ -137,7 +137,7 @@ class TestGoogleFormat:
 
 
 class TestOpenAIUrlAutoCompletion:
-    """factory 应自动为 OpenAI 格式的 base_url 追加 /v1。"""
+    """Factory should automatically append /v1 to OpenAI format base_url."""
 
     @patch("lib.custom_provider.factory.OpenAITextBackend")
     def test_appends_v1_when_missing(self, mock_cls):
@@ -174,7 +174,7 @@ class TestOpenAIUrlAutoCompletion:
 
     @patch("lib.custom_provider.factory.OpenAIVideoBackend")
     def test_applies_to_all_media_types(self, mock_cls):
-        """video/image 后端同样受 URL 补全影响。"""
+        """video/image backends are also affected by URL auto-completion."""
         provider = _make_provider(api_format="openai", base_url="https://api.example.com")
         create_custom_backend(provider=provider, model_id="sora-2", media_type="video")
 

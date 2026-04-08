@@ -20,7 +20,7 @@ interface WelcomeCanvasProps {
 // WelcomeCanvas — shown when a project has no overview yet.
 // Two entry states:
 //   - idle: no source files → show drag-drop upload zone
-//   - has_sources: source files exist → show file list + "开始分析" button
+//   - has_sources: source files exist → show file list + "Start Analysis" button
 // Then: uploading → analyzing → done
 // ---------------------------------------------------------------------------
 
@@ -76,7 +76,7 @@ export function WelcomeCanvas({
       try {
         await onUpload(file);
       } catch (err) {
-        setError(`上传失败: ${(err as Error).message}`);
+        setError(`Upload failed: ${(err as Error).message}`);
         setPhase(sourceFiles.length > 0 ? "has_sources" : "idle");
         return;
       }
@@ -104,7 +104,7 @@ export function WelcomeCanvas({
       await onAnalyze();
       setPhase("done");
     } catch (err) {
-      setError(`分析失败: ${(err as Error).message}`);
+      setError(`Analysis failed: ${(err as Error).message}`);
       setPhase("has_sources");
     }
   }, [onAnalyze]);
@@ -145,14 +145,14 @@ export function WelcomeCanvas({
         <div>
           <Sparkles className="mx-auto mb-3 h-10 w-10 text-indigo-400" />
           <h1 className="text-2xl font-bold text-gray-100">
-            欢迎来到 {displayProjectTitle}！
+            Welcome to {displayProjectTitle}!
           </h1>
           <p className="mt-2 text-sm text-gray-400">
-            {phase === "idle" && "请拖拽或上传您的小说源文件（txt/md），AI 将为您拆解设定。"}
-            {phase === "has_sources" && "源文件已就绪。您可以继续添加文件，或点击下方按钮开始 AI 分析。"}
-            {phase === "uploading" && `正在上传 "${fileName}"...`}
-            {phase === "analyzing" && "AI 正在分析小说内容，提取角色、线索和世界观..."}
-            {phase === "done" && "分析完成！正在加载项目概述..."}
+            {phase === "idle" && "Drag and drop or upload your novel source files (txt/md) and AI will extract the settings for you."}
+            {phase === "has_sources" && "Source files are ready. You can continue adding files or click the button below to start AI analysis."}
+            {phase === "uploading" && `Uploading "${fileName}"...`}
+            {phase === "analyzing" && "AI is analyzing the novel content, extracting characters, clues, and worldbuilding..."}
+            {phase === "done" && "Analysis complete! Loading project overview..."}
           </p>
         </div>
 
@@ -173,9 +173,9 @@ export function WelcomeCanvas({
             <Upload
               className={`mx-auto h-8 w-8 ${isDragging ? "text-indigo-400" : "text-gray-500"}`}
             />
-            <p className="mt-3 text-sm text-gray-300">拖拽文件到此处</p>
+            <p className="mt-3 text-sm text-gray-300">Drag file here</p>
             <p className="mt-1 text-xs text-gray-500">
-              或点击选择文件（支持 .txt / .md）
+              or click to select a file (supports .txt / .md)
             </p>
             <input
               ref={fileInputRef}
@@ -193,7 +193,7 @@ export function WelcomeCanvas({
             {/* Source file list */}
             <div className="rounded-xl border border-gray-800 bg-gray-900 p-4 text-left">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                已上传的源文件
+                Uploaded source files
               </p>
               <div className="space-y-1.5">
                 {sourceFiles.map((f) => (
@@ -210,7 +210,7 @@ export function WelcomeCanvas({
                 className="mt-3 flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-300 transition-colors"
               >
                 <Plus className="h-3.5 w-3.5" />
-                添加更多文件
+                Add more files
               </button>
               <input
                 ref={fileInputRef}
@@ -233,7 +233,7 @@ export function WelcomeCanvas({
                   : "border-gray-700 text-gray-500 hover:border-gray-600"
               }`}
             >
-              或拖拽更多文件到此处
+              Or drag more files here
             </button>
 
             {/* Analyze button */}
@@ -243,7 +243,7 @@ export function WelcomeCanvas({
               className="w-full rounded-xl bg-indigo-600 px-6 py-3 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
             >
               <Sparkles className="inline-block h-4 w-4 mr-2 -mt-0.5" />
-              开始 AI 分析
+              Start AI Analysis
             </button>
           </div>
         )}
@@ -252,7 +252,7 @@ export function WelcomeCanvas({
         {phase === "uploading" && (
           <div className="rounded-xl border border-gray-700 bg-gray-900/50 p-12">
             <Loader2 className="mx-auto h-8 w-8 text-indigo-400 animate-spin" />
-            <p className="mt-3 text-sm text-gray-300">上传中...</p>
+            <p className="mt-3 text-sm text-gray-300">Uploading...</p>
             <p className="mt-1 text-xs text-gray-500">{fileName}</p>
           </div>
         )}
@@ -261,8 +261,8 @@ export function WelcomeCanvas({
         {phase === "analyzing" && (
           <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-12">
             <Sparkles className="mx-auto h-10 w-10 text-indigo-400 animate-pulse" />
-            <p className="mt-3 text-sm text-indigo-300 font-medium">AI 分析中...</p>
-            <p className="mt-1 text-xs text-gray-400">正在提取故事梗概、题材、主题和世界观设定</p>
+            <p className="mt-3 text-sm text-indigo-300 font-medium">AI analyzing...</p>
+            <p className="mt-1 text-xs text-gray-400">Extracting story synopsis, genre, theme, and worldbuilding settings</p>
             <div className="mt-4 mx-auto w-48 h-1 rounded-full bg-gray-800 overflow-hidden">
               <div className="h-full rounded-full bg-indigo-600 animate-progress" />
             </div>
@@ -273,7 +273,7 @@ export function WelcomeCanvas({
         {phase === "done" && (
           <div className="rounded-xl border border-green-500/30 bg-green-500/5 p-12">
             <CheckCircle2 className="mx-auto h-8 w-8 text-green-400" />
-            <p className="mt-3 text-sm text-green-300">分析完成</p>
+            <p className="mt-3 text-sm text-green-300">Analysis complete</p>
           </div>
         )}
 
@@ -286,16 +286,16 @@ export function WelcomeCanvas({
         {phase === "idle" && (
           <div className="text-left space-y-2">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              接下来会发生什么？
+              What happens next?
             </p>
             <div className="space-y-1.5 text-xs text-gray-400">
               <div className="flex items-start gap-2">
                 <FileText className="mt-0.5 h-3.5 w-3.5 text-gray-500 shrink-0" />
-                <span>AI 将分析您的小说，提取角色、线索和世界观设定</span>
+                <span>AI will analyze your novel, extracting characters, clues, and worldbuilding settings</span>
               </div>
               <div className="flex items-start gap-2">
                 <Sparkles className="mt-0.5 h-3.5 w-3.5 text-gray-500 shrink-0" />
-                <span>自动生成项目概述，然后您可以开始创建剧本和分镜</span>
+                <span>A project overview will be automatically generated, then you can start creating scripts and storyboards</span>
               </div>
             </div>
           </div>

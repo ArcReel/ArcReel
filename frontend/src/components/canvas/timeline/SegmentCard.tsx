@@ -208,7 +208,7 @@ function DurationSelector({
         align="start"
         sideOffset={6}
       >
-        <div className="flex gap-1" role="radiogroup" aria-label="时长选择">
+        <div className="flex gap-1" role="radiogroup" aria-label="Duration selection">
           {durationOptions.map((d) => (
             <button
               key={d}
@@ -288,13 +288,13 @@ function TextColumn({
   const noteSection = (
     <div className="mt-auto pt-3 border-t border-gray-800">
       <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2 block">
-        备注
+        Notes
       </span>
       <textarea
         className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 text-sm text-gray-300 placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         rows={4}
-        placeholder="添加备注..."
-        aria-label="备注"
+        placeholder="Add notes..."
+        aria-label="Notes"
         value={noteDraft}
         onChange={(e) => setNoteDraft(e.target.value)}
         onBlur={handleNoteBlur}
@@ -307,10 +307,10 @@ function TextColumn({
     return (
       <div className="flex h-full flex-col gap-1.5 p-3">
         <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
-          原文
+          Original Text
         </span>
         <pre className="whitespace-pre-wrap text-sm leading-relaxed text-gray-300 font-sans">
-          {s.novel_text || "（暂无原文）"}
+          {s.novel_text || "(No original text)"}
         </pre>
         {noteSection}
       </div>
@@ -326,10 +326,10 @@ function TextColumn({
   return (
     <div className="flex h-full flex-col gap-1.5 p-3">
       <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
-        对话
+        Dialogue
       </span>
       {dialogue.length === 0 ? (
-        <p className="text-sm text-gray-500 italic">（暂无对话）</p>
+        <p className="text-sm text-gray-500 italic">(No dialogue)</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {dialogue.map((d: { speaker: string; line: string }, i: number) => (
@@ -456,7 +456,7 @@ function PromptColumn({
   return (
     <div className="flex flex-col gap-3 p-3">
       <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
-        提示词
+        Prompts
       </span>
 
       {/* ---- Image Prompt ---- */}
@@ -480,7 +480,7 @@ function PromptColumn({
               setImgText(v);
               fireString("image_prompt", v);
             }}
-            placeholder="分镜图描述..."
+            placeholder="Storyboard description..."
           />
         )}
       </div>
@@ -506,7 +506,7 @@ function PromptColumn({
               setVidText(v);
               fireString("video_prompt", v);
             }}
-            placeholder="视频动作描述..."
+            placeholder="Video action description..."
           />
         )}
       </div>
@@ -587,7 +587,7 @@ function MediaColumn({
         <div className="mb-1.5 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <ImageIcon className="h-3 w-3 text-gray-500" />
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">分镜图</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Storyboard</span>
           </div>
           <VersionTimeMachine
             projectName={projectName}
@@ -596,17 +596,17 @@ function MediaColumn({
             onRestore={onRestoreStoryboard}
           />
         </div>
-        <PreviewableImageFrame src={storyboardUrl} alt={`${segmentId} 分镜图`}>
+        <PreviewableImageFrame src={storyboardUrl} alt={`${segmentId} storyboard`}>
           <AspectFrame ratio={normalizedRatio}>
             <ImageFlipReveal
               src={storyboardUrl}
-              alt={`${segmentId} 分镜图`}
+              alt={`${segmentId} storyboard`}
               loading="lazy"
               className="h-full w-full object-cover"
               fallback={
                 <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-600">
                   <ImageIcon className="h-8 w-8" />
-                  <span className="text-xs">暂无分镜</span>
+                  <span className="text-xs">No storyboard</span>
                 </div>
               }
             />
@@ -616,7 +616,7 @@ function MediaColumn({
           <GenerateButton
             onClick={() => onGenerateStoryboard?.(segmentId)}
             loading={generatingStoryboard}
-            label="生成分镜"
+            label="Generate storyboard"
             className="w-full justify-center"
           />
         </div>
@@ -627,7 +627,7 @@ function MediaColumn({
         <div className="mb-1.5 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <Film className="h-3 w-3 text-gray-500" />
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">视频</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Video</span>
           </div>
           <VersionTimeMachine
             projectName={projectName}
@@ -643,7 +643,7 @@ function MediaColumn({
         ) : (
           <div className="flex items-center justify-center rounded-lg border border-dashed border-gray-700 bg-gray-800/30 py-4">
             <span className="text-xs text-gray-600">
-              {assets?.storyboard_image ? "可生成视频" : "需先生成分镜"}
+              {assets?.storyboard_image ? "Video can be generated" : "Generate storyboard first"}
             </span>
           </div>
         )}
@@ -651,7 +651,7 @@ function MediaColumn({
           <GenerateButton
             onClick={() => onGenerateVideo?.(segmentId)}
             loading={generatingVideo}
-            label="生成视频"
+            label="Generate video"
             className="w-full justify-center"
             disabled={!assets?.storyboard_image}
           />
@@ -709,13 +709,13 @@ export function SegmentCard({
             {segCost && (
               <span className="tabular-nums contents">
                 <span className="text-gray-700">|</span>
-                <span className="text-[11px] text-gray-600">预估</span>
-                <span className="text-[11px] text-gray-500">分镜 <span className="text-gray-400">{formatCost(segCost.estimate.image)}</span></span>
-                <span className="text-[11px] text-gray-500">视频 <span className="text-gray-400">{formatCost(segCost.estimate.video)}</span></span>
+                <span className="text-[11px] text-gray-600">Est.</span>
+                <span className="text-[11px] text-gray-500">Storyboard <span className="text-gray-400">{formatCost(segCost.estimate.image)}</span></span>
+                <span className="text-[11px] text-gray-500">Video <span className="text-gray-400">{formatCost(segCost.estimate.video)}</span></span>
                 <span className="text-gray-700">|</span>
-                <span className="text-[11px] text-gray-600">实际</span>
-                <span className="text-[11px] text-gray-500">分镜 <span className="text-gray-400">{formatCost(segCost.actual.image)}</span></span>
-                <span className="text-[11px] text-gray-500">视频 <span className="text-gray-400">{formatCost(segCost.actual.video)}</span></span>
+                <span className="text-[11px] text-gray-600">Act.</span>
+                <span className="text-[11px] text-gray-500">Storyboard <span className="text-gray-400">{formatCost(segCost.actual.image)}</span></span>
+                <span className="text-[11px] text-gray-500">Video <span className="text-gray-400">{formatCost(segCost.actual.video)}</span></span>
               </span>
             )}
           </div>

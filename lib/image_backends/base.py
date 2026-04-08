@@ -1,4 +1,4 @@
-"""图片生成服务层核心接口定义。"""
+"""Core interface definitions for the image generation service layer."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from lib.video_backends.base import IMAGE_MIME_TYPES
 
 
 def image_to_base64_data_uri(image_path: Path) -> str:
-    """将本地图片转为 base64 data URI。"""
+    """Convert a local image to a base64 data URI."""
     suffix = image_path.suffix.lower()
     mime_type = IMAGE_MIME_TYPES.get(suffix, "image/png")
     image_data = image_path.read_bytes()
@@ -21,7 +21,7 @@ def image_to_base64_data_uri(image_path: Path) -> str:
 
 
 class ImageCapability(StrEnum):
-    """图片后端支持的能力枚举。"""
+    """Capabilities supported by an image backend."""
 
     TEXT_TO_IMAGE = "text_to_image"
     IMAGE_TO_IMAGE = "image_to_image"
@@ -29,7 +29,7 @@ class ImageCapability(StrEnum):
 
 @dataclass
 class ReferenceImage:
-    """参考图片。"""
+    """Reference image."""
 
     path: str
     label: str = ""
@@ -37,7 +37,7 @@ class ReferenceImage:
 
 @dataclass
 class ImageGenerationRequest:
-    """通用图片生成请求。各 Backend 忽略不支持的字段。"""
+    """Generic image generation request. Each Backend ignores unsupported fields."""
 
     prompt: str
     output_path: Path
@@ -50,7 +50,7 @@ class ImageGenerationRequest:
 
 @dataclass
 class ImageGenerationResult:
-    """通用图片生成结果。"""
+    """Generic image generation result."""
 
     image_path: Path
     provider: str
@@ -62,7 +62,7 @@ class ImageGenerationResult:
 
 
 class ImageBackend(Protocol):
-    """图片生成后端协议。"""
+    """Image generation backend protocol."""
 
     @property
     def name(self) -> str: ...

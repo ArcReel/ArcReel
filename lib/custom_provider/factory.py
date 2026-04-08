@@ -1,6 +1,6 @@
-"""自定义供应商 Backend 工厂。
+"""Custom provider Backend factory.
 
-根据 CustomProvider 配置创建包装后的 Backend 实例。
+Creates wrapped Backend instances based on CustomProvider configuration.
 """
 
 from __future__ import annotations
@@ -29,24 +29,24 @@ def create_custom_backend(
     model_id: str,
     media_type: str,
 ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend:
-    """根据自定义供应商配置创建包装后的 Backend 实例。
+    """Create a wrapped Backend instance based on custom provider configuration.
 
     Args:
-        provider: 自定义供应商 ORM 对象
-        model_id: 要使用的模型 ID
-        media_type: 媒体类型 ("text" | "image" | "video")
+        provider: Custom provider ORM object
+        model_id: Model ID to use
+        media_type: Media type ("text" | "image" | "video")
 
     Returns:
-        包装后的 Custom*Backend 实例
+        Wrapped Custom*Backend instance
 
     Raises:
-        ValueError: api_format 或 media_type 不合法
+        ValueError: if api_format or media_type is invalid
     """
     api_format = provider.api_format
     if api_format not in _VALID_API_FORMATS:
-        raise ValueError(f"不支持的 api_format: {api_format!r}，支持: {_VALID_API_FORMATS}")
+        raise ValueError(f"Unsupported api_format: {api_format!r}, supported: {_VALID_API_FORMATS}")
     if media_type not in _VALID_MEDIA_TYPES:
-        raise ValueError(f"不支持的 media_type: {media_type!r}，支持: {_VALID_MEDIA_TYPES}")
+        raise ValueError(f"Unsupported media_type: {media_type!r}, supported: {_VALID_MEDIA_TYPES}")
 
     if api_format == "openai":
         return _create_openai_backend(provider=provider, model_id=model_id, media_type=media_type)
@@ -60,7 +60,7 @@ def _create_openai_backend(
     model_id: str,
     media_type: str,
 ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend:
-    """创建 OpenAI 格式的后端。"""
+    """Create an OpenAI-format backend."""
     pid = provider.provider_id
     base_url = ensure_openai_base_url(provider.base_url)
     if media_type == "text":
@@ -80,7 +80,7 @@ def _create_google_backend(
     model_id: str,
     media_type: str,
 ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend:
-    """创建 Google 格式的后端。"""
+    """Create a Google-format backend."""
     base_url = ensure_google_base_url(provider.base_url) or None
     pid = provider.provider_id
     if media_type == "text":

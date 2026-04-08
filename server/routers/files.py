@@ -1,7 +1,7 @@
 """
-文件管理路由
+File management routes
 
-处理文件上传和静态资源服务
+Handles file uploads and static asset serving.
 """
 
 import asyncio
@@ -22,7 +22,7 @@ from server.auth import CurrentUser
 
 router = APIRouter()
 
-# 初始化项目管理器
+# Initialize project manager
 pm = ProjectManager(PROJECT_ROOT / "projects")
 
 
@@ -30,7 +30,7 @@ def get_project_manager() -> ProjectManager:
     return pm
 
 
-# 允许的文件类型
+# Allowed file types
 ALLOWED_EXTENSIONS = {
     "source": [".txt", ".md", ".doc", ".docx"],
     "character": [".png", ".jpg", ".jpeg", ".webp"],
@@ -42,7 +42,7 @@ ALLOWED_EXTENSIONS = {
 
 @router.get("/files/{project_name}/{path:path}")
 async def serve_project_file(project_name: str, path: str, request: Request):
-    """服务项目内的静态文件（图片/视频）"""
+    """Serve static files (images/videos) within a project."""
     try:
 
         def _sync():
@@ -50,26 +50,26 @@ async def serve_project_file(project_name: str, path: str, request: Request):
             file_path = project_dir / path
 
             if not file_path.exists():
-                raise HTTPException(status_code=404, detail=f"文件不存在: {path}")
+                raise HTTPException(status_code=404, detail=f"File not found: {path}")
 
-            # 安全检查：确保路径在项目目录内
+            # Security check: ensure the path is within the project directory
             try:
                 file_path.resolve().relative_to(project_dir.resolve())
             except ValueError:
-                raise HTTPException(status_code=403, detail="禁止访问项目目录外的文件")
+                raise HTTPException(status_code=403, detail="Access to files outside the project directory is forbidden")
 
             return file_path
 
         file_path = await asyncio.to_thread(_sync)
 
-        # 内容寻址缓存：带 ?v= 参数或 versions/ 路径时设 immutable
+        # Content-addressed cache: set immutable when ?v= param or versions/ path is present
         headers = {}
         if request.query_params.get("v") or path.startswith("versions/"):
             headers["Cache-Control"] = "public, max-age=31536000, immutable"
 
         return FileResponse(file_path, headers=headers)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
 
 
 @router.post("/projects/{project_name}/upload/{upload_type}")
@@ -77,23 +77,23 @@ async def upload_file(
     project_name: str, upload_type: str, _user: CurrentUser, file: UploadFile = File(...), name: str = None
 ):
     """
-    上传文件
+    Upload a file
 
     Args:
-        project_name: 项目名称
-        upload_type: 上传类型 (source/character/clue/storyboard)
-        file: 上传的文件
-        name: 可选，用于角色/线索名称，或分镜 ID（自动更新元数据）
+        project_name: Project name
+        upload_type: Upload type (source/character/clue/storyboard)
+        file: The uploaded file
+        name: Optional; used as character/clue name or storyboard ID (automatically updates metadata)
     """
     if upload_type not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail=f"无效的上传类型: {upload_type}")
+        raise HTTPException(status_code=400, detail=f"Invalid upload type: {upload_type}")
 
-    # 检查文件扩展名
+    # Check file extension
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS[upload_type]:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的文件类型 {ext}，允许的类型: {ALLOWED_EXTENSIONS[upload_type]}",
+            detail=f"Unsupported file type {ext}; allowed types: {ALLOWED_EXTENSIONS[upload_type]}",
         )
 
     try:
@@ -102,13 +102,13 @@ async def upload_file(
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
 
-            # 确定目标目录
+            # Determine target directory
             if upload_type == "source":
                 target_dir = project_dir / "source"
                 filename = file.filename
             elif upload_type == "character":
                 target_dir = project_dir / "characters"
-                # 统一保存为 PNG，且使用稳定文件名（避免 jpg/png 不一致导致版本还原/引用异常）
+                # Always save as PNG with a stable filename (avoids version restore/reference issues from jpg/png inconsistency)
                 if name:
                     filename = f"{name}.png"
                 else:
@@ -126,7 +126,7 @@ async def upload_file(
                 else:
                     filename = f"{Path(file.filename).stem}.png"
             elif upload_type == "storyboard":
-                # 注意：目录为 storyboards（复数），而不是 storyboard
+                # Note: directory is storyboards (plural), not storyboard
                 target_dir = project_dir / "storyboards"
                 if name:
                     filename = f"scene_{name}.png"
@@ -138,20 +138,20 @@ async def upload_file(
 
             target_dir.mkdir(parents=True, exist_ok=True)
 
-            # 保存文件（大于 2MB 时压缩为 JPEG，否则校验后原样保存）
+            # Save file (compress to JPEG if larger than 2MB, otherwise validate and save as-is)
             nonlocal content
             if upload_type in ("character", "character_ref", "clue", "storyboard"):
                 try:
                     content, ext = normalize_uploaded_image(content, Path(file.filename).suffix.lower())
                 except ValueError:
-                    raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
+                    raise HTTPException(status_code=400, detail="Invalid image file; could not be parsed")
                 filename = Path(filename).with_suffix(ext).name
 
             target_path = target_dir / filename
             with open(target_path, "wb") as f:
                 f.write(content)
 
-            # 更新元数据
+            # Update metadata
             if upload_type == "source":
                 relative_path = f"source/{filename}"
             elif upload_type == "character":
@@ -172,7 +172,7 @@ async def upload_file(
                             project_name, name, f"characters/{filename}"
                         )
                 except KeyError:
-                    pass  # 角色不存在，忽略
+                    pass  # Character does not exist; ignore
 
             if upload_type == "character_ref" and name:
                 try:
@@ -181,7 +181,7 @@ async def upload_file(
                             project_name, name, f"characters/refs/{filename}"
                         )
                 except KeyError:
-                    pass  # 角色不存在，忽略
+                    pass  # Character does not exist; ignore
 
             if upload_type == "clue" and name:
                 try:
@@ -192,7 +192,7 @@ async def upload_file(
                             f"clues/{filename}",
                         )
                 except KeyError:
-                    pass  # 线索不存在，忽略
+                    pass  # Clue does not exist; ignore
 
             return {
                 "success": True,
@@ -204,17 +204,17 @@ async def upload_file(
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/projects/{project_name}/files")
 async def list_project_files(project_name: str, _user: CurrentUser):
-    """列出项目中的所有文件"""
+    """List all files in a project"""
     try:
 
         def _sync():
@@ -247,17 +247,17 @@ async def list_project_files(project_name: str, _user: CurrentUser):
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/projects/{project_name}/source/{filename}")
 async def get_source_file(project_name: str, filename: str, _user: CurrentUser):
-    """获取 source 文件的文本内容"""
+    """Get the text content of a source file"""
     try:
 
         def _sync():
@@ -265,13 +265,13 @@ async def get_source_file(project_name: str, filename: str, _user: CurrentUser):
             source_path = project_dir / "source" / filename
 
             if not source_path.exists():
-                raise HTTPException(status_code=404, detail=f"文件不存在: {filename}")
+                raise HTTPException(status_code=404, detail=f"File not found: {filename}")
 
-            # 安全检查：确保路径在项目目录内
+            # Security check: ensure path is within the project directory
             try:
                 source_path.resolve().relative_to(project_dir.resolve())
             except ValueError:
-                raise HTTPException(status_code=403, detail="禁止访问项目目录外的文件")
+                raise HTTPException(status_code=403, detail="Access to files outside the project directory is forbidden")
 
             return source_path.read_text(encoding="utf-8")
 
@@ -279,13 +279,13 @@ async def get_source_file(project_name: str, filename: str, _user: CurrentUser):
         return PlainTextResponse(content)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
     except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="文件编码错误，无法读取")
+        raise HTTPException(status_code=400, detail="File encoding error; could not read the file")
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -293,7 +293,7 @@ async def get_source_file(project_name: str, filename: str, _user: CurrentUser):
 async def update_source_file(
     project_name: str, filename: str, _user: CurrentUser, content: str = Body(..., media_type="text/plain")
 ):
-    """更新或创建 source 文件"""
+    """Update or create a source file"""
     try:
 
         def _sync():
@@ -302,11 +302,11 @@ async def update_source_file(
             source_dir.mkdir(parents=True, exist_ok=True)
             source_path = source_dir / filename
 
-            # 安全检查：确保路径在项目目录内
+            # Security check: ensure path is within the project directory
             try:
                 source_path.resolve().relative_to(project_dir.resolve())
             except ValueError:
-                raise HTTPException(status_code=403, detail="禁止访问项目目录外的文件")
+                raise HTTPException(status_code=403, detail="Access to files outside the project directory is forbidden")
 
             source_path.write_text(content, encoding="utf-8")
             return {"success": True, "path": f"source/{filename}"}
@@ -314,52 +314,52 @@ async def update_source_file(
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/projects/{project_name}/source/{filename}")
 async def delete_source_file(project_name: str, filename: str, _user: CurrentUser):
-    """删除 source 文件"""
+    """Delete a source file"""
     try:
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
             source_path = project_dir / "source" / filename
 
-            # 安全检查：确保路径在项目目录内
+            # Security check: ensure path is within the project directory
             try:
                 source_path.resolve().relative_to(project_dir.resolve())
             except ValueError:
-                raise HTTPException(status_code=403, detail="禁止访问项目目录外的文件")
+                raise HTTPException(status_code=403, detail="Access to files outside the project directory is forbidden")
 
             if source_path.exists():
                 source_path.unlink()
                 return {"success": True}
             else:
-                raise HTTPException(status_code=404, detail=f"文件不存在: {filename}")
+                raise HTTPException(status_code=404, detail=f"File not found: {filename}")
 
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ==================== 草稿文件管理 ====================
+# ==================== Draft file management ====================
 
 
 @router.get("/projects/{project_name}/drafts")
 async def list_drafts(project_name: str, _user: CurrentUser):
-    """列出项目的所有草稿目录和文件"""
+    """List all draft directories and files for a project"""
     try:
 
         def _sync():
@@ -388,11 +388,11 @@ async def list_drafts(project_name: str, _user: CurrentUser):
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
 
 
 def _extract_step_number(filename: str) -> int:
-    """从文件名提取步骤编号"""
+    """Extract the step number from a filename"""
     import re
 
     match = re.search(r"step(\d+)", filename)
@@ -400,7 +400,7 @@ def _extract_step_number(filename: str) -> int:
 
 
 def _get_step_files(content_mode: str) -> dict:
-    """根据 content_mode 获取步骤文件名映射"""
+    """Get the step filename mapping based on content_mode"""
     if content_mode == "narration":
         return {1: "step1_segments.md"}
     else:
@@ -408,16 +408,16 @@ def _get_step_files(content_mode: str) -> dict:
 
 
 def _get_step_title(filename: str) -> str:
-    """获取步骤标题"""
+    """Get step title"""
     titles = {
-        "step1_normalized_script.md": "规范化剧本",
-        "step1_segments.md": "片段拆分",
+        "step1_normalized_script.md": "Normalized Script",
+        "step1_segments.md": "Segment Split",
     }
     return titles.get(filename, filename)
 
 
 def _get_content_mode(project_dir: Path) -> str:
-    """从 project.json 读取 content_mode"""
+    """Read content_mode from project.json"""
     project_json_path = project_dir / "project.json"
     if project_json_path.exists():
         with open(project_json_path, encoding="utf-8") as f:
@@ -428,7 +428,7 @@ def _get_content_mode(project_dir: Path) -> str:
 
 @router.get("/projects/{project_name}/drafts/{episode}/step{step_num}")
 async def get_draft_content(project_name: str, episode: int, step_num: int, _user: CurrentUser):
-    """获取特定步骤的草稿内容"""
+    """Get the draft content for a specific step"""
     try:
 
         def _sync():
@@ -437,12 +437,12 @@ async def get_draft_content(project_name: str, episode: int, step_num: int, _use
             step_files = _get_step_files(content_mode)
 
             if step_num not in step_files:
-                raise HTTPException(status_code=400, detail=f"无效的步骤编号: {step_num}")
+                raise HTTPException(status_code=400, detail=f"Invalid step number: {step_num}")
 
             draft_path = project_dir / "drafts" / f"episode_{episode}" / step_files[step_num]
 
             if not draft_path.exists():
-                raise HTTPException(status_code=404, detail="草稿文件不存在")
+                raise HTTPException(status_code=404, detail="Draft file does not exist")
 
             return draft_path.read_text(encoding="utf-8")
 
@@ -450,7 +450,7 @@ async def get_draft_content(project_name: str, episode: int, step_num: int, _use
         return PlainTextResponse(content)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
 
 
 @router.put("/projects/{project_name}/drafts/{episode}/step{step_num}")
@@ -461,7 +461,7 @@ async def update_draft_content(
     _user: CurrentUser,
     content: str = Body(..., media_type="text/plain"),
 ):
-    """更新草稿内容"""
+    """Update draft content"""
     try:
 
         def _sync():
@@ -470,7 +470,7 @@ async def update_draft_content(
             step_files = _get_step_files(content_mode)
 
             if step_num not in step_files:
-                raise HTTPException(status_code=400, detail=f"无效的步骤编号: {step_num}")
+                raise HTTPException(status_code=400, detail=f"Invalid step number: {step_num}")
 
             drafts_dir = project_dir / "drafts" / f"episode_{episode}"
             drafts_dir.mkdir(parents=True, exist_ok=True)
@@ -479,14 +479,14 @@ async def update_draft_content(
             is_new = not draft_path.exists()
             draft_path.write_text(content, encoding="utf-8")
 
-            # 发射 draft 事件通知前端
+            # Emit draft event to notify the frontend
             action = "created" if is_new else "updated"
-            label_prefix = "片段拆分" if content_mode == "narration" else "规范化剧本"
+            label_prefix = "Segment Split" if content_mode == "narration" else "Normalized Script"
             change = {
                 "entity_type": "draft",
                 "action": action,
                 "entity_id": f"episode_{episode}_step{step_num}",
-                "label": f"第 {episode} 集{label_prefix}",
+                "label": f"Episode {episode} {label_prefix}",
                 "episode": episode,
                 "focus": {
                     "pane": "episode",
@@ -497,19 +497,19 @@ async def update_draft_content(
             try:
                 emit_project_change_batch(project_name, [change], source="worker")
             except Exception:
-                logger.warning("发送 draft 事件失败 project=%s episode=%s", project_name, episode, exc_info=True)
+                logger.warning("Failed to send draft event project=%s episode=%s", project_name, episode, exc_info=True)
 
             return {"success": True, "path": str(draft_path.relative_to(project_dir))}
 
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
 
 
 @router.delete("/projects/{project_name}/drafts/{episode}/step{step_num}")
 async def delete_draft(project_name: str, episode: int, step_num: int, _user: CurrentUser):
-    """删除草稿文件"""
+    """Delete a draft file"""
     try:
 
         def _sync():
@@ -518,7 +518,7 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _user: Cu
             step_files = _get_step_files(content_mode)
 
             if step_num not in step_files:
-                raise HTTPException(status_code=400, detail=f"无效的步骤编号: {step_num}")
+                raise HTTPException(status_code=400, detail=f"Invalid step number: {step_num}")
 
             draft_path = project_dir / "drafts" / f"episode_{episode}" / step_files[step_num]
 
@@ -526,32 +526,32 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _user: Cu
                 draft_path.unlink()
                 return {"success": True}
             else:
-                raise HTTPException(status_code=404, detail="草稿文件不存在")
+                raise HTTPException(status_code=404, detail="Draft file does not exist")
 
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
 
 
-# ==================== 风格参考图管理 ====================
+# ==================== Style reference image management ====================
 
 
 @router.post("/projects/{project_name}/style-image")
 async def upload_style_image(project_name: str, _user: CurrentUser, file: UploadFile = File(...)):
     """
-    上传风格参考图并分析风格
+    Upload a style reference image and analyze the style
 
-    1. 保存图片到 projects/{project_name}/style_reference.png
-    2. 调用 Gemini API 分析风格
-    3. 更新 project.json 的 style_image 和 style_description 字段
+    1. Save the image to projects/{project_name}/style_reference.png
+    2. Call the Gemini API to analyze the style
+    3. Update the style_image and style_description fields in project.json
     """
-    # 检查文件类型
+    # Check file type
     ext = Path(file.filename).suffix.lower()
     if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的文件类型 {ext}，允许的类型: .png, .jpg, .jpeg, .webp",
+            detail=f"Unsupported file type {ext}; allowed types: .png, .jpg, .jpeg, .webp",
         )
 
     try:
@@ -562,7 +562,7 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
             try:
                 content_norm, new_ext = normalize_uploaded_image(content, Path(file.filename).suffix.lower())
             except ValueError:
-                raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
+                raise HTTPException(status_code=400, detail="Invalid image file; could not be parsed")
             style_filename = f"style_reference{new_ext}"
 
             output_path = project_dir / style_filename
@@ -573,7 +573,7 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
 
         output_path, style_filename = await asyncio.to_thread(_sync_prepare)
 
-        # 调用 TextGenerator 分析风格（自动追踪用量）
+        # Call TextGenerator to analyze the style (automatically tracks usage)
         from lib.text_backends.base import ImageInput, TextGenerationRequest, TextTaskType
         from lib.text_backends.prompts import STYLE_ANALYSIS_PROMPT
         from lib.text_generator import TextGenerator
@@ -586,7 +586,7 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
         style_description = result.text
 
         def _sync_save():
-            # 更新 project.json
+            # Update project.json
             project_data = get_project_manager().load_project(project_name)
             project_data["style_image"] = style_filename
             project_data["style_description"] = style_description
@@ -603,31 +603,31 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
         }
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/projects/{project_name}/style-image")
 async def delete_style_image(project_name: str, _user: CurrentUser):
     """
-    删除风格参考图及相关字段
+    Delete the style reference image and its related fields
     """
     try:
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
 
-            # 删除图片文件（兼容所有可能的后缀）
+            # Delete the image file (compatible with all possible extensions)
             for suffix in (".jpg", ".jpeg", ".png", ".webp"):
                 image_path = project_dir / f"style_reference{suffix}"
                 if image_path.exists():
                     image_path.unlink()
 
-            # 清除 project.json 中的相关字段
+            # Clear related fields in project.json
             project_data = get_project_manager().load_project(project_name)
             project_data.pop("style_image", None)
             project_data.pop("style_description", None)
@@ -639,11 +639,11 @@ async def delete_style_image(project_name: str, _user: CurrentUser):
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -652,7 +652,7 @@ async def update_style_description(
     project_name: str, _user: CurrentUser, style_description: str = Body(..., embed=True)
 ):
     """
-    更新风格描述（手动编辑）
+    Update style description (manual edit)
     """
     try:
 
@@ -667,9 +667,9 @@ async def update_style_description(
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(e))

@@ -30,7 +30,7 @@ async def test_get_all_providers_status_empty(config_service: ConfigService):
 
 
 async def test_provider_becomes_ready(config_service: ConfigService, session: AsyncSession):
-    # 新逻辑：status 由凭证表中的活跃凭证决定，而不是 ProviderConfig 表
+    # New logic: status is determined by active credentials in the credential table, not the ProviderConfig table
     cred_repo = CredentialRepository(session)
     await cred_repo.create("gemini-aistudio", "default", api_key="AIza-test")
     await session.flush()

@@ -5,7 +5,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 
 // ---------------------------------------------------------------------------
-// SourceFileViewer — 源文件预览/编辑组件
+// SourceFileViewer — source file preview/edit component
 // ---------------------------------------------------------------------------
 
 interface SourceFileViewerProps {
@@ -21,7 +21,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
   const [editContent, setEditContent] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // 加载文件内容
+  // Load file content
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -44,7 +44,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
     return () => { cancelled = true; };
   }, [projectName, filename]);
 
-  // 保存文件
+  // Save file
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
@@ -52,28 +52,28 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
       setContent(editContent);
       setEditing(false);
     } catch {
-      // 可以添加 toast 提示
+      // Can add toast notification here
     } finally {
       setSaving(false);
     }
   }, [projectName, filename, editContent]);
 
-  // 删除文件
+  // Delete file
   const handleDelete = useCallback(async () => {
-    if (!confirm(`确定要删除文件 "${filename}" 吗？此操作不可撤销。`)) return;
+    if (!confirm(`Are you sure you want to delete the file "${filename}"? This action cannot be undone.`)) return;
     try {
       await API.deleteSourceFile(projectName, filename);
       useAppStore.getState().invalidateSourceFiles();
       setLocation("/");
     } catch {
-      // 可以添加 toast 提示
+      // Can add toast notification here
     }
   }, [projectName, filename, setLocation]);
 
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
-        加载文件中...
+        Loading file...
       </div>
     );
   }
@@ -81,7 +81,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
   if (content === null) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
-        无法加载文件 "{filename}"
+        Failed to load file "{filename}"
       </div>
     );
   }
@@ -104,7 +104,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-green-400 transition-colors hover:bg-gray-800 disabled:opacity-50"
               >
                 <Save className="h-3.5 w-3.5" />
-                {saving ? "保存中..." : "保存"}
+                {saving ? "Saving..." : "Save"}
               </button>
               <button
                 type="button"
@@ -112,7 +112,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800"
               >
                 <X className="h-3.5 w-3.5" />
-                取消
+                Cancel
               </button>
             </>
           ) : (
@@ -123,7 +123,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
               >
                 <Edit3 className="h-3.5 w-3.5" />
-                编辑
+                Edit
               </button>
               <button
                 type="button"
@@ -131,7 +131,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-red-400"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                删除
+                Delete
               </button>
             </>
           )}

@@ -73,7 +73,7 @@ class ProviderPool:
 def _project_level_provider(project: dict, task_type: str) -> str | None:
     """Read project-level provider override, if any.
 
-    video/image 均统一从 ``video_backend`` / ``image_backend``（"provider/model" 格式）解析。
+    Both video and image are resolved from ``video_backend`` / ``image_backend`` in "provider/model" format.
     """
     field = "video_backend" if task_type == "video" else "image_backend"
     project_backend = project.get(field)
@@ -85,14 +85,14 @@ def _project_level_provider(project: dict, task_type: str) -> str | None:
 async def _extract_provider(task: dict[str, Any]) -> str:
     """Extract provider_id from a claimed task dict.
 
-    优先级：payload 显式值 > 项目级配置 > 全局默认。
+    Priority: explicit payload value > project-level config > global default.
     """
     payload = task.get("payload") or {}
-    # 兼容已入队的历史任务（payload 中显式携带 provider）
+    # Backward-compatible with historical tasks where provider is explicit in payload
     provider = payload.get("video_provider") or payload.get("image_provider")
     if provider:
         return _normalize_provider_id(provider)
-    # 从项目配置 → 全局默认解析真实 provider
+    # Resolve actual provider from project config → global default
     project_name = task.get("project_name")
     if not project_name:
         return DEFAULT_PROVIDER
@@ -105,7 +105,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     if project_provider:
         return _normalize_provider_id(project_provider)
 
-    # 回退到全局默认
+    # Fall back to global default
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
 
@@ -153,7 +153,7 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
                 video_max=max(0, video_max),
             )
 
-        # 加载自定义供应商的池配置（使用与内置供应商相同的默认值）
+        # Load pool configuration for custom providers (using the same defaults as built-in providers)
         repo = CustomProviderRepository(session)
         for provider, models in await repo.list_providers_with_models():
             pid = provider.provider_id  # "custom-{id}"
@@ -165,7 +165,7 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
             )
 
     logger.info(
-        "从 DB 加载供应商池配置: %s",
+        "Loaded provider pool config from DB: %s",
         {pid: (p.image_max, p.video_max) for pid, p in pools.items()},
     )
     return pools
@@ -174,8 +174,8 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
 def _build_default_pools() -> dict[str, ProviderPool]:
     """Build pools from env vars / defaults (used before DB is available or in tests).
 
-    为 PROVIDER_REGISTRY 中所有供应商创建默认池，避免 DB 加载前的任务
-    因供应商未知而降级到 1 并发的 fallback 池。
+    Creates default pools for all providers in PROVIDER_REGISTRY, so tasks that arrive
+    before the DB is loaded don't fall back to a 1-concurrency fallback pool due to unknown providers.
     """
     from lib.config.registry import PROVIDER_REGISTRY
 
@@ -207,7 +207,7 @@ class GenerationWorker:
 
         self._pools: dict[str, ProviderPool] = pools or _build_default_pools()
         logger.info(
-            "Worker 初始池配置: %s",
+            "Worker initial pool config: %s",
             {pid: (p.image_max, p.video_max) for pid, p in self._pools.items()},
         )
         self.lease_ttl = max(1.0, float(TASK_WORKER_LEASE_TTL_SEC))
@@ -266,7 +266,7 @@ class GenerationWorker:
             video_max=video_max,
         )
         self._pools[provider_id] = pool
-        logger.info("为供应商 %s 创建默认池 (image=%d, video=%d)", provider_id, image_max, video_max)
+        logger.info("Created default pool for provider %s (image=%d, video=%d)", provider_id, image_max, video_max)
         return pool
 
     def _any_pool_has_room(self, media_type: str) -> bool:
@@ -287,7 +287,7 @@ class GenerationWorker:
         try:
             new_pools = await _load_pools_from_db()
         except Exception:
-            logger.warning("从 DB 加载供应商配置失败，保持当前配置", exc_info=True)
+            logger.warning("Failed to load provider config from DB, keeping current config", exc_info=True)
             return
 
         # Migrate inflight tasks to new pool objects
@@ -307,7 +307,7 @@ class GenerationWorker:
 
         self._pools = new_pools
         logger.info(
-            "已更新供应商池配置: %s",
+            "Updated provider pool config: %s",
             {pid: (p.image_max, p.video_max) for pid, p in self._pools.items()},
         )
 
@@ -360,14 +360,14 @@ class GenerationWorker:
                 )
 
                 if self._owns_lease and not had_lease:
-                    logger.info("获得 worker lease (owner=%s)", self.owner_id)
+                    logger.info("Acquired worker lease (owner=%s)", self.owner_id)
                 if had_lease and not self._owns_lease:
-                    logger.warning("失去 worker lease (owner=%s)", self.owner_id)
+                    logger.warning("Lost worker lease (owner=%s)", self.owner_id)
 
                 await self._drain_finished_tasks()
 
-                # 仅在"新获得 lease 且本实例无在途任务"时回收 running 任务，
-                # 避免 lease 短暂抖动时把自己正在执行的任务错误回队。
+                # Only reclaim running tasks when "lease newly acquired and this instance has no in-flight tasks",
+                # to avoid erroneously re-queuing tasks that are actively executing during a brief lease hiccup.
                 all_inflight = self._image_inflight or self._video_inflight
                 if self._owns_lease and not had_lease and not all_inflight:
                     await self.queue.requeue_running_tasks()
@@ -418,16 +418,16 @@ class GenerationWorker:
                     has_room = pool.has_video_room()
 
                 if max_capacity == 0:
-                    # 供应商不支持此媒体类型（容量为 0），直接失败而非无限 requeue
+                    # Provider does not support this media type (capacity 0), fail immediately instead of infinite requeue
                     logger.warning(
-                        "供应商 %s 不支持 %s 生成，任务 %s 标记失败",
+                        "Provider %s does not support %s generation, marking task %s as failed",
                         provider_id,
                         media_type,
                         task["task_id"],
                     )
                     await self.queue.mark_task_failed(
                         task["task_id"],
-                        f"供应商 {provider_id} 不支持 {media_type} 生成",
+                        f"Provider {provider_id} does not support {media_type} generation",
                     )
                     claimed_any = True
                     continue
@@ -436,7 +436,7 @@ class GenerationWorker:
                     # Provider pool is full — requeue the task and stop
                     # claiming this media_type (FIFO means we'd get it again).
                     logger.info(
-                        "供应商 %s 的 %s 池已满，任务 %s 放回队列",
+                        "Provider %s %s pool is full, returning task %s to queue",
                         provider_id,
                         media_type,
                         task["task_id"],
@@ -479,9 +479,9 @@ class GenerationWorker:
                     )
                 )
                 await session.commit()
-            logger.debug("回队任务 %s (供应商池已满)", task_id)
+            logger.debug("Re-queued task %s (provider pool is full)", task_id)
         except Exception:
-            logger.warning("回队任务 %s 失败", task_id, exc_info=True)
+            logger.warning("Failed to re-queue task %s", task_id, exc_info=True)
 
     # ------------------------------------------------------------------
     # Task lifecycle
@@ -493,7 +493,7 @@ class GenerationWorker:
                 try:
                     await finished_task
                 except Exception:
-                    logger.debug("已处理的任务异常已在 _process_task 中记录")
+                    logger.debug("Finished task exception already logged in _process_task")
 
     async def _wait_inflight_completion(self) -> None:
         pending_tasks = []
@@ -510,13 +510,13 @@ class GenerationWorker:
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
         provider_id = await _extract_provider(task)
-        logger.info("开始处理任务 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
+        logger.info("Starting task %s (type=%s, provider=%s)", task_id, task_type, provider_id)
         try:
             from server.services.generation_tasks import execute_generation_task
 
             result = await execute_generation_task(task)
             await self.queue.mark_task_succeeded(task_id, result)
-            logger.info("任务完成 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
+            logger.info("Task completed %s (type=%s, provider=%s)", task_id, task_type, provider_id)
         except Exception as exc:
-            logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
+            logger.exception("Task failed %s (type=%s, provider=%s)", task_id, task_type, provider_id)
             await self.queue.mark_task_failed(task_id, str(exc))

@@ -33,9 +33,9 @@ class _FakePM:
                 }
             },
             "clues": {
-                "玉佩": {
+                "Jade Pendant": {
                     "type": "prop",
-                    "clue_sheet": "clues/玉佩.png",
+                    "clue_sheet": "clues/Jade Pendant.png",
                     "description": "clue",
                 }
             },
@@ -56,7 +56,7 @@ class _FakePM:
                     "duration_seconds": 4,
                     "segment_break": False,
                     "characters_in_segment": ["Alice"],
-                    "clues_in_segment": ["玉佩"],
+                    "clues_in_segment": ["Jade Pendant"],
                     "generated_assets": {},
                 },
                 {
@@ -64,7 +64,7 @@ class _FakePM:
                     "duration_seconds": 4,
                     "segment_break": True,
                     "characters_in_segment": ["Alice"],
-                    "clues_in_segment": ["玉佩"],
+                    "clues_in_segment": ["Jade Pendant"],
                     "generated_assets": {},
                 },
             ],
@@ -88,7 +88,7 @@ def _prepare_files(tmp_path: Path) -> Path:
 
     (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
     (project_path / "characters" / "Alice.png").write_bytes(b"png")
-    (project_path / "clues" / "玉佩.png").write_bytes(b"png")
+    (project_path / "clues" / "Jade Pendant.png").write_bytes(b"png")
     return project_path
 
 
@@ -116,8 +116,8 @@ class TestGenerateRouter:
                 json={
                     "script_file": "episode_1.json",
                     "prompt": {
-                        "scene": "雨夜",
-                        "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+                        "scene": "rainy night",
+                        "composition": {"shot_type": "Medium Shot", "lighting": "warm light", "ambiance": "thin mist"},
                     },
                 },
             )
@@ -148,10 +148,10 @@ class TestGenerateRouter:
                     "script_file": "episode_1.json",
                     "duration_seconds": 5,
                     "prompt": {
-                        "action": "奔跑",
+                        "action": "running",
                         "camera_motion": "Static",
-                        "ambiance_audio": "雨声",
-                        "dialogue": [{"speaker": "Alice", "line": "快走"}],
+                        "ambiance_audio": "rain sound",
+                        "dialogue": [{"speaker": "Alice", "line": "Let's go"}],
                     },
                 },
             )
@@ -174,7 +174,7 @@ class TestGenerateRouter:
         with client:
             character = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
-                json={"prompt": "女主，冷静"},
+                json={"prompt": "female lead, calm"},
             )
             assert character.status_code == 200
             body = character.json()
@@ -194,8 +194,8 @@ class TestGenerateRouter:
 
         with client:
             clue = client.post(
-                "/api/v1/projects/demo/generate/clue/玉佩",
-                json={"prompt": "古朴玉佩"},
+                "/api/v1/projects/demo/generate/clue/Jade+Pendant",
+                json={"prompt": "ancient jade pendant"},
             )
             assert clue.status_code == 200
             body = clue.json()
@@ -205,7 +205,7 @@ class TestGenerateRouter:
             call = fake_queue.calls[0]
             assert call["task_type"] == "clue"
             assert call["media_type"] == "image"
-            assert call["resource_id"] == "玉佩"
+            assert call["resource_id"] == "Jade Pendant"
 
     def test_error_paths(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
@@ -254,7 +254,7 @@ class TestGenerateRouter:
             # Missing clue
             fake_pm.project["clues"] = {}
             missing_clue = client.post(
-                "/api/v1/projects/demo/generate/clue/玉佩",
+                "/api/v1/projects/demo/generate/clue/Jade+Pendant",
                 json={"prompt": "x"},
             )
             assert missing_clue.status_code == 404

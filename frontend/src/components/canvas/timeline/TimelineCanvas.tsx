@@ -145,7 +145,7 @@ export function TimelineCanvas({
   if (!projectData || (!episodeScript && !hasDraft)) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
-        请在左侧选择剧集
+        Please select an episode from the left
       </div>
     );
   }
@@ -156,7 +156,7 @@ export function TimelineCanvas({
     segments.reduce((sum, s) => sum + s.duration_seconds, 0);
 
   // Label depends on content mode
-  const segmentLabel = contentMode === "narration" ? "个片段" : "个场景";
+  const segmentLabel = contentMode === "narration" ? "segments" : "scenes";
   const virtualItems = virtualizer.getVirtualItems();
 
   return (
@@ -171,20 +171,20 @@ export function TimelineCanvas({
           </h2>
           {episodeScript && (
             <p className="text-xs text-gray-500">
-              {segments.length} {segmentLabel} · 约 {totalDuration}s
+              {segments.length} {segmentLabel} · ~{totalDuration}s
             </p>
           )}
           {episodeCost && (
             <div className="mt-2 flex items-center gap-4 rounded-lg bg-gray-900 border border-gray-800 px-3 py-2 text-xs tabular-nums">
-              <span className="text-gray-600">预估</span>
-              <span className="text-gray-500">分镜 <span className="text-gray-300">{formatCost(episodeCost.totals.estimate.image)}</span></span>
-              <span className="text-gray-500">视频 <span className="text-gray-300">{formatCost(episodeCost.totals.estimate.video)}</span></span>
-              <span className="text-gray-500">总计 <span className="font-medium text-amber-400">{formatCost(totalBreakdown(episodeCost.totals.estimate))}</span></span>
+              <span className="text-gray-600">Est.</span>
+              <span className="text-gray-500">Storyboard <span className="text-gray-300">{formatCost(episodeCost.totals.estimate.image)}</span></span>
+              <span className="text-gray-500">Video <span className="text-gray-300">{formatCost(episodeCost.totals.estimate.video)}</span></span>
+              <span className="text-gray-500">Total <span className="font-medium text-amber-400">{formatCost(totalBreakdown(episodeCost.totals.estimate))}</span></span>
               <span className="text-gray-700">|</span>
-              <span className="text-gray-600">实际</span>
-              <span className="text-gray-500">分镜 <span className="text-gray-300">{formatCost(episodeCost.totals.actual.image)}</span></span>
-              <span className="text-gray-500">视频 <span className="text-gray-300">{formatCost(episodeCost.totals.actual.video)}</span></span>
-              <span className="text-gray-500">总计 <span className="font-medium text-emerald-400">{formatCost(totalBreakdown(episodeCost.totals.actual))}</span></span>
+              <span className="text-gray-600">Act.</span>
+              <span className="text-gray-500">Storyboard <span className="text-gray-300">{formatCost(episodeCost.totals.actual.image)}</span></span>
+              <span className="text-gray-500">Video <span className="text-gray-300">{formatCost(episodeCost.totals.actual.video)}</span></span>
+              <span className="text-gray-500">Total <span className="font-medium text-emerald-400">{formatCost(totalBreakdown(episodeCost.totals.actual))}</span></span>
             </div>
           )}
         </div>
@@ -201,7 +201,7 @@ export function TimelineCanvas({
                   : "border-transparent text-gray-500 hover:text-gray-300"
               }`}
             >
-              预处理
+              Pre-processing
             </button>
             <button
               type="button"
@@ -215,7 +215,7 @@ export function TimelineCanvas({
                     : "border-transparent text-gray-500 hover:text-gray-300"
               }`}
             >
-              剧本时间线
+              Script Timeline
             </button>
           </div>
         )}

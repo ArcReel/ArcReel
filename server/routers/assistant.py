@@ -31,9 +31,9 @@ async def _validate_session_ownership(service: AssistantService, session_id: str
     """Validate session belongs to the specified project and return it."""
     session = await service.get_session(session_id)
     if session is None:
-        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' does not exist")
     if session.project_name != project_name:
-        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' does not exist")
     return session
 
 
@@ -79,13 +79,13 @@ async def send_message(
     except SessionCapacityError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="会话或项目不存在")
+        raise HTTPException(status_code=404, detail="Session or project does not exist")
     except TimeoutError:
-        raise HTTPException(status_code=504, detail="SDK 会话创建超时")
+        raise HTTPException(status_code=504, detail="SDK session creation timed out")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -105,7 +105,7 @@ async def list_sessions(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -118,7 +118,7 @@ async def get_session(project_name: str, session_id: str, _user: CurrentUser):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -129,12 +129,12 @@ async def delete_session(project_name: str, session_id: str, _user: CurrentUser)
         await _validate_session_ownership(service, session_id, project_name)
         deleted = await service.delete_session(session_id)
         if not deleted:
-            raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+            raise HTTPException(status_code=404, detail=f"Session '{session_id}' does not exist")
         return {"success": True}
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -142,7 +142,7 @@ async def delete_session(project_name: str, session_id: str, _user: CurrentUser)
 async def list_messages(project_name: str, session_id: str, _user: CurrentUser):
     raise HTTPException(
         status_code=410,
-        detail="messages 接口已下线，请使用 /snapshot 与 SSE stream 协议。",
+        detail="The messages endpoint has been removed; please use /snapshot and the SSE stream protocol.",
     )
 
 
@@ -156,9 +156,9 @@ async def get_snapshot(project_name: str, session_id: str, _user: CurrentUser):
     except HTTPException:
         raise
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' does not exist")
     except Exception as exc:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -172,11 +172,11 @@ async def interrupt_session(project_name: str, session_id: str, _user: CurrentUs
     except HTTPException:
         raise
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' does not exist")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -185,7 +185,7 @@ async def answer_question(
     project_name: str, session_id: str, question_id: str, req: AnswerQuestionRequest, _user: CurrentUser
 ):
     if not req.answers:
-        raise HTTPException(status_code=400, detail="answers 不能为空")
+        raise HTTPException(status_code=400, detail="answers cannot be empty")
     try:
         service = get_assistant_service()
         meta = await _validate_session_ownership(service, session_id, project_name)
@@ -199,11 +199,11 @@ async def answer_question(
     except HTTPException:
         raise
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' does not exist")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -221,7 +221,7 @@ async def stream_events(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -231,9 +231,9 @@ async def list_skills(project_name: str, _user: CurrentUser):
         skills = get_assistant_service().list_available_skills(project_name=project_name)
         return {"skills": skills}
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(exc))

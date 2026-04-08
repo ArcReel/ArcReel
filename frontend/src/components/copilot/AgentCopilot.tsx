@@ -25,7 +25,7 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 const MAX_TEXTAREA_HEIGHT_VH = 50;
 
 // ---------------------------------------------------------------------------
-// SessionSelector — 会话下拉选择器
+// SessionSelector — session dropdown selector
 // ---------------------------------------------------------------------------
 
 function SessionSelector({
@@ -40,7 +40,7 @@ function SessionSelector({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
-  const displayTitle = isDraftSession ? "新会话" : (currentSession?.title || formatTime(currentSession?.created_at));
+  const displayTitle = isDraftSession ? "New session" : (currentSession?.title || formatTime(currentSession?.created_at));
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -48,10 +48,10 @@ function SessionSelector({
         type="button"
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-        title="切换会话"
+        title="Switch session"
       >
         <MessageSquare className="h-3 w-3" />
-        <span className="max-w-24 truncate">{displayTitle || "无会话"}</span>
+        <span className="max-w-24 truncate">{displayTitle || "No session"}</span>
         <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
@@ -88,9 +88,9 @@ function SessionSelector({
                   </button>
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); if (confirm("确定要删除这个会话吗？此操作不可撤销。")) onDelete(session.id); }}
+                    onClick={(e) => { e.stopPropagation(); if (confirm("Are you sure you want to delete this session? This action cannot be undone.")) onDelete(session.id); }}
                     className="shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
-                    title="删除会话"
+                    title="Delete session"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>

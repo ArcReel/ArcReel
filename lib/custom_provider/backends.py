@@ -1,6 +1,6 @@
-"""自定义供应商 Backend 包装类。
+"""Custom provider Backend wrapper classes.
 
-将已有后端（OpenAI/Gemini 等）包装为自定义供应商，覆盖 name 和 model 属性。
+Wraps existing backends (OpenAI/Gemini, etc.) as custom providers, overriding the name and model properties.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from lib.video_backends.base import VideoBackend, VideoCapability, VideoGenerati
 
 
 class CustomTextBackend:
-    """自定义供应商文本生成后端包装类。"""
+    """Custom provider text generation backend wrapper."""
 
     def __init__(self, *, provider_id: str, delegate: TextBackend, model: str) -> None:
         self._provider_id = provider_id
@@ -35,7 +35,7 @@ class CustomTextBackend:
 
 
 class CustomImageBackend:
-    """自定义供应商图片生成后端包装类。"""
+    """Custom provider image generation backend wrapper."""
 
     def __init__(self, *, provider_id: str, delegate: ImageBackend, model: str) -> None:
         self._provider_id = provider_id
@@ -59,7 +59,7 @@ class CustomImageBackend:
 
 
 class CustomVideoBackend:
-    """自定义供应商视频生成后端包装类。"""
+    """Custom provider video generation backend wrapper."""
 
     def __init__(self, *, provider_id: str, delegate: VideoBackend, model: str) -> None:
         self._provider_id = provider_id

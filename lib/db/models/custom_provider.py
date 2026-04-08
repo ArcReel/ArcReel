@@ -9,7 +9,7 @@ from lib.db.base import Base, TimestampMixin
 
 
 class CustomProvider(TimestampMixin, Base):
-    """用户自定义的 AI 供应商。"""
+    """User-defined AI provider."""
 
     __tablename__ = "custom_provider"
 
@@ -27,7 +27,7 @@ class CustomProvider(TimestampMixin, Base):
 
 
 class CustomProviderModel(TimestampMixin, Base):
-    """自定义供应商下的模型配置。"""
+    """Model configuration for a custom provider."""
 
     __tablename__ = "custom_provider_model"
     __table_args__ = (

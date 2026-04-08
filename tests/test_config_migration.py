@@ -83,7 +83,7 @@ async def test_migrate_max_workers_to_all_configured_providers(session: AsyncSes
 
 
 async def test_migrate_aistudio_001_to_preview(session: AsyncSession, tmp_path: Path):
-    """AI Studio 的 001 后缀应迁移为 preview。"""
+    """AI Studio 001 suffix should be migrated to preview."""
     data = {
         "overrides": {
             "video_backend": "aistudio",

@@ -1,8 +1,8 @@
 """
-生成 API 路由
+Generation API routes
 
-处理分镜图、视频、角色图、线索图的生成请求。
-所有生成请求入队到 GenerationQueue，由 GenerationWorker 异步执行。
+Handles generation requests for storyboard images, videos, character images, and clue images.
+All generation requests are enqueued to the GenerationQueue and executed asynchronously by GenerationWorker.
 """
 
 import asyncio
@@ -28,7 +28,7 @@ from server.auth import CurrentUser
 
 router = APIRouter()
 
-# 初始化管理器
+# Initialize manager
 pm = ProjectManager(PROJECT_ROOT / "projects")
 
 
@@ -36,7 +36,7 @@ def get_project_manager() -> ProjectManager:
     return pm
 
 
-# ==================== 请求模型 ====================
+# ==================== Request models ====================
 
 
 class GenerateStoryboardRequest(BaseModel):
@@ -47,7 +47,7 @@ class GenerateStoryboardRequest(BaseModel):
 class GenerateVideoRequest(BaseModel):
     prompt: str | dict
     script_file: str
-    duration_seconds: int | None = None  # 改为 None，由服务层解析
+    duration_seconds: int | None = None  # Changed to None; resolved by the service layer
     seed: int | None = None
 
 
@@ -67,31 +67,31 @@ _LEGACY_PROVIDER_NAMES: dict[str, str] = {
 
 
 def _normalize_provider_id(raw: str) -> str:
-    """将旧格式 provider 名称归一化为标准 provider_id。"""
+    """Normalize a legacy-format provider name to the standard provider_id."""
     return _LEGACY_PROVIDER_NAMES.get(raw, raw)
 
 
 def _snapshot_image_backend(project_name: str) -> dict:
-    """快照图片供应商配置，返回可合并到 payload 的字典。
+    """Snapshot the image provider configuration and return a dict that can be merged into a payload.
 
-    优先级：项目级 image_backend > 系统级 default_image_backend。
+    Priority: project-level image_backend > system-level default_image_backend.
     """
     project = get_project_manager().load_project(project_name)
-    project_image_backend = project.get("image_backend")  # 格式: "provider_id/model"
+    project_image_backend = project.get("image_backend")  # format: "provider_id/model"
     if project_image_backend and "/" in project_image_backend:
         image_provider, image_model = project_image_backend.split("/", 1)
     elif project_image_backend:
         image_provider = _normalize_provider_id(project_image_backend)
         image_model = ""
     else:
-        return {}  # 无项目级覆盖，使用全局默认
+        return {}  # No project-level override; use global default
     return {
         "image_provider": image_provider,
         "image_model": image_model,
     }
 
 
-# ==================== 分镜图生成 ====================
+# ==================== Storyboard image generation ====================
 
 
 @router.post("/projects/{project_name}/generate/storyboard/{segment_id}")
@@ -102,9 +102,9 @@ async def generate_storyboard(
     _user: CurrentUser,
 ):
     """
-    提交分镜图生成任务到队列，立即返回 task_id。
+    Submit a storyboard image generation task to the queue and return the task_id immediately.
 
-    生成由 GenerationWorker 异步执行，状态通过 SSE 推送。
+    Generation is executed asynchronously by GenerationWorker; status is pushed via SSE.
     """
     try:
 
@@ -114,25 +114,25 @@ async def generate_storyboard(
             items, id_field, _, _ = get_storyboard_items(script)
             resolved = find_storyboard_item(items, id_field, segment_id)
             if resolved is None:
-                raise HTTPException(status_code=404, detail=f"片段/场景 '{segment_id}' 不存在")
+                raise HTTPException(status_code=404, detail=f"Segment/scene '{segment_id}' does not exist")
             return _snapshot_image_backend(project_name)
 
         image_snapshot = await asyncio.to_thread(_sync)
 
-        # 验证 prompt 格式
+        # Validate prompt format
         if isinstance(req.prompt, dict):
             if not is_structured_image_prompt(req.prompt):
                 raise HTTPException(
                     status_code=400,
-                    detail="prompt 必须是字符串或包含 scene/composition 的对象",
+                    detail="prompt must be a string or an object containing scene/composition",
                 )
             scene_text = str(req.prompt.get("scene", "")).strip()
             if not scene_text:
-                raise HTTPException(status_code=400, detail="prompt.scene 不能为空")
+                raise HTTPException(status_code=400, detail="prompt.scene cannot be empty")
         elif not isinstance(req.prompt, str):
-            raise HTTPException(status_code=400, detail="prompt 必须是字符串或对象")
+            raise HTTPException(status_code=400, detail="prompt must be a string or an object")
 
-        # 入队
+        # Enqueue
         queue = get_generation_queue()
         result = await queue.enqueue_task(
             project_name=project_name,
@@ -152,7 +152,7 @@ async def generate_storyboard(
         return {
             "success": True,
             "task_id": result["task_id"],
-            "message": f"分镜「{segment_id}」生成任务已提交",
+            "message": f"Storyboard generation task for '{segment_id}' has been submitted",
         }
 
     except FileNotFoundError as e:
@@ -160,19 +160,19 @@ async def generate_storyboard(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ==================== 视频生成 ====================
+# ==================== Video generation ====================
 
 
 @router.post("/projects/{project_name}/generate/video/{segment_id}")
 async def generate_video(project_name: str, segment_id: str, req: GenerateVideoRequest, _user: CurrentUser):
     """
-    提交视频生成任务到队列，立即返回 task_id。
+    Submit a video generation task to the queue and return the task_id immediately.
 
-    需要先有分镜图作为起始帧。生成由 GenerationWorker 异步执行。
+    Requires a storyboard image as the first frame. Generation is executed asynchronously by GenerationWorker.
     """
     try:
 
@@ -181,27 +181,27 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
             project_path = get_project_manager().get_project_path(project_name)
             storyboard_file = project_path / "storyboards" / f"scene_{segment_id}.png"
             if not storyboard_file.exists():
-                raise HTTPException(status_code=400, detail=f"请先生成分镜图 scene_{segment_id}.png")
+                raise HTTPException(status_code=400, detail=f"Please generate storyboard image scene_{segment_id}.png first")
 
         await asyncio.to_thread(_sync)
 
-        # 验证 prompt 格式
+        # Validate prompt format
         if isinstance(req.prompt, dict):
             if not is_structured_video_prompt(req.prompt):
                 raise HTTPException(
                     status_code=400,
-                    detail="prompt 必须是字符串或包含 action/camera_motion 的对象",
+                    detail="prompt must be a string or an object containing action/camera_motion",
                 )
             action_text = str(req.prompt.get("action", "")).strip()
             if not action_text:
-                raise HTTPException(status_code=400, detail="prompt.action 不能为空")
+                raise HTTPException(status_code=400, detail="prompt.action cannot be empty")
             dialogue = req.prompt.get("dialogue", [])
             if dialogue is not None and not isinstance(dialogue, list):
-                raise HTTPException(status_code=400, detail="prompt.dialogue 必须是数组")
+                raise HTTPException(status_code=400, detail="prompt.dialogue must be an array")
         elif not isinstance(req.prompt, str):
-            raise HTTPException(status_code=400, detail="prompt 必须是字符串或对象")
+            raise HTTPException(status_code=400, detail="prompt must be a string or an object")
 
-        # 入队（provider 由服务层根据配置自动解析，调用方无需传递）
+        # Enqueue (provider is automatically resolved by the service layer from config; callers do not need to pass it)
         queue = get_generation_queue()
         result = await queue.enqueue_task(
             project_name=project_name,
@@ -222,7 +222,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
         return {
             "success": True,
             "task_id": result["task_id"],
-            "message": f"视频「{segment_id}」生成任务已提交",
+            "message": f"Video generation task for '{segment_id}' has been submitted",
         }
 
     except FileNotFoundError as e:
@@ -230,11 +230,11 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ==================== 角色设计图生成 ====================
+# ==================== Character design image generation ====================
 
 
 @router.post("/projects/{project_name}/generate/character/{char_name}")
@@ -245,19 +245,19 @@ async def generate_character(
     _user: CurrentUser,
 ):
     """
-    提交角色设计图生成任务到队列，立即返回 task_id。
+    Submit a character design image generation task to the queue and return the task_id immediately.
     """
     try:
 
         def _sync():
             project = get_project_manager().load_project(project_name)
             if char_name not in project.get("characters", {}):
-                raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
+                raise HTTPException(status_code=404, detail=f"Character '{char_name}' does not exist")
             return _snapshot_image_backend(project_name)
 
         image_snapshot = await asyncio.to_thread(_sync)
 
-        # 入队
+        # Enqueue
         queue = get_generation_queue()
         result = await queue.enqueue_task(
             project_name=project_name,
@@ -275,7 +275,7 @@ async def generate_character(
         return {
             "success": True,
             "task_id": result["task_id"],
-            "message": f"角色「{char_name}」设计图生成任务已提交",
+            "message": f"Character design image generation task for '{char_name}' has been submitted",
         }
 
     except FileNotFoundError as e:
@@ -283,29 +283,29 @@ async def generate_character(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ==================== 线索设计图生成 ====================
+# ==================== Clue design image generation ====================
 
 
 @router.post("/projects/{project_name}/generate/clue/{clue_name}")
 async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequest, _user: CurrentUser):
     """
-    提交线索设计图生成任务到队列，立即返回 task_id。
+    Submit a clue design image generation task to the queue and return the task_id immediately.
     """
     try:
 
         def _sync():
             project = get_project_manager().load_project(project_name)
             if clue_name not in project.get("clues", {}):
-                raise HTTPException(status_code=404, detail=f"线索 '{clue_name}' 不存在")
+                raise HTTPException(status_code=404, detail=f"Clue '{clue_name}' does not exist")
             return _snapshot_image_backend(project_name)
 
         image_snapshot = await asyncio.to_thread(_sync)
 
-        # 入队
+        # Enqueue
         queue = get_generation_queue()
         result = await queue.enqueue_task(
             project_name=project_name,
@@ -323,7 +323,7 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
         return {
             "success": True,
             "task_id": result["task_id"],
-            "message": f"线索「{clue_name}」设计图生成任务已提交",
+            "message": f"Clue design image generation task for '{clue_name}' has been submitted",
         }
 
     except FileNotFoundError as e:
@@ -331,5 +331,5 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("请求处理失败")
+        logger.exception("Request processing failed")
         raise HTTPException(status_code=500, detail=str(e))

@@ -105,7 +105,7 @@ class UsageRepository(BaseRepository):
         if not row:
             return
 
-        # 后端回写的实际 generate_audio 覆盖 start_call 时的请求值
+        # Actual generate_audio written back by the backend overrides the request value from start_call
         if generate_audio is not None:
             row.generate_audio = generate_audio
 
@@ -315,7 +315,7 @@ class UsageRepository(BaseRepository):
                 try:
                     custom_ids.add(parse_provider_id(p))
                 except ValueError:
-                    pass  # 防御畸形 provider 字符串（如 "custom-abc"）
+                    pass  # Guard against malformed provider strings (e.g. "custom-abc")
 
         custom_names: dict[int, str] = {}
         if custom_ids:
@@ -389,11 +389,11 @@ class UsageRepository(BaseRepository):
         self,
         project_name: str,
     ) -> dict[str, dict[str, dict[str, float]]]:
-        """按 segment_id + call_type + currency 汇总实际费用。
+        """Aggregate actual costs by segment_id + call_type + currency.
 
         Returns:
             {segment_id: {call_type: {currency: total_amount}}}
-            segment_id 为 None 的记录归入 "__project__" 键。
+            Records with segment_id == None are grouped under the "__project__" key.
         """
         stmt = (
             select(

@@ -1,4 +1,4 @@
-"""CustomProviderRepository 测试。"""
+"""CustomProviderRepository tests."""
 
 from __future__ import annotations
 

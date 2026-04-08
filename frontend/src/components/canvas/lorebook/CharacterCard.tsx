@@ -158,7 +158,7 @@ export function CharacterCard({
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-              角色设计图
+              Character Design
             </span>
             <VersionTimeMachine
               projectName={projectName}
@@ -169,18 +169,18 @@ export function CharacterCard({
           </div>
           <PreviewableImageFrame
             src={sheetUrl && !imgError ? sheetUrl : null}
-            alt={`${name} 设计图`}
+            alt={`${name} design`}
           >
             <AspectFrame ratio="3:4">
               <ImageFlipReveal
                 src={sheetUrl && !imgError ? sheetUrl : null}
-                alt={`${name} 设计图`}
+                alt={`${name} design`}
                 className="h-full w-full object-cover"
                 onError={() => setImgError(true)}
                 fallback={
                   <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500">
                     <User className="h-10 w-10" />
-                    <span className="text-xs">点击生成</span>
+                    <span className="text-xs">Click to generate</span>
                   </div>
                 }
               />
@@ -191,7 +191,7 @@ export function CharacterCard({
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-              参考图
+              Reference Image
             </span>
             {(referenceFile || hasSavedReference) && (
               <button
@@ -203,7 +203,7 @@ export function CharacterCard({
                 }
                 className="text-xs text-gray-400 transition-colors hover:text-gray-200"
               >
-                {referenceFile ? "取消待上传" : "替换"}
+                {referenceFile ? "Cancel pending upload" : "Replace"}
               </button>
             )}
           </div>
@@ -211,26 +211,26 @@ export function CharacterCard({
           {displayedReferenceUrl ? (
             <PreviewableImageFrame
               src={displayedReferenceUrl}
-              alt={`${name} 参考图`}
+              alt={`${name} reference image`}
               buttonClassName="right-2.5 top-2.5"
             >
               <div className="relative overflow-hidden rounded-lg border border-gray-700 bg-gray-800">
                 <img
                   src={displayedReferenceUrl}
-                  alt={`${name} 参考图`}
+                  alt={`${name} reference image`}
                   className="h-28 w-full object-cover"
                 />
                 <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
                   <span className="flex items-center gap-1.5 text-xs text-gray-200">
                     <ImagePlus className="h-3.5 w-3.5" />
-                    {referenceFile ? "待保存参考图" : "已保存参考图"}
+                    {referenceFile ? "Pending save reference image" : "Saved reference image"}
                   </span>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     className="rounded bg-black/40 px-2 py-1 text-xs text-gray-200 transition-colors hover:bg-black/60"
                   >
-                    更换
+                    Replace
                   </button>
                 </div>
               </div>
@@ -242,7 +242,7 @@ export function CharacterCard({
               className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-gray-700 bg-gray-800/50 px-3 py-4 text-sm text-gray-500 transition-colors hover:border-gray-500 hover:text-gray-300"
             >
               <Upload className="h-4 w-4" />
-              上传参考图
+              Upload reference image
             </button>
           )}
           <input
@@ -255,7 +255,7 @@ export function CharacterCard({
         </div>
       </div>
 
-      <label className="text-xs font-medium text-gray-400">描述</label>
+      <label className="text-xs font-medium text-gray-400">Description</label>
       <textarea
         ref={textareaRef}
         value={description}
@@ -263,16 +263,16 @@ export function CharacterCard({
         onInput={autoResize}
         rows={3}
         className="mt-1 w-full resize-none overflow-hidden rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
-        placeholder="输入角色描述..."
+        placeholder="Enter character description..."
       />
 
-      <label className="mt-3 block text-xs font-medium text-gray-400">声音风格</label>
+      <label className="mt-3 block text-xs font-medium text-gray-400">Voice Style</label>
       <input
         type="text"
         value={voiceStyle}
         onChange={(e) => setVoiceStyle(e.target.value)}
         className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
-        placeholder="例如：温柔但有威严"
+        placeholder="e.g.: gentle yet authoritative"
       />
 
       {isDirty && (
@@ -282,7 +282,7 @@ export function CharacterCard({
           disabled={saving}
           className="mt-3 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {saving ? "保存中..." : "保存"}
+          {saving ? "Saving..." : "Save"}
         </button>
       )}
 
@@ -290,7 +290,7 @@ export function CharacterCard({
         <GenerateButton
           onClick={() => onGenerate(name)}
           loading={generating}
-          label={character.character_sheet ? "重新生成设计图" : "生成设计图"}
+          label={character.character_sheet ? "Regenerate design" : "Generate design"}
           className="w-full justify-center"
         />
       </div>

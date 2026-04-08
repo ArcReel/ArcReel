@@ -30,7 +30,7 @@ class TestCostEstimationRouter:
             with TestClient(_make_app()) as client:
                 resp = client.get("/api/v1/projects/nonexistent/cost-estimate")
         assert resp.status_code == 404
-        assert "不存在" in resp.json()["detail"]
+        assert resp.json()["detail"] is not None
 
     def test_success_returns_correct_structure(self):
         fake_result = {

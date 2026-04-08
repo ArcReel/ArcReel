@@ -1,4 +1,4 @@
-"""统一日志配置。"""
+"""Unified logging configuration."""
 
 import logging
 import os
@@ -7,11 +7,11 @@ _HANDLER_ATTR = "_arcreel_logging"
 
 
 def setup_logging(level: str | None = None) -> None:
-    """配置根 logger。
+    """Configure the root logger.
 
     Args:
-        level: 日志级别字符串（DEBUG/INFO/WARNING/ERROR）。
-               如未提供，从环境变量 LOG_LEVEL 读取，默认 INFO。
+        level: Log level string (DEBUG/INFO/WARNING/ERROR).
+               If not provided, read from the LOG_LEVEL environment variable, defaulting to INFO.
     """
     if level is None:
         level = os.environ.get("LOG_LEVEL", "INFO")
@@ -21,7 +21,7 @@ def setup_logging(level: str | None = None) -> None:
     root = logging.getLogger()
     root.setLevel(numeric_level)
 
-    # 幂等：避免重复添加 handler
+    # Idempotent: avoid adding handlers more than once
     if any(getattr(h, _HANDLER_ATTR, False) for h in root.handlers):
         return
 
@@ -34,16 +34,16 @@ def setup_logging(level: str | None = None) -> None:
     setattr(handler, _HANDLER_ATTR, True)
     root.addHandler(handler)
 
-    # 统一 uvicorn 的日志格式，避免两种格式并存
+    # Unify uvicorn's log format to avoid two formats coexisting
     for name in ("uvicorn", "uvicorn.error"):
         uv_logger = logging.getLogger(name)
         uv_logger.handlers.clear()
         uv_logger.propagate = True
 
-    # 禁用 uvicorn.access：请求日志由 app.py 的 middleware 统一处理
+    # Disable uvicorn.access: request logging is handled centrally by app.py middleware
     access_logger = logging.getLogger("uvicorn.access")
     access_logger.handlers.clear()
     access_logger.disabled = True
 
-    # 抑制 aiosqlite 的 DEBUG 噪音（每次 SQL 操作都会输出两行日志）
+    # Suppress aiosqlite DEBUG noise (two log lines per SQL operation)
     logging.getLogger("aiosqlite").setLevel(max(numeric_level, logging.INFO))
