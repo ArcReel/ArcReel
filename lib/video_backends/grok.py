@@ -58,8 +58,7 @@ class GrokVideoBackend:
         video_url = response.url
         actual_duration = getattr(response, "duration", request.duration_seconds)
 
-        await self._download_video_with_retry(video_url, request.output_path)
-
+        await download_video(video_url, request.output_path)
         logger.info("Grok 视频下载完成: %s", request.output_path)
 
         return VideoGenerationResult(
@@ -95,11 +94,3 @@ class GrokVideoBackend:
         logger.info("Grok 视频生成开始: model=%s, duration=%ds", self._model, request.duration_seconds)
         return await self._client.video.generate(**generate_kwargs)
 
-    @staticmethod
-    @with_retry_async(
-        max_attempts=5,
-        backoff_seconds=(4, 8, 15, 30),
-    )
-    async def _download_video_with_retry(video_url: str, output_path) -> None:
-        """单独重试视频下载，避免下载失败导致重新生成视频而浪费额度。"""
-        await download_video(video_url, output_path)

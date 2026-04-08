@@ -115,18 +115,27 @@ class ArkVideoBackend:
         return create_result.id
 
     @staticmethod
-    @with_retry_async(
-        max_attempts=5,
-        backoff_seconds=(5, 10, 20, 40),
-        retryable_errors=(*BASE_RETRYABLE_ERRORS, httpx.HTTPStatusError),
-    )
     async def _download_video_with_retry(video_url: str, output_path) -> None:
         """单独重试视频下载，避免下载失败导致重新生成视频而浪费额度。
 
         Ark 的视频 URL 在任务 succeeded 后可能仍未就绪（返回 400 video_not_ready），
-        需要独立重试而非让整个任务失败。
+        仅针对该瞬态状态重试；其余 HTTP 错误及网络瞬态错误由内层 download_video 处理。
         """
-        await download_video(video_url, output_path)
+        backoff_seconds = (5, 10, 20, 40)
+        max_attempts = len(backoff_seconds) + 1
+        for attempt in range(max_attempts):
+            try:
+                await download_video(video_url, output_path)
+                return
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code != 400 or "video_not_ready" not in str(e.response.text):
+                    raise
+                if attempt < max_attempts - 1:
+                    wait = backoff_seconds[attempt]
+                    logger.warning("Ark 视频未就绪，%d 秒后重试 (%d/%d)", wait, attempt + 1, max_attempts - 1)
+                    await asyncio.sleep(wait)
+                else:
+                    raise
 
     async def _poll_until_done(self, task_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """轮询任务状态直到完成，瞬态错误仅重试当次轮询请求。"""
