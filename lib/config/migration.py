@@ -97,7 +97,7 @@ async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
 
     video_backend = overrides.get("video_backend", "aistudio")
     video_model = overrides.get("video_model", "veo-3.1-generate-001")
-    # AI Studio 使用 preview 后缀，Vertex 使用 001 后缀
+    # AI Studio uses the preview suffix, Vertex uses the 001 suffix
     if video_backend == "aistudio":
         _model_fix = {
             "veo-3.1-generate-001": "veo-3.1-generate-preview",
@@ -133,7 +133,7 @@ async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
     # 6. Catch-all: remaining override keys → system_setting
     for key, value in overrides.items():
         if key not in _HANDLED_KEYS:
-            logger.warning("迁移未知配置项: %s=%s", key, value)
+            logger.warning("Migrating unknown config key: %s=%s", key, value)
             await setting_repo.set(key, str(value))
 
     await session.commit()

@@ -1,7 +1,7 @@
 """
-API Key 管理路由集成测试
+API Key management router integration tests
 
-通过 TestClient 测试 POST/GET/DELETE /api/v1/api-keys 端点。
+Tests for POST/GET/DELETE /api/v1/api-keys endpoints via TestClient.
 """
 
 from unittest.mock import AsyncMock, patch
@@ -56,7 +56,7 @@ class TestCreateApiKey:
         body = resp.json()
         assert body["name"] == "mykey"
         assert body["key"].startswith("arc-")
-        assert "key" in body  # 完整 key 在响应中
+        assert "key" in body  # Full key included in response
 
     def test_create_409_on_duplicate_name(self):
         from sqlalchemy.exc import IntegrityError
@@ -106,7 +106,7 @@ class TestListApiKeys:
         body = resp.json()
         assert len(body) == 1
         assert body[0]["name"] == "mykey"
-        assert "key" not in body[0]  # 完整 key 不在列表响应中
+        assert "key" not in body[0]  # Full key not included in list response
 
 
 class TestDeleteApiKey:

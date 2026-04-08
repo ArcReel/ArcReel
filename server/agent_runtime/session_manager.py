@@ -52,7 +52,7 @@ except ImportError:
 
 
 class SessionCapacityError(Exception):
-    """所有并发槽位已被 running 会话占满，无法创建新连接。"""
+    """All concurrent slots are occupied by running sessions; cannot create a new connection."""
 
     pass
 
@@ -75,12 +75,12 @@ class PendingQuestion:
 class ManagedSession:
     """A managed ClaudeSDKClient session."""
 
-    session_id: str  # sdk_session_id（已有会话）或临时 UUID（新会话等待中）
+    session_id: str  # sdk_session_id (for existing sessions) or temporary UUID (while new session is pending)
     client: Any  # ClaudeSDKClient
     status: SessionStatus = "idle"
-    project_name: str = ""  # 用于 _register_new_session
+    project_name: str = ""  # used for _register_new_session
     sdk_id_event: asyncio.Event = field(default_factory=asyncio.Event)
-    resolved_sdk_id: str | None = None  # consumer 设置，send_new_session 读取
+    resolved_sdk_id: str | None = None  # set by consumer, read by send_new_session
     message_buffer: list[dict[str, Any]] = field(default_factory=list)
     subscribers: set[asyncio.Queue] = field(default_factory=set)
     consumer_task: asyncio.Task | None = None
@@ -311,7 +311,7 @@ class SessionManager:
                     self.max_turns = int(raw)
                     return
         except Exception:
-            logger.warning("从 DB 加载 assistant 配置失败，回退到环境变量", exc_info=True)
+            logger.warning("Failed to load assistant config from DB, falling back to environment variables", exc_info=True)
         # Fallback to env var
         self._load_config()
 

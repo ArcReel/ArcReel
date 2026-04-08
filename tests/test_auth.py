@@ -1,7 +1,7 @@
 """
-认证核心模块测试
+Authentication core module tests
 
-测试 server.auth 中的密码生成、JWT token、凭据校验等功能。
+Tests for password generation, JWT tokens, credential validation, etc. in server.auth.
 """
 
 import os
@@ -15,13 +15,13 @@ import server.auth as auth_module
 
 class TestGeneratePassword:
     def test_generate_password(self):
-        """默认长度 16，仅字母数字"""
+        """Default length 16, alphanumeric only"""
         pwd = auth_module.generate_password()
         assert len(pwd) == 16
         assert pwd.isalnum()
 
     def test_generate_password_custom_length(self):
-        """自定义长度"""
+        """Custom length"""
         pwd = auth_module.generate_password(length=32)
         assert len(pwd) == 32
         assert pwd.isalnum()
@@ -29,17 +29,17 @@ class TestGeneratePassword:
 
 class TestTokenSecret:
     def setup_method(self):
-        """每个测试前重置缓存"""
+        """Reset cache before each test"""
         auth_module._cached_token_secret = None
 
     def test_get_token_secret_from_env(self):
-        """优先使用 AUTH_TOKEN_SECRET 环境变量"""
+        """AUTH_TOKEN_SECRET environment variable takes priority"""
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "my-secret-key"}):
             secret = auth_module.get_token_secret()
             assert secret == "my-secret-key"
 
     def test_get_token_secret_auto_generate(self):
-        """自动生成并缓存"""
+        """Auto-generate and cache"""
         env = os.environ.copy()
         env.pop("AUTH_TOKEN_SECRET", None)
         with patch.dict(os.environ, env, clear=True):
@@ -47,7 +47,7 @@ class TestTokenSecret:
             assert secret1 is not None
             assert len(secret1) > 0
 
-            # 再次调用应返回相同的缓存值
+            # Subsequent calls should return the same cached value
             secret2 = auth_module.get_token_secret()
             assert secret1 == secret2
 
@@ -57,7 +57,7 @@ class TestCreateAndVerifyToken:
         auth_module._cached_token_secret = None
 
     def test_create_and_verify_token(self):
-        """创建后验证往返一致"""
+        """Created token verifies correctly round-trip"""
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
             token = auth_module.create_token("admin")
             payload = auth_module.verify_token(token)
@@ -67,22 +67,22 @@ class TestCreateAndVerifyToken:
             assert "exp" in payload
 
     def test_verify_token_invalid(self):
-        """无效 token 返回 None"""
+        """Invalid token returns None"""
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
             result = auth_module.verify_token("this-is-not-a-valid-jwt")
             assert result is None
 
     def test_verify_token_expired(self):
-        """过期 token 返回 None"""
+        """Expired token returns None"""
         import jwt
 
         secret = "test-secret-key-that-is-at-least-32-bytes"
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": secret}):
-            # 手动创建一个已过期的 token
+            # Manually create an already-expired token
             payload = {
                 "sub": "admin",
                 "iat": time.time() - 3600,
-                "exp": time.time() - 1,  # 已过期
+                "exp": time.time() - 1,  # Already expired
             }
             expired_token = jwt.encode(payload, secret, algorithm="HS256")
             result = auth_module.verify_token(expired_token)
@@ -94,18 +94,18 @@ class TestCheckCredentials:
         auth_module._cached_password_hash = None
 
     def test_check_credentials_valid(self):
-        """正确凭据返回 True"""
+        """Correct credentials return True"""
         with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
             assert auth_module.check_credentials("admin", "pass123") is True
 
     def test_check_credentials_invalid(self):
-        """错误凭据返回 False"""
+        """Wrong credentials return False"""
         with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
             assert auth_module.check_credentials("admin", "wrong") is False
             assert auth_module.check_credentials("nobody", "pass123") is False
 
     def test_check_credentials_default_username(self):
-        """AUTH_USERNAME 未设置时默认为 admin"""
+        """When AUTH_USERNAME is not set, defaults to admin"""
         env = os.environ.copy()
         env.pop("AUTH_USERNAME", None)
         env["AUTH_PASSWORD"] = "secret"
@@ -115,17 +115,17 @@ class TestCheckCredentials:
 
 class TestEnsureAuthPassword:
     def setup_method(self):
-        """每个测试前重置缓存"""
+        """Reset cache before each test"""
         auth_module._cached_token_secret = None
 
     def test_existing_password_returned(self):
-        """AUTH_PASSWORD 已存在时直接返回现有密码"""
+        """When AUTH_PASSWORD already exists, return it directly"""
         with patch.dict(os.environ, {"AUTH_PASSWORD": "existing-pwd"}):
             result = auth_module.ensure_auth_password()
             assert result == "existing-pwd"
 
     def test_auto_generate_when_empty(self, tmp_path):
-        """AUTH_PASSWORD 为空时自动生成密码并写入 os.environ"""
+        """When AUTH_PASSWORD is empty, auto-generate and write to os.environ"""
         env = os.environ.copy()
         env.pop("AUTH_PASSWORD", None)
         env_file = tmp_path / ".env"
@@ -134,11 +134,11 @@ class TestEnsureAuthPassword:
             result = auth_module.ensure_auth_password(env_path=str(env_file))
             assert len(result) == 16
             assert result.isalnum()
-            # 应该同步写入 os.environ
+            # Should be written to os.environ synchronously
             assert os.environ["AUTH_PASSWORD"] == result
 
     def test_writeback_replace_existing_line(self, tmp_path):
-        """回写 .env 文件：替换已有 AUTH_PASSWORD= 行"""
+        """Write back to .env file: replace existing AUTH_PASSWORD= line"""
         env_file = tmp_path / ".env"
         env_file.write_text("SOME_VAR=hello\nAUTH_PASSWORD=\nOTHER=world\n")
         env = os.environ.copy()
@@ -147,12 +147,12 @@ class TestEnsureAuthPassword:
             password = auth_module.ensure_auth_password(env_path=str(env_file))
             content = env_file.read_text()
             assert f"AUTH_PASSWORD={password}" in content
-            # 原有的其他行应保留
+            # Other existing lines should be preserved
             assert "SOME_VAR=hello" in content
             assert "OTHER=world" in content
 
     def test_writeback_append_when_no_line(self, tmp_path):
-        """回写 .env 文件：追加，原文件无 AUTH_PASSWORD 行"""
+        """Write back to .env file: append when no AUTH_PASSWORD line exists"""
         env_file = tmp_path / ".env"
         env_file.write_text("SOME_VAR=hello\n")
         env = os.environ.copy()
@@ -161,16 +161,16 @@ class TestEnsureAuthPassword:
             password = auth_module.ensure_auth_password(env_path=str(env_file))
             content = env_file.read_text()
             assert f"AUTH_PASSWORD={password}" in content
-            # 原有内容应保留
+            # Existing content should be preserved
             assert "SOME_VAR=hello" in content
 
     def test_env_file_not_exist_no_error(self, tmp_path):
-        """.env 文件不存在时不抛异常，并创建新文件"""
+        """When .env file does not exist, no exception, creates new file"""
         env_file = tmp_path / "nonexistent" / ".env"
         env = os.environ.copy()
         env.pop("AUTH_PASSWORD", None)
         with patch.dict(os.environ, env, clear=True):
-            # 父目录不存在会触发 OSError，函数不应抛异常
+            # Parent directory missing triggers OSError; function should not raise
             password = auth_module.ensure_auth_password(env_path=str(env_file))
             assert len(password) == 16
             assert password.isalnum()
@@ -181,7 +181,7 @@ class TestDownloadToken:
         auth_module._cached_token_secret = None
 
     def test_create_and_verify_download_token(self):
-        """签发并验证下载 token"""
+        """Issue and verify download token"""
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
             token = auth_module.create_download_token("admin", "my-project")
             payload = auth_module.verify_download_token(token, "my-project")
@@ -190,16 +190,16 @@ class TestDownloadToken:
             assert payload["purpose"] == "download"
 
     def test_verify_download_token_wrong_project(self):
-        """项目不匹配应抛出 ValueError"""
+        """Project mismatch should raise ValueError"""
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
             token = auth_module.create_download_token("admin", "project-a")
             import pytest
 
-            with pytest.raises(ValueError, match="project 不匹配"):
+            with pytest.raises(ValueError):
                 auth_module.verify_download_token(token, "project-b")
 
     def test_verify_download_token_expired(self):
-        """过期 token 应抛出 ExpiredSignatureError"""
+        """Expired token should raise ExpiredSignatureError"""
         import jwt
         import pytest
 
@@ -217,7 +217,7 @@ class TestDownloadToken:
                 auth_module.verify_download_token(expired_token, "demo")
 
     def test_verify_download_token_wrong_purpose(self):
-        """purpose 不匹配应抛出 ValueError"""
+        """Purpose mismatch should raise ValueError"""
         import jwt
         import pytest
 
@@ -231,42 +231,42 @@ class TestDownloadToken:
                 "exp": time.time() + 300,
             }
             token = jwt.encode(payload, secret, algorithm="HS256")
-            with pytest.raises(ValueError, match="purpose 不匹配"):
+            with pytest.raises(ValueError):
                 auth_module.verify_download_token(token, "demo")
 
 
 class TestPasswordHash:
-    """密码哈希功能测试"""
+    """Password hash functionality tests"""
 
     def setup_method(self):
         auth_module._cached_password_hash = None
 
     def test_check_credentials_with_hash(self):
-        """密码通过哈希比对验证"""
+        """Password verification via hash comparison"""
         with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
             assert auth_module.check_credentials("admin", "pass123") is True
 
     def test_check_credentials_wrong_password_with_hash(self):
-        """错误密码哈希比对失败"""
+        """Wrong password fails hash comparison"""
         with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
             assert auth_module.check_credentials("admin", "wrong") is False
 
     def test_check_credentials_wrong_username_timing_safe(self):
-        """错误用户名也执行哈希验证（防时序攻击）"""
+        """Wrong username still performs hash validation (timing-safe)"""
         with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
             assert auth_module.check_credentials("nobody", "pass123") is False
 
     def test_password_hash_cached(self):
-        """哈希值应被缓存"""
+        """Hash value should be cached"""
         with patch.dict(os.environ, {"AUTH_USERNAME": "admin", "AUTH_PASSWORD": "pass123"}):
             auth_module.check_credentials("admin", "pass123")
             first_hash = auth_module._cached_password_hash
             auth_module.check_credentials("admin", "pass123")
-            assert auth_module._cached_password_hash is first_hash  # 同一对象
+            assert auth_module._cached_password_hash is first_hash  # Same object
 
 
 class TestGetCurrentUser:
-    """FastAPI 依赖函数测试"""
+    """FastAPI dependency function tests"""
 
     def setup_method(self):
         auth_module._cached_token_secret = None

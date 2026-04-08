@@ -141,7 +141,7 @@ describe("API", () => {
       const location = { href: "/app" };
       vi.stubGlobal("location", location);
 
-      await expect(API.request("/projects")).rejects.toThrow("认证已过期，请重新登录");
+      await expect(API.request("/projects")).rejects.toThrow("Session expired, please log in again");
 
       expect(clearTokenMock).toHaveBeenCalledTimes(1);
       expect(location.href).toBe("/login");
@@ -265,7 +265,7 @@ describe("API", () => {
 
       await expect(
         API.updateProject("demo", { content_mode: "drama" } as never),
-      ).rejects.toThrow("项目创建后不支持修改 content_mode");
+      ).rejects.toThrow("content_mode cannot be changed after project creation");
       expect(requestSpy).not.toHaveBeenCalled();
     });
 
@@ -390,13 +390,13 @@ describe("API", () => {
         mockResponse({
           ok: false,
           statusText: "Bad Request",
-          jsonData: { detail: "上传失败" },
+          jsonData: { detail: "Upload failed" },
         }),
       );
       vi.stubGlobal("fetch", fetchMock);
       const file = new File(["hello"], "demo.txt", { type: "text/plain" });
 
-      await expect(API.uploadFile("demo", "source", file)).rejects.toThrow("上传失败");
+      await expect(API.uploadFile("demo", "source", file)).rejects.toThrow("Upload failed");
     });
 
     it("handles source and draft text APIs", async () => {
@@ -510,19 +510,19 @@ describe("API", () => {
             ok: false,
             statusText: "Bad Request",
             jsonData: {
-              detail: "导入包校验失败",
-              errors: ["缺少 project.json", "缺少 scripts/episode_1.json"],
-              warnings: ["发现未识别的附加文件/目录: extra"],
+              detail: "Import package validation failed",
+              errors: ["Missing project.json", "Missing scripts/episode_1.json"],
+              warnings: ["Unrecognized additional files/directories found: extra"],
               diagnostics: {
                 blocking: [
-                  { code: "validation_error", message: "缺少 project.json" },
-                  { code: "validation_error", message: "缺少 scripts/episode_1.json" },
+                  { code: "validation_error", message: "Missing project.json" },
+                  { code: "validation_error", message: "Missing scripts/episode_1.json" },
                 ],
                 auto_fixable: [
-                  { code: "missing_clues_field", message: "segments[0]: 补全缺失字段 clues_in_segment" },
+                  { code: "missing_clues_field", message: "segments[0]: filling in missing field clues_in_segment" },
                 ],
                 warnings: [
-                  { code: "validation_warning", message: "发现未识别的附加文件/目录: extra" },
+                  { code: "validation_warning", message: "Unrecognized additional files/directories found: extra" },
                 ],
               },
             },
@@ -535,20 +535,20 @@ describe("API", () => {
       expect(result.project_name).toBe("demo");
 
       await expect(API.importProject(file)).rejects.toMatchObject({
-        message: "导入包校验失败",
-        detail: "导入包校验失败",
-        errors: ["缺少 project.json", "缺少 scripts/episode_1.json"],
-        warnings: ["发现未识别的附加文件/目录: extra"],
+        message: "Import package validation failed",
+        detail: "Import package validation failed",
+        errors: ["Missing project.json", "Missing scripts/episode_1.json"],
+        warnings: ["Unrecognized additional files/directories found: extra"],
         diagnostics: {
           blocking: [
-            { code: "validation_error", message: "缺少 project.json" },
-            { code: "validation_error", message: "缺少 scripts/episode_1.json" },
+            { code: "validation_error", message: "Missing project.json" },
+            { code: "validation_error", message: "Missing scripts/episode_1.json" },
           ],
           auto_fixable: [
-            { code: "missing_clues_field", message: "segments[0]: 补全缺失字段 clues_in_segment" },
+            { code: "missing_clues_field", message: "segments[0]: filling in missing field clues_in_segment" },
           ],
           warnings: [
-            { code: "validation_warning", message: "发现未识别的附加文件/目录: extra" },
+            { code: "validation_warning", message: "Unrecognized additional files/directories found: extra" },
           ],
         },
       });
@@ -565,8 +565,8 @@ describe("API", () => {
           status: 409,
           statusText: "Conflict",
           jsonData: {
-            detail: "检测到项目编号冲突",
-            errors: ["项目编号 'demo' 已存在"],
+            detail: "Project ID conflict detected",
+            errors: ["Project ID 'demo' already exists"],
             warnings: [],
             conflict_project_name: "demo",
             diagnostics: {
@@ -582,7 +582,7 @@ describe("API", () => {
       await expect(
         API.importProject(new File(["zip"], "demo.zip", { type: "application/zip" }))
       ).rejects.toMatchObject({
-        message: "检测到项目编号冲突",
+        message: "Project ID conflict detected",
         status: 409,
         conflict_project_name: "demo",
       });
@@ -603,7 +603,7 @@ describe("API", () => {
 
       await expect(
         API.importProject(new File(["zip"], "demo.zip", { type: "application/zip" }))
-      ).rejects.toThrow("认证已过期，请重新登录");
+      ).rejects.toThrow("Session expired, please log in again");
 
       expect(clearTokenMock).toHaveBeenCalledTimes(1);
       expect(location.href).toBe("/login");

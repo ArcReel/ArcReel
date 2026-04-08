@@ -59,7 +59,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const handleUpload = useCallback(
     async (file: File) => {
       await API.uploadFile(projectName, "source", file);
-      useAppStore.getState().pushToast(`源文件 "${file.name}" 上传成功`, "success");
+      useAppStore.getState().pushToast(`Source file "${file.name}" uploaded successfully`, "success");
     },
     [projectName],
   );
@@ -74,11 +74,11 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     try {
       await API.generateOverview(projectName);
       await refreshProject();
-      useAppStore.getState().pushToast("项目概述已重新生成", "success");
+      useAppStore.getState().pushToast("Project overview regenerated", "success");
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(`重新生成失败: ${(err as Error).message}`, "error");
+        .pushToast(`Regeneration failed: ${(err as Error).message}`, "error");
     } finally {
       setRegenerating(false);
     }
@@ -94,11 +94,11 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
       try {
         await API.uploadStyleImage(projectName, file);
         await refreshProject();
-        useAppStore.getState().pushToast("风格参考图已更新", "success");
+        useAppStore.getState().pushToast("Style reference image updated", "success");
       } catch (err) {
         useAppStore
           .getState()
-          .pushToast(`上传失败: ${(err as Error).message}`, "error");
+          .pushToast(`Upload failed: ${(err as Error).message}`, "error");
       } finally {
         setUploadingStyleImage(false);
       }
@@ -108,17 +108,17 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
 
   const handleDeleteStyleImage = useCallback(async () => {
     if (deletingStyleImage || !projectData?.style_image) return;
-    if (!confirm("确定删除当前风格参考图吗？")) return;
+    if (!confirm("Are you sure you want to delete the current style reference image?")) return;
 
     setDeletingStyleImage(true);
     try {
       await API.deleteStyleImage(projectName);
       await refreshProject();
-      useAppStore.getState().pushToast("风格参考图已删除", "success");
+      useAppStore.getState().pushToast("Style reference image deleted", "success");
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(`删除失败: ${(err as Error).message}`, "error");
+        .pushToast(`Deletion failed: ${(err as Error).message}`, "error");
     } finally {
       setDeletingStyleImage(false);
     }
@@ -130,11 +130,11 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     try {
       await API.updateStyleDescription(projectName, styleDescriptionDraft.trim());
       await refreshProject();
-      useAppStore.getState().pushToast("风格描述已保存", "success");
+      useAppStore.getState().pushToast("Style description saved", "success");
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(`保存失败: ${(err as Error).message}`, "error");
+        .pushToast(`Save failed: ${(err as Error).message}`, "error");
     } finally {
       setSavingStyleDescription(false);
     }
@@ -143,7 +143,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   if (!projectData) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
-        加载项目数据中...
+        Loading project data...
       </div>
     );
   }
@@ -161,24 +161,24 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     <section className="rounded-2xl border border-gray-800 bg-gray-900/90 p-4 sm:p-5">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
-          <h3 className="text-sm font-semibold text-gray-200">项目风格</h3>
+          <h3 className="text-sm font-semibold text-gray-200">Project Style</h3>
           <p className="max-w-2xl text-xs leading-5 text-gray-500">
-            参考图会参与后续画面生成；风格描述用于补充视觉规则，校准整体调性、材质和镜头气质。
+            The reference image is used in subsequent frame generation; the style description supplements visual rules to calibrate overall tone, texture, and cinematographic quality.
           </p>
         </div>
         <div className="inline-flex items-center rounded-full border border-gray-700 bg-gray-800 px-3 py-1 text-xs text-gray-300">
-          {projectData.style || "未设置风格标签"}
+          {projectData.style || "No style tag set"}
         </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
         <div className="space-y-3">
           {styleImageUrl ? (
-            <PreviewableImageFrame src={styleImageUrl} alt="项目风格参考图">
+            <PreviewableImageFrame src={styleImageUrl} alt="Project style reference image">
               <div className="overflow-hidden rounded-xl border border-gray-700 bg-gray-950/70">
                 <img
                   src={styleImageUrl}
-                  alt="项目风格参考图"
+                  alt="Project style reference image"
                   className="aspect-[4/3] w-full object-cover"
                 />
               </div>
@@ -191,8 +191,8 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
               className={`flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-gray-700 bg-gray-950/40 px-4 text-sm text-gray-500 transition-colors hover:border-gray-500 hover:text-gray-300 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
             >
               <Upload className="h-4 w-4" />
-              <span>{uploadingStyleImage ? "上传中..." : "上传风格参考图"}</span>
-              <span className="text-xs text-gray-600">支持 PNG / JPG / WEBP</span>
+              <span>{uploadingStyleImage ? "Uploading..." : "Upload style reference image"}</span>
+              <span className="text-xs text-gray-600">Supports PNG / JPG / WEBP</span>
             </button>
           )}
 

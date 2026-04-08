@@ -1,7 +1,7 @@
 """
-同步 Agent 对话端点测试
+Synchronous Agent Chat endpoint tests
 
-测试 POST /api/v1/agent/chat 端点的核心逻辑。
+Tests for the core logic of the POST /api/v1/agent/chat endpoint.
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -29,12 +29,12 @@ def _fake_session(session_id: str = "sess-1", project_name: str = "demo"):
 
 class TestAgentChatEndpoint:
     def _patch_service(
-        self, monkeypatch, *, project_exists=True, reply_text="你好", status="completed", session_id="sess-1"
+        self, monkeypatch, *, project_exists=True, reply_text="hello", status="completed", session_id="sess-1"
     ):
-        """构建 mock AssistantService 并注入。"""
+        """Build and inject a mock AssistantService."""
         mock_service = AsyncMock()
 
-        # 项目存在性检查
+        # Project existence check
         pm = MagicMock()
         if project_exists:
             pm.get_project_path = MagicMock(return_value="/fake/path")
@@ -42,10 +42,10 @@ class TestAgentChatEndpoint:
             pm.get_project_path = MagicMock(side_effect=FileNotFoundError("not found"))
         mock_service.pm = pm
 
-        # 会话查询（用于归属校验）
+        # Session lookup (for ownership validation)
         mock_service.get_session = AsyncMock(return_value=_fake_session(session_id=session_id))
 
-        # 统一发送端点
+        # Unified send endpoint
         mock_service.send_or_create = AsyncMock(return_value={"status": "accepted", "session_id": session_id})
 
         monkeypatch.setattr(agent_chat, "get_assistant_service", lambda: mock_service)
@@ -57,29 +57,29 @@ class TestAgentChatEndpoint:
         return mock_service
 
     def test_new_session_returns_reply(self, monkeypatch):
-        self._patch_service(monkeypatch, reply_text="已为你生成剧本")
+        self._patch_service(monkeypatch, reply_text="Script generated for you")
         with _make_client() as client:
             resp = client.post(
                 "/api/v1/agent/chat",
                 json={
                     "project_name": "demo",
-                    "message": "帮我写剧本",
+                    "message": "Write a script for me",
                 },
             )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["reply"] == "已为你生成剧本"
+        assert body["reply"] == "Script generated for you"
         assert body["status"] == "completed"
         assert "session_id" in body
 
     def test_reuse_existing_session(self, monkeypatch):
-        self._patch_service(monkeypatch, reply_text="继续对话")
+        self._patch_service(monkeypatch, reply_text="Continuing conversation")
         with _make_client() as client:
             resp = client.post(
                 "/api/v1/agent/chat",
                 json={
                     "project_name": "demo",
-                    "message": "继续",
+                    "message": "continue",
                     "session_id": "sess-1",
                 },
             )
@@ -99,39 +99,39 @@ class TestAgentChatEndpoint:
         assert resp.status_code == 404
 
     def test_timeout_status_propagated(self, monkeypatch):
-        self._patch_service(monkeypatch, reply_text="部分响应", status="timeout")
+        self._patch_service(monkeypatch, reply_text="Partial response", status="timeout")
         with _make_client() as client:
             resp = client.post(
                 "/api/v1/agent/chat",
                 json={
                     "project_name": "demo",
-                    "message": "长时间任务",
+                    "message": "long running task",
                 },
             )
         assert resp.status_code == 200
         assert resp.json()["status"] == "timeout"
-        assert resp.json()["reply"] == "部分响应"
+        assert resp.json()["reply"] == "Partial response"
 
 
 class TestExtractTextFromAssistantMessage:
     def test_list_content(self):
-        msg = {"type": "assistant", "content": [{"type": "text", "text": "你好"}]}
-        assert agent_chat._extract_text_from_assistant_message(msg) == "你好"
+        msg = {"type": "assistant", "content": [{"type": "text", "text": "hello"}]}
+        assert agent_chat._extract_text_from_assistant_message(msg) == "hello"
 
     def test_string_content(self):
-        msg = {"type": "assistant", "content": "直接文本"}
-        assert agent_chat._extract_text_from_assistant_message(msg) == "直接文本"
+        msg = {"type": "assistant", "content": "direct text"}
+        assert agent_chat._extract_text_from_assistant_message(msg) == "direct text"
 
     def test_multiple_text_blocks(self):
         msg = {
             "type": "assistant",
             "content": [
-                {"type": "text", "text": "第一段"},
+                {"type": "text", "text": "first part"},
                 {"type": "tool_use", "name": "Read"},
-                {"type": "text", "text": "第二段"},
+                {"type": "text", "text": "second part"},
             ],
         }
-        assert agent_chat._extract_text_from_assistant_message(msg) == "第一段第二段"
+        assert agent_chat._extract_text_from_assistant_message(msg) == "first partsecond part"
 
     def test_no_text_blocks(self):
         msg = {"type": "assistant", "content": [{"type": "tool_use", "name": "Read"}]}

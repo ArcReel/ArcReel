@@ -692,7 +692,7 @@ class API {
   }
 
   /**
-   * 删除草稿
+   * Delete a draft
    */
   static async deleteDraft(
     projectName: string,
@@ -705,10 +705,10 @@ class API {
     );
   }
 
-  // ==================== 项目概述管理 ====================
+  // ==================== Project Overview Management ====================
 
   /**
-   * 使用 AI 生成项目概述
+   * Generate project overview using AI
    */
   static async generateOverview(
     projectName: string
@@ -722,7 +722,7 @@ class API {
   }
 
   /**
-   * 更新项目概述（手动编辑）
+   * Update project overview (manual edit)
    */
   static async updateOverview(
     projectName: string,
@@ -737,14 +737,14 @@ class API {
     );
   }
 
-  // ==================== 生成 API ====================
+  // ==================== Generation API ====================
 
   /**
-   * 生成分镜图
-   * @param projectName - 项目名称
-   * @param segmentId - 片段/场景 ID
-   * @param prompt - 图片生成 prompt（支持字符串或结构化对象）
-   * @param scriptFile - 剧本文件名
+   * Generate storyboard image
+   * @param projectName - Project name
+   * @param segmentId - Segment/scene ID
+   * @param prompt - Image generation prompt (string or structured object)
+   * @param scriptFile - Script file name
    */
   static async generateStoryboard(
     projectName: string,
@@ -762,12 +762,12 @@ class API {
   }
 
   /**
-   * 生成视频
-   * @param projectName - 项目名称
-   * @param segmentId - 片段/场景 ID
-   * @param prompt - 视频生成 prompt（支持字符串或结构化对象）
-   * @param scriptFile - 剧本文件名
-   * @param durationSeconds - 时长（秒）
+   * Generate video
+   * @param projectName - Project name
+   * @param segmentId - Segment/scene ID
+   * @param prompt - Video generation prompt (string or structured object)
+   * @param scriptFile - Script file name
+   * @param durationSeconds - Duration in seconds
    */
   static async generateVideo(
     projectName: string,
@@ -790,10 +790,10 @@ class API {
   }
 
   /**
-   * 生成角色设计图
-   * @param projectName - 项目名称
-   * @param charName - 角色名称
-   * @param prompt - 角色描述 prompt
+   * Generate character design image
+   * @param projectName - Project name
+   * @param charName - Character name
+   * @param prompt - Character description prompt
    */
   static async generateCharacter(
     projectName: string,
@@ -814,10 +814,10 @@ class API {
   }
 
   /**
-   * 生成线索设计图
-   * @param projectName - 项目名称
-   * @param clueName - 线索名称
-   * @param prompt - 线索描述 prompt
+   * Generate clue design image
+   * @param projectName - Project name
+   * @param clueName - Clue name
+   * @param prompt - Clue description prompt
    */
   static async generateClue(
     projectName: string,
@@ -837,7 +837,7 @@ class API {
     );
   }
 
-  // ==================== 任务队列 API ====================
+  // ==================== Task Queue API ====================
 
   static async getTask(taskId: string): Promise<TaskItem> {
     return this.request(`/tasks/${encodeURIComponent(taskId)}`);
@@ -899,7 +899,7 @@ class API {
       try {
         return JSON.parse(event.data || "{}");
       } catch (err) {
-        console.error("解析 SSE 数据失败:", err, event.data);
+        console.error("Failed to parse SSE data:", err, event.data);
         return null;
       }
     };
@@ -943,7 +943,7 @@ class API {
       try {
         return JSON.parse(event.data || "{}");
       } catch (err) {
-        console.error("解析项目事件 SSE 数据失败:", err, event.data);
+        console.error("Failed to parse project event SSE data:", err, event.data);
         return null;
       }
     };
@@ -972,13 +972,13 @@ class API {
     return source;
   }
 
-  // ==================== 版本管理 API ====================
+  // ==================== Version Management API ====================
 
   /**
-   * 获取资源版本列表
-   * @param projectName - 项目名称
-   * @param resourceType - 资源类型 (storyboards, videos, characters, clues)
-   * @param resourceId - 资源 ID
+   * Get resource version list
+   * @param projectName - Project name
+   * @param resourceType - Resource type (storyboards, videos, characters, clues)
+   * @param resourceId - Resource ID
    */
   static async getVersions(
     projectName: string,
@@ -996,11 +996,11 @@ class API {
   }
 
   /**
-   * 还原到指定版本
-   * @param projectName - 项目名称
-   * @param resourceType - 资源类型
-   * @param resourceId - 资源 ID
-   * @param version - 要还原的版本号
+   * Restore to a specific version
+   * @param projectName - Project name
+   * @param resourceType - Resource type
+   * @param resourceId - Resource ID
+   * @param version - Version number to restore
    */
   static async restoreVersion(
     projectName: string,
@@ -1016,13 +1016,13 @@ class API {
     );
   }
 
-  // ==================== 风格参考图 API ====================
+  // ==================== Style Reference Image API ====================
 
   /**
-   * 上传风格参考图
-   * @param projectName - 项目名称
-   * @param file - 图片文件
-   * @returns 包含 style_image, style_description, url 的结果
+   * Upload style reference image
+   * @param projectName - Project name
+   * @param file - Image file
+   * @returns Result containing style_image, style_description, url
    */
   static async uploadStyleImage(
     projectName: string,
@@ -1050,8 +1050,8 @@ class API {
   }
 
   /**
-   * 删除风格参考图
-   * @param projectName - 项目名称
+   * Delete style reference image
+   * @param projectName - Project name
    */
   static async deleteStyleImage(
     projectName: string
@@ -1065,9 +1065,9 @@ class API {
   }
 
   /**
-   * 更新风格描述
-   * @param projectName - 项目名称
-   * @param styleDescription - 风格描述
+   * Update style description
+   * @param projectName - Project name
+   * @param styleDescription - Style description
    */
   static async updateStyleDescription(
     projectName: string,
@@ -1082,7 +1082,7 @@ class API {
     );
   }
 
-  // ==================== 助手会话 API ====================
+  // ==================== Assistant Session API ====================
 
   /** Build the project-scoped assistant base path. */
   private static assistantBase(projectName: string): string {
@@ -1186,11 +1186,11 @@ class API {
     );
   }
 
-  // ==================== 费用统计 API ====================
+  // ==================== Usage Statistics API ====================
 
   /**
-   * 获取统计摘要
-   * @param filters - 筛选条件
+   * Get usage summary stats
+   * @param filters - Filter conditions
    */
   static async getUsageStats(
     filters: UsageStatsFilters = {}
@@ -1205,8 +1205,8 @@ class API {
   }
 
   /**
-   * 获取调用记录列表
-   * @param filters - 筛选条件
+   * Get API call records list
+   * @param filters - Filter conditions
    */
   static async getUsageCalls(
     filters: UsageCallsFilters = {}
@@ -1225,20 +1225,20 @@ class API {
   }
 
   /**
-   * 获取有调用记录的项目列表
+   * Get list of projects with call records
    */
   static async getUsageProjects(): Promise<{ projects: string[] }> {
     return this.request("/usage/projects");
   }
 
-  // ==================== API Key 管理 API ====================
+  // ==================== API Key Management API ====================
 
-  /** 列出所有 API Key（不含完整 key）。 */
+  /** List all API Keys (without full key value). */
   static async listApiKeys(): Promise<ApiKeyInfo[]> {
     return this.request("/api-keys");
   }
 
-  /** 创建新 API Key，返回含完整 key 的响应（仅此一次）。 */
+  /** Create a new API Key, returns response with full key (one-time only). */
   static async createApiKey(name: string, expiresDays?: number): Promise<CreateApiKeyResponse> {
     return this.request("/api-keys", {
       method: "POST",
@@ -1246,24 +1246,24 @@ class API {
     });
   }
 
-  /** 删除（吊销）指定 API Key。 */
+  /** Delete (revoke) the specified API Key. */
   static async deleteApiKey(keyId: number): Promise<void> {
     return this.request(`/api-keys/${keyId}`, { method: "DELETE" });
   }
 
-  // ==================== Provider 管理 API ====================
+  // ==================== Provider Management API ====================
 
-  /** 获取所有 provider 列表及状态。 */
+  /** Get all providers list and status. */
   static async getProviders(): Promise<{ providers: ProviderInfo[] }> {
     return this.request("/providers");
   }
 
-  /** 获取指定 provider 的配置详情（含字段列表）。 */
+  /** Get configuration details for the specified provider (including field list). */
   static async getProviderConfig(id: string): Promise<ProviderConfigDetail> {
     return this.request(`/providers/${encodeURIComponent(id)}/config`);
   }
 
-  /** 更新指定 provider 的配置字段。 */
+  /** Update configuration fields for the specified provider. */
   static async patchProviderConfig(
     id: string,
     patch: Record<string, string | null>
@@ -1274,7 +1274,7 @@ class API {
     });
   }
 
-  /** 测试指定 provider 的连接。 */
+  /** Test connection for the specified provider. */
   static async testProviderConnection(id: string, credentialId?: number): Promise<ProviderTestResult> {
     const params = credentialId != null ? `?credential_id=${credentialId}` : "";
     return this.request(`/providers/${encodeURIComponent(id)}/test${params}`, {
@@ -1282,7 +1282,7 @@ class API {
     });
   }
 
-  // ==================== Provider 凭证管理 API ====================
+  // ==================== Provider Credential Management API ====================
 
   static async listCredentials(providerId: string): Promise<{ credentials: ProviderCredential[] }> {
     return this.request(`/providers/${encodeURIComponent(providerId)}/credentials`);
@@ -1330,11 +1330,11 @@ class API {
       `${API_BASE}/providers/gemini-vertex/credentials/upload?name=${encodeURIComponent(name)}`,
       withAuth({ method: "POST", body: formData }),
     );
-    await throwIfNotOk(response, "上传凭证失败");
+    await throwIfNotOk(response, "Failed to upload credential");
     return response.json();
   }
 
-  // ==================== 自定义供应商 API ====================
+  // ==================== Custom Provider API ====================
 
   static async listCustomProviders(): Promise<{ providers: CustomProviderInfo[] }> {
     return this.request("/custom-providers");
@@ -1376,11 +1376,11 @@ class API {
     return this.request(`/custom-providers/${id}/test`, { method: "POST" });
   }
 
-  // ==================== 用量统计（按 provider 分组）API ====================
+  // ==================== Usage Statistics (grouped by provider) API ====================
 
   /**
-   * 获取按 provider 分组的用量统计。
-   * @param params - 可选筛选：provider、start、end（ISO 日期字符串）
+   * Get usage statistics grouped by provider.
+   * @param params - Optional filters: provider, start, end (ISO date strings)
    */
   static async getUsageStatsGrouped(
     params: { provider?: string; start?: string; end?: string } = {}
@@ -1393,11 +1393,11 @@ class API {
     return this.request(`/usage/stats?${searchParams.toString()}`);
   }
 
-  // ==================== 费用估算 API ====================
+  // ==================== Cost Estimation API ====================
 
   /**
-   * 获取项目费用估算。
-   * @param projectName - 项目名称
+   * Get project cost estimate.
+   * @param projectName - Project name
    */
   static async getCostEstimate(projectName: string): Promise<CostEstimateResponse> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/cost-estimate`);

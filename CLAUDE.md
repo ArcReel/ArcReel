@@ -2,141 +2,141 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 语言规范
-- **回答用户必须使用中文**：所有回复、任务清单及计划文件，均须使用中文
+## Language Policy
+- **All responses to users must be in English**: all replies, task lists, and planning documents must use English.
 
-## 项目概述
+## Project Overview
 
-ArcReel 是一个 AI 视频生成平台，将小说转化为短视频。三层架构：
+ArcReel is an AI video generation platform that converts novels into short videos. Three-layer architecture:
 
 ```
-frontend/ (React SPA)  →  server/ (FastAPI)  →  lib/ (核心库)
-  React 19 + Tailwind       路由分发 + SSE        Gemini API
-  wouter 路由               agent_runtime/        GenerationQueue
-  zustand 状态管理          (Claude Agent SDK)     ProjectManager
+frontend/ (React SPA)  →  server/ (FastAPI)  →  lib/ (core library)
+  React 19 + Tailwind       routing + SSE          Gemini API
+  wouter routing            agent_runtime/         GenerationQueue
+  zustand state mgmt        (Claude Agent SDK)     ProjectManager
 ```
 
-## 开发命令
+## Development Commands
 
 ```bash
-# 后端
-uv run python -m pytest                              # 测试（-v 单文件 / -k 关键字 / --cov 覆盖率）
+# Backend
+uv run python -m pytest                              # tests (-v single file / -k keyword / --cov coverage)
 uv run ruff check . && uv run ruff format .          # lint + format
-uv sync                                              # 安装依赖
-uv run alembic upgrade head                          # 数据库迁移
-uv run alembic revision --autogenerate -m "desc"     # 生成迁移
+uv sync                                              # install dependencies
+uv run alembic upgrade head                          # database migration
+uv run alembic revision --autogenerate -m "desc"     # generate migration
 
-# 前端（cd frontend &&）
-pnpm build       # 生产构建 (含 typecheck)
+# Frontend (cd frontend &&)
+pnpm build       # production build (includes typecheck)
 pnpm check       # typecheck + test
 ```
 
-## 架构要点
+## Architecture Notes
 
-### 后端 API 路由
+### Backend API Routes
 
-所有 API 在 `/api/v1` 下，路由定义在 `server/routers/`：
-- `projects.py` — 项目 CRUD、概述生成
-- `generate.py` — 分镜/视频/角色/线索生成（入队到任务队列）
-- `assistant.py` — Claude Agent SDK 会话管理（SSE 流式）
-- `agent_chat.py` — 智能体对话交互
-- `tasks.py` — 任务队列状态（SSE 流式）
-- `project_events.py` — 项目事件 SSE 推送
-- `files.py` — 文件上传与静态资源
-- `versions.py` — 资源版本历史与回滚
-- `characters.py` / `clues.py` — 角色/线索管理
-- `usage.py` — API 用量统计
-- `cost_estimation.py` — 费用预估（项目/单集/单镜头）
-- `auth.py` / `api_keys.py` — 认证与 API 密钥管理
-- `system_config.py` — 系统配置
-- `providers.py` — 预置供应商配置管理（列表、读写、连接测试）
-- `custom_providers.py` — 自定义供应商 CRUD、模型管理与发现、连接测试
+All APIs are under `/api/v1`, routes defined in `server/routers/`:
+- `projects.py` — project CRUD, overview generation
+- `generate.py` — storyboard/video/character/clue generation (enqueued to task queue)
+- `assistant.py` — Claude Agent SDK session management (SSE streaming)
+- `agent_chat.py` — agent conversation interaction
+- `tasks.py` — task queue status (SSE streaming)
+- `project_events.py` — project event SSE push
+- `files.py` — file upload and static assets
+- `versions.py` — asset version history and rollback
+- `characters.py` / `clues.py` — character/clue management
+- `usage.py` — API usage statistics
+- `cost_estimation.py` — cost estimation (project/episode/scene)
+- `auth.py` / `api_keys.py` — authentication and API key management
+- `system_config.py` — system configuration
+- `providers.py` — preset provider configuration management (list, read/write, connection test)
+- `custom_providers.py` — custom provider CRUD, model management and discovery, connection test
 
-### server/services/ — 业务服务层
+### server/services/ — Business Service Layer
 
-- `generation_tasks.py` — 分镜/视频/角色/线索生成任务编排
-- `project_archive.py` — 项目导出（ZIP 打包）
-- `project_events.py` — 项目变更事件发布
-- `jianying_draft_service.py` — 剪映草稿导出
-- `cost_estimation.py` — 费用预估计算与实际费用汇总
+- `generation_tasks.py` — storyboard/video/character/clue generation task orchestration
+- `project_archive.py` — project export (ZIP packaging)
+- `project_events.py` — project change event publishing
+- `jianying_draft_service.py` — CapCut draft export
+- `cost_estimation.py` — cost estimation calculation and actual cost aggregation
 
-### lib/ 核心模块
+### lib/ Core Modules
 
-- **{gemini,ark,grok,openai}_shared** — 各供应商 SDK 工厂与共享工具
-- **image_backends/** / **video_backends/** / **text_backends/** — 多供应商媒体生成后端，Registry + Factory 模式（gemini/ark/grok/openai）
-- **custom_provider/** — 自定义供应商支持：后端包装、模型发现、工厂创建（OpenAI/Google 兼容）
-- **MediaGenerator** (`media_generator.py`) — 组合后端 + VersionManager + UsageTracker
-- **GenerationQueue** (`generation_queue.py`) — 异步任务队列，SQLAlchemy ORM 后端，lease-based 并发控制
-- **GenerationWorker** (`generation_worker.py`) — 后台 Worker，分 image/video 两条并发通道
-- **ProjectManager** (`project_manager.py`) — 项目文件系统操作和数据管理
-- **StatusCalculator** (`status_calculator.py`) — 读时计算状态字段，不存储冗余状态
-- **UsageTracker** (`usage_tracker.py`) — API 用量追踪
-- **CostCalculator** (`cost_calculator.py`) — 费用计算
-- **TextGenerator** (`text_generator.py`) — 文本生成任务
-- **retry** (`retry.py`) — 通用指数退避重试装饰器，各供应商后端复用
+- **{gemini,ark,grok,openai}_shared** — per-provider SDK factories and shared utilities
+- **image_backends/** / **video_backends/** / **text_backends/** — multi-provider media generation backends, Registry + Factory pattern (gemini/ark/grok/openai)
+- **custom_provider/** — custom provider support: backend wrapper, model discovery, factory creation (OpenAI/Google compatible)
+- **MediaGenerator** (`media_generator.py`) — combines backend + VersionManager + UsageTracker
+- **GenerationQueue** (`generation_queue.py`) — async task queue, SQLAlchemy ORM backend, lease-based concurrency control
+- **GenerationWorker** (`generation_worker.py`) — background worker, separate image/video concurrency channels
+- **ProjectManager** (`project_manager.py`) — project filesystem operations and data management
+- **StatusCalculator** (`status_calculator.py`) — computes status fields on read, does not store redundant state
+- **UsageTracker** (`usage_tracker.py`) — API usage tracking
+- **CostCalculator** (`cost_calculator.py`) — cost calculation
+- **TextGenerator** (`text_generator.py`) — text generation tasks
+- **retry** (`retry.py`) — generic exponential backoff retry decorator, reused across provider backends
 
-### lib/config/ — 供应商配置系统
+### lib/config/ — Provider Configuration System
 
-ConfigService（`service.py`）→ Repository（持久化 + 密钥脱敏）→ Resolver（解析）。`registry.py` 维护预置供应商注册表（PROVIDER_REGISTRY）。
+ConfigService (`service.py`) → Repository (persistence + key masking) → Resolver (resolution). `registry.py` maintains the preset provider registry (PROVIDER_REGISTRY).
 
-### lib/db/ — SQLAlchemy Async ORM 层
+### lib/db/ — SQLAlchemy Async ORM Layer
 
-- `engine.py` — 异步引擎 + session factory（`DATABASE_URL` 默认 `sqlite+aiosqlite`）
-- `models/` — ORM 模型：Task / ApiCall / ApiKey / AgentSession / Config / Credential / User / CustomProvider / CustomProviderModel
-- `repositories/` — 异步 Repository：Task / Usage / Session / ApiKey / Credential / CustomProvider
+- `engine.py` — async engine + session factory (`DATABASE_URL` defaults to `sqlite+aiosqlite`)
+- `models/` — ORM models: Task / ApiCall / ApiKey / AgentSession / Config / Credential / User / CustomProvider / CustomProviderModel
+- `repositories/` — async repositories: Task / Usage / Session / ApiKey / Credential / CustomProvider
 
-数据库文件：`projects/.arcreel.db`（开发 SQLite）
+Database file: `projects/.arcreel.db` (development SQLite)
 
-### Agent Runtime（Claude Agent SDK 集成）
+### Agent Runtime (Claude Agent SDK Integration)
 
-`server/agent_runtime/` 封装 Claude Agent SDK：
-- `AssistantService` (`service.py`) — 编排 Claude SDK 会话
-- `SessionManager` — 会话生命周期 + SSE 订阅者模式
-- `StreamProjector` — 从流式事件构建实时助手回复
+`server/agent_runtime/` wraps the Claude Agent SDK:
+- `AssistantService` (`service.py`) — orchestrates Claude SDK sessions
+- `SessionManager` — session lifecycle + SSE subscriber pattern
+- `StreamProjector` — builds real-time assistant replies from streaming events
 
-### 前端
+### Frontend
 
 - React 19 + TypeScript + Tailwind CSS 4
-- 路由：`wouter`（非 React Router）
-- 状态管理：`zustand`（stores 在 `frontend/src/stores/`）
-- 路径别名：`@/` → `frontend/src/`
-- Vite 代理：`/api` → `http://127.0.0.1:1241`
+- Routing: `wouter` (not React Router)
+- State management: `zustand` (stores in `frontend/src/stores/`)
+- Path alias: `@/` → `frontend/src/`
+- Vite proxy: `/api` → `http://127.0.0.1:1241`
 
-## 关键设计模式
+## Key Design Patterns
 
-### 数据分层
+### Data Layering
 
-| 数据类型 | 存储位置 | 策略 |
+| Data Type | Storage Location | Strategy |
 |---------|---------|------|
-| 角色/线索定义 | `project.json` | 单一真相源，剧本中仅引用名称 |
-| 剧集元数据（episode/title/script_file） | `project.json` | 剧本保存时写时同步 |
-| 统计字段（scenes_count / status / progress） | 不存储 | `StatusCalculator` 读时计算注入 |
+| Character/clue definitions | `project.json` | Single source of truth; scripts only reference names |
+| Episode metadata (episode/title/script_file) | `project.json` | Written synchronously when script is saved |
+| Stat fields (scenes_count / status / progress) | Not stored | `StatusCalculator` computes and injects on read |
 
-### 实时通信
+### Real-time Communication
 
-- 助手：`/api/v1/assistant/sessions/{id}/stream` — SSE 流式回复
-- 项目事件：`/api/v1/projects/{name}/events/stream` — SSE 推送项目变更
-- 任务队列：前端轮询 `/api/v1/tasks` 获取状态
+- Assistant: `/api/v1/assistant/sessions/{id}/stream` — SSE streaming replies
+- Project events: `/api/v1/projects/{name}/events/stream` — SSE push for project changes
+- Task queue: frontend polls `/api/v1/tasks` for status
 
-### 任务队列
+### Task Queue
 
-所有生成任务（分镜/视频/角色/线索）统一通过 GenerationQueue 入队，由 GenerationWorker 异步处理。
-`generation_queue_client.py` 的 `enqueue_and_wait()` 封装入队 + 等待完成。
+All generation tasks (storyboard/video/character/clue) are uniformly enqueued via GenerationQueue and processed asynchronously by GenerationWorker.
+`generation_queue_client.py`'s `enqueue_and_wait()` wraps enqueue + wait for completion.
 
-### Pydantic 数据模型
+### Pydantic Data Models
 
-`lib/script_models.py` 定义 `NarrationSegment` 和 `DramaScene`，用于剧本验证。
-`lib/data_validator.py` 验证 `project.json` 和剧集 JSON 的结构与引用完整性。
+`lib/script_models.py` defines `NarrationSegment` and `DramaScene` for script validation.
+`lib/data_validator.py` validates the structure and reference integrity of `project.json` and episode JSON files.
 
-## 智能体运行环境
+## Agent Runtime Environment
 
-智能体专用配置（skills、agents、系统 prompt）位于 `agent_runtime_profile/` 目录，
-与开发态 `.claude/` 物理分离。
+Agent-specific configuration (skills, agents, system prompt) lives in `agent_runtime_profile/`,
+physically separated from the development-time `.claude/` directory.
 
-### Skill 维护
+### Skill Maintenance
 
 ```bash
-# 触发率评估（需要 anthropic SDK：uv pip install anthropic）
+# Trigger rate evaluation (requires anthropic SDK: uv pip install anthropic)
 PYTHONPATH=~/.claude/plugins/cache/claude-plugins-official/skill-creator/*/skills/skill-creator:$PYTHONPATH \
   uv run python -m scripts.run_eval \
   --eval-set <eval-set.json> \
@@ -146,24 +146,24 @@ PYTHONPATH=~/.claude/plugins/cache/claude-plugins-official/skill-creator/*/skill
 
 #### Gotchas
 
-- **SKILL.md 与脚本同步**：修改 skill 脚本时需同步更新 SKILL.md，反之亦然，二者必须保持一致
+- **SKILL.md and script must stay in sync**: when modifying a skill script, update SKILL.md accordingly, and vice versa — the two must always be consistent.
 
-## 环境配置
+## Environment Setup
 
-复制 `.env.example` 到 `.env`，设置认证参数（`AUTH_USERNAME`/`AUTH_PASSWORD`/`AUTH_TOKEN_SECRET`）。
-API Key、后端选择、模型配置等通过 WebUI 配置页（`/settings`）管理。
-外部工具依赖：`ffmpeg`（视频拼接与后期处理）。
+Copy `.env.example` to `.env` and set authentication parameters (`AUTH_USERNAME`/`AUTH_PASSWORD`/`AUTH_TOKEN_SECRET`).
+API keys, backend selection, model configuration, etc. are managed via the WebUI settings page (`/settings`).
+External tool dependency: `ffmpeg` (video concatenation and post-processing).
 
-### 代码质量
+### Code Quality
 
-**ruff**（lint + format）：
-- 规则集：`E`/`F`/`I`/`UP`，忽略 `E402`（既有模式）和 `E501`（由 formatter 管理）
-- line-length：120
-- 排除 `.worktrees`、`.claude/worktrees` 目录
-- CI 中强制检查：`ruff check . && ruff format --check .`
+**ruff** (lint + format):
+- Rule sets: `E`/`F`/`I`/`UP`, ignoring `E402` (existing pattern) and `E501` (managed by formatter)
+- line-length: 120
+- Excludes `.worktrees` and `.claude/worktrees` directories
+- Enforced in CI: `ruff check . && ruff format --check .`
 
-**pytest**：
-- `asyncio_mode = "auto"`（无需手动标记 async 测试）
-- 测试覆盖范围：`lib/` 和 `server/`，CI 要求 ≥80%
-- 共用 fixtures 在 `tests/conftest.py`，工厂在 `tests/factories.py`，fakes 在 `tests/fakes.py`
-- test 依赖在 `[dependency-groups] dev` 中，`uv sync` 默认安装，生产镜像通过 `--no-dev` 排除
+**pytest**:
+- `asyncio_mode = "auto"` (no need to manually mark async tests)
+- Coverage scope: `lib/` and `server/`, CI requires ≥80%
+- Shared fixtures in `tests/conftest.py`, factories in `tests/factories.py`, fakes in `tests/fakes.py`
+- Test dependencies in `[dependency-groups] dev`; installed by default with `uv sync`; excluded in production images via `--no-dev`

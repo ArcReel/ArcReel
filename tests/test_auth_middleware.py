@@ -1,7 +1,7 @@
 """
-认证依赖注入集成测试
+Authentication dependency injection integration tests
 
-测试替换中间件后，各路径的认证行为是否正确。
+Tests that verify the correct authentication behavior on various paths after middleware replacement.
 """
 
 import os
@@ -15,7 +15,7 @@ import server.auth as auth_module
 
 @pytest.fixture(autouse=True)
 def _auth_env():
-    """为所有测试设置固定的认证环境变量，测试结束后清理缓存。"""
+    """Set fixed authentication environment variables for all tests, clean up cache after each test."""
     auth_module._cached_token_secret = None
     auth_module._cached_password_hash = None
     with patch.dict(
@@ -33,7 +33,7 @@ def _auth_env():
 
 @pytest.fixture()
 def client():
-    """创建使用真实 app 的测试客户端。"""
+    """Create a test client using the real app."""
     from server.app import app
 
     with TestClient(app, raise_server_exceptions=False) as c:
@@ -41,7 +41,7 @@ def client():
 
 
 def _login(client: TestClient) -> str:
-    """辅助函数：登录并返回 access_token。"""
+    """Helper function: log in and return access_token."""
     resp = client.post(
         "/api/v1/auth/token",
         data={"username": "testuser", "password": "testpass"},

@@ -23,7 +23,7 @@ class _FakeService:
         if project_name == "missing":
             raise FileNotFoundError(project_name)
         if not content.strip() and not images:
-            raise ValueError("空消息")
+            raise ValueError("Empty message")
         returned_id = session_id or "sdk-new-session"
         return {"status": "accepted", "session_id": returned_id}
 
@@ -180,7 +180,7 @@ class TestAssistantRouterFull:
             assert skills_missing.status_code == 404
 
     def test_send_with_timeout_error(self, monkeypatch):
-        """TimeoutError 应返回 504。"""
+        """TimeoutError should return 504."""
         fake = _FakeService()
 
         async def _timeout_send_or_create(project_name, content, session_id=None, images=None):

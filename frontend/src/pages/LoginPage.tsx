@@ -28,14 +28,14 @@ export function LoginPage() {
 
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
-        throw new Error(data.detail || "登录失败");
+        throw new Error(data.detail || "Login failed");
       }
 
       const data = await resp.json();
       login(data.access_token, username);
       setLocation("/app/projects");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "登录失败");
+      setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
     }
@@ -51,7 +51,7 @@ export function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm text-gray-400">用户名</label>
+            <label className="mb-1 block text-sm text-gray-400">Username</label>
             <input
               type="text"
               value={username}
@@ -63,7 +63,7 @@ export function LoginPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-gray-400">密码</label>
+            <label className="mb-1 block text-sm text-gray-400">Password</label>
             <input
               type="password"
               value={password}
@@ -82,7 +82,7 @@ export function LoginPage() {
             disabled={loading}
             className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
           >
-            {loading ? "登录中..." : "登录"}
+            {loading ? "Logging in..." : "Log in"}
           </button>
         </form>
       </div>

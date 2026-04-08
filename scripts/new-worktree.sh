@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# new-worktree.sh — 创建隔离 git worktree 并同步本地环境文件
+# new-worktree.sh — Create an isolated git worktree and sync local environment files
 #
 # Usage: scripts/new-worktree.sh <branch-name> [base-ref]
-#   branch-name: 新 worktree 的本地分支名（也用作目录名）
-#   base-ref:    可选，基于哪个 ref 创建（如 origin/feature/xxx），默认 HEAD
+#   branch-name: local branch name for the new worktree (also used as directory name)
+#   base-ref:    optional, which ref to base on (e.g. origin/feature/xxx), defaults to HEAD
 
 set -euo pipefail
 
 if [ $# -lt 1 ]; then
   echo "Usage: $0 <branch-name> [base-ref]"
-  echo "  branch-name: worktree 目录名及本地分支名"
-  echo "  base-ref:    基于哪个 ref 创建（默认 HEAD）"
+  echo "  branch-name: worktree directory name and local branch name"
+  echo "  base-ref:    which ref to base on (default: HEAD)"
   exit 1
 fi
 
@@ -19,9 +19,9 @@ BASE_REF="${2:-HEAD}"
 ROOT=$(git rev-parse --show-toplevel)
 TARGET="$ROOT/.worktrees/$BRANCH_NAME"
 
-# --- 创建 worktree ---
+# --- Create worktree ---
 if [ -d "$TARGET" ]; then
-  echo "✗ 目录已存在: $TARGET"
+  echo "ERROR: Directory already exists: $TARGET"
   exit 1
 fi
 
@@ -30,64 +30,64 @@ if [ "$BASE_REF" = "HEAD" ]; then
 else
   git worktree add "$TARGET" --track -b "$BRANCH_NAME" "$BASE_REF"
 fi
-echo "✓ 已创建 worktree: $TARGET"
+echo "Created worktree: $TARGET"
 
-# --- 同步本地环境文件 ---
+# --- Sync local environment files ---
 echo ""
-echo "同步本地环境文件..."
+echo "Syncing local environment files..."
 
 # .claude/settings.local.json
 if [ -f "$ROOT/.claude/settings.local.json" ]; then
   mkdir -p "$TARGET/.claude"
   cp "$ROOT/.claude/settings.local.json" "$TARGET/.claude/settings.local.json"
-  echo "  ✓ .claude/settings.local.json"
+  echo "  .claude/settings.local.json"
 else
-  echo "  - .claude/settings.local.json 不存在，已跳过"
+  echo "  - .claude/settings.local.json does not exist, skipped"
 fi
 
 # .env
 if [ -f "$ROOT/.env" ]; then
   cp "$ROOT/.env" "$TARGET/.env"
-  echo "  ✓ .env"
+  echo "  .env"
 else
-  echo "  - .env 不存在，已跳过"
+  echo "  - .env does not exist, skipped"
 fi
 
-# projects/ — 符号链接共享数据
+# projects/ — symlink to share data
 if [ -d "$ROOT/projects" ]; then
   rm -rf "$TARGET/projects"
   ln -s "$ROOT/projects" "$TARGET/projects"
   git -C "$TARGET" ls-files projects/ | xargs -r git -C "$TARGET" update-index --skip-worktree
-  echo "  ✓ projects/ → $ROOT/projects (符号链接)"
+  echo "  projects/ -> $ROOT/projects (symlink)"
 else
-  echo "  - projects/ 不存在，已跳过"
+  echo "  - projects/ does not exist, skipped"
 fi
 
 # .vscode/
 if [ -d "$ROOT/.vscode" ]; then
   cp -r "$ROOT/.vscode" "$TARGET/.vscode"
-  echo "  ✓ .vscode/"
+  echo "  .vscode/"
 else
-  echo "  - .vscode/ 不存在，已跳过"
+  echo "  - .vscode/ does not exist, skipped"
 fi
 
-# --- 安装依赖 ---
+# --- Install dependencies ---
 echo ""
-echo "安装项目依赖..."
+echo "Installing project dependencies..."
 
 if [ -f "$TARGET/pyproject.toml" ]; then
   (cd "$TARGET" && uv sync)
-  echo "  ✓ Python 依赖 (uv sync)"
+  echo "  Python dependencies (uv sync)"
 fi
 
 if [ -f "$TARGET/frontend/package.json" ]; then
   (cd "$TARGET/frontend" && pnpm install)
-  echo "  ✓ 前端依赖 (pnpm install)"
+  echo "  Frontend dependencies (pnpm install)"
 fi
 
-# --- 完成 ---
+# --- Done ---
 echo ""
 echo "========================================="
-echo "Worktree 已就绪: $TARGET"
-echo "分支: $BRANCH_NAME"
+echo "Worktree ready: $TARGET"
+echo "Branch: $BRANCH_NAME"
 echo "========================================="
