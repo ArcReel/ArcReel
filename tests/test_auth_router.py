@@ -1,7 +1,7 @@
 """
-登录 API 路由测试
+Login API router tests
 
-测试 server.routers.auth 中的登录和 token 验证路由。
+Tests for login and token verification routes in server.routers.auth.
 """
 
 import os

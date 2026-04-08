@@ -154,23 +154,23 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         models={
             # --- text ---
             "doubao-seed-2-0-pro-260215": ModelInfo(
-                display_name="豆包 Seed 2.0 Pro",
+                display_name="Doubao Seed 2.0 Pro",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
             ),
             "doubao-seed-2-0-lite-260215": ModelInfo(
-                display_name="豆包 Seed 2.0 Lite",
+                display_name="Doubao Seed 2.0 Lite",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
                 default=True,
             ),
             "doubao-seed-2-0-mini-260215": ModelInfo(
-                display_name="豆包 Seed 2.0 Mini",
+                display_name="Doubao Seed 2.0 Mini",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
             ),
             "doubao-seed-1-8-251228": ModelInfo(
-                display_name="豆包 Seed 1.8",
+                display_name="Doubao Seed 1.8",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
             ),

@@ -52,13 +52,13 @@ def _login(client: TestClient) -> str:
 
 class TestAuthIntegration:
     def test_health_no_auth(self, client):
-        """GET /health 不需要认证，返回 200"""
+        """GET /health does not require authentication, returns 200"""
         resp = client.get("/health")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
     def test_login_no_auth(self, client):
-        """POST /api/v1/auth/token 不需要认证"""
+        """POST /api/v1/auth/token does not require authentication"""
         resp = client.post(
             "/api/v1/auth/token",
             data={"username": "testuser", "password": "testpass"},
@@ -67,12 +67,12 @@ class TestAuthIntegration:
         assert "access_token" in resp.json()
 
     def test_api_without_token(self, client):
-        """GET /api/v1/projects 缺少 token 返回 401"""
+        """GET /api/v1/projects without token returns 401"""
         resp = client.get("/api/v1/projects")
         assert resp.status_code == 401
 
     def test_api_with_valid_token(self, client):
-        """先登录获取 token，再带 token 访问 API，不应返回 401"""
+        """Login to get token, then access API with token, should not return 401"""
         token = _login(client)
         resp = client.get(
             "/api/v1/projects",
@@ -81,7 +81,7 @@ class TestAuthIntegration:
         assert resp.status_code != 401
 
     def test_api_with_invalid_token(self, client):
-        """带无效 token 访问返回 401"""
+        """Access with invalid token returns 401"""
         resp = client.get(
             "/api/v1/projects",
             headers={"Authorization": "Bearer invalid-token-value"},
@@ -89,11 +89,11 @@ class TestAuthIntegration:
         assert resp.status_code == 401
 
     def test_docs_page_accessible(self, client):
-        """/docs Swagger UI 应可访问"""
+        """/docs Swagger UI should be accessible"""
         resp = client.get("/docs")
         assert resp.status_code == 200
 
     def test_frontend_path_no_auth(self, client):
-        """前端路径（非 /api/ 开头）不需要认证"""
+        """Frontend paths (not starting with /api/) do not require authentication"""
         resp = client.get("/app/projects")
         assert resp.status_code != 401

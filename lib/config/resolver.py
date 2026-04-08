@@ -1,7 +1,7 @@
-"""统一运行时配置解析器。
+"""Unified runtime configuration resolver.
 
-将散落在多个文件中的配置读取和默认值定义集中到一处。
-每次调用从 DB 读取，不缓存（本地 SQLite 开销可忽略）。
+Centralises config reads and default value definitions scattered across multiple files.
+Reads from DB on each call, no caching (local SQLite overhead is negligible).
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ _project_manager: ProjectManager | None = None
 
 
 def get_project_manager() -> ProjectManager:
-    """返回共享的 ProjectManager 单例（使用标准项目根目录）。"""
+    """Return the shared ProjectManager singleton (using the standard project root directory)."""
     global _project_manager
     if _project_manager is None:
         _project_manager = ProjectManager(PROJECT_ROOT / "projects")

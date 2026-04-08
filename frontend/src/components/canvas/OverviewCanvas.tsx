@@ -197,11 +197,11 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
           )}
 
           <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-3">
-            <p className="text-xs font-medium text-gray-400">使用说明</p>
+            <p className="text-xs font-medium text-gray-400">Usage Instructions</p>
             <p className="mt-1 text-sm leading-6 text-gray-300">
               {styleImageUrl
-                ? "当前参考图会作为统一视觉基线，用于角色图、分镜图和视频生成。"
-                : "还没有绑定项目级参考图，可以先上传一张目标风格样片作为统一基线。"}
+                ? "The current reference image serves as a unified visual baseline for character images, storyboard images, and video generation."
+                : "No project-level reference image is bound yet. You can upload a target style sample as a unified baseline."}
             </p>
 
             <div className="mt-3 flex flex-wrap gap-2">
@@ -212,7 +212,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                 className={`inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
               >
                 <ImagePlus className="h-4 w-4" />
-                {styleImageUrl ? "替换参考图" : "上传参考图"}
+                {styleImageUrl ? "Replace reference image" : "Upload reference image"}
               </button>
               {styleImageUrl && (
                 <button
@@ -222,7 +222,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                   className={`inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-2 text-sm text-red-300 transition-colors hover:border-red-400/50 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
                 >
                   <Trash2 className="h-4 w-4" />
-                  {deletingStyleImage ? "删除中..." : "删除参考图"}
+                  {deletingStyleImage ? "Deleting..." : "Delete reference image"}
                 </button>
               )}
             </div>
@@ -234,7 +234,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             accept=".png,.jpg,.jpeg,.webp"
             onChange={handleStyleImageChange}
             className="hidden"
-            aria-label="上传风格参考图"
+            aria-label="Upload style reference image"
           />
         </div>
 
