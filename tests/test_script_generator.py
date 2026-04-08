@@ -149,16 +149,16 @@ class TestScriptGenerator:
         _write_json(
             project_path / "project.json",
             {
-                "title": "项目",
+                "title": "Project",
                 "content_mode": "narration",
                 "overview": {},
-                "characters": {"姜月茴": {}},
-                "clues": {"玉佩": {}},
-                "style": "古风",
+                "characters": {"Character A": {}},
+                "clues": {"jade-pendant": {}},
+                "style": "historical",
                 "style_description": "cinematic",
             },
         )
-        _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "E1S01 | 片段")
+        _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "E1S01 | segment")
 
         fake = _FakeTextGenerator(json.dumps(_valid_narration_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
