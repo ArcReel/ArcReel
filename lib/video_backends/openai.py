@@ -9,7 +9,7 @@ from pathlib import Path
 
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
-from lib.retry import with_retry_async
+from lib.retry import _should_retry, with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
     VideoCapability,
@@ -59,7 +59,6 @@ class OpenAIVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
-    @with_retry_async(retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         kwargs: dict = {
             "prompt": request.prompt,
@@ -73,7 +72,7 @@ class OpenAIVideoBackend:
 
         logger.info("OpenAI 视频生成开始: model=%s, seconds=%s", self._model, kwargs["seconds"])
 
-        video = await self._client.videos.create_and_poll(**kwargs)
+        video = await self._create_video(**kwargs)
 
         if video.status == "failed":
             raise RuntimeError(f"Sora 视频生成失败: {video.error}")
@@ -92,6 +91,11 @@ class OpenAIVideoBackend:
             task_id=video.id,
         )
 
+    @with_retry_async(retryable_errors=OPENAI_RETRYABLE_ERRORS)
+    async def _create_video(self, **kwargs):
+        """视频生成（create_and_poll），带独立重试。"""
+        return await self._client.videos.create_and_poll(**kwargs)
+
     async def _download_content_with_retry(
         self, video_id: str, *, max_attempts: int = 5, backoff: tuple[int, ...] = (4, 8, 15, 30)
     ):
@@ -100,6 +104,8 @@ class OpenAIVideoBackend:
             try:
                 return await self._client.videos.download_content(video_id)
             except Exception as e:
+                if not _should_retry(e, OPENAI_RETRYABLE_ERRORS):
+                    raise
                 if attempt < max_attempts - 1:
                     wait = backoff[min(attempt, len(backoff) - 1)] + random.uniform(0, 2)
                     logger.warning(
@@ -112,6 +118,7 @@ class OpenAIVideoBackend:
                     await asyncio.sleep(wait)
                 else:
                     raise
+        raise RuntimeError(f"_download_content_with_retry: max_attempts={max_attempts}，未执行任何尝试")
 
 
 def _map_duration(seconds: int) -> str:

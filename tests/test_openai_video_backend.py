@@ -241,7 +241,7 @@ class TestOpenAIVideoBackend:
         assert mock_client.videos.download_content.call_count == 3
 
     async def test_content_download_all_retries_exhausted(self, tmp_path: Path):
-        """内容下载全部重试耗尽后应抛出异常。"""
+        """内容下载全部重试耗尽后应抛出异常，且不重新生成视频。"""
         error = InternalServerError(
             message="Failed to resolve Vertex video URL",
             response=MagicMock(status_code=502, headers={}),
@@ -266,3 +266,40 @@ class TestOpenAIVideoBackend:
             )
             with pytest.raises(InternalServerError):
                 await backend.generate(request)
+
+        # 即使下载重试耗尽，也只生成 1 次视频
+        assert mock_client.videos.create_and_poll.call_count == 1
+
+    async def test_content_download_non_retryable_error_fails_immediately(self, tmp_path: Path):
+        """不可重试的下载错误（如 4xx）应立即失败，不浪费退避时间。"""
+        from openai import AuthenticationError
+
+        error = AuthenticationError(
+            message="Invalid API key",
+            response=MagicMock(status_code=401, headers={}),
+            body=None,
+        )
+        mock_client = AsyncMock()
+        mock_client.videos.create_and_poll = AsyncMock(return_value=_make_mock_video(seconds="8"))
+        mock_client.videos.download_content = AsyncMock(side_effect=error)
+        mock_sleep = AsyncMock()
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("lib.video_backends.openai.asyncio.sleep", mock_sleep),
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="test",
+                output_path=output_path,
+                duration_seconds=8,
+            )
+            with pytest.raises(AuthenticationError):
+                await backend.generate(request)
+
+        # 不可重试错误：只调用 1 次下载，无 sleep
+        assert mock_client.videos.download_content.call_count == 1
+        mock_sleep.assert_not_called()
