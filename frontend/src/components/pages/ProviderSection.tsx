@@ -14,9 +14,9 @@ import { CustomProviderForm } from "./settings/CustomProviderForm";
 // ---------------------------------------------------------------------------
 
 const STATUS_MAP: Record<string, { color: string; label: string }> = {
-  ready: { color: "bg-green-400", label: "已就绪" },
-  error: { color: "bg-yellow-400", label: "异常" },
-  unconfigured: { color: "bg-gray-500", label: "未配置" },
+  ready: { color: "bg-green-400", label: "Ready" },
+  error: { color: "bg-yellow-400", label: "Error" },
+  unconfigured: { color: "bg-gray-500", label: "Unconfigured" },
 };
 
 function StatusDot({ status }: { status: string }) {
@@ -104,7 +104,7 @@ export function ProviderSection() {
     return (
       <div className="flex items-center gap-2 px-6 py-8 text-sm text-gray-500">
         <Loader2 className="h-4 w-4 animate-spin" />
-        加载供应商列表…
+        Loading provider list…
       </div>
     );
   }
@@ -112,10 +112,10 @@ export function ProviderSection() {
   return (
     <div className="flex h-full">
       {/* Provider list sidebar */}
-      <nav aria-label="供应商列表" className="w-52 shrink-0 overflow-y-auto border-r border-gray-800 py-3">
+      <nav aria-label="Provider list" className="w-52 shrink-0 overflow-y-auto border-r border-gray-800 py-3">
         {/* Preset providers */}
         <div className="px-4 pb-2 text-xs uppercase tracking-wide text-gray-500">
-          预置供应商
+          Preset providers
         </div>
         {providers.map((p) => (
           <button
@@ -190,7 +190,7 @@ export function ProviderSection() {
         )}
         {!selection && (
           <div className="flex-1 overflow-y-auto p-6">
-            <div className="text-sm text-gray-500">请选择供应商</div>
+            <div className="text-sm text-gray-500">Select a provider</div>
           </div>
         )}
       </div>

@@ -441,7 +441,7 @@ class TestStreamProjectorMore:
                 "content": [
                     {
                         "type": "thinking",
-                        "thinking": "正在整理提问内容",
+                        "thinking": "Organizing question content",
                         "signature": "",
                     },
                     {
@@ -451,11 +451,11 @@ class TestStreamProjectorMore:
                         "input": {
                             "questions": [
                                 {
-                                    "header": "测试提问",
-                                    "question": "请选择一个模式",
+                                    "header": "Test Question",
+                                    "question": "Please select a mode",
                                     "multiSelect": False,
                                     "options": [
-                                        {"label": "说书+画面", "description": "默认模式"},
+                                        {"label": "Narration + Visuals", "description": "Default mode"},
                                     ],
                                 },
                             ],
@@ -482,7 +482,7 @@ class TestStreamProjectorMore:
                     "index": 0,
                     "content_block": {
                         "type": "thinking",
-                        "thinking": "正在整理提问内容",
+                        "thinking": "Organizing question content",
                     },
                 },
             }
@@ -514,8 +514,8 @@ class TestStreamProjectorMore:
                     "delta": {
                         "type": "input_json_delta",
                         "partial_json": (
-                            '{"questions":[{"header":"测试提问","question":"请选择一个模式",'
-                            '"multiSelect":false,"options":[{"label":"说书+画面","description":"默认模式"}]}]}'
+                            '{"questions":[{"header":"Test Question","question":"Please select a mode",'
+                            '"multiSelect":false,"options":[{"label":"Narration + Visuals","description":"Default mode"}]}]}'
                         ),
                     },
                 },
@@ -530,7 +530,7 @@ class TestStreamProjectorMore:
             initial_messages=[
                 {
                     "type": "user",
-                    "content": "使用提问工具向我提问",
+                    "content": "Use the question tool to ask me a question",
                     "uuid": "user-1",
                     "timestamp": "2026-02-28T12:33:25.418Z",
                 },
@@ -539,12 +539,12 @@ class TestStreamProjectorMore:
                     "content": [
                         {
                             "type": "thinking",
-                            "thinking": "正在组织提问",
+                            "thinking": "Organizing question",
                             "signature": "",
                         },
                         {
                             "type": "text",
-                            "text": "我现在调用提问工具。",
+                            "text": "I will now call the question tool.",
                         },
                         {
                             "type": "tool_use",
@@ -553,11 +553,11 @@ class TestStreamProjectorMore:
                             "input": {
                                 "questions": [
                                     {
-                                        "header": "测试问题",
-                                        "question": "接下来想测试什么？",
+                                        "header": "Test Question",
+                                        "question": "What do you want to test next?",
                                         "multiSelect": False,
                                         "options": [
-                                            {"label": "仅测试界面", "description": "不继续其他任务"},
+                                            {"label": "UI only", "description": "Do not continue other tasks"},
                                         ],
                                     },
                                 ],
@@ -572,11 +572,11 @@ class TestStreamProjectorMore:
         projector.draft._session_id = "sdk-1"
         projector.draft._blocks_by_index[0] = {
             "type": "thinking",
-            "thinking": "正在组织提问",
+            "thinking": "Organizing question",
         }
         projector.draft._blocks_by_index[1] = {
             "type": "text",
-            "text": "我现在调用提问工具。",
+            "text": "I will now call the question tool.",
         }
         projector.draft._blocks_by_index[2] = {
             "type": "tool_use",
@@ -585,11 +585,11 @@ class TestStreamProjectorMore:
             "input": {
                 "questions": [
                     {
-                        "header": "测试问题",
-                        "question": "接下来想测试什么？",
+                        "header": "Test Question",
+                        "question": "What do you want to test next?",
                         "multiSelect": False,
                         "options": [
-                            {"label": "仅测试界面", "description": "不继续其他任务"},
+                            {"label": "UI only", "description": "Do not continue other tasks"},
                         ],
                     },
                 ],
@@ -603,7 +603,7 @@ class TestStreamProjectorMore:
                     {
                         "type": "tool_result",
                         "tool_use_id": "ask-1",
-                        "content": 'User has answered: "接下来想测试什么？"="仅测试界面"',
+                        "content": 'User has answered: "What do you want to test next?"="UI only"',
                         "is_error": False,
                     },
                 ],
@@ -622,7 +622,7 @@ class TestStreamProjectorMore:
             initial_messages=[
                 {
                     "type": "user",
-                    "content": "使用提问工具向我提一个选项很多的问题",
+                    "content": "Use the question tool to ask me a question with many options",
                     "uuid": "user-1",
                     "timestamp": "2026-02-28T13:11:22.739Z",
                 },
@@ -631,7 +631,7 @@ class TestStreamProjectorMore:
                     "content": [
                         {
                             "type": "thinking",
-                            "thinking": "第一次尝试",
+                            "thinking": "First attempt",
                             "signature": "",
                         },
                         {
@@ -641,10 +641,10 @@ class TestStreamProjectorMore:
                             "input": {
                                 "questions": [
                                     {
-                                        "header": "视觉风格",
-                                        "question": "请选择风格",
+                                        "header": "Visual Style",
+                                        "question": "Please select a style",
                                         "multiSelect": True,
-                                        "options": [{"label": "赛博朋克", "description": "高对比"}],
+                                        "options": [{"label": "Cyberpunk", "description": "High contrast"}],
                                     },
                                 ],
                                 "reason": "invalid extra field",
@@ -654,7 +654,7 @@ class TestStreamProjectorMore:
                         },
                         {
                             "type": "thinking",
-                            "thinking": "修正后重试",
+                            "thinking": "Retry after correction",
                             "signature": "",
                         },
                         {
@@ -664,10 +664,10 @@ class TestStreamProjectorMore:
                             "input": {
                                 "questions": [
                                     {
-                                        "header": "视觉风格",
-                                        "question": "请选择风格",
+                                        "header": "Visual Style",
+                                        "question": "Please select a style",
                                         "multiSelect": True,
-                                        "options": [{"label": "赛博朋克", "description": "高对比"}],
+                                        "options": [{"label": "Cyberpunk", "description": "High contrast"}],
                                     },
                                 ],
                             },
@@ -681,7 +681,7 @@ class TestStreamProjectorMore:
         projector.draft._session_id = "sdk-1"
         projector.draft._blocks_by_index[0] = {
             "type": "thinking",
-            "thinking": "修正后重试",
+            "thinking": "Retry after correction",
         }
         projector.draft._blocks_by_index[1] = {
             "type": "tool_use",
@@ -690,10 +690,10 @@ class TestStreamProjectorMore:
             "input": {
                 "questions": [
                     {
-                        "header": "视觉风格",
-                        "question": "请选择风格",
+                        "header": "Visual Style",
+                        "question": "Please select a style",
                         "multiSelect": True,
-                        "options": [{"label": "赛博朋克", "description": "高对比"}],
+                        "options": [{"label": "Cyberpunk", "description": "High contrast"}],
                     },
                 ],
             },
@@ -706,7 +706,7 @@ class TestStreamProjectorMore:
                     {
                         "type": "tool_result",
                         "tool_use_id": "ask-valid",
-                        "content": 'User has answered: "请选择风格"="赛博朋克"',
+                        "content": 'User has answered: "Please select a style"="Cyberpunk"',
                         "is_error": False,
                     },
                 ],

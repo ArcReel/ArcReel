@@ -18,32 +18,32 @@ def _write_json(path: Path, payload: dict):
 def _valid_narration_response() -> dict:
     return {
         "episode": 1,
-        "title": "第一集",
+        "title": "Episode 1",
         "content_mode": "narration",
         "duration_seconds": 4,
-        "summary": "摘要",
-        "novel": {"title": "小说", "chapter": "1"},
+        "summary": "Summary",
+        "novel": {"title": "Novel", "chapter": "1"},
         "segments": [
             {
                 "segment_id": "E1S01",
                 "episode": 1,
                 "duration_seconds": 4,
                 "segment_break": False,
-                "novel_text": "原文",
-                "characters_in_segment": ["姜月茴"],
-                "clues_in_segment": ["玉佩"],
+                "novel_text": "original text",
+                "characters_in_segment": ["Character A"],
+                "clues_in_segment": ["jade-pendant"],
                 "image_prompt": {
-                    "scene": "场景",
+                    "scene": "scene description",
                     "composition": {
                         "shot_type": "Medium Shot",
-                        "lighting": "暖光",
-                        "ambiance": "薄雾",
+                        "lighting": "warm light",
+                        "ambiance": "thin mist",
                     },
                 },
                 "video_prompt": {
-                    "action": "转身",
+                    "action": "turns around",
                     "camera_motion": "Static",
-                    "ambiance_audio": "风声",
+                    "ambiance_audio": "wind sound",
                     "dialogue": [],
                 },
             }
@@ -76,7 +76,7 @@ class _FakeTextBackend:
 
 
 class _FakeTextGenerator:
-    """模拟 TextGenerator，包装 _FakeTextBackend。"""
+    """Simulates TextGenerator by wrapping _FakeTextBackend."""
 
     def __init__(self, response_text: str = "{}"):
         self.backend = _FakeTextBackend(response_text)
@@ -88,34 +88,34 @@ class _FakeTextGenerator:
 
 class TestScriptGenerator:
     async def test_build_prompt_uses_step1_content(self, tmp_path):
-        """build_prompt 无需 client 即可使用（dry-run 模式）。"""
+        """build_prompt can be used without a client (dry-run mode)."""
         project_path = tmp_path / "demo"
         _write_json(
             project_path / "project.json",
             {
-                "title": "项目",
+                "title": "Project",
                 "content_mode": "narration",
-                "overview": {"synopsis": "概述"},
-                "characters": {"姜月茴": {}},
-                "clues": {"玉佩": {}},
-                "style": "古风",
+                "overview": {"synopsis": "Overview"},
+                "characters": {"Character A": {}},
+                "clues": {"jade-pendant": {}},
+                "style": "historical",
                 "style_description": "cinematic",
             },
         )
-        _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "E1S01 | 片段")
+        _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "E1S01 | segment")
 
-        generator = ScriptGenerator(project_path)  # 无 client
+        generator = ScriptGenerator(project_path)  # no client
         prompt = generator.build_prompt(1)
 
-        assert "E1S01 | 片段" in prompt
-        assert "姜月茴" in prompt
+        assert "E1S01 | segment" in prompt
+        assert "Character A" in prompt
 
     async def test_load_step1_falls_back_when_primary_missing(self, tmp_path):
         project_path = tmp_path / "demo"
         _write_json(
             project_path / "project.json",
             {
-                "title": "项目",
+                "title": "Project",
                 "content_mode": "narration",
                 "overview": {},
                 "characters": {},
@@ -130,7 +130,7 @@ class TestScriptGenerator:
 
     async def test_parse_response_invalid_json_raises(self, tmp_path):
         project_path = tmp_path / "demo"
-        _write_json(project_path / "project.json", {"title": "项目"})
+        _write_json(project_path / "project.json", {"title": "Project"})
 
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError):
@@ -138,7 +138,7 @@ class TestScriptGenerator:
 
     async def test_parse_response_validation_error_returns_raw_data(self, tmp_path):
         project_path = tmp_path / "demo"
-        _write_json(project_path / "project.json", {"title": "项目"})
+        _write_json(project_path / "project.json", {"title": "Project"})
 
         generator = ScriptGenerator(project_path)
         parsed = generator._parse_response('{"foo": "bar"}', 1)

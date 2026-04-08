@@ -235,7 +235,7 @@ class TestConfigReading:
 
 class TestCleanup:
     async def test_cleanup_disconnects_after_delay(self, tmp_path):
-        """会话应在配置的延迟后被清理。"""
+        """Session should be cleaned up after the configured delay."""
         mgr = _make_manager(tmp_path)
         managed = _make_managed("s1", status="completed")
         mgr.sessions["s1"] = managed
@@ -248,7 +248,7 @@ class TestCleanup:
         assert managed.client.disconnected is True
 
     async def test_cleanup_skips_if_session_resumed(self, tmp_path):
-        """会话在清理前恢复为 running 则跳过。"""
+        """Cleanup should be skipped if the session resumes to running before cleanup runs."""
         mgr = _make_manager(tmp_path)
         managed = _make_managed("s1", status="completed")
         mgr.sessions["s1"] = managed
@@ -262,7 +262,7 @@ class TestCleanup:
         assert managed.client.disconnected is False
 
     async def test_cleanup_cancels_previous_task(self, tmp_path):
-        """多次调度应取消旧的 cleanup task。"""
+        """Scheduling cleanup multiple times should cancel the previous cleanup task."""
         mgr = _make_manager(tmp_path)
         managed = _make_managed("s1", status="completed")
         mgr.sessions["s1"] = managed
@@ -279,7 +279,7 @@ class TestCleanup:
         second_task.cancel()
 
     async def test_finalize_turn_completed_schedules_cleanup(self, tmp_path):
-        """_finalize_turn 产生 completed 状态时应调度 cleanup。"""
+        """_finalize_turn should schedule cleanup when producing a completed status."""
         mgr = _make_manager(tmp_path)
         managed = _make_managed("s1", status="running")
         mgr.sessions["s1"] = managed
@@ -294,7 +294,7 @@ class TestCleanup:
         assert managed.status == "completed"
 
     async def test_cleanup_task_cancelled_on_new_schedule(self, tmp_path):
-        """error 状态的 cleanup task 在重新调度时应被取消。"""
+        """A cleanup task in error status should be cancelled when a new schedule is created."""
         mgr = _make_manager(tmp_path)
         managed = _make_managed("s1", status="error")
         mgr.sessions["s1"] = managed
@@ -314,7 +314,7 @@ class TestCleanup:
 
 class TestEnsureCapacity:
     async def test_under_limit_no_eviction(self, tmp_path):
-        """活跃数低于上限时不淘汰。"""
+        """No eviction should occur when active count is below the limit."""
         mgr = _make_manager(tmp_path)
         mgr.sessions["s1"] = _make_managed("s1")
 
@@ -324,7 +324,7 @@ class TestEnsureCapacity:
         assert "s1" in mgr.sessions
 
     async def test_evicts_oldest_non_running(self, tmp_path):
-        """超限时淘汰最久未活跃的非 running 会话。"""
+        """When over limit, evict the least recently active non-running session."""
         mgr = _make_manager(tmp_path)
         old = _make_managed("s_old", status="idle")
         old.last_activity = time.monotonic() - 100
@@ -339,7 +339,7 @@ class TestEnsureCapacity:
                 mock_disc.assert_called_once_with("s_old", reason="capacity eviction")
 
     async def test_evicts_completed_session_when_no_idle(self, tmp_path):
-        """无 idle 会话时，应淘汰 completed/error/interrupted 状态的会话。"""
+        """When no idle sessions exist, evict sessions in completed/error/interrupted status."""
         mgr = _make_manager(tmp_path)
         completed = _make_managed("s_completed", status="completed")
         completed.last_activity = time.monotonic() - 50
@@ -357,7 +357,7 @@ class TestEnsureCapacity:
                 )
 
     async def test_capacity_error_when_eviction_cannot_close_process(self, tmp_path):
-        """淘汰失败时不应继续释放并发槽位。"""
+        """Should not continue freeing concurrency slots when eviction fails."""
         mgr = _make_manager(tmp_path)
         stuck = ManagedSession(
             session_id="s_stuck",
@@ -367,35 +367,35 @@ class TestEnsureCapacity:
         mgr.sessions["s_stuck"] = stuck
 
         with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=1):
-            with pytest.raises(SessionCapacityError, match="未能关闭"):
+            with pytest.raises(SessionCapacityError, match="could not be closed"):
                 await mgr._ensure_capacity()
 
         assert "s_stuck" in mgr.sessions
 
     async def test_all_running_raises_capacity_error(self, tmp_path):
-        """所有会话都在 running 时应抛出 SessionCapacityError。"""
+        """Should raise SessionCapacityError when all sessions are running."""
         mgr = _make_manager(tmp_path)
         for i in range(3):
             mgr.sessions[f"s{i}"] = _make_managed(f"s{i}", status="running")
 
         with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=3):
-            with pytest.raises(SessionCapacityError, match="正在进行的会话"):
+            with pytest.raises(SessionCapacityError, match="active sessions"):
                 await mgr._ensure_capacity()
 
     async def test_capacity_error_message_includes_count(self, tmp_path):
-        """错误消息中应包含当前 running 会话数。"""
+        """Error message should include the current number of running sessions."""
         mgr = _make_manager(tmp_path)
         for i in range(3):
             mgr.sessions[f"s{i}"] = _make_managed(f"s{i}", status="running")
 
         with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=3):
-            with pytest.raises(SessionCapacityError, match="3个"):
+            with pytest.raises(SessionCapacityError, match="3 active"):
                 await mgr._ensure_capacity()
 
 
 class TestPatrolLoop:
     async def test_patrol_cleans_stale_session(self, tmp_path):
-        """巡检应清理超时的非 running 会话。"""
+        """Patrol should clean up timed-out non-running sessions."""
         mgr = _make_manager(tmp_path)
         managed = _make_managed("s1", status="completed")
         managed.last_activity = time.monotonic() - 1000
@@ -407,7 +407,7 @@ class TestPatrolLoop:
                 mock_disc.assert_called_once_with("s1", reason="patrol cleanup")
 
     async def test_patrol_skips_running(self, tmp_path):
-        """巡检不应清理 running 会话。"""
+        """Patrol should not clean up running sessions."""
         mgr = _make_manager(tmp_path)
         managed = _make_managed("s1", status="running")
         mgr.sessions["s1"] = managed
@@ -418,10 +418,10 @@ class TestPatrolLoop:
                 mock_disc.assert_not_called()
 
     async def test_patrol_skips_recent_session(self, tmp_path):
-        """巡检不应清理近期活跃的会话。"""
+        """Patrol should not clean up recently active sessions."""
         mgr = _make_manager(tmp_path)
         managed = _make_managed("s1", status="completed")
-        managed.last_activity = time.monotonic()  # 刚刚活跃
+        managed.last_activity = time.monotonic()  # just became active
         mgr.sessions["s1"] = managed
 
         with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=600):

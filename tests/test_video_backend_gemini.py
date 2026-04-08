@@ -1,4 +1,4 @@
-"""GeminiVideoBackend 单元测试 — mock genai SDK。"""
+"""GeminiVideoBackend unit tests — mock genai SDK."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -21,7 +21,7 @@ def mock_rate_limiter():
 
 @pytest.fixture
 def backend(mock_rate_limiter):
-    """创建 aistudio 模式的 GeminiVideoBackend（mock genai SDK）。"""
+    """Create a GeminiVideoBackend in aistudio mode (mock genai SDK)."""
     with patch("google.genai"), patch("google.genai.types"):
         from lib.video_backends.gemini import GeminiVideoBackend
 
@@ -37,7 +37,7 @@ def backend(mock_rate_limiter):
 
 @pytest.fixture
 def content_api_backend(mock_rate_limiter):
-    """创建 use_content_api=True 的 GeminiVideoBackend（mock genai SDK）。"""
+    """Create a GeminiVideoBackend with use_content_api=True (mock genai SDK)."""
     with patch("google.genai"), patch("google.genai.types"):
         from lib.video_backends.gemini import GeminiVideoBackend
 
@@ -53,7 +53,7 @@ def content_api_backend(mock_rate_limiter):
         yield b
 
 
-# ── 属性测试 ──────────────────────────────────────────────
+# ── Property tests ────────────────────────────────────────
 
 
 class TestGeminiVideoBackendProperties:
@@ -69,7 +69,7 @@ class TestGeminiVideoBackendProperties:
         assert VideoCapability.GENERATE_AUDIO not in caps
 
     def test_capabilities_vertex(self, mock_rate_limiter, tmp_path):
-        # 准备 mock vertex 凭证文件
+        # Prepare mock vertex credentials file
         creds_file = tmp_path / "vertex_credentials.json"
         creds_file.write_text('{"project_id": "test-project"}')
 
@@ -91,11 +91,11 @@ class TestGeminiVideoBackendProperties:
             assert VideoCapability.GENERATE_AUDIO in b.capabilities
 
 
-# ── 生成测试 ──────────────────────────────────────────────
+# ── Generation tests ──────────────────────────────────────
 
 
 def _make_done_operation(video_uri="gs://bucket/video.mp4"):
-    """构造一个已完成的 operation mock。"""
+    """Build a completed operation mock."""
     mock_video = MagicMock()
     mock_video.uri = video_uri
     mock_video.video_bytes = b"fake-video-bytes"
@@ -135,7 +135,7 @@ class TestGeminiVideoBackendGenerate:
         assert result.video_path == output
         assert result.duration_seconds == 8
 
-        # 确认调用了 API
+        # Confirm the API was called
         backend._client.aio.models.generate_videos.assert_awaited_once()
 
     async def test_generate_image_to_video(self, backend, tmp_path):
@@ -158,7 +158,7 @@ class TestGeminiVideoBackendGenerate:
         assert result.video_path == output
 
     async def test_generate_polls_until_done(self, backend, tmp_path):
-        """测试轮询逻辑：先返回未完成，再返回已完成。"""
+        """Test polling logic: first returns not-done, then returns done."""
         output = tmp_path / "out.mp4"
 
         pending_op = MagicMock()
@@ -174,14 +174,14 @@ class TestGeminiVideoBackendGenerate:
             output_path=output,
         )
 
-        # patch asyncio.sleep 以避免实际等待
+        # patch asyncio.sleep to avoid actual waiting
         with patch("lib.video_backends.gemini.asyncio.sleep", new_callable=AsyncMock):
             result = await backend.generate(request)
 
         assert result.provider == "gemini"
 
     async def test_generate_empty_result_raises(self, backend, tmp_path):
-        """API 返回空结果时应抛出 RuntimeError。"""
+        """Should raise RuntimeError when API returns an empty result."""
         output = tmp_path / "out.mp4"
 
         mock_op = MagicMock()
@@ -197,11 +197,11 @@ class TestGeminiVideoBackendGenerate:
             output_path=output,
         )
 
-        with pytest.raises(RuntimeError, match="API 返回空结果"):
+        with pytest.raises(RuntimeError, match="API returned empty result"):
             await backend.generate(request)
 
     async def test_generate_error_in_operation(self, backend, tmp_path):
-        """operation 包含 error 时应抛出 RuntimeError。"""
+        """Should raise RuntimeError when operation contains an error."""
         output = tmp_path / "out.mp4"
 
         mock_op = MagicMock()
@@ -216,11 +216,11 @@ class TestGeminiVideoBackendGenerate:
             output_path=output,
         )
 
-        with pytest.raises(RuntimeError, match="视频生成失败"):
+        with pytest.raises(RuntimeError, match="Video generation failed"):
             await backend.generate(request)
 
     async def test_rate_limiter_called(self, backend, mock_rate_limiter, tmp_path):
-        """确认 generate 会调用限流器。"""
+        """Confirm that generate calls the rate limiter."""
         output = tmp_path / "out.mp4"
 
         mock_op = _make_done_operation()
@@ -235,7 +235,7 @@ class TestGeminiVideoBackendGenerate:
         mock_rate_limiter.acquire_async.assert_called_once_with(backend._video_model)
 
     async def test_default_negative_prompt(self, backend, tmp_path):
-        """未指定 negative_prompt 时使用默认值。"""
+        """Uses the default value when negative_prompt is not specified."""
         output = tmp_path / "out.mp4"
 
         mock_op = _make_done_operation()
@@ -249,16 +249,16 @@ class TestGeminiVideoBackendGenerate:
 
         await backend.generate(request)
 
-        # 验证 GenerateVideosConfig 被调用时包含默认 negative_prompt
+        # Verify GenerateVideosConfig was called with the default negative_prompt
         config_call = backend._types.GenerateVideosConfig.call_args
         assert "music" in config_call.kwargs.get("negative_prompt", "")
 
 
 class TestGeminiRetryBehavior:
-    """测试任务创建与轮询的重试分离行为。"""
+    """Test retry separation behavior between task creation and polling."""
 
     async def test_poll_transient_error_retries_without_recreating_task(self, backend, tmp_path):
-        """轮询阶段瞬态错误应重试轮询，而不是重新创建任务。"""
+        """Transient errors during polling should retry the poll, not recreate the task."""
         output = tmp_path / "out.mp4"
 
         pending_op = MagicMock()
@@ -267,7 +267,7 @@ class TestGeminiRetryBehavior:
         done_op = _make_done_operation()
 
         backend._client.aio.models.generate_videos = AsyncMock(return_value=pending_op)
-        # 第一次轮询抛 ConnectionError，第二次返回完成
+        # First poll raises ConnectionError, second returns done
         backend._client.aio.operations.get = AsyncMock(side_effect=[ConnectionError("connection reset"), done_op])
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
@@ -275,17 +275,17 @@ class TestGeminiRetryBehavior:
             result = await backend.generate(request)
 
         assert result.provider == "gemini"
-        # 关键断言：任务只创建了一次
+        # Key assertion: task was created only once
         backend._client.aio.models.generate_videos.assert_awaited_once()
-        # 轮询调用了两次（一次失败 + 一次成功）
+        # Poll was called twice (one failure + one success)
         assert backend._client.aio.operations.get.await_count == 2
 
     async def test_create_retries_on_transient_error(self, backend, tmp_path):
-        """任务创建阶段的瞬态错误应由 @with_retry_async 重试。"""
+        """Transient errors during task creation should be retried by @with_retry_async."""
         output = tmp_path / "out.mp4"
 
         done_op = _make_done_operation()
-        # 第一次创建抛 ConnectionError，第二次成功
+        # First creation raises ConnectionError, second succeeds
         backend._client.aio.models.generate_videos = AsyncMock(
             side_effect=[ConnectionError("connection reset"), done_op]
         )
@@ -298,11 +298,11 @@ class TestGeminiRetryBehavior:
             result = await backend.generate(request)
 
         assert result.provider == "gemini"
-        # 创建调用了两次（一次失败 + 一次成功）
+        # Creation was called twice (one failure + one success)
         assert backend._client.aio.models.generate_videos.await_count == 2
 
     async def test_poll_non_retryable_error_propagates(self, backend, tmp_path):
-        """轮询阶段不可重试的错误应直接抛出。"""
+        """Non-retryable errors during polling should propagate immediately."""
         output = tmp_path / "out.mp4"
 
         pending_op = MagicMock()
@@ -316,13 +316,13 @@ class TestGeminiRetryBehavior:
             with patch("lib.video_backends.gemini.asyncio.sleep", new_callable=AsyncMock):
                 await backend.generate(request)
 
-        # 创建只调用一次
+        # Creation called only once
         backend._client.aio.models.generate_videos.assert_awaited_once()
-        # 轮询只尝试一次就抛出
+        # Polling attempted only once before raising
         assert backend._client.aio.operations.get.await_count == 1
 
 
-# ── _prepare_image_param 测试 ─────────────────────────────
+# ── _prepare_image_param tests ───────────────────────────
 
 
 class TestPrepareImageParam:
@@ -344,7 +344,7 @@ class TestPrepareImageParam:
         assert result is not None
 
 
-# ── _download_video 测试 ──────────────────────────────────
+# ── _download_video tests ─────────────────────────────────
 
 
 class TestDownloadVideo:
@@ -374,15 +374,15 @@ class TestDownloadVideo:
 
         mock_ref = MagicMock(spec=[])  # no attributes
 
-        with pytest.raises(RuntimeError, match="无法获取视频数据"):
+        with pytest.raises(RuntimeError, match="video data could not be retrieved"):
             backend._download_video(mock_ref, output)
 
 
-# ── Content API（自定义供应商）测试 ─────────────────────────
+# ── Content API (custom provider) tests ──────────────────
 
 
 def _make_content_api_response(video_bytes=b"fake-video-data", mime_type="video/mp4"):
-    """构造 generate_content 返回的 mock response（含视频 inline_data）。"""
+    """Build a mock response returned by generate_content (with video inline_data)."""
     mock_blob = MagicMock()
     mock_blob.data = video_bytes
     mock_blob.mime_type = mime_type
@@ -402,7 +402,7 @@ def _make_content_api_response(video_bytes=b"fake-video-data", mime_type="video/
 
 
 class TestContentApiGenerate:
-    """use_content_api=True 时应走 generate_content 而非 generate_videos。"""
+    """When use_content_api=True, should use generate_content instead of generate_videos."""
 
     async def test_generate_calls_generate_content(self, content_api_backend, tmp_path):
         output = tmp_path / "out.mp4"
@@ -418,11 +418,11 @@ class TestContentApiGenerate:
         assert result.video_path == output
         assert output.read_bytes() == b"fake-video-data"
 
-        # 确认调用了 generate_content 而非 generate_videos
+        # Confirm generate_content was called instead of generate_videos
         content_api_backend._client.aio.models.generate_content.assert_awaited_once()
 
     async def test_generate_does_not_call_generate_videos(self, content_api_backend, tmp_path):
-        """use_content_api=True 时不应调用 generate_videos。"""
+        """Should not call generate_videos when use_content_api=True."""
         output = tmp_path / "out.mp4"
 
         mock_resp = _make_content_api_response()
@@ -437,7 +437,7 @@ class TestContentApiGenerate:
     async def test_generate_with_start_image(self, content_api_backend, tmp_path):
         output = tmp_path / "out.mp4"
 
-        # 创建有效的 PNG 图片文件
+        # Create a valid PNG image file
         from PIL import Image as PILImage
 
         img = PILImage.new("RGB", (10, 10), color="red")
@@ -451,7 +451,7 @@ class TestContentApiGenerate:
         result = await content_api_backend.generate(request)
 
         assert result.video_path == output
-        # contents 应包含 PIL.Image + prompt（str）
+        # contents should contain PIL.Image + prompt (str)
         call_kwargs = content_api_backend._client.aio.models.generate_content.call_args.kwargs
         contents = call_kwargs["contents"]
         assert len(contents) == 2
@@ -459,7 +459,7 @@ class TestContentApiGenerate:
         assert isinstance(contents[1], str)
 
     async def test_generate_empty_response_raises(self, content_api_backend, tmp_path):
-        """API 返回空候选时应抛出 RuntimeError。"""
+        """Should raise RuntimeError when API returns no candidates."""
         output = tmp_path / "out.mp4"
 
         mock_response = MagicMock()
@@ -467,7 +467,7 @@ class TestContentApiGenerate:
         content_api_backend._client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
-        with pytest.raises(RuntimeError, match="API 未返回视频数据"):
+        with pytest.raises(RuntimeError, match="API did not return video data"):
             await content_api_backend.generate(request)
 
     async def test_rate_limiter_called(self, content_api_backend, mock_rate_limiter, tmp_path):

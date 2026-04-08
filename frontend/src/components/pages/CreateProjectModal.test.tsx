@@ -29,7 +29,7 @@ describe("CreateProjectModal", () => {
       success: true,
       name: "project-aa11bb22",
       project: {
-        title: "演示项目",
+        title: "Demo Project",
         content_mode: "narration",
         style: "Photographic",
         episodes: [],
@@ -44,14 +44,14 @@ describe("CreateProjectModal", () => {
     expect(submitButton).toBeDisabled();
 
     fireEvent.change(screen.getByPlaceholderText("e.g. The Empress Reborn"), {
-      target: { value: "演示项目" },
+      target: { value: "Demo Project" },
     });
 
     expect(submitButton).toBeEnabled();
     fireEvent.click(submitButton);
 
     await waitFor(() => {
-      expect(API.createProject).toHaveBeenCalledWith("演示项目", "Photographic", "narration", "9:16", null);
+      expect(API.createProject).toHaveBeenCalledWith("Demo Project", "Photographic", "narration", "9:16", null);
     });
   });
 
@@ -60,7 +60,7 @@ describe("CreateProjectModal", () => {
       success: true,
       name: "project-aa11bb22",
       project: {
-        title: "演示项目",
+        title: "Demo Project",
         content_mode: "narration",
         style: "Photographic",
         episodes: [],

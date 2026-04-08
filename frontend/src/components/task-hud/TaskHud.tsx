@@ -27,7 +27,7 @@ function TaskStatusIcon({ status }: { status: TaskItem["status"] }) {
 }
 
 // ---------------------------------------------------------------------------
-// RunningProgressBar — 运行中任务的动态进度条
+// RunningProgressBar — animated progress bar for running tasks
 // ---------------------------------------------------------------------------
 
 function RunningProgressBar() {
@@ -47,7 +47,7 @@ function RunningProgressBar() {
 }
 
 // ---------------------------------------------------------------------------
-// TaskRow — 单个任务条目（含完成高亮、失败展开、运行进度条）
+// TaskRow — single task entry (with completion highlight, failure expand, running progress bar)
 // ---------------------------------------------------------------------------
 
 function TaskRow({
@@ -62,10 +62,10 @@ function TaskRow({
   onToggleError: (taskId: string) => void;
 }) {
   const statusLabel: Record<TaskItem["status"], string> = {
-    running: "生成中...",
-    queued: "排队中",
-    succeeded: "已完成",
-    failed: "失败",
+    running: "Generating...",
+    queued: "Queued",
+    succeeded: "Completed",
+    failed: "Failed",
   };
 
   const statusColor: Record<TaskItem["status"], string> = {
@@ -75,7 +75,7 @@ function TaskRow({
     failed: "text-red-400",
   };
 
-  // 根据状态确定行背景样式
+  // Determine row background style based on status
   const rowBg =
     task.status === "failed"
       ? "bg-red-500/10"
@@ -98,7 +98,7 @@ function TaskRow({
       transition={{ duration: isFading ? 0.4 : 0.2 }}
       className="overflow-hidden"
     >
-      {/* 主行内容 */}
+      {/* Main row content */}
       <div
         className={`flex items-center gap-2 px-3 py-1.5 text-sm ${rowBg} ${
           hasError ? "cursor-pointer hover:bg-red-500/15" : ""
@@ -122,14 +122,14 @@ function TaskRow({
         )}
       </div>
 
-      {/* 运行中任务的进度条 */}
+      {/* Progress bar for running tasks */}
       {task.status === "running" && (
         <div className="px-3 pb-1">
           <RunningProgressBar />
         </div>
       )}
 
-      {/* 失败任务的错误详情展开区域 */}
+      {/* Error detail expand area for failed tasks */}
       <AnimatePresence>
         {hasError && isErrorExpanded && (
           <motion.div
@@ -150,7 +150,7 @@ function TaskRow({
 }
 
 // ---------------------------------------------------------------------------
-// ChannelSection — 按图片/视频通道分组，含自动淡出逻辑
+// ChannelSection — grouped by image/video channel, with auto-fade-out logic
 // ---------------------------------------------------------------------------
 
 function ChannelSection({
@@ -162,21 +162,21 @@ function ChannelSection({
   icon: React.ComponentType<{ className?: string }>;
   tasks: TaskItem[];
 }) {
-  // 跟踪正在淡出的任务 ID
+  // Track task IDs that are fading out
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
-  // 跟踪已完全淡出（应隐藏）的任务 ID
+  // Track task IDs that have fully faded (should be hidden)
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-  // 保存定时器引用以便清理
+  // Save timer references for cleanup
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  // 失败任务错误详情展开状态
+  // Expand state for failed task error details
   const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
 
   const toggleError = useCallback((taskId: string) => {
     setExpandedErrorId((prev) => (prev === taskId ? null : taskId));
   }, []);
 
-  // 监听任务状态变化，为 succeeded 任务设置自动淡出
+  // Watch for task status changes and set up auto-fade for succeeded tasks
   useEffect(() => {
     const succeededTasks = tasks.filter(
       (t) =>
@@ -188,11 +188,11 @@ function ChannelSection({
     for (const task of succeededTasks) {
       if (timersRef.current.has(task.task_id)) continue;
 
-      // 3 秒后开始淡出动画
+      // Start fade-out animation after 3 seconds
       const fadeTimer = setTimeout(() => {
         setFadingIds((prev) => new Set(prev).add(task.task_id));
 
-        // 淡出动画完成后（400ms）标记为隐藏
+        // Mark as hidden after fade-out animation completes (400ms)
         const hideTimer = setTimeout(() => {
           setHiddenIds((prev) => new Set(prev).add(task.task_id));
           timersRef.current.delete(task.task_id);
@@ -205,7 +205,7 @@ function ChannelSection({
     }
 
     return () => {
-      // 组件卸载时清理所有定时器
+      // Clean up all timers on unmount
       for (const timer of timersRef.current.values()) {
         clearTimeout(timer);
       }
@@ -228,7 +228,7 @@ function ChannelSection({
         {title}
         {running.length > 0 && (
           <span className="ml-auto text-indigo-400">
-            {running.length} 运行中
+            {running.length} running
           </span>
         )}
       </div>
@@ -244,14 +244,14 @@ function ChannelSection({
         ))}
       </AnimatePresence>
       {visible.length === 0 && (
-        <div className="px-3 py-2 text-xs text-gray-600">暂无任务</div>
+        <div className="px-3 py-2 text-xs text-gray-600">No tasks</div>
       )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// TaskHud — 弹出面板，实时展示任务队列状态
+// TaskHud — pop-up panel displaying real-time task queue status
 // ---------------------------------------------------------------------------
 
 export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null> }) {
@@ -284,30 +284,30 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
             backgroundColor: POPOVER_BG,
           }}
         >
-          {/* 统计栏 */}
+          {/* Stats bar */}
           <div className="flex gap-3 border-b border-gray-800 px-3 py-2 text-xs text-gray-400">
             <span>
-              排队{" "}
+              Queued{" "}
               <strong className="text-gray-200">{stats.queued}</strong>
             </span>
             <span>
-              运行{" "}
+              Running{" "}
               <strong className="text-indigo-400">{stats.running}</strong>
             </span>
             <span>
-              完成{" "}
+              Done{" "}
               <strong className="text-emerald-400">{stats.succeeded}</strong>
             </span>
             <span>
-              失败{" "}
+              Failed{" "}
               <strong className="text-red-400">{stats.failed}</strong>
             </span>
           </div>
 
-          {/* 双通道 */}
+          {/* Dual channels */}
           <div className="max-h-80 divide-y divide-gray-800/50 overflow-y-auto">
-            <ChannelSection title="图片通道" icon={Image} tasks={imageTasks} />
-            <ChannelSection title="视频通道" icon={Video} tasks={videoTasks} />
+            <ChannelSection title="Image channel" icon={Image} tasks={imageTasks} />
+            <ChannelSection title="Video channel" icon={Video} tasks={videoTasks} />
           </div>
         </motion.div>
       )}

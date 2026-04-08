@@ -97,47 +97,47 @@ describe("SystemConfigPage", () => {
 
   it("renders the page header", () => {
     renderPage();
-    expect(screen.getByText("设置")).toBeInTheDocument();
-    expect(screen.getByText("系统配置与 API 访问管理")).toBeInTheDocument();
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("System configuration and API access management")).toBeInTheDocument();
   });
 
   it("renders all 5 sidebar sections", () => {
     renderPage();
-    expect(screen.getByRole("button", { name: /智能体/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /供应商/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /模型选择/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /用量统计/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /API 管理/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Agent/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Providers/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Model Selection/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Usage Stats/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /API Management/ })).toBeInTheDocument();
   });
 
-  it("defaults to the 智能体 section", () => {
+  it("defaults to the Agent section", () => {
     renderPage();
-    const agentButton = screen.getByRole("button", { name: /智能体/ });
+    const agentButton = screen.getByRole("button", { name: /Agent/ });
     // Active sidebar item has the indigo border class applied
     expect(agentButton.className).toContain("border-indigo-500");
   });
 
-  it("clicking 供应商 makes it the active section", async () => {
+  it("clicking Providers makes it the active section", async () => {
     renderPage();
-    const providersButton = screen.getByRole("button", { name: /供应商/ });
+    const providersButton = screen.getByRole("button", { name: /Providers/ });
     fireEvent.click(providersButton);
     await waitFor(() => {
       expect(providersButton.className).toContain("border-indigo-500");
     });
   });
 
-  it("clicking 模型选择 makes it the active section", async () => {
+  it("clicking Model Selection makes it the active section", async () => {
     renderPage();
-    const mediaButton = screen.getByRole("button", { name: /模型选择/ });
+    const mediaButton = screen.getByRole("button", { name: /Model Selection/ });
     fireEvent.click(mediaButton);
     await waitFor(() => {
       expect(mediaButton.className).toContain("border-indigo-500");
     });
   });
 
-  it("clicking 用量统计 makes it the active section", async () => {
+  it("clicking Usage Stats makes it the active section", async () => {
     renderPage();
-    const usageButton = screen.getByRole("button", { name: /用量统计/ });
+    const usageButton = screen.getByRole("button", { name: /Usage Stats/ });
     fireEvent.click(usageButton);
     await waitFor(() => {
       expect(usageButton.className).toContain("border-indigo-500");
@@ -154,10 +154,10 @@ describe("SystemConfigPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("以下必填配置尚未完成：")).toBeInTheDocument();
+      expect(screen.getByText("The following required configurations are incomplete:")).toBeInTheDocument();
     });
     expect(
-      screen.getByRole("button", { name: /ArcReel 智能体 API Key/ }),
+      screen.getByRole("button", { name: /ArcReel Agent API Key/ }),
     ).toBeInTheDocument();
   });
 
@@ -169,12 +169,12 @@ describe("SystemConfigPage", () => {
       expect(API.getProviders).toHaveBeenCalled();
     });
 
-    expect(screen.queryByText("以下必填配置尚未完成：")).not.toBeInTheDocument();
+    expect(screen.queryByText("The following required configurations are incomplete:")).not.toBeInTheDocument();
   });
 
   it("renders the back link that navigates to projects", () => {
     renderPage();
-    const link = screen.getByRole("link", { name: "返回项目大厅" });
+    const link = screen.getByRole("link", { name: "Back to project lobby" });
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute("href", "/app/projects");
   });

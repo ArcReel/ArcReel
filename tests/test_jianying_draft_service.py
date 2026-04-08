@@ -1,4 +1,4 @@
-"""剪映草稿导出服务的单元测试"""
+"""Unit tests for the CapCut draft export service."""
 
 import json
 import zipfile
@@ -7,10 +7,10 @@ import pytest
 
 
 class TestCollectVideoClips:
-    """测试从剧本中收集已完成视频片段"""
+    """Test collecting completed video clips from scripts."""
 
     def test_narration_mode_collects_existing_videos(self, tmp_path):
-        """narration 模式：收集存在的 video_clip"""
+        """Narration mode: collect existing video_clips."""
         from server.services.jianying_draft_service import JianyingDraftService
 
         project_dir = tmp_path / "projects" / "demo"
@@ -25,19 +25,19 @@ class TestCollectVideoClips:
                 {
                     "segment_id": "S1",
                     "duration_seconds": 8,
-                    "novel_text": "从前有座山",
+                    "novel_text": "Once upon a time there was a mountain",
                     "generated_assets": {"video_clip": "videos/segment_S1.mp4", "status": "completed"},
                 },
                 {
                     "segment_id": "S2",
                     "duration_seconds": 6,
-                    "novel_text": "山上有座庙",
+                    "novel_text": "On the mountain there was a temple",
                     "generated_assets": {"video_clip": "videos/segment_S2.mp4", "status": "completed"},
                 },
                 {
                     "segment_id": "S3",
                     "duration_seconds": 8,
-                    "novel_text": "庙里有个老和尚",
+                    "novel_text": "In the temple lived an old monk",
                     "generated_assets": {"status": "pending"},
                 },
             ],
@@ -48,11 +48,11 @@ class TestCollectVideoClips:
 
         assert len(clips) == 2
         assert clips[0]["id"] == "S1"
-        assert clips[0]["novel_text"] == "从前有座山"
+        assert clips[0]["novel_text"] == "Once upon a time there was a mountain"
         assert clips[1]["id"] == "S2"
 
     def test_drama_mode_collects_scenes(self, tmp_path):
-        """drama 模式：收集 scenes 而非 segments"""
+        """Drama mode: collect scenes instead of segments."""
         from server.services.jianying_draft_service import JianyingDraftService
 
         project_dir = tmp_path / "projects" / "demo"
@@ -79,7 +79,7 @@ class TestCollectVideoClips:
         assert clips[0]["novel_text"] == ""
 
     def test_skips_missing_video_files(self, tmp_path):
-        """script 中有记录但文件不存在时跳过"""
+        """Skip entries recorded in the script but whose files do not exist."""
         from server.services.jianying_draft_service import JianyingDraftService
 
         project_dir = tmp_path / "projects" / "demo"
@@ -104,7 +104,7 @@ class TestCollectVideoClips:
 
 
 class TestResolveCanvasSize:
-    """测试画布尺寸解析"""
+    """Test canvas size resolution."""
 
     def test_16_9_returns_1920x1080(self):
         from server.services.jianying_draft_service import JianyingDraftService
@@ -132,19 +132,19 @@ from tests.conftest import make_test_video
 
 
 class TestGenerateDraft:
-    """测试 pyjianyingdraft 草稿生成"""
+    """Test pyjianyingdraft draft generation."""
 
     def test_generates_draft_content_json(self, tmp_path):
-        """生成的草稿目录包含 draft_content.json"""
+        """The generated draft directory contains draft_content.json."""
         from server.services.jianying_draft_service import JianyingDraftService
 
-        # 视频文件放在 draft_dir 外部，避免被 create_draft 清理
+        # Place video files outside draft_dir to avoid being cleaned up by create_draft
         videos_dir = tmp_path / "videos"
         videos_dir.mkdir()
         make_test_video(videos_dir / "scene_S1.mp4")
         make_test_video(videos_dir / "scene_S2.mp4")
 
-        draft_dir = tmp_path / "drafts" / "测试草稿"
+        draft_dir = tmp_path / "drafts" / "test-draft"
 
         clips = [
             {"id": "S1", "local_path": str(videos_dir / "scene_S1.mp4"), "novel_text": ""},
@@ -154,7 +154,7 @@ class TestGenerateDraft:
         svc = JianyingDraftService.__new__(JianyingDraftService)
         svc._generate_draft(
             draft_dir=draft_dir,
-            draft_name="测试草稿",
+            draft_name="test-draft",
             clips=clips,
             width=1920,
             height=1080,
@@ -165,23 +165,23 @@ class TestGenerateDraft:
         assert (draft_dir / "draft_meta_info.json").exists()
 
     def test_narration_mode_includes_subtitle_track(self, tmp_path):
-        """narration 模式生成字幕轨"""
+        """Narration mode generates a subtitle track."""
         from server.services.jianying_draft_service import JianyingDraftService
 
         videos_dir = tmp_path / "videos"
         videos_dir.mkdir()
         make_test_video(videos_dir / "seg_S1.mp4")
 
-        draft_dir = tmp_path / "drafts" / "字幕草稿"
+        draft_dir = tmp_path / "drafts" / "subtitle-draft"
 
         clips = [
-            {"id": "S1", "local_path": str(videos_dir / "seg_S1.mp4"), "novel_text": "从前有座山"},
+            {"id": "S1", "local_path": str(videos_dir / "seg_S1.mp4"), "novel_text": "Once upon a time there was a mountain"},
         ]
 
         svc = JianyingDraftService.__new__(JianyingDraftService)
         svc._generate_draft(
             draft_dir=draft_dir,
-            draft_name="字幕草稿",
+            draft_name="subtitle-draft",
             clips=clips,
             width=1080,
             height=1920,
@@ -193,14 +193,14 @@ class TestGenerateDraft:
         assert len(tracks) == 2
 
     def test_drama_mode_no_subtitle_track(self, tmp_path):
-        """drama 模式不生成字幕轨"""
+        """Drama mode does not generate a subtitle track."""
         from server.services.jianying_draft_service import JianyingDraftService
 
         videos_dir = tmp_path / "videos"
         videos_dir.mkdir()
         make_test_video(videos_dir / "scene_S1.mp4")
 
-        draft_dir = tmp_path / "drafts" / "无字幕草稿"
+        draft_dir = tmp_path / "drafts" / "no-subtitle-draft"
 
         clips = [
             {"id": "S1", "local_path": str(videos_dir / "scene_S1.mp4"), "novel_text": ""},
@@ -209,7 +209,7 @@ class TestGenerateDraft:
         svc = JianyingDraftService.__new__(JianyingDraftService)
         svc._generate_draft(
             draft_dir=draft_dir,
-            draft_name="无字幕草稿",
+            draft_name="no-subtitle-draft",
             clips=clips,
             width=1920,
             height=1080,
@@ -222,18 +222,18 @@ class TestGenerateDraft:
 
 
 class TestReplacePaths:
-    """测试路径后处理（JSON 安全替换）"""
+    """Test path post-processing (safe JSON replacement)."""
 
     def test_replaces_tmp_prefix_in_json(self, tmp_path):
-        """递归替换 JSON 中的临时路径前缀"""
+        """Recursively replace the temporary path prefix in JSON."""
         from server.services.jianying_draft_service import JianyingDraftService
 
         json_path = tmp_path / "draft_content.json"
         data = {
             "materials": {
                 "videos": [
-                    {"path": "/tmp/arcreel_jy_abc/草稿/assets/s1.mp4"},
-                    {"path": "/tmp/arcreel_jy_abc/草稿/assets/s2.mp4"},
+                    {"path": "/tmp/arcreel_jy_abc/draft/assets/s1.mp4"},
+                    {"path": "/tmp/arcreel_jy_abc/draft/assets/s2.mp4"},
                 ]
             },
             "other": "no change",
@@ -243,21 +243,21 @@ class TestReplacePaths:
         svc = JianyingDraftService.__new__(JianyingDraftService)
         svc._replace_paths_in_draft(
             json_path=json_path,
-            tmp_prefix="/tmp/arcreel_jy_abc/草稿/assets",
-            target_prefix="/Users/test/Movies/JianyingPro/草稿/assets",
+            tmp_prefix="/tmp/arcreel_jy_abc/drafts/assets",
+            target_prefix="/Users/test/Movies/JianyingPro/drafts/assets",
         )
 
         result = json.loads(json_path.read_text(encoding="utf-8"))
-        assert result["materials"]["videos"][0]["path"] == "/Users/test/Movies/JianyingPro/草稿/assets/s1.mp4"
-        assert result["materials"]["videos"][1]["path"] == "/Users/test/Movies/JianyingPro/草稿/assets/s2.mp4"
+        assert result["materials"]["videos"][0]["path"] == "/Users/test/Movies/JianyingPro/drafts/assets/s1.mp4"
+        assert result["materials"]["videos"][1]["path"] == "/Users/test/Movies/JianyingPro/drafts/assets/s2.mp4"
         assert result["other"] == "no change"
 
 
 class TestExportEpisodeDraft:
-    """端到端测试：完整导出流程"""
+    """End-to-end tests: complete export flow."""
 
     def _setup_project(self, tmp_path) -> tuple:
-        """创建带视频片段的测试项目"""
+        """Create a test project with video clips."""
         from lib.project_manager import ProjectManager
 
         pm = ProjectManager(tmp_path / "projects")
@@ -270,11 +270,11 @@ class TestExportEpisodeDraft:
         make_test_video(videos_dir / "segment_S2.mp4")
 
         project_data = {
-            "title": "测试项目",
+            "title": "Test Project",
             "content_mode": "narration",
             "aspect_ratio": {"video": "9:16"},
             "episodes": [
-                {"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"},
+                {"episode": 1, "title": "Episode 1", "script_file": "scripts/episode_1.json"},
             ],
         }
         (project_dir / "project.json").write_text(json.dumps(project_data, ensure_ascii=False), encoding="utf-8")
@@ -287,13 +287,13 @@ class TestExportEpisodeDraft:
                 {
                     "segment_id": "S1",
                     "duration_seconds": 8,
-                    "novel_text": "从前有座山",
+                    "novel_text": "Once upon a time there was a mountain",
                     "generated_assets": {"video_clip": "videos/segment_S1.mp4", "status": "completed"},
                 },
                 {
                     "segment_id": "S2",
                     "duration_seconds": 6,
-                    "novel_text": "山上有座庙",
+                    "novel_text": "On the mountain there was a temple",
                     "generated_assets": {"video_clip": "videos/segment_S2.mp4", "status": "completed"},
                 },
             ],
@@ -303,7 +303,7 @@ class TestExportEpisodeDraft:
         return pm, project_dir
 
     def test_exports_zip_with_correct_structure(self, tmp_path):
-        """导出 ZIP 包含草稿 JSON + 视频素材"""
+        """Exported ZIP contains draft JSON and video assets."""
         from server.services.jianying_draft_service import JianyingDraftService
 
         pm, _ = self._setup_project(tmp_path)
@@ -326,7 +326,7 @@ class TestExportEpisodeDraft:
             assert any("segment_S2.mp4" in n for n in names)
 
     def test_draft_content_has_user_paths(self, tmp_path):
-        """draft_info.json 中的路径已替换为用户本地路径"""
+        """Paths in draft_info.json are replaced with the user's local paths."""
         from server.services.jianying_draft_service import JianyingDraftService
 
         pm, _ = self._setup_project(tmp_path)
@@ -343,17 +343,17 @@ class TestExportEpisodeDraft:
             assert draft_path in raw
 
     def test_episode_not_found_raises(self, tmp_path):
-        """集数不存在时抛出 FileNotFoundError"""
+        """Raises FileNotFoundError when episode does not exist."""
         from server.services.jianying_draft_service import JianyingDraftService
 
         pm, _ = self._setup_project(tmp_path)
         svc = JianyingDraftService(pm)
 
-        with pytest.raises(FileNotFoundError, match="第 99 集不存在"):
+        with pytest.raises(FileNotFoundError, match="Episode 99 does not exist"):
             svc.export_episode_draft(project_name="demo", episode=99, draft_path="/tmp")
 
     def test_no_videos_raises_value_error(self, tmp_path):
-        """无已完成视频时抛出 ValueError"""
+        """Raises ValueError when no completed videos are available."""
         from lib.project_manager import ProjectManager
         from server.services.jianying_draft_service import JianyingDraftService
 
@@ -364,9 +364,9 @@ class TestExportEpisodeDraft:
         (project_dir / "project.json").write_text(
             json.dumps(
                 {
-                    "title": "空项目",
+                    "title": "Empty Project",
                     "content_mode": "narration",
-                    "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+                    "episodes": [{"episode": 1, "title": "Episode 1", "script_file": "scripts/episode_1.json"}],
                 },
                 ensure_ascii=False,
             )
@@ -392,5 +392,5 @@ class TestExportEpisodeDraft:
         )
 
         svc = JianyingDraftService(pm)
-        with pytest.raises(ValueError, match="请先生成视频"):
+        with pytest.raises(ValueError, match="please generate videos first"):
             svc.export_episode_draft(project_name="empty", episode=1, draft_path="/tmp")

@@ -36,7 +36,7 @@ describe("ProjectsPage", () => {
     );
 
     renderPage();
-    expect(screen.getByText("加载项目列表...")).toBeInTheDocument();
+    expect(screen.getByText("Loading project list...")).toBeInTheDocument();
   });
 
   it("shows empty state when no projects exist", async () => {
@@ -44,9 +44,9 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("暂无项目")).toBeInTheDocument();
+    expect(await screen.findByText("No projects yet")).toBeInTheDocument();
     expect(
-      screen.getByText("点击右上角「新建项目」或「导入 ZIP」开始创作"),
+      screen.getByText("Click \"New Project\" or \"Import ZIP\" in the top right to get started"),
     ).toBeInTheDocument();
   });
 
@@ -72,7 +72,7 @@ describe("ProjectsPage", () => {
     renderPage();
 
     expect(await screen.findByText("Demo Project")).toBeInTheDocument();
-    expect(screen.getByText("Anime · 制作中")).toBeInTheDocument();
+    expect(screen.getByText("Anime · In production")).toBeInTheDocument();
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
@@ -80,9 +80,9 @@ describe("ProjectsPage", () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
 
     renderPage();
-    await screen.findByText("暂无项目");
+    await screen.findByText("No projects yet");
 
-    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    fireEvent.click(screen.getByRole("button", { name: "New Project" }));
 
     await waitFor(() => {
       expect(useProjectsStore.getState().showCreateModal).toBe(true);
@@ -121,16 +121,16 @@ describe("ProjectsPage", () => {
         characters: {},
         clues: {},
       },
-      warnings: ["发现未识别的附加文件/目录: extras"],
+      warnings: ["Unrecognized extra files/directories found: extras"],
       conflict_resolution: "none",
       diagnostics: {
-        auto_fixed: [{ code: "missing_clues_field", message: "segments[0]: 补全缺失字段 clues_in_segment" }],
-        warnings: [{ code: "validation_warning", message: "发现未识别的附加文件/目录: extras" }],
+        auto_fixed: [{ code: "missing_clues_field", message: "segments[0]: Filled in missing field clues_in_segment" }],
+        warnings: [{ code: "validation_warning", message: "Unrecognized extra files/directories found: extras" }],
       },
     });
 
     const { container, location } = renderPage();
-    await screen.findByText("暂无项目");
+    await screen.findByText("No projects yet");
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["zip"], "project.zip", { type: "application/zip" });
@@ -142,12 +142,12 @@ describe("ProjectsPage", () => {
     await waitFor(() => {
       expect(location.history?.at(-1)).toBe("/app/projects/imported-demo");
     });
-    expect(useAppStore.getState().toast?.text).toContain("导入警告");
+    expect(useAppStore.getState().toast?.text).toContain("Import warnings");
   });
 
   it("shows a structured toast when import fails", async () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
-    const error = new Error("导入包校验失败") as Error & {
+    const error = new Error("Import package validation failed") as Error & {
       detail?: string;
       errors?: string[];
       warnings?: string[];
@@ -157,25 +157,25 @@ describe("ProjectsPage", () => {
         warnings: { code: string; message: string }[];
       };
     };
-    error.detail = "导入包校验失败";
-    error.errors = ["缺少 project.json", "缺少 scripts/episode_1.json", "缺少角色图"];
-    error.warnings = ["发现未识别的附加文件/目录: extras"];
+    error.detail = "Import package validation failed";
+    error.errors = ["Missing project.json", "Missing scripts/episode_1.json", "Missing character image"];
+    error.warnings = ["Unrecognized extra files/directories found: extras"];
     error.diagnostics = {
       blocking: [
-        { code: "validation_error", message: "缺少 project.json" },
-        { code: "validation_error", message: "缺少 scripts/episode_1.json" },
+        { code: "validation_error", message: "Missing project.json" },
+        { code: "validation_error", message: "Missing scripts/episode_1.json" },
       ],
       auto_fixable: [
-        { code: "missing_clues_field", message: "segments[0]: 补全缺失字段 clues_in_segment" },
+        { code: "missing_clues_field", message: "segments[0]: Filled in missing field clues_in_segment" },
       ],
       warnings: [
-        { code: "validation_warning", message: "发现未识别的附加文件/目录: extras" },
+        { code: "validation_warning", message: "Unrecognized extra files/directories found: extras" },
       ],
     };
     vi.spyOn(API, "importProject").mockRejectedValue(error);
 
     const { container } = renderPage();
-    await screen.findByText("暂无项目");
+    await screen.findByText("No projects yet");
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(fileInput, {
@@ -183,12 +183,12 @@ describe("ProjectsPage", () => {
     });
 
     await waitFor(() => {
-      expect(useAppStore.getState().toast?.text).toContain("导入包校验失败");
+      expect(useAppStore.getState().toast?.text).toContain("Import package validation failed");
     });
-    expect(screen.getByText("导入诊断")).toBeInTheDocument();
-    expect(screen.getByText("缺少 project.json")).toBeInTheDocument();
-    expect(screen.getByText("缺少 scripts/episode_1.json")).toBeInTheDocument();
-    expect(screen.getByText("segments[0]: 补全缺失字段 clues_in_segment")).toBeInTheDocument();
+    expect(screen.getByText("Import diagnostics")).toBeInTheDocument();
+    expect(screen.getByText("Missing project.json")).toBeInTheDocument();
+    expect(screen.getByText("Missing scripts/episode_1.json")).toBeInTheDocument();
+    expect(screen.getByText("segments[0]: Filled in missing field clues_in_segment")).toBeInTheDocument();
   });
 
   it("opens a secondary confirmation when import hits a duplicate project id", async () => {
@@ -211,15 +211,15 @@ describe("ProjectsPage", () => {
           },
         ],
       });
-    const conflictError = new Error("检测到项目编号冲突") as Error & {
+    const conflictError = new Error("Project ID conflict detected") as Error & {
       status?: number;
       detail?: string;
       errors?: string[];
       conflict_project_name?: string;
     };
     conflictError.status = 409;
-    conflictError.detail = "检测到项目编号冲突";
-    conflictError.errors = ["项目编号 'demo' 已存在"];
+    conflictError.detail = "Project ID conflict detected";
+    conflictError.errors = ["Project ID 'demo' already exists"];
     conflictError.conflict_project_name = "demo";
 
     vi.spyOn(API, "importProject")
@@ -244,14 +244,14 @@ describe("ProjectsPage", () => {
       });
 
     const { container, location } = renderPage();
-    await screen.findByText("暂无项目");
+    await screen.findByText("No projects yet");
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["zip"], "project.zip", { type: "application/zip" });
     fireEvent.change(fileInput, { target: { files: [file] } });
 
-    expect(await screen.findByText("检测到项目编号重复")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "自动重命名导入" }));
+    expect(await screen.findByText("Duplicate project ID detected")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Auto-rename and import" }));
 
     await waitFor(() => {
       expect(API.importProject).toHaveBeenNthCalledWith(1, file, "prompt");

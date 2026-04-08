@@ -154,15 +154,15 @@ class TestSessionManagerProjectScope:
         project_json.write_text(
             json.dumps(
                 {
-                    "title": "重生之皇后威武",
+                    "title": "Rebirth of the Empress",
                     "content_mode": "narration",
                     "style": "Photographic",
                     "style_description": "Soft diffused lighting, muted earth tones",
                     "overview": {
-                        "synopsis": "姜月茴重生后逆袭的故事",
-                        "genre": "古装宫斗、重生复仇",
-                        "theme": "复仇与救赎",
-                        "world_setting": "架空古代皇朝",
+                        "synopsis": "The story of Jiang Yuehui's comeback after rebirth",
+                        "genre": "Historical Palace Drama, Rebirth Revenge",
+                        "theme": "Revenge and Redemption",
+                        "world_setting": "Fictional Ancient Dynasty",
                     },
                 },
                 ensure_ascii=False,
@@ -180,21 +180,21 @@ class TestSessionManagerProjectScope:
         prompt = manager._build_project_context("demo")
 
         # Project metadata fields
-        assert "项目标识：demo" in prompt
-        assert "项目标题：重生之皇后威武" in prompt
-        assert "重生之皇后威武" in prompt
+        assert "Project ID: demo" in prompt
+        assert "Project Title: Rebirth of the Empress" in prompt
+        assert "Rebirth of the Empress" in prompt
         assert "narration" in prompt
         assert "Photographic" in prompt
         assert "Soft diffused lighting" in prompt
-        assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve()}" in prompt
-        assert "必须使用绝对路径" in prompt
-        assert "必须使用相对路径" in prompt
+        assert str(project_dir.resolve()) in prompt
+        assert "absolute path" in prompt
+        assert "relative path" in prompt
 
         # Overview fields
-        assert "姜月茴重生后逆袭的故事" in prompt
-        assert "古装宫斗" in prompt
-        assert "复仇与救赎" in prompt
-        assert "架空古代皇朝" in prompt
+        assert "The story of Jiang Yuehui's comeback after rebirth" in prompt
+        assert "Historical Palace Drama" in prompt
+        assert "Revenge and Redemption" in prompt
+        assert "Fictional Ancient Dynasty" in prompt
 
         await engine.dispose()
 
@@ -228,7 +228,7 @@ class TestSessionManagerProjectScope:
         project_json.write_text(
             json.dumps(
                 {
-                    "title": "测试项目",
+                    "title": "Test Project",
                     "content_mode": "drama",
                     # No style, style_description, or overview
                 },
@@ -247,15 +247,15 @@ class TestSessionManagerProjectScope:
         prompt = manager._build_project_context("partial")
 
         # Present fields should be injected
-        assert "项目标识：partial" in prompt
-        assert "项目标题：测试项目" in prompt
-        assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve()}" in prompt
-        assert "测试项目" in prompt
+        assert "Project ID: partial" in prompt
+        assert "Project Title: Test Project" in prompt
+        assert str(project_dir.resolve()) in prompt
+        assert "Test Project" in prompt
         assert "drama" in prompt
 
         # Missing fields should NOT cause errors or appear
         assert "Photographic" not in prompt
-        assert "项目概述" not in prompt  # No overview section header
+        assert "Project Overview" not in prompt  # No overview section header
 
         await engine.dispose()
 
@@ -319,7 +319,7 @@ class TestSystemPromptProjectContext:
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
         (project_dir / "project.json").write_text(
-            json.dumps({"title": "测试项目"}, ensure_ascii=False),
+            json.dumps({"title": "Test Project"}, ensure_ascii=False),
             encoding="utf-8",
         )
 
@@ -331,6 +331,6 @@ class TestSystemPromptProjectContext:
         )
 
         prompt = manager._build_project_context("demo")
-        assert "项目标题：测试项目" in prompt
-        assert "当前项目上下文" in prompt
+        assert "Project Title: Test Project" in prompt
+        assert "Current Project Context" in prompt
         await engine.dispose()

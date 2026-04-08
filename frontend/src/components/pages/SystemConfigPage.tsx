@@ -19,11 +19,11 @@ type SettingsSection = "agent" | "providers" | "media" | "usage" | "api-keys";
 // ---------------------------------------------------------------------------
 
 const SECTION_LIST: { id: SettingsSection; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: "agent", label: "智能体", Icon: Bot },
-  { id: "providers", label: "供应商", Icon: Plug },
-  { id: "media", label: "模型选择", Icon: Film },
-  { id: "usage", label: "用量统计", Icon: BarChart3 },
-  { id: "api-keys", label: "API 管理", Icon: KeyRound },
+  { id: "agent", label: "Agent", Icon: Bot },
+  { id: "providers", label: "Providers", Icon: Plug },
+  { id: "media", label: "Model Selection", Icon: Film },
+  { id: "usage", label: "Usage Stats", Icon: BarChart3 },
+  { id: "api-keys", label: "API Management", Icon: KeyRound },
 ];
 
 // ---------------------------------------------------------------------------
@@ -68,14 +68,14 @@ export function SystemConfigPage() {
           <Link
             href="/app/projects"
             className="inline-flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-200 hover:border-gray-700 hover:bg-gray-800 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
-            aria-label="返回项目大厅"
+            aria-label="Back to project lobby"
           >
             <ChevronLeft className="h-4 w-4" />
-            返回
+            Back
           </Link>
           <div>
-            <h1 className="text-lg font-semibold text-gray-100">设置</h1>
-            <p className="text-xs text-gray-500">系统配置与 API 访问管理</p>
+            <h1 className="text-lg font-semibold text-gray-100">Settings</h1>
+            <p className="text-xs text-gray-500">System configuration and API access management</p>
           </div>
         </div>
       </header>
@@ -112,7 +112,7 @@ export function SystemConfigPage() {
               <div className="flex items-start gap-3">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
                 <div className="text-sm text-amber-200">
-                  <span className="font-medium">以下必填配置尚未完成：</span>
+                  <span className="font-medium">The following required configurations are incomplete:</span>
                   <ul className="mt-1 space-y-0.5">
                     {configIssues.map((issue) => (
                       <li key={issue.key}>

@@ -1,4 +1,4 @@
-"""ArkVideoBackend — 火山方舟 Ark 视频生成后端。"""
+"""ArkVideoBackend — Ark (Volcano Engine) video generation backend."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class ArkVideoBackend:
-    """Ark (火山方舟) 视频生成后端。"""
+    """Ark (Volcano Engine) video generation backend."""
 
     DEFAULT_MODEL = "doubao-seedance-1-5-pro-251215"
 
@@ -69,13 +69,13 @@ class ArkVideoBackend:
         return self._capabilities
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
+        """Generate video. Task creation and polling use separate retry scopes to avoid re-creating tasks on transient errors."""
         task_id = await self._create_task(request)
         return await self._poll_until_done(task_id, request)
 
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> str:
-        """创建 Ark 视频生成任务（带重试保护）。"""
+        """Create an Ark video generation task (with retry protection)."""
         # 1. Build content list
         content = [{"type": "text", "text": request.prompt}]
 
@@ -109,11 +109,11 @@ class ArkVideoBackend:
             self._client.content_generation.tasks.create,
             **create_params,
         )
-        logger.info("Ark 任务已创建: %s", create_result.id)
+        logger.info("Ark task created: %s", create_result.id)
         return create_result.id
 
     async def _poll_until_done(self, task_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """轮询任务状态直到完成，瞬态错误仅重试当次轮询请求。"""
+        """Poll task status until complete; transient errors only retry the current poll request."""
         poll_interval = 10 if request.service_tier == "default" else 60
         max_wait_time = 600 if request.service_tier == "default" else 3600
         elapsed = 0
@@ -126,7 +126,7 @@ class ArkVideoBackend:
                 )
             except Exception as e:
                 if _should_retry(e, BASE_RETRYABLE_ERRORS):
-                    logger.warning("Ark 轮询异常（将重试）: %s - %s", type(e).__name__, str(e)[:200])
+                    logger.warning("Ark polling error (will retry): %s - %s", type(e).__name__, str(e)[:200])
                     elapsed += poll_interval
                     if elapsed >= max_wait_time:
                         raise
@@ -138,14 +138,14 @@ class ArkVideoBackend:
                 break
             elif result.status in ("failed", "expired"):
                 error_msg = getattr(result, "error", None) or "Unknown error"
-                raise RuntimeError(f"Ark 视频生成失败: {error_msg}")
+                raise RuntimeError(f"Ark video generation failed: {error_msg}")
 
             elapsed += poll_interval
             if elapsed >= max_wait_time:
-                raise TimeoutError(f"Ark 视频生成超时（{max_wait_time}秒）")
+                raise TimeoutError(f"Ark video generation timed out ({max_wait_time}s)")
 
             logger.info(
-                "Ark 视频生成中... 状态: %s, 已等待 %d 秒",
+                "Ark video generating... status: %s, elapsed: %d seconds",
                 result.status,
                 elapsed,
             )

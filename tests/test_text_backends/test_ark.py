@@ -63,33 +63,33 @@ class TestGenerate:
 
 
 class TestCapabilityAwareStructured:
-    """测试基于模型能力的结构化输出路径选择。"""
+    """Tests for structured output path selection based on model capabilities."""
 
     @pytest.fixture
     def backend_no_structured(self, mock_ark):
-        """创建一个模型不支持原生 structured_output 的 backend。"""
+        """Create a backend whose model does not support native structured_output."""
         _, mock_client = mock_ark
-        # 使用默认模型 doubao-seed-2-0-lite-260215，registry 中已移除 structured_output
+        # Use default model doubao-seed-2-0-lite-260215, which has no structured_output in the registry
         b = ArkTextBackend(api_key="k")
         b._test_client = mock_client
         return b
 
     @pytest.fixture
     def backend_with_structured(self, mock_ark):
-        """创建一个模型支持原生 structured_output 的 backend（模拟）。"""
+        """Create a backend whose model supports native structured_output (simulated)."""
         _, mock_client = mock_ark
         b = ArkTextBackend(api_key="k", model="mock-model-with-structured")
         b._test_client = mock_client
-        # 手动添加原生结构化输出能力
+        # Manually add native structured output capability
         b._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
         return b
 
     async def test_default_model_does_not_support_native_structured(self, backend_no_structured):
-        """默认豆包模型不支持原生结构化输出。"""
+        """Default model does not support native structured output."""
         assert TextCapability.STRUCTURED_OUTPUT not in backend_no_structured.capabilities
 
     async def test_fallback_uses_instructor(self, backend_no_structured, sync_to_thread):
-        """模型不支持原生时走 Instructor 降级路径。"""
+        """When model does not support native structured output, falls back to the Instructor path."""
         from pydantic import BaseModel
 
         class TestModel(BaseModel):
@@ -111,7 +111,7 @@ class TestCapabilityAwareStructured:
             assert result.output_tokens == 20
 
     async def test_native_path_when_supported(self, backend_with_structured, sync_to_thread):
-        """模型支持原生时走 response_format 路径。"""
+        """When model supports native structured output, uses the response_format path."""
         mock_resp = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
             usage=SimpleNamespace(prompt_tokens=20, completion_tokens=10),
@@ -126,12 +126,12 @@ class TestCapabilityAwareStructured:
         assert "response_format" in call_args.kwargs
 
     async def test_unknown_model_falls_back_to_instructor(self, mock_ark):
-        """未注册模型保守降级为 Instructor。"""
+        """Unregistered models conservatively fall back to Instructor."""
         b = ArkTextBackend(api_key="k", model="unknown-model-xyz")
         assert TextCapability.STRUCTURED_OUTPUT not in b.capabilities
 
     async def test_dict_schema_fallback_uses_json_object(self, backend_no_structured, sync_to_thread):
-        """dict schema 走 json_object 降级路径。"""
+        """Dict schema falls back to the json_object path."""
         mock_resp = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
             usage=SimpleNamespace(prompt_tokens=30, completion_tokens=15),
@@ -147,7 +147,7 @@ class TestCapabilityAwareStructured:
         assert call_args.kwargs["response_format"] == {"type": "json_object"}
 
     async def test_native_failure_falls_back(self, backend_with_structured, sync_to_thread):
-        """原生 json_schema 运行时失败后降级到 json_object。"""
+        """Falls back to json_object after native json_schema path fails at runtime."""
         backend_with_structured._test_client.chat.completions.create = MagicMock(
             side_effect=Exception("schema not supported")
         )
@@ -162,7 +162,7 @@ class TestCapabilityAwareStructured:
         )
 
         assert result.text == '{"a": 1}'
-        # 原生路径应该被尝试过
+        # Native path should have been attempted
         backend_with_structured._test_client.chat.completions.create.assert_called_once()
-        # 降级路径应该被使用
+        # Fallback path should have been used
         backend_with_structured._openai_client.chat.completions.create.assert_called_once()
