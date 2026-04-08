@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import random
 from pathlib import Path
 
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
-from lib.retry import _should_retry, with_retry_async
+from lib.retry import with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
     VideoCapability,
@@ -96,29 +94,14 @@ class OpenAIVideoBackend:
         """视频生成（create_and_poll），带独立重试。"""
         return await self._client.videos.create_and_poll(**kwargs)
 
-    async def _download_content_with_retry(
-        self, video_id: str, *, max_attempts: int = 5, backoff: tuple[int, ...] = (4, 8, 15, 30)
-    ):
+    @with_retry_async(
+        max_attempts=5,
+        backoff_seconds=(4, 8, 15, 30),
+        retryable_errors=OPENAI_RETRYABLE_ERRORS,
+    )
+    async def _download_content_with_retry(self, video_id: str):
         """单独重试内容下载，避免因下载失败重新触发视频生成。"""
-        for attempt in range(max_attempts):
-            try:
-                return await self._client.videos.download_content(video_id)
-            except Exception as e:
-                if not _should_retry(e, OPENAI_RETRYABLE_ERRORS):
-                    raise
-                if attempt < max_attempts - 1:
-                    wait = backoff[min(attempt, len(backoff) - 1)] + random.uniform(0, 2)
-                    logger.warning(
-                        "视频内容下载失败 (尝试 %d/%d): %s — %.1f 秒后重试",
-                        attempt + 1,
-                        max_attempts,
-                        str(e)[:200],
-                        wait,
-                    )
-                    await asyncio.sleep(wait)
-                else:
-                    raise
-        raise RuntimeError(f"_download_content_with_retry: max_attempts={max_attempts}，未执行任何尝试")
+        return await self._client.videos.download_content(video_id)
 
 
 def _map_duration(seconds: int) -> str:

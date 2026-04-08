@@ -220,7 +220,7 @@ class TestOpenAIVideoBackend:
 
         with (
             patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
-            patch("lib.video_backends.openai.asyncio.sleep", new_callable=AsyncMock),
+            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
 
@@ -253,7 +253,7 @@ class TestOpenAIVideoBackend:
 
         with (
             patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
-            patch("lib.video_backends.openai.asyncio.sleep", new_callable=AsyncMock),
+            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
 
@@ -286,7 +286,7 @@ class TestOpenAIVideoBackend:
 
         with (
             patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
-            patch("lib.video_backends.openai.asyncio.sleep", mock_sleep),
+            patch("lib.retry.asyncio.sleep", mock_sleep),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
 
