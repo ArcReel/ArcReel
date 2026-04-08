@@ -1,7 +1,7 @@
 """
-视频项目管理 WebUI - FastAPI 主应用
+Video Project Management WebUI - FastAPI Main Application
 
-启动方式:
+Startup:
     cd ArcReel
     uv run uvicorn server.app:app --reload --port 1241
 """
@@ -43,14 +43,14 @@ from server.routers import (
 from server.routers import auth as auth_router
 from server.services.project_events import ProjectEventService
 
-# 初始化日志
+# Initialize logging
 setup_logging()
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
+    """Application lifecycle management."""
     # Startup
     ensure_auth_password()
 
@@ -78,55 +78,55 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("DB→env Anthropic config sync failed (non-fatal): %s", exc)
 
-    # 修复存量项目的 agent_runtime 软连接
+    # Fix legacy project agent_runtime symlinks
     from lib.project_manager import ProjectManager
 
     _pm = ProjectManager(PROJECT_ROOT / "projects")
     _symlink_stats = _pm.repair_all_symlinks()
     if any(v > 0 for v in _symlink_stats.values()):
-        logger.info("agent_runtime 软连接修复完成: %s", _symlink_stats)
+        logger.info("agent_runtime symlink repair complete: %s", _symlink_stats)
 
     # Initialize async services
     await assistant.assistant_service.startup()
     assistant.assistant_service.session_manager.start_patrol()
 
-    logger.info("启动 GenerationWorker...")
+    logger.info("Starting GenerationWorker...")
     worker = create_generation_worker()
     app.state.generation_worker = worker
     await worker.start()
-    logger.info("GenerationWorker 已启动")
+    logger.info("GenerationWorker started")
 
-    logger.info("启动 ProjectEventService...")
+    logger.info("Starting ProjectEventService...")
     project_event_service = ProjectEventService(PROJECT_ROOT)
     app.state.project_event_service = project_event_service
     await project_event_service.start()
-    logger.info("ProjectEventService 已启动")
+    logger.info("ProjectEventService started")
 
     yield
 
     # Shutdown
     project_event_service = getattr(app.state, "project_event_service", None)
     if project_event_service:
-        logger.info("正在停止 ProjectEventService...")
+        logger.info("Stopping ProjectEventService...")
         await project_event_service.shutdown()
-        logger.info("ProjectEventService 已停止")
+        logger.info("ProjectEventService stopped")
     worker = getattr(app.state, "generation_worker", None)
     if worker:
-        logger.info("正在停止 GenerationWorker...")
+        logger.info("Stopping GenerationWorker...")
         await worker.stop()
-        logger.info("GenerationWorker 已停止")
+        logger.info("GenerationWorker stopped")
     await close_db()
 
 
-# 创建 FastAPI 应用
+# Create FastAPI application
 app = FastAPI(
-    title="视频项目管理 WebUI",
-    description="AI 视频生成工作空间的 Web 管理界面",
+    title="Video Project Management WebUI",
+    description="Web management interface for AI video generation workspace",
     version="1.0.0",
     lifespan=lifespan,
 )
 
-# CORS 配置
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -165,24 +165,24 @@ async def request_logging_middleware(request: Request, call_next):
     return response
 
 
-# 注册 API 路由
-app.include_router(auth_router.router, prefix="/api/v1", tags=["认证"])
-app.include_router(projects.router, prefix="/api/v1", tags=["项目管理"])
-app.include_router(characters.router, prefix="/api/v1", tags=["角色管理"])
-app.include_router(clues.router, prefix="/api/v1", tags=["线索管理"])
-app.include_router(files.router, prefix="/api/v1", tags=["文件管理"])
-app.include_router(generate.router, prefix="/api/v1", tags=["生成"])
-app.include_router(versions.router, prefix="/api/v1", tags=["版本管理"])
-app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
-app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant", tags=["助手会话"])
-app.include_router(tasks.router, prefix="/api/v1", tags=["任务队列"])
-app.include_router(project_events.router, prefix="/api/v1", tags=["项目变更流"])
-app.include_router(providers.router, prefix="/api/v1", tags=["供应商管理"])
-app.include_router(system_config.router, prefix="/api/v1", tags=["系统配置"])
-app.include_router(api_keys.router, prefix="/api/v1", tags=["API Key 管理"])
-app.include_router(agent_chat.router, prefix="/api/v1", tags=["Agent 对话"])
-app.include_router(custom_providers.router, prefix="/api/v1", tags=["自定义供应商"])
-app.include_router(cost_estimation.router, prefix="/api/v1", tags=["费用估算"])
+# Register API routes
+app.include_router(auth_router.router, prefix="/api/v1", tags=["Authentication"])
+app.include_router(projects.router, prefix="/api/v1", tags=["Project Management"])
+app.include_router(characters.router, prefix="/api/v1", tags=["Character Management"])
+app.include_router(clues.router, prefix="/api/v1", tags=["Clue Management"])
+app.include_router(files.router, prefix="/api/v1", tags=["File Management"])
+app.include_router(generate.router, prefix="/api/v1", tags=["Generation"])
+app.include_router(versions.router, prefix="/api/v1", tags=["Version Management"])
+app.include_router(usage.router, prefix="/api/v1", tags=["Usage Statistics"])
+app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant", tags=["Assistant Sessions"])
+app.include_router(tasks.router, prefix="/api/v1", tags=["Task Queue"])
+app.include_router(project_events.router, prefix="/api/v1", tags=["Project Change Stream"])
+app.include_router(providers.router, prefix="/api/v1", tags=["Provider Management"])
+app.include_router(system_config.router, prefix="/api/v1", tags=["System Configuration"])
+app.include_router(api_keys.router, prefix="/api/v1", tags=["API Key Management"])
+app.include_router(agent_chat.router, prefix="/api/v1", tags=["Agent Chat"])
+app.include_router(custom_providers.router, prefix="/api/v1", tags=["Custom Providers"])
+app.include_router(cost_estimation.router, prefix="/api/v1", tags=["Cost Estimation"])
 
 
 def create_generation_worker() -> GenerationWorker:
@@ -191,23 +191,23 @@ def create_generation_worker() -> GenerationWorker:
 
 @app.get("/health")
 async def health_check():
-    """健康检查"""
-    return {"status": "ok", "message": "视频项目管理 WebUI 运行正常"}
+    """Health check."""
+    return {"status": "ok", "message": "Video Project Management WebUI is running"}
 
 
 @app.get("/skill.md", include_in_schema=False)
 async def serve_skill_md(request: Request) -> Response:
-    """动态渲染 skill.md 模板，将 {{BASE_URL}} 替换为实际服务地址（无需认证）。"""
+    """Dynamically render skill.md template, replacing {{BASE_URL}} with actual service address (no auth required)."""
     from starlette.responses import PlainTextResponse
 
     template_path = PROJECT_ROOT / "public" / "skill.md.template"
     if not template_path.exists():
-        return PlainTextResponse("skill.md 模板不存在", status_code=404)
+        return PlainTextResponse("skill.md template not found", status_code=404)
 
     template = template_path.read_text(encoding="utf-8")
 
-    # 从请求推断 base URL；仅信任 x-forwarded-proto（反向代理标准头），
-    # host 使用连接实际目标地址，不接受可被用户伪造的 x-forwarded-host。
+    # Infer base URL from request; only trust x-forwarded-proto (standard reverse proxy header),
+    # host uses the actual connection target address, not the user-forgeable x-forwarded-host.
     forwarded_proto = request.headers.get("x-forwarded-proto")
     scheme = forwarded_proto or request.url.scheme or "http"
     host = request.url.netloc
@@ -217,12 +217,12 @@ async def serve_skill_md(request: Request) -> Response:
     return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
 
 
-# 前端构建产物：SPA 静态文件服务（必须在所有显式路由之后挂载）
+# Frontend build artifacts: SPA static file service (must be mounted after all explicit routes)
 frontend_dist_dir = PROJECT_ROOT / "frontend" / "dist"
 
 
 class SPAStaticFiles(StaticFiles):
-    """服务 Vite 构建产物，未匹配的路径回退到 index.html（SPA 路由）。"""
+    """Serves Vite build artifacts, falling back to index.html for unmatched paths (SPA routing)."""
 
     async def get_response(self, path: str, scope):
         try:

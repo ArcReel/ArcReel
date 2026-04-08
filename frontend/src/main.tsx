@@ -11,11 +11,11 @@ import "./css/styles.css";
 import "./css/app.css";
 import "./css/studio.css";
 
-// 从 localStorage 恢复登录状态
+// Restore login state from localStorage
 useAuthStore.getState().initialize();
 
 // ---------------------------------------------------------------------------
-// 全局滚动条 auto-hide：滚动时渐显、停止 1.2s 后渐隐
+// Global scrollbar auto-hide: fades in on scroll, fades out 1.2s after stop
 // ---------------------------------------------------------------------------
 {
   const timers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
@@ -26,14 +26,14 @@ useAuthStore.getState().initialize();
       const el = e.target;
       if (!(el instanceof HTMLElement)) return;
 
-      // 显示滚动条
+      // Show scrollbar
       el.dataset.scrolling = "";
 
-      // 清除上一次的隐藏定时器
+      // Clear previous hide timer
       const prev = timers.get(el);
       if (prev) clearTimeout(prev);
 
-      // 1.2s 无滚动后隐藏
+      // Hide after 1.2s of no scrolling
       timers.set(
         el,
         setTimeout(() => {
@@ -42,7 +42,7 @@ useAuthStore.getState().initialize();
         }, 1200),
       );
     },
-    true, // capture phase — 捕获所有子元素的 scroll 事件
+    true, // capture phase — captures scroll events from all child elements
   );
 }
 

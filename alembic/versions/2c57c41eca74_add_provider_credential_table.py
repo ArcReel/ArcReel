@@ -47,7 +47,7 @@ def upgrade() -> None:
 
     # ### end Alembic commands ###
 
-    # 数据迁移：将 provider_config 中的凭证行迁入 provider_credential
+    # Data migration: move credential rows from provider_config into provider_credential
     conn = op.get_bind()
 
     rows = conn.execute(
@@ -81,7 +81,7 @@ def upgrade() -> None:
         conn.execute(
             cred_table.insert().values(
                 provider=provider,
-                name="默认密钥",
+                name="Default Key",
                 api_key=data.get("api_key"),
                 credentials_path=data.get("credentials_path"),
                 base_url=data.get("base_url"),
@@ -96,7 +96,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    # 反向迁移：将活跃凭证写回 provider_config
+    # Reverse migration: write active credentials back to provider_config
     conn = op.get_bind()
     rows = conn.execute(
         sa.text("SELECT provider, api_key, credentials_path, base_url FROM provider_credential WHERE is_active = 1")

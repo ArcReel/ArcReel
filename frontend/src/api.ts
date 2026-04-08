@@ -1,5 +1,5 @@
 /**
- * API 调用封装 (TypeScript)
+ * API call wrapper (TypeScript)
  *
  * Typed API layer for all backend endpoints.
  * Import: import { API } from '@/api';
@@ -163,8 +163,8 @@ function normalizeExportDiagnostics(value: unknown): ExportDiagnostics {
 const API_BASE = "/api/v1";
 
 /**
- * 检查 fetch 响应状态，抛出包含后端错误信息的 Error。
- * 用于不经过 API.request() 的自定义 fetch 调用。
+ * Checks fetch response status and throws an Error containing backend error info.
+ * Used for custom fetch calls that bypass API.request().
  */
 async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<void> {
   if (!response.ok) {
@@ -181,10 +181,11 @@ function handleUnauthorized(response: Response): void {
 
   clearToken();
   globalThis.location.href = "/login";
-  throw new Error("认证已过期，请重新登录");
+  throw new Error("Session expired, please log in again");
+
 }
 
-/** 为 fetch options 注入 Authorization header */
+/** Injects Authorization header into fetch options */
 function withAuth(options: RequestInit = {}): RequestInit {
   const token = getToken();
   if (!token) return options;
@@ -193,7 +194,7 @@ function withAuth(options: RequestInit = {}): RequestInit {
   return { ...options, headers };
 }
 
-/** 为 URL 追加 token query param（用于 EventSource） */
+/** Appends token query param to URL (for EventSource) */
 function withAuthQuery(url: string): string {
   const token = getToken();
   if (!token) return url;
@@ -203,7 +204,7 @@ function withAuthQuery(url: string): string {
 
 class API {
   /**
-   * 通用请求方法
+   * Generic request method
    */
   static async request<T = unknown>(
     endpoint: string,
@@ -223,7 +224,7 @@ class API {
       const error = await response
         .json()
         .catch(() => ({ detail: response.statusText }));
-      let message = "请求失败";
+      let message = "Request failed";
       if (typeof error.detail === "string") {
         message = error.detail;
       } else if (Array.isArray(error.detail) && error.detail.length > 0) {
@@ -238,7 +239,7 @@ class API {
     return response.json();
   }
 
-  // ==================== 系统配置 ====================
+  // ==================== System Configuration ====================
 
   static async getSystemConfig(): Promise<GetSystemConfigResponse> {
     return this.request("/system/config");
@@ -254,7 +255,7 @@ class API {
   }
 
 
-  // ==================== 项目管理 ====================
+  // ==================== Project Management ====================
 
   static async listProjects(): Promise<{ projects: ProjectSummary[] }> {
     return this.request("/projects");
@@ -294,7 +295,7 @@ class API {
     updates: Partial<ProjectData>
   ): Promise<{ success: boolean; project: ProjectData }> {
     if ("content_mode" in updates) {
-      throw new Error("项目创建后不支持修改 content_mode");
+      throw new Error("content_mode cannot be changed after project creation");
     }
     return this.request(`/projects/${encodeURIComponent(name)}`, {
       method: "PATCH",
@@ -337,7 +338,7 @@ class API {
     return `${API_BASE}/projects/${encodeURIComponent(projectName)}/export?download_token=${encodeURIComponent(downloadToken)}&scope=${encodeURIComponent(scope)}`;
   }
 
-  /** 构造剪映草稿下载 URL */
+  /** Builds CapCut draft download URL */
   static getJianyingDraftDownloadUrl(
     projectName: string,
     episode: number,
@@ -371,7 +372,7 @@ class API {
         .json()
         .catch(() => ({ detail: response.statusText, errors: [], warnings: [] }));
       const error = new Error(
-        typeof payload.detail === "string" ? payload.detail : "导入失败"
+        typeof payload.detail === "string" ? payload.detail : "Import failed"
       ) as Error & {
         status?: number;
         detail?: string;
@@ -381,7 +382,7 @@ class API {
         diagnostics?: ImportFailureDiagnostics;
       };
       error.status = response.status;
-      error.detail = typeof payload.detail === "string" ? payload.detail : "导入失败";
+      error.detail = typeof payload.detail === "string" ? payload.detail : "Import failed";
       error.errors = Array.isArray(payload.errors) ? payload.errors : [];
       error.warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
       if (typeof payload.conflict_project_name === "string") {
@@ -401,7 +402,7 @@ class API {
     };
   }
 
-  // ==================== 角色管理 ====================
+  // ==================== Character Management ====================
 
   static async addCharacter(
     projectName: string,
@@ -448,7 +449,7 @@ class API {
     );
   }
 
-  // ==================== 线索管理 ====================
+  // ==================== Clue Management ====================
 
   static async addClue(
     projectName: string,
@@ -497,7 +498,7 @@ class API {
     );
   }
 
-  // ==================== 场景管理 ====================
+  // ==================== Scene Management ====================
 
   static async getScript(
     projectName: string,
@@ -523,7 +524,7 @@ class API {
     );
   }
 
-  // ==================== 片段管理（说书模式） ====================
+  // ==================== Segment Management (Narration Mode) ====================
 
   static async updateSegment(
     projectName: string,
@@ -539,7 +540,7 @@ class API {
     );
   }
 
-  // ==================== 文件管理 ====================
+  // ==================== File Management ====================
 
   static async uploadFile(
     projectName: string,
@@ -560,7 +561,7 @@ class API {
       body: formData,
     }));
 
-    await throwIfNotOk(response, "上传失败");
+    await throwIfNotOk(response, "Upload failed");
 
     return response.json();
   }
@@ -586,10 +587,10 @@ class API {
     return `${base}?v=${encodeURIComponent(String(cacheBust))}`;
   }
 
-  // ==================== Source 文件管理 ====================
+  // ==================== Source File Management ====================
 
   /**
-   * 获取 source 文件内容
+   * Retrieves source file content
    */
   static async getSourceContent(
     projectName: string,
@@ -599,12 +600,12 @@ class API {
       `${API_BASE}/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`,
       withAuth()
     );
-    await throwIfNotOk(response, "获取文件内容失败");
+    await throwIfNotOk(response, "Failed to retrieve file content");
     return response.text();
   }
 
   /**
-   * 保存 source 文件（新建或更新）
+   * Saves source file (create or update)
    */
   static async saveSourceFile(
     projectName: string,
@@ -619,12 +620,12 @@ class API {
         body: content,
       })
     );
-    await throwIfNotOk(response, "保存文件失败");
+    await throwIfNotOk(response, "Failed to save file");
     return response.json();
   }
 
   /**
-   * 删除 source 文件
+   * Deletes source file
    */
   static async deleteSourceFile(
     projectName: string,
@@ -636,14 +637,14 @@ class API {
         method: "DELETE",
       })
     );
-    await throwIfNotOk(response, "删除文件失败");
+    await throwIfNotOk(response, "Failed to delete file");
     return response.json();
   }
 
-  // ==================== 草稿文件管理 ====================
+  // ==================== Draft File Management ====================
 
   /**
-   * 获取项目的所有草稿
+   * List all drafts for a project
    */
   static async listDrafts(
     projectName: string
@@ -654,7 +655,7 @@ class API {
   }
 
   /**
-   * 获取草稿内容
+   * Get draft content
    */
   static async getDraftContent(
     projectName: string,
@@ -665,12 +666,12 @@ class API {
       `${API_BASE}/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`,
       withAuth()
     );
-    await throwIfNotOk(response, "获取草稿内容失败");
+    await throwIfNotOk(response, "Failed to fetch draft content");
     return response.text();
   }
 
   /**
-   * 保存草稿内容
+   * Save draft content
    */
   static async saveDraft(
     projectName: string,
@@ -686,7 +687,7 @@ class API {
         body: content,
       })
     );
-    await throwIfNotOk(response, "保存草稿失败");
+    await throwIfNotOk(response, "Failed to save draft");
     return response.json();
   }
 
@@ -1043,7 +1044,7 @@ class API {
       })
     );
 
-    await throwIfNotOk(response, "上传失败");
+    await throwIfNotOk(response, "Upload failed");
 
     return response.json();
   }
