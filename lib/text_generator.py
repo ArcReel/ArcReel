@@ -51,7 +51,7 @@ class TextGenerator:
         request: TextGenerationRequest,
         project_name: str | None = None,
     ) -> TextGenerationResult:
-        """生成文本并自动记录用量。"""
+        """Generate text and automatically record usage."""
         call_id = await self.usage_tracker.start_call(
             project_name=project_name or "",
             call_type="text",

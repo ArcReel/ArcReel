@@ -1,4 +1,4 @@
-"""视频首帧缩略图提取"""
+"""Video first-frame thumbnail extraction."""
 
 import asyncio
 import logging
@@ -12,14 +12,14 @@ async def extract_video_thumbnail(
     thumbnail_path: Path,
 ) -> Path | None:
     """
-    使用 ffmpeg 提取视频第一帧作为 JPEG 缩略图。
+    Extract the first frame of a video as a JPEG thumbnail using ffmpeg.
 
     Args:
-        video_path: 视频文件路径
-        thumbnail_path: 输出缩略图路径
+        video_path: Video file path
+        thumbnail_path: Output thumbnail path
 
     Returns:
-        缩略图路径（成功）或 None（失败）
+        Thumbnail path (on success) or None (on failure)
     """
     if not video_path.exists():
         return None
@@ -47,5 +47,5 @@ async def extract_video_thumbnail(
 
         return thumbnail_path
     except Exception:
-        logger.warning("提取视频缩略图失败: %s", video_path, exc_info=True)
+        logger.warning("Failed to extract video thumbnail: %s", video_path, exc_info=True)
         return None

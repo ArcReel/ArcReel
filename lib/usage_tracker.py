@@ -1,5 +1,5 @@
 """
-Async API 调用记录追踪器
+Async API call record tracker
 
 Wraps UsageRepository with a module-level convenience class.
 """
@@ -16,7 +16,7 @@ from lib.providers import PROVIDER_GEMINI, CallType
 
 
 class UsageTracker:
-    """Async API 调用记录追踪器，wrapping UsageRepository."""
+    """Async API call record tracker, wrapping UsageRepository."""
 
     def __init__(self, *, session_factory=None):
         self._session_factory = session_factory or safe_session_factory

@@ -1,8 +1,8 @@
 """
-版本管理模块
+Version management module
 
-管理分镜图、视频、角色图、线索图的历史版本。
-支持版本备份、切换当前版本、记录和查询。
+Manages historical versions of storyboard images, videos, character images, and clue images.
+Supports version backup, switching the current version, recording, and querying.
 """
 
 import json
@@ -26,12 +26,12 @@ def _get_versions_file_lock(versions_file: Path) -> threading.RLock:
 
 
 class VersionManager:
-    """版本管理器"""
+    """Version manager"""
 
-    # 支持的资源类型
+    # Supported resource types
     RESOURCE_TYPES = ("storyboards", "videos", "characters", "clues")
 
-    # 资源类型对应的文件扩展名
+    # File extension for each resource type
     EXTENSIONS = {
         "storyboards": ".png",
         "videos": ".mp4",
@@ -41,27 +41,27 @@ class VersionManager:
 
     def __init__(self, project_path: Path):
         """
-        初始化版本管理器
+        Initialise the version manager.
 
         Args:
-            project_path: 项目根目录路径
+            project_path: Project root directory path
         """
         self.project_path = Path(project_path)
         self.versions_dir = self.project_path / "versions"
         self.versions_file = self.versions_dir / "versions.json"
         self._lock = _get_versions_file_lock(self.versions_file)
 
-        # 确保版本目录存在
+        # Ensure version directory exists
         self._ensure_dirs()
 
     def _ensure_dirs(self) -> None:
-        """确保版本目录结构存在"""
+        """Ensure the version directory structure exists."""
         self.versions_dir.mkdir(parents=True, exist_ok=True)
         for resource_type in self.RESOURCE_TYPES:
             (self.versions_dir / resource_type).mkdir(exist_ok=True)
 
     def _load_versions(self) -> dict:
-        """加载版本元数据"""
+        """Load version metadata."""
         if not self.versions_file.exists():
             return {rt: {} for rt in self.RESOURCE_TYPES}
 
@@ -69,31 +69,31 @@ class VersionManager:
             return json.load(f)
 
     def _save_versions(self, data: dict) -> None:
-        """保存版本元数据"""
+        """Save version metadata."""
         with open(self.versions_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     def _generate_timestamp(self) -> str:
-        """生成时间戳字符串（用于文件名）"""
+        """Generate a timestamp string (for use in filenames)."""
         return datetime.now().strftime("%Y%m%dT%H%M%S")
 
     def _generate_iso_timestamp(self) -> str:
-        """生成 ISO 格式时间戳（用于元数据）"""
+        """Generate an ISO-format timestamp (for use in metadata)."""
         return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def get_versions(self, resource_type: str, resource_id: str) -> dict:
         """
-        获取资源的所有版本信息
+        Get all version information for a resource.
 
         Args:
-            resource_type: 资源类型 (storyboards, videos, characters, clues)
-            resource_id: 资源 ID (如 E1S01, 姜月茴)
+            resource_type: Resource type (storyboards, videos, characters, clues)
+            resource_id: Resource ID (e.g. E1S01, character_name)
 
         Returns:
-            版本信息字典，包含 current_version 和 versions 列表
+            Version information dictionary containing current_version and versions list
         """
         if resource_type not in self.RESOURCE_TYPES:
-            raise ValueError(f"不支持的资源类型: {resource_type}")
+            raise ValueError(f"Unsupported resource type: {resource_type}")
 
         with self._lock:
             data = self._load_versions()
@@ -102,7 +102,7 @@ class VersionManager:
             if not resource_data:
                 return {"current_version": 0, "versions": []}
 
-            # 添加 is_current 和 file_url 字段
+            # Add is_current and file_url fields
             versions = []
             for v in resource_data.get("versions", []):
                 version_info = v.copy()
@@ -114,14 +114,14 @@ class VersionManager:
 
     def get_current_version(self, resource_type: str, resource_id: str) -> int:
         """
-        获取当前版本号
+        Get the current version number.
 
         Args:
-            resource_type: 资源类型
-            resource_id: 资源 ID
+            resource_type: Resource type
+            resource_id: Resource ID
 
         Returns:
-            当前版本号，无版本时返回 0
+            Current version number; returns 0 if no versions exist
         """
         info = self.get_versions(resource_type, resource_id)
         return info["current_version"]
@@ -130,29 +130,29 @@ class VersionManager:
         self, resource_type: str, resource_id: str, prompt: str, source_file: Path | None = None, **metadata
     ) -> int:
         """
-        添加新版本记录
+        Add a new version record.
 
         Args:
-            resource_type: 资源类型
-            resource_id: 资源 ID
-            prompt: 生成该版本使用的 prompt
-            source_file: 源文件路径（用于复制到版本目录）
-            **metadata: 额外的元数据（如 aspect_ratio, duration_seconds）
+            resource_type: Resource type
+            resource_id: Resource ID
+            prompt: The prompt used to generate this version
+            source_file: Source file path (copied to the versions directory)
+            **metadata: Additional metadata (e.g. aspect_ratio, duration_seconds)
 
         Returns:
-            新版本号
+            New version number
         """
         if resource_type not in self.RESOURCE_TYPES:
-            raise ValueError(f"不支持的资源类型: {resource_type}")
+            raise ValueError(f"Unsupported resource type: {resource_type}")
 
         with self._lock:
             data = self._load_versions()
 
-            # 确保资源类型存在
+            # Ensure the resource type key exists
             if resource_type not in data:
                 data[resource_type] = {}
 
-            # 获取或创建资源记录
+            # Get or create the resource record
             if resource_id not in data[resource_type]:
                 data[resource_type][resource_id] = {"current_version": 0, "versions": []}
 
@@ -164,18 +164,18 @@ class VersionManager:
             )
             new_version = max_version + 1
 
-            # 生成版本文件名和路径
+            # Generate version filename and path
             timestamp = self._generate_timestamp()
             ext = self.EXTENSIONS.get(resource_type, ".png")
             version_filename = f"{resource_id}_v{new_version}_{timestamp}{ext}"
             version_rel_path = f"versions/{resource_type}/{version_filename}"
             version_abs_path = self.project_path / version_rel_path
 
-            # 如果有源文件，复制到版本目录
+            # If a source file is provided, copy it to the versions directory
             if source_file and Path(source_file).exists():
                 shutil.copy2(source_file, version_abs_path)
 
-            # 创建版本记录
+            # Create the version record
             version_record = {
                 "version": new_version,
                 "file": version_rel_path,
@@ -194,19 +194,19 @@ class VersionManager:
         self, resource_type: str, resource_id: str, current_file: Path, prompt: str, **metadata
     ) -> int | None:
         """
-        将当前文件备份到版本目录
+        Back up the current file to the versions directory.
 
-        如果当前文件不存在，不执行任何操作。
+        If the current file does not exist, this is a no-op.
 
         Args:
-            resource_type: 资源类型
-            resource_id: 资源 ID
-            current_file: 当前文件路径
-            prompt: 当前版本的 prompt
-            **metadata: 额外的元数据
+            resource_type: Resource type
+            resource_id: Resource ID
+            current_file: Current file path
+            prompt: The prompt for the current version
+            **metadata: Additional metadata
 
         Returns:
-            备份的版本号，如果未备份则返回 None
+            The backed-up version number, or None if no backup was performed
         """
         current_file = Path(current_file)
         if not current_file.exists():
@@ -219,28 +219,29 @@ class VersionManager:
     def ensure_current_tracked(
         self, resource_type: str, resource_id: str, current_file: Path, prompt: str, **metadata
     ) -> int | None:
-        """
-        确保“当前文件”至少有一个版本记录
+        “””
+        Ensure the current file has at least one version record.
 
-        用于升级/迁移场景：磁盘上已有 current_file，但 versions.json 还没有记录。
-        若该资源已存在版本记录（current_version > 0）则不会重复写入。
+        Used for upgrade/migration scenarios where a current_file already exists on disk
+        but versions.json has no record for it yet.
+        If the resource already has a version record (current_version > 0) no new entry is written.
 
         Args:
-            resource_type: 资源类型
-            resource_id: 资源 ID
-            current_file: 当前文件路径
-            prompt: 当前文件对应的 prompt（用于记录）
-            **metadata: 额外元数据
+            resource_type: Resource type
+            resource_id: Resource ID
+            current_file: Current file path
+            prompt: The prompt corresponding to the current file (for record-keeping)
+            **metadata: Additional metadata
 
         Returns:
-            新增的版本号；若无需新增或文件不存在则返回 None
-        """
+            The newly added version number; None if no addition was needed or the file does not exist
+        “””
         current_file = Path(current_file)
         if not current_file.exists():
             return None
 
         if resource_type not in self.RESOURCE_TYPES:
-            raise ValueError(f"不支持的资源类型: {resource_type}")
+            raise ValueError(f”Unsupported resource type: {resource_type}”)
 
         with self._lock:
             if self.get_current_version(resource_type, resource_id) > 0:
@@ -255,21 +256,21 @@ class VersionManager:
 
     def restore_version(self, resource_type: str, resource_id: str, version: int, current_file: Path) -> dict:
         """
-        切换到指定版本
+        Switch to the specified version.
 
-        将指定版本复制到当前路径，并将 current_version 指向该版本。
+        Copies the specified version to the current file path and updates current_version to point to it.
 
         Args:
-            resource_type: 资源类型
-            resource_id: 资源 ID
-            version: 要还原的版本号
-            current_file: 当前文件路径
+            resource_type: Resource type
+            resource_id: Resource ID
+            version: Version number to restore
+            current_file: Current file path
 
         Returns:
-            切换信息，包含 restored_version, current_version, prompt
+            Restore info dict containing restored_version, current_version, and prompt
         """
         if resource_type not in self.RESOURCE_TYPES:
-            raise ValueError(f"不支持的资源类型: {resource_type}")
+            raise ValueError(f"Unsupported resource type: {resource_type}")
 
         current_file = Path(current_file)
 
@@ -278,7 +279,7 @@ class VersionManager:
             resource_data = data.get(resource_type, {}).get(resource_id)
 
             if not resource_data:
-                raise ValueError(f"资源不存在: {resource_type}/{resource_id}")
+                raise ValueError(f"Resource not found: {resource_type}/{resource_id}")
 
             target_version = None
             for v in resource_data["versions"]:
@@ -287,11 +288,11 @@ class VersionManager:
                     break
 
             if not target_version:
-                raise ValueError(f"版本不存在: {version}")
+                raise ValueError(f"Version not found: {version}")
 
             target_file = self.project_path / target_version["file"]
             if not target_file.exists():
-                raise FileNotFoundError(f"版本文件不存在: {target_file}")
+                raise FileNotFoundError(f"Version file not found: {target_file}")
 
             current_file.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(target_file, current_file)
@@ -308,15 +309,15 @@ class VersionManager:
 
     def get_version_file_url(self, resource_type: str, resource_id: str, version: int) -> str | None:
         """
-        获取指定版本的文件 URL
+        Get the file URL for the specified version.
 
         Args:
-            resource_type: 资源类型
-            resource_id: 资源 ID
-            version: 版本号
+            resource_type: Resource type
+            resource_id: Resource ID
+            version: Version number
 
         Returns:
-            文件 URL，不存在时返回 None
+            File URL, or None if not found
         """
         info = self.get_versions(resource_type, resource_id)
         for v in info["versions"]:
@@ -326,15 +327,15 @@ class VersionManager:
 
     def get_version_prompt(self, resource_type: str, resource_id: str, version: int) -> str | None:
         """
-        获取指定版本的 prompt
+        Get the prompt for the specified version.
 
         Args:
-            resource_type: 资源类型
-            resource_id: 资源 ID
-            version: 版本号
+            resource_type: Resource type
+            resource_id: Resource ID
+            version: Version number
 
         Returns:
-            prompt 文本，不存在时返回 None
+            Prompt text, or None if not found
         """
         info = self.get_versions(resource_type, resource_id)
         for v in info["versions"]:
@@ -344,13 +345,13 @@ class VersionManager:
 
     def has_versions(self, resource_type: str, resource_id: str) -> bool:
         """
-        检查资源是否有版本记录
+        Check whether the resource has any version records.
 
         Args:
-            resource_type: 资源类型
-            resource_id: 资源 ID
+            resource_type: Resource type
+            resource_id: Resource ID
 
         Returns:
-            是否有版本记录
+            True if at least one version record exists, False otherwise
         """
         return self.get_current_version(resource_type, resource_id) > 0

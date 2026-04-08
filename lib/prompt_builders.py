@@ -1,14 +1,15 @@
 """
-统一的图像生成 Prompt 构建函数
+Unified image generation prompt builder functions.
 
-所有 Prompt 模板集中在此文件管理，确保 WebUI 和 Skill 使用相同的逻辑。
+All prompt templates are managed centrally in this file, ensuring the WebUI and Skills
+use the same logic.
 
-模块职责:
-- 角色设计图 Prompt 构建
-- 线索设计图 Prompt 构建（道具类/环境类）
-- 分镜图 Prompt 后缀
+Module responsibilities:
+- Character design image prompt building
+- Clue design image prompt building (prop / location)
+- Storyboard image prompt suffix
 
-使用方:
+Consumers:
 - webui/server/routers/generate.py
 - .claude/skills/generate-characters/scripts/generate_character.py
 - .claude/skills/generate-clues/scripts/generate_clue.py
@@ -17,55 +18,56 @@
 
 def build_character_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
     """
-    构建角色设计图 Prompt
+    Build a character design image prompt.
 
-    遵循 nano-banana 最佳实践：使用叙事性段落描述，而非关键词列表。
+    Follows nano-banana best practices: use narrative paragraph descriptions
+    rather than keyword lists.
 
     Args:
-        name: 角色名称
-        description: 角色外貌描述（应为叙事性段落）
-        style: 项目风格
-        style_description: AI 分析的风格描述
+        name: Character name
+        description: Character appearance description (should be a narrative paragraph)
+        style: Project style
+        style_description: AI-analysed style description
 
     Returns:
-        完整的 Prompt 字符串
+        Complete prompt string
     """
-    style_part = f"，{style}" if style else ""
+    style_part = f", {style}" if style else ""
 
-    # 构建风格前缀
+    # Build style prefix
     style_prefix = ""
     if style_description:
         style_prefix = f"Visual style: {style_description}\n\n"
 
-    return f"""{style_prefix}角色设计参考图{style_part}。
+    return f"""{style_prefix}Character design reference image{style_part}.
 
-「{name}」的全身立绘。
+Full-body illustration of "{name}".
 
 {description}
 
-构图要求：单一角色全身像，姿态自然，面向镜头。
-背景：纯净浅灰色，无任何装饰元素。
-光线：柔和均匀的摄影棚照明，无强烈阴影。
-画质：高清，细节清晰，色彩准确。"""
+Composition: single character full-body shot, natural pose, facing the camera.
+Background: clean light grey, no decorative elements.
+Lighting: soft, even studio lighting, no harsh shadows.
+Quality: high resolution, sharp details, accurate colours."""
 
 
 def build_clue_prompt(
     name: str, description: str, clue_type: str = "prop", style: str = "", style_description: str = ""
 ) -> str:
     """
-    构建线索设计图 Prompt
+    Build a clue design image prompt.
 
-    根据线索类型选择对应的模板。
+    Selects the appropriate template based on the clue type.
 
     Args:
-        name: 线索名称
-        description: 线索描述
-        clue_type: 线索类型 ("prop" 道具 或 "location" 环境)
-        style: 项目风格
-        style_description: AI 分析的风格描述
+        name: Clue name
+        description: Clue description
+        clue_type: Clue type ("prop" or "location")
+        style: Project style
+        style_description: AI-analysed style description
 
     Returns:
-        完整的 Prompt 字符串
+        Complete prompt string
     """
     if clue_type == "location":
         return build_location_prompt(name, description, style, style_description)
@@ -75,99 +77,99 @@ def build_clue_prompt(
 
 def build_prop_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
     """
-    构建道具类线索 Prompt
+    Build a prop-type clue prompt.
 
-    使用三视图构图：正面全视图、45度侧视图、细节特写。
+    Uses a three-view composition: front full view, 45-degree side view, and detail close-up.
 
     Args:
-        name: 道具名称
-        description: 道具描述
-        style: 项目风格
-        style_description: AI 分析的风格描述
+        name: Prop name
+        description: Prop description
+        style: Project style
+        style_description: AI-analysed style description
 
     Returns:
-        完整的 Prompt 字符串
+        Complete prompt string
     """
-    style_suffix = f"，{style}" if style else ""
+    style_suffix = f", {style}" if style else ""
 
-    # 构建风格前缀
+    # Build style prefix
     style_prefix = ""
     if style_description:
         style_prefix = f"Visual style: {style_description}\n\n"
 
-    return f"""{style_prefix}一张专业的道具设计参考图{style_suffix}。
+    return f"""{style_prefix}A professional prop design reference image{style_suffix}.
 
-道具「{name}」的多视角展示。{description}
+Multi-angle showcase of the prop "{name}". {description}
 
-三个视图水平排列在纯净浅灰背景上：左侧正面全视图、中间45度侧视图展示立体感、右侧关键细节特写。柔和均匀的摄影棚照明，高清质感，色彩准确。"""
+Three views arranged horizontally on a clean light grey background: front full view on the left, 45-degree side view in the centre to show depth, key detail close-up on the right. Soft, even studio lighting, high-definition quality, accurate colours."""
 
 
 def build_location_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
     """
-    构建环境类线索 Prompt
+    Build a location-type clue prompt.
 
-    使用 3/4 主画面 + 右下角细节特写的构图。
+    Uses a 3/4 main panel + bottom-right detail close-up composition.
 
     Args:
-        name: 场景名称
-        description: 场景描述
-        style: 项目风格
-        style_description: AI 分析的风格描述
+        name: Location name
+        description: Location description
+        style: Project style
+        style_description: AI-analysed style description
 
     Returns:
-        完整的 Prompt 字符串
+        Complete prompt string
     """
-    style_suffix = f"，{style}" if style else ""
+    style_suffix = f", {style}" if style else ""
 
-    # 构建风格前缀
+    # Build style prefix
     style_prefix = ""
     if style_description:
         style_prefix = f"Visual style: {style_description}\n\n"
 
-    return f"""{style_prefix}一张专业的场景设计参考图{style_suffix}。
+    return f"""{style_prefix}A professional location design reference image{style_suffix}.
 
-标志性场景「{name}」的视觉参考。{description}
+Visual reference for the iconic location "{name}". {description}
 
-主画面占据四分之三区域展示环境整体外观与氛围，右下角小图为细节特写。柔和自然光线。"""
+The main panel covers three-quarters of the image and shows the overall appearance and atmosphere of the environment; the small inset in the bottom right is a detail close-up. Soft, natural lighting."""
 
 
 def build_storyboard_suffix(content_mode: str = "narration", *, aspect_ratio: str | None = None) -> str:
     """
-    获取分镜图 Prompt 后缀
+    Get the storyboard image prompt suffix.
 
-    优先使用 aspect_ratio 参数；若未传，按 content_mode 推导（向后兼容）。
+    Prefers the aspect_ratio parameter; falls back to inferring from content_mode for backward compatibility.
     """
     if aspect_ratio is None:
         ratio = "9:16" if content_mode == "narration" else "16:9"
     else:
         ratio = aspect_ratio
     if ratio == "9:16":
-        return "竖屏构图。"
+        return "Portrait composition."
     elif ratio == "16:9":
-        return "横屏构图。"
+        return "Landscape composition."
     return ""
 
 
 def build_style_prompt(project_data: dict) -> str:
     """
-    构建风格描述 Prompt 片段
+    Build a style description prompt fragment.
 
-    合并 style（用户手动填写）和 style_description（AI 分析生成）。
+    Merges style (manually entered by the user) and style_description (AI-generated analysis).
 
     Args:
-        project_data: project.json 数据
+        project_data: project.json data
 
     Returns:
-        风格描述字符串，用于拼接到生成 Prompt 中
+        Style description string for appending to a generation prompt
     """
     parts = []
 
-    # 基础风格标签
+    # Base style tag
     style = project_data.get("style", "")
     if style:
         parts.append(f"Style: {style}")
 
-    # AI 分析的风格描述
+    # AI-analysed style description
     style_description = project_data.get("style_description", "")
     if style_description:
         parts.append(f"Visual style: {style_description}")
