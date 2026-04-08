@@ -32,7 +32,7 @@ class TextGenerator:
 
     @property
     def model(self) -> str:
-        """当前 backend 的模型名称。"""
+        """Model name of the current backend."""
         return self.backend.model
 
     @classmethod
@@ -41,7 +41,7 @@ class TextGenerator:
         task_type: TextTaskType,
         project_name: str | None = None,
     ) -> TextGenerator:
-        """工厂方法：根据任务类型创建对应的 backend + usage_tracker。"""
+        """Factory method: create the appropriate backend + usage_tracker for the given task type."""
         backend = await create_text_backend_for_task(task_type, project_name)
         usage_tracker = UsageTracker()
         return cls(backend, usage_tracker)
