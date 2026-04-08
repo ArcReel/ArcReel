@@ -1,4 +1,4 @@
-"""视频生成服务层核心接口定义。"""
+"""Core interface definitions for the video generation service layer."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import httpx
 
 from lib.retry import with_retry_async
 
-# 图片后缀 → MIME 类型映射（多个后端共用）
+# Image extension → MIME type mapping (shared by multiple backends)
 IMAGE_MIME_TYPES: dict[str, str] = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -23,7 +23,7 @@ IMAGE_MIME_TYPES: dict[str, str] = {
 
 @with_retry_async()
 async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> None:
-    """从 URL 流式下载视频到本地文件（含瞬态错误重试）。"""
+    """Stream-download a video from a URL to a local file (with transient-error retry)."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     async with httpx.AsyncClient() as http_client:
         async with http_client.stream("GET", url, timeout=timeout) as resp:
@@ -34,7 +34,7 @@ async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> 
 
 
 class VideoCapability(StrEnum):
-    """视频后端支持的能力枚举。"""
+    """Enumeration of capabilities supported by video backends."""
 
     TEXT_TO_VIDEO = "text_to_video"
     IMAGE_TO_VIDEO = "image_to_video"
