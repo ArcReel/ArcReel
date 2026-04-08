@@ -36,13 +36,13 @@ function ImportConflictDialog({
             <AlertTriangle className="h-5 w-5" />
           </div>
           <div className="space-y-2">
-            <h2 className="text-lg font-semibold text-gray-100">检测到项目编号重复</h2>
+            <h2 className="text-lg font-semibold text-gray-100">Duplicate project ID detected</h2>
             <p className="text-sm leading-6 text-gray-400">
-              导入包准备使用的项目编号
+              The project ID the import package intends to use
               <span className="mx-1 rounded bg-gray-800 px-1.5 py-0.5 font-mono text-gray-200">
                 {projectName}
               </span>
-              已存在。你可以覆盖现有项目，或自动重命名后继续导入。
+              already exists. You can overwrite the existing project or auto-rename and continue importing.
             </p>
           </div>
         </div>
@@ -52,7 +52,7 @@ function ImportConflictDialog({
             type="button"
             onClick={() => onConfirm("overwrite")}
             disabled={importing}
-            aria-label="覆盖现有项目"
+            aria-label="Overwrite existing project"
             className="flex w-full items-center justify-between rounded-xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-left text-sm text-red-100 transition-colors hover:border-red-300/40 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span>

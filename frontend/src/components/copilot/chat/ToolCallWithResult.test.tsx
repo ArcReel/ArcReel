@@ -30,8 +30,8 @@ describe("ToolCallWithResult", () => {
   it("keeps successful TodoWrite calls in the compact summary mode", () => {
     render(<ToolCallWithResult block={makeTodoWriteBlock({ result: "ok" })} />);
 
-    expect(screen.getByText("任务清单 1/2 完成")).toBeInTheDocument();
-    expect(screen.queryByText("执行失败")).not.toBeInTheDocument();
+    expect(screen.getByText("Task list 1/2 completed")).toBeInTheDocument();
+    expect(screen.queryByText("Execution failed")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
@@ -47,8 +47,8 @@ describe("ToolCallWithResult", () => {
 
     fireEvent.click(screen.getByRole("button"));
 
-    expect(screen.getByText("执行失败")).toBeInTheDocument();
+    expect(screen.getByText("Execution failed")).toBeInTheDocument();
     expect(screen.getByText("permission denied")).toBeInTheDocument();
-    expect(screen.queryByText("任务清单 1/2 完成")).not.toBeInTheDocument();
+    expect(screen.queryByText("Task list 1/2 completed")).not.toBeInTheDocument();
   });
 });

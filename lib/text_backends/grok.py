@@ -1,4 +1,4 @@
-"""GrokTextBackend — xAI Grok 文本生成后端。"""
+"""GrokTextBackend — xAI Grok text generation backend."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ DEFAULT_MODEL = "grok-4-1-fast-reasoning"
 
 
 class GrokTextBackend:
-    """xAI Grok 文本生成后端。"""
+    """xAI Grok text generation backend."""
 
     def __init__(self, *, api_key: str | None = None, model: str | None = None):
         self._client = create_grok_client(api_key=api_key)

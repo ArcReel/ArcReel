@@ -1,7 +1,7 @@
 import type { PendingQuestion } from "@/types";
 
 export const ASSISTANT_OTHER_OPTION_VALUE = "__assistant_option_other__";
-export const ASSISTANT_OTHER_OPTION_LABEL = "其他";
+export const ASSISTANT_OTHER_OPTION_LABEL = "Other";
 
 type Question = PendingQuestion["questions"][number];
 
@@ -28,7 +28,7 @@ export function getQuestionKey(question: Question, index: number): string {
 
 export function buildQuestionOptions(options: Question["options"]): QuestionOption[] {
   const normalized = (Array.isArray(options) ? options : []).map((option, index) => {
-    const label = option?.label || `选项 ${index + 1}`;
+    const label = option?.label || `Option ${index + 1}`;
     const isOther = isOtherOptionLabel(label);
     return {
       label,
@@ -46,7 +46,7 @@ export function buildQuestionOptions(options: Question["options"]): QuestionOpti
     ...normalized,
     {
       label: ASSISTANT_OTHER_OPTION_LABEL,
-      description: "若以上选项都不符合，可自行输入",
+      description: "If none of the above options fit, enter your own",
       value: ASSISTANT_OTHER_OPTION_VALUE,
       isOther: true,
     },

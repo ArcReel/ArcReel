@@ -66,7 +66,7 @@ export function ToastOverlay() {
           type="button"
           onClick={clearToast}
           className="ml-1 shrink-0 rounded p-0.5 opacity-50 hover:opacity-100 transition-opacity cursor-pointer"
-          aria-label="关闭提示"
+          aria-label="Dismiss notification"
         >
           <X className="h-3.5 w-3.5" />
         </button>

@@ -1,11 +1,11 @@
 """
-OpenAI 共享工具模块
+OpenAI shared utilities module
 
-供 text_backends / image_backends / video_backends / providers 复用。
+Shared by text_backends / image_backends / video_backends / providers.
 
-包含：
-- OPENAI_RETRYABLE_ERRORS — 可重试错误类型
-- create_openai_client — AsyncOpenAI 客户端工厂
+Contains:
+- OPENAI_RETRYABLE_ERRORS — retryable error types
+- create_openai_client — AsyncOpenAI client factory
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ try:
         RateLimitError,
     )
 except ImportError:
-    pass  # openai 是必装依赖，此分支仅作防御性保护；回退到空 tuple
+    pass  # openai is a required dependency; this branch is purely defensive — fall back to empty tuple
 
 
 def create_openai_client(
@@ -42,7 +42,7 @@ def create_openai_client(
     base_url: str | None = None,
     max_retries: int | None = None,
 ) -> AsyncOpenAI:
-    """创建 AsyncOpenAI 客户端，统一处理 api_key 和 base_url。"""
+    """Create an AsyncOpenAI client, handling api_key and base_url uniformly."""
     kwargs: dict = {}
     if api_key:
         kwargs["api_key"] = api_key

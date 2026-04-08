@@ -120,8 +120,8 @@ describe("GlobalHeader", () => {
 
     renderHeader();
 
-    expect(screen.getByTitle("会话通知: 1 条")).toBeInTheDocument();
-    screen.getByRole("button", { name: "打开通知中心" }).click();
+    expect(screen.getByTitle("Workspace notifications: 1")).toBeInTheDocument();
+    screen.getByRole("button", { name: "Open notification center" }).click();
     expect(await screen.findByTestId("notifications-drawer")).toBeInTheDocument();
   });
 
@@ -158,9 +158,9 @@ describe("GlobalHeader", () => {
 
     renderHeader();
     // Click export button to open dialog
-    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+    screen.getByRole("button", { name: "Export project ZIP" }).click();
 
-    // Wait for dialog to appear then click "仅当前版本"
+    // Wait for dialog to appear then click scope-current
     const scopeBtn = await screen.findByTestId("scope-current");
     scopeBtn.click();
 
@@ -168,7 +168,7 @@ describe("GlobalHeader", () => {
       expect(API.requestExportToken).toHaveBeenCalledWith("demo", "current");
     });
     expect(anchorClick).toHaveBeenCalled();
-    expect(useAppStore.getState().toast?.text).toContain("包含 1 条诊断");
+    expect(useAppStore.getState().toast?.text).toContain("contains 1 diagnostics");
   });
 
   it("shows an error toast when exporting fails", async () => {
@@ -194,13 +194,13 @@ describe("GlobalHeader", () => {
     });
 
     renderHeader();
-    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+    screen.getByRole("button", { name: "Export project ZIP" }).click();
 
     const scopeBtn = await screen.findByTestId("scope-full");
     scopeBtn.click();
 
     await waitFor(() => {
-      expect(useAppStore.getState().toast?.text).toContain("导出失败");
+      expect(useAppStore.getState().toast?.text).toContain("Export failed");
     });
   });
 });

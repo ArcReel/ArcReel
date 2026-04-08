@@ -1,4 +1,4 @@
-"""OpenAITextBackend — OpenAI 文本生成后端。"""
+"""OpenAITextBackend — OpenAI text generation backend."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ DEFAULT_MODEL = "gpt-5.4-mini"
 
 
 class OpenAITextBackend:
-    """OpenAI 文本生成后端，支持 Chat Completions API。"""
+    """OpenAI text generation backend, supporting the Chat Completions API."""
 
     def __init__(
         self,
@@ -31,7 +31,7 @@ class OpenAITextBackend:
         model: str | None = None,
         base_url: str | None = None,
     ):
-        # 禁用 SDK 内置重试，由本层 generate() 统一管理重试策略
+        # Disable SDK built-in retries; retry strategy is managed centrally by this layer's generate()
         self._client = create_openai_client(api_key=api_key, base_url=base_url, max_retries=0)
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[TextCapability] = {
@@ -54,14 +54,14 @@ class OpenAITextBackend:
 
     @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """生成文本回复。
+        """Generate a text reply.
 
-        单一重试循环包裹整个流程：
-        1. 尝试原生 response_format 调用
-        2. 若遇 schema 不兼容错误 → 本次 attempt 内降级到 Instructor
-        3. 若遇瞬态错误（429/500/503/网络）→ 由装饰器自动重试整个流程
+        A single retry loop wraps the entire flow:
+        1. Attempt native response_format call
+        2. On schema incompatibility error → fall back to Instructor within the current attempt
+        3. On transient error (429/500/503/network) → decorator automatically retries the whole flow
 
-        这样无论是原生调用还是降级路径遇到瞬态错误，都统一由外层重试处理。
+        This ensures transient errors from both native calls and fallback paths are handled uniformly by the outer retry.
         """
         messages = _build_messages(request)
         kwargs: dict = {"model": self._model, "messages": messages}
@@ -82,7 +82,7 @@ class OpenAITextBackend:
         except Exception as exc:
             if request.response_schema and _is_schema_error(exc):
                 logger.warning(
-                    "原生 response_format 失败 (%s)，降级到 Instructor 路径",
+                    "Native response_format failed (%s), falling back to Instructor path",
                     exc,
                 )
                 return await _instructor_fallback(self._client, self._model, request, messages)
@@ -99,13 +99,13 @@ class OpenAITextBackend:
 
 
 def _build_messages(request: TextGenerationRequest) -> list[dict]:
-    """将 TextGenerationRequest 转为 OpenAI messages 格式。"""
+    """Convert a TextGenerationRequest to OpenAI messages format."""
     messages: list[dict] = []
 
     if request.system_prompt:
         messages.append({"role": "system", "content": request.system_prompt})
 
-    # 构建 user message
+    # Build user message
     if request.images:
         from lib.image_backends.base import image_to_base64_data_uri
 
@@ -134,15 +134,15 @@ _SCHEMA_ERROR_KEYWORDS = (
 
 
 def _is_schema_error(exc: BaseException) -> bool:
-    """判断异常是否为 JSON Schema 不兼容导致的错误。
+    """Determine whether an exception is caused by JSON Schema incompatibility.
 
-    除了标准的 400 BadRequestError，一些 OpenAI 兼容代理（如 Gemini
-    兼容端点）会将上游 schema 错误包装成其他状态码（如 429），
-    因此也检查错误信息中是否包含 schema 相关关键字。
+    In addition to the standard 400 BadRequestError, some OpenAI-compatible proxies
+    (e.g. Gemini-compatible endpoints) wrap upstream schema errors in other status codes
+    (e.g. 429), so error messages are also checked for schema-related keywords.
     """
     if isinstance(exc, BadRequestError):
         return True
-    # 代理可能把上游 schema 错误包装成非 400 状态码
+    # Proxies may wrap upstream schema errors as non-400 status codes
     error_str = str(exc)
     return any(kw in error_str for kw in _SCHEMA_ERROR_KEYWORDS)
 
@@ -153,7 +153,7 @@ async def _instructor_fallback(
     request: TextGenerationRequest,
     messages: list[dict],
 ) -> TextGenerationResult:
-    """Instructor 降级：当原生 response_format 不可用时的备选路径。"""
+    """Instructor fallback: alternative path when native response_format is unavailable."""
     from lib.text_backends.instructor_support import instructor_fallback_async
 
     return await instructor_fallback_async(

@@ -60,7 +60,7 @@ def emit_project_change_hint(
         try:
             listener(project_name, resolved_source, paths)
         except Exception:
-            logger.exception("项目变更 hint listener 执行失败")
+            logger.exception("Project change hint listener failed")
 
 
 def register_project_change_listener(
@@ -98,7 +98,7 @@ def emit_project_change_batch(
         try:
             listener(project_name, resolved_source, payload)
         except Exception:
-            logger.exception("项目变更 batch listener 执行失败")
+            logger.exception("Project change batch listener failed")
 
 
 def register_project_change_batch_listener(

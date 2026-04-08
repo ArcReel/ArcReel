@@ -1,7 +1,7 @@
 """
-API 调用统计路由
+API call statistics routes.
 
-提供调用记录查询和统计摘要接口。
+Provides endpoints for querying call records and statistical summaries.
 """
 
 from datetime import datetime
@@ -19,11 +19,11 @@ _tracker = UsageTracker()
 @router.get("/usage/stats")
 async def get_stats(
     _user: CurrentUser,
-    project_name: str | None = Query(None, description="项目名称（可选）"),
-    provider: str | None = Query(None, description="按供应商筛选"),
-    start_date: str | None = Query(None, description="开始日期 (YYYY-MM-DD)"),
-    end_date: str | None = Query(None, description="结束日期 (YYYY-MM-DD)"),
-    group_by: str | None = Query(None, description="分组方式: provider"),
+    project_name: str | None = Query(None, description="Project name (optional)"),
+    provider: str | None = Query(None, description="Filter by provider"),
+    start_date: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: str | None = Query(None, description="End date (YYYY-MM-DD)"),
+    group_by: str | None = Query(None, description="Grouping: provider"),
 ):
     start = datetime.fromisoformat(start_date) if start_date else None
     end = datetime.fromisoformat(end_date) if end_date else None
@@ -48,13 +48,13 @@ async def get_stats(
 @router.get("/usage/calls")
 async def get_calls(
     _user: CurrentUser,
-    project_name: str | None = Query(None, description="项目名称"),
-    call_type: str | None = Query(None, description="调用类型 (image/video)"),
-    status: str | None = Query(None, description="状态 (success/failed)"),
-    start_date: str | None = Query(None, description="开始日期 (YYYY-MM-DD)"),
-    end_date: str | None = Query(None, description="结束日期 (YYYY-MM-DD)"),
-    page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=100, description="每页记录数"),
+    project_name: str | None = Query(None, description="Project name"),
+    call_type: str | None = Query(None, description="Call type (image/video)"),
+    status: str | None = Query(None, description="Status (success/failed)"),
+    start_date: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: str | None = Query(None, description="End date (YYYY-MM-DD)"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Records per page"),
 ):
     start = datetime.fromisoformat(start_date) if start_date else None
     end = datetime.fromisoformat(end_date) if end_date else None

@@ -1,4 +1,4 @@
-"""文本生成服务层核心接口定义。"""
+"""Core interface definitions for the text generation service layer."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Protocol
 
 
 class TextCapability(StrEnum):
-    """文本后端支持的能力枚举。"""
+    """Enumeration of capabilities supported by text backends."""
 
     TEXT_GENERATION = "text_generation"
     STRUCTURED_OUTPUT = "structured_output"
@@ -17,7 +17,7 @@ class TextCapability(StrEnum):
 
 
 class TextTaskType(StrEnum):
-    """文本生成任务类型。"""
+    """Text generation task types."""
 
     SCRIPT = "script"
     OVERVIEW = "overview"
@@ -26,7 +26,7 @@ class TextTaskType(StrEnum):
 
 @dataclass
 class ImageInput:
-    """图片输入（用于 vision）。"""
+    """Image input (for vision)."""
 
     path: Path | None = None
     url: str | None = None
@@ -34,7 +34,7 @@ class ImageInput:
 
 @dataclass
 class TextGenerationRequest:
-    """通用文本生成请求。各 Backend 忽略不支持的字段。"""
+    """Generic text generation request. Each backend ignores unsupported fields."""
 
     prompt: str
     response_schema: dict | type | None = None
@@ -44,7 +44,7 @@ class TextGenerationRequest:
 
 @dataclass
 class TextGenerationResult:
-    """通用文本生成结果。"""
+    """Generic text generation result."""
 
     text: str
     provider: str
@@ -54,10 +54,10 @@ class TextGenerationResult:
 
 
 def resolve_schema(schema: dict | type) -> dict:
-    """将 response_schema 转为无 $ref 的纯 JSON Schema dict。
+    """Convert response_schema to a plain JSON Schema dict without $ref.
 
-    - type (Pydantic 类): 调用 model_json_schema() 后内联 $ref
-    - dict: 直接内联 $ref（如果有）
+    - type (Pydantic class): call model_json_schema() then inline $ref
+    - dict: inline $ref directly (if any)
     """
     if isinstance(schema, type):
         schema = schema.model_json_schema()
@@ -71,7 +71,7 @@ def resolve_schema(schema: dict | type) -> dict:
             if "$ref" in obj:
                 ref_name = obj["$ref"].split("/")[-1]
                 if ref_name in visited_refs:
-                    raise ValueError(f"检测到 schema 中的循环引用: {ref_name}")
+                    raise ValueError(f"Circular reference detected in schema: {ref_name}")
                 resolved = _inline(defs[ref_name], visited_refs | {ref_name})
                 extra = {k: v for k, v in obj.items() if k != "$ref"}
                 return {**resolved, **extra} if extra else resolved
@@ -86,7 +86,7 @@ def resolve_schema(schema: dict | type) -> dict:
 
 
 class TextBackend(Protocol):
-    """文本生成后端协议。"""
+    """Text generation backend protocol."""
 
     @property
     def name(self) -> str: ...

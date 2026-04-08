@@ -32,8 +32,8 @@ describe("SlashCommandMenu", () => {
     expect(screen.queryByText(/manga-workflow/)).not.toBeInTheDocument();
   });
 
-  it("filters skills by Chinese label", () => {
-    render(<SlashCommandMenu filter="剧本" onSelect={onSelect} />);
+  it("filters skills by label", () => {
+    render(<SlashCommandMenu filter="Script" onSelect={onSelect} />);
     expect(screen.getByText(/generate-script/)).toBeInTheDocument();
     expect(screen.queryByText(/manga-workflow/)).not.toBeInTheDocument();
   });
@@ -49,11 +49,11 @@ describe("SlashCommandMenu", () => {
     expect(onSelect).toHaveBeenCalledWith("/manga-workflow");
   });
 
-  it("displays Chinese labels for known skills", () => {
+  it("displays English labels for known skills", () => {
     render(<SlashCommandMenu filter="" onSelect={onSelect} />);
-    expect(screen.getByText("视频工作流")).toBeInTheDocument();
-    expect(screen.getByText("生成剧本")).toBeInTheDocument();
-    expect(screen.getByText("生成视频")).toBeInTheDocument();
+    expect(screen.getByText("Video Workflow")).toBeInTheDocument();
+    expect(screen.getByText("Generate Script")).toBeInTheDocument();
+    expect(screen.getByText("Generate Video")).toBeInTheDocument();
   });
 
   it("shows distinct icons per skill", () => {

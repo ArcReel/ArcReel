@@ -158,10 +158,10 @@ export function AgentCopilot() {
   const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
   const attachDisabled = inputDisabled || attachedImages.length >= MAX_IMAGES;
   const inputPlaceholder = pendingQuestion
-    ? "请先回答上方问题"
+    ? "Please answer the question above first"
     : isRunning
-      ? "助手正在生成中，可点击停止中断"
-      : "输入消息，输入 / 查看可用技能";
+      ? "Assistant is generating, click stop to interrupt"
+      : "Type a message, or / to browse available skills";
 
   const addImages = useCallback((files: File[]) => {
     setAttachError(null);
@@ -169,7 +169,7 @@ export function AgentCopilot() {
     for (const file of files) {
       if (!file.type.startsWith("image/")) continue;
       if (file.size > MAX_IMAGE_BYTES) {
-        setAttachError(`图片 "${file.name}" 超过 5MB，已跳过`);
+        setAttachError(`Image "${file.name}" exceeds 5MB and was skipped`);
         continue;
       }
       const reader = new FileReader();
@@ -327,18 +327,18 @@ export function AgentCopilot() {
             type="button"
             onClick={toggleAssistantPanel}
             className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-            title="收起助手面板"
+            title="Collapse assistant panel"
           >
             <PanelRightClose className="h-4 w-4" />
           </button>
           <Bot className="h-4 w-4 text-indigo-400" />
-          <span className="text-sm font-medium text-gray-300">ArcReel 智能体</span>
+          <span className="text-sm font-medium text-gray-300">ArcReel Agent</span>
         </div>
         <div className="flex items-center gap-1">
           {isRunning && (
             <span className="flex items-center gap-1.5 text-xs text-indigo-400 mr-1">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400" />
-              思考中
+              Thinking
             </span>
           )}
           <SessionSelector onSwitch={switchSession} onDelete={deleteSession} />
@@ -346,7 +346,7 @@ export function AgentCopilot() {
             type="button"
             onClick={createNewSession}
             className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-            title="新建会话"
+            title="New session"
           >
             <Plus className="h-4 w-4" />
           </button>
@@ -361,9 +361,9 @@ export function AgentCopilot() {
         {allTurns.length === 0 && !messagesLoading && (
           <div className="flex h-full flex-col items-center justify-center text-center text-gray-500">
             <Bot className="mb-3 h-8 w-8 text-gray-600" />
-            <p className="text-sm">在下方输入消息开始对话</p>
+            <p className="text-sm">Type a message below to start chatting</p>
             <p className="mt-1 text-xs text-gray-600">
-              输入 / 可快速调用技能
+              Type / to quickly invoke skills
             </p>
           </div>
         )}
@@ -400,11 +400,11 @@ export function AgentCopilot() {
                   type="button"
                   className="h-16 w-16 cursor-pointer border-0 bg-transparent p-0"
                   onClick={() => setLightboxSrc(img.dataUrl)}
-                  aria-label="点击放大图片"
+                  aria-label="Click to enlarge image"
                 >
                   <img
                     src={img.dataUrl}
-                    alt="附件预览"
+                    alt="Attachment preview"
                     className="h-16 w-16 rounded-md object-cover border border-gray-600"
                   />
                 </button>
@@ -412,7 +412,7 @@ export function AgentCopilot() {
                   type="button"
                   onClick={() => removeImage(img.id)}
                   className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gray-900 text-gray-300 hover:bg-red-500 hover:text-white"
-                  aria-label="移除图片"
+                  aria-label="Remove image"
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>
@@ -445,7 +445,7 @@ export function AgentCopilot() {
             onPaste={handlePaste}
             placeholder={inputPlaceholder}
             rows={1}
-            aria-label="助手输入"
+            aria-label="Assistant input"
             aria-expanded={showSlashMenu}
             aria-controls={showSlashMenu ? "slash-command-menu" : undefined}
             aria-activedescendant={slashMenuRef.current?.activeDescendantId}
@@ -460,8 +460,8 @@ export function AgentCopilot() {
             onClick={() => fileInputRef.current?.click()}
             disabled={attachDisabled}
             className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:opacity-30"
-            title={attachedImages.length >= MAX_IMAGES ? `最多附加 ${MAX_IMAGES} 张图片` : "附加图片"}
-            aria-label="附加图片"
+            title={attachedImages.length >= MAX_IMAGES ? `Maximum ${MAX_IMAGES} images allowed` : "Attach image"}
+            aria-label="Attach image"
           >
             <Paperclip className="h-4 w-4" />
           </button>
@@ -470,8 +470,8 @@ export function AgentCopilot() {
             <button
               onClick={interrupt}
               className="shrink-0 rounded p-1.5 text-red-400 hover:bg-gray-700"
-              title="中断会话"
-              aria-label="中断会话"
+              title="Interrupt session"
+              aria-label="Interrupt session"
             >
               <Square className="h-4 w-4" />
             </button>
@@ -480,8 +480,8 @@ export function AgentCopilot() {
               onClick={handleSend}
               disabled={(!localInput.trim() && attachedImages.length === 0) || inputDisabled}
               className="shrink-0 rounded p-1.5 text-indigo-400 hover:bg-gray-700 disabled:opacity-30"
-              title="发送消息"
-              aria-label="发送消息"
+              title="Send message"
+              aria-label="Send message"
             >
               <Send className="h-4 w-4" />
             </button>
@@ -502,7 +502,7 @@ export function AgentCopilot() {
       {lightboxSrc && (
         <ImageLightbox
           src={lightboxSrc}
-          alt="附件预览"
+          alt="Attachment preview"
           onClose={() => setLightboxSrc(null)}
         />
       )}

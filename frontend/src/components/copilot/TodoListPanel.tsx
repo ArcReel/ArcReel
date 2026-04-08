@@ -64,7 +64,7 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
   const total = todos.length;
   const progressPercent = Math.round((completedCount / total) * 100);
   const currentTask = todos.find((t) => t.status === "in_progress");
-  const headerLabel = currentTask?.activeForm ?? "任务进行中";
+  const headerLabel = currentTask?.activeForm ?? "Task in progress";
 
   return (
     <div className="mx-3 mb-1 rounded-lg border border-white/10 bg-white/[0.03] overflow-hidden">

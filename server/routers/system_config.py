@@ -213,7 +213,7 @@ async def patch_system_config(
             if not (min_val <= value <= max_val):
                 raise HTTPException(
                     status_code=422,
-                    detail=f"{key} 应在 {min_val}-{max_val} 之间",
+                    detail=f"{key} must be between {min_val} and {max_val}",
                 )
             await svc.set_setting(key, str(value))
 

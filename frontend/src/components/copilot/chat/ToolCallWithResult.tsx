@@ -149,7 +149,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
           {/* Tool Input */}
           <div className="px-2.5 py-2 bg-ink-900/30">
             <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
-              输入参数
+              Input parameters
             </div>
             <pre className="text-[11px] text-slate-300 whitespace-pre-wrap break-all max-h-32 overflow-y-auto">
               {JSON.stringify(block.input, null, 2)}
@@ -160,7 +160,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
           {hasSkillContent && (
             <div className="px-2.5 py-2 border-t border-purple-400/10 bg-purple-900/10">
               <div className="text-[10px] uppercase tracking-wide text-purple-400 mb-1">
-                Skill 内容
+                Skill content
               </div>
               <div className="max-h-48 overflow-y-auto text-xs overflow-hidden">
                 <StreamMarkdown content={block.skill_content!} />
@@ -184,7 +184,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
                   isError ? "text-red-400" : "text-slate-500",
                 )}
               >
-                {isError ? "执行失败" : "执行结果"}
+                {isError ? "Execution failed" : "Execution result"}
               </div>
               <pre className="text-[11px] text-slate-300 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
                 {typeof block.result === "string"
@@ -220,7 +220,7 @@ function TodoWriteCompact({ block }: Readonly<{ block: ContentBlock }>) {
             TodoWrite
           </span>
           <span className="text-[11px] text-slate-300 truncate">
-            {total > 0 ? `任务清单 ${completed}/${total} 完成` : "任务清单已更新"}
+            {total > 0 ? `Task list ${completed}/${total} completed` : "Task list updated"}
           </span>
         </div>
         <span className={cn("text-xs font-medium shrink-0 ml-1.5", statusColor)}>

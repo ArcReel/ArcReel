@@ -1,4 +1,4 @@
-"""ArkTextBackend — 火山方舟文本生成后端。"""
+"""ArkTextBackend — Volcano Engine Ark text generation backend."""
 
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ DEFAULT_MODEL = "doubao-seed-2-0-lite-260215"
 
 
 class ArkTextBackend:
-    """Ark (火山方舟) 文本生成后端。"""
+    """Ark (Volcano Engine) text generation backend."""
 
     def __init__(self, *, api_key: str | None = None, model: str | None = None):
         self._client = create_ark_client(api_key=api_key)
-        # Instructor 要求 openai.OpenAI 实例；Ark SDK client 类型不兼容，
-        # 但 Ark API 是 OpenAI 兼容的，因此额外创建原生 OpenAI 客户端供降级使用。
+        # Instructor requires an openai.OpenAI instance; the Ark SDK client type is incompatible,
+        # but the Ark API is OpenAI-compatible, so we create an additional native OpenAI client as a fallback.
         from openai import OpenAI
 
         self._openai_client = OpenAI(base_url=ARK_BASE_URL, api_key=resolve_ark_api_key(api_key))
@@ -34,7 +34,7 @@ class ArkTextBackend:
         self._capabilities: set[TextCapability] = self._resolve_capabilities()
 
     def _resolve_capabilities(self) -> set[TextCapability]:
-        """根据 PROVIDER_REGISTRY 中的模型声明构建能力集合。"""
+        """Build the capability set from model declarations in PROVIDER_REGISTRY."""
         from lib.config.registry import PROVIDER_REGISTRY
 
         base = {TextCapability.TEXT_GENERATION, TextCapability.VISION}
@@ -43,7 +43,7 @@ class ArkTextBackend:
             model_info = provider_meta.models.get(self._model)
             if model_info and TextCapability.STRUCTURED_OUTPUT in model_info.capabilities:
                 base.add(TextCapability.STRUCTURED_OUTPUT)
-        # 未注册模型不加 STRUCTURED_OUTPUT：宁可走 Instructor 降级也不调用会报错的原生 API
+        # Unregistered models do not get STRUCTURED_OUTPUT: prefer Instructor fallback over calling a native API that would error
         return base
 
     @property
@@ -97,7 +97,7 @@ class ArkTextBackend:
                 )
                 return self._parse_chat_response(response)
             except Exception as exc:
-                logger.warning("原生 response_format 失败 (%s)，降级到 Instructor/json_object 路径", exc)
+                logger.warning("Native response_format failed (%s), falling back to Instructor/json_object path", exc)
 
         return await self._structured_fallback(request, messages)
 

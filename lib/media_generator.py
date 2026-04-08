@@ -32,12 +32,12 @@ logger = logging.getLogger(__name__)
 
 class MediaGenerator:
     """
-    媒体生成器中间层
+    MediaGenerator middleware layer
 
-    封装 GeminiClient + VersionManager，提供自动版本管理。
+    Wraps GeminiClient + VersionManager to provide automatic version management.
     """
 
-    # 资源类型到输出路径模式的映射
+    # Mapping from resource type to output path pattern
     OUTPUT_PATTERNS = {
         "storyboards": "storyboards/scene_{resource_id}.png",
         "videos": "videos/scene_{resource_id}.mp4",
@@ -56,15 +56,15 @@ class MediaGenerator:
         user_id: str = DEFAULT_USER_ID,
     ):
         """
-        初始化 MediaGenerator
+        Initialise MediaGenerator.
 
         Args:
-            project_path: 项目根目录路径
-            rate_limiter: 可选的限流器实例
-            image_backend: 可选的 ImageBackend 实例（用于图片生成）
-            video_backend: 可选的 VideoBackend 实例（用于视频生成）
-            config_resolver: ConfigResolver 实例，用于运行时读取配置
-            user_id: 用户 ID
+            project_path: Project root directory path
+            rate_limiter: Optional rate limiter instance
+            image_backend: Optional ImageBackend instance (for image generation)
+            video_backend: Optional VideoBackend instance (for video generation)
+            config_resolver: ConfigResolver instance for reading runtime configuration
+            user_id: User ID
         """
         self.project_path = Path(project_path)
         self.project_name = self.project_path.name
@@ -75,7 +75,7 @@ class MediaGenerator:
         self._user_id = user_id
         self.versions = VersionManager(project_path)
 
-        # 初始化 UsageTracker（使用全局 async session factory）
+        # Initialise UsageTracker (using the global async session factory)
         self.usage_tracker = UsageTracker()
 
     @staticmethod
@@ -95,17 +95,17 @@ class MediaGenerator:
 
     def _get_output_path(self, resource_type: str, resource_id: str) -> Path:
         """
-        根据资源类型和 ID 推断输出路径
+        Derive the output path from resource type and ID.
 
         Args:
-            resource_type: 资源类型 (storyboards, videos, characters, clues)
-            resource_id: 资源 ID (E1S01, 姜月茴, 玉佩)
+            resource_type: Resource type (storyboards, videos, characters, clues)
+            resource_id: Resource ID (e.g. E1S01, character_name, clue_name)
 
         Returns:
-            输出文件的绝对路径
+            Absolute path to the output file
         """
         if resource_type not in self.OUTPUT_PATTERNS:
-            raise ValueError(f"不支持的资源类型: {resource_type}")
+            raise ValueError(f"Unsupported resource type: {resource_type}")
 
         pattern = self.OUTPUT_PATTERNS[resource_type]
         relative_path = pattern.format(resource_id=resource_id)
@@ -113,11 +113,11 @@ class MediaGenerator:
         try:
             output_path.relative_to(self.project_path.resolve())
         except ValueError:
-            raise ValueError(f"非法资源 ID: '{resource_id}'")
+            raise ValueError(f"Invalid resource ID: '{resource_id}'")
         return output_path
 
     def _ensure_parent_dir(self, output_path: Path) -> None:
-        """确保输出目录存在"""
+        """Ensure the output directory exists."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
     def generate_image(
@@ -131,19 +131,19 @@ class MediaGenerator:
         **version_metadata,
     ) -> tuple[Path, int]:
         """
-        生成图片（带自动版本管理，同步包装）
+        Generate an image (with automatic version management, synchronous wrapper).
 
         Args:
-            prompt: 图片生成提示词
-            resource_type: 资源类型 (storyboards, characters, clues)
-            resource_id: 资源 ID (E1S01, 姜月茴, 玉佩)
-            reference_images: 参考图片列表
-            aspect_ratio: 宽高比，默认 9:16（竖屏）
-            image_size: 图片尺寸，默认 1K
-            **version_metadata: 额外元数据
+            prompt: Image generation prompt
+            resource_type: Resource type (storyboards, characters, clues)
+            resource_id: Resource ID (e.g. E1S01, character_name, clue_name)
+            reference_images: List of reference images
+            aspect_ratio: Aspect ratio, default 9:16 (portrait)
+            image_size: Image size, default 1K
+            **version_metadata: Additional metadata
 
         Returns:
-            (output_path, version_number) 元组
+            (output_path, version_number) tuple
         """
         return self._sync(
             self.generate_image_async(
@@ -168,26 +168,26 @@ class MediaGenerator:
         **version_metadata,
     ) -> tuple[Path, int]:
         """
-        异步生成图片（带自动版本管理）
+        Asynchronously generate an image (with automatic version management).
 
         Args:
-            prompt: 图片生成提示词
-            resource_type: 资源类型 (storyboards, characters, clues)
-            resource_id: 资源 ID (E1S01, 姜月茴, 玉佩)
-            reference_images: 参考图片列表
-            aspect_ratio: 宽高比，默认 9:16（竖屏）
-            image_size: 图片尺寸，默认 1K
-            **version_metadata: 额外元数据
+            prompt: Image generation prompt
+            resource_type: Resource type (storyboards, characters, clues)
+            resource_id: Resource ID (e.g. E1S01, character_name, clue_name)
+            reference_images: List of reference images
+            aspect_ratio: Aspect ratio, default 9:16 (portrait)
+            image_size: Image size, default 1K
+            **version_metadata: Additional metadata
 
         Returns:
-            (output_path, version_number) 元组
+            (output_path, version_number) tuple
         """
         from lib.image_backends.base import ImageGenerationRequest, ReferenceImage
 
         output_path = self._get_output_path(resource_type, resource_id)
         self._ensure_parent_dir(output_path)
 
-        # 1. 若已存在，确保旧文件被记录
+        # 1. If file already exists, ensure the old file is tracked
         if output_path.exists():
             self.versions.ensure_current_tracked(
                 resource_type=resource_type,
@@ -201,7 +201,7 @@ class MediaGenerator:
         if self._image_backend is None:
             raise RuntimeError("image_backend not configured")
 
-        # 2. 记录 API 调用开始
+        # 2. Record API call start
         call_id = await self.usage_tracker.start_call(
             project_name=self.project_name,
             call_type="image",
@@ -215,7 +215,7 @@ class MediaGenerator:
         )
 
         try:
-            # 3. 转换参考图格式并调用 ImageBackend
+            # 3. Convert reference image format and call ImageBackend
             ref_images: list[ReferenceImage] = []
             if reference_images:
                 for ref in reference_images:
@@ -229,7 +229,7 @@ class MediaGenerator:
                         )
                     elif hasattr(ref, "__fspath__") or isinstance(ref, (str, Path)):
                         ref_images.append(ReferenceImage(path=str(ref)))
-                    # PIL Image 等不支持的类型忽略
+                    # Unsupported types (e.g. PIL Image) are ignored
 
             request = ImageGenerationRequest(
                 prompt=prompt,
@@ -241,7 +241,7 @@ class MediaGenerator:
             )
             result = await self._image_backend.generate(request)
 
-            # 4. 记录调用成功
+            # 4. Record call success
             await self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="success",
@@ -249,8 +249,8 @@ class MediaGenerator:
                 quality=getattr(result, "quality", None),
             )
         except Exception as e:
-            # 记录调用失败
-            logger.exception("生成失败 (%s)", "image")
+            # Record call failure
+            logger.exception("Generation failed (%s)", "image")
             await self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="failed",
@@ -258,7 +258,7 @@ class MediaGenerator:
             )
             raise
 
-        # 5. 记录新版本
+        # 5. Record new version
         new_version = self.versions.add_version(
             resource_type=resource_type,
             resource_id=resource_id,
@@ -283,21 +283,21 @@ class MediaGenerator:
         **version_metadata,
     ) -> tuple[Path, int, any, str | None]:
         """
-        生成视频（带自动版本管理，同步包装）
+        Generate a video (with automatic version management, synchronous wrapper).
 
         Args:
-            prompt: 视频生成提示词
-            resource_type: 资源类型 (videos)
-            resource_id: 资源 ID (E1S01)
-            start_image: 起始帧图片（image-to-video 模式）
-            aspect_ratio: 宽高比，默认 9:16（竖屏）
-            duration_seconds: 视频时长，可选 "4", "6", "8"
-            resolution: 分辨率，默认 "1080p"
-            negative_prompt: 负面提示词
-            **version_metadata: 额外元数据
+            prompt: Video generation prompt
+            resource_type: Resource type (videos)
+            resource_id: Resource ID (e.g. E1S01)
+            start_image: Starting frame image (for image-to-video mode)
+            aspect_ratio: Aspect ratio, default 9:16 (portrait)
+            duration_seconds: Video duration, options "4", "6", "8"
+            resolution: Resolution, default "1080p"
+            negative_prompt: Negative prompt
+            **version_metadata: Additional metadata
 
         Returns:
-            (output_path, version_number, video_ref, video_uri) 四元组
+            (output_path, version_number, video_ref, video_uri) 4-tuple
         """
         return self._sync(
             self.generate_video_async(
@@ -326,26 +326,26 @@ class MediaGenerator:
         **version_metadata,
     ) -> tuple[Path, int, any, str | None]:
         """
-        异步生成视频（带自动版本管理）
+        Asynchronously generate a video (with automatic version management).
 
         Args:
-            prompt: 视频生成提示词
-            resource_type: 资源类型 (videos)
-            resource_id: 资源 ID (E1S01)
-            start_image: 起始帧图片（image-to-video 模式）
-            aspect_ratio: 宽高比，默认 9:16（竖屏）
-            duration_seconds: 视频时长，可选 "4", "6", "8"
-            resolution: 分辨率，默认 "1080p"
-            negative_prompt: 负面提示词
-            **version_metadata: 额外元数据
+            prompt: Video generation prompt
+            resource_type: Resource type (videos)
+            resource_id: Resource ID (e.g. E1S01)
+            start_image: Starting frame image (for image-to-video mode)
+            aspect_ratio: Aspect ratio, default 9:16 (portrait)
+            duration_seconds: Video duration, options "4", "6", "8"
+            resolution: Resolution, default "1080p"
+            negative_prompt: Negative prompt
+            **version_metadata: Additional metadata
 
         Returns:
-            (output_path, version_number, video_ref, video_uri) 四元组
+            (output_path, version_number, video_ref, video_uri) 4-tuple
         """
         output_path = self._get_output_path(resource_type, resource_id)
         self._ensure_parent_dir(output_path)
 
-        # 1. 若已存在，确保旧文件被记录
+        # 1. If file already exists, ensure the old file is tracked
         if output_path.exists():
             self.versions.ensure_current_tracked(
                 resource_type=resource_type,
@@ -356,7 +356,7 @@ class MediaGenerator:
                 **version_metadata,
             )
 
-        # 2. 记录 API 调用开始
+        # 2. Record API call start
         try:
             duration_int = int(duration_seconds) if duration_seconds else 8
         except (ValueError, TypeError):
@@ -417,8 +417,8 @@ class MediaGenerator:
                 generate_audio=result.generate_audio,
             )
         except Exception as e:
-            # 记录调用失败
-            logger.exception("生成失败 (%s)", "video")
+            # Record call failure
+            logger.exception("Generation failed (%s)", "video")
             await self.usage_tracker.finish_call(
                 call_id=call_id,
                 status="failed",
@@ -426,7 +426,7 @@ class MediaGenerator:
             )
             raise
 
-        # 5. 记录新版本
+        # 5. Record new version
         new_version = self.versions.add_version(
             resource_type=resource_type,
             resource_id=resource_id,

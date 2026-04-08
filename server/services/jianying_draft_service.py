@@ -1,8 +1,8 @@
-"""剪映草稿导出服务
+"""JianyingDraft export service.
 
-将 ArcReel 单集已生成的视频片段导出为剪映草稿 ZIP。
-使用 pyJianYingDraft 库生成 draft_content.json，
-后处理路径替换使草稿指向用户本地剪映目录。
+Exports the generated video clips of a single ArcReel episode as a JianyingDraft ZIP.
+Uses the pyJianYingDraft library to produce draft_content.json,
+then performs a post-processing path replacement so the draft points to the user's local Jianying directory.
 """
 
 import json
@@ -33,21 +33,21 @@ logger = logging.getLogger(__name__)
 
 
 class JianyingDraftService:
-    """剪映草稿导出服务"""
+    """JianyingDraft export service."""
 
     def __init__(self, project_manager: ProjectManager):
         self.pm = project_manager
 
     # ------------------------------------------------------------------
-    # 内部方法：数据提取
+    # Internal methods: data extraction
     # ------------------------------------------------------------------
 
     def _find_episode_script(self, project_name: str, project: dict, episode: int) -> tuple[dict, str]:
-        """定位指定集的剧本文件，返回 (script_dict, filename)"""
+        """Locate the script file for the specified episode; returns (script_dict, filename)."""
         episodes = project.get("episodes", [])
         ep_entry = next((e for e in episodes if e.get("episode") == episode), None)
         if ep_entry is None:
-            raise FileNotFoundError(f"第 {episode} 集不存在")
+            raise FileNotFoundError(f"Episode {episode} does not exist")
 
         script_file = ep_entry.get("script_file", "")
         filename = Path(script_file).name
@@ -55,7 +55,7 @@ class JianyingDraftService:
         return script_data, filename
 
     def _collect_video_clips(self, script: dict, project_dir: Path) -> list[dict[str, Any]]:
-        """从剧本中提取已完成视频的片段列表"""
+        """Extract the list of completed video clips from the script."""
         content_mode = script.get("content_mode", "narration")
         items = script.get("segments" if content_mode == "narration" else "scenes", [])
         id_field = "segment_id" if content_mode == "narration" else "scene_id"
@@ -69,7 +69,7 @@ class JianyingDraftService:
 
             abs_path = (project_dir / video_clip).resolve()
             if not abs_path.is_relative_to(project_dir.resolve()):
-                logger.warning("video_clip 路径越界，已跳过: %s", video_clip)
+                logger.warning("video_clip path traversal detected; skipping: %s", video_clip)
                 continue
             if not abs_path.exists():
                 continue
@@ -87,7 +87,7 @@ class JianyingDraftService:
         return clips
 
     def _resolve_canvas_size(self, project: dict, first_video_path: Path | None = None) -> tuple[int, int]:
-        """根据项目 aspect_ratio 确定画布尺寸，缺失时从首个视频自动检测"""
+        """Determine canvas dimensions from the project's aspect_ratio; auto-detect from the first video when absent."""
         ar = project.get("aspect_ratio")
         aspect = ar if isinstance(ar, str) else (ar.get("video") if isinstance(ar, dict) else None)
         if aspect is None and first_video_path is not None:
@@ -98,7 +98,7 @@ class JianyingDraftService:
         return 1920, 1080
 
     # ------------------------------------------------------------------
-    # 内部方法：草稿生成
+    # Internal methods: draft generation
     # ------------------------------------------------------------------
 
     def _generate_draft(
@@ -111,15 +111,15 @@ class JianyingDraftService:
         height: int,
         content_mode: str,
     ) -> None:
-        """使用 pyJianYingDraft 在 draft_dir 中生成草稿文件"""
+        """Generate draft files in draft_dir using pyJianYingDraft."""
         draft_dir.parent.mkdir(parents=True, exist_ok=True)
         folder = draft.DraftFolder(str(draft_dir.parent))
         script_file = folder.create_draft(draft_name, width=width, height=height, allow_replace=True)
 
-        # 视频轨
+        # Video track
         script_file.add_track(TrackType.video)
 
-        # 字幕轨（仅 narration 模式）
+        # Subtitle track (narration mode only)
         has_subtitle = content_mode == "narration"
         text_style: TextStyle | None = None
         text_border: TextBorder | None = None
@@ -127,7 +127,7 @@ class JianyingDraftService:
         subtitle_position: ClipSettings | None = None
         is_portrait = height > width
         if has_subtitle:
-            script_file.add_track(TrackType.text, "字幕")
+            script_file.add_track(TrackType.text, "Subtitles")
             text_style = TextStyle(
                 size=12.0 if is_portrait else 8.0,
                 color=(1.0, 1.0, 1.0),
@@ -151,21 +151,21 @@ class JianyingDraftService:
                 transform_y=-0.75 if is_portrait else -0.8,
             )
 
-        # 逐片段添加
+        # Add clips one by one
         offset_us = 0
         for clip in clips:
-            # 预读实际视频时长
+            # Pre-read actual video duration
             material = VideoMaterial(clip["local_path"])
             actual_duration_us = material.duration
 
-            # 视频片段
+            # Video segment
             video_seg = VideoSegment(
                 material,
                 trange(offset_us, actual_duration_us),
             )
             script_file.add_segment(video_seg)
 
-            # 字幕片段
+            # Subtitle segment
             if has_subtitle and clip.get("novel_text"):
                 text_seg = TextSegment(
                     text=clip["novel_text"],
@@ -182,11 +182,11 @@ class JianyingDraftService:
         script_file.save()
 
     def _replace_paths_in_draft(self, *, json_path: Path, tmp_prefix: str, target_prefix: str) -> None:
-        """JSON 安全地替换 draft_content.json 中的临时路径"""
+        """Safely replace temporary paths in draft_content.json via JSON serialization."""
         real = os.path.realpath(json_path)
         tmp = os.path.realpath(tempfile.gettempdir()) + os.sep
         if not real.startswith(tmp):
-            raise ValueError(f"路径越界，拒绝写入: {real}")
+            raise ValueError(f"Path traversal detected; refusing to write: {real}")
 
         with open(real, encoding="utf-8") as f:  # noqa: PTH123
             data = json.load(f)
@@ -205,7 +205,7 @@ class JianyingDraftService:
             json.dump(data, f, ensure_ascii=False)
 
     # ------------------------------------------------------------------
-    # 公开方法
+    # Public methods
     # ------------------------------------------------------------------
 
     def export_episode_draft(
@@ -217,34 +217,34 @@ class JianyingDraftService:
         use_draft_info_name: bool = True,
     ) -> Path:
         """
-        导出指定集的剪映草稿 ZIP。
+        Export a JianyingDraft ZIP for the specified episode.
 
         Returns:
-            ZIP 文件路径（临时文件，调用方负责清理）
+            ZIP file path (temporary file; caller is responsible for cleanup)
 
         Raises:
-            FileNotFoundError: 项目或剧本不存在
-            ValueError: 无可导出的视频片段
+            FileNotFoundError: Project or script does not exist
+            ValueError: No video clips available to export
         """
         project = self.pm.load_project(project_name)
         project_dir = self.pm.get_project_path(project_name)
 
-        # 1. 定位剧本
+        # 1. Locate the script
         script_data, _ = self._find_episode_script(project_name, project, episode)
 
-        # 2. 收集已完成视频
+        # 2. Collect completed videos
         content_mode = script_data.get("content_mode", "narration")
         clips = self._collect_video_clips(script_data, project_dir)
         if not clips:
-            raise ValueError(f"第 {episode} 集没有已完成的视频片段，请先生成视频")
+            raise ValueError(f"Episode {episode} has no completed video clips; please generate videos first")
 
-        # 3. 画布尺寸（项目未设 aspect_ratio 时从首个视频自动检测）
+        # 3. Canvas dimensions (auto-detect from first video when project has no aspect_ratio)
         width, height = self._resolve_canvas_size(project, clips[0]["abs_path"])
 
-        # 4. 创建临时目录 + 复制素材到暂存区
+        # 4. Create temp directory + copy assets to staging area
         raw_title = project.get("title", project_name)
         safe_title = raw_title.replace("/", "_").replace("\\", "_").replace("..", "_")
-        draft_name = f"{safe_title}_第{episode}集"
+        draft_name = f"{safe_title}_episode{episode}"
         tmp_dir = Path(tempfile.mkdtemp(prefix="arcreel_jy_"))
         try:
             staging_dir = tmp_dir / "staging"
@@ -260,7 +260,7 @@ class JianyingDraftService:
                     shutil.copy2(src, dst)
                 local_clips.append({**clip, "local_path": str(dst)})
 
-            # 5. 生成草稿（create_draft 会重建 draft_dir）
+            # 5. Generate draft (create_draft rebuilds draft_dir)
             draft_dir = tmp_dir / draft_name
             self._generate_draft(
                 draft_dir=draft_dir,
@@ -271,7 +271,7 @@ class JianyingDraftService:
                 content_mode=content_mode,
             )
 
-            # 6. 将素材移入草稿目录
+            # 6. Move assets into the draft directory
             assets_dir = draft_dir / "assets"
             assets_dir.mkdir(exist_ok=True)
             for clip in local_clips:
@@ -279,7 +279,7 @@ class JianyingDraftService:
                 dst = assets_dir / src.name
                 shutil.move(str(src), str(dst))
 
-            # 7. 路径后处理：staging 路径 → 用户本地路径
+            # 7. Post-process paths: staging path → user's local path
             draft_content_path = draft_dir / "draft_content.json"
             self._replace_paths_in_draft(
                 json_path=draft_content_path,
@@ -287,11 +287,11 @@ class JianyingDraftService:
                 target_prefix=f"{draft_path}/{draft_name}/assets",
             )
 
-            # 8. 剪映 6+ 使用 draft_info.json，低版本使用 draft_content.json
+            # 8. Jianying 6+ uses draft_info.json; older versions use draft_content.json
             if use_draft_info_name:
                 draft_content_path.rename(draft_dir / "draft_info.json")
 
-            # 9. 打包 ZIP
+            # 9. Package ZIP
             zip_path = tmp_dir / f"{draft_name}.zip"
             video_suffixes = {".mp4", ".webm", ".mov", ".avi", ".mkv"}
             with zipfile.ZipFile(zip_path, "w") as zf:

@@ -15,7 +15,7 @@ import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
 
-/** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
+/** Trigger a browser download via a hidden <a> element, avoiding blank tabs from window.open */
 function triggerBrowserDownload(url: string) {
   const a = document.createElement("a");
   a.href = url;
@@ -30,11 +30,11 @@ function triggerBrowserDownload(url: string) {
 // ---------------------------------------------------------------------------
 
 const PHASES = [
-  { key: "setup", label: "准备中" },
-  { key: "worldbuilding", label: "世界观" },
-  { key: "scripting", label: "剧本创作" },
-  { key: "production", label: "制作中" },
-  { key: "completed", label: "已完成" },
+  { key: "setup", label: "Setup" },
+  { key: "worldbuilding", label: "World" },
+  { key: "scripting", label: "Scripting" },
+  { key: "production", label: "Production" },
+  { key: "completed", label: "Done" },
 ] as const;
 
 type PhaseKey = (typeof PHASES)[number]["key"];
@@ -51,7 +51,7 @@ function PhaseStepper({
   const currentIdx = PHASES.findIndex((p) => p.key === currentPhase);
 
   return (
-    <nav className="flex items-center gap-1" aria-label="工作流阶段">
+    <nav className="flex items-center gap-1" aria-label="Workflow stages">
       {PHASES.map((phase, idx) => {
         const isCompleted = currentIdx > idx;
         const isCurrent = currentIdx === idx;
@@ -128,10 +128,10 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const contentMode = currentProjectData?.content_mode;
   const runningCount = stats.running + stats.queued;
   const displayProjectTitle =
-    currentProjectData?.title?.trim() || currentProjectName || "未选择项目";
+    currentProjectData?.title?.trim() || currentProjectName || "No project selected";
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
 
-  // 加载费用统计数据（任务完成时自动刷新）
+  // Load usage stats (auto-refresh on task completion)
   const completedTaskCount = stats.succeeded + stats.failed;
   useEffect(() => {
     API.getUsageStats(currentProjectName ? { projectName: currentProjectName } : {})
@@ -148,7 +148,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
   // Format content mode badge text
   const modeBadgeText =
-    contentMode === "drama" ? "剧集动画 16:9" : "说书模式 9:16";
+    contentMode === "drama" ? "Drama 16:9" : "Narration 9:16";
 
   // Format cost display – show multi-currency summary
   const costByCurrency = usageStats?.cost_by_currency ?? {};
@@ -186,9 +186,9 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       );
       triggerBrowserDownload(url);
       setExportDialogOpen(false);
-      useAppStore.getState().pushToast("剪映草稿导出已开始，请将下载的 ZIP 解压到剪映草稿目录中", "success");
+      useAppStore.getState().pushToast("JianYing draft export started. Unzip the downloaded ZIP into the JianYing drafts folder.", "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`剪映草稿导出失败: ${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`JianYing draft export failed: ${(err as Error).message}`, "error");
     } finally {
       setJianyingExporting(false);
     }
@@ -208,16 +208,16 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       if (diagnosticCount > 0) {
         setExportDiagnostics(diagnostics);
         useAppStore.getState().pushToast(
-          `项目 ZIP 已开始下载，导出包包含 ${diagnosticCount} 条诊断`,
+          `Project ZIP download started. Export contains ${diagnosticCount} diagnostics.`,
           "warning",
         );
       } else {
-        useAppStore.getState().pushToast("项目 ZIP 已开始下载", "success");
+        useAppStore.getState().pushToast("Project ZIP download started", "success");
       }
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(`导出失败: ${(err as Error).message}`, "error");
+        .pushToast(`Export failed: ${(err as Error).message}`, "error");
     } finally {
       setExportingProject(false);
     }
@@ -235,10 +235,10 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           type="button"
           onClick={onNavigateBack}
           className="flex items-center gap-1 text-sm text-gray-400 transition-colors hover:text-gray-200"
-          aria-label="返回项目大厅"
+          aria-label="Back to projects"
         >
           <ChevronLeft className="h-4 w-4" />
-          <span className="hidden sm:inline">项目大厅</span>
+          <span className="hidden sm:inline">Projects</span>
         </button>
 
         {/* Divider */}
@@ -273,8 +273,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
                 ? "bg-amber-500/20 text-amber-200"
                 : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"
             }`}
-            title={`会话通知: ${workspaceNotifications.length} 条`}
-            aria-label="打开通知中心"
+            title={`Workspace notifications: ${workspaceNotifications.length}`}
+            aria-label="Open notification center"
           >
             <Bell className="h-3.5 w-3.5" />
             {unreadNotificationCount > 0 && (
@@ -301,7 +301,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
                 ? "bg-indigo-500/20 text-indigo-400"
                 : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"
             }`}
-            title={`项目总花费: ${costText}`}
+            title={`Total project cost: ${costText}`}
           >
             <span className="font-mono">{costText}</span>
           </button>
@@ -323,8 +323,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
                 ? "bg-indigo-500/20 text-indigo-400"
                 : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"
             }`}
-            title={`任务状态: ${stats.running} 运行中, ${stats.queued} 排队中`}
-            aria-label="切换任务面板"
+            title={`Task status: ${stats.running} running, ${stats.queued} queued`}
+            aria-label="Toggle task panel"
           >
             <Activity
               className={`h-4 w-4 ${runningCount > 0 ? "animate-pulse" : ""}`}
@@ -346,8 +346,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             onClick={() => setExportDialogOpen(!exportDialogOpen)}
             disabled={!currentProjectName || exportingProject}
             className="inline-flex items-center gap-1 rounded-md border border-gray-700 px-2 py-1 text-xs text-gray-300 transition-colors hover:border-gray-500 hover:bg-gray-800 hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
-            title="导出当前项目 ZIP"
-            aria-label="导出当前项目 ZIP"
+            title="Export current project ZIP"
+            aria-label="Export project ZIP"
           >
             {exportingProject ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -355,7 +355,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               <Download className="h-3.5 w-3.5" />
             )}
             <span className="hidden lg:inline">
-              {exportingProject ? "导出中..." : "导出 ZIP"}
+              {exportingProject ? "Exporting..." : "Export ZIP"}
             </span>
           </button>
           <ExportScopeDialog
@@ -378,12 +378,12 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               : "~/app/settings"
           )}
           className="relative rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-          title="设置"
-          aria-label="设置"
+          title="Settings"
+          aria-label="Settings"
         >
           <Settings className="h-4 w-4" />
           {!isConfigComplete && !currentProjectName && (
-            <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500" aria-label="配置不完整" />
+            <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500" aria-label="Configuration incomplete" />
           )}
         </button>
 
@@ -391,12 +391,12 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
       {exportDiagnostics !== null && (
         <ArchiveDiagnosticsDialog
-          title="导出诊断"
-          description="导出已完成预检查并生成 ZIP。以下问题在导出包中被检测到。"
+          title="Export Diagnostics"
+          description="Export completed pre-check and generated ZIP. The following issues were detected in the export package."
           sections={[
-            { key: "blocking", title: "阻断问题", tone: "border-red-400/25 bg-red-500/10 text-red-100", items: exportDiagnostics.blocking },
-            { key: "auto_fixed", title: "已自动修复", tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100", items: exportDiagnostics.auto_fixed },
-            { key: "warnings", title: "警告", tone: "border-amber-400/25 bg-amber-500/10 text-amber-100", items: exportDiagnostics.warnings },
+            { key: "blocking", title: "Blocking issues", tone: "border-red-400/25 bg-red-500/10 text-red-100", items: exportDiagnostics.blocking },
+            { key: "auto_fixed", title: "Auto-fixed", tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100", items: exportDiagnostics.auto_fixed },
+            { key: "warnings", title: "Warnings", tone: "border-amber-400/25 bg-amber-500/10 text-amber-100", items: exportDiagnostics.warnings },
           ]}
           onClose={() => setExportDiagnostics(null)}
         />

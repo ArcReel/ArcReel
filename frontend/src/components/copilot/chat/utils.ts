@@ -8,30 +8,30 @@ export function cn(...classes: (string | false | null | undefined)[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// getRoleLabel – maps a turn role to a Chinese display label.
+// getRoleLabel – maps a turn role to a display label.
 // ---------------------------------------------------------------------------
 
 export function getRoleLabel(role: string): string {
   switch (role) {
     case "assistant":
-      return "助手";
+      return "Assistant";
     case "user":
-      return "你";
+      return "You";
     case "tool":
-      return "工具";
+      return "Tool";
     case "tool_result":
-      return "工具结果";
+      return "Tool result";
     case "skill_content":
       return "Skill";
     case "result":
-      return "完成";
+      return "Done";
     case "system":
-      return "系统";
+      return "System";
     case "stream_event":
-      return "流式更新";
+      return "Stream update";
     case "unknown":
-      return "消息";
+      return "Message";
     default:
-      return role || "消息";
+      return role || "Message";
   }
 }

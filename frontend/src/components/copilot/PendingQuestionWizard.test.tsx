@@ -41,18 +41,18 @@ describe("PendingQuestionWizard", () => {
       />,
     );
 
-    expect(screen.getByText("问题 1/2")).toBeInTheDocument();
+    expect(screen.getByText("Question 1/2")).toBeInTheDocument();
     expect(screen.getByText("输出格式是什么？")).toBeInTheDocument();
     expect(screen.queryByText("包含哪些部分？")).not.toBeInTheDocument();
 
-    const nextButton = screen.getByRole("button", { name: "下一题" });
+    const nextButton = screen.getByRole("button", { name: "Next" });
     expect(nextButton).toBeDisabled();
 
     fireEvent.click(screen.getByLabelText("摘要"));
     expect(nextButton).toBeEnabled();
 
     fireEvent.click(nextButton);
-    expect(screen.getByText("问题 2/2")).toBeInTheDocument();
+    expect(screen.getByText("Question 2/2")).toBeInTheDocument();
     expect(screen.getByText("包含哪些部分？")).toBeInTheDocument();
     expect(screen.queryByText("输出格式是什么？")).not.toBeInTheDocument();
   });
@@ -68,8 +68,8 @@ describe("PendingQuestionWizard", () => {
     );
 
     fireEvent.click(screen.getByLabelText("详细"));
-    fireEvent.click(screen.getByRole("button", { name: "下一题" }));
-    fireEvent.click(screen.getByRole("button", { name: "上一步" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
 
     expect(screen.getByText("输出格式是什么？")).toBeInTheDocument();
     expect(screen.getByLabelText("详细")).toBeChecked();
@@ -100,12 +100,12 @@ describe("PendingQuestionWizard", () => {
     );
 
     fireEvent.click(screen.getByLabelText("引言"));
-    fireEvent.click(screen.getByLabelText("其他"));
+    fireEvent.click(screen.getByLabelText("Other"));
 
-    const submitButton = screen.getByRole("button", { name: "完成并提交" });
+    const submitButton = screen.getByRole("button", { name: "Submit answers" });
     expect(submitButton).toBeDisabled();
 
-    fireEvent.change(screen.getByPlaceholderText("请输入其他内容"), {
+    fireEvent.change(screen.getByPlaceholderText("Please enter custom value"), {
       target: { value: "附录" },
     });
     expect(submitButton).toBeEnabled();
@@ -128,7 +128,7 @@ describe("PendingQuestionWizard", () => {
     );
 
     fireEvent.click(screen.getByLabelText("摘要"));
-    fireEvent.click(screen.getByRole("button", { name: "下一题" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("包含哪些部分？")).toBeInTheDocument();
 
     rerender(
@@ -143,7 +143,7 @@ describe("PendingQuestionWizard", () => {
     expect(screen.getByText("输出格式是什么？")).toBeInTheDocument();
     expect(screen.queryByText("包含哪些部分？")).not.toBeInTheDocument();
     expect(screen.getByLabelText("摘要")).not.toBeChecked();
-    expect(screen.getByRole("button", { name: "下一题" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
 
   it("keeps the action area visible by making question content scrollable", () => {
@@ -168,6 +168,6 @@ describe("PendingQuestionWizard", () => {
     );
 
     expect(screen.getByTestId("pending-question-scroll-area")).toHaveClass("overflow-y-auto");
-    expect(screen.getByRole("button", { name: "完成并提交" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Submit answers" })).toBeInTheDocument();
   });
 });

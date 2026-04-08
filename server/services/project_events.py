@@ -174,7 +174,7 @@ class ProjectEventService:
         channel.pending_sources.add(source)
         channel.scan_now.set()
         logger.debug(
-            "项目变更 hint project=%s source=%s paths=%s",
+            "Project change hint: project=%s source=%s paths=%s",
             project_name,
             source,
             changed_paths,
@@ -192,7 +192,7 @@ class ProjectEventService:
 
         channel.scan_now.clear()
 
-        # 文件 I/O 下沉到线程池，状态更新和广播留在事件循环
+        # File I/O is offloaded to the thread pool; state updates and broadcasts stay in the event loop
         task = asyncio.create_task(
             self._async_rebuild_and_broadcast(project_name, channel, source, changes),
             name=f"batch-rebuild-{project_name}",
@@ -207,14 +207,14 @@ class ProjectEventService:
         source: ProjectChangeSource,
         changes: tuple[ProjectChangeBatch, ...],
     ) -> None:
-        """文件 I/O 在线程中执行，状态更新和广播在事件循环线程中执行。"""
+        """File I/O is executed in a thread; state updates and broadcasts are executed in the event-loop thread."""
         try:
             snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
         except Exception:
-            logger.exception("构建显式项目事件快照失败 project=%s", project_name)
+            logger.exception("Failed to build explicit project event snapshot: project=%s", project_name)
             return
 
-        # 以下在事件循环线程中执行，线程安全
+        # The following executes in the event-loop thread; thread-safe
         channel.snapshot = snapshot
         channel.fingerprint = fingerprint
         channel.pending_sources.clear()
@@ -230,7 +230,7 @@ class ProjectEventService:
         self._broadcast(project_name, channel, "changes", payload)
 
     def _rebuild_snapshot(self, project_name: str) -> tuple[dict[str, Any], str]:
-        """同步方法（在线程池中执行）：重建快照并返回 (snapshot, fingerprint)。"""
+        """Synchronous method (executed in the thread pool): rebuild snapshot and return (snapshot, fingerprint)."""
         self._ensure_script_index_synced(project_name)
         snapshot = self._build_snapshot(project_name)
         return snapshot, _fingerprint(snapshot)
@@ -239,14 +239,14 @@ class ProjectEventService:
         try:
             while channel.subscribers:
                 try:
-                    # 仅文件 I/O 在线程中执行
+                    # Only file I/O runs in a thread
                     snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
-                    # 状态更新和广播在事件循环线程中执行（线程安全）
+                    # State updates and broadcasts execute in the event-loop thread (thread-safe)
                     self._apply_scan_result(project_name, channel, snapshot, fingerprint)
                 except asyncio.CancelledError:
                     raise
                 except Exception:
-                    logger.exception("项目事件扫描失败 project=%s", project_name)
+                    logger.exception("Project event scan failed: project=%s", project_name)
                 finally:
                     channel.ready_event.set()
 
@@ -266,7 +266,7 @@ class ProjectEventService:
         snapshot: dict[str, Any],
         fingerprint: str,
     ) -> None:
-        """在事件循环线程中更新 channel 状态并广播变更。"""
+        """Update channel state and broadcast changes in the event-loop thread."""
         if channel.snapshot is None:
             channel.snapshot = snapshot
             channel.fingerprint = fingerprint
@@ -333,7 +333,7 @@ class ProjectEventService:
             channel.subscribers.discard(subscriber)
         if stale:
             logger.warning(
-                "项目事件订阅队列溢出，移除 %s 个订阅者 project=%s",
+                "Project event subscriber queue overflow; removed %s subscriber(s) for project=%s",
                 len(stale),
                 project_name,
             )
@@ -358,7 +358,7 @@ class ProjectEventService:
             try:
                 script = self.pm.load_script(project_name, script_path.name)
             except Exception:
-                logger.warning("跳过无法读取的剧本文件 project=%s file=%s", project_name, script_path.name)
+                logger.warning("Skipping unreadable script file: project=%s file=%s", project_name, script_path.name)
                 continue
 
             episode = script.get("episode")
@@ -441,7 +441,7 @@ class ProjectEventService:
                 try:
                     script = self.pm.load_script(project_name, script_path.name)
                 except Exception:
-                    logger.warning("跳过无法解析的剧本快照 project=%s file=%s", project_name, script_path.name)
+                    logger.warning("Skipping unparseable script snapshot: project=%s file=%s", project_name, script_path.name)
                     continue
                 scripts[script_path.name] = self._normalize_script_snapshot(script)
 
@@ -525,7 +525,7 @@ class ProjectEventService:
                     "entity_type": "project",
                     "action": "updated",
                     "entity_id": "project",
-                    "label": "项目设置",
+                    "label": "Project settings",
                     "focus": None,
                     "important": False,
                 }
@@ -536,7 +536,7 @@ class ProjectEventService:
                     "entity_type": "overview",
                     "action": "updated",
                     "entity_id": "overview",
-                    "label": "项目概览",
+                    "label": "Project overview",
                     "focus": None,
                     "important": False,
                 }
@@ -572,7 +572,7 @@ class ProjectEventService:
                     entity_type=entity_type,
                     action="created",
                     entity_id=name,
-                    label=f"{'角色' if entity_type == 'character' else '线索'}「{name}」",
+                    label=f"{'Character' if entity_type == 'character' else 'Clue'} [{name}]",
                     focus={
                         "pane": pane,
                         "anchor_type": entity_type,
@@ -587,7 +587,7 @@ class ProjectEventService:
                     entity_type=entity_type,
                     action="deleted",
                     entity_id=name,
-                    label=f"{'角色' if entity_type == 'character' else '线索'}「{name}」",
+                    label=f"{'Character' if entity_type == 'character' else 'Clue'} [{name}]",
                     focus=None,
                     important=False,
                 )
@@ -600,7 +600,7 @@ class ProjectEventService:
                     entity_type=entity_type,
                     action="updated",
                     entity_id=name,
-                    label=f"{'角色' if entity_type == 'character' else '线索'}「{name}」",
+                    label=f"{'Character' if entity_type == 'character' else 'Clue'} [{name}]",
                     focus={
                         "pane": pane,
                         "anchor_type": entity_type,
@@ -626,7 +626,7 @@ class ProjectEventService:
                     entity_type="episode",
                     action="created",
                     entity_id=episode_key,
-                    label=f"第 {episode['episode']} 集",
+                    label=f"Episode {episode['episode']}",
                     script_file=episode.get("script_file"),
                     episode=episode["episode"],
                     focus=None,
@@ -642,7 +642,7 @@ class ProjectEventService:
                     entity_type="episode",
                     action="updated",
                     entity_id=episode_key,
-                    label=f"第 {episode['episode']} 集",
+                    label=f"Episode {episode['episode']}",
                     script_file=episode.get("script_file"),
                     episode=episode["episode"],
                     focus=None,
@@ -752,8 +752,8 @@ class ProjectEventService:
     @staticmethod
     def _build_script_item_label(item_id: str, script_meta: dict[str, Any]) -> str:
         content_mode = str(script_meta.get("content_mode") or "narration")
-        noun = "分镜" if content_mode == "narration" else "场景"
-        return f"{noun}「{item_id}」"
+        noun = "Storyboard" if content_mode == "narration" else "Scene"
+        return f"{noun} [{item_id}]"
 
     def _build_script_item_change(
         self,

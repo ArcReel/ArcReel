@@ -8,7 +8,7 @@ export function ContextBanner() {
 
   const icons = { character: User, clue: Puzzle, segment: Film };
   const Icon = icons[focusedContext.type];
-  const labels: Record<string, string> = { character: "角色", clue: "线索", segment: "片段" };
+  const labels: Record<string, string> = { character: "Character", clue: "Clue", segment: "Segment" };
 
   return (
     <div className="flex items-center gap-2 border-b border-gray-800 bg-indigo-950/30 px-3 py-1.5 text-xs">
