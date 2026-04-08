@@ -35,6 +35,24 @@ def backend(mock_rate_limiter):
         yield b
 
 
+@pytest.fixture
+def content_api_backend(mock_rate_limiter):
+    """创建 use_content_api=True 的 GeminiVideoBackend（mock genai SDK）。"""
+    with patch("google.genai"), patch("google.genai.types"):
+        from lib.video_backends.gemini import GeminiVideoBackend
+
+        b = GeminiVideoBackend(
+            backend_type="aistudio",
+            api_key="test-key",
+            rate_limiter=mock_rate_limiter,
+            base_url="https://custom-provider.example.com/",
+            use_content_api=True,
+        )
+        b._client = MagicMock()
+        b._client.aio = MagicMock()
+        yield b
+
+
 # ── 属性测试 ──────────────────────────────────────────────
 
 
@@ -358,3 +376,100 @@ class TestDownloadVideo:
 
         with pytest.raises(RuntimeError, match="无法获取视频数据"):
             backend._download_video(mock_ref, output)
+
+
+# ── Content API（自定义供应商）测试 ─────────────────────────
+
+
+def _make_content_api_response(video_bytes=b"fake-video-data", mime_type="video/mp4"):
+    """构造 generate_content 返回的 mock response（含视频 inline_data）。"""
+    mock_blob = MagicMock()
+    mock_blob.data = video_bytes
+    mock_blob.mime_type = mime_type
+
+    mock_part = MagicMock()
+    mock_part.inline_data = mock_blob
+
+    mock_content = MagicMock()
+    mock_content.parts = [mock_part]
+
+    mock_candidate = MagicMock()
+    mock_candidate.content = mock_content
+
+    mock_response = MagicMock()
+    mock_response.candidates = [mock_candidate]
+    return mock_response
+
+
+class TestContentApiGenerate:
+    """use_content_api=True 时应走 generate_content 而非 generate_videos。"""
+
+    async def test_generate_calls_generate_content(self, content_api_backend, tmp_path):
+        output = tmp_path / "out.mp4"
+
+        mock_resp = _make_content_api_response()
+        content_api_backend._client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+
+        request = VideoGenerationRequest(prompt="a cat walking", output_path=output)
+        result = await content_api_backend.generate(request)
+
+        assert isinstance(result, VideoGenerationResult)
+        assert result.provider == "gemini"
+        assert result.video_path == output
+        assert output.read_bytes() == b"fake-video-data"
+
+        # 确认调用了 generate_content 而非 generate_videos
+        content_api_backend._client.aio.models.generate_content.assert_awaited_once()
+
+    async def test_generate_does_not_call_generate_videos(self, content_api_backend, tmp_path):
+        """use_content_api=True 时不应调用 generate_videos。"""
+        output = tmp_path / "out.mp4"
+
+        mock_resp = _make_content_api_response()
+        content_api_backend._client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+        content_api_backend._client.aio.models.generate_videos = AsyncMock()
+
+        request = VideoGenerationRequest(prompt="test", output_path=output)
+        await content_api_backend.generate(request)
+
+        content_api_backend._client.aio.models.generate_videos.assert_not_awaited()
+
+    async def test_generate_with_start_image(self, content_api_backend, tmp_path):
+        output = tmp_path / "out.mp4"
+        frame = tmp_path / "frame.png"
+        frame.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        mock_resp = _make_content_api_response()
+        content_api_backend._client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+
+        request = VideoGenerationRequest(prompt="cat moves", output_path=output, start_image=frame)
+        result = await content_api_backend.generate(request)
+
+        assert result.video_path == output
+        # contents 应包含图片 + prompt
+        call_kwargs = content_api_backend._client.aio.models.generate_content.call_args.kwargs
+        contents = call_kwargs["contents"]
+        assert len(contents) == 2  # image + prompt
+
+    async def test_generate_empty_response_raises(self, content_api_backend, tmp_path):
+        """API 返回空候选时应抛出 RuntimeError。"""
+        output = tmp_path / "out.mp4"
+
+        mock_response = MagicMock()
+        mock_response.candidates = []
+        content_api_backend._client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        request = VideoGenerationRequest(prompt="test", output_path=output)
+        with pytest.raises(RuntimeError, match="API 未返回视频数据"):
+            await content_api_backend.generate(request)
+
+    async def test_rate_limiter_called(self, content_api_backend, mock_rate_limiter, tmp_path):
+        output = tmp_path / "out.mp4"
+
+        mock_resp = _make_content_api_response()
+        content_api_backend._client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+
+        request = VideoGenerationRequest(prompt="test", output_path=output)
+        await content_api_backend.generate(request)
+
+        mock_rate_limiter.acquire_async.assert_called_once_with(content_api_backend._video_model)

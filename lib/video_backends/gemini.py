@@ -37,6 +37,7 @@ class GeminiVideoBackend:
         rate_limiter: RateLimiter | None = None,
         video_model: str | None = None,
         base_url: str | None = None,
+        use_content_api: bool = False,
     ):
         from google import genai as _genai
         from google.genai import types as _types
@@ -83,6 +84,8 @@ class GeminiVideoBackend:
             http_options = {"base_url": effective_base_url} if effective_base_url else None
             self._client = _genai.Client(api_key=_api_key, http_options=http_options)
 
+        self._use_content_api = use_content_api
+
         # 缓存 capabilities，避免每次访问创建新 set
         self._capabilities: set[VideoCapability] = {
             VideoCapability.TEXT_TO_VIDEO,
@@ -116,8 +119,56 @@ class GeminiVideoBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
+        if self._use_content_api:
+            return await self._generate_via_content_api(request)
         operation = await self._create_task(request)
         return await self._poll_until_done(operation, request)
+
+    @with_retry_async()
+    async def _generate_via_content_api(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """通过 generateContent API 生成视频（用于自定义 Google 兼容供应商）。"""
+        if self._rate_limiter:
+            await self._rate_limiter.acquire_async(self._video_model)
+
+        # 构建 contents（可选起始帧 + prompt）
+        contents: list = []
+        if request.start_image:
+            image_param = self._prepare_image_param(request.start_image)
+            if image_param:
+                contents.append(image_param)
+        contents.append(request.prompt)
+
+        # 构建配置
+        config = self._types.GenerateContentConfig(
+            response_modalities=["VIDEO"],
+            http_options=self._types.HttpOptions(timeout=600_000),
+        )
+
+        # 调用 API
+        logger.info("通过 generateContent API 生成视频 (model=%s)", self._video_model)
+        response = await self._client.aio.models.generate_content(
+            model=self._video_model,
+            contents=contents,
+            config=config,
+        )
+
+        # 从 response parts 中提取视频数据
+        if response.candidates and response.candidates[0].content:
+            for part in response.candidates[0].content.parts:
+                if part.inline_data is not None:
+                    request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(request.output_path, "wb") as f:
+                        f.write(part.inline_data.data)
+                    return VideoGenerationResult(
+                        video_path=request.output_path,
+                        provider=PROVIDER_GEMINI,
+                        model=self._video_model,
+                        duration_seconds=request.duration_seconds,
+                        video_uri=None,
+                        generate_audio=True,
+                    )
+
+        raise RuntimeError("视频生成失败: API 未返回视频数据")
 
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> Any:

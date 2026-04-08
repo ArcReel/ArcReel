@@ -106,6 +106,7 @@ class TestGoogleFormat:
             api_key="sk-test",
             base_url="https://generativelanguage.googleapis.com/",
             video_model="veo-3",
+            use_content_api=True,
         )
 
     @patch("lib.custom_provider.factory.GeminiTextBackend")
