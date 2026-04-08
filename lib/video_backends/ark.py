@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import httpx
+
 from lib.ark_shared import create_ark_client
 from lib.providers import PROVIDER_ARK
 from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry, with_retry_async
@@ -112,6 +114,20 @@ class ArkVideoBackend:
         logger.info("Ark 任务已创建: %s", create_result.id)
         return create_result.id
 
+    @staticmethod
+    @with_retry_async(
+        max_attempts=5,
+        backoff_seconds=(5, 10, 20, 40),
+        retryable_errors=(*BASE_RETRYABLE_ERRORS, httpx.HTTPStatusError),
+    )
+    async def _download_video_with_retry(video_url: str, output_path) -> None:
+        """单独重试视频下载，避免下载失败导致重新生成视频而浪费额度。
+
+        Ark 的视频 URL 在任务 succeeded 后可能仍未就绪（返回 400 video_not_ready），
+        需要独立重试而非让整个任务失败。
+        """
+        await download_video(video_url, output_path)
+
     async def _poll_until_done(self, task_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """轮询任务状态直到完成，瞬态错误仅重试当次轮询请求。"""
         poll_interval = 10 if request.service_tier == "default" else 60
@@ -153,7 +169,7 @@ class ArkVideoBackend:
 
         # Download video
         video_url = result.content.video_url
-        await download_video(video_url, request.output_path)
+        await self._download_video_with_retry(video_url, request.output_path)
 
         # Extract result metadata
         seed = getattr(result, "seed", None)
