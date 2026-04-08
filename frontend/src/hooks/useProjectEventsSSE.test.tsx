@@ -33,14 +33,14 @@ describe("useProjectEventsSSE", () => {
         title: "Demo",
         content_mode: "narration",
         style: "Anime",
-        episodes: [{ episode: 1, title: "第一集", script_file: "scripts/episode_1.json" }],
-        characters: { hero: { description: "勇者" } },
+        episodes: [{ episode: 1, title: "Episode 1", script_file: "scripts/episode_1.json" }],
+        characters: { hero: { description: "Hero" } },
         clues: {},
       },
       scripts: {
         "episode_1.json": {
           episode: 1,
-          title: "第一集",
+          title: "Episode 1",
           content_mode: "narration",
           duration_seconds: 4,
           summary: "",
@@ -75,7 +75,7 @@ describe("useProjectEventsSSE", () => {
               entity_type: "character",
               action: "created",
               entity_id: "hero",
-              label: "角色「hero」",
+              label: "Character「hero」",
               focus: {
                 pane: "characters",
                 anchor_type: "character",
@@ -102,7 +102,7 @@ describe("useProjectEventsSSE", () => {
     );
     expect(useAppStore.getState().workspaceNotifications[0]).toEqual(
       expect.objectContaining({
-        text: "AI 刚新增了 角色「hero」，点击查看",
+        text: "AI just added Character「hero」, click to view",
         target: expect.objectContaining({
           type: "character",
           id: "hero",
@@ -137,12 +137,12 @@ describe("useProjectEventsSSE", () => {
             {
               entity_type: "clue",
               action: "updated",
-              entity_id: "玉佩",
-              label: "线索「玉佩」",
+              entity_id: "jade-pendant",
+              label: "Clue「jade-pendant」",
               focus: {
                 pane: "clues",
                 anchor_type: "clue",
-                anchor_id: "玉佩",
+                anchor_id: "jade-pendant",
               },
               important: true,
             },
@@ -154,7 +154,7 @@ describe("useProjectEventsSSE", () => {
 
     await waitFor(() => {
       expect(API.getProject).toHaveBeenCalledWith("demo");
-      expect(useAppStore.getState().workspaceNotifications[0]?.target?.id).toBe("玉佩");
+      expect(useAppStore.getState().workspaceNotifications[0]?.target?.id).toBe("jade-pendant");
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/");
     expect(useAppStore.getState().scrollTarget).toBeNull();
@@ -182,7 +182,7 @@ describe("useProjectEventsSSE", () => {
               entity_type: "segment",
               action: "storyboard_ready",
               entity_id: "E1S01",
-              label: "分镜「E1S01」",
+              label: "Scene「E1S01」",
               episode: 1,
               focus: null,
               important: true,
@@ -195,12 +195,12 @@ describe("useProjectEventsSSE", () => {
 
     await waitFor(() => {
       expect(API.getProject).toHaveBeenCalledWith("demo");
-      expect(useAppStore.getState().toast?.text).toBe("分镜「E1S01」的分镜图已生成");
+      expect(useAppStore.getState().toast?.text).toBe("Storyboard for Scene「E1S01」has been generated");
     });
     expect(useAppStore.getState().toast?.tone).toBe("success");
     expect(useAppStore.getState().workspaceNotifications[0]).toEqual(
       expect.objectContaining({
-        text: "分镜「E1S01」的分镜图已生成",
+        text: "Storyboard for Scene「E1S01」has been generated",
         tone: "success",
         target: null,
       }),
@@ -231,7 +231,7 @@ describe("useProjectEventsSSE", () => {
               entity_type: "character",
               action: "created",
               entity_id: "hero",
-              label: "角色「hero」",
+              label: "Character「hero」",
               focus: {
                 pane: "characters",
                 anchor_type: "character",
@@ -243,7 +243,7 @@ describe("useProjectEventsSSE", () => {
               entity_type: "character",
               action: "created",
               entity_id: "mage",
-              label: "角色「mage」",
+              label: "Character「mage」",
               focus: {
                 pane: "characters",
                 anchor_type: "character",
@@ -254,12 +254,12 @@ describe("useProjectEventsSSE", () => {
             {
               entity_type: "clue",
               action: "updated",
-              entity_id: "玉佩",
-              label: "线索「玉佩」",
+              entity_id: "jade-pendant",
+              label: "Clue「jade-pendant」",
               focus: {
                 pane: "clues",
                 anchor_type: "clue",
-                anchor_id: "玉佩",
+                anchor_id: "jade-pendant",
               },
               important: true,
             },
@@ -271,17 +271,17 @@ describe("useProjectEventsSSE", () => {
 
     await waitFor(() => {
       expect(API.getProject).toHaveBeenCalledWith("demo");
-      expect(useAppStore.getState().toast?.text).toBe("线索「玉佩」已更新");
+      expect(useAppStore.getState().toast?.text).toBe("Clue「jade-pendant」updated");
     });
 
     expect(useAppStore.getState().getEntityRevision("character:hero")).toBe(1);
     expect(useAppStore.getState().getEntityRevision("character:mage")).toBe(1);
-    expect(useAppStore.getState().getEntityRevision("clue:玉佩")).toBe(1);
+    expect(useAppStore.getState().getEntityRevision("clue:jade-pendant")).toBe(1);
     expect(useAppStore.getState().getEntityRevision("segment:SEG-404")).toBe(0);
     expect(useAppStore.getState().workspaceNotifications).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          text: "AI 刚新增了 2 个角色：hero、mage，点击查看",
+          text: "AI just added 2 characters: hero, mage, click to view",
           target: expect.objectContaining({
             type: "character",
             id: "hero",
@@ -289,10 +289,10 @@ describe("useProjectEventsSSE", () => {
           }),
         }),
         expect.objectContaining({
-          text: "AI 刚更新了 线索「玉佩」，点击查看",
+          text: "AI just updated Clue「jade-pendant」, click to view",
           target: expect.objectContaining({
             type: "clue",
-            id: "玉佩",
+            id: "jade-pendant",
             route: "/clues",
           }),
         }),
@@ -321,12 +321,12 @@ describe("useProjectEventsSSE", () => {
             {
               entity_type: "clue",
               action: "updated",
-              entity_id: "玉佩",
-              label: "线索「玉佩」",
+              entity_id: "jade-pendant",
+              label: "Clue「jade-pendant」",
               focus: {
                 pane: "clues",
                 anchor_type: "clue",
-                anchor_id: "玉佩",
+                anchor_id: "jade-pendant",
               },
               important: true,
             },

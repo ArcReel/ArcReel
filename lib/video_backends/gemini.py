@@ -205,7 +205,7 @@ class GeminiVideoBackend:
         logger.info("Starting polling operation=%s ...", op_name)
 
         start_time = time.monotonic()
-        poll_interval = 20  # 与 Google 官方推荐一致
+        poll_interval = 20  # consistent with Google's official recommendation
         max_wait_time = 600
         while not operation.done:
             elapsed = time.monotonic() - start_time

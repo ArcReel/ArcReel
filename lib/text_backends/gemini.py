@@ -73,7 +73,7 @@ class GeminiTextBackend:
             logger.info("GeminiTextBackend: using Vertex AI backend (credentials: %s)", credentials_file.name)
         else:
             if not api_key:
-                raise ValueError("Gemini API Key 未提供（API Key is required for AI Studio mode）。")
+                raise ValueError("Gemini API Key not provided (API Key is required for AI Studio mode).")
             effective_base_url = normalize_base_url(base_url)
             http_options = {"base_url": effective_base_url} if effective_base_url else None
             self._client = genai.Client(api_key=api_key, http_options=http_options)

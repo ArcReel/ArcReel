@@ -22,8 +22,8 @@ async def init_db() -> None:
     but no alembic_version table is present, stamps the current head revision
     before running upgrade so existing databases migrate smoothly.
 
-    使用 Config() 空构造 + set_main_option 编程式调用 alembic，
-    而非 Config("alembic.ini")，避免 env.py 的 fileConfig() 覆盖应用日志配置。
+    Uses programmatic Config() construction with set_main_option to invoke alembic,
+    rather than Config("alembic.ini"), to avoid env.py's fileConfig() overriding application log configuration.
     """
     import asyncio
     from pathlib import Path

@@ -102,7 +102,7 @@ class ArkTextBackend:
         return await self._structured_fallback(request, messages)
 
     async def _structured_fallback(self, request: TextGenerationRequest, messages: list[dict]) -> TextGenerationResult:
-        """Instructor / json_object 降级路径。"""
+        """Instructor / json_object fallback path."""
         from lib.text_backends.instructor_support import instructor_fallback_sync
 
         return await asyncio.to_thread(
