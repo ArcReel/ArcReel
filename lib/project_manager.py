@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import secrets
+import tempfile
 import unicodedata
 from collections.abc import Callable
 from datetime import datetime
@@ -908,8 +909,18 @@ class ProjectManager:
 
         self._touch_metadata(project)
 
-        with open(project_file, "w", encoding="utf-8") as f:
-            json.dump(project, f, ensure_ascii=False, indent=2)
+        serialized = json.dumps(project, ensure_ascii=False, indent=2)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=str(project_file.parent),
+            prefix=".project.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp.write(serialized)
+            tmp_path = Path(tmp.name)
+        os.replace(tmp_path, project_file)
 
         emit_project_change_hint(
             project_name,
