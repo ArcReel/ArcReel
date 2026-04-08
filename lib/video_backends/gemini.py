@@ -134,9 +134,8 @@ class GeminiVideoBackend:
         # 注意：generate_content 接受 PIL.Image，不接受 types.Image（_prepare_image_param 的返回类型）
         contents: list = []
         if request.start_image:
-            pil_img = Image.open(request.start_image)
-            contents.append(pil_img.copy())
-            pil_img.close()
+            with Image.open(request.start_image) as pil_img:
+                contents.append(pil_img.copy())
         contents.append(request.prompt)
 
         # 构建配置
