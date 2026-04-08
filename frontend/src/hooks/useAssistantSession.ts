@@ -475,11 +475,11 @@ export function useAssistantSession(projectName: string | null) {
         connectStream(sessionId);
       } catch (err) {
         if (pendingSendVersionRef.current !== sendVersion) return;
-        store.getState().setError((err as Error).message ?? "发送失败");
+        store.getState().setError((err as Error).message ?? "Send failed");
         if (sessionId && optimisticUuid) {
           restoreFailedSend(sessionId, optimisticUuid, previousStatus);
         } else {
-          // 新会话创建失败：回滚到 draft 模式
+          // New session creation failed: roll back to draft mode
           store.getState().setTurns(store.getState().turns.filter(t => t.uuid !== optimisticUuid));
           store.getState().setIsDraftSession(true);
           store.getState().setCurrentSessionId(null);
@@ -504,7 +504,7 @@ export function useAssistantSession(projectName: string | null) {
         await API.answerAssistantQuestion(projectName, sessionId, questionId, answers);
         store.getState().setPendingQuestion(null);
       } catch (err) {
-        store.getState().setError((err as Error).message ?? "回答失败");
+        store.getState().setError((err as Error).message ?? "Answer failed");
       } finally {
         store.getState().setAnsweringQuestion(false);
       }
@@ -512,7 +512,7 @@ export function useAssistantSession(projectName: string | null) {
     [projectName, store],
   );
 
-  // 中断会话
+  // Interrupt session
   const interrupt = useCallback(async () => {
     const sessionId = store.getState().currentSessionId;
     if (!projectName || !sessionId || statusRef.current !== "running") return;
@@ -521,12 +521,12 @@ export function useAssistantSession(projectName: string | null) {
     try {
       await API.interruptAssistantSession(projectName, sessionId);
     } catch (err) {
-      store.getState().setError((err as Error).message ?? "中断失败");
+      store.getState().setError((err as Error).message ?? "Interrupt failed");
       store.getState().setInterrupting(false);
     }
   }, [projectName, store]);
 
-  // 创建新会话（懒创建：仅清空状态，实际创建延迟到首次发消息时）
+  // Create new session (lazy creation: only clear state; actual creation deferred until first message)
   const createNewSession = useCallback(async () => {
     if (!projectName) return;
 
@@ -541,7 +541,7 @@ export function useAssistantSession(projectName: string | null) {
     statusRef.current = "idle";
   }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, store]);
 
-  // 切换到指定会话
+  // Switch to a specific session
   const switchSession = useCallback(async (sessionId: string) => {
     if (store.getState().currentSessionId === sessionId) return;
 
@@ -554,7 +554,7 @@ export function useAssistantSession(projectName: string | null) {
     clearPendingQuestion();
     store.getState().setMessagesLoading(true);
 
-    // 记住选择
+    // Remember the selection
     if (projectName) saveLastSessionId(projectName, sessionId);
 
     try {
@@ -572,13 +572,13 @@ export function useAssistantSession(projectName: string | null) {
         applySnapshot(snapshot);
       }
     } catch {
-      // 静默失败
+      // silently fail
     } finally {
       store.getState().setMessagesLoading(false);
     }
   }, [projectName, applySnapshot, clearPendingQuestion, closeStream, connectStream, invalidatePendingSend, store]);
 
-  // 删除会话
+  // Delete session
   const deleteSession = useCallback(async (sessionId: string) => {
     if (!projectName) return;
     try {
@@ -586,7 +586,7 @@ export function useAssistantSession(projectName: string | null) {
       const sessions = store.getState().sessions.filter((s) => s.id !== sessionId);
       store.getState().setSessions(sessions);
 
-      // 如果删除的是当前会话，切换到下一个
+      // If deleting the current session, switch to the next one
       if (store.getState().currentSessionId === sessionId) {
         if (sessions.length > 0) {
           await switchSession(sessions[0].id);
@@ -602,7 +602,7 @@ export function useAssistantSession(projectName: string | null) {
         }
       }
     } catch {
-      // 静默失败
+      // silently fail
     }
   }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, switchSession, store]);
 

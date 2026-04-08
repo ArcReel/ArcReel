@@ -89,35 +89,35 @@ const smallBtnClassName =
 const MODEL_ROUTING_FIELDS = [
   {
     key: "haikuModel" as const,
-    label: "Haiku 模型",
+    label: "Haiku Model",
     envVar: "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-    hint: "轻量任务（分类、提取、简单问答）",
+    hint: "Lightweight tasks (classification, extraction, simple Q&A)",
     patchKey: "anthropic_default_haiku_model" as const,
   },
   {
     key: "sonnetModel" as const,
-    label: "Sonnet 模型",
+    label: "Sonnet Model",
     envVar: "ANTHROPIC_DEFAULT_SONNET_MODEL",
-    hint: "均衡任务（写作、编排、多步推理）",
+    hint: "Balanced tasks (writing, orchestration, multi-step reasoning)",
     patchKey: "anthropic_default_sonnet_model" as const,
   },
   {
     key: "opusModel" as const,
-    label: "Opus 模型",
+    label: "Opus Model",
     envVar: "ANTHROPIC_DEFAULT_OPUS_MODEL",
-    hint: "复杂任务（长文创作、深度分析）",
+    hint: "Complex tasks (long-form creation, deep analysis)",
     patchKey: "anthropic_default_opus_model" as const,
   },
   {
     key: "subagentModel" as const,
-    label: "子 Agent 模型",
+    label: "Sub-Agent Model",
     envVar: "CLAUDE_CODE_SUBAGENT_MODEL",
-    hint: "Subagent 并行执行时使用的模型",
+    hint: "Model used during parallel subagent execution",
     patchKey: "claude_code_subagent_model" as const,
   },
 ] as const;
 
-// Small inline clear button shown next to "当前：" when a value is set
+// Small inline clear button shown next to "Current:" when a value is set
 const inlineClearClassName =
   "ml-1.5 inline-flex items-center rounded p-0.5 text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -212,7 +212,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       savedRef.current = newDraft;
       setDraft(newDraft);
       useConfigStatusStore.getState().refresh();
-      useAppStore.getState().pushToast("ArcReel 智能体配置已保存", "success");
+      useAppStore.getState().pushToast("ArcReel agent configuration saved", "success");
     } catch (err) {
       setSaveError((err as Error).message);
     } finally {
@@ -236,9 +236,9 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         savedRef.current = nextSavedDraft;
         setDraft(nextSavedDraft);
         useConfigStatusStore.getState().refresh();
-        useAppStore.getState().pushToast(`${label} 已清除`, "success");
+        useAppStore.getState().pushToast(`${label} cleared`, "success");
       } catch (err) {
-        useAppStore.getState().pushToast(`清除失败: ${(err as Error).message}`, "error");
+        useAppStore.getState().pushToast(`Clear failed: ${(err as Error).message}`, "error");
       } finally {
         setClearingField(null);
       }
@@ -252,14 +252,14 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   if (loadError) {
     return (
       <div className={visible ? "px-6 py-8" : "hidden"}>
-        <div className="text-sm text-rose-400">加载失败: {loadError}</div>
+        <div className="text-sm text-rose-400">Load failed: {loadError}</div>
         <button
           type="button"
           onClick={() => void load()}
           className="mt-3 inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-300 hover:border-gray-600 hover:bg-gray-800/50"
         >
           <Loader2 className="h-4 w-4" />
-          重试
+          Retry
         </button>
       </div>
     );
@@ -269,7 +269,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     return (
       <div className={visible ? "flex items-center gap-2 px-6 py-8 text-gray-400" : "hidden"}>
         <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
-        加载中…
+        Loading…
       </div>
     );
   }
@@ -286,16 +286,16 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
               <ClaudeColor size={24} />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-100">ArcReel 智能体</h2>
+              <h2 className="text-lg font-semibold text-gray-100">ArcReel Agent</h2>
               <p className="text-sm text-gray-500">
-                基于 Claude Agent SDK，驱动对话式 AI 助手与自动化工作流
+                Powered by Claude Agent SDK, driving conversational AI assistants and automated workflows
               </p>
             </div>
           </div>
           <div className="mt-3 flex items-start gap-2 rounded-lg border border-gray-800/60 bg-gray-900/30 px-3 py-2">
             <Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-500" />
             <p className="text-xs text-gray-500">
-              配置项兼容 Claude Code 环境变量命名，可使用兼容 Claude Code 的 Coding Plan API。
+              Configuration keys are compatible with Claude Code environment variable naming and work with Claude Code-compatible Coding Plan APIs.
             </p>
           </div>
         </div>
@@ -305,8 +305,8 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         {/* ----------------------------------------------------------------- */}
         <div>
           <SectionHeading
-            title="API 凭证"
-            description="Anthropic API 密钥是智能体运行的必要条件"
+            title="API Credentials"
+            description="An Anthropic API key is required for the agent to operate"
           />
 
           {/* API Key card */}
@@ -319,7 +319,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 {settings.anthropic_api_key.is_set && (
                   <div className="flex items-center text-xs text-gray-500">
                     <span className="truncate">
-                      当前：{settings.anthropic_api_key.masked ?? "已设置"}
+                      Current: {settings.anthropic_api_key.masked ?? "Set"}
                     </span>
                     <button
                       type="button"
@@ -332,7 +332,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                       }
                       disabled={isBusy}
                       className={inlineClearClassName}
-                      aria-label="清除已保存的 Anthropic API Key"
+                      aria-label="Clear saved Anthropic API Key"
                     >
                       {clearingField === "anthropic_api_key" ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
