@@ -1,4 +1,6 @@
+
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ImagePlus, RefreshCw, Trash2, Upload } from "lucide-react";
 import type { ProjectData } from "@/types";
 import { API } from "@/api";
@@ -16,6 +18,7 @@ interface OverviewCanvasProps {
 }
 
 export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps) {
+  const { t } = useTranslation();
   const styleImageFp = useProjectsStore(
     (s) => projectData?.style_image ? s.getAssetFingerprint(projectData.style_image) : null,
   );
@@ -59,9 +62,9 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const handleUpload = useCallback(
     async (file: File) => {
       await API.uploadFile(projectName, "source", file);
-      useAppStore.getState().pushToast(`源文件 "${file.name}" 上传成功`, "success");
+      useAppStore.getState().pushToast(t("源文件 \"{name}\" 上传成功", { name: file.name }), "success");
     },
-    [projectName],
+    [projectName, t],
   );
 
   const handleAnalyze = useCallback(async () => {
@@ -74,15 +77,15 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     try {
       await API.generateOverview(projectName);
       await refreshProject();
-      useAppStore.getState().pushToast("项目概述已重新生成", "success");
+      useAppStore.getState().pushToast(t("项目概述已重新生成"), "success");
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(`重新生成失败: ${(err as Error).message}`, "error");
+        .pushToast(`${t("重新生成失败: ")}${(err as Error).message}`, "error");
     } finally {
       setRegenerating(false);
     }
-  }, [projectName, refreshProject]);
+  }, [projectName, refreshProject, t]);
 
   const handleStyleImageChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -94,382 +97,340 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
       try {
         await API.uploadStyleImage(projectName, file);
         await refreshProject();
-        useAppStore.getState().pushToast("风格参考图已更新", "success");
+        useAppStore.getState().pushToast(t("风格参考图已更新"), "success");
       } catch (err) {
         useAppStore
           .getState()
-          .pushToast(`上传失败: ${(err as Error).message}`, "error");
+          .pushToast(`${t("上传失败: ")}${(err as Error).message}`, "error");
       } finally {
         setUploadingStyleImage(false);
       }
     },
-    [projectName, refreshProject],
+    [projectName, refreshProject, t],
   );
 
   const handleDeleteStyleImage = useCallback(async () => {
-    if (deletingStyleImage || !projectData?.style_image) return;
-    if (!confirm("确定删除当前风格参考图吗？")) return;
-
+    if (!confirm(t("确定要删除风格参考图吗？"))) return;
     setDeletingStyleImage(true);
     try {
       await API.deleteStyleImage(projectName);
       await refreshProject();
-      useAppStore.getState().pushToast("风格参考图已删除", "success");
+      useAppStore.getState().pushToast(t("风格参考图已删除"), "success");
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(`删除失败: ${(err as Error).message}`, "error");
+        .pushToast(`${t("删除失败: ")}${(err as Error).message}`, "error");
     } finally {
       setDeletingStyleImage(false);
     }
-  }, [deletingStyleImage, projectData?.style_image, projectName, refreshProject]);
+  }, [projectName, refreshProject, t]);
 
   const handleSaveStyleDescription = useCallback(async () => {
-    if (savingStyleDescription) return;
     setSavingStyleDescription(true);
     try {
-      await API.updateStyleDescription(projectName, styleDescriptionDraft.trim());
+      await API.updateProject(projectName, {
+        style_description: styleDescriptionDraft,
+      });
       await refreshProject();
-      useAppStore.getState().pushToast("风格描述已保存", "success");
+      useAppStore.getState().pushToast(t("风格描述已更新"), "success");
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(`保存失败: ${(err as Error).message}`, "error");
+        .pushToast(`${t("更新失败: ")}${(err as Error).message}`, "error");
     } finally {
       setSavingStyleDescription(false);
     }
-  }, [projectName, refreshProject, savingStyleDescription, styleDescriptionDraft]);
+  }, [projectName, refreshProject, styleDescriptionDraft, t]);
 
-  if (!projectData) {
+  // If no overview has been generated yet, show the Welcome/Setup screen
+  if (projectData && !projectData.synopsis && !projectData.genre) {
     return (
-      <div className="flex h-full items-center justify-center text-gray-500">
-        加载项目数据中...
-      </div>
+      <WelcomeCanvas
+        projectName={projectName}
+        projectTitle={projectData.title}
+        onUpload={handleUpload}
+        onAnalyze={handleAnalyze}
+      />
     );
   }
 
-  const status = projectData.status;
-  const overview = projectData.overview;
-  const styleImageUrl = projectData.style_image
-    ? API.getFileUrl(projectName, projectData.style_image, styleImageFp)
-    : null;
-  const styleDescriptionDirty =
-    styleDescriptionDraft !== (projectData.style_description ?? "");
-  const showWelcome = !overview && (projectData.episodes?.length ?? 0) === 0;
-  const focusRing = "focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900";
-  const projectStyleCard = (
-    <section className="rounded-2xl border border-gray-800 bg-gray-900/90 p-4 sm:p-5">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h3 className="text-sm font-semibold text-gray-200">项目风格</h3>
-          <p className="max-w-2xl text-xs leading-5 text-gray-500">
-            参考图会参与后续画面生成；风格描述用于补充视觉规则，校准整体调性、材质和镜头气质。
-          </p>
-        </div>
-        <div className="inline-flex items-center rounded-full border border-gray-700 bg-gray-800 px-3 py-1 text-xs text-gray-300">
-          {projectData.style || "未设置风格标签"}
-        </div>
-      </div>
+  const episodes = projectData?.episodes ?? [];
 
-      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <div className="space-y-3">
-          {styleImageUrl ? (
-            <PreviewableImageFrame src={styleImageUrl} alt="项目风格参考图">
-              <div className="overflow-hidden rounded-xl border border-gray-700 bg-gray-950/70">
-                <img
-                  src={styleImageUrl}
-                  alt="项目风格参考图"
-                  className="aspect-[4/3] w-full object-cover"
-                />
-              </div>
-            </PreviewableImageFrame>
-          ) : (
+  return (
+    <div className="flex h-full flex-col overflow-y-auto bg-gray-950 p-8">
+      <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-8 lg:grid-cols-12">
+        {/* Left Column: Core Overview (8 units) */}
+        <div className="space-y-8 lg:col-span-8">
+          {/* Header */}
+          <div className="flex items-end justify-between border-b border-gray-800 pb-6">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-100">
+                {projectData?.title || projectName}
+              </h1>
+              <p className="mt-2 text-sm text-gray-500">
+                {t("项目详情")} · {t(projectData?.content_mode === "narration" ? "narration" : "standard")}
+              </p>
+            </div>
             <button
               type="button"
-              onClick={() => styleInputRef.current?.click()}
-              disabled={uploadingStyleImage}
-              className={`flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-gray-700 bg-gray-950/40 px-4 text-sm text-gray-500 transition-colors hover:border-gray-500 hover:text-gray-300 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+              disabled={regenerating}
+              onClick={handleRegenerate}
+              className="flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-gray-300 transition hover:bg-gray-800 hover:text-white disabled:opacity-50"
             >
-              <Upload className="h-4 w-4" />
-              <span>{uploadingStyleImage ? "上传中..." : "上传风格参考图"}</span>
-              <span className="text-xs text-gray-600">支持 PNG / JPG / WEBP</span>
+              <RefreshCw
+                className={`h-4 w-4 ${regenerating ? "animate-spin" : ""}`}
+              />
+              {regenerating ? t("正在重新生成...") : t("重新生成概述")}
             </button>
-          )}
+          </div>
 
-          <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-3">
-            <p className="text-xs font-medium text-gray-400">使用说明</p>
-            <p className="mt-1 text-sm leading-6 text-gray-300">
-              {styleImageUrl
-                ? "当前参考图会作为统一视觉基线，用于角色图、分镜图和视频生成。"
-                : "还没有绑定项目级参考图，可以先上传一张目标风格样片作为统一基线。"}
+          {/* Synopsis */}
+          <section className="rounded-2xl border border-gray-800 bg-gray-900/50 p-6">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+              {t("故事梗概")}
+            </h2>
+            <p className="mt-4 text-sm leading-relaxed text-gray-300">
+              {projectData?.synopsis || t("暂无描述")}
             </p>
+          </section>
 
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => styleInputRef.current?.click()}
-                disabled={uploadingStyleImage}
-                className={`inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-              >
-                <ImagePlus className="h-4 w-4" />
-                {styleImageUrl ? "替换参考图" : "上传参考图"}
-              </button>
-              {styleImageUrl && (
+          {/* Metadata Grid */}
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <section className="rounded-2xl border border-gray-800 bg-gray-900/50 p-6">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                {t("题材")}
+              </h2>
+              <p className="mt-3 text-sm font-medium text-gray-200">
+                {projectData?.genre || t("暂无描述")}
+              </p>
+            </section>
+            <section className="rounded-2xl border border-gray-800 bg-gray-900/50 p-6">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                {t("主题")}
+              </h2>
+              <p className="mt-3 text-sm font-medium text-gray-200">
+                {projectData?.theme || t("暂无描述")}
+              </p>
+            </section>
+          </div>
+
+          {/* World Setting */}
+          <section className="rounded-2xl border border-gray-800 bg-gray-900/50 p-6">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+              {t("世界观设定")}
+            </h2>
+            <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-gray-300">
+              {projectData?.world_setting || t("暂无描述")}
+            </p>
+          </section>
+
+          {/* Cost Estimates */}
+          <section className="rounded-2xl border border-gray-800 bg-gray-900/50 p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                {t("预估费用")}
+              </h2>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-indigo-500" />
+                  <span className="text-[10px] text-gray-500 uppercase">{t("文本生成")}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  <span className="text-[10px] text-gray-500 uppercase">{t("图像生成")}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  <span className="text-[10px] text-gray-500 uppercase">{t("视频生成")}</span>
+                </div>
+              </div>
+            </div>
+
+            {costLoading && !projectTotals ? (
+              <div className="flex h-32 items-center justify-center gap-3 text-gray-500">
+                <RefreshCw className="h-4 w-4 animate-spin text-indigo-500" />
+                <span className="text-sm">{t("加载中...")}</span>
+              </div>
+            ) : costError && !projectTotals ? (
+              <div className="flex h-32 items-center justify-center text-sm text-rose-400">
+                {costError}
+              </div>
+            ) : projectTotals ? (
+              <div className="space-y-8">
+                {/* Total Cost Bar */}
+                <div>
+                  <div className="mb-2 flex items-end justify-between">
+                    <span className="text-xs text-gray-400">{t("总计")}</span>
+                    <span className="text-lg font-bold text-gray-100">
+                      {formatCost(projectTotals.total)}
+                    </span>
+                  </div>
+                  <div className="flex h-2.5 overflow-hidden rounded-full bg-gray-800">
+                    <div
+                      className="bg-indigo-500 transition-all duration-500"
+                      style={{ width: `${(projectTotals.text / projectTotals.total) * 100}%` }}
+                    />
+                    <div
+                      className="bg-emerald-500 transition-all duration-500"
+                      style={{ width: `${(projectTotals.image / projectTotals.total) * 100}%` }}
+                    />
+                    <div
+                      className="bg-amber-500 transition-all duration-500"
+                      style={{ width: `${(projectTotals.video / projectTotals.total) * 100}%` }}
+                    />
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-4">
+                    {totalBreakdown(projectTotals).map((item) => (
+                      <div key={item.label}>
+                        <div className="text-[10px] text-gray-500 uppercase">{t(item.label)}</div>
+                        <div className="text-sm font-medium text-gray-200">
+                          {formatCost(item.value)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Per Episode Estimates */}
+                <div>
+                  <h3 className="mb-4 text-xs font-medium text-gray-500 uppercase tracking-widest">
+                    {t("分集统计")}
+                  </h3>
+                  <div className="space-y-3">
+                    {episodes.map((ep) => {
+                      const cost = getEpisodeCost(ep.episode);
+                      if (!cost) return null;
+                      return (
+                        <div
+                          key={ep.episode}
+                          className="flex items-center justify-between rounded-xl bg-gray-950/50 px-4 py-3"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-medium text-gray-300 truncate">
+                              E{ep.episode}: {ep.title}
+                            </div>
+                            <div className="mt-1 flex gap-3">
+                              <span className="text-[10px] text-indigo-400/70">T: {formatCost(cost.text)}</span>
+                              <span className="text-[10px] text-emerald-400/70">I: {formatCost(cost.image)}</span>
+                              <span className="text-[10px] text-amber-400/70">V: {formatCost(cost.video)}</span>
+                            </div>
+                          </div>
+                          <div className="ml-4 text-sm font-semibold text-gray-200">
+                            {formatCost(cost.total)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-32 items-center justify-center text-sm text-gray-600">
+                {t("暂无用量数据")}
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* Right Column: Visual Style & Assets (4 units) */}
+        <div className="space-y-8 lg:col-span-4">
+          {/* Visual Style Image */}
+          <section>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                {t("风格参考图")}
+              </h2>
+              <div className="flex gap-1">
                 <button
                   type="button"
-                  onClick={() => void handleDeleteStyleImage()}
-                  disabled={deletingStyleImage}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-2 text-sm text-red-300 transition-colors hover:border-red-400/50 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+                  onClick={() => styleInputRef.current?.click()}
+                  disabled={uploadingStyleImage}
+                  className="rounded-md p-1.5 text-gray-500 transition hover:bg-gray-800 hover:text-white"
+                  title={t("上传风格图")}
                 >
-                  <Trash2 className="h-4 w-4" />
-                  {deletingStyleImage ? "删除中..." : "删除参考图"}
+                  {uploadingStyleImage ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4" />
+                  )}
+                </button>
+                {projectData?.style_image && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteStyleImage}
+                    disabled={deletingStyleImage}
+                    className="rounded-md p-1.5 text-gray-500 transition hover:bg-gray-800 hover:text-red-400"
+                    title={t("删除风格图")}
+                  >
+                    {deletingStyleImage ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </button>
+                )}
+              </div>
+              <input
+                ref={styleInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleStyleImageChange}
+              />
+            </div>
+
+            <div className="aspect-[4/3] overflow-hidden rounded-2xl border border-gray-800 bg-gray-900">
+              {projectData?.style_image ? (
+                <PreviewableImageFrame
+                  src={projectData.style_image}
+                  alt={t("视觉风格参考")}
+                  fingerprint={styleImageFp}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => styleInputRef.current?.click()}
+                  className="group flex h-full w-full flex-col items-center justify-center gap-3 text-gray-600 transition hover:bg-gray-800/50"
+                >
+                  <div className="rounded-full bg-gray-800 p-4 transition group-hover:scale-110 group-hover:bg-gray-700 group-hover:text-gray-400">
+                    <ImagePlus className="h-8 w-8" />
+                  </div>
+                  <span className="text-xs font-medium tracking-wide">
+                    {t("上传参考图")}
+                  </span>
                 </button>
               )}
             </div>
-          </div>
+          </section>
 
-          <input
-            ref={styleInputRef}
-            type="file"
-            accept=".png,.jpg,.jpeg,.webp"
-            onChange={handleStyleImageChange}
-            className="hidden"
-            aria-label="上传风格参考图"
-          />
-        </div>
-
-        <div className="rounded-xl border border-gray-800 bg-gray-950/35 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <label htmlFor="style-description-textarea" className="text-xs font-medium text-gray-400">风格描述</label>
-            <span className="text-[11px] text-gray-600">
-              {styleDescriptionDraft.trim().length} 字
-            </span>
-          </div>
-          <p className="mt-1 text-xs leading-5 text-gray-500">
-            上传参考图后系统会自动分析并填充风格描述；你也可以继续手动校准。
-          </p>
-
-          <textarea
-            id="style-description-textarea"
-            value={styleDescriptionDraft}
-            onChange={(e) => setStyleDescriptionDraft(e.target.value)}
-            rows={8}
-            className={`mt-3 min-h-44 w-full rounded-xl border border-gray-700 bg-gray-800/80 px-4 py-3 text-sm leading-relaxed text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
-            placeholder="上传风格参考图后，系统会自动分析并填充风格描述；也可以手动编辑。"
-          />
-
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs leading-5 text-gray-500">
-              {styleImageUrl
-                ? "建议把风格描述用于补充光线、色彩、材质与镜头语言。"
-                : "没有参考图时，也可以先用文字明确画面风格和审美约束。"}
-            </p>
-            {styleDescriptionDirty && (
-              <button
-                type="button"
-                onClick={() => void handleSaveStyleDescription()}
-                disabled={savingStyleDescription}
-                className={`rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-              >
-                {savingStyleDescription ? "保存中..." : "保存风格描述"}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="space-y-6 p-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-100">{projectData.title}</h1>
-          <p className="mt-1 text-sm text-gray-400">
-            {projectData.content_mode === "narration"
-              ? "说书+画面模式"
-              : "剧集动画模式"}{" "}
-            · {projectData.style || "未设置风格"}
-          </p>
-        </div>
-
-        {showWelcome ? (
-          <WelcomeCanvas
-            projectName={projectName}
-            projectTitle={projectData.title}
-            onUpload={handleUpload}
-            onAnalyze={handleAnalyze}
-          />
-        ) : (
-          <>
-            {overview && (
-              <div className="space-y-3 rounded-xl border border-gray-800 bg-gray-900 p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-gray-300">项目概述</h3>
+          {/* Style Description (Editable) */}
+          <section className="rounded-2xl border border-gray-800 bg-gray-900/50 p-6">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+              {t("风格描述")}
+            </h2>
+            <div className="mt-4">
+              <textarea
+                value={styleDescriptionDraft}
+                onChange={(e) => setStyleDescriptionDraft(e.target.value)}
+                placeholder={t("风格描述描述")}
+                className="h-32 w-full resize-none rounded-lg border border-transparent bg-transparent text-sm leading-relaxed text-gray-300 placeholder-gray-600 outline-none transition focus:border-indigo-500/30"
+              />
+              {styleDescriptionDraft !== (projectData?.style_description ?? "") && (
+                <div className="mt-3 flex justify-end">
                   <button
                     type="button"
-                    onClick={() => void handleRegenerate()}
-                    disabled={regenerating}
-                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-                    title="重新生成概述"
+                    disabled={savingStyleDescription}
+                    onClick={handleSaveStyleDescription}
+                    className="rounded-lg bg-indigo-600/10 px-3 py-1.5 text-xs font-semibold text-indigo-400 transition hover:bg-indigo-600/20"
                   >
-                    <RefreshCw
-                      className={`h-3 w-3 ${regenerating ? "animate-spin" : ""}`}
-                    />
-                    <span>{regenerating ? "生成中..." : "重新生成"}</span>
+                    {savingStyleDescription ? t("保存中...") : t("更新风格描述")}
                   </button>
                 </div>
-                <p className="text-sm text-gray-400">{overview.synopsis}</p>
-                <div className="flex gap-4 text-xs text-gray-500">
-                  <span>题材: {overview.genre}</span>
-                  <span>主题: {overview.theme}</span>
-                </div>
-              </div>
-            )}
-
-            {status && (
-              <div className="grid grid-cols-2 gap-3">
-                {(["characters", "clues"] as const).map(
-                  (key) => {
-                    const cat = status[key] as
-                      | { total: number; completed: number }
-                      | undefined;
-                    if (!cat) return null;
-                    const pct =
-                      cat.total > 0
-                        ? Math.round((cat.completed / cat.total) * 100)
-                        : 0;
-                    const labels: Record<string, string> = {
-                      characters: "角色",
-                      clues: "线索",
-                    };
-                    return (
-                      <div
-                        key={key}
-                        className="rounded-lg border border-gray-800 bg-gray-900 p-3"
-                      >
-                        <div className="mb-1 flex justify-between text-xs">
-                          <span className="text-gray-400">{labels[key]}</span>
-                          <span className="text-gray-300">
-                            {cat.completed}/{cat.total}
-                          </span>
-                        </div>
-                        <div
-                          className="h-1.5 overflow-hidden rounded-full bg-gray-800"
-                          role="progressbar"
-                          aria-valuenow={pct}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                        >
-                          <div
-                            className="h-full rounded-full bg-indigo-500"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  },
-                )}
-              </div>
-            )}
-
-            {costLoading && (
-              <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-                <p className="text-sm text-gray-500 animate-pulse">正在计算费用...</p>
-              </div>
-            )}
-            {costError && (
-              <div className="rounded-xl border border-red-900/50 bg-red-950/30 p-4">
-                <p className="text-sm text-red-400">费用估算失败: {costError}</p>
-              </div>
-            )}
-
-            {projectTotals && (
-              <div className="rounded-xl border border-gray-800 bg-gray-900 p-4 tabular-nums">
-                <p className="mb-3 text-sm font-semibold text-gray-300">项目总费用</p>
-                <dl className="flex flex-wrap items-start justify-between gap-6">
-                  <div className="min-w-0">
-                    <dt className="mb-1 text-[11px] text-gray-600">预估</dt>
-                    <dd className="text-sm text-gray-400">
-                      <span className="text-gray-500">分镜 </span>
-                      <span className="text-gray-200">{formatCost(projectTotals.estimate.image)}</span>
-                      <span className="ml-3 text-gray-500">视频 </span>
-                      <span className="text-gray-200">{formatCost(projectTotals.estimate.video)}</span>
-                      <span className="ml-3 text-gray-500">总计 </span>
-                      <span className="font-semibold text-amber-400">{formatCost(totalBreakdown(projectTotals.estimate))}</span>
-                    </dd>
-                  </div>
-                  <div role="separator" className="h-8 w-px bg-gray-800" />
-                  <div className="min-w-0">
-                    <dt className="mb-1 text-[11px] text-gray-600">实际</dt>
-                    <dd className="text-sm text-gray-400">
-                      <span className="text-gray-500">分镜 </span>
-                      <span className="text-gray-200">{formatCost(projectTotals.actual.image)}</span>
-                      <span className="ml-3 text-gray-500">视频 </span>
-                      <span className="text-gray-200">{formatCost(projectTotals.actual.video)}</span>
-                      {projectTotals.actual.character_and_clue && (
-                        <>
-                          <span className="ml-3 text-gray-500">角色/线索 </span>
-                          <span className="text-gray-200">{formatCost(projectTotals.actual.character_and_clue)}</span>
-                        </>
-                      )}
-                      <span className="ml-3 text-gray-500">总计 </span>
-                      <span className="font-semibold text-emerald-400">{formatCost(totalBreakdown(projectTotals.actual))}</span>
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-gray-300">剧集</h3>
-              {(projectData.episodes?.length ?? 0) === 0 ? (
-                <p className="text-sm text-gray-500">
-                  暂无剧集。使用 AI 助手生成剧本。
-                </p>
-              ) : (
-                (projectData.episodes ?? []).map((ep) => {
-                  const epCost = getEpisodeCost(ep.episode);
-                  return (
-                    <div
-                      key={ep.episode}
-                      className="flex flex-wrap items-center gap-3 rounded-lg border border-gray-800 bg-gray-900 px-4 py-2.5 tabular-nums"
-                    >
-                      <span className="font-mono text-xs text-gray-400">
-                        E{ep.episode}
-                      </span>
-                      <span className="text-sm text-gray-200">{ep.title}</span>
-                      <span className="text-xs text-gray-500">
-                        {ep.scenes_count ?? "?"} 片段 · {ep.status ?? "draft"}
-                      </span>
-                      {epCost && (
-                        <span className="ml-auto flex min-w-0 flex-shrink flex-wrap gap-4 text-xs text-gray-400">
-                          <span>
-                            <span className="text-gray-500">预估 </span>
-                            <span className="text-gray-500">分镜 </span><span className="text-gray-300">{formatCost(epCost.totals.estimate.image)}</span>
-                            <span className="ml-2 text-gray-500">视频 </span><span className="text-gray-300">{formatCost(epCost.totals.estimate.video)}</span>
-                            <span className="ml-2 text-gray-500">总计 </span><span className="font-medium text-amber-400">{formatCost(totalBreakdown(epCost.totals.estimate))}</span>
-                          </span>
-                          <span className="text-gray-700">|</span>
-                          <span>
-                            <span className="text-gray-500">实际 </span>
-                            <span className="text-gray-500">分镜 </span><span className="text-gray-300">{formatCost(epCost.totals.actual.image)}</span>
-                            <span className="ml-2 text-gray-500">视频 </span><span className="text-gray-300">{formatCost(epCost.totals.actual.video)}</span>
-                            <span className="ml-2 text-gray-500">总计 </span><span className="font-medium text-emerald-400">{formatCost(totalBreakdown(epCost.totals.actual))}</span>
-                          </span>
-                        </span>
-                      )}
-                    </div>
-                  );
-                })
               )}
             </div>
-          </>
-        )}
-
-        {projectStyleCard}
-
-        <div className="h-8" />
+          </section>
+        </div>
       </div>
     </div>
   );

@@ -1,163 +1,40 @@
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Loader2, Plus, FolderOpen, Upload, AlertTriangle, Settings } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { CreateProjectModal } from "./CreateProjectModal";
-import { OpenClawModal } from "./OpenClawModal";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
-import type {
-  ImportConflictPolicy,
-  ImportFailureDiagnostics,
-  ProjectSummary,
-  ProjectStatus,
-} from "@/types";
-
-interface ImportConflictDialogProps {
-  projectName: string;
-  importing: boolean;
-  onCancel: () => void;
-  onConfirm: (policy: Extract<ImportConflictPolicy, "rename" | "overwrite">) => void;
-}
-
-function ImportConflictDialog({
-  projectName,
-  importing,
-  onCancel,
-  onConfirm,
-}: ImportConflictDialogProps) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-4">
-      <div className="w-full max-w-md rounded-2xl border border-amber-400/20 bg-gray-900 p-6 shadow-2xl shadow-black/40">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 rounded-full bg-amber-400/10 p-2 text-amber-300">
-            <AlertTriangle className="h-5 w-5" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-lg font-semibold text-gray-100">检测到项目编号重复</h2>
-            <p className="text-sm leading-6 text-gray-400">
-              导入包准备使用的项目编号
-              <span className="mx-1 rounded bg-gray-800 px-1.5 py-0.5 font-mono text-gray-200">
-                {projectName}
-              </span>
-              已存在。你可以覆盖现有项目，或自动重命名后继续导入。
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-3">
-          <button
-            type="button"
-            onClick={() => onConfirm("overwrite")}
-            disabled={importing}
-            aria-label="覆盖现有项目"
-            className="flex w-full items-center justify-between rounded-xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-left text-sm text-red-100 transition-colors hover:border-red-300/40 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <span>
-              <span className="block font-medium">覆盖现有项目</span>
-              <span className="mt-1 block text-xs text-red-200/80">
-                使用导入包内容替换现有项目编号对应的数据
-              </span>
-            </span>
-            {importing && <Loader2 className="h-4 w-4 animate-spin" />}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onConfirm("rename")}
-            disabled={importing}
-            aria-label="自动重命名导入"
-            className="flex w-full items-center justify-between rounded-xl border border-indigo-400/25 bg-indigo-500/10 px-4 py-3 text-left text-sm text-indigo-100 transition-colors hover:border-indigo-300/40 hover:bg-indigo-500/15 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <span>
-              <span className="block font-medium">自动重命名导入</span>
-              <span className="mt-1 block text-xs text-indigo-200/80">
-                保留现有项目，新导入项目自动生成新的内部编号
-              </span>
-            </span>
-            {importing && <Loader2 className="h-4 w-4 animate-spin" />}
-          </button>
-        </div>
-
-        <div className="mt-5 flex justify-end">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={importing}
-            className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            取消
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function fallbackDiagnostics(error: {
-  errors?: string[];
-  warnings?: string[];
-  diagnostics?: ImportFailureDiagnostics;
-}): ImportFailureDiagnostics {
-  if (error.diagnostics) {
-    return error.diagnostics;
-  }
-  return {
-    blocking: (error.errors ?? []).map((message) => ({
-      code: "legacy_error",
-      message,
-    })),
-    auto_fixable: [],
-    warnings: (error.warnings ?? []).map((message) => ({
-      code: "legacy_warning",
-      message,
-    })),
-  };
-}
-
-function ImportDiagnosticsDialogWrapper({
-  diagnostics,
-  onClose,
-}: {
-  diagnostics: ImportFailureDiagnostics;
-  onClose: () => void;
-}) {
-  return (
-    <ArchiveDiagnosticsDialog
-      title="导入诊断"
-      description="导入已完成预检查。以下问题按严重程度分组展示，阻断问题解决前不会继续导入。"
-      sections={[
-        { key: "blocking", title: "阻断问题", tone: "border-red-400/25 bg-red-500/10 text-red-100", items: diagnostics.blocking },
-        { key: "auto_fixable", title: "可自动修复", tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100", items: diagnostics.auto_fixable },
-        { key: "warnings", title: "警告", tone: "border-amber-400/25 bg-amber-500/10 text-amber-100", items: diagnostics.warnings },
-      ]}
-      onClose={onClose}
-    />
-  );
-}
+import { OpenClawModal } from "./OpenClawModal";
+import type { ProjectStatus, ProjectSummary, ExportDiagnostics } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Phase display helpers
 // ---------------------------------------------------------------------------
 
-const PHASE_LABELS: Record<string, string> = {
-  setup: "准备中",
-  worldbuilding: "世界观",
-  scripting: "剧本创作",
-  production: "制作中",
-  completed: "已完成",
-};
+function usePhaseLabels() {
+  const { t } = useTranslation();
+  return {
+    setup: t("setup"),
+    worldbuilding: t("worldbuilding"),
+    scripting: t("scripting"),
+    production: t("production"),
+    completed: t("completed"),
+  } as Record<string, string>;
+}
 
 // ---------------------------------------------------------------------------
-// ProjectCard — single project entry
+// ProjectCard — clickable project entry
 // ---------------------------------------------------------------------------
 
 function ProjectCard({ project }: { project: ProjectSummary }) {
+  const { t } = useTranslation(["common", "dashboard"]);
   const [, navigate] = useLocation();
   const status = project.status;
   const hasStatus = status && "current_phase" in status;
+  const PHASE_LABELS = usePhaseLabels();
 
   const pct = hasStatus ? Math.round((status as ProjectStatus).phase_progress * 100) : 0;
   const phase = hasStatus ? (status as ProjectStatus).current_phase : "";
@@ -191,7 +68,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       <div>
         <h3 className="font-semibold text-gray-100 truncate">{project.title}</h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          {project.style || "未设置风格"}
+          {project.style || t("dashboard:style_not_set")}
           {phaseLabel ? ` · ${phaseLabel}` : ""}
         </p>
       </div>
@@ -199,7 +76,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       {/* Progress bar */}
       <div>
         <div className="flex justify-between text-xs text-gray-500 mb-1">
-          <span>{phaseLabel || "进度"}</span>
+          <span>{phaseLabel || t("dashboard:progress")}</span>
           <span>{pct}%</span>
         </div>
         <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
@@ -214,10 +91,10 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       {(characters || clues) && (
         <div className="flex gap-3 text-xs text-gray-500">
           {characters && (
-            <span>角色 {characters.completed}/{characters.total}</span>
+            <span>{t("dashboard:characters")} {characters.completed}/{characters.total}</span>
           )}
           {clues && (
-            <span>线索 {clues.completed}/{clues.total}</span>
+            <span>{t("dashboard:clues")} {clues.completed}/{clues.total}</span>
           )}
         </div>
       )}
@@ -225,10 +102,10 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       {/* Episodes summary */}
       {summary && summary.total > 0 && (
         <div className="text-xs text-gray-500">
-          {summary.total} 集
-          {summary.scripted > 0 && ` · ${summary.scripted} 集剧本完成`}
-          {summary.in_production > 0 && ` · ${summary.in_production} 集制作中`}
-          {summary.completed > 0 && ` · ${summary.completed} 集已完成`}
+          {summary.total} {t("dashboard:episodes")}
+          {summary.scripted > 0 && ` · ${summary.scripted} ${t("dashboard:episodes_scripted")}`}
+          {summary.in_production > 0 && ` · ${summary.in_production} ${t("dashboard:episodes_in_production")}`}
+          {summary.completed > 0 && ` · ${summary.completed} ${t("dashboard:episodes_completed")}`}
         </div>
       )}
     </button>
@@ -240,158 +117,74 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
 // ---------------------------------------------------------------------------
 
 export function ProjectsPage() {
+  const { t } = useTranslation(["common", "dashboard"]);
   const [, navigate] = useLocation();
   const { projects, projectsLoading, showCreateModal, setProjects, setProjectsLoading, setShowCreateModal } =
     useProjectsStore();
+
   const [importingProject, setImportingProject] = useState(false);
-  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
-  const [conflictProjectName, setConflictProjectName] = useState<string | null>(null);
-  const [importDiagnostics, setImportDiagnostics] = useState<ImportFailureDiagnostics | null>(null);
+  const [conflictProject, setConflictProject] = useState<string | null>(null);
+  const [conflictFile, setConflictFile] = useState<File | null>(null);
+  const [importDiagnostics, setImportDiagnostics] = useState<ExportDiagnostics | null>(null);
   const [showOpenClaw, setShowOpenClaw] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
-  const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
 
-  const loadProjects = useCallback(async () => {
+  const fetchProjects = useCallback(async () => {
     setProjectsLoading(true);
     try {
       const res = await API.listProjects();
       setProjects(res.projects);
-    } catch {
-      // silently fail — user can retry
     } finally {
       setProjectsLoading(false);
     }
   }, [setProjects, setProjectsLoading]);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      if (cancelled) return;
-      await loadProjects();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [loadProjects]);
+    void fetchProjects();
+  }, [fetchProjects]);
 
-  useEffect(() => {
-    void fetchConfigStatus();
-  }, [fetchConfigStatus]);
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await doImport(file);
+    e.target.value = "";
+  };
 
-  const finishImport = useCallback(
-    async (
-      file: File,
-      policy: ImportConflictPolicy,
-      options?: { keepConflictDialog?: boolean },
-    ) => {
-      setImportingProject(true);
-      try {
-        const result = await API.importProject(file, policy);
-        setPendingImportFile(null);
-        setConflictProjectName(null);
-        setImportDiagnostics(null);
-        await loadProjects();
-
-        const autoFixedCount = result.diagnostics.auto_fixed.length;
-        const warningCount = result.diagnostics.warnings.length;
-        useAppStore.getState().pushToast(
-          autoFixedCount > 0
-            ? `项目 "${result.project.title || result.project_name}" 已导入，自动修复 ${autoFixedCount} 项`
-            : `项目 "${result.project.title || result.project_name}" 已导入`,
-          "success"
-        );
-        if (warningCount > 0) {
-          const warningMessages = result.diagnostics.warnings.map((w) => w.message).join("；");
-          useAppStore.getState().pushToast(
-            `导入警告: ${warningMessages}`,
-            "warning"
-          );
+  const doImport = async (file: File, policy: "prompt" | "overwrite" | "rename" = "prompt") => {
+    setImportingProject(true);
+    try {
+      const res = await API.importProject(file, policy);
+      if (res.conflict && res.project_name) {
+        setConflictProject(res.project_name);
+        setConflictFile(file);
+      } else {
+        setConflictProject(null);
+        setConflictFile(null);
+        if (res.diagnostics) {
+          const total = res.diagnostics.blocking.length + res.diagnostics.warnings.length + res.diagnostics.auto_fixed.length;
+          if (total > 0) setImportDiagnostics(res.diagnostics);
         }
-
-        navigate(`/app/projects/${result.project_name}`);
-      } catch (err) {
-        const error = err as Error & {
-          status?: number;
-          detail?: string;
-          errors?: string[];
-          warnings?: string[];
-          diagnostics?: ImportFailureDiagnostics;
-          conflict_project_name?: string;
-        };
-
-        if (
-          error.status === 409 &&
-          error.conflict_project_name &&
-          policy === "prompt"
-        ) {
-          setPendingImportFile(file);
-          setConflictProjectName(error.conflict_project_name);
-          return;
-        }
-
-        if (!options?.keepConflictDialog) {
-          setPendingImportFile(null);
-          setConflictProjectName(null);
-        }
-
-        const diagnostics = fallbackDiagnostics(error);
-        setImportDiagnostics(diagnostics);
-        const blockingCount = diagnostics.blocking.length;
-        const autoFixableCount = diagnostics.auto_fixable.length;
-
-        useAppStore
-          .getState()
-          .pushToast(
-            `导入失败: ${error.detail || error.message || "导入失败"}`
-            + (blockingCount > 0 ? `（${blockingCount} 个阻断问题` : "（0 个阻断问题")
-            + (autoFixableCount > 0 ? `，${autoFixableCount} 个可自动修复）` : "）"),
-            "error"
-          );
-      } finally {
-        setImportingProject(false);
+        await fetchProjects();
       }
-    },
-    [loadProjects, navigate],
-  );
-
-  const handleImport = useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      event.target.value = "";
-      if (!file || importingProject) return;
-
-      setImportDiagnostics(null);
-      await finishImport(file, "prompt");
-    },
-    [finishImport, importingProject],
-  );
-
-  const handleResolveConflict = useCallback(
-    async (policy: Extract<ImportConflictPolicy, "rename" | "overwrite">) => {
-      if (!pendingImportFile) return;
-      await finishImport(pendingImportFile, policy, { keepConflictDialog: true });
-    },
-    [finishImport, pendingImportFile],
-  );
-
-  const handleCancelConflict = useCallback(() => {
-    if (importingProject) return;
-    setPendingImportFile(null);
-    setConflictProjectName(null);
-  }, [importingProject]);
+    } catch (err) {
+      alert(`${t("dashboard:import_failed")}: ${(err as Error).message}`);
+    } finally {
+      setImportingProject(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       {/* Header */}
-      <header className="border-b border-gray-800 px-6 py-4">
+      <header className="border-b border-gray-800 bg-gray-900/50 px-6 py-4 backdrop-blur-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <h1 className="flex items-center gap-2 text-xl font-bold">
-            <img src="/android-chrome-192x192.png" alt="ArcReel" className="h-7 w-7" />
+          <h1 className="flex items-center text-xl font-bold">
+            <img src="/android-chrome-192x192.png" alt="ArcReel" className="mr-2 h-6 w-6" />
             <span className="text-indigo-400">
               ArcReel
             </span>
-            <span className="ml-1 text-gray-400 font-normal text-base">项目</span>
+            <span className="ml-1 text-gray-400 font-normal text-base">{t("dashboard:projects")}</span>
           </h1>
           <div className="flex items-center gap-3">
             <button
@@ -405,7 +198,7 @@ export function ProjectsPage() {
               ) : (
                 <Upload className="h-4 w-4" />
               )}
-              {importingProject ? "导入中..." : "导入 ZIP"}
+              {importingProject ? t("dashboard:importing") : t("dashboard:import_zip")}
             </button>
             <button
               type="button"
@@ -413,7 +206,7 @@ export function ProjectsPage() {
               className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors cursor-pointer"
             >
               <Plus className="h-4 w-4" />
-              新建项目
+              {t("dashboard:create_project")}
             </button>
             <div className="ml-1 flex items-center gap-1 border-l border-gray-800 pl-3">
               <button
@@ -429,12 +222,12 @@ export function ProjectsPage() {
                 type="button"
                 onClick={() => navigate("/app/settings")}
                 className="relative rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-                title="系统配置"
-                aria-label="系统配置"
+                title={t("settings")}
+                aria-label={t("settings")}
               >
                 <Settings className="h-4 w-4" />
                 {!isConfigComplete && (
-                  <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500" aria-label="配置不完整" />
+                  <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500" aria-label={t("config_incomplete")} />
                 )}
               </button>
             </div>
@@ -454,40 +247,130 @@ export function ProjectsPage() {
         {projectsLoading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
-            <span className="ml-2 text-gray-400">加载项目列表...</span>
+            <span className="ml-2 text-gray-400">{t("dashboard:loading_projects")}</span>
           </div>
         ) : projects.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-500">
             <FolderOpen className="h-16 w-16 mb-4" />
-            <p className="text-lg">暂无项目</p>
-            <p className="text-sm mt-1">点击右上角「新建项目」或「导入 ZIP」开始创作</p>
+            <p className="text-lg">{t("dashboard:no_projects")}</p>
+            <p className="text-sm mt-1">{t("dashboard:start_creating_hint")}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {projects.map((p) => (
-              <ProjectCard key={p.name} project={p} />
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {projects.map((project) => (
+              <ProjectCard key={project.name} project={project} />
             ))}
           </div>
         )}
       </main>
 
-      {/* Create project modal */}
-      {showCreateModal && <CreateProjectModal />}
-      {conflictProjectName !== null && pendingImportFile !== null && (
-        <ImportConflictDialog
-          projectName={conflictProjectName}
+      {/* Overwrite / Rename Conflict Dialog */}
+      {conflictProject && conflictFile && (
+        <ConflictDialog
+          projectName={conflictProject}
           importing={importingProject}
-          onCancel={handleCancelConflict}
-          onConfirm={handleResolveConflict}
+          onConfirm={(policy) => doImport(conflictFile, policy)}
+          onCancel={() => {
+            setConflictProject(null);
+            setConflictFile(null);
+          }}
         />
       )}
-      {importDiagnostics !== null && (
-        <ImportDiagnosticsDialogWrapper
-          diagnostics={importDiagnostics}
+
+      {/* Import Diagnostics */}
+      {importDiagnostics && (
+        <ArchiveDiagnosticsDialog
+          title={t("dashboard:export_diagnostics")}
+          description={t("dashboard:import_success_with_diagnostics")}
+          sections={[
+            { key: "blocking", title: t("dashboard:blocking_issues"), tone: "border-red-400/25 bg-red-500/10 text-red-100", items: importDiagnostics.blocking },
+            { key: "auto_fixed", title: t("dashboard:auto_fixed_issues"), tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100", items: importDiagnostics.auto_fixed },
+            { key: "warnings", title: t("common:error"), tone: "border-amber-400/25 bg-amber-500/10 text-amber-100", items: importDiagnostics.warnings },
+          ]}
           onClose={() => setImportDiagnostics(null)}
         />
       )}
       {showOpenClaw && <OpenClawModal onClose={() => setShowOpenClaw(false)} />}
+    </div>
+  );
+}
+
+function ConflictDialog({
+  projectName,
+  importing,
+  onConfirm,
+  onCancel,
+}: {
+  projectName: string;
+  importing: boolean;
+  onConfirm: (policy: "overwrite" | "rename") => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation(["common", "dashboard"]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-gray-800 bg-gray-900 p-6 shadow-2xl">
+        <div className="flex items-start gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-500">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-lg font-semibold text-gray-100">{t("dashboard:duplicate_project_id")}</h2>
+            <p className="text-sm leading-6 text-gray-400">
+              {t("dashboard:id_intended_hint")}
+              <span className="mx-1 rounded bg-gray-800 px-1.5 py-0.5 font-mono text-gray-200">
+                {projectName}
+              </span>
+              {t("dashboard:already_exists_conflict_hint")}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3">
+          <button
+            type="button"
+            onClick={() => onConfirm("overwrite")}
+            disabled={importing}
+            aria-label={t("dashboard:overwrite_existing")}
+            className="flex w-full items-center justify-between rounded-xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-left text-sm text-red-100 transition-colors hover:border-red-300/40 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <span>
+              <span className="block font-medium">{t("dashboard:overwrite_existing")}</span>
+              <span className="mt-1 block text-xs text-red-200/80">
+                {t("dashboard:overwrite_hint")}
+              </span>
+            </span>
+            {importing && <Loader2 className="h-4 w-4 animate-spin" />}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onConfirm("rename")}
+            disabled={importing}
+            aria-label={t("dashboard:auto_rename_import")}
+            className="flex w-full items-center justify-between rounded-xl border border-indigo-400/25 bg-indigo-500/10 px-4 py-3 text-left text-sm text-indigo-100 transition-colors hover:border-indigo-300/40 hover:bg-indigo-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <span>
+              <span className="block font-medium">{t("dashboard:auto_rename_import")}</span>
+              <span className="mt-1 block text-xs text-indigo-200/80">
+                {t("dashboard:rename_hint")}
+              </span>
+            </span>
+            {importing && <Loader2 className="h-4 w-4 animate-spin" />}
+          </button>
+        </div>
+
+        <div className="mt-5 flex justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={importing}
+            className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {t("cancel")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

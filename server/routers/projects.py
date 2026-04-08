@@ -26,6 +26,7 @@ from starlette.background import BackgroundTask
 logger = logging.getLogger(__name__)
 
 from lib import PROJECT_ROOT
+from lib.i18n import get_translator
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
@@ -353,7 +354,11 @@ async def list_projects(_user: CurrentUser):
 
 
 @router.post("/projects")
-async def create_project(req: CreateProjectRequest, _user: CurrentUser):
+async def create_project(
+    req: CreateProjectRequest,
+    _user: CurrentUser,
+    _t: Annotated[Callable[..., str], Depends(get_translator)],
+):
     """创建新项目"""
     try:
 
@@ -362,13 +367,13 @@ async def create_project(req: CreateProjectRequest, _user: CurrentUser):
             title = (req.title or "").strip()
             manual_name = (req.name or "").strip()
             if not title and not manual_name:
-                raise HTTPException(status_code=400, detail="项目标题不能为空")
+                raise HTTPException(status_code=400, detail=_t("title_required"))
             project_name = manual_name or manager.generate_project_name(title)
 
             try:
                 manager.create_project(project_name)
             except FileExistsError:
-                raise HTTPException(status_code=400, detail=f"项目 '{project_name}' 已存在")
+                raise HTTPException(status_code=400, detail=_t("project_exists", name=project_name))
             with project_change_source("webui"):
                 project = manager.create_project_metadata(
                     project_name,
@@ -391,7 +396,11 @@ async def create_project(req: CreateProjectRequest, _user: CurrentUser):
 
 
 @router.get("/projects/{name}")
-async def get_project(name: str, _user: CurrentUser):
+async def get_project(
+    name: str,
+    _user: CurrentUser,
+    _t: Annotated[Callable[..., str], Depends(get_translator)],
+):
     """获取项目详情（含实时计算字段）"""
     try:
 
@@ -399,7 +408,7 @@ async def get_project(name: str, _user: CurrentUser):
             manager = get_project_manager()
             calculator = get_status_calculator()
             if not manager.project_exists(name):
-                raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在或未初始化")
+                raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
 
             project = manager.load_project(name)
 

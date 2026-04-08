@@ -38,6 +38,7 @@ import type {
   CostEstimateResponse,
 } from "@/types";
 import { getToken, clearToken } from "@/utils/auth";
+import i18n from "./i18n";
 
 // ==================== Helper types ====================
 
@@ -187,9 +188,12 @@ function handleUnauthorized(response: Response): void {
 /** 为 fetch options 注入 Authorization header */
 function withAuth(options: RequestInit = {}): RequestInit {
   const token = getToken();
-  if (!token) return options;
   const headers = new Headers(options.headers);
-  headers.set("Authorization", `Bearer ${token}`);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  // Add Accept-Language header based on current i18n language
+  headers.set("Accept-Language", i18n.language || "zh");
   return { ...options, headers };
 }
 

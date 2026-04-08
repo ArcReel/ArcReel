@@ -50,6 +50,7 @@ def build_narration_prompt(
     supported_durations: list[int] | None = None,
     default_duration: int | None = None,
     aspect_ratio: str = "9:16",
+    target_language: str = "中文",
 ) -> str:
     """
     构建说书模式的 Prompt
@@ -61,6 +62,7 @@ def build_narration_prompt(
         characters: 角色字典（仅用于提取名称列表）
         clues: 线索字典（仅用于提取名称列表）
         segments_md: Step 1 的 Markdown 内容
+        target_language: 输出的目标语言
 
     Returns:
         构建好的 Prompt 字符串
@@ -70,13 +72,13 @@ def build_narration_prompt(
 
     prompt = f"""你的任务是为短视频生成分镜剧本。请仔细遵循以下指示：
 
-**重要：所有输出内容必须使用中文。仅 JSON 键名和枚举值使用英文。**
+**重要：所有输出内容必须使用{target_language}。仅 JSON 键名和枚举值使用英文。**
 
 1. 你将获得故事概述、视觉风格、角色列表、线索列表，以及已拆分的小说片段。
 
 2. 为每个片段生成：
-   - image_prompt：第一帧的图像生成提示词（中文描述）
-   - video_prompt：动作和音效的视频生成提示词（中文描述）
+   - image_prompt：第一帧的图像生成提示词（{target_language}描述）
+   - video_prompt：动作和音效的视频生成提示词（{target_language}描述）
 
 <overview>
 {project_overview.get("synopsis", "")}
@@ -164,6 +166,7 @@ def build_drama_prompt(
     supported_durations: list[int] | None = None,
     default_duration: int | None = None,
     aspect_ratio: str = "16:9",
+    target_language: str = "中文",
 ) -> str:
     """
     构建剧集动画模式的 Prompt
@@ -175,6 +178,7 @@ def build_drama_prompt(
         characters: 角色字典
         clues: 线索字典
         scenes_md: Step 1 的 Markdown 内容
+        target_language: 输出的目标语言
 
     Returns:
         构建好的 Prompt 字符串
@@ -184,13 +188,13 @@ def build_drama_prompt(
 
     prompt = f"""你的任务是为剧集动画生成分镜剧本。请仔细遵循以下指示：
 
-**重要：所有输出内容必须使用中文。仅 JSON 键名和枚举值使用英文。**
+**重要：所有输出内容必须使用{target_language}。仅 JSON 键名和枚举值使用英文。**
 
 1. 你将获得故事概述、视觉风格、角色列表、线索列表，以及已拆分的场景列表。
 
 2. 为每个场景生成：
-   - image_prompt：第一帧的图像生成提示词（中文描述）
-   - video_prompt：动作和音效的视频生成提示词（中文描述）
+   - image_prompt：第一帧的图像生成提示词（{target_language}描述）
+   - video_prompt：动作和音效的视频生成提示词（{target_language}描述）
 
 <overview>
 {project_overview.get("synopsis", "")}

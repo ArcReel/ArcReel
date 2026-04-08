@@ -10,10 +10,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, HTTPException
+from typing import Annotated, Callable
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from lib import PROJECT_ROOT
+from lib.i18n import get_translator
 from lib.generation_queue import get_generation_queue
 from lib.project_manager import ProjectManager
 from lib.prompt_utils import (
@@ -100,6 +102,7 @@ async def generate_storyboard(
     segment_id: str,
     req: GenerateStoryboardRequest,
     _user: CurrentUser,
+    _t: Annotated[Callable[..., str], Depends(get_translator)],
 ):
     """
     提交分镜图生成任务到队列，立即返回 task_id。
@@ -114,7 +117,7 @@ async def generate_storyboard(
             items, id_field, _, _ = get_storyboard_items(script)
             resolved = find_storyboard_item(items, id_field, segment_id)
             if resolved is None:
-                raise HTTPException(status_code=404, detail=f"片段/场景 '{segment_id}' 不存在")
+                raise HTTPException(status_code=404, detail=_t("segment_not_found", id=segment_id))
             return _snapshot_image_backend(project_name)
 
         image_snapshot = await asyncio.to_thread(_sync)
@@ -124,13 +127,13 @@ async def generate_storyboard(
             if not is_structured_image_prompt(req.prompt):
                 raise HTTPException(
                     status_code=400,
-                    detail="prompt 必须是字符串或包含 scene/composition 的对象",
+                    detail=_t("prompt_must_be_string_or_scene_object"),
                 )
             scene_text = str(req.prompt.get("scene", "")).strip()
             if not scene_text:
-                raise HTTPException(status_code=400, detail="prompt.scene 不能为空")
+                raise HTTPException(status_code=400, detail=_t("prompt_scene_empty"))
         elif not isinstance(req.prompt, str):
-            raise HTTPException(status_code=400, detail="prompt 必须是字符串或对象")
+            raise HTTPException(status_code=400, detail=_t("prompt_must_be_string_or_object"))
 
         # 入队
         queue = get_generation_queue()
@@ -152,7 +155,7 @@ async def generate_storyboard(
         return {
             "success": True,
             "task_id": result["task_id"],
-            "message": f"分镜「{segment_id}」生成任务已提交",
+            "message": _t("storyboard_task_submitted", segment_id=segment_id),
         }
 
     except FileNotFoundError as e:
@@ -168,7 +171,13 @@ async def generate_storyboard(
 
 
 @router.post("/projects/{project_name}/generate/video/{segment_id}")
-async def generate_video(project_name: str, segment_id: str, req: GenerateVideoRequest, _user: CurrentUser):
+async def generate_video(
+    project_name: str,
+    segment_id: str,
+    req: GenerateVideoRequest,
+    _user: CurrentUser,
+    _t: Annotated[Callable[..., str], Depends(get_translator)],
+):
     """
     提交视频生成任务到队列，立即返回 task_id。
 
@@ -181,7 +190,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
             project_path = get_project_manager().get_project_path(project_name)
             storyboard_file = project_path / "storyboards" / f"scene_{segment_id}.png"
             if not storyboard_file.exists():
-                raise HTTPException(status_code=400, detail=f"请先生成分镜图 scene_{segment_id}.png")
+                raise HTTPException(status_code=400, detail=_t("generate_storyboard_first", segment_id=segment_id))
 
         await asyncio.to_thread(_sync)
 
@@ -190,16 +199,16 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
             if not is_structured_video_prompt(req.prompt):
                 raise HTTPException(
                     status_code=400,
-                    detail="prompt 必须是字符串或包含 action/camera_motion 的对象",
+                    detail=_t("video_prompt_must_be_string_or_action_object"),
                 )
             action_text = str(req.prompt.get("action", "")).strip()
             if not action_text:
-                raise HTTPException(status_code=400, detail="prompt.action 不能为空")
+                raise HTTPException(status_code=400, detail=_t("video_prompt_action_empty"))
             dialogue = req.prompt.get("dialogue", [])
             if dialogue is not None and not isinstance(dialogue, list):
-                raise HTTPException(status_code=400, detail="prompt.dialogue 必须是数组")
+                raise HTTPException(status_code=400, detail=_t("video_prompt_dialogue_array"))
         elif not isinstance(req.prompt, str):
-            raise HTTPException(status_code=400, detail="prompt 必须是字符串或对象")
+            raise HTTPException(status_code=400, detail=_t("prompt_must_be_string_or_object"))
 
         # 入队（provider 由服务层根据配置自动解析，调用方无需传递）
         queue = get_generation_queue()
@@ -222,7 +231,7 @@ async def generate_video(project_name: str, segment_id: str, req: GenerateVideoR
         return {
             "success": True,
             "task_id": result["task_id"],
-            "message": f"视频「{segment_id}」生成任务已提交",
+            "message": _t("video_task_submitted", segment_id=segment_id),
         }
 
     except FileNotFoundError as e:
@@ -243,6 +252,7 @@ async def generate_character(
     char_name: str,
     req: GenerateCharacterRequest,
     _user: CurrentUser,
+    _t: Annotated[Callable[..., str], Depends(get_translator)],
 ):
     """
     提交角色设计图生成任务到队列，立即返回 task_id。
@@ -252,7 +262,7 @@ async def generate_character(
         def _sync():
             project = get_project_manager().load_project(project_name)
             if char_name not in project.get("characters", {}):
-                raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
+                raise HTTPException(status_code=404, detail=_t("character_not_found", char_name=char_name))
             return _snapshot_image_backend(project_name)
 
         image_snapshot = await asyncio.to_thread(_sync)
@@ -275,7 +285,7 @@ async def generate_character(
         return {
             "success": True,
             "task_id": result["task_id"],
-            "message": f"角色「{char_name}」设计图生成任务已提交",
+            "message": _t("character_task_submitted", char_name=char_name),
         }
 
     except FileNotFoundError as e:
@@ -291,7 +301,13 @@ async def generate_character(
 
 
 @router.post("/projects/{project_name}/generate/clue/{clue_name}")
-async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequest, _user: CurrentUser):
+async def generate_clue(
+    project_name: str,
+    clue_name: str,
+    req: GenerateClueRequest,
+    _user: CurrentUser,
+    _t: Annotated[Callable[..., str], Depends(get_translator)],
+):
     """
     提交线索设计图生成任务到队列，立即返回 task_id。
     """
@@ -300,7 +316,7 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
         def _sync():
             project = get_project_manager().load_project(project_name)
             if clue_name not in project.get("clues", {}):
-                raise HTTPException(status_code=404, detail=f"线索 '{clue_name}' 不存在")
+                raise HTTPException(status_code=404, detail=_t("clue_not_found", clue_name=clue_name))
             return _snapshot_image_backend(project_name)
 
         image_snapshot = await asyncio.to_thread(_sync)
@@ -323,7 +339,7 @@ async def generate_clue(project_name: str, clue_name: str, req: GenerateClueRequ
         return {
             "success": True,
             "task_id": result["task_id"],
-            "message": f"线索「{clue_name}」设计图生成任务已提交",
+            "message": _t("clue_task_submitted", clue_name=clue_name),
         }
 
     except FileNotFoundError as e:

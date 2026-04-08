@@ -1,6 +1,7 @@
 import { startTransition, useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { ChevronLeft, Activity, Settings, Bell, Download, Loader2 } from "lucide-react";
+import { ChevronLeft, Activity, Settings, Bell, Download, Loader2, Languages } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -48,10 +49,11 @@ function PhaseStepper({
 }: {
   currentPhase: string | undefined;
 }) {
+  const { t } = useTranslation();
   const currentIdx = PHASES.findIndex((p) => p.key === currentPhase);
 
   return (
-    <nav className="flex items-center gap-1" aria-label="工作流阶段">
+    <nav className="flex items-center gap-1" aria-label={t("工作流阶段")}>
       {PHASES.map((phase, idx) => {
         const isCompleted = currentIdx > idx;
         const isCurrent = currentIdx === idx;
@@ -86,7 +88,7 @@ function PhaseStepper({
             {/* Step circle + label */}
             <div className="flex items-center gap-1.5">
               <span className={circleClass}>{idx + 1}</span>
-              <span className={labelClass}>{phase.label}</span>
+              <span className={labelClass}>{t(phase.key)}</span>
             </div>
           </div>
         );
@@ -104,6 +106,7 @@ interface GlobalHeaderProps {
 }
 
 export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
+  const { t, i18n } = useTranslation();
   const [, setLocation] = useLocation();
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const { stats } = useTasksStore();
@@ -128,8 +131,13 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const contentMode = currentProjectData?.content_mode;
   const runningCount = stats.running + stats.queued;
   const displayProjectTitle =
-    currentProjectData?.title?.trim() || currentProjectName || "未选择项目";
+    currentProjectData?.title?.trim() || currentProjectName || t("no_project_selected");
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
+
+  const toggleLanguage = () => {
+    const nextLang = i18n.language.startsWith("zh") ? "en" : "zh";
+    void i18n.changeLanguage(nextLang);
+  };
 
   // 加载费用统计数据（任务完成时自动刷新）
   const completedTaskCount = stats.succeeded + stats.failed;
@@ -235,10 +243,10 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           type="button"
           onClick={onNavigateBack}
           className="flex items-center gap-1 text-sm text-gray-400 transition-colors hover:text-gray-200"
-          aria-label="返回项目大厅"
+          aria-label={t("back_to_projects")}
         >
           <ChevronLeft className="h-4 w-4" />
-          <span className="hidden sm:inline">项目大厅</span>
+          <span className="hidden sm:inline">{t("projects")}</span>
         </button>
 
         {/* Divider */}
@@ -378,13 +386,25 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               : "~/app/settings"
           )}
           className="relative rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-          title="设置"
-          aria-label="设置"
+          title={t("settings")}
+          aria-label={t("settings")}
         >
           <Settings className="h-4 w-4" />
           {!isConfigComplete && !currentProjectName && (
             <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500" aria-label="配置不完整" />
           )}
+        </button>
+
+        {/* Language Toggle */}
+        <button
+          type="button"
+          onClick={toggleLanguage}
+          className="flex items-center gap-1 rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+          title={t("language")}
+          aria-label={t("language")}
+        >
+          <Languages className="h-4 w-4" />
+          <span className="text-[10px] font-bold uppercase">{i18n.language.split("-")[0]}</span>
         </button>
 
       </div>

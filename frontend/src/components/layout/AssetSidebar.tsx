@@ -1,5 +1,7 @@
+
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
+import { useTranslation } from "react-i18next";
 import {
   ChevronRight,
   ChevronDown,
@@ -13,38 +15,50 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
-import { API } from "@/api";
+import { CharacterThumbnail, ClueThumbnail } from "@/components/ui/LoreThumbnails";
 
 // ---------------------------------------------------------------------------
-// CollapsibleSection — reusable accordion primitive
+// Sidebar Dot Status mapping
+// ---------------------------------------------------------------------------
+
+const STATUS_DOT_CLASSES: Record<string, string> = {
+  draft: "text-gray-600",
+  scripted: "text-indigo-500",
+  in_production: "text-amber-500",
+  completed: "text-emerald-500",
+};
+
+// ---------------------------------------------------------------------------
+// CollapsibleSection — sub-component for sidebar groups
 // ---------------------------------------------------------------------------
 
 function CollapsibleSection({
   title,
   icon: Icon,
   children,
-  defaultOpen = true,
   action,
+  defaultOpen = false,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
   children: React.ReactNode;
-  defaultOpen?: boolean;
   action?: React.ReactNode;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <section>
-      <div className="flex w-full items-center">
+    <div className="flex flex-col">
+      <div className="group flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wider text-gray-500 transition-colors hover:text-gray-300">
         <button
           type="button"
-          onClick={() => setOpen(!open)}
-          className="flex flex-1 items-center gap-1.5 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-gray-500 transition-colors hover:text-gray-400 focus-ring rounded"
+          onClick={() => setIsOpen(!isOpen)}
+          className="flex flex-1 items-center gap-2 focus-ring rounded"
         >
-          {open ? (
+          {isOpen ? (
             <ChevronDown className="h-3 w-3 shrink-0" />
           ) : (
             <ChevronRight className="h-3 w-3 shrink-0" />
@@ -52,111 +66,22 @@ function CollapsibleSection({
           <Icon className="h-3.5 w-3.5 shrink-0" />
           <span>{title}</span>
         </button>
-        {action && <div className="pr-2">{action}</div>}
+        {action && (
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+            {action}
+          </div>
+        )}
       </div>
-      {open && <div className="pb-1">{children}</div>}
-    </section>
+      {isOpen && <div className="pb-2">{children}</div>}
+    </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Status dot color mapping
-// ---------------------------------------------------------------------------
-
-const STATUS_DOT_CLASSES: Record<string, string> = {
-  draft: "text-gray-500",
-  in_production: "text-amber-500",
-  completed: "text-emerald-500",
-  missing: "text-red-500",
-};
-
-// ---------------------------------------------------------------------------
-// CharacterThumbnail — round avatar with fallback
-// ---------------------------------------------------------------------------
-
-function CharacterThumbnail({
-  name,
-  sheetPath,
-  projectName,
-}: {
-  name: string;
-  sheetPath: string | undefined;
-  projectName: string;
-}) {
-  const sheetFp = useProjectsStore((s) =>
-    sheetPath ? s.getAssetFingerprint(sheetPath) : null,
-  );
-  const [imgError, setImgError] = useState(false);
-
-  useEffect(() => {
-    setImgError(false);
-  }, [sheetFp, sheetPath]);
-
-  if (!sheetPath || imgError) {
-    return (
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-700 text-gray-400">
-        <User className="h-3.5 w-3.5" />
-      </span>
-    );
-  }
-
-  return (
-    <img
-      src={API.getFileUrl(projectName, sheetPath, sheetFp)}
-      alt={name}
-      className="h-6 w-6 shrink-0 rounded-full object-cover"
-      onError={() => setImgError(true)}
-    />
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ClueThumbnail — square icon with fallback
-// ---------------------------------------------------------------------------
-
-function ClueThumbnail({
-  name,
-  sheetPath,
-  projectName,
-}: {
-  name: string;
-  sheetPath: string | undefined;
-  projectName: string;
-}) {
-  const sheetFp = useProjectsStore((s) =>
-    sheetPath ? s.getAssetFingerprint(sheetPath) : null,
-  );
-  const [imgError, setImgError] = useState(false);
-
-  useEffect(() => {
-    setImgError(false);
-  }, [sheetFp, sheetPath]);
-
-  if (!sheetPath || imgError) {
-    return (
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-gray-700 text-gray-400">
-        <Puzzle className="h-3.5 w-3.5" />
-      </span>
-    );
-  }
-
-  return (
-    <img
-      src={API.getFileUrl(projectName, sheetPath, sheetFp)}
-      alt={name}
-      className="h-6 w-6 shrink-0 rounded object-cover"
-      onError={() => setImgError(true)}
-    />
-  );
-}
-
-// ---------------------------------------------------------------------------
-// EmptyState — shared empty placeholder
-// ---------------------------------------------------------------------------
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <p className="px-3 py-1.5 text-xs italic text-gray-600">{text}</p>
+    <div className="px-8 py-3 text-[11px] italic text-gray-600">
+      {text}
+    </div>
   );
 }
 
@@ -169,6 +94,7 @@ interface AssetSidebarProps {
 }
 
 export function AssetSidebar({ className }: AssetSidebarProps) {
+  const { t } = useTranslation(["common", "dashboard"]);
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
   const [location, setLocation] = useLocation();
@@ -224,7 +150,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   // 删除源文件
   const handleDeleteFile = useCallback(async (filename: string) => {
     if (!projectName) return;
-    if (!confirm(`确定要删除 "${filename}" 吗？`)) return;
+    if (!confirm(t("dashboard:confirm_delete_file", { name: filename }))) return;
     try {
       await API.deleteSourceFile(projectName, filename);
       loadSourceFiles();
@@ -236,7 +162,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
     } catch {
       // 静默失败
     }
-  }, [projectName, loadSourceFiles, location, setLocation]);
+  }, [projectName, loadSourceFiles, location, setLocation, t]);
 
   const characterEntries = Object.entries(characters);
   const clueEntries = Object.entries(clues);
@@ -259,7 +185,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
         }`}
       >
         <LayoutDashboard className="h-4 w-4 shrink-0 text-indigo-400" />
-        <span className="font-medium">项目概览</span>
+        <span className="font-medium">{t("dashboard:project_overview")}</span>
       </button>
 
       {/* ---- Divider ---- */}
@@ -267,7 +193,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
 
       {/* ---- Section 1: Source Files ---- */}
       <CollapsibleSection
-        title="源文件"
+        title={t("dashboard:source_files")}
         icon={FileText}
         action={
           <>
@@ -275,7 +201,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 focus-ring"
-              title="上传源文件"
+              title={t("dashboard:upload_source_files")}
             >
               <Upload className="h-3.5 w-3.5" />
             </button>
@@ -290,7 +216,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
         }
       >
         {sourceFiles.length === 0 ? (
-          <EmptyState text="暂无文件" />
+          <EmptyState text={t("dashboard:no_files_yet")} />
         ) : (
           <ul>
             {sourceFiles.map((name) => {
@@ -317,7 +243,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                       type="button"
                       onClick={(e) => { e.stopPropagation(); handleDeleteFile(name); }}
                       className="shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100 focus-ring focus-visible:opacity-100"
-                      title="删除文件"
+                      title={t("dashboard:delete_file")}
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -333,15 +259,15 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       <div className="mx-3 border-t border-gray-800" />
 
       {/* ---- Section 2: Lorebook (Characters + Clues) ---- */}
-      <CollapsibleSection title="设定集" icon={Users} defaultOpen={true}>
+      <CollapsibleSection title={t("dashboard:lorebook")} icon={Users} defaultOpen={true}>
         {/* Characters sub-section */}
         <div className="mb-1">
           <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-600">
             <Users className="h-3 w-3" />
-            <span>角色</span>
+            <span>{t("dashboard:characters")}</span>
           </div>
           {characterEntries.length === 0 ? (
-            <EmptyState text="暂无角色" />
+            <EmptyState text={t("dashboard:no_characters_hint")} />
           ) : (
             <ul>
               {characterEntries.map(([name, char]) => (
@@ -372,10 +298,10 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
         <div>
           <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-600">
             <Puzzle className="h-3 w-3" />
-            <span>线索</span>
+            <span>{t("dashboard:clues")}</span>
           </div>
           {clueEntries.length === 0 ? (
-            <EmptyState text="暂无线索" />
+            <EmptyState text={t("dashboard:no_clues_hint")} />
           ) : (
             <ul>
               {clueEntries.map(([name, clue]) => (
@@ -407,9 +333,9 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       <div className="mx-3 border-t border-gray-800" />
 
       {/* ---- Section 3: Episodes ---- */}
-      <CollapsibleSection title="剧集" icon={Film}>
+      <CollapsibleSection title={t("dashboard:episodes")} icon={Film}>
         {episodes.length === 0 ? (
-          <EmptyState text="暂无剧集" />
+          <EmptyState text={t("dashboard:no_episodes_yet")} />
         ) : (
           <ul>
             {episodes.map((ep) => {
@@ -439,7 +365,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                     </span>
                     {isSegmented && !ep.scenes_count && (
                       <span className="ml-auto shrink-0 rounded bg-indigo-950 px-1.5 py-0.5 text-[10px] text-indigo-400">
-                        预处理
+                        {t("dashboard:preprocessing")}
                       </span>
                     )}
                   </button>

@@ -1,5 +1,7 @@
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Eye, EyeOff, Loader2, SlidersHorizontal, Terminal, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
 import { API } from "@/api";
@@ -143,6 +145,7 @@ interface AgentConfigTabProps {
 }
 
 export function AgentConfigTab({ visible }: AgentConfigTabProps) {
+  const { t } = useTranslation();
   const [remoteData, setRemoteData] = useState<GetSystemConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<AgentDraft>({
@@ -212,13 +215,13 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       savedRef.current = newDraft;
       setDraft(newDraft);
       useConfigStatusStore.getState().refresh();
-      useAppStore.getState().pushToast("ArcReel 智能体配置已保存", "success");
+      useAppStore.getState().pushToast(t("ArcReel 智能体配置已保存"), "success");
     } catch (err) {
       setSaveError((err as Error).message);
     } finally {
       setSaving(false);
     }
-  }, [draft]);
+  }, [draft, t]);
 
   const handleReset = useCallback(() => {
     setDraft(savedRef.current);
@@ -236,14 +239,14 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         savedRef.current = nextSavedDraft;
         setDraft(nextSavedDraft);
         useConfigStatusStore.getState().refresh();
-        useAppStore.getState().pushToast(`${label} 已清除`, "success");
+        useAppStore.getState().pushToast(`${t(label)} ${t("已清除")}`, "success");
       } catch (err) {
-        useAppStore.getState().pushToast(`清除失败: ${(err as Error).message}`, "error");
+        useAppStore.getState().pushToast(`${t("清除失败: ")}${(err as Error).message}`, "error");
       } finally {
         setClearingField(null);
       }
     },
-    [],
+    [t],
   );
 
   const isBusy = saving || clearingField !== null;
@@ -252,14 +255,14 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   if (loadError) {
     return (
       <div className={visible ? "px-6 py-8" : "hidden"}>
-        <div className="text-sm text-rose-400">加载失败: {loadError}</div>
+        <div className="text-sm text-rose-400">{t("加载失败: ")}{loadError}</div>
         <button
           type="button"
           onClick={() => void load()}
           className="mt-3 inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-300 hover:border-gray-600 hover:bg-gray-800/50"
         >
           <Loader2 className="h-4 w-4" />
-          重试
+          {t("重试")}
         </button>
       </div>
     );
@@ -269,7 +272,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     return (
       <div className={visible ? "flex items-center gap-2 px-6 py-8 text-gray-400" : "hidden"}>
         <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
-        加载中…
+        {t("加载中…")}
       </div>
     );
   }
@@ -286,16 +289,16 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
               <ClaudeColor size={24} />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-100">ArcReel 智能体</h2>
+              <h2 className="text-lg font-semibold text-gray-100">{t("ArcReel 智能体")}</h2>
               <p className="text-sm text-gray-500">
-                基于 Claude Agent SDK，驱动对话式 AI 助手与自动化工作流
+                {t("基于 Claude Agent SDK，驱动对话式 AI 助手与自动化工作流")}
               </p>
             </div>
           </div>
           <div className="mt-3 flex items-start gap-2 rounded-lg border border-gray-800/60 bg-gray-900/30 px-3 py-2">
             <Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-500" />
             <p className="text-xs text-gray-500">
-              配置项兼容 Claude Code 环境变量命名，可使用兼容 Claude Code 的 Coding Plan API。
+              {t("配置项兼容 Claude Code 环境变量命名，可使用兼容 Claude Code 的 Coding Plan API。")}
             </p>
           </div>
         </div>
@@ -305,8 +308,8 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         {/* ----------------------------------------------------------------- */}
         <div>
           <SectionHeading
-            title="API 凭证"
-            description="Anthropic API 密钥是智能体运行的必要条件"
+            title={t("API 凭证")}
+            description={t("Anthropic API 密钥是智能体运行的必要条件")}
           />
 
           {/* API Key card */}
@@ -314,12 +317,12 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             <div>
               <div className="flex items-center justify-between">
                 <label htmlFor="agent-anthropic-key" className="text-sm font-medium text-gray-100">
-                  API Key
+                  {t("Anthropic API 密钥")}
                 </label>
                 {settings.anthropic_api_key.is_set && (
                   <div className="flex items-center text-xs text-gray-500">
                     <span className="truncate">
-                      当前：{settings.anthropic_api_key.masked ?? "已设置"}
+                      {t("当前：")}{settings.anthropic_api_key.masked ?? t("已加密存储")}
                     </span>
                     <button
                       type="button"
@@ -327,12 +330,12 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                         void handleClearField(
                           "anthropic_api_key",
                           { anthropic_api_key: "" },
-                          "Anthropic API Key",
+                          "Anthropic API 密钥",
                         )
                       }
                       disabled={isBusy}
                       className={inlineClearClassName}
-                      aria-label="清除已保存的 Anthropic API Key"
+                      aria-label={t("清除已保存的 Anthropic API Key")}
                     >
                       {clearingField === "anthropic_api_key" ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -344,7 +347,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 )}
               </div>
               <p className="mt-0.5 text-xs text-gray-500">
-                对应环境变量 ANTHROPIC_API_KEY
+                {t("对应环境变量 ANTHROPIC_API_KEY")}
               </p>
               <div className="relative mt-2">
                 <input
@@ -364,7 +367,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                     type="button"
                     onClick={() => updateDraft("anthropicKey", "")}
                     className={`absolute right-8 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
-                    aria-label="清除输入"
+                    aria-label={t("清除输入")}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -373,7 +376,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                   type="button"
                   onClick={() => setShowKey((v) => !v)}
                   className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
-                  aria-label={showKey ? "隐藏密钥" : "显示密钥"}
+                  aria-label={showKey ? t("隐藏密钥") : t("显示密钥")}
                 >
                   {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -384,7 +387,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             <div className="border-t border-gray-800 pt-4">
               <div className="flex items-center justify-between">
                 <label htmlFor="agent-base-url" className="text-sm font-medium text-gray-100">
-                  Base URL
+                  {t("API 代理地址")}
                 </label>
                 {settings.anthropic_base_url && (
                   <button
@@ -393,31 +396,31 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                       void handleClearField(
                         "anthropic_base_url",
                         { anthropic_base_url: "" },
-                        "Anthropic Base URL",
+                        "API 代理地址",
                       )
                     }
                     disabled={isBusy}
                     className="inline-flex items-center gap-1 rounded text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
-                    aria-label="清除已保存的 Anthropic Base URL"
+                    aria-label={t("清除已保存的 Anthropic Base URL")}
                   >
                     {clearingField === "anthropic_base_url" ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
                       <X className="h-3 w-3" />
                     )}
-                    清除已保存
+                    {t("清除已保存")}
                   </button>
                 )}
               </div>
               <p className="mt-0.5 text-xs text-gray-500">
-                对应 ANTHROPIC_BASE_URL，留空使用官方默认地址
+                {t("对应 ANTHROPIC_BASE_URL，留空使用官方默认地址")}
               </p>
               <div className="relative mt-2">
                 <input
                   id="agent-base-url"
                   value={draft.anthropicBaseUrl}
                   onChange={(e) => updateDraft("anthropicBaseUrl", e.target.value)}
-                  placeholder="https://anthropic-proxy.example.com"
+                  placeholder={t("例如：https://api.anthropic.com")}
                   className={`${inputClassName}${draft.anthropicBaseUrl ? " pr-8" : ""}`}
                   autoComplete="off"
                   spellCheck={false}
@@ -429,7 +432,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                     type="button"
                     onClick={() => updateDraft("anthropicBaseUrl", "")}
                     className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
-                    aria-label="清除 Base URL 输入"
+                    aria-label={t("清除 Base URL 输入")}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -444,14 +447,14 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         {/* ----------------------------------------------------------------- */}
         <div>
           <SectionHeading
-            title="模型配置"
-            description="指定智能体使用的 Claude 模型。留空则使用 Claude Agent SDK 默认值。"
+            title={t("模型配置")}
+            description={t("指定智能体使用的 Claude 模型。留空则使用 Claude Agent SDK 默认值。")}
           />
 
           <div className={cardClassName}>
             <div className="flex items-center justify-between">
               <label htmlFor="agent-model" className="text-sm font-medium text-gray-100">
-                默认模型
+                {t("默认模型")}
               </label>
               {settings.anthropic_model && (
                 <button
@@ -460,31 +463,31 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                     void handleClearField(
                       "anthropic_model",
                       { anthropic_model: "" },
-                      "ANTHROPIC_MODEL",
+                      "默认模型",
                     )
                   }
                   disabled={isBusy}
                   className="inline-flex items-center gap-1 rounded text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
-                  aria-label="清除已保存的模型配置"
+                  aria-label={t("清除已保存的模型配置")}
                 >
                   {clearingField === "anthropic_model" ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
                   ) : (
                     <X className="h-3 w-3" />
                   )}
-                  清除已保存
+                  {t("清除已保存")}
                 </button>
               )}
             </div>
             <p className="mt-0.5 text-xs text-gray-500">
-              对应 ANTHROPIC_MODEL，覆盖默认模型
+              {t("对应 ANTHROPIC_MODEL，覆盖默认模型")}
             </p>
             <div className="relative mt-2">
               <input
                 id="agent-model"
                 value={draft.anthropicModel}
                 onChange={(e) => updateDraft("anthropicModel", e.target.value)}
-                placeholder="ANTHROPIC_MODEL"
+                placeholder="claude-3-5-sonnet-20241022"
                 className={`${inputClassName}${draft.anthropicModel ? " pr-8" : ""}`}
                 autoComplete="off"
                 spellCheck={false}
@@ -496,7 +499,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                   type="button"
                   onClick={() => updateDraft("anthropicModel", "")}
                   className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
-                  aria-label="清除模型配置输入"
+                  aria-label={t("清除模型配置输入")}
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -512,7 +515,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
               <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-gray-100">
                 <span className="inline-flex items-center gap-2">
                   <SlidersHorizontal className="h-4 w-4 text-gray-400" />
-                  高级模型路由
+                  {t("高级模型路由")}
                 </span>
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-800 bg-gray-900 text-gray-500">
                   <ChevronDown
@@ -523,7 +526,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 </span>
               </summary>
               <p className="mt-2 text-xs text-gray-500">
-                Claude Agent SDK 支持按能力等级路由到不同模型。留空则统一使用上方的默认模型。
+                {t("Claude Agent SDK 支持按能力等级路由到不同模型。留空则统一使用上方的默认模型。")}
               </p>
               <div className="mt-4 grid gap-4">
                 {MODEL_ROUTING_FIELDS.map(({ key, label, envVar, hint, patchKey }) => {
@@ -532,8 +535,8 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                     <div key={key}>
                       <div className="flex items-center justify-between">
                         <div>
-                          <div className="text-sm font-medium text-gray-100">{label}</div>
-                          <div className="text-xs text-gray-500">{hint}</div>
+                          <div className="text-sm font-medium text-gray-100">{t(label)}</div>
+                          <div className="text-xs text-gray-500">{t(hint)}</div>
                         </div>
                         {settingsValue && (
                           <button
@@ -547,14 +550,14 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                             }
                             disabled={isBusy}
                             className="inline-flex items-center gap-1 text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none rounded"
-                            aria-label={`清除已保存的 ${label}`}
+                            aria-label={t("清除已保存的 {label}", { label: t(label) })}
                           >
                             {clearingField === patchKey ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
                               <X className="h-3 w-3" />
                             )}
-                            清除
+                            {t("清除")}
                           </button>
                         )}
                       </div>
@@ -573,7 +576,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                             type="button"
                             onClick={() => updateDraft(key, "")}
                             className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
-                            aria-label={`清除 ${label} 输入`}
+                            aria-label={t("清除 {label} 输入", { label: t(label) })}
                           >
                             <X className="h-3.5 w-3.5" />
                           </button>
@@ -592,15 +595,15 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
           <details>
             <summary className="flex cursor-pointer select-none items-center gap-2 text-sm font-medium text-gray-400 transition-colors hover:text-gray-200">
               <SlidersHorizontal className="h-4 w-4" />
-              高级设置
+              {t("高级设置")}
             </summary>
             <div className="mt-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-200">
-                  会话清理延迟（秒）
+                  {t("会话清理延迟（秒）")}
                 </label>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  会话结束后等待此时间再释放资源，再次对话时会自动恢复
+                  {t("会话结束后等待此时间再释放资源，再次对话时会自动恢复")}
                 </p>
                 <input
                   type="number"
@@ -614,10 +617,10 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-200">
-                  最大并发会话数
+                  {t("最大并发会话数")}
                 </label>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  同时保持活跃的智能体会话上限，超出时自动释放最久未使用的会话（清理的会话会持久化，下次对话时恢复）
+                  {t("同时保持活跃的智能体会话上限，超出时自动释放最久未使用的会话（清理的会话会持久化，下次对话时恢复）")}
                 </p>
                 <input
                   type="number"

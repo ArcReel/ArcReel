@@ -5,12 +5,13 @@
 """
 
 import logging
-from typing import Annotated
+from typing import Annotated, Callable
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
+from lib.i18n import get_translator
 from server.auth import CurrentUser, check_credentials, create_token
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ class VerifyResponse(BaseModel):
 @router.post("/auth/token", response_model=TokenResponse)
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    _t: Annotated[Callable[..., str], Depends(get_translator)],
 ):
     """用户登录
 
@@ -46,7 +48,7 @@ async def login_for_access_token(
         logger.warning("登录失败: 用户名或密码错误 (用户: %s)", form_data.username)
         raise HTTPException(
             status_code=401,
-            detail="用户名或密码错误",
+            detail=_t("unauthorized"),
             headers={"WWW-Authenticate": "Bearer"},
         )
 
