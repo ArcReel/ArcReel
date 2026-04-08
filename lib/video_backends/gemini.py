@@ -157,9 +157,7 @@ class GeminiVideoBackend:
         if response.candidates and response.candidates[0].content:
             for part in response.candidates[0].content.parts:
                 if part.inline_data is not None:
-                    request.output_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(request.output_path, "wb") as f:
-                        f.write(part.inline_data.data)
+                    await asyncio.to_thread(self._save_video_bytes, part.inline_data.data, request.output_path)
                     return VideoGenerationResult(
                         video_path=request.output_path,
                         provider=PROVIDER_GEMINI,
@@ -296,6 +294,13 @@ class GeminiVideoBackend:
             return self._types.Image(image_bytes=image_bytes, mime_type=mime_type_png)
         else:
             return image
+
+    @staticmethod
+    def _save_video_bytes(data: bytes, output_path: Path) -> None:
+        """将视频字节写入文件（同步，供 asyncio.to_thread 调用）。"""
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "wb") as f:
+            f.write(data)
 
     @with_retry_async()
     async def _download_video_with_retry(self, video_ref, output_path: Path) -> None:
