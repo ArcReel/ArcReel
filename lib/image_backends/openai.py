@@ -71,7 +71,6 @@ class OpenAIImageBackend:
             prompt=request.prompt,
             size=_SIZE_MAP.get(request.aspect_ratio, "1024x1792"),
             quality=_QUALITY_MAP.get(request.image_size, "medium"),
-            response_format="b64_json",
             n=1,
         )
         return self._save_and_return(response, request)
@@ -96,7 +95,6 @@ class OpenAIImageBackend:
                 model=self._model,
                 image=image_files,
                 prompt=request.prompt,
-                response_format="b64_json",
             )
         finally:
             for f in image_files:
