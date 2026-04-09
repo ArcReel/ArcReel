@@ -23,6 +23,7 @@ export function CreateProjectModal() {
   const [style, setStyle] = useState("Photographic");
   const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
   const [titleError, setTitleError] = useState("");
+  const [generationMode, setGenerationMode] = useState<"single" | "grid">("single");
   const [styleImageFile, setStyleImageFile] = useState<File | null>(null);
   const [styleImagePreview, setStyleImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,7 +56,7 @@ export function CreateProjectModal() {
 
     setCreatingProject(true);
     try {
-      const response = await API.createProject(title.trim(), style, contentMode, aspectRatio, defaultDuration);
+      const response = await API.createProject(title.trim(), style, contentMode, aspectRatio, defaultDuration, generationMode);
       const projectName = response.name;
 
       // 如果用户选择了风格参考图，在项目创建后上传
@@ -267,6 +268,48 @@ export function CreateProjectModal() {
                   {opt.label}
                 </label>
               ))}
+            </div>
+          </div>
+
+          {/* Generation Mode */}
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-0.5">
+              分镜生成模式
+            </label>
+            <p className="text-xs text-gray-600 mb-1.5">
+              宫格模式按段落分组一次生成，首尾帧链式衔接，画风更一致
+            </p>
+            <div className="flex gap-3">
+              <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
+                generationMode === "single"
+                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
+                  : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
+              }`}>
+                <input
+                  type="radio"
+                  name="generationMode"
+                  value="single"
+                  checked={generationMode === "single"}
+                  onChange={() => setGenerationMode("single")}
+                  className="sr-only"
+                />
+                逐张生成
+              </label>
+              <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
+                generationMode === "grid"
+                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
+                  : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
+              }`}>
+                <input
+                  type="radio"
+                  name="generationMode"
+                  value="grid"
+                  checked={generationMode === "grid"}
+                  onChange={() => setGenerationMode("grid")}
+                  className="sr-only"
+                />
+                宫格生成
+              </label>
             </div>
           </div>
 

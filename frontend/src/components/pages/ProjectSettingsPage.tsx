@@ -38,6 +38,7 @@ export function ProjectSettingsPage() {
   const [textOverview, setTextOverview] = useState<string>("");
   const [textStyle, setTextStyle] = useState<string>("");
   const [aspectRatio, setAspectRatio] = useState<string>("");
+  const [generationMode, setGenerationMode] = useState<"single" | "grid">("single");
   const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
@@ -45,7 +46,8 @@ export function ProjectSettingsPage() {
   const initialRef = useRef({
     videoBackend: "", imageBackend: "", audioOverride: null as boolean | null,
     textScript: "", textOverview: "", textStyle: "",
-    aspectRatio: "", defaultDuration: null as number | null,
+    aspectRatio: "", generationMode: "single" as "single" | "grid",
+    defaultDuration: null as number | null,
   });
 
   useEffect(() => {
@@ -84,6 +86,7 @@ export function ProjectSettingsPage() {
       const ar = typeof project.aspect_ratio === "string"
         ? project.aspect_ratio
         : "";
+      const gm = (project.generation_mode as "single" | "grid" | undefined) ?? "single";
       const dd = project.default_duration != null ? (project.default_duration as number) : null;
 
       setVideoBackend(vb);
@@ -93,11 +96,12 @@ export function ProjectSettingsPage() {
       setTextOverview(to);
       setTextStyle(tst);
       setAspectRatio(ar);
+      setGenerationMode(gm);
       setDefaultDuration(dd);
       initialRef.current = {
         videoBackend: vb, imageBackend: ib, audioOverride: ao,
         textScript: ts, textOverview: to, textStyle: tst,
-        aspectRatio: ar, defaultDuration: dd,
+        aspectRatio: ar, generationMode: gm, defaultDuration: dd,
       };
     });
 
@@ -136,6 +140,7 @@ export function ProjectSettingsPage() {
     textOverview !== initialRef.current.textOverview ||
     textStyle !== initialRef.current.textStyle ||
     aspectRatio !== initialRef.current.aspectRatio ||
+    generationMode !== initialRef.current.generationMode ||
     defaultDuration !== initialRef.current.defaultDuration;
 
   useEffect(() => {
@@ -161,12 +166,13 @@ export function ProjectSettingsPage() {
         text_backend_overview: textOverview || null,
         text_backend_style: textStyle || null,
         aspect_ratio: aspectRatio || undefined,
+        generation_mode: generationMode,
         default_duration: defaultDuration,
       } as Record<string, unknown>);
       initialRef.current = {
         videoBackend, imageBackend, audioOverride,
         textScript, textOverview, textStyle,
-        aspectRatio, defaultDuration,
+        aspectRatio, generationMode, defaultDuration,
       };
       useAppStore.getState().pushToast("已保存", "success");
     } catch (e: unknown) {
@@ -174,7 +180,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle, aspectRatio, defaultDuration, projectName]);
+  }, [videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, projectName]);
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 overflow-y-auto">
@@ -247,6 +253,41 @@ export function ProjectSettingsPage() {
                         className="sr-only"
                       />
                       {ar === "9:16" ? "竖屏 9:16" : "横屏 16:9"}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
+
+            {/* Generation mode */}
+            <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
+              <fieldset>
+                <legend className="mb-1 text-sm font-medium text-gray-100">分镜生成模式</legend>
+                <p className="mb-3 text-xs text-gray-500">
+                  宫格模式按段落分组一次生成，首尾帧链式衔接，画风更一致
+                </p>
+                <div className="flex gap-3">
+                  {([
+                    { value: "single" as const, label: "逐张生成" },
+                    { value: "grid" as const, label: "宫格生成" },
+                  ]).map((opt) => (
+                    <label
+                      key={opt.value}
+                      className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-indigo-500 ${
+                        generationMode === opt.value
+                          ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
+                          : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="generationMode"
+                        value={opt.value}
+                        checked={generationMode === opt.value}
+                        onChange={() => setGenerationMode(opt.value)}
+                        className="sr-only"
+                      />
+                      {opt.label}
                     </label>
                   ))}
                 </div>

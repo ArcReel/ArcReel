@@ -267,6 +267,7 @@ class API {
     contentMode: string = "narration",
     aspectRatio: string = "9:16",
     defaultDuration: number | null = null,
+    generationMode: "single" | "grid" = "single",
   ): Promise<{ success: boolean; name: string; project: ProjectData }> {
     return this.request("/projects", {
       method: "POST",
@@ -276,6 +277,7 @@ class API {
         content_mode: contentMode,
         aspect_ratio: aspectRatio,
         default_duration: defaultDuration,
+        generation_mode: generationMode,
       }),
     });
   }
