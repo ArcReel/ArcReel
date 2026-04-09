@@ -1,58 +1,58 @@
 ## ADDED Requirements
 
-### Requirement: 图片附件输入
-系统 SHALL 允许用户在对话框输入区通过粘贴、点击上传、拖拽三种方式附加图片。
+### Requirement: Image Attachment Input
+The system SHALL allow users to attach images in the conversation input area via three methods: paste, click to upload, and drag-and-drop.
 
-#### Scenario: 粘贴图片
-- **WHEN** 用户在对话框输入区按 Ctrl+V（或 Cmd+V），剪贴板中包含图片
-- **THEN** 系统将图片添加到附件列表，并在输入框上方显示缩略图
+#### Scenario: Paste Image
+- **WHEN** the user presses Ctrl+V (or Cmd+V) in the conversation input area and the clipboard contains an image
+- **THEN** the system adds the image to the attachment list and displays a thumbnail above the input box
 
-#### Scenario: 点击上传
-- **WHEN** 用户点击输入框旁的附件按钮，从文件选择器选取一张或多张图片
-- **THEN** 系统将所选图片添加到附件列表，并显示缩略图
+#### Scenario: Click to Upload
+- **WHEN** the user clicks the attachment button next to the input box and selects one or more images from the file selector
+- **THEN** the system adds the selected images to the attachment list and displays thumbnails
 
-#### Scenario: 拖拽图片
-- **WHEN** 用户将图片文件拖拽至对话框输入区并释放
-- **THEN** 系统将图片添加到附件列表，并显示缩略图；拖入过程中输入区 SHALL 高亮显示放置反馈
+#### Scenario: Drag-and-Drop Image
+- **WHEN** the user drags an image file into the conversation input area and releases it
+- **THEN** the system adds the image to the attachment list and displays a thumbnail; during the drag-in process the input area SHALL highlight to show drop feedback
 
-#### Scenario: 超出数量上限
-- **WHEN** 当前附件数量已达 5 张，用户尝试再次添加图片
-- **THEN** 系统忽略新图片，附件按钮 SHALL 变为禁用状态
+#### Scenario: Exceeds Maximum Count
+- **WHEN** the current attachment count has already reached 5 and the user tries to add another image
+- **THEN** the system ignores the new image and the attachment button SHALL become disabled
 
-#### Scenario: 超出文件大小上限
-- **WHEN** 用户添加单张大于 5MB 的图片
-- **THEN** 系统拒绝添加并向用户显示错误提示
+#### Scenario: Exceeds File Size Limit
+- **WHEN** the user adds a single image larger than 5MB
+- **THEN** the system rejects the addition and displays an error message to the user
 
-#### Scenario: 移除附件
-- **WHEN** 用户点击某张缩略图右上角的删除按钮
-- **THEN** 系统从附件列表移除该图片，缩略图消失
+#### Scenario: Remove Attachment
+- **WHEN** the user clicks the delete button in the upper right of a thumbnail
+- **THEN** the system removes that image from the attachment list and the thumbnail disappears
 
-### Requirement: 携带图片发送消息
-系统 SHALL 在用户发送消息时将附件图片与文字内容一并提交给 Agent。
+### Requirement: Send Message with Images
+The system SHALL submit attached images together with text content when the user sends a message.
 
-#### Scenario: 发送含图片的消息
-- **WHEN** 用户在附件列表非空时点击发送（或按 Enter）
-- **THEN** 系统将文字与图片 base64 数据组合成 multimodal 消息发送，发送后附件列表 SHALL 清空
+#### Scenario: Send Message with Images
+- **WHEN** the user clicks send (or presses Enter) when the attachment list is non-empty
+- **THEN** the system combines the text and image base64 data into a multimodal message and sends it; the attachment list SHALL be cleared after sending
 
-#### Scenario: 仅发送文字
-- **WHEN** 用户在附件列表为空时发送消息
-- **THEN** 系统行为与原有纯文本发送保持一致
+#### Scenario: Send Text Only
+- **WHEN** the user sends a message when the attachment list is empty
+- **THEN** system behavior is consistent with the original plain text send behavior
 
-### Requirement: 图片消息渲染
-系统 SHALL 在对话历史中正确渲染用户发送的图片，并支持点击放大查看。
+### Requirement: Image Message Rendering
+The system SHALL correctly render images sent by the user in the conversation history, with support for click-to-zoom viewing.
 
-#### Scenario: 发送后即时显示
-- **WHEN** 含图片的消息发送成功
-- **THEN** 用户气泡中 SHALL 显示图片缩略图（最大高度 256px），文字内容显示在图片下方
+#### Scenario: Immediate Display After Sending
+- **WHEN** a message with images is sent successfully
+- **THEN** the user's message bubble SHALL display image thumbnails (maximum height 256px), with text content displayed below the images
 
-#### Scenario: 历史回放显示
-- **WHEN** 用户重新加载已有会话
-- **THEN** 含图片的历史消息 SHALL 正确渲染图片内容
+#### Scenario: Display in History Playback
+- **WHEN** the user reloads an existing session
+- **THEN** historical messages with images SHALL correctly render the image content
 
-#### Scenario: 点击缩略图放大
-- **WHEN** 用户点击对话中的图片缩略图
-- **THEN** 系统以 lightbox 形式全屏显示原图，点击遮罩或按 Esc 关闭
+#### Scenario: Click Thumbnail to Zoom
+- **WHEN** the user clicks an image thumbnail in the conversation
+- **THEN** the system displays the original image in full-screen lightbox mode; clicking the overlay or pressing Esc closes it
 
-#### Scenario: 点击待发送图片放大
-- **WHEN** 用户点击输入区附件缩略图
-- **THEN** 系统以 lightbox 形式全屏显示该图片，点击遮罩或按 Esc 关闭
+#### Scenario: Click Pending-Send Image to Zoom
+- **WHEN** the user clicks an attachment thumbnail in the input area
+- **THEN** the system displays that image in full-screen lightbox mode; clicking the overlay or pressing Esc closes it

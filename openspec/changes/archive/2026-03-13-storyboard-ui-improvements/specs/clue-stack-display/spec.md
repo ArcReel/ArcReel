@@ -1,53 +1,53 @@
 ## ADDED Requirements
 
-### Requirement: 线索缩略图栈展示
+### Requirement: Clue Thumbnail Stack Display
 
-SegmentCard 头部 SHALL 在角色头像栈左侧展示当前分镜关联线索（`clues_in_segment` / `clues_in_scene`）的图片缩略图，形状为圆角方形，叠放样式与角色头像栈一致，最多显示 4 个，超出部分以 `+n` 溢出徽章表示。
+The SegmentCard header SHALL display image thumbnails for clues associated with the current storyboard (`clues_in_segment` / `clues_in_scene`) to the left of the character avatar stack. The shape is rounded square, the stacking style is consistent with the character avatar stack, a maximum of 4 are shown, and overflow beyond that is represented by a `+n` overflow badge.
 
-#### Scenario: 有线索图片时展示缩略图
+#### Scenario: Display Thumbnail When Clue Has an Image
 
-- **WHEN** 线索对象存在 `clue_sheet` 路径
-- **THEN** 展示对应图片，形状为圆角方形（`rounded`），尺寸与角色头像一致（`h-7 w-7`）
+- **WHEN** the clue object has a `clue_sheet` path
+- **THEN** the corresponding image is displayed in a rounded square shape (`rounded`) with dimensions consistent with the character avatar (`h-7 w-7`)
 
-#### Scenario: 无线索图片时展示首字母占位
+#### Scenario: Display Initial Letter Placeholder When Clue Has No Image
 
-- **WHEN** 线索对象不存在 `clue_sheet` 路径
-- **THEN** 展示线索名称首字母色块（圆角方形），颜色由名称哈希值确定，与角色头像的 fallback 规则一致
+- **WHEN** the clue object does not have a `clue_sheet` path
+- **THEN** a color block with the clue name's initial letter is displayed (rounded square); the color is determined by a hash of the name, consistent with the character avatar fallback rules
 
-#### Scenario: 分镜无关联线索时不渲染
+#### Scenario: No Rendering When Storyboard Has No Associated Clues
 
-- **WHEN** 分镜的 `clues_in_segment` / `clues_in_scene` 为空数组
-- **THEN** 线索缩略图栈不渲染，头部右侧仅显示角色头像栈
+- **WHEN** the storyboard's `clues_in_segment` / `clues_in_scene` is an empty array
+- **THEN** the clue thumbnail stack is not rendered; only the character avatar stack is displayed on the right side of the header
 
-#### Scenario: 超过 4 个线索时显示溢出数量
+#### Scenario: Show Overflow Count When More Than 4 Clues
 
-- **WHEN** 分镜关联线索超过 4 个
-- **THEN** 只显示前 4 个缩略图，后续以 `+n` 灰色徽章表示剩余数量
+- **WHEN** the storyboard has more than 4 associated clues
+- **THEN** only the first 4 thumbnails are displayed, with the remaining count shown as a gray `+n` badge
 
-### Requirement: 线索悬停浮窗
+### Requirement: Clue Hover Popover
 
-鼠标悬停在线索缩略图上时 SHALL 弹出浮窗，显示线索图片、名称、类型标签（场景/道具）及描述摘要，布局与角色浮窗一致。
+When the mouse hovers over a clue thumbnail, a popover SHALL appear displaying the clue image, name, type tag (Location/Prop), and a description summary, with a layout consistent with the character popover.
 
-#### Scenario: 悬停展示线索详情
+#### Scenario: Hover Shows Clue Details
 
-- **WHEN** 用户将鼠标悬停在某个线索缩略图上
-- **THEN** 弹出浮窗，左侧显示线索图片（无图则图标占位），右侧显示线索名称和一行描述摘要
+- **WHEN** the user hovers the mouse over a clue thumbnail
+- **THEN** a popover appears showing the clue image on the left (icon placeholder if no image) and the clue name with a one-line description summary on the right
 
-#### Scenario: 浮窗显示类型标签
+#### Scenario: Popover Shows Location Type Tag
 
-- **WHEN** 浮窗展示时，线索 `type` 为 `"location"`
-- **THEN** 名称旁显示"场景"标签（amber 色调）
+- **WHEN** the popover is displayed and the clue `type` is `"location"`
+- **THEN** a "Location" tag (amber color) is displayed next to the name
 
-#### Scenario: 浮窗显示道具标签
+#### Scenario: Popover Shows Prop Type Tag
 
-- **WHEN** 浮窗展示时，线索 `type` 为 `"prop"`
-- **THEN** 名称旁显示"道具"标签（emerald 色调）
+- **WHEN** the popover is displayed and the clue `type` is `"prop"`
+- **THEN** a "Prop" tag (emerald color) is displayed next to the name
 
-### Requirement: 角色浮窗增加"角色"类型标签
+### Requirement: Character Popover Adds "Character" Type Tag
 
-AvatarPopover SHALL 在角色名称旁新增"角色"类型标签，与线索浮窗的标签风格统一，便于区分两种实体类型。
+AvatarPopover SHALL add a "Character" type tag next to the character name, unified in style with the clue popover's tags, to facilitate distinguishing between the two entity types.
 
-#### Scenario: 悬停角色头像显示"角色"标签
+#### Scenario: Hover Character Avatar Shows "Character" Tag
 
-- **WHEN** 用户将鼠标悬停在角色头像上
-- **THEN** 浮窗中角色名称旁显示"角色"标签（indigo 色调）
+- **WHEN** the user hovers the mouse over a character avatar
+- **THEN** a "Character" tag (indigo color) is displayed next to the character name in the popover

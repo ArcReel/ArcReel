@@ -1,47 +1,47 @@
-## 1. 新增脚本开发
+## 1. New Script Development
 
-- [x] 1.1 创建 `add_characters_clues.py` 脚本：封装 `ProjectManager.add_characters_batch()` + `add_clues_batch()` + `validate_project()`，支持通过命令行参数或 stdin 接收 JSON 格式的角色/线索数据
-- [x] 1.2 创建 `normalize_drama_script.py` 脚本：使用 `gemini-3.1-pro-preview` 模型读取 source/ 小说原文，生成 Markdown 格式的规范化剧本（`step1_normalized_script.md`）和镜头预算（`step2_shot_budget.md`），输出格式须与 `ScriptGenerator.build_drama_prompt()` 兼容
-- [x] 1.3 在 `settings.json` 的 `permissions.allow` 中添加两个新脚本的 Bash 执行权限
-- [x] 1.4 验证 `generate-script` 对两种 content_mode 的兼容性（narration 读 step1_segments.md、drama 读 step1_normalized_script.md），修复发现的问题
+- [x] 1.1 Create the `add_characters_clues.py` script: wraps `ProjectManager.add_characters_batch()` + `add_clues_batch()` + `validate_project()`; supports receiving character/clue data in JSON format via command-line arguments or stdin
+- [x] 1.2 Create the `normalize_drama_script.py` script: uses the `gemini-3.1-pro-preview` model to read source/ novel text and generate a Markdown-format normalized script (`step1_normalized_script.md`) and shot budget (`step2_shot_budget.md`); the output format must be compatible with `ScriptGenerator.build_drama_prompt()`
+- [x] 1.3 Add Bash execution permissions for both new scripts in `settings.json`'s `permissions.allow`
+- [x] 1.4 Verify `generate-script` compatibility with both content_mode types (narration reads step1_segments.md; drama reads step1_normalized_script.md); fix any issues found
 
-## 2. 聚焦 Subagent 创建
+## 2. Create Focused Subagents
 
-- [x] 2.1 提供 `analyze-characters-clues` agent 的 description，用户通过 `/agents` 命令创建（全局角色/线索提取，分析整部小说，通过 Bash 调用 add_characters_clues.py 写入 project.json，返回结构化摘要）
-- [x] 2.2 提供 `split-narration-segments` agent 的 description，用户通过 `/agents` 命令创建（说书模式片段拆分，按朗读节奏约 4 秒/片段，标记 segment_break，保存 drafts/ 中间文件，返回摘要）
-- [x] 2.3 提供 `normalize-drama-script` agent 的 description，用户通过 `/agents` 命令创建（首次生成时调用 normalize_drama_script.py 使用 Gemini 3.1 Pro 生成规范化剧本，后续修改由 agent 直接编辑 Markdown，返回摘要）
-- [x] 2.4 提供 `create-episode-script` agent 的 description，用户通过 `/agents` 命令创建（预加载 generate-script skill，调用 generate_script.py 生成 JSON，验证输出，返回摘要）
-- [x] 2.5 用户完成 4 个 agent 创建后，审核生成的 agent 文件确保 frontmatter 和 system prompt 符合要求
+- [x] 2.1 Provide the description for the `analyze-characters-clues` agent; user creates it via the `/agents` command (global character/clue extraction, analyzes the entire novel, calls add_characters_clues.py via Bash to write to project.json, returns structured summary)
+- [x] 2.2 Provide the description for the `split-narration-segments` agent; user creates it via the `/agents` command (narration mode segment splitting, approximately 4 seconds per segment by reading pace, marks segment_break, saves drafts/ intermediate files, returns summary)
+- [x] 2.3 Provide the description for the `normalize-drama-script` agent; user creates it via the `/agents` command (on first generation calls normalize_drama_script.py using Gemini 3.1 Pro to generate a normalized script; subsequent modifications by the agent directly editing Markdown; returns summary)
+- [x] 2.4 Provide the description for the `create-episode-script` agent; user creates it via the `/agents` command (preloads generate-script skill, calls generate_script.py to generate JSON, validates output, returns summary)
+- [x] 2.5 After the user completes creating all 4 agents, review the generated agent files to ensure frontmatter and system prompts meet requirements
 
-## 3. 编排 Skill 重写
+## 3. Rewrite the Orchestration Skill
 
-- [x] 3.1 重写 `manga-workflow/SKILL.md`：状态检测逻辑（读 project.json + 检查 drafts/scripts/characters/storyboards/videos 文件系统）
-- [x] 3.2 在 manga-workflow 中定义阶段决策树：缺角色→dispatch analyze-characters-clues、缺 drafts→dispatch split-narration-segments 或 normalize-drama-script（按 content_mode）、缺 scripts→dispatch create-episode-script、缺资产→dispatch 资产生成 subagent
-- [x] 3.3 在 manga-workflow 中定义阶段间确认协议：每个 subagent 返回后展示摘要、使用 AskUserQuestion 获取用户确认、支持重做/跳过/继续
-- [x] 3.4 在 manga-workflow 中定义上下文传递规则：每个 subagent dispatch 时传递什么参数（项目名、集数、content_mode、文件路径）
+- [x] 3.1 Rewrite `manga-workflow/SKILL.md`: status detection logic (read project.json + check drafts/scripts/characters/storyboards/videos file system)
+- [x] 3.2 Define the phase decision tree in manga-workflow: missing characters → dispatch analyze-characters-clues; missing drafts → dispatch split-narration-segments or normalize-drama-script (by content_mode); missing scripts → dispatch create-episode-script; missing assets → dispatch asset generation subagent
+- [x] 3.3 Define inter-phase confirmation protocol in manga-workflow: after each subagent returns, show summary; use AskUserQuestion to get user confirmation; support redo/skip/continue
+- [x] 3.4 Define context passing rules in manga-workflow: what parameters to pass when dispatching each subagent (project name, episode number, content_mode, file paths)
 
-## 4. 资产生成 Subagent 适配
+## 4. Asset Generation Subagent Adaptation
 
-- [x] 4.1 定义资产生成 subagent 的 dispatch 方式：确定是创建专用 agent 模板还是使用 general-purpose subagent + 具体任务 prompt
-- [x] 4.2 在 manga-workflow 中增加资产生成阶段的 dispatch 逻辑（generate-characters、generate-clues、generate-storyboard、generate-video 各阶段）
+- [x] 4.1 Define the dispatch method for asset generation subagents: determine whether to create a dedicated agent template or use a general-purpose subagent + specific task prompt
+- [x] 4.2 Add asset generation phase dispatch logic in manga-workflow (each phase of generate-characters, generate-clues, generate-storyboard, generate-video)
 
-## 5. 旧 Agent 清理与文档更新
+## 5. Old Agent Cleanup and Documentation Update
 
-- [x] 5.1 删除 `agent_runtime_profile/.claude/agents/novel-to-narration-script.md`
-- [x] 5.2 删除 `agent_runtime_profile/.claude/agents/novel-to-storyboard-script.md`
-- [x] 5.3 更新 `agent_runtime_profile/CLAUDE.md`：替换工作流说明（从两个大 agent 的描述改为新的编排 skill + 聚焦 subagent 架构描述）
-- [x] 5.4 更新 `agent_runtime_profile/CLAUDE.md`：添加 skill/agent 边界原则说明
-- [x] 5.5 更新 `agent_runtime_profile/.claude/settings.json`：确认新 subagent 的工具权限配置正确
+- [x] 5.1 Delete `agent_runtime_profile/.claude/agents/novel-to-narration-script.md`
+- [x] 5.2 Delete `agent_runtime_profile/.claude/agents/novel-to-storyboard-script.md`
+- [x] 5.3 Update `agent_runtime_profile/CLAUDE.md`: replace workflow description (change from description of two large agents to new orchestration skill + focused subagent architecture description)
+- [x] 5.4 Update `agent_runtime_profile/CLAUDE.md`: add skill/agent boundary principle description
+- [x] 5.5 Update `agent_runtime_profile/.claude/settings.json`: confirm that new subagents' tool permission configuration is correct
 
-## 6. 主 Agent Prompt 增强
+## 6. Main Agent Prompt Enhancement
 
-- [x] 6.1 更新 `server/agent_runtime/session_manager.py` 中 `_PERSONA_PROMPT`：增加编排意识——理解工作流阶段、知道何时 dispatch 哪个 subagent
-- [x] 6.2 评估 `_build_append_prompt()` 是否需要注入当前工作流阶段状态（可选优化）
+- [x] 6.1 Update `_PERSONA_PROMPT` in `server/agent_runtime/session_manager.py`: add orchestration awareness — understand workflow phases, know when to dispatch which subagent
+- [x] 6.2 Evaluate whether `_build_append_prompt()` needs to inject current workflow phase status (optional optimization)
 
-## 7. 集成测试与验证
+## 7. Integration Testing and Validation
 
-- [x] 7.1 端到端验证：新项目从零开始走完 manga-workflow 全流程（角色提取 → 预处理 → JSON 生成）
-- [x] 7.2 验证灵活入口：已有角色的项目直接进入单集预处理阶段
-- [x] 7.3 验证增量模式：第二集创建时角色/线索提取的增量追加行为
-- [x] 7.4 验证 narration 模式使用 split-narration-segments subagent、drama 模式使用 normalize-drama-script subagent（含 Gemini 脚本调用）
-- [x] 7.5 验证 normalize_drama_script.py 的输出格式能被 generate_script.py 正确消费
+- [x] 7.1 End-to-end validation: new project from scratch through the complete manga-workflow flow (character extraction → preprocessing → JSON generation)
+- [x] 7.2 Validate flexible entry: project with existing characters goes directly to the per-episode preprocessing phase
+- [x] 7.3 Validate incremental mode: incremental append behavior for character/clue extraction when creating the second episode
+- [x] 7.4 Validate narration mode uses split-narration-segments subagent, drama mode uses normalize-drama-script subagent (including Gemini script invocation)
+- [x] 7.5 Validate that normalize_drama_script.py output format can be correctly consumed by generate_script.py

@@ -1,80 +1,80 @@
 ## ADDED Requirements
 
-### Requirement: 按实体粒度的版本跟踪
-系统 MUST 为每个实体维护独立的版本号（key 格式 `entity_type:entity_id`），替代全局 mediaRevision 计数器。所有媒体资产消费者（SegmentCard、CharacterCard、ClueCard、OverviewCanvas、AssetSidebar、AvatarStack、VersionTimeMachine）都必须迁移到新机制。
+### Requirement: Per-Entity Version Tracking
+The system MUST maintain an independent version number for each entity (key format `entity_type:entity_id`), replacing the global mediaRevision counter. All media asset consumers (SegmentCard, CharacterCard, ClueCard, OverviewCanvas, AssetSidebar, AvatarStack, VersionTimeMachine) must migrate to the new mechanism.
 
-#### Scenario: 单个分镜图生成完成
-- **WHEN** SSE 事件报告 segment "seg_001" 的 storyboard_ready
-- **THEN** 仅 `segment:seg_001` 的版本号递增，其他实体的版本号不变
+#### Scenario: Single Storyboard Image Generation Completes
+- **WHEN** the SSE event reports storyboard_ready for segment "seg_001"
+- **THEN** only the version number for `segment:seg_001` increments; other entities' version numbers remain unchanged
 
-#### Scenario: 单个视频生成完成
-- **WHEN** SSE 事件报告 segment "seg_003" 的 video_ready
-- **THEN** 仅 `segment:seg_003` 的版本号递增，其他实体的版本号不变
+#### Scenario: Single Video Generation Completes
+- **WHEN** the SSE event reports video_ready for segment "seg_003"
+- **THEN** only the version number for `segment:seg_003` increments; other entities' version numbers remain unchanged
 
-#### Scenario: 角色设计图生成完成
-- **WHEN** SSE 事件报告 character "张三" 的 updated
-- **THEN** 仅 `character:张三` 的版本号递增，其他实体的版本号不变
+#### Scenario: Character Design Image Generation Completes
+- **WHEN** the SSE event reports updated for character "Zhang San"
+- **THEN** only the version number for `character:Zhang San` increments; other entities' version numbers remain unchanged
 
-#### Scenario: 线索设计图生成完成
-- **WHEN** SSE 事件报告 clue "凶器" 的 updated
-- **THEN** 仅 `clue:凶器` 的版本号递增，其他实体的版本号不变
+#### Scenario: Clue Design Image Generation Completes
+- **WHEN** the SSE event reports updated for clue "Weapon"
+- **THEN** only the version number for `clue:Weapon` increments; other entities' version numbers remain unchanged
 
-#### Scenario: 项目元数据更新
-- **WHEN** SSE 事件报告 project 的 updated
-- **THEN** `project:project` 的版本号递增
+#### Scenario: Project Metadata Update
+- **WHEN** the SSE event reports updated for the project
+- **THEN** the version number for `project:project` increments
 
-### Requirement: 从 SSE 事件直接构造版本 key
-系统 MUST 从 SSE 变更事件的 `entity_type` 和 `entity_id` 字段直接构造版本 key，无需推导文件路径。
+### Requirement: Directly Construct Version Key From SSE Events
+The system MUST directly construct the version key from the `entity_type` and `entity_id` fields in SSE change events, without needing to derive file paths.
 
-#### Scenario: storyboard_ready 事件
-- **WHEN** 收到 `entity_type: "segment"`, `entity_id: "seg_005"`, `action: "storyboard_ready"` 的变更事件
-- **THEN** 递增 key 为 `segment:seg_005` 的版本号
+#### Scenario: storyboard_ready Event
+- **WHEN** a change event is received with `entity_type: "segment"`, `entity_id: "seg_005"`, `action: "storyboard_ready"`
+- **THEN** the version number for key `segment:seg_005` is incremented
 
-#### Scenario: character updated 事件
-- **WHEN** 收到 `entity_type: "character"`, `entity_id: "张三"`, `action: "updated"` 的变更事件
-- **THEN** 递增 key 为 `character:张三` 的版本号
+#### Scenario: character updated Event
+- **WHEN** a change event is received with `entity_type: "character"`, `entity_id: "Zhang San"`, `action: "updated"`
+- **THEN** the version number for key `character:Zhang San` is incremented
 
-#### Scenario: clue updated 事件
-- **WHEN** 收到 `entity_type: "clue"`, `entity_id: "凶器"`, `action: "updated"` 的变更事件
-- **THEN** 递增 key 为 `clue:凶器` 的版本号
+#### Scenario: clue updated Event
+- **WHEN** a change event is received with `entity_type: "clue"`, `entity_id: "Weapon"`, `action: "updated"`
+- **THEN** the version number for key `clue:Weapon` is incremented
 
-### Requirement: 各组件精确订阅
-每个媒体消费组件 MUST 仅订阅与其相关实体的版本号。
+### Requirement: Each Component Subscribes Precisely
+Each media consumer component MUST subscribe only to the version numbers of entities relevant to it.
 
-#### Scenario: SegmentCard 精确订阅
-- **WHEN** segment "seg_001" 的分镜图生成完成
-- **THEN** 仅 segment "seg_001" 的 SegmentCard 触发媒体 URL 变更和重渲染，其他 SegmentCard 不受影响
+#### Scenario: SegmentCard Precise Subscription
+- **WHEN** the storyboard image for segment "seg_001" finishes generating
+- **THEN** only the SegmentCard for segment "seg_001" triggers media URL changes and re-rendering; other SegmentCards are not affected
 
-#### Scenario: CharacterCard 精确订阅
-- **WHEN** character "张三" 的设计图生成完成
-- **THEN** 仅 "张三" 的 CharacterCard、对应的 AvatarStack 头像和 AssetSidebar 条目触发重渲染，其他角色不受影响
+#### Scenario: CharacterCard Precise Subscription
+- **WHEN** the design image for character "Zhang San" finishes generating
+- **THEN** only "Zhang San"'s CharacterCard, the corresponding AvatarStack avatar, and the AssetSidebar entry trigger re-rendering; other characters are not affected
 
-#### Scenario: ClueCard 精确订阅
-- **WHEN** clue "凶器" 的设计图生成完成
-- **THEN** 仅 "凶器" 的 ClueCard 和 AssetSidebar 条目触发重渲染
+#### Scenario: ClueCard Precise Subscription
+- **WHEN** the design image for clue "Weapon" finishes generating
+- **THEN** only "Weapon"'s ClueCard and AssetSidebar entry trigger re-rendering
 
-#### Scenario: OverviewCanvas 精确订阅
-- **WHEN** 项目风格图更新
-- **THEN** 仅 OverviewCanvas 中的风格图片触发重渲染
+#### Scenario: OverviewCanvas Precise Subscription
+- **WHEN** the project style image is updated
+- **THEN** only the style image in OverviewCanvas triggers re-rendering
 
-#### Scenario: VersionTimeMachine 精确订阅
-- **WHEN** 某个资源的新版本生成完成
-- **THEN** VersionTimeMachine 订阅当前展示资源对应的实体 key，仅在该实体变更时重新拉取版本列表
+#### Scenario: VersionTimeMachine Precise Subscription
+- **WHEN** a new version of a resource finishes generating
+- **THEN** VersionTimeMachine subscribes to the entity key corresponding to the currently displayed resource and re-fetches the version list only when that entity changes
 
-### Requirement: 全量失效后备
-当无法确定具体变更实体时（如 task 轮询通道），系统 MUST 保留全量缓存失效作为后备机制。
+### Requirement: Full Invalidation Fallback
+When the specific changed entity cannot be determined (e.g., the task polling channel), the system MUST retain full cache invalidation as a fallback mechanism.
 
-#### Scenario: task 完成但无 SSE 事件
-- **WHEN** useProjectAssetSync 检测到 task 从非 succeeded 变为 succeeded
-- **THEN** 调用全量失效方法，所有已跟踪实体的版本号统一递增
+#### Scenario: Task Completed But No SSE Event
+- **WHEN** useProjectAssetSync detects that a task changed from non-succeeded to succeeded
+- **THEN** the full invalidation method is called, incrementing the version numbers of all tracked entities uniformly
 
-### Requirement: 重新生成资产
-资产重新生成时，缓存失效机制 MUST 正确触发。
+### Requirement: Asset Re-Generation
+When assets are regenerated, the cache invalidation mechanism MUST trigger correctly.
 
-#### Scenario: 分镜图重新生成
-- **WHEN** 用户重新生成 segment "seg_001" 的分镜图（文件路径不变但内容更新）
-- **THEN** Worker 发送 storyboard_ready 事件，前端递增 `segment:seg_001` 版本号，浏览器加载新内容
+#### Scenario: Storyboard Image Re-Generated
+- **WHEN** the user regenerates the storyboard image for segment "seg_001" (the file path is unchanged but the content is updated)
+- **THEN** the Worker sends a storyboard_ready event, the frontend increments the version number for `segment:seg_001`, and the browser loads the new content
 
-#### Scenario: 角色设计图重新生成
-- **WHEN** 用户重新生成 character "张三" 的设计图
-- **THEN** Worker 发送 character updated 事件，前端递增 `character:张三` 版本号，浏览器加载新内容
+#### Scenario: Character Design Image Re-Generated
+- **WHEN** the user regenerates the design image for character "Zhang San"
+- **THEN** the Worker sends a character updated event, the frontend increments the version number for `character:Zhang San`, and the browser loads the new content

@@ -1,77 +1,77 @@
 ## ADDED Requirements
 
-### Requirement: manga-workflow 编排 skill 须具备项目状态检测能力
+### Requirement: manga-workflow Orchestration Skill Must Have Project Status Detection Capability
 
-manga-workflow skill 被加载后，SHALL 自动检测当前项目的工作流状态，基于 project.json 和文件系统判断当前所处阶段。
+After the manga-workflow skill is loaded, it SHALL automatically detect the current project's workflow status, determining the current stage based on project.json and the file system.
 
-#### Scenario: 新项目无角色和线索
-- **WHEN** project.json 中 characters 和 clues 为空
-- **THEN** 编排 skill 判定当前阶段为"全局角色/线索设计"，指引主 agent dispatch `analyze-characters-clues` subagent
+#### Scenario: New Project With No Characters or Clues
+- **WHEN** project.json has empty characters and clues
+- **THEN** the orchestration skill determines the current stage is "Global Character/Clue Design" and guides the main agent to dispatch the `analyze-characters-clues` subagent
 
-#### Scenario: 已有角色但无 drafts 中间文件
-- **WHEN** project.json 中 characters 非空，但 `drafts/episode_{N}/` 目录不存在或为空
-- **THEN** 编排 skill 判定当前阶段为"单集预处理"，指引主 agent dispatch 对应模式的预处理 subagent
+#### Scenario: Characters Exist But No Drafts Intermediate Files
+- **WHEN** project.json has non-empty characters, but the `drafts/episode_{N}/` directory does not exist or is empty
+- **THEN** the orchestration skill determines the current stage is "Per-Episode Preprocessing" and guides the main agent to dispatch the appropriate mode's preprocessing subagent
 
-#### Scenario: 已有 drafts 但无 scripts
-- **WHEN** `drafts/episode_{N}/` 中间文件存在，但 `scripts/episode_{N}.json` 不存在
-- **THEN** 编排 skill 判定当前阶段为"JSON 剧本生成"，指引主 agent dispatch `create-episode-script` subagent
+#### Scenario: Drafts Exist But No Scripts
+- **WHEN** `drafts/episode_{N}/` intermediate files exist, but `scripts/episode_{N}.json` does not exist
+- **THEN** the orchestration skill determines the current stage is "JSON Script Generation" and guides the main agent to dispatch the `create-episode-script` subagent
 
-#### Scenario: 已有 scripts 但缺少资产
-- **WHEN** `scripts/episode_{N}.json` 存在，但 characters/ 或 storyboards/ 或 videos/ 中有缺失资产
-- **THEN** 编排 skill 判定当前阶段为"资产生成"，指引主 agent dispatch 对应的资产生成 subagent
+#### Scenario: Scripts Exist But Missing Assets
+- **WHEN** `scripts/episode_{N}.json` exists, but there are missing assets in characters/, storyboards/, or videos/
+- **THEN** the orchestration skill determines the current stage is "Asset Generation" and guides the main agent to dispatch the appropriate asset generation subagent
 
-### Requirement: 编排 skill 须定义阶段间的 dispatch 和确认协议
+### Requirement: Orchestration Skill Must Define Inter-Stage Dispatch and Confirmation Protocol
 
-每个阶段的 subagent 返回后，主 agent SHALL 向用户展示结果摘要并等待确认，确认后才进入下一阶段。
+After each stage's subagent returns, the main agent SHALL present a result summary to the user and wait for confirmation before proceeding to the next stage.
 
-#### Scenario: subagent 返回角色/线索提取结果
-- **WHEN** `analyze-characters-clues` subagent 完成并返回
-- **THEN** 主 agent 展示角色/线索数量和名称列表摘要，使用 AskUserQuestion 获取用户确认，确认后进入下一阶段
+#### Scenario: Subagent Returns Character/Clue Extraction Results
+- **WHEN** the `analyze-characters-clues` subagent completes and returns
+- **THEN** the main agent presents a summary of character/clue counts and name lists, uses AskUserQuestion to get user confirmation, and proceeds to the next stage after confirmation
 
-#### Scenario: 用户拒绝 subagent 结果
-- **WHEN** 用户对某阶段的结果不满意
-- **THEN** 主 agent 可选择重新 dispatch 同一 subagent（附加用户反馈）或允许用户手动编辑后继续
+#### Scenario: User Rejects Subagent Results
+- **WHEN** the user is unsatisfied with a stage's results
+- **THEN** the main agent may choose to re-dispatch the same subagent (with user feedback appended) or allow the user to manually edit and continue
 
-#### Scenario: 用户选择跳过某阶段
-- **WHEN** 用户明确表示跳过当前阶段
-- **THEN** 主 agent 跳过该阶段，直接进入下一阶段
+#### Scenario: User Chooses to Skip a Stage
+- **WHEN** the user explicitly states they want to skip the current stage
+- **THEN** the main agent skips that stage and proceeds directly to the next stage
 
-### Requirement: 编排 skill 须支持灵活入口点
+### Requirement: Orchestration Skill Must Support Flexible Entry Points
 
-manga-workflow SHALL 支持从任意阶段开始执行，而非强制从头开始。
+manga-workflow SHALL support execution starting from any stage, rather than forcing a start from the beginning.
 
-#### Scenario: 用户只想做角色设计
-- **WHEN** 用户请求"分析小说角色"但不需要创建剧本
-- **THEN** 主 agent 只 dispatch `analyze-characters-clues` subagent，完成后不自动进入下一阶段
+#### Scenario: User Only Wants Character Design
+- **WHEN** the user requests "analyze novel characters" but does not need to create a script
+- **THEN** the main agent only dispatches the `analyze-characters-clues` subagent and does not automatically proceed to the next stage after completion
 
-#### Scenario: 用户已有角色想直接创建剧本
-- **WHEN** project.json 中已有角色/线索定义，用户请求创建某集剧本
-- **THEN** 编排 skill 跳过角色/线索提取阶段，直接进入单集预处理阶段
+#### Scenario: User Already Has Characters and Wants to Create Script Directly
+- **WHEN** project.json already has character/clue definitions and the user requests creation of a specific episode's script
+- **THEN** the orchestration skill skips the character/clue extraction stage and proceeds directly to the per-episode preprocessing stage
 
-#### Scenario: 用户想续做上次中断的工作
-- **WHEN** 用户运行 /manga-workflow，项目有部分完成的工作
-- **THEN** 编排 skill 通过状态检测自动定位到上次中断的阶段，从该阶段继续
+#### Scenario: User Wants to Resume Previously Interrupted Work
+- **WHEN** the user runs /manga-workflow and the project has partially completed work
+- **THEN** the orchestration skill automatically locates the last interrupted stage through status detection and continues from that stage
 
-### Requirement: 编排 skill 须正确传递上下文给 subagent
+### Requirement: Orchestration Skill Must Correctly Pass Context to Subagents
 
-主 agent dispatch subagent 时，SHALL 只传递该 subagent 任务所需的最小上下文（文件路径和关键参数），而非大块原始内容。
+When the main agent dispatches a subagent, it SHALL pass only the minimum context required for that subagent's task (file paths and key parameters), not large blocks of raw content.
 
-#### Scenario: dispatch 角色/线索提取 subagent
-- **WHEN** 主 agent dispatch `analyze-characters-clues`
-- **THEN** 传递项目名称、source 目录路径、已有角色/线索名称列表；subagent 自行读取小说原文
+#### Scenario: Dispatch Character/Clue Extraction Subagent
+- **WHEN** the main agent dispatches `analyze-characters-clues`
+- **THEN** it passes the project name, source directory path, and existing character/clue name lists; the subagent reads the novel text itself
 
-#### Scenario: dispatch 单集预处理 subagent
-- **WHEN** 主 agent dispatch 预处理 subagent
-- **THEN** 传递项目名称、集数、content_mode、角色/线索名称列表；subagent 自行读取对应的小说文本
+#### Scenario: Dispatch Per-Episode Preprocessing Subagent
+- **WHEN** the main agent dispatches a preprocessing subagent
+- **THEN** it passes the project name, episode number, content_mode, and character/clue name lists; the subagent reads the corresponding novel text itself
 
-### Requirement: 资产生成阶段通过 subagent 调用 skill
+### Requirement: Asset Generation Stage Calls Skills via Subagent
 
-生成类 skill（generate-characters、generate-clues、generate-storyboard、generate-video）SHALL 通过 subagent 调用，而非主 agent 直接调用。
+Generation skills (generate-characters, generate-clues, generate-storyboard, generate-video) SHALL be invoked via subagent, not called directly by the main agent.
 
-#### Scenario: 生成角色设计图
-- **WHEN** 编排进入角色设计阶段
-- **THEN** 主 agent dispatch subagent，subagent 内部通过 Bash 工具调用 generate_character.py 脚本，返回生成结果摘要
+#### Scenario: Generate Character Design Images
+- **WHEN** orchestration enters the character design stage
+- **THEN** the main agent dispatches a subagent, which internally calls the generate_character.py script via the Bash tool and returns a generation result summary
 
-#### Scenario: 批量生成分镜图
-- **WHEN** 编排进入分镜图生成阶段
-- **THEN** 主 agent dispatch subagent，subagent 内部调用 generate_storyboard.py 脚本，处理所有待生成的分镜图，返回成功/失败汇总摘要
+#### Scenario: Batch Generate Storyboard Images
+- **WHEN** orchestration enters the storyboard generation stage
+- **THEN** the main agent dispatches a subagent, which internally calls the generate_storyboard.py script, processes all storyboard images pending generation, and returns a success/failure summary

@@ -1,80 +1,80 @@
 ## Context
 
-ArcReel 前端的分镜场景板（TimelineCanvas）使用简单的 `overflow-y-auto` 垂直堆叠所有 SegmentCard，没有虚拟滚动或懒加载。一个剧集通常有 30-100 个分镜，页面加载时会同时发起所有图片和视频的请求。
+ArcReel's frontend storyboard panel (TimelineCanvas) uses a simple `overflow-y-auto` vertical stack for all SegmentCards, with no virtual scrolling or lazy loading. An episode typically has 30-100 storyboards; when the page loads all images and video requests are initiated simultaneously.
 
-当任意资源变更时，`invalidateMediaAssets()` 递增全局 `mediaRevision` 计数器，导致所有订阅该值的组件（SegmentCard、CharacterCard、ClueCard、OverviewCanvas、AssetSidebar、AvatarStack、VersionTimeMachine）同时触发媒体 URL `?v=N` 变化，浏览器重新加载全部资源。
+When any resource changes, `invalidateMediaAssets()` increments the global `mediaRevision` counter, causing all components subscribed to this value (SegmentCard, CharacterCard, ClueCard, OverviewCanvas, AssetSidebar, AvatarStack, VersionTimeMachine) to simultaneously trigger media URL `?v=N` changes, making the browser reload all resources.
 
-Agent 批量操作（如一次新增 5 个角色）时，后端 diff 正确产生多条变更事件，但前端 `selectPrimaryChange()` / `selectNotificationChange()` 仅从数组中选出 1 条展示。
+When the Agent performs batch operations (e.g., adding 5 characters at once), the backend diff correctly generates multiple change events, but the frontend's `selectPrimaryChange()` / `selectNotificationChange()` only selects 1 of the array entries for display.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- 将 Timeline 并发媒体请求数从 N（分镜总数）降低到视口可见数量 + overscan（约 8-12 个）
-- 单个实体变更时，其他实体的媒体资源不被重新加载（覆盖全部 7 个消费组件）
-- Agent 批量操作时，用户能感知到所有变更（聚合通知）
+- Reduce Timeline concurrent media requests from N (total storyboards) to the viewport-visible count + overscan (approximately 8-12)
+- When a single entity changes, other entities' media resources are not reloaded (covering all 7 consumer components)
+- When the Agent performs batch operations, users can perceive all changes (aggregated notifications)
 
 **Non-Goals:**
-- 后端 SSE 协议变更（当前事件信息已足够）
-- 服务端缓存头（ETag/Last-Modified）优化
-- 分页加载 / 无限滚动
-- 通知中心 / 通知历史
+- Backend SSE protocol changes (current event information is already sufficient)
+- Server-side cache headers (ETag/Last-Modified) optimization
+- Pagination / infinite scroll
+- Notification center / notification history
 
 ## Decisions
 
-### 1. 虚拟滚动选型：@tanstack/react-virtual
+### 1. Virtual Scrolling Library: @tanstack/react-virtual
 
-**选择**：@tanstack/react-virtual v3
-**替代方案**：react-window、react-virtuoso
-**理由**：
-- 原生支持动态高度（`measureElement` + ResizeObserver），SegmentCard 有展开/折叠态
-- 无 UI 侵入性，仅提供 virtualizer hook，与现有 Tailwind 样式体系兼容
-- 项目已使用 @tanstack 生态（react-query 等），保持技术栈一致性
-- `estimateSize` 设为 200px 预估高度，overscan 设为 5
+**Choice**: @tanstack/react-virtual v3
+**Alternatives**: react-window, react-virtuoso
+**Rationale**:
+- Natively supports dynamic heights (`measureElement` + ResizeObserver); SegmentCards have expand/collapse states
+- No UI invasiveness; only provides a virtualizer hook; compatible with the existing Tailwind styling system
+- The project already uses the @tanstack ecosystem (react-query, etc.); maintains tech stack consistency
+- `estimateSize` set to 200px estimated height; overscan set to 5
 
-### 2. 懒加载策略：原生 + 虚拟滚动
+### 2. Lazy Loading Strategy: Native + Virtual Scrolling
 
-**选择**：虚拟滚动自然实现懒加载（不在视口的 SegmentCard 不渲染），视口内的 `<img>` 额外添加 `loading="lazy"` 作为二级保险
-**理由**：虚拟滚动已经从根本上解决了问题，`loading="lazy"` 仅作为 overscan 区域内图片的补充优化，无需额外的 IntersectionObserver 逻辑
+**Choice**: Virtual scrolling naturally achieves lazy loading (SegmentCards outside the viewport are not rendered); viewport `<img>` tags get an additional `loading="lazy"` as a secondary safety net
+**Rationale**: Virtual scrolling already fundamentally solves the problem; `loading="lazy"` is only a supplementary optimization for images in the overscan area, requiring no additional IntersectionObserver logic
 
-### 3. 缓存失效：按实体的版本号（key 为 entity_type:entity_id）
+### 3. Cache Invalidation: Per-Entity Version Numbers (key is entity_type:entity_id)
 
-**选择**：`entityRevisions: Record<string, number>`，key 格式为 `entity_type:entity_id`（如 `segment:seg_001`、`character:张三`、`clue:凶器`、`project:project`）
-**替代方案**：
-- 按文件路径的版本号 — 角色/线索的文件路径不确定性，需要额外推导逻辑
-- 前端 diff 前后 scripts 数据 — 复杂度高，不可靠
-**理由**：
-- SSE 事件中 `entity_type` + `entity_id` 直接可用，无需任何推导
-- 统一覆盖所有 7 个消费组件，各组件按自身实体 key 订阅
-- Worker 批量发送路径（`emit_project_change_batch`）正确处理了首次生成和重新生成
-- 保留 `invalidateAllEntities()` 作为后备（task 轮询通道完成时无具体 key 信息）
+**Choice**: `entityRevisions: Record<string, number>`, key format is `entity_type:entity_id` (e.g., `segment:seg_001`, `character:Zhang San`, `clue:Weapon`, `project:project`)
+**Alternatives**:
+- Per-file-path version numbers — file paths for characters/clues are uncertain, requiring extra derivation logic
+- Frontend diffing of before/after scripts data — high complexity, unreliable
+**Rationale**:
+- SSE events have `entity_type` + `entity_id` directly available, requiring no derivation
+- Uniformly covers all 7 consumer components; each component subscribes per its own entity key
+- The Worker's batch send path (`emit_project_change_batch`) correctly handles both first-time generation and regeneration
+- Retain `invalidateAllEntities()` as a fallback (when there is no specific key information at task polling channel completion)
 
-**消费者迁移清单：**
+**Consumer migration list:**
 
-| 组件 | 原订阅 | 新订阅 key |
-|------|--------|-----------|
+| Component | Original subscription | New subscription key |
+|-----------|----------------------|---------------------|
 | SegmentCard | `mediaRevision` | `segment:{segment_id}` |
 | CharacterCard | `mediaRevision` | `character:{character_name}` |
 | ClueCard | `mediaRevision` | `clue:{clue_name}` |
 | OverviewCanvas | `mediaRevision` | `project:project` |
-| AssetSidebar | `mediaRevision`（props 透传） | `character:{name}` / `clue:{name}`（各子组件独立订阅） |
+| AssetSidebar | `mediaRevision` (props passed through) | `character:{name}` / `clue:{name}` (each sub-component subscribes independently) |
 | AvatarStack | `mediaRevision` | `character:{name}` / `clue:{name}` |
-| VersionTimeMachine | `mediaRevision` | `{resourceType}:{resourceId}`（动态 key） |
+| VersionTimeMachine | `mediaRevision` | `{resourceType}:{resourceId}` (dynamic key) |
 
-### 4. 滚动定位适配
+### 4. Scroll-to-Target Adaptation
 
-**选择**：维护 `segmentId → virtualIndex` 映射，scrollTarget 触发时调用 `virtualizer.scrollToIndex()`
-**理由**：虚拟滚动下目标 segment 可能不在 DOM 中，无法使用 `getElementById` + `scrollIntoView()`
+**Choice**: Maintain a `segmentId → virtualIndex` mapping; when scrollTarget is triggered, call `virtualizer.scrollToIndex()`
+**Rationale**: In virtual scrolling, the target segment may not be in the DOM; `getElementById` + `scrollIntoView()` cannot be used
 
-### 5. 通知聚合：按 entity_type:action 分组
+### 5. Notification Aggregation: Group by entity_type:action
 
-**选择**：将同批次 changes 按 `entity_type:action` 分组，每组生成一条聚合文案
-**替代方案**：每条变更单独弹 toast
-**理由**：批量 5 个角色弹 5 个 toast 体验差，聚合为"AI 新增了 3 个角色：张三、李四、王五"更友好
+**Choice**: Group same-batch changes by `entity_type:action`; generate one aggregated text per group
+**Alternatives**: Toast one notification per change
+**Rationale**: Toasting 5 notifications for 5 characters added in batch is a poor experience; aggregating to "AI added 3 characters: Zhang San, Li Si, Wang Wu" is more user-friendly
 
 ## Risks / Trade-offs
 
-- **[动态高度预估偏差]** → `estimateSize` 不准确时可能出现滚动跳跃；通过 `measureElement` 实时修正来缓解
-- **[entityRevisions 内存增长]** → 大项目可能有较多 key；实际上 100 分镜 + 20 角色 + 10 线索 ≈ 130 个 key，可忽略
-- **[全量失效后备路径的体验]** → `useProjectAssetSync` 中 task 完成时仍会全量失效；这是极少数情况（SSE 断连时的补偿），可接受
-- **[AssetSidebar props 重构]** → 当前 AssetSidebar 通过 props 接收 `mediaRevision`，需改为子组件各自订阅 store；改动面稍大但更符合 zustand 最佳实践
-- **[聚合通知文案截断]** → 超过 5 个同类变更时截断为"AI 新增了 5 个角色：张三、李四…等"
+- **[Dynamic height estimation error]** → Inaccurate `estimateSize` may cause scroll jumping; mitigated by real-time correction via `measureElement`
+- **[entityRevisions memory growth]** → Larger projects may have more keys; in practice, 100 storyboards + 20 characters + 10 clues ≈ 130 keys; negligible
+- **[Full invalidation fallback path experience]** → `useProjectAssetSync` still triggers full invalidation when a task completes; this is a rare situation (compensation when SSE disconnects); acceptable
+- **[AssetSidebar props refactoring]** → Current AssetSidebar receives `mediaRevision` via props; needs to be changed to sub-components each subscribing to the store directly; slightly larger change but more consistent with zustand best practices
+- **[Aggregated notification text truncation]** → When there are more than 5 same-type changes, truncate to "AI added 5 characters: Zhang San, Li Si... etc."

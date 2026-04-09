@@ -1,48 +1,48 @@
 ## Context
 
-SegmentCard 是分镜板的核心卡片组件，渲染于 TimelineCanvas 的虚拟滚动列表中。当前头部区域仅展示分镜 ID、只读时长徽章和角色头像栈。分镜的 `duration_seconds`（4/6/8s）已在后端数据模型和 PATCH API 中完整支持，但前端没有提供修改入口。线索（`clues_in_segment` / `clues_in_scene`）字段同样存在于数据模型，但 `SegmentCard` 接收后将其标记为 `_clues` 而从未渲染。
+SegmentCard is the core card component of the storyboard panel, rendered in TimelineCanvas's virtual scroll list. The current header area only shows storyboard ID, a read-only duration badge, and a character avatar stack. The storyboard's `duration_seconds` (4/6/8s) is fully supported in the backend data model and PATCH API, but the frontend provides no modification entry. The clue (`clues_in_segment` / `clues_in_scene`) fields also exist in the data model, but `SegmentCard` receives them as `_clues` and never renders them.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- 让用户在卡片头部直接切换分镜时长（4/6/8s），剧集总时长随之联动
-- 在卡片头部展示关联线索的图片缩略图，与角色头像栈并排
-- 悬停浮窗统一增加类型标签，区分"角色"与"场景/道具"
+- Let users directly switch storyboard duration (4/6/8s) in the card header, with the total episode duration updating accordingly
+- Display associated clue image thumbnails in the card header, alongside the character avatar stack
+- Add type tags to hover popovers uniformly to distinguish "Character" from "Location/Prop"
 
 **Non-Goals:**
-- 不修改后端 API 或数据模型
-- 不改变 TimelineCanvas 的虚拟滚动逻辑
-- 不在 SegmentCard 内容区（三列）添加任何新信息
+- Not modifying backend API or data model
+- Not changing TimelineCanvas's virtual scrolling logic
+- Not adding any new information to the SegmentCard content area (three columns)
 
 ## Decisions
 
-### 决策 1：时长选择器使用 Popover 而非点击循环
+### Decision 1: Duration Selector Uses Popover Rather Than Click-Cycle
 
-**选择**：点击时长徽章弹出 Popover，列出 4s / 6s / 8s 三个按钮，当前值高亮。
+**Choice**: Clicking the duration badge opens a Popover listing 4s / 6s / 8s buttons with the current value highlighted.
 
-**理由**：直接循环切换（4→6→8→4）不直观，用户无法一次看到全部选项。Popover 复用已有的 `Popover` 组件，实现代价低，且与项目中其他弹出交互风格一致。
+**Rationale**: Directly cycling (4→6→8→4) is unintuitive; users cannot see all options at once. Popover reuses the existing `Popover` component; implementation cost is low and consistent with other popup interaction styles in the project.
 
-**备选方案**：行内三段 Segmented Control（始终可见）——占用水平空间，在头部宽度有限时会挤压 ID 徽章和头像区。
+**Alternative**: Inline three-segment Segmented Control (always visible) — takes up horizontal space; may squeeze the ID badge and avatar area in the limited header width.
 
-### 决策 2：时长变更通过现有 onUpdatePrompt 通道传递
+### Decision 2: Duration Change Passed Via Existing onUpdatePrompt Channel
 
-**选择**：调用 `onUpdatePrompt(segmentId, "duration_seconds", newValue)`，复用 `StudioCanvasRouter` → `API.updateSegment` / `API.updateScene` → `refreshProject()` 的完整链路。
+**Choice**: Call `onUpdatePrompt(segmentId, "duration_seconds", newValue)`, reusing the complete chain of `StudioCanvasRouter` → `API.updateSegment` / `API.updateScene` → `refreshProject()`.
 
-**理由**：无需增加新 prop 或新 callback，后端 PATCH 接口已支持 `duration_seconds`，总时长在 `refreshProject()` 后从 segments 重新聚合。
+**Rationale**: No new props or callbacks needed; the backend PATCH interface already supports `duration_seconds`; total duration is re-aggregated from segments after `refreshProject()`.
 
-### 决策 3：ClueStack 作为独立组件，与 AvatarStack 并排
+### Decision 3: ClueStack as an Independent Component, Side-by-Side With AvatarStack
 
-**选择**：新建 `ClueStack.tsx`（位于 `frontend/src/components/ui/`），不修改 AvatarStack 的泛化能力。SegmentCard 头部布局为：AvatarStack（角色）在左，竖线分隔，ClueStack（线索）在右。
+**Choice**: Create new `ClueStack.tsx` (in `frontend/src/components/ui/`); do not modify AvatarStack's generalization capabilities. SegmentCard header layout: AvatarStack (characters) on the left, vertical line separator, ClueStack (clues) on the right.
 
-**理由**：角色与线索语义不同（角色有 character_sheet，线索有 clue_sheet；hover 浮窗内容不同），强行合并会增加 AvatarStack 的复杂度。复制 AvatarStack 的结构模式（图片 + 首字母 fallback + hover popover + overflow badge）成本低且互不干扰。
+**Rationale**: Characters and clues have different semantics (characters have character_sheet; clues have clue_sheet; hover popover content differs); forcing a merge would increase AvatarStack's complexity. Copying the AvatarStack structural pattern (image + initial fallback + hover popover + overflow badge) has low cost and they don't interfere with each other.
 
-**形状**：线索缩略图使用 `rounded`（圆角方形）而非 `rounded-full`，与左侧 Lorebook 中线索卡片的图片风格一致。
+**Shape**: Clue thumbnails use `rounded` (rounded square) rather than `rounded-full`, consistent with the image style in the Lorebook clue cards on the left.
 
-### 决策 4：浮窗类型标签统一样式
+### Decision 4: Unified Popover Type Tag Style
 
-角色浮窗（AvatarPopover）在名称右侧新增 `角色` 标签（indigo）；线索浮窗依据 `Clue.type` 显示 `场景`（amber）或 `道具`（emerald）。两者均为小型 Badge，保持浮窗内容结构不变。
+Character popover (AvatarPopover) adds a `Character` tag to the right of the name (indigo); clue popover shows `Location` (amber) or `Prop` (emerald) based on `Clue.type`. Both are small Badges; the popover content structure remains unchanged.
 
 ## Risks / Trade-offs
 
-- **总时长联动依赖后端刷新**：时长变更后需等待 `refreshProject()` 完成才更新头部总时长，存在约 200-500ms 延迟。由于分镜时长切换是低频操作，不做乐观更新。
-- **ClueStack 图片缺失率较高**：早期项目的线索通常没有 `clue_sheet`，fallback 为首字母色块，功能完整但视觉效果依赖用户是否上传了线索图片。
+- **Total duration update depends on backend refresh**: After the duration change, it takes approximately 200-500ms to update the header total duration waiting for `refreshProject()` to complete. Since switching storyboard duration is an infrequent operation, optimistic updates are not implemented.
+- **High rate of missing ClueStack images**: Early project clues typically don't have `clue_sheet`; the fallback is an initial letter color block. Functionality is complete but visual effect depends on whether the user has uploaded clue images.

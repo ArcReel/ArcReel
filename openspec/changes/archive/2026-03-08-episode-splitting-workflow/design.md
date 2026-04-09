@@ -1,141 +1,141 @@
 ## Context
 
-### 现状
+### Current State
 
-ArcReel 的剧本创建流程中，`normalize_drama_script.py` 默认读取 `source/` 下所有文件拼接后传给 Gemini。对于短篇小说这没问题，但用户上传完整长篇小说时，无法指定"本集只用第 X 到第 Y 段"。`manga-workflow` 编排中虽然预留了"本集小说范围"参数位，但没有实际的切分机制。
+In ArcReel's script creation workflow, `normalize_drama_script.py` by default reads all files under `source/`, concatenates them, and passes the result to Gemini. This is fine for short novels, but when users upload a complete long novel, there is no way to specify "this episode should use only content from section X to section Y." Although the `manga-workflow` orchestration pre-allocates a "novel text range for this episode" parameter slot, there is no actual splitting mechanism.
 
-### 依赖关系
+### Dependencies
 
-本 change 依赖 `refactor-script-creation-workflow` 已完成的架构——聚焦 subagent + manga-workflow 编排 skill。新增的分集规划流程嵌入 manga-workflow 的阶段 2 前置检查中。
+This change depends on the architecture already completed by `refactor-script-creation-workflow` — focused subagents + manga-workflow orchestration skill. The new episode splitting workflow is embedded as a prerequisite check in phase 2 of manga-workflow.
 
-### 相关文件
+### Related Files
 
-| 文件 | 作用 |
-|------|------|
-| `agent_runtime_profile/.claude/skills/manga-workflow/SKILL.md` | 编排 skill，需增加前置检查 |
-| `agent_runtime_profile/.claude/skills/manage-project/scripts/` | 项目管理脚本目录，新脚本放这里 |
-| `agent_runtime_profile/.claude/settings.json` | 权限配置 |
-| `agent_runtime_profile/.claude/agents/normalize-drama-script.md` | drama 模式预处理 subagent |
-| `agent_runtime_profile/.claude/agents/split-narration-segments.md` | narration 模式预处理 subagent |
+| File | Purpose |
+|------|---------|
+| `agent_runtime_profile/.claude/skills/manga-workflow/SKILL.md` | Orchestration skill, needs prerequisite check added |
+| `agent_runtime_profile/.claude/skills/manage-project/scripts/` | Project management scripts directory, new scripts go here |
+| `agent_runtime_profile/.claude/settings.json` | Permission configuration |
+| `agent_runtime_profile/.claude/agents/normalize-drama-script.md` | Drama mode preprocessing subagent |
+| `agent_runtime_profile/.claude/agents/split-narration-segments.md` | Narration mode preprocessing subagent |
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-1. 提供 `peek_split_point.py` 脚本，展示目标字数附近的上下文供 agent 和用户决策
-2. 提供 `split_episode.py` 脚本，将小说物理切分为 per-episode 文件 + 剩余文件
-3. 将分集规划嵌入 manga-workflow 阶段 2 的前置检查
-4. 保持现有脚本（`normalize_drama_script.py`、`generate_script.py`）不变
+1. Provide the `peek_split_point.py` script to show context near the target character count for agent and user decision-making
+2. Provide the `split_episode.py` script to physically split the novel into per-episode files + remaining file
+3. Embed episode splitting into the phase 2 prerequisite check of manga-workflow
+4. Keep existing scripts (`normalize_drama_script.py`, `generate_script.py`) unchanged
 
 **Non-Goals:**
 
-- 不实现自动分集（AI 全自动决定每集边界）——保留人工确认环节
-- 不实现前端 UI 交互（拖拽标记范围等）——通过 agent 对话完成
-- 不修改 project.json 数据结构（不存储 episode_plan 映射）
-- 不支持逻辑映射方案（基于锚点文本的动态截取）——采用物理切分
+- Not implementing automatic episode splitting (AI fully automatically deciding episode boundaries) — manual confirmation step is retained
+- Not implementing frontend UI interactions (drag-and-drop range marking, etc.) — completed via agent conversation
+- Not modifying the project.json data structure (no storage of episode_plan mapping)
+- Not supporting logical mapping approach (dynamic extraction based on anchor text) — physical splitting is used
 
 ## Decisions
 
-### Decision 1：切分定位方式——锚点文本匹配
+### Decision 1: Split Positioning Method — Anchor Text Matching
 
-**选择**：`split_episode.py` 使用**锚点文本**（切分点前的 N 个字符）定位切分位置，而非数字偏移
+**Choice**: `split_episode.py` uses **anchor text** (N characters before the split point) to locate the split position, rather than a numeric offset
 
-**流程**：
+**Workflow**:
 ```
-peek 输出上下文 → agent 建议断点 → 用户确认
+peek outputs context → agent suggests break point → user confirms
     ↓
-split --anchor "他转身离开了。" --dry-run    ← 先 dry run 验证
+split --anchor "He turned and walked away." --dry-run    ← dry run first
     ↓
-输出: "找到匹配位置，将在第 1047 字符处切分。
-      前文末尾: ...月光洒在青石板路上。他转身离开了。
-      后文开头: 第二章 大漠..."
+Output: "Found matching position, will split at character 1047.
+      End of front portion: ...Moonlight fell on the cobblestone path. He turned and walked away.
+      Start of back portion: Chapter Two: The Great Desert..."
     ↓
-用户确认 → split --anchor "他转身离开了。"  ← 实际执行
+User confirms → split --anchor "He turned and walked away."  ← actual execution
 ```
 
-**参数设计**：
-- `--anchor <text>`：切分点前的文本片段（建议 10-20 个字符），脚本在原文中查找该文本，在其**末尾**处切分
-- `--dry-run`：仅展示切分预览（前文末尾 + 后文开头各 50 字），不实际写文件
-- 如果 anchor 在原文中匹配到多处，报错并要求用户提供更长的锚点文本
+**Parameter design**:
+- `--anchor <text>`: a text fragment before the split point (recommended 10-20 characters); the script finds this text in the original and splits at its **end**
+- `--dry-run`: only shows the split preview (last 50 characters of front portion + first 50 characters of back portion), without actually writing files
+- If the anchor matches multiple locations in the original text, reports an error requesting a longer anchor text
 
-**替代方案**：
-- 数字偏移 `--split-at 1047` → peek 和 split 的计数基准必须严格一致，用户无法验证位置是否正确
-- 行号 → 中文小说段落长度差异大，不够精确
+**Alternatives**:
+- Numeric offset `--split-at 1047` → the counting baseline for peek and split must be strictly consistent; users cannot verify whether the position is correct
+- Line number → paragraph lengths in Chinese novels vary greatly; not precise enough
 
-**理由**：锚点文本是人类可读的、可验证的。dry run 让用户在实际切分前确认位置正确。即使文件内容有细微变化（如修正了错别字），只要锚点文本仍然存在，切分位置就是正确的。
+**Rationale**: Anchor text is human-readable and verifiable. The dry run lets users confirm the position is correct before actual splitting. Even if the file content changes slightly (e.g., a typo is corrected), as long as the anchor text still exists, the split position is correct.
 
-### Decision 2：物理切分 vs 逻辑映射
+### Decision 2: Physical Splitting vs. Logical Mapping
 
-**选择**：物理切分（生成 `source/episode_N.txt` 文件）
+**Choice**: Physical splitting (generate `source/episode_N.txt` files)
 
-**替代方案**：
-- 在 project.json 中记录 `{start_marker, end_marker}` 映射，脚本运行时动态截取 → 需要改多个下游脚本，锚点匹配容易出错
-- 用户手动拆分文件上传 → 用户体验差
+**Alternatives**:
+- Record `{start_marker, end_marker}` mapping in project.json, dynamically extracting at script runtime → requires modifying multiple downstream scripts; anchor matching is error-prone
+- Have users manually split files and upload → poor user experience
 
-**理由**：物理切分后，下游流程（`normalize_drama_script.py --source source/episode_N.txt`）**零改动**。文件即状态，简单可靠，可调试。
+**Rationale**: After physical splitting, downstream processes (`normalize_drama_script.py --source source/episode_N.txt`) require **zero modifications**. The file is the state — simple, reliable, and debuggable.
 
-### Decision 2：字数计数规则
+### Decision 2: Character Counting Rules
 
-**选择**：含标点，不含空行
+**Choice**: Include punctuation, exclude blank lines
 
-- 计数范围：所有非空行中的字符（包括中文字、标点符号、数字、英文字母）
-- 排除：纯空白行（`\n`、`\r\n`、只含空格的行）
-- 理由：标点是内容的一部分（影响朗读时长），空行只是格式
+- Counting scope: all characters in non-blank lines (including Chinese characters, punctuation, digits, and letters)
+- Excluded: purely blank lines (`\n`, `\r\n`, or lines containing only spaces)
+- Rationale: punctuation is part of the content (it affects reading duration); blank lines are only formatting
 
-### Decision 3：剩余内容管理方式
+### Decision 3: Remaining Content Management
 
-**选择**：覆盖式 `_remaining.txt`
+**Choice**: Overwriting `_remaining.txt`
 
-- 每次 split 后，`_remaining.txt` 被更新为剩余内容
-- 原文 `novel.txt`（或用户上传的原始文件）始终保留
-- 如需重新切分，可从原文重新开始
+- After each split, `_remaining.txt` is updated with the remaining content
+- The original `novel.txt` (or user-uploaded original file) is always preserved
+- To re-split, you can start over from the original
 
-**替代方案**：
-- 只记录偏移量，每次从原文动态截取 → 引入状态管理复杂度
-- 不保留剩余文件，每次从原文扣除已切分部分 → 计算复杂，易出错
+**Alternatives**:
+- Only record the offset, dynamically extract from the original each time → introduces state management complexity
+- Don't keep a remaining file; subtract already-split content from the original each time → complex calculation, error-prone
 
-### Decision 4：脚本放置位置
+### Decision 4: Script Placement Location
 
-**选择**：`agent_runtime_profile/.claude/skills/manage-project/scripts/`
+**Choice**: `agent_runtime_profile/.claude/skills/manage-project/scripts/`
 
-**理由**：分集操作属于项目管理范畴，与已有的 `add_characters_clues.py` 同目录。不属于 `generate-script` skill（那个是生成 JSON 剧本的）。
+**Rationale**: Episode splitting is a project management operation, in the same directory as the existing `add_characters_clues.py`. It does not belong to the `generate-script` skill (which is for generating JSON scripts).
 
-### Decision 5：分集规划在工作流中的位置
+### Decision 5: Position of Episode Splitting in the Workflow
 
-**选择**：阶段 2 的前置检查，而非独立阶段
+**Choice**: Prerequisite check in phase 2, not an independent phase
 
-**理由**：
-- 分集规划只在需要时触发（`source/episode_{N}.txt` 不存在时）
-- 如果用户自己准备了 per-episode 文件，完全跳过
-- 不增加工作流的阶段数量，保持简洁
+**Rationale**:
+- Episode splitting is only triggered when needed (when `source/episode_{N}.txt` does not exist)
+- If users prepare per-episode files themselves, it is completely skipped
+- Does not increase the number of workflow phases, keeping it simple
 
-**触发逻辑**：
+**Trigger logic**:
 ```
-阶段 2 开始（制作第 N 集）→
-  source/episode_{N}.txt 存在？
-    ├─ 是 → 直接用它做预处理
-    └─ 否 → 触发单集切分：
-         _remaining.txt 存在？
-           ├─ 是 → peek _remaining.txt（从上次剩余内容继续）
-           └─ 否 → peek 原始小说文件（首次切分）
-         → agent 建议断点 → 用户确认
-         → split --dry-run 验证 → split 执行
-         → 生成 episode_{N}.txt + 更新 _remaining.txt
-         → 继续预处理
+Phase 2 starts (producing episode N) →
+  Does source/episode_{N}.txt exist?
+    ├─ Yes → use it directly for preprocessing
+    └─ No → trigger single-episode splitting:
+         Does _remaining.txt exist?
+           ├─ Yes → peek _remaining.txt (continue from last remaining content)
+           └─ No → peek the original novel file (first split)
+         → agent suggests break point → user confirms
+         → split --dry-run to verify → split executes
+         → generate episode_{N}.txt + update _remaining.txt
+         → continue to preprocessing
 ```
 
-**按需特性**：每次只切分当前要制作的那一集，不要求一次性规划全部集数。用户可以做完一集后隔几天再做下一集。
+**On-demand nature**: Only the episode currently being produced is split each time; planning all episodes at once is not required. Users can produce one episode, then come back days later to produce the next.
 
 ## Risks / Trade-offs
 
-### [风险] 重新切分场景
+### [Risk] Re-splitting Scenario
 
-用户切完 3 集后发现第 1 集切分点不好，想重做。
+A user splits 3 episodes and then finds the split point for episode 1 is not ideal and wants to redo it.
 
-→ **缓解**：原文始终保留。用户可以删除 `episode_*.txt` 和 `_remaining.txt`，从头重新切分。也可以只重做某一集（手动编辑 episode 文件）。
+→ **Mitigation**: The original is always preserved. Users can delete `episode_*.txt` and `_remaining.txt` and re-split from the beginning. They can also re-do just a single episode (by manually editing the episode file).
 
-### [Trade-off] 物理文件增多
+### [Trade-off] More Physical Files
 
-每集一个文件 + `_remaining.txt`，source/ 目录会有较多文件。
+Each episode has a file + `_remaining.txt`, so the source/ directory will have more files.
 
-→ **接受**：文件数量与集数成正比，可控。文件名清晰（`episode_N.txt`），不会混淆。
+→ **Accepted**: The number of files is proportional to the number of episodes, which is manageable. File names are clear (`episode_N.txt`) and not confusing.

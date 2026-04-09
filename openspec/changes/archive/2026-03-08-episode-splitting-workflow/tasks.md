@@ -1,21 +1,21 @@
-## 1. 核心脚本开发
+## 1. Core Script Development
 
-- [x] 1.1 创建共享工具函数模块 `_text_utils.py`：实现 `count_chars(text)` 函数（含标点不含空行的字数计数）和 `find_char_offset(text, target_count)` 函数（有效字数 → 原文字符偏移的转换），供两个脚本共享
-- [x] 1.2 创建 `peek_split_point.py` 脚本：接收 `--source`、`--target`（目标字数）、`--context`（上下文字数，默认 200）参数；使用 `_text_utils` 定位切分点；输出切分点前后上下文文本 + 元信息（总字数、目标位置字符偏移、推荐的附近自然断点列表）
-- [x] 1.3 创建 `split_episode.py` 脚本：接收 `--source`、`--episode`、`--anchor`（切分点前的文本片段，约 10-20 字符）参数；在原文中查找 anchor 文本，在其末尾处切分；支持 `--dry-run` 模式（仅展示切分预览：前文末尾 + 后文开头各 50 字，不写文件）；实际执行时生成 `source/episode_{N}.txt`（前半部分）和 `source/_remaining.txt`（后半部分）；anchor 匹配到多处时报错要求更长锚点；原文件不动
+- [x] 1.1 Create the shared utility module `_text_utils.py`: implement the `count_chars(text)` function (character count including punctuation, excluding blank lines) and the `find_char_offset(text, target_count)` function (converting effective character count to raw text character offset), shared by both scripts
+- [x] 1.2 Create the `peek_split_point.py` script: accepts `--source`, `--target` (target character count), and `--context` (context character count, default 200) parameters; uses `_text_utils` to locate the split point; outputs context text before and after the split point + metadata (total character count, target position character offset, list of recommended nearby natural break points)
+- [x] 1.3 Create the `split_episode.py` script: accepts `--source`, `--episode`, and `--anchor` (text fragment before the split point, approximately 10-20 characters) parameters; finds the anchor text in the original and splits at its end; supports `--dry-run` mode (only shows split preview: last 50 characters of front portion + first 50 characters of back portion, without writing files); on actual execution, generates `source/episode_{N}.txt` (front portion) and `source/_remaining.txt` (back portion); reports an error requiring a longer anchor when the anchor matches multiple locations; the original file is not modified
 
-## 2. 权限与配置
+## 2. Permissions and Configuration
 
-- [x] 2.1 在 `settings.json` 的 `permissions.allow` 中添加 `peek_split_point.py` 和 `split_episode.py` 的 Bash 执行权限
+- [x] 2.1 Add Bash execution permissions for `peek_split_point.py` and `split_episode.py` in `settings.json`'s `permissions.allow`
 
-## 3. 工作流集成
+## 3. Workflow Integration
 
-- [x] 3.1 更新 `manga-workflow/SKILL.md` 阶段 2：增加前置检查逻辑——检查 `source/episode_{N}.txt` 是否存在，不存在时触发分集规划流程（询问目标字数 → 调用 peek → agent 建议断点 → 用户确认 → 调用 split）
-- [x] 3.2 更新 `normalize-drama-script.md` subagent：dispatch 时明确使用 `--source source/episode_{N}.txt` 参数
-- [x] 3.3 更新 `split-narration-segments.md` subagent：dispatch 时明确指定读取 `source/episode_{N}.txt`
+- [x] 3.1 Update `manga-workflow/SKILL.md` phase 2: add prerequisite check logic — check if `source/episode_{N}.txt` exists; if not, trigger the episode splitting workflow (ask for target word count → call peek → agent suggests break point → user confirms → call split)
+- [x] 3.2 Update the `normalize-drama-script.md` subagent: explicitly use the `--source source/episode_{N}.txt` parameter at dispatch time
+- [x] 3.3 Update the `split-narration-segments.md` subagent: explicitly specify reading `source/episode_{N}.txt` at dispatch time
 
-## 4. 验证
+## 4. Validation
 
-- [x] 4.1 验证 peek 脚本对中文小说的字数计数准确性（含标点、不含空行）
-- [x] 4.2 验证 split 脚本的切分结果：episode 文件 + remaining 文件的内容完整拼接 = 原文
-- [x] 4.3 端到端验证：上传完整小说 → 分集切分 → normalize_drama_script.py --source episode_1.txt → generate_script.py 生成 JSON
+- [x] 4.1 Verify the peek script's character counting accuracy for Chinese novels (including punctuation, excluding blank lines)
+- [x] 4.2 Verify the split script's splitting results: the complete concatenation of the episode file + remaining file equals the original
+- [x] 4.3 End-to-end validation: upload complete novel → episode splitting → normalize_drama_script.py --source episode_1.txt → generate_script.py generates JSON

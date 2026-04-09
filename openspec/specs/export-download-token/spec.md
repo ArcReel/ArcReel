@@ -1,57 +1,57 @@
 ## ADDED Requirements
 
-### Requirement: 签发下载 token
-系统 SHALL 提供 `POST /api/v1/projects/{project_name}/export/token` 端点，为已认证用户签发短时效下载 token。
+### Requirement: Issue Download Token
+The system SHALL provide a `POST /api/v1/projects/{project_name}/export/token` endpoint that issues a short-lived download token to authenticated users.
 
-该 token 为 JWT（HS256），payload SHALL 包含：
-- `sub`：当前用户名
-- `project`：请求的项目名
-- `purpose`：固定值 `"download"`
-- `exp`：签发时间 + 300 秒（5 分钟）
+The token is a JWT (HS256), and the payload SHALL contain:
+- `sub`: the current username
+- `project`: the requested project name
+- `purpose`: fixed value `"download"`
+- `exp`: issue time + 300 seconds (5 minutes)
 
-端点 SHALL 返回 JSON：`{ "download_token": "<jwt>", "expires_in": 300 }`。
+The endpoint SHALL return JSON: `{ "download_token": "<jwt>", "expires_in": 300 }`.
 
-#### Scenario: 已认证用户成功获取下载 token
-- **WHEN** 已认证用户对存在的项目调用 `POST /api/v1/projects/{name}/export/token`
-- **THEN** 系统返回 200，响应体包含 `download_token` 字符串和 `expires_in: 300`
+#### Scenario: Authenticated User Successfully Obtains a Download Token
+- **WHEN** an authenticated user calls `POST /api/v1/projects/{name}/export/token` for an existing project
+- **THEN** the system returns 200, with a response body containing the `download_token` string and `expires_in: 300`
 
-#### Scenario: 未认证用户请求下载 token
-- **WHEN** 未携带有效 Bearer JWT 的请求调用 `POST /api/v1/projects/{name}/export/token`
-- **THEN** 系统返回 401
+#### Scenario: Unauthenticated User Requests Download Token
+- **WHEN** a request without a valid Bearer JWT calls `POST /api/v1/projects/{name}/export/token`
+- **THEN** the system returns 401
 
-#### Scenario: 项目不存在时请求下载 token
-- **WHEN** 已认证用户对不存在的项目调用 `POST /api/v1/projects/{name}/export/token`
-- **THEN** 系统返回 404
+#### Scenario: Project Does Not Exist When Requesting Download Token
+- **WHEN** an authenticated user calls `POST /api/v1/projects/{name}/export/token` for a non-existent project
+- **THEN** the system returns 404
 
-### Requirement: 导出端点接受下载 token 认证
-导出端点 `GET /api/v1/projects/{name}/export` SHALL 支持通过 `download_token` query param 进行认证，作为 Bearer JWT 的替代方式。
+### Requirement: Export Endpoint Accepts Download Token Authentication
+The export endpoint `GET /api/v1/projects/{name}/export` SHALL support authentication via the `download_token` query parameter, as an alternative to the Bearer JWT.
 
-验证规则：
-- token 的 `purpose` 字段 MUST 为 `"download"`
-- token 的 `project` 字段 MUST 与 URL 中的 `{name}` 一致
-- token MUST 未过期
+Validation rules:
+- The token's `purpose` field MUST be `"download"`
+- The token's `project` field MUST match the `{name}` in the URL
+- The token MUST not be expired
 
-当 `download_token` 合法时，请求无需携带 `Authorization` header。
+When `download_token` is valid, the request does not need to carry an `Authorization` header.
 
-#### Scenario: 使用合法下载 token 导出
-- **WHEN** 请求携带合法的 `download_token` query param 访问导出端点
-- **THEN** 系统正常返回 ZIP 文件，无需 Authorization header
+#### Scenario: Export Using a Valid Download Token
+- **WHEN** the request carries a valid `download_token` query parameter to access the export endpoint
+- **THEN** the system returns the ZIP file normally without requiring an Authorization header
 
-#### Scenario: 使用过期下载 token 导出
-- **WHEN** 请求携带已过期的 `download_token` query param 访问导出端点
-- **THEN** 系统返回 401，detail 为 "下载链接已过期，请重新导出"
+#### Scenario: Export Using an Expired Download Token
+- **WHEN** the request carries an expired `download_token` query parameter to access the export endpoint
+- **THEN** the system returns 401, with detail "Download link has expired, please export again"
 
-#### Scenario: 使用项目不匹配的下载 token 导出
-- **WHEN** 请求携带 `download_token`（签发给项目 A）访问项目 B 的导出端点
-- **THEN** 系统返回 403，detail 为 "下载 token 与目标项目不匹配"
+#### Scenario: Export Using a Download Token With Mismatched Project
+- **WHEN** the request carries a `download_token` (issued for project A) to access the export endpoint for project B
+- **THEN** the system returns 403, with detail "Download token does not match the target project"
 
-#### Scenario: 下载 token 不影响现有认证方式
-- **WHEN** 请求携带合法 Bearer JWT（无 download_token）访问导出端点
-- **THEN** 系统正常返回 ZIP 文件（向后兼容）
+#### Scenario: Download Token Does Not Affect Existing Authentication Methods
+- **WHEN** the request carries a valid Bearer JWT (without download_token) to access the export endpoint
+- **THEN** the system returns the ZIP file normally (backward compatible)
 
-### Requirement: 认证中间件放行下载 token
-认证中间件 SHALL 对导出端点的请求进行特殊处理：当请求包含 `download_token` query param 时，SHALL 将验证委托给导出端点自身处理，中间件不拦截。
+### Requirement: Authentication Middleware Passes Through Download Token
+The authentication middleware SHALL handle export endpoint requests specially: when a request contains a `download_token` query parameter, it SHALL delegate validation to the export endpoint itself, and the middleware SHALL not intercept it.
 
-#### Scenario: 中间件放行含下载 token 的导出请求
-- **WHEN** 未携带 Authorization header 但携带 `download_token` query param 的请求访问 `/api/v1/projects/{name}/export`
-- **THEN** 认证中间件放行该请求，不返回 401
+#### Scenario: Middleware Passes Through Export Requests With Download Token
+- **WHEN** a request without an Authorization header but with a `download_token` query parameter accesses `/api/v1/projects/{name}/export`
+- **THEN** the authentication middleware passes the request through without returning 401

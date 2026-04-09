@@ -1,27 +1,27 @@
 ## Why
 
-分镜板的 SegmentCard 存在两处信息缺失：分镜时长（4/6/8s）目前只读无法在界面上直接修改，导致用户必须借助其他途径调整；关联线索（场景/道具）字段在数据模型中已存在，但从未在卡片头部展示，造成创作上下文不完整。
+The storyboard panel's SegmentCard has two information gaps: storyboard duration (4/6/8s) is currently read-only with no way to modify it directly in the UI, forcing users to use other means to adjust it; the associated clue (scene/prop) fields exist in the data model but have never been displayed in the card header, resulting in incomplete creative context.
 
 ## What Changes
 
-- **DurationBadge → DurationSelector**：分镜时长标签由只读改为可交互，点击后弹出 Popover 选择 4s / 6s / 8s，选中后通过现有 `onUpdatePrompt` 通道写入后端；剧集 header 的总时长随数据刷新自动联动。
-- **新增 ClueStack 组件**：在 SegmentCard 头部右侧展示关联线索缩略图（圆角方形，与左侧 Lorebook 图片风格一致），悬停时弹出浮窗，显示线索名称、图片及类型标签（场景 / 道具）。
-- **角色浮窗增加"角色"标签**：AvatarPopover 在角色名旁新增 `角色` 类型标签，与线索浮窗风格统一，方便区分。
+- **DurationBadge → DurationSelector**: The storyboard duration label changes from read-only to interactive; clicking it opens a Popover to select 4s / 6s / 8s; after selection, the new value is written to the backend via the existing `onUpdatePrompt` channel; the total episode duration in the episode header is automatically updated when data refreshes.
+- **New ClueStack component**: The right side of the SegmentCard header displays associated clue thumbnails (rounded square, consistent with the Lorebook image style on the left); hovering shows a popover with clue name, image, and type tag (Location / Prop).
+- **Character popover adds "Character" tag**: AvatarPopover adds a `Character` type tag next to the character name, unified in style with the clue popover, for easy distinction.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `segment-duration-selector`：SegmentCard 头部的分镜时长可通过弹出选择器切换（4/6/8s），并联动更新剧集总时长显示。
-- `clue-stack-display`：SegmentCard 头部展示关联线索的图片缩略图栈，悬停浮窗显示名称、图片与类型标签（场景/道具）；角色浮窗同步新增"角色"类型标签。
+- `segment-duration-selector`: The storyboard duration in the SegmentCard header can be switched via a popup selector (4/6/8s), with the total episode duration display updating accordingly.
+- `clue-stack-display`: The SegmentCard header displays associated clue image thumbnail stacks; the hover popover shows the name, image, and type tag (Location/Prop); the character popover also adds a "Character" type tag.
 
 ### Modified Capabilities
 
-（无现有 spec 需要变更）
+(No existing specs need modification)
 
 ## Impact
 
-- 纯前端改动，不涉及后端 API 或数据模型变更
-- 修改文件：`frontend/src/components/canvas/timeline/SegmentCard.tsx`、`frontend/src/components/ui/AvatarStack.tsx`
-- 新增文件：`frontend/src/components/ui/ClueStack.tsx`
-- 后端 PATCH `/projects/{name}/segments/{segment_id}` 已支持 `duration_seconds` 字段，无需改动
+- Pure frontend change; does not involve backend API or data model changes
+- Modified files: `frontend/src/components/canvas/timeline/SegmentCard.tsx`, `frontend/src/components/ui/AvatarStack.tsx`
+- New files: `frontend/src/components/ui/ClueStack.tsx`
+- Backend PATCH `/projects/{name}/segments/{segment_id}` already supports the `duration_seconds` field; no changes needed

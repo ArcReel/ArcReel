@@ -1,81 +1,81 @@
 ## ADDED Requirements
 
-### Requirement: 角色/线索提取须支持全书分析模式
+### Requirement: Character/Clue Extraction Must Support Full-Book Analysis Mode
 
-`analyze-characters-clues` subagent SHALL 支持分析整部小说并一次性提取所有角色和线索。
+The `analyze-characters-clues` subagent SHALL support analyzing the entire novel and extracting all characters and clues at once.
 
-#### Scenario: 分析整部小说
-- **WHEN** subagent 被 dispatch 且未指定分析范围
-- **THEN** subagent 读取 `projects/{project_name}/source/` 下的所有小说文本，提取全部角色和线索，写入 project.json
+#### Scenario: Analyze the Entire Novel
+- **WHEN** the subagent is dispatched without specifying an analysis range
+- **THEN** the subagent reads all novel text under `projects/{project_name}/source/`, extracts all characters and clues, and writes them to project.json
 
-#### Scenario: 分析指定章节范围
-- **WHEN** subagent 被 dispatch 且指定了分析范围（如"第1-3章"或"某个文件"）
-- **THEN** subagent 只分析指定范围的文本，提取该范围内的角色和线索
+#### Scenario: Analyze a Specified Chapter Range
+- **WHEN** the subagent is dispatched with a specified analysis range (e.g., "Chapters 1-3" or "a specific file")
+- **THEN** the subagent analyzes only the text in the specified range, extracting characters and clues from that range
 
-### Requirement: 角色/线索提取须支持增量追加模式
+### Requirement: Character/Clue Extraction Must Support Incremental Append Mode
 
-当 project.json 中已有角色/线索时，subagent SHALL 对比现有数据，只追加新发现的角色和线索，不覆盖已有定义。
+When project.json already has characters/clues, the subagent SHALL compare against existing data and only append newly discovered characters and clues, without overwriting existing definitions.
 
-#### Scenario: 已有角色列表时追加新角色
-- **WHEN** project.json 中已有 5 个角色定义，subagent 分析后发现 3 个新角色
-- **THEN** subagent 只将 3 个新角色追加到 project.json，保留原有 5 个角色不变
+#### Scenario: Append New Characters When Character List Already Exists
+- **WHEN** project.json already has 5 character definitions and the subagent discovers 3 new characters during analysis
+- **THEN** the subagent only appends the 3 new characters to project.json, leaving the original 5 unchanged
 
-#### Scenario: 已有角色的描述不被覆盖
-- **WHEN** project.json 中某角色已有手动修改过的 description 或 character_sheet
-- **THEN** subagent 不覆盖该角色的已有数据，仅在返回摘要中标注"已存在，跳过"
+#### Scenario: Existing Character Descriptions Are Not Overwritten
+- **WHEN** a character in project.json already has a manually modified description or character_sheet
+- **THEN** the subagent does not overwrite that character's existing data, only noting "already exists, skipped" in the returned summary
 
-### Requirement: 角色提取结果须符合图像生成规范
+### Requirement: Extracted Character Descriptions Must Comply With Image Generation Specifications
 
-提取的角色描述 SHALL 仅包含可直接用于图像生成的视觉信息。
+Extracted character descriptions SHALL contain only visual information that can be directly used for image generation.
 
-#### Scenario: 角色描述仅含视觉要素
-- **WHEN** subagent 提取角色信息
-- **THEN** description 字段包含外貌要点、服装、标志物、色彩关键词、参考风格，不包含性格描述、角色关系、剧情背景等非视觉信息
+#### Scenario: Character Description Contains Only Visual Elements
+- **WHEN** the subagent extracts character information
+- **THEN** the description field contains appearance highlights, clothing, distinctive features, color keywords, and reference style; it does NOT include personality descriptions, character relationships, or plot background (non-visual information)
 
-#### Scenario: voice_style 单独记录
-- **WHEN** 小说中有角色声音/语气描述
-- **THEN** subagent 将声音信息记录在 voice_style 字段（用于后期配音参考），与视觉描述分离
+#### Scenario: voice_style Is Recorded Separately
+- **WHEN** the novel contains descriptions of a character's voice/tone
+- **THEN** the subagent records the voice information in the voice_style field (for later dubbing reference), separate from visual descriptions
 
-### Requirement: 线索提取须区分类型和重要性
+### Requirement: Clue Extraction Must Distinguish Type and Importance
 
-提取的线索 SHALL 标记类型（location/prop）和重要性（major/minor）。
+Extracted clues SHALL be tagged with type (location/prop) and importance (major/minor).
 
-#### Scenario: 场景类线索标记为 location
-- **WHEN** 线索为环境/场景（如"竹林深处"、"客栈大堂"）
-- **THEN** 线索 type 标记为 "location"，描述包含空间结构、光线氛围
+#### Scenario: Scene-Type Clues Tagged as location
+- **WHEN** the clue is an environment/scene (e.g., "deep in a bamboo forest", "inn lobby")
+- **THEN** the clue type is tagged as "location" with a description including spatial structure and lighting atmosphere
 
-#### Scenario: 道具类线索标记为 prop
-- **WHEN** 线索为物品/道具（如"玉佩"、"信件"）
-- **THEN** 线索 type 标记为 "prop"，描述包含尺寸参考、材质、外观细节
+#### Scenario: Prop-Type Clues Tagged as prop
+- **WHEN** the clue is an object/prop (e.g., "jade pendant", "letter")
+- **THEN** the clue type is tagged as "prop" with a description including size reference, material, and appearance details
 
-#### Scenario: 重要线索标记为 major
-- **WHEN** 线索在剧情中反复出现或具有关键作用
-- **THEN** 线索 importance 标记为 "major"（后续将生成设计图）
+#### Scenario: Important Clues Tagged as major
+- **WHEN** a clue appears repeatedly in the plot or plays a key role
+- **THEN** the clue importance is tagged as "major" (a design image will be generated for it later)
 
-#### Scenario: 次要线索标记为 minor
-- **WHEN** 线索仅偶尔出现或为背景装饰
-- **THEN** 线索 importance 标记为 "minor"（仅保留描述，不生成设计图）
+#### Scenario: Minor Clues Tagged as minor
+- **WHEN** a clue appears only occasionally or as background decoration
+- **THEN** the clue importance is tagged as "minor" (only the description is retained; no design image is generated)
 
-### Requirement: 提取结果须通过数据验证
+### Requirement: Extraction Results Must Pass Data Validation
 
-subagent 写入 project.json 后 SHALL 调用数据验证确保完整性。
+After the subagent writes to project.json, it SHALL call data validation to ensure integrity.
 
-#### Scenario: 调用 validate_project 验证
-- **WHEN** subagent 完成角色/线索写入
-- **THEN** subagent 调用 `validate_project(project_name)` 验证 project.json 结构和引用完整性
+#### Scenario: Call validate_project for Validation
+- **WHEN** the subagent completes writing characters/clues
+- **THEN** the subagent calls `validate_project(project_name)` to validate the project.json structure and reference integrity
 
-#### Scenario: 验证失败时修复
-- **WHEN** validate_project 返回验证失败
-- **THEN** subagent 根据错误信息修复数据，重新验证直到通过
+#### Scenario: Fix Data When Validation Fails
+- **WHEN** validate_project returns a validation failure
+- **THEN** the subagent fixes the data based on the error information and re-validates until it passes
 
-### Requirement: subagent 须返回结构化摘要
+### Requirement: Subagent Must Return a Structured Summary
 
-`analyze-characters-clues` subagent 返回给主 agent 的结果 SHALL 为精炼的结构化摘要，不包含原始小说文本。
+The result returned by the `analyze-characters-clues` subagent to the main agent SHALL be a concise structured summary, not containing raw novel text.
 
-#### Scenario: 返回角色摘要
-- **WHEN** subagent 完成角色提取
-- **THEN** 返回内容包含：新增角色数量、角色名称列表、每个角色的一句话描述
+#### Scenario: Return Character Summary
+- **WHEN** the subagent completes character extraction
+- **THEN** the returned content contains: number of newly added characters, list of character names, and a one-sentence description of each character
 
-#### Scenario: 返回线索摘要
-- **WHEN** subagent 完成线索提取
-- **THEN** 返回内容包含：新增线索数量、major/minor 分布、线索名称和类型列表
+#### Scenario: Return Clue Summary
+- **WHEN** the subagent completes clue extraction
+- **THEN** the returned content contains: number of newly added clues, major/minor distribution, and a list of clue names and types

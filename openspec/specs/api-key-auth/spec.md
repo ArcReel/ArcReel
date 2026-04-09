@@ -1,60 +1,60 @@
 ## ADDED Requirements
 
-### Requirement: API Key 生成
-系统 SHALL 提供 API Key 创建接口，生成格式为 `arc-` + 32 位随机字符串的密钥，返回完整密钥（仅在创建时可见），数据库仅存储 SHA-256 哈希值。
+### Requirement: API Key Generation
+The system SHALL provide an API Key creation interface that generates keys in the format `arc-` + 32 random characters, returns the full key (visible only at creation time), and stores only the SHA-256 hash in the database.
 
-#### Scenario: 成功创建 API Key
-- **WHEN** 已认证用户调用 `POST /api/v1/api-keys` 并提供 `name` 参数
-- **THEN** 系统返回包含完整 `key`、`name`、`key_prefix`、`created_at`、`expires_at` 的响应，状态码 201
+#### Scenario: Successfully Create an API Key
+- **WHEN** an authenticated user calls `POST /api/v1/api-keys` with a `name` parameter
+- **THEN** the system returns a response containing the full `key`, `name`, `key_prefix`, `created_at`, `expires_at`, with status code 201
 
-#### Scenario: 创建时名称重复
-- **WHEN** 已认证用户创建与现有 key 同名的 API Key
-- **THEN** 系统返回 409 错误
+#### Scenario: Duplicate Name at Creation
+- **WHEN** an authenticated user creates an API Key with the same name as an existing key
+- **THEN** the system returns a 409 error
 
-### Requirement: API Key 列表查询
-系统 SHALL 提供 API Key 列表查询接口，返回所有 key 的元数据（不含完整密钥）。
+### Requirement: API Key List Query
+The system SHALL provide an API Key list query interface that returns metadata for all keys (without the full key).
 
-#### Scenario: 查询 API Key 列表
-- **WHEN** 已认证用户调用 `GET /api/v1/api-keys`
-- **THEN** 系统返回所有 key 的 `id`、`name`、`key_prefix`、`created_at`、`expires_at`、`last_used_at`
+#### Scenario: Query API Key List
+- **WHEN** an authenticated user calls `GET /api/v1/api-keys`
+- **THEN** the system returns `id`, `name`, `key_prefix`, `created_at`, `expires_at`, `last_used_at` for all keys
 
-### Requirement: API Key 删除（吊销）
-系统 SHALL 提供 API Key 删除接口，立即使该 key 失效。
+### Requirement: API Key Deletion (Revocation)
+The system SHALL provide an API Key deletion interface that immediately invalidates the key.
 
-#### Scenario: 成功删除 API Key
-- **WHEN** 已认证用户调用 `DELETE /api/v1/api-keys/{key_id}`
-- **THEN** 系统删除该 key 记录，后续使用该 key 的请求返回 401
+#### Scenario: Successfully Delete an API Key
+- **WHEN** an authenticated user calls `DELETE /api/v1/api-keys/{key_id}`
+- **THEN** the system deletes that key record, and subsequent requests using that key return 401
 
-#### Scenario: 删除不存在的 key
-- **WHEN** 已认证用户删除不存在的 key_id
-- **THEN** 系统返回 404
+#### Scenario: Delete a Non-Existent Key
+- **WHEN** an authenticated user deletes a non-existent key_id
+- **THEN** the system returns 404
 
-### Requirement: Bearer Token 认证分流
-系统 SHALL 在 `_verify_and_get_payload` 中根据 token 前缀判定认证模式：以 `arc-` 开头走 API Key 验证路径，否则走 JWT 验证路径。
+### Requirement: Bearer Token Authentication Routing
+The system SHALL determine the authentication mode in `_verify_and_get_payload` based on the token prefix: tokens starting with `arc-` go through the API Key validation path; otherwise they go through the JWT validation path.
 
-#### Scenario: API Key 认证成功
-- **WHEN** 请求携带 `Authorization: Bearer arc-xxxxx` 且该 key 在数据库中存在且未过期
-- **THEN** 系统返回 `{"sub": "apikey:<key_name>", "via": "apikey"}` payload，并更新 `last_used_at`
+#### Scenario: API Key Authentication Succeeds
+- **WHEN** a request carries `Authorization: Bearer arc-xxxxx` and that key exists in the database and has not expired
+- **THEN** the system returns `{"sub": "apikey:<key_name>", "via": "apikey"}` payload and updates `last_used_at`
 
-#### Scenario: API Key 已过期
-- **WHEN** 请求携带有效格式的 API Key 但已超过 `expires_at`
-- **THEN** 系统返回 401
+#### Scenario: API Key Has Expired
+- **WHEN** a request carries a validly formatted API Key but it has exceeded `expires_at`
+- **THEN** the system returns 401
 
-#### Scenario: API Key 不存在
-- **WHEN** 请求携带 `arc-` 前缀 token 但哈希未匹配到数据库记录
-- **THEN** 系统返回 401
+#### Scenario: API Key Does Not Exist
+- **WHEN** a request carries an `arc-` prefixed token but the hash does not match any database record
+- **THEN** the system returns 401
 
-#### Scenario: JWT 认证不受影响
-- **WHEN** 请求携带不以 `arc-` 开头的 Bearer token
-- **THEN** 系统按原有 JWT 验证流程处理
+#### Scenario: JWT Authentication Is Not Affected
+- **WHEN** a request carries a Bearer token not starting with `arc-`
+- **THEN** the system processes it through the original JWT validation flow
 
-### Requirement: API Key 缓存
-系统 SHALL 对 API Key 查询结果使用内存缓存（LRU, TTL 5 分钟），减少数据库查询。
+### Requirement: API Key Caching
+The system SHALL use an in-memory cache (LRU, TTL 5 minutes) for API Key query results to reduce database queries.
 
-#### Scenario: 缓存命中
-- **WHEN** 同一 API Key 在 5 分钟内多次请求
-- **THEN** 仅首次触发数据库查询，后续从缓存读取
+#### Scenario: Cache Hit
+- **WHEN** the same API Key makes multiple requests within 5 minutes
+- **THEN** only the first request triggers a database query; subsequent ones are read from the cache
 
-#### Scenario: Key 删除后缓存失效
-- **WHEN** API Key 被删除
-- **THEN** 该 key 的缓存条目 SHALL 被立即清除
+#### Scenario: Cache Invalidation After Key Deletion
+- **WHEN** an API Key is deleted
+- **THEN** that key's cache entry SHALL be immediately cleared

@@ -1,101 +1,101 @@
 ## ADDED Requirements
 
-### Requirement: 每个 subagent 模板须定义清晰的输入/输出契约
+### Requirement: Each Subagent Template Must Define a Clear Input/Output Contract
 
-每个 subagent 定义文件（`.claude/agents/*.md`）SHALL 在 description 和 system prompt 中明确声明其输入参数、输出格式和内部调用的 skill/脚本。
+Each subagent definition file (`.claude/agents/*.md`) SHALL clearly declare its input parameters, output format, and internally invoked skills/scripts in both the description and system prompt.
 
-#### Scenario: analyze-characters-clues subagent 契约
-- **WHEN** 该 subagent 被 dispatch
-- **THEN** 它接收项目名称和 source 目录路径作为输入，自行读取小说原文，分析并提取角色表和线索表，通过 Bash 调用 `add_characters_clues.py` 脚本写入 project.json，返回角色/线索的摘要列表
+#### Scenario: analyze-characters-clues Subagent Contract
+- **WHEN** this subagent is dispatched
+- **THEN** it receives the project name and source directory path as input, reads the novel text itself, analyzes and extracts the character table and clue table, calls the `add_characters_clues.py` script via Bash to write to project.json, and returns a summary list of characters/clues
 
-#### Scenario: split-narration-segments subagent 契约
-- **WHEN** 该 subagent 被 dispatch
-- **THEN** 它接收项目名称、集数、本集小说文本范围作为输入，按朗读节奏拆分片段（约 4 秒/片段），标记 segment_break，保存 `drafts/episode_{N}/step1_segments.md`，返回片段数量和总时长摘要
+#### Scenario: split-narration-segments Subagent Contract
+- **WHEN** this subagent is dispatched
+- **THEN** it receives the project name, episode number, and the novel text range for that episode as input, splits segments by reading pace (approximately 4 seconds per segment), marks segment_break, saves `drafts/episode_{N}/step1_segments.md`, and returns a summary of segment count and total duration
 
-#### Scenario: normalize-drama-script subagent 契约
-- **WHEN** 该 subagent 被 dispatch
-- **THEN** 它接收项目名称、集数作为输入，首次生成时通过 Bash 调用 `normalize_drama_script.py` 脚本（使用 gemini-3.1-pro-preview 模型）生成规范化剧本和镜头预算，保存 `drafts/episode_{N}/step1_normalized_script.md` 和 `step2_shot_budget.md`，返回场景数量和镜头分布摘要；后续修改时由 subagent 直接编辑已有的 Markdown 文件
+#### Scenario: normalize-drama-script Subagent Contract
+- **WHEN** this subagent is dispatched
+- **THEN** it receives the project name and episode number as input; on first generation it calls the `normalize_drama_script.py` script via Bash (using the gemini-3.1-pro-preview model) to generate a normalized script and shot budget, saving `drafts/episode_{N}/step1_normalized_script.md` and `step2_shot_budget.md`, and returns a scene count and shot distribution summary; on subsequent modifications the subagent directly edits the existing Markdown files
 
-#### Scenario: create-episode-script subagent 契约
-- **WHEN** 该 subagent 被 dispatch
-- **THEN** 它接收项目名称和集数作为输入，预加载 generate-script skill，调用 generate_script.py 脚本生成 JSON，验证输出，返回生成结果摘要
+#### Scenario: create-episode-script Subagent Contract
+- **WHEN** this subagent is dispatched
+- **THEN** it receives the project name and episode number as input, preloads the generate-script skill, calls the generate_script.py script to generate JSON, validates the output, and returns a generation result summary
 
-### Requirement: 每个 subagent 须为单任务聚焦设计
+### Requirement: Each Subagent Must Be Designed for Single-Task Focus
 
-每个 subagent SHALL 只完成一个聚焦的任务并返回，不得在内部包含需要用户确认的多步工作流。
+Each subagent SHALL complete only one focused task and return; it MUST NOT contain multi-step workflows requiring user confirmation internally.
 
-#### Scenario: subagent 内部不得使用 AskUserQuestion 进行步骤间确认
-- **WHEN** subagent 执行其聚焦任务
-- **THEN** subagent 独立完成全部工作后返回结果，不在中间步骤使用 AskUserQuestion 等待用户确认
+#### Scenario: Subagent Must Not Use AskUserQuestion for Inter-Step Confirmation
+- **WHEN** the subagent executes its focused task
+- **THEN** the subagent independently completes all work before returning results, without using AskUserQuestion to wait for user confirmation at intermediate steps
 
-#### Scenario: subagent 遇到歧义可请求澄清
-- **WHEN** subagent 执行过程中遇到无法独立判断的关键歧义（如小说中角色名不明确）
-- **THEN** subagent 可以使用 AskUserQuestion 一次性请求澄清，但不得用于多步流程控制
+#### Scenario: Subagent May Request Clarification for Ambiguities
+- **WHEN** the subagent encounters a critical ambiguity during execution that it cannot independently resolve (e.g., unclear character names in the novel)
+- **THEN** the subagent may use AskUserQuestion to request clarification once, but MUST NOT use it for multi-step flow control
 
-### Requirement: 预处理 subagent 须按内容模式独立定义
+### Requirement: Preprocessing Subagents Must Be Independently Defined Per Content Mode
 
-说书模式和剧集动画模式 SHALL 使用各自独立的 subagent 定义，而非共用一个带参数切换的 subagent。
+Narration mode and drama animation mode SHALL use their respective independent subagent definitions, rather than sharing a single subagent with parameter-based switching.
 
-#### Scenario: narration 模式使用 split-narration-segments
-- **WHEN** project 的 content_mode 为 "narration"
-- **THEN** 编排 skill 指引主 agent dispatch `split-narration-segments` subagent，执行片段拆分（按朗读节奏、标记 segment_break、标记对话片段），输出 step1_segments.md
+#### Scenario: Narration Mode Uses split-narration-segments
+- **WHEN** the project's content_mode is "narration"
+- **THEN** the orchestration skill guides the main agent to dispatch the `split-narration-segments` subagent to perform segment splitting (by reading pace, marking segment_break, marking dialogue segments), outputting step1_segments.md
 
-#### Scenario: drama 模式使用 normalize-drama-script
-- **WHEN** project 的 content_mode 为 "drama"
-- **THEN** 编排 skill 指引主 agent dispatch `normalize-drama-script` subagent，执行规范化剧本（结构化场景、时间、地点、角色）+ 镜头预算（预估镜头数、标记 segment_break），输出 step1_normalized_script.md 和 step2_shot_budget.md
+#### Scenario: Drama Mode Uses normalize-drama-script
+- **WHEN** the project's content_mode is "drama"
+- **THEN** the orchestration skill guides the main agent to dispatch the `normalize-drama-script` subagent to perform script normalization (structured scenes, time, location, characters) + shot budgeting (estimated shot count, marking segment_break), outputting step1_normalized_script.md and step2_shot_budget.md
 
-### Requirement: create-episode-script subagent 须预加载 generate-script skill
+### Requirement: create-episode-script Subagent Must Preload the generate-script Skill
 
-`create-episode-script` subagent 的 frontmatter SHALL 通过 `skills` 字段预加载 `generate-script` skill。
+The `create-episode-script` subagent's frontmatter SHALL preload the `generate-script` skill via the `skills` field.
 
-#### Scenario: skill 内容在 subagent 启动时注入
-- **WHEN** subagent 被 dispatch
-- **THEN** generate-script skill 的完整内容已在 subagent context 中，subagent 可按 skill 指示调用 generate_script.py 脚本
+#### Scenario: Skill Content Is Injected When Subagent Starts
+- **WHEN** the subagent is dispatched
+- **THEN** the complete content of the generate-script skill is already in the subagent context, and the subagent can call the generate_script.py script per the skill's instructions
 
-#### Scenario: subagent 验证生成结果
-- **WHEN** generate_script.py 脚本执行完成
-- **THEN** subagent 验证 scripts/episode_{N}.json 存在且通过数据验证，如有错误则尝试修正后重新生成
+#### Scenario: Subagent Validates Generation Results
+- **WHEN** the generate_script.py script finishes executing
+- **THEN** the subagent verifies that scripts/episode_{N}.json exists and passes data validation; if there are errors it attempts to correct and regenerate
 
-### Requirement: 删除旧的多步 subagent 定义
+### Requirement: Remove Old Multi-Step Subagent Definitions
 
-`novel-to-narration-script.md` 和 `novel-to-storyboard-script.md` SHALL 被删除，替换为新的聚焦 subagent 模板。
+`novel-to-narration-script.md` and `novel-to-storyboard-script.md` SHALL be deleted and replaced with new focused subagent templates.
 
-#### Scenario: 旧 agent 文件被移除
-- **WHEN** 重构完成
-- **THEN** `agent_runtime_profile/.claude/agents/` 目录中不再包含 `novel-to-narration-script.md` 和 `novel-to-storyboard-script.md`
+#### Scenario: Old Agent Files Are Removed
+- **WHEN** the refactoring is complete
+- **THEN** the `agent_runtime_profile/.claude/agents/` directory no longer contains `novel-to-narration-script.md` or `novel-to-storyboard-script.md`
 
-#### Scenario: 新 agent 文件就位
-- **WHEN** 重构完成
-- **THEN** `agent_runtime_profile/.claude/agents/` 目录中包含 `analyze-characters-clues.md`、`split-narration-segments.md`、`normalize-drama-script.md`、`create-episode-script.md` 四个聚焦 subagent 定义
+#### Scenario: New Agent Files Are in Place
+- **WHEN** the refactoring is complete
+- **THEN** the `agent_runtime_profile/.claude/agents/` directory contains the four focused subagent definitions: `analyze-characters-clues.md`, `split-narration-segments.md`, `normalize-drama-script.md`, and `create-episode-script.md`
 
-### Requirement: 须提供角色/线索写入的 CLI 脚本
+### Requirement: Must Provide a CLI Script for Writing Characters/Clues
 
-SHALL 提供 `add_characters_clues.py` 脚本，封装 `ProjectManager.add_characters_batch()` + `add_clues_batch()` + `validate_project()`，供 subagent 通过 Bash 工具调用。
+SHALL provide an `add_characters_clues.py` script that wraps `ProjectManager.add_characters_batch()` + `add_clues_batch()` + `validate_project()` for subagents to call via the Bash tool.
 
-#### Scenario: 批量添加角色和线索
-- **WHEN** subagent 通过 Bash 调用 `add_characters_clues.py` 并传入 JSON 格式的角色/线索数据
-- **THEN** 脚本将角色/线索写入 project.json，调用 validate_project 验证，打印成功/失败摘要
+#### Scenario: Batch Add Characters and Clues
+- **WHEN** the subagent calls `add_characters_clues.py` via Bash with character/clue data in JSON format
+- **THEN** the script writes characters/clues to project.json, calls validate_project to validate, and prints a success/failure summary
 
-#### Scenario: 已存在的角色自动跳过
-- **WHEN** 传入的角色名在 project.json 中已存在
-- **THEN** 脚本跳过该角色（不覆盖已有数据），在输出中标注"已存在，跳过"
+#### Scenario: Existing Characters Are Automatically Skipped
+- **WHEN** a character name in the input already exists in project.json
+- **THEN** the script skips that character (without overwriting existing data) and marks it as "already exists, skipped" in the output
 
-#### Scenario: 脚本在 settings.json 中被放行
-- **WHEN** 重构完成
-- **THEN** `settings.json` 的 `permissions.allow` 中包含该脚本的 Bash 执行权限
+#### Scenario: Script Is Allowed in settings.json
+- **WHEN** the refactoring is complete
+- **THEN** `settings.json`'s `permissions.allow` contains the Bash execution permission for this script
 
-### Requirement: 须提供 drama 模式规范化剧本的 Gemini 生成脚本
+### Requirement: Must Provide a Gemini Generation Script for Drama Mode Normalized Scripts
 
-SHALL 提供 `normalize_drama_script.py` 脚本，使用 `gemini-3.1-pro-preview` 模型将小说原文转化为 Markdown 格式的规范化剧本和镜头预算。
+SHALL provide a `normalize_drama_script.py` script that uses the `gemini-3.1-pro-preview` model to convert novel source text into a Markdown-format normalized script and shot budget.
 
-#### Scenario: 首次生成规范化剧本
-- **WHEN** `normalize-drama-script` subagent 调用该脚本
-- **THEN** 脚本读取 source/ 小说原文，调用 gemini-3.1-pro-preview 生成结构化的规范化剧本，输出 `drafts/episode_{N}/step1_normalized_script.md` 和 `step2_shot_budget.md`
+#### Scenario: First-Time Generation of a Normalized Script
+- **WHEN** the `normalize-drama-script` subagent calls this script
+- **THEN** the script reads the source/ novel text, calls gemini-3.1-pro-preview to generate a structured normalized script, and outputs `drafts/episode_{N}/step1_normalized_script.md` and `step2_shot_budget.md`
 
-#### Scenario: 输出格式与 script_generator 兼容
-- **WHEN** 规范化剧本生成完成
-- **THEN** 输出的 `step1_normalized_script.md` 格式与现有 `ScriptGenerator.build_drama_prompt()` 所期望的输入格式一致，确保 `generate_script.py` 可无缝消费
+#### Scenario: Output Format Is Compatible With script_generator
+- **WHEN** the normalized script generation is complete
+- **THEN** the output `step1_normalized_script.md` format is consistent with the input format expected by the existing `ScriptGenerator.build_drama_prompt()`, ensuring `generate_script.py` can consume it seamlessly
 
-#### Scenario: 脚本在 settings.json 中被放行
-- **WHEN** 重构完成
-- **THEN** `settings.json` 的 `permissions.allow` 中包含该脚本的 Bash 执行权限
+#### Scenario: Script Is Allowed in settings.json
+- **WHEN** the refactoring is complete
+- **THEN** `settings.json`'s `permissions.allow` contains the Bash execution permission for this script

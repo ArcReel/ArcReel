@@ -1,34 +1,34 @@
 ## ADDED Requirements
 
-### Requirement: 分镜时长可交互切换
+### Requirement: Interactive Storyboard Duration Switching
 
-SegmentCard 头部的时长展示元素 SHALL 支持用户点击后弹出选择器，在 4s、6s、8s 三个选项之间切换，选中后通过 `onUpdatePrompt` 回调将新值写入后端，并在保存完成后刷新剧集总时长。
+The duration display element in the SegmentCard header SHALL support user click to open a selector, allowing switching between three options — 4s, 6s, and 8s. After selection, the new value SHALL be written to the backend via the `onUpdatePrompt` callback, and the episode total duration SHALL be refreshed after saving completes.
 
-#### Scenario: 点击时长徽章弹出选择器
+#### Scenario: Click Duration Badge to Open Selector
 
-- **WHEN** 用户点击 SegmentCard 头部的时长徽章（如"4s"）
-- **THEN** 弹出 Popover，列出"4s"、"6s"、"8s"三个按钮，当前值高亮显示
+- **WHEN** the user clicks the duration badge in the SegmentCard header (e.g., "4s")
+- **THEN** a Popover opens listing "4s", "6s", and "8s" buttons, with the current value highlighted
 
-#### Scenario: 选择新时长并保存
+#### Scenario: Select New Duration and Save
 
-- **WHEN** 用户在弹出的选择器中点击某个时长选项（如"6s"）
-- **THEN** Popover 关闭，时长徽章立即显示新值"6s"，并通过 `onUpdatePrompt(segmentId, "duration_seconds", 6)` 触发后端保存
+- **WHEN** the user clicks a duration option in the popup selector (e.g., "6s")
+- **THEN** the Popover closes, the duration badge immediately displays the new value "6s", and `onUpdatePrompt(segmentId, "duration_seconds", 6)` is triggered to save to the backend
 
-#### Scenario: 取消选择
+#### Scenario: Cancel Selection
 
-- **WHEN** 用户点击 Popover 以外区域
-- **THEN** Popover 关闭，时长徽章保持原值不变
+- **WHEN** the user clicks outside the Popover
+- **THEN** the Popover closes, and the duration badge retains its original value unchanged
 
-#### Scenario: 无 onUpdatePrompt 时只读
+#### Scenario: Read-Only When No onUpdatePrompt
 
-- **WHEN** SegmentCard 未提供 `onUpdatePrompt` prop（只读模式）
-- **THEN** 时长徽章不可点击，外观与只读状态一致（无 hover 效果）
+- **WHEN** SegmentCard is not provided the `onUpdatePrompt` prop (read-only mode)
+- **THEN** the duration badge is not clickable and its appearance is consistent with the read-only state (no hover effect)
 
-### Requirement: 剧集总时长联动更新
+### Requirement: Episode Total Duration Auto-Update
 
-TimelineCanvas 头部显示的总时长 SHALL 在任意分镜时长变更并刷新项目数据后自动更新，无需额外操作。
+The total duration displayed in the TimelineCanvas header SHALL automatically update whenever any storyboard duration changes and the project data is refreshed, without any additional action required.
 
-#### Scenario: 修改分镜时长后总时长更新
+#### Scenario: Total Duration Updates After Storyboard Duration Change
 
-- **WHEN** 用户修改某分镜时长，后端保存成功，`refreshProject()` 完成
-- **THEN** TimelineCanvas 头部显示的总时长重新从所有分镜的 `duration_seconds` 求和，反映最新值
+- **WHEN** the user modifies a storyboard duration, the backend saves successfully, and `refreshProject()` completes
+- **THEN** the total duration displayed in the TimelineCanvas header is re-calculated by summing `duration_seconds` across all storyboards, reflecting the latest value

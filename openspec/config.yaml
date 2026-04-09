@@ -9,8 +9,8 @@ schema: spec-driven
 #     We use conventional commits
 #     Domain: e-commerce platform
 context: |
-  语言: 中文（简体）
-  所有产出物必须用简体中文撰写。
+  Language: English
+  All deliverables must be written in English.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.

@@ -1,52 +1,52 @@
-## 1. 后端 API 层
+## 1. Backend API Layer
 
-- [x] 1.1 在 `server/routers/assistant.py` 新增 `ImageAttachment` Pydantic 模型（`data: str`、`media_type: str`）
-- [x] 1.2 在 `SendMessageRequest` 新增 `images: list[ImageAttachment] = Field(default_factory=list, max_length=5)`
-- [x] 1.3 路由 `send_message` 将 `req.images` 透传给 `service.send_message()`
+- [x] 1.1 Add `ImageAttachment` Pydantic model in `server/routers/assistant.py` (`data: str`, `media_type: str`)
+- [x] 1.2 Add `images: list[ImageAttachment] = Field(default_factory=list, max_length=5)` to `SendMessageRequest`
+- [x] 1.3 Route `send_message` passes `req.images` through to `service.send_message()`
 
-## 2. 后端 Service 层
+## 2. Backend Service Layer
 
-- [x] 2.1 在 `server/agent_runtime/service.py` 的 `send_message` 签名新增 `images` 参数（默认为 `None`）
-- [x] 2.2 实现 `_build_multimodal_prompt(text, images)` async generator，构造含 text + image blocks 的 SDK message dict
-- [x] 2.3 有图片时调用 `_build_multimodal_prompt` 得到 async generator，无图片时仍传 str
+- [x] 2.1 Add `images` parameter (default `None`) to `send_message` signature in `server/agent_runtime/service.py`
+- [x] 2.2 Implement `_build_multimodal_prompt(text, images)` async generator, constructing SDK message dicts containing text + image blocks
+- [x] 2.3 When images are present, call `_build_multimodal_prompt` to get an async generator; when no images, still pass str
 
-## 3. 后端 SessionManager 层
+## 3. Backend SessionManager Layer
 
-- [x] 3.1 在 `session_manager.py` 的 `send_message` 签名中将 `content: str` 改为 `prompt: str | AsyncIterable[dict]`，新增 `echo_text: str | None = None` 参数
-- [x] 3.2 echo 逻辑改用 `echo_text or (prompt if isinstance(prompt, str) else "")` 作为气泡显示文本
-- [x] 3.3 `_build_user_echo_message` 支持传入 content blocks 列表（含图片 blocks），以便即时气泡也能显示图片
+- [x] 3.1 In `session_manager.py`'s `send_message` signature, change `content: str` to `prompt: str | AsyncIterable[dict]`, add `echo_text: str | None = None` parameter
+- [x] 3.2 Change echo logic to use `echo_text or (prompt if isinstance(prompt, str) else "")` as the bubble display text
+- [x] 3.3 `_build_user_echo_message` supports passing in a list of content blocks (including image blocks) so that the immediate bubble can also display images
 
-## 4. 后端规范化层
+## 4. Backend Normalization Layer
 
-- [x] 4.1 在 `server/agent_runtime/turn_schema.py` 的 `normalize_block` 中显式添加 `elif block_type == "image": pass` 分支，表明 image block 有意透传
+- [x] 4.1 In `server/agent_runtime/turn_schema.py`'s `normalize_block`, explicitly add `elif block_type == "image": pass` branch to indicate that image blocks are intentionally passed through
 
-## 5. 前端类型
+## 5. Frontend Types
 
-- [x] 5.1 在 `frontend/src/types/assistant.ts` 的 `ContentBlock` type union 中新增 `"image"`
-- [x] 5.2 在 `ContentBlock` 接口新增 `source?: { type: "base64"; media_type: string; data: string }` 字段
+- [x] 5.1 Add `"image"` to the `ContentBlock` type union in `frontend/src/types/assistant.ts`
+- [x] 5.2 Add `source?: { type: "base64"; media_type: string; data: string }` field to the `ContentBlock` interface
 
-## 6. 前端渲染
+## 6. Frontend Rendering
 
-- [x] 6.1 在 `ContentBlockRenderer.tsx` 新增 `case "image"` 分支，渲染 `<img src="data:..." className="max-w-full max-h-64 rounded-lg mt-1" />`
+- [x] 6.1 Add `case "image"` branch in `ContentBlockRenderer.tsx`, rendering `<img src="data:..." className="max-w-full max-h-64 rounded-lg mt-1" />`
 
-## 7. 前端 Hook
+## 7. Frontend Hook
 
-- [x] 7.1 在 `useAssistantSession` 的 `sendMessage` 签名中新增 `images?: AttachedImage[]` 参数
-- [x] 7.2 组装请求体：将 `images` 映射为 `{ data: dataUrl.split(",")[1], media_type: mimeType }` 数组
+- [x] 7.1 Add `images?: AttachedImage[]` parameter to `sendMessage` signature in `useAssistantSession`
+- [x] 7.2 Assemble request body: map `images` to `{ data: dataUrl.split(",")[1], media_type: mimeType }` array
 
-## 8. 前端 AgentCopilot UI
+## 8. Frontend AgentCopilot UI
 
-- [x] 8.1 定义 `AttachedImage` 接口（`id`, `dataUrl`, `mimeType`），新增 `attachedImages` state
-- [x] 8.2 实现 `handlePaste`：从 `ClipboardEvent` 读取 `image/*` items，转 base64 加入附件列表
-- [x] 8.3 实现 `handleDrop` + `handleDragOver`：从 `DataTransfer.files` 读取图片，含拖入高亮效果
-- [x] 8.4 实现 `handleFileSelect`：隐藏 `<input type="file" multiple accept="image/*">` 的 onChange
-- [x] 8.5 输入框旁添加📎按钮（触发 file input），绑定 `onPaste`、`onDrop`、`onDragOver` 到输入区
-- [x] 8.6 实现缩略图条：`attachedImages` 非空时在 textarea 上方渲染 64×64 缩略图 + 右上角 × 移除按钮
-- [x] 8.7 超出 5 张时禁用附件按钮；单张 > 5MB 时显示错误提示并拒绝添加
-- [x] 8.8 `handleSend` 调用 `sendMessage(text, attachedImages)`，发送后执行 `setAttachedImages([])`
+- [x] 8.1 Define `AttachedImage` interface (`id`, `dataUrl`, `mimeType`); add `attachedImages` state
+- [x] 8.2 Implement `handlePaste`: read `image/*` items from `ClipboardEvent`, convert to base64 and add to attachment list
+- [x] 8.3 Implement `handleDrop` + `handleDragOver`: read images from `DataTransfer.files`, with drag-in highlight effect
+- [x] 8.4 Implement `handleFileSelect`: onChange for hidden `<input type="file" multiple accept="image/*">`
+- [x] 8.5 Add a 📎 button next to the input box (triggers file input), bind `onPaste`, `onDrop`, `onDragOver` to the input area
+- [x] 8.6 Implement thumbnail bar: when `attachedImages` is non-empty, render 64×64 thumbnails above the textarea with an × remove button in the upper right
+- [x] 8.7 Disable attachment button when more than 5 images; display error message and reject addition when a single image is > 5MB
+- [x] 8.8 `handleSend` calls `sendMessage(text, attachedImages)`; execute `setAttachedImages([])` after sending
 
-## 9. 图片放大查看（Lightbox）
+## 9. Image Zoom View (Lightbox)
 
-- [x] 9.1 新建 `ImageLightbox.tsx` 组件：全屏遮罩展示原图，点击遮罩或按 Esc 关闭
-- [x] 9.2 在 `ContentBlockRenderer.tsx` 的 `case "image"` 中，图片加上 `cursor-pointer`，点击触发 lightbox
-- [x] 9.3 在 `AgentCopilot.tsx` 的附件缩略图上，点击触发同一 lightbox（共用组件）
+- [x] 9.1 Create `ImageLightbox.tsx` component: full-screen overlay displaying the original image; click overlay or press Esc to close
+- [x] 9.2 In `ContentBlockRenderer.tsx`'s `case "image"`, add `cursor-pointer` to the image; click triggers lightbox
+- [x] 9.3 On attachment thumbnails in `AgentCopilot.tsx`, click triggers the same lightbox (shared component)
