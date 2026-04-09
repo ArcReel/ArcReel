@@ -8,6 +8,8 @@ import pytest
 
 from lib.retry import (
     BASE_RETRYABLE_ERRORS,
+    DOWNLOAD_BACKOFF_SECONDS,
+    DOWNLOAD_MAX_ATTEMPTS,
     RETRYABLE_STATUS_PATTERNS,
     _should_retry,
     with_retry_async,
@@ -193,3 +195,60 @@ class TestWithRetryAsync:
 
         # attempt 0→backoff[0]=1, attempt 1→backoff[1]=2, attempt 2→backoff[1]=2 (clamped), attempt 3→backoff[1]=2
         assert sleep_values == [1, 2, 2, 2]
+
+    async def test_retry_if_true_triggers_retry(self):
+        """retry_if 返回 True 时应触发重试。"""
+        mock_fn = AsyncMock(side_effect=[ValueError("transient"), "ok"])
+
+        @with_retry_async(
+            max_attempts=3,
+            backoff_seconds=(0, 0, 0),
+            retry_if=lambda e: isinstance(e, ValueError),
+        )
+        async def fn():
+            return await mock_fn()
+
+        with patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
+            result = await fn()
+
+        assert result == "ok"
+        assert mock_fn.call_count == 2
+
+    async def test_retry_if_false_raises_immediately(self):
+        """retry_if 返回 False 时应立即抛出，即使 _should_retry 会返回 True。"""
+        mock_fn = AsyncMock(side_effect=ConnectionError("reset"))
+
+        @with_retry_async(
+            max_attempts=3,
+            backoff_seconds=(0, 0, 0),
+            retry_if=lambda e: False,  # 始终不重试
+        )
+        async def fn():
+            return await mock_fn()
+
+        with pytest.raises(ConnectionError, match="reset"):
+            await fn()
+        assert mock_fn.call_count == 1
+
+    async def test_retry_if_none_uses_default_should_retry(self):
+        """retry_if=None（默认）应保持原有 _should_retry 行为。"""
+        mock_fn = AsyncMock(side_effect=[ConnectionError("reset"), "ok"])
+
+        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0), retry_if=None)
+        async def fn():
+            return await mock_fn()
+
+        with patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
+            result = await fn()
+
+        assert result == "ok"
+        assert mock_fn.call_count == 2
+
+
+class TestDownloadConstants:
+    """下载重试常量测试。"""
+
+    def test_download_constants_values(self):
+        assert DOWNLOAD_MAX_ATTEMPTS == 5
+        assert DOWNLOAD_BACKOFF_SECONDS == (5, 10, 20, 40)
+        assert len(DOWNLOAD_BACKOFF_SECONDS) == DOWNLOAD_MAX_ATTEMPTS - 1

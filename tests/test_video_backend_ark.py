@@ -225,7 +225,7 @@ class TestArkRetryBehavior:
         patcher = _mock_httpx_stream()
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
-            with patch("lib.video_backends.ark.asyncio.sleep", new_callable=AsyncMock):
+            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
                 result = await backend.generate(request)
         finally:
             patcher.stop()
@@ -259,7 +259,7 @@ class TestArkRetryBehavior:
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
             with (
-                patch("lib.video_backends.ark.asyncio.sleep", new_callable=AsyncMock),
+                patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock),
                 patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
             ):
                 result = await backend.generate(request)
@@ -282,7 +282,7 @@ class TestArkRetryBehavior:
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with pytest.raises(ValueError, match="invalid response"):
-            with patch("lib.video_backends.ark.asyncio.sleep", new_callable=AsyncMock):
+            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
                 await backend.generate(request)
 
         # 创建只调用一次，轮询只尝试一次就抛出

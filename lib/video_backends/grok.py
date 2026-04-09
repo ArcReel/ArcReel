@@ -93,4 +93,3 @@ class GrokVideoBackend:
 
         logger.info("Grok 视频生成开始: model=%s, duration=%ds", self._model, request.duration_seconds)
         return await self._client.video.generate(**generate_kwargs)
-

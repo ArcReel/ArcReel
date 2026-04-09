@@ -7,7 +7,7 @@ from pathlib import Path
 
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
-from lib.retry import with_retry_async
+from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
     VideoCapability,
@@ -95,8 +95,8 @@ class OpenAIVideoBackend:
         return await self._client.videos.create_and_poll(**kwargs)
 
     @with_retry_async(
-        max_attempts=5,
-        backoff_seconds=(4, 8, 15, 30),
+        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
+        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
         retryable_errors=OPENAI_RETRYABLE_ERRORS,
     )
     async def _download_content_with_retry(self, video_id: str):

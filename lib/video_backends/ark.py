@@ -9,12 +9,13 @@ import httpx
 
 from lib.ark_shared import create_ark_client
 from lib.providers import PROVIDER_ARK
-from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry, with_retry_async
+from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
+    poll_with_retry,
 )
 
 logger = logging.getLogger(__name__)
@@ -115,66 +116,43 @@ class ArkVideoBackend:
         return create_result.id
 
     @staticmethod
+    @with_retry_async(
+        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
+        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
+        retry_if=lambda e: (
+            isinstance(e, httpx.HTTPStatusError)
+            and e.response.status_code == 400
+            and "video_not_ready" in str(e.response.text)
+        ),
+    )
     async def _download_video_with_retry(video_url: str, output_path) -> None:
         """单独重试视频下载，避免下载失败导致重新生成视频而浪费额度。
 
         Ark 的视频 URL 在任务 succeeded 后可能仍未就绪（返回 400 video_not_ready），
         仅针对该瞬态状态重试；其余 HTTP 错误及网络瞬态错误由内层 download_video 处理。
         """
-        backoff_seconds = (5, 10, 20, 40)
-        max_attempts = len(backoff_seconds) + 1
-        for attempt in range(max_attempts):
-            try:
-                await download_video(video_url, output_path)
-                return
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code != 400 or "video_not_ready" not in str(e.response.text):
-                    raise
-                if attempt < max_attempts - 1:
-                    wait = backoff_seconds[attempt]
-                    logger.warning("Ark 视频未就绪，%d 秒后重试 (%d/%d)", wait, attempt + 1, max_attempts - 1)
-                    await asyncio.sleep(wait)
-                else:
-                    raise
+        await download_video(video_url, output_path)
 
     async def _poll_until_done(self, task_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """轮询任务状态直到完成，瞬态错误仅重试当次轮询请求。"""
         poll_interval = 10 if request.service_tier == "default" else 60
         max_wait_time = 600 if request.service_tier == "default" else 3600
-        elapsed = 0
 
-        while True:
-            try:
-                result = await asyncio.to_thread(
-                    self._client.content_generation.tasks.get,
-                    task_id=task_id,
-                )
-            except Exception as e:
-                if _should_retry(e, BASE_RETRYABLE_ERRORS):
-                    logger.warning("Ark 轮询异常（将重试）: %s - %s", type(e).__name__, str(e)[:200])
-                    elapsed += poll_interval
-                    if elapsed >= max_wait_time:
-                        raise
-                    await asyncio.sleep(poll_interval)
-                    continue
-                raise
-
-            if result.status == "succeeded":
-                break
-            elif result.status in ("failed", "expired"):
-                error_msg = getattr(result, "error", None) or "Unknown error"
-                raise RuntimeError(f"Ark 视频生成失败: {error_msg}")
-
-            elapsed += poll_interval
-            if elapsed >= max_wait_time:
-                raise TimeoutError(f"Ark 视频生成超时（{max_wait_time}秒）")
-
-            logger.info(
-                "Ark 视频生成中... 状态: %s, 已等待 %d 秒",
-                result.status,
-                elapsed,
-            )
-            await asyncio.sleep(poll_interval)
+        result = await poll_with_retry(
+            poll_fn=lambda: asyncio.to_thread(self._client.content_generation.tasks.get, task_id=task_id),
+            is_done=lambda r: r.status == "succeeded",
+            is_failed=lambda r: (
+                f"Ark 视频生成失败: {getattr(r, 'error', None) or 'Unknown error'}"
+                if r.status in ("failed", "expired")
+                else None
+            ),
+            poll_interval=poll_interval,
+            max_wait=max_wait_time,
+            label="Ark",
+            on_progress=lambda r, elapsed: logger.info(
+                "Ark 视频生成中... 状态: %s, 已等待 %d 秒", r.status, int(elapsed)
+            ),
+        )
 
         # Download video
         video_url = result.content.video_url

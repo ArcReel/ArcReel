@@ -157,7 +157,7 @@ class TestGeminiVideoBackendGenerate:
         )
 
         # patch asyncio.sleep 以避免实际等待
-        with patch("lib.video_backends.gemini.asyncio.sleep", new_callable=AsyncMock):
+        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
             result = await backend.generate(request)
 
         assert result.provider == "gemini"
@@ -253,7 +253,7 @@ class TestGeminiRetryBehavior:
         backend._client.aio.operations.get = AsyncMock(side_effect=[ConnectionError("connection reset"), done_op])
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
-        with patch("lib.video_backends.gemini.asyncio.sleep", new_callable=AsyncMock):
+        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
             result = await backend.generate(request)
 
         assert result.provider == "gemini"
@@ -274,7 +274,7 @@ class TestGeminiRetryBehavior:
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with (
-            patch("lib.video_backends.gemini.asyncio.sleep", new_callable=AsyncMock),
+            patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock),
             patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
         ):
             result = await backend.generate(request)
@@ -295,7 +295,7 @@ class TestGeminiRetryBehavior:
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with pytest.raises(ValueError, match="invalid response"):
-            with patch("lib.video_backends.gemini.asyncio.sleep", new_callable=AsyncMock):
+            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
                 await backend.generate(request)
 
         # 创建只调用一次

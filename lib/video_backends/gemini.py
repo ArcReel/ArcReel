@@ -6,21 +6,21 @@ import asyncio
 import io
 import logging
 import os
-import time
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
 
 from lib.config.url_utils import normalize_base_url
-from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, with_retry_async
+from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter
 from lib.providers import PROVIDER_GEMINI
-from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry
+from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
 from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
+    poll_with_retry,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,42 +155,31 @@ class GeminiVideoBackend:
         op_name = getattr(operation, "name", "unknown")
         logger.info("开始轮询 operation=%s ...", op_name)
 
-        start_time = time.monotonic()
-        poll_interval = 20  # 与 Google 官方推荐一致
-        max_wait_time = 600
-        while not operation.done:
-            elapsed = time.monotonic() - start_time
-            if elapsed >= max_wait_time:
-                raise TimeoutError(f"视频生成超时（{max_wait_time}秒）")
-            await asyncio.sleep(poll_interval)
-            try:
-                operation = await self._client.aio.operations.get(operation)
-            except Exception as e:
-                if _should_retry(e, BASE_RETRYABLE_ERRORS):
-                    logger.warning("Gemini 轮询异常（将重试）: %s - %s", type(e).__name__, str(e)[:200])
-                    continue
-                raise
-            if not operation.done:
-                elapsed = time.monotonic() - start_time
-                logger.info(
-                    "视频生成中... 已等待 %.0f 秒 (operation=%s)",
-                    elapsed,
-                    op_name,
-                )
+        if not operation.done:
+            operation = await poll_with_retry(
+                # SDK 通过 operation.name 查询状态并返回新对象，闭包捕获初始 operation 即可
+                poll_fn=lambda: self._client.aio.operations.get(operation),
+                is_done=lambda op: op.done,
+                is_failed=lambda op: None,  # Gemini 在轮询完成后检查失败
+                poll_interval=20,  # 与 Google 官方推荐一致
+                max_wait=600,
+                label="Gemini",
+                on_progress=lambda op, elapsed: logger.info(
+                    "视频生成中... 已等待 %.0f 秒 (operation=%s)", elapsed, op_name
+                ),
+            )
 
-        total_elapsed = time.monotonic() - start_time
-        logger.info("视频生成完成, 总耗时 %.0f 秒, operation=%s", total_elapsed, op_name)
+        logger.info("视频生成完成 (operation=%s)", op_name)
 
         # 检查结果
         if not operation.response or not operation.response.generated_videos:
             error_detail = getattr(operation, "error", None)
             metadata = getattr(operation, "metadata", None)
             logger.error(
-                "视频生成返回空结果: operation=%s, error=%s, metadata=%s, elapsed=%.0f秒",
+                "视频生成返回空结果: operation=%s, error=%s, metadata=%s",
                 op_name,
                 error_detail,
                 metadata,
-                total_elapsed,
             )
             if error_detail:
                 raise RuntimeError(f"视频生成失败: {error_detail}")
@@ -245,7 +234,7 @@ class GeminiVideoBackend:
         else:
             return image
 
-    @with_retry_async()
+    @with_retry_async(max_attempts=DOWNLOAD_MAX_ATTEMPTS, backoff_seconds=DOWNLOAD_BACKOFF_SECONDS)
     async def _download_video_with_retry(self, video_ref, output_path: Path) -> None:
         """下载视频（含瞬态错误重试）。"""
         await asyncio.to_thread(self._download_video, video_ref, output_path)
