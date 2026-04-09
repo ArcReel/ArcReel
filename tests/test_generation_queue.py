@@ -258,3 +258,42 @@ class TestGenerationQueue:
 
         events = await queue.get_events_since(last_event_id=0)
         assert any(event["event_type"] == "requeued" for event in events)
+
+    async def test_cancel_task(self, queue):
+        result = await queue.enqueue_task(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+        )
+
+        cancel_result = await queue.cancel_task(result["task_id"])
+        assert len(cancel_result["cancelled"]) == 1
+        assert cancel_result["cancelled"][0]["status"] == "cancelled"
+
+    async def test_cancel_all_queued(self, queue):
+        await queue.enqueue_task(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+        )
+        await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S02",
+            payload={},
+            script_file="ep1.json",
+        )
+
+        result = await queue.cancel_all_queued("demo")
+        assert result["cancelled_count"] == 2
+
+        stats = await queue.get_task_stats(project_name="demo")
+        assert stats["cancelled"] == 2
+        assert stats["queued"] == 0
