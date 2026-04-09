@@ -368,12 +368,12 @@ describe("useProjectEventsSSE", () => {
             {
               entity_type: "clue",
               action: "updated",
-              entity_id: "玉佩",
-              label: "线索「玉佩」",
+              entity_id: "jade-pendant",
+              label: "Clue「jade-pendant」",
               focus: {
                 pane: "clues",
                 anchor_type: "clue",
-                anchor_id: "玉佩",
+                anchor_id: "jade-pendant",
               },
               important: true,
             },
@@ -384,7 +384,7 @@ describe("useProjectEventsSSE", () => {
     });
 
     await waitFor(() => {
-      expect(useAppStore.getState().workspaceNotifications[0]?.target?.id).toBe("玉佩");
+      expect(useAppStore.getState().workspaceNotifications[0]?.target?.id).toBe("jade-pendant");
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/characters");
     expect(useAppStore.getState().scrollTarget).toBeNull();
@@ -412,7 +412,7 @@ describe("useProjectEventsSSE", () => {
               entity_type: "segment",
               action: "storyboard_ready",
               entity_id: "E1S01",
-              label: "分镜「E1S01」",
+              label: "Scene「E1S01」",
               focus: null,
               important: true,
               asset_fingerprints: { "storyboards/scene_E1S01.png": 1710288000 },
@@ -423,7 +423,7 @@ describe("useProjectEventsSSE", () => {
       );
     });
 
-    // fingerprints 应立即（同步）写入 store，无需等待 getProject
+    // fingerprints should be written to store immediately (synchronously), without waiting for getProject
     expect(useProjectsStore.getState().getAssetFingerprint("storyboards/scene_E1S01.png")).toBe(1710288000);
   });
 });

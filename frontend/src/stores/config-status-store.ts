@@ -26,7 +26,7 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
     issues.push({
       key: "anthropic",
       tab: "agent",
-      label: "ArcReel 智能体 API Key（Anthropic）未配置",
+      label: "ArcReel Agent API Key (Anthropic) not configured",
     });
   }
 
@@ -40,21 +40,21 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
     issues.push({
       key: "no-video-provider",
       tab: "providers",
-      label: "未配置支持视频生成的供应商",
+      label: "No provider configured for video generation",
     });
   }
   if (!hasMediaType("image")) {
     issues.push({
       key: "no-image-provider",
       tab: "providers",
-      label: "未配置支持图片生成的供应商",
+      label: "No provider configured for image generation",
     });
   }
   if (!hasMediaType("text")) {
     issues.push({
       key: "no-text-provider",
       tab: "providers",
-      label: "未配置支持文本生成的供应商",
+      label: "No provider configured for text generation",
     });
   }
 

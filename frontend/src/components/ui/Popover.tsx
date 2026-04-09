@@ -4,13 +4,14 @@ import { UI_LAYERS } from "@/utils/ui-layers";
 import type { RefObject, ReactNode, CSSProperties } from "react";
 
 // ---------------------------------------------------------------------------
-// Popover — 统一弹出面板原语
+// Popover — unified popover panel primitive
 // ---------------------------------------------------------------------------
-// 所有弹出面板必须使用此组件，而非手动组合 createPortal + useAnchoredPopover。
-// 它通过 portal 脱离父级层叠上下文（如 header 的 backdrop-blur），
-// 保证背景不透明并统一 z-index 管理。
+// All popover panels must use this component instead of manually composing
+// createPortal + useAnchoredPopover. It escapes the parent stacking context
+// (e.g., header's backdrop-blur) via portal, ensuring opaque backgrounds
+// and unified z-index management.
 
-/** 面板默认背景色（gray-900 = rgb(17 24 39)） */
+/** Panel default background color (gray-900 = rgb(17 24 39)) */
 export const POPOVER_BG = "rgb(17 24 39)";
 
 type PopoverAlign = "start" | "center" | "end";
@@ -23,17 +24,17 @@ interface PopoverProps {
   children: ReactNode;
   /** Tailwind width class, e.g. "w-72", "w-96" */
   width?: string;
-  /** 额外 className（追加到面板根元素） */
+  /** Additional className (appended to the panel root element) */
   className?: string;
-  /** 额外内联样式 */
+  /** Additional inline styles */
   style?: CSSProperties;
-  /** 锚点偏移量（px），默认 8 */
+  /** Anchor offset (px), default 8 */
   sideOffset?: number;
-  /** 对齐方式，默认 "end" */
+  /** Alignment, default "end" */
   align?: PopoverAlign;
-  /** z-index 层级，默认 "workspacePopover" */
+  /** z-index layer, default "workspacePopover" */
   layer?: PopoverLayer;
-  /** 自定义背景色，默认 POPOVER_BG */
+  /** Custom background color, default POPOVER_BG */
   backgroundColor?: string;
 }
 

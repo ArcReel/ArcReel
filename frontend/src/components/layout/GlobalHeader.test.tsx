@@ -39,10 +39,10 @@ vi.mock("./ExportScopeDialog", () => ({
     open ? (
       <div data-testid="export-scope-dialog">
         <button data-testid="scope-current" onClick={() => onSelect("current")}>
-          仅当前版本
+          Current version only
         </button>
         <button data-testid="scope-full" onClick={() => onSelect("full")}>
-          全部数据
+          All data
         </button>
       </div>
     ) : null,
@@ -79,7 +79,7 @@ describe("GlobalHeader", () => {
     useProjectsStore.setState({
       currentProjectName: "halou-92d19a04",
       currentProjectData: {
-        title: "哈喽项目",
+        title: "Hello Project",
         content_mode: "narration",
         style: "Anime",
         episodes: [],
@@ -90,7 +90,7 @@ describe("GlobalHeader", () => {
 
     renderHeader();
 
-    expect(screen.getByText("哈喽项目")).toBeInTheDocument();
+    expect(screen.getByText("Hello Project")).toBeInTheDocument();
     expect(screen.queryByText("halou-92d19a04")).not.toBeInTheDocument();
 
     await waitFor(() => {
@@ -110,10 +110,10 @@ describe("GlobalHeader", () => {
     });
 
     useAppStore.getState().pushWorkspaceNotification({
-      text: "AI 刚更新了线索「玉佩」，点击查看",
+      text: "AI just updated Clue「jade-pendant」, click to view",
       target: {
         type: "clue",
-        id: "玉佩",
+        id: "jade-pendant",
         route: "/clues",
       },
     });
@@ -138,7 +138,7 @@ describe("GlobalHeader", () => {
       expires_in: 300,
       diagnostics: {
         blocking: [],
-        auto_fixed: [{ code: "current_asset_restored_from_version", message: "修复视频引用" }],
+        auto_fixed: [{ code: "current_asset_restored_from_version", message: "Fixed video reference" }],
         warnings: [],
       },
     });
@@ -147,7 +147,7 @@ describe("GlobalHeader", () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: {
-        title: "导出项目",
+        title: "Export Project",
         content_mode: "narration",
         style: "Anime",
         episodes: [],
@@ -184,7 +184,7 @@ describe("GlobalHeader", () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: {
-        title: "导出项目",
+        title: "Export Project",
         content_mode: "narration",
         style: "Anime",
         episodes: [],

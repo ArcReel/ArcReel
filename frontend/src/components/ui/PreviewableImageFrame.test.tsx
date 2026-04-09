@@ -5,32 +5,32 @@ import { PreviewableImageFrame } from "./PreviewableImageFrame";
 describe("PreviewableImageFrame", () => {
   it("opens a fullscreen preview and closes from both the close button and backdrop", () => {
     render(
-      <PreviewableImageFrame src="/demo.png" alt="示例图">
-        <img src="/demo.png" alt="示例图" />
+      <PreviewableImageFrame src="/demo.png" alt="Sample image">
+        <img src="/demo.png" alt="Sample image" />
       </PreviewableImageFrame>,
     );
 
-    const trigger = screen.getByRole("button", { name: "示例图 全屏预览" });
+    const trigger = screen.getByRole("button", { name: "Sample image fullscreen preview" });
 
     fireEvent.click(trigger);
     expect(
-      screen.getByRole("dialog", { name: "示例图 全屏预览" }),
+      screen.getByRole("dialog", { name: "Sample image fullscreen preview" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "关闭全屏预览" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close fullscreen preview" }));
     expect(
-      screen.queryByRole("dialog", { name: "示例图 全屏预览" }),
+      screen.queryByRole("dialog", { name: "Sample image fullscreen preview" }),
     ).not.toBeInTheDocument();
 
     fireEvent.click(trigger);
-    const dialog = screen.getByRole("dialog", { name: "示例图 全屏预览" });
+    const dialog = screen.getByRole("dialog", { name: "Sample image fullscreen preview" });
     const backdrop = dialog.parentElement?.parentElement;
     expect(backdrop).not.toBeNull();
 
     fireEvent.click(backdrop as HTMLElement);
 
     expect(
-      screen.queryByRole("dialog", { name: "示例图 全屏预览" }),
+      screen.queryByRole("dialog", { name: "Sample image fullscreen preview" }),
     ).not.toBeInTheDocument();
   }, 10_000);
 });
