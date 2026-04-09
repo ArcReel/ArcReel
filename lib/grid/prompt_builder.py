@@ -109,8 +109,7 @@ def build_grid_prompt(
     lines.append("【帧链节奏】")
     lines.append("本宫格采用首尾帧链式结构：")
     lines.append("- 格0 是第一个场景的开场画面")
-    lines.append(f"- 格1~格{n_content - 2} 是相邻场景的过渡帧（前一场景的结束 = 后一场景的开始）")
-    lines.append(f"- 格{n_content - 1} 是最后一个场景的开场画面")
+    lines.append(f"- 格1~格{n_content - 1} 是相邻场景的过渡帧（前一场景的结束 = 后一场景的开始）")
     lines.append("- 相邻格之间应体现画面的自然过渡和动作延续")
     lines.append("")
 
@@ -137,7 +136,7 @@ def build_grid_prompt(
             lines.append(f"格{cell_idx}（{position}）— {scene_id}开场：")
             lines.append(f"  {image_desc}")
 
-        elif cell_idx < n_scenes - 1:
+        elif cell_idx < n_scenes:
             # Transition between scenes[cell_idx-1] and scenes[cell_idx]
             prev_scene = scenes[cell_idx - 1]
             next_scene = scenes[cell_idx]
@@ -147,14 +146,6 @@ def build_grid_prompt(
             next_image_desc = _extract_image_desc(next_scene)
             lines.append(f"格{cell_idx}（{position}）— {prev_scene_id}→{next_scene_id}过渡：")
             lines.append(f"  {prev_action}，过渡到 {next_image_desc}")
-
-        elif cell_idx == n_scenes - 1:
-            # Last scene opening
-            scene = scenes[-1]
-            scene_id = scene.get(id_field, "")
-            image_desc = _extract_image_desc(scene)
-            lines.append(f"格{cell_idx}（{position}）— {scene_id}开场：")
-            lines.append(f"  {image_desc}")
 
         else:
             # Placeholder

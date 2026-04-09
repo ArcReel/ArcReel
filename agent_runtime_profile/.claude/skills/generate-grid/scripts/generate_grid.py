@@ -17,21 +17,7 @@ from lib.grid.models import GridGeneration
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.project_manager import ProjectManager
-from lib.storyboard_sequence import get_storyboard_items
-
-
-def _group_by_break(items: list[dict], id_field: str) -> list[list[dict]]:
-    """Group scenes by segment_break=True boundaries."""
-    groups: list[list[dict]] = []
-    current: list[dict] = []
-    for item in items:
-        if item.get("segment_break", False) and current:
-            groups.append(current)
-            current = []
-        current.append(item)
-    if current:
-        groups.append(current)
-    return groups
+from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 
 
 def _print_groups(groups: list[list[dict]], id_field: str, aspect_ratio: str) -> None:
@@ -67,7 +53,7 @@ def generate_grid(
     aspect_ratio = project.get("aspect_ratio", "9:16")
     style = project.get("style", "")
 
-    groups = _group_by_break(items, id_field)
+    groups = group_scenes_by_segment_break(items, id_field)
 
     # Filter groups if scene-ids specified
     if scene_ids:
@@ -177,7 +163,7 @@ def main():
         script = pm.load_script(project_name, args.script_file)
         items, id_field, _, _ = get_storyboard_items(script)
         aspect_ratio = project.get("aspect_ratio", "9:16")
-        groups = _group_by_break(items, id_field)
+        groups = group_scenes_by_segment_break(items, id_field)
         print(f"共 {len(groups)} 个分组：")
         _print_groups(groups, id_field, aspect_ratio)
         return
