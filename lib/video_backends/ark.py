@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 import httpx
 
@@ -100,6 +101,31 @@ class ArkVideoBackend:
                     "image_url": {"url": data_uri},
                 }
             )
+
+        if request.end_image and Path(request.end_image).exists():
+            from lib.image_backends.base import image_to_base64_data_uri
+
+            data_uri = image_to_base64_data_uri(request.end_image)
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": data_uri, "position": "end"},
+                }
+            )
+
+        if request.reference_images:
+            from lib.image_backends.base import image_to_base64_data_uri
+
+            for ref_path in request.reference_images:
+                p = Path(ref_path) if not isinstance(ref_path, Path) else ref_path
+                if p.exists():
+                    data_uri = image_to_base64_data_uri(p)
+                    content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": data_uri},
+                        }
+                    )
 
         # 2. Build API params
         create_params = {

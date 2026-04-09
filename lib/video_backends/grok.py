@@ -54,7 +54,7 @@ class GrokVideoBackend:
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return VideoCapabilities(reference_images=True, max_reference_images=5)
+        return VideoCapabilities(reference_images=True, max_reference_images=7)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。生成与下载分离重试，避免下载失败导致重新生成浪费额度。"""
