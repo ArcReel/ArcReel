@@ -707,9 +707,15 @@ async def execute_video_task(
     project, project_path, item = await asyncio.to_thread(_load)
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
 
-    storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
+    # 优先从 generated_assets.storyboard_image 读取（宫格模式写 _first.png），回退到默认路径
+    assets = item.get("generated_assets", {})
+    storyboard_rel = assets.get("storyboard_image") if isinstance(assets, dict) else None
+    if storyboard_rel:
+        storyboard_file = project_path / storyboard_rel
+    else:
+        storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
     if not storyboard_file.exists():
-        raise ValueError(f"storyboard not found: scene_{resource_id}.png")
+        raise ValueError(f"storyboard not found: {storyboard_file.name}")
 
     prompt_text = _normalize_video_prompt(prompt)
     aspect_ratio = get_aspect_ratio(project, "videos")
@@ -1025,7 +1031,7 @@ async def execute_grid_task(
         )
 
         project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-        aspect_ratio = get_aspect_ratio(project, "storyboards")
+        aspect_ratio = payload.get("grid_aspect_ratio") or get_aspect_ratio(project, "storyboards")
 
         image_path, version = await generator.generate_image_async(
             prompt=prompt_text,

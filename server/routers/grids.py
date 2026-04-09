@@ -114,64 +114,75 @@ async def generate_grid(
         gm = GridManager(project_path)
 
         for group in groups:
-            scene_ids = [item[id_field] for item in group]
-            n = len(scene_ids)
+            all_scene_ids = [item[id_field] for item in group]
+            n = len(all_scene_ids)
             layout = calculate_grid_layout(n, aspect_ratio)
             if layout is None:
                 continue  # 场景数 < 4，跳过
 
-            # 超出宫格容量时截断
+            # 将大分组拆分为多个宫格批次
+            chunks: list[list] = []
             if n > layout.cell_count:
-                scene_ids = scene_ids[: layout.cell_count]
-                group = group[: layout.cell_count]
+                for i in range(0, n, layout.cell_count):
+                    chunk = group[i : i + layout.cell_count]
+                    if len(chunk) >= 4:  # 最小宫格为 grid_4
+                        chunks.append(chunk)
+            else:
+                chunks.append(group)
 
             backend_snapshot = _snapshot_image_backend(project_name)
 
-            grid = GridGeneration.create(
-                episode=episode,
-                script_file=req.script_file,
-                scene_ids=scene_ids,
-                rows=layout.rows,
-                cols=layout.cols,
-                grid_size=layout.grid_size,
-                provider=backend_snapshot.get("image_provider", ""),
-                model=backend_snapshot.get("image_model", ""),
-            )
+            for chunk in chunks:
+                chunk_ids = [item[id_field] for item in chunk]
+                chunk_layout = calculate_grid_layout(len(chunk_ids), aspect_ratio)
+                if chunk_layout is None:
+                    continue
 
-            prompt = build_grid_prompt(
-                scenes=group,
-                id_field=id_field,
-                rows=layout.rows,
-                cols=layout.cols,
-                style=style,
-                aspect_ratio=aspect_ratio,
-            )
-
-            grid.prompt = prompt
-            gm.save(grid)
-
-            task = await queue.enqueue_task(
-                project_name=project_name,
-                task_type="grid",
-                media_type="image",
-                resource_id=grid.id,
-                payload=_build_grid_task_payload(
-                    prompt=prompt,
+                grid = GridGeneration.create(
+                    episode=episode,
                     script_file=req.script_file,
-                    scene_ids=scene_ids,
-                    grid_size=layout.grid_size,
-                    rows=layout.rows,
-                    cols=layout.cols,
-                    grid_aspect_ratio=layout.grid_aspect_ratio,
-                    video_aspect_ratio=aspect_ratio,
-                    backend_snapshot=backend_snapshot,
-                ),
-                script_file=req.script_file,
-                source="webui",
-                user_id=_user.id,
-            )
-            grid_ids.append(grid.id)
-            task_ids.append(task["task_id"])
+                    scene_ids=chunk_ids,
+                    rows=chunk_layout.rows,
+                    cols=chunk_layout.cols,
+                    grid_size=chunk_layout.grid_size,
+                    provider=backend_snapshot.get("image_provider", ""),
+                    model=backend_snapshot.get("image_model", ""),
+                )
+
+                prompt = build_grid_prompt(
+                    scenes=chunk,
+                    id_field=id_field,
+                    rows=chunk_layout.rows,
+                    cols=chunk_layout.cols,
+                    style=style,
+                    aspect_ratio=aspect_ratio,
+                )
+
+                grid.prompt = prompt
+                gm.save(grid)
+
+                task = await queue.enqueue_task(
+                    project_name=project_name,
+                    task_type="grid",
+                    media_type="image",
+                    resource_id=grid.id,
+                    payload=_build_grid_task_payload(
+                        prompt=prompt,
+                        script_file=req.script_file,
+                        scene_ids=chunk_ids,
+                        grid_size=chunk_layout.grid_size,
+                        rows=chunk_layout.rows,
+                        cols=chunk_layout.cols,
+                        grid_aspect_ratio=chunk_layout.grid_aspect_ratio,
+                        video_aspect_ratio=aspect_ratio,
+                        backend_snapshot=backend_snapshot,
+                    ),
+                    script_file=req.script_file,
+                    source="webui",
+                    user_id=_user.id,
+                )
+                grid_ids.append(grid.id)
+                task_ids.append(task["task_id"])
 
         return GenerateGridResponse(
             success=True,
