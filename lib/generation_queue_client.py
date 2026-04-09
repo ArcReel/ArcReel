@@ -263,7 +263,7 @@ class BatchTaskResult:
 
     resource_id: str
     task_id: str
-    status: str  # "succeeded" | "failed"
+    status: str  # "succeeded" | "failed" | "cancelled"
     result: dict[str, Any] | None = None
     error: str | None = None
 

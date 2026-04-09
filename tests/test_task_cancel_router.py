@@ -35,7 +35,7 @@ class _FakeQueue:
         self._cancel_task_result = cancel_task_result or {}
         self._cancel_task_error = cancel_task_error
         self._cancel_all_preview_count = cancel_all_preview_count
-        self._cancel_all_result = cancel_all_result or {"cancelled_count": 0, "tasks": []}
+        self._cancel_all_result = cancel_all_result or {"cancelled_count": 0, "skipped_running_count": 0}
 
     async def get_cancel_preview(self, task_id: str):
         if self._cancel_preview_error:
@@ -59,8 +59,8 @@ class _FakeQueue:
 # ---------------------------------------------------------------------------
 
 
-def _make_app(fake_queue: _FakeQueue) -> FastAPI:
-    """构建用于测试的最小 FastAPI 应用，注入假队列和假用户。"""
+def _make_app() -> FastAPI:
+    """构建用于测试的最小 FastAPI 应用，注入假用户。"""
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(tasks_router.router, prefix="/api/v1")
@@ -75,28 +75,26 @@ def _make_app(fake_queue: _FakeQueue) -> FastAPI:
 class TestCancelPreview:
     def test_returns_preview_for_queued_task(self, monkeypatch):
         preview = {
-            "task_id": "t1",
-            "status": "queued",
-            "can_cancel": True,
-            "dependents": [],
+            "task": {"task_id": "t1", "task_type": "image", "resource_id": "scene-1"},
+            "cascaded": [],
         }
         fake = _FakeQueue(cancel_preview_result=preview)
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
 
-        app = _make_app(fake)
+        app = _make_app()
         with TestClient(app) as client:
             resp = client.get("/api/v1/tasks/t1/cancel-preview")
 
         assert resp.status_code == 200
         body = resp.json()
-        assert body["task_id"] == "t1"
-        assert body["can_cancel"] is True
+        assert body["task"]["task_id"] == "t1"
+        assert body["cascaded"] == []
 
     def test_returns_400_for_running_task(self, monkeypatch):
         fake = _FakeQueue(cancel_preview_error="只有排队中的任务可以取消")
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
 
-        app = _make_app(fake)
+        app = _make_app()
         with TestClient(app) as client:
             resp = client.get("/api/v1/tasks/t2/cancel-preview")
 
@@ -107,7 +105,7 @@ class TestCancelPreview:
         fake = _FakeQueue(cancel_preview_error="任务 'missing' 不存在")
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
 
-        app = _make_app(fake)
+        app = _make_app()
         with TestClient(app) as client:
             resp = client.get("/api/v1/tasks/missing/cancel-preview")
 
@@ -129,7 +127,7 @@ class TestCancelTask:
         fake = _FakeQueue(cancel_task_result=result)
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
 
-        app = _make_app(fake)
+        app = _make_app()
         with TestClient(app) as client:
             resp = client.post("/api/v1/tasks/t1/cancel")
 
@@ -142,7 +140,7 @@ class TestCancelTask:
         fake = _FakeQueue(cancel_task_error="任务 'ghost' 不存在")
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
 
-        app = _make_app(fake)
+        app = _make_app()
         with TestClient(app) as client:
             resp = client.post("/api/v1/tasks/ghost/cancel")
 
@@ -153,7 +151,7 @@ class TestCancelTask:
         fake = _FakeQueue(cancel_task_error="只有排队中的任务可以取消")
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
 
-        app = _make_app(fake)
+        app = _make_app()
         with TestClient(app) as client:
             resp = client.post("/api/v1/tasks/running-task/cancel")
 
@@ -171,7 +169,7 @@ class TestCancelAllPreview:
         fake = _FakeQueue(cancel_all_preview_count=5)
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
 
-        app = _make_app(fake)
+        app = _make_app()
         with TestClient(app) as client:
             resp = client.get("/api/v1/projects/my-project/tasks/cancel-all-preview")
 
@@ -182,7 +180,7 @@ class TestCancelAllPreview:
         fake = _FakeQueue(cancel_all_preview_count=0)
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
 
-        app = _make_app(fake)
+        app = _make_app()
         with TestClient(app) as client:
             resp = client.get("/api/v1/projects/empty-project/tasks/cancel-all-preview")
 
@@ -199,34 +197,30 @@ class TestCancelAllQueued:
     def test_cancels_all_queued_tasks(self, monkeypatch):
         result = {
             "cancelled_count": 3,
-            "tasks": [
-                {"task_id": "t1", "status": "cancelled"},
-                {"task_id": "t2", "status": "cancelled"},
-                {"task_id": "t3", "status": "cancelled"},
-            ],
+            "skipped_running_count": 0,
         }
         fake = _FakeQueue(cancel_all_result=result)
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
 
-        app = _make_app(fake)
+        app = _make_app()
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/my-project/tasks/cancel-all")
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["cancelled_count"] == 3
-        assert len(body["tasks"]) == 3
+        assert body["skipped_running_count"] == 0
 
     def test_returns_zero_when_nothing_to_cancel(self, monkeypatch):
-        result = {"cancelled_count": 0, "tasks": []}
+        result = {"cancelled_count": 0, "skipped_running_count": 0}
         fake = _FakeQueue(cancel_all_result=result)
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
 
-        app = _make_app(fake)
+        app = _make_app()
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/empty-project/tasks/cancel-all")
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["cancelled_count"] == 0
-        assert body["tasks"] == []
+        assert body["skipped_running_count"] == 0
