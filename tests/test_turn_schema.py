@@ -217,6 +217,11 @@ class TestStringifyContent:
         content = [{"type": "text", "text": "dict"}, "plain", 99]
         assert _stringify_content(content) == "dict\nplain\n99"
 
+    def test_dict_with_none_text(self):
+        """SDK may send {type: text, text: null} — must not TypeError on join."""
+        content = [{"type": "text", "text": None}]
+        assert _stringify_content(content) == ""
+
 
 class TestToolResultContentNormalization:
     """Verify tool_result blocks always have string content after normalization."""

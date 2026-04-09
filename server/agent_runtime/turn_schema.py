@@ -47,7 +47,7 @@ def _stringify_content(content: Any) -> str:
         parts = []
         for item in content:
             if isinstance(item, dict):
-                parts.append(item.get("text", ""))
+                parts.append(str(item.get("text") or ""))
             elif isinstance(item, str):
                 parts.append(item)
             else:
