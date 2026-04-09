@@ -9,11 +9,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
 
 from lib.generation_queue_client import (
-    BatchTaskResult,
-    wait_for_task_sync,
-)
-from lib.generation_queue_client import (
     enqueue_task_only_sync,
+    wait_for_task_sync,
 )
 from lib.grid.layout import calculate_grid_layout
 from lib.grid.models import GridGeneration
@@ -115,7 +112,9 @@ def generate_grid(
         )
         gm.save(grid)
 
-        print(f"📐 {group_ids[0]}..{group_ids[-1]}: {len(group_ids)} 场景 → {layout.grid_size} ({layout.rows}×{layout.cols})")
+        print(
+            f"📐 {group_ids[0]}..{group_ids[-1]}: {len(group_ids)} 场景 → {layout.grid_size} ({layout.rows}×{layout.cols})"
+        )
 
         enqueue_result = enqueue_task_only_sync(
             project_name=project_name,
