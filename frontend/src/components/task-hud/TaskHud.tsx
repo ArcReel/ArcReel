@@ -66,6 +66,7 @@ function TaskRow({
     queued: "排队中",
     succeeded: "已完成",
     failed: "失败",
+    cancelled: "已取消",
   };
 
   const statusColor: Record<TaskItem["status"], string> = {
@@ -73,6 +74,7 @@ function TaskRow({
     queued: "text-gray-500",
     succeeded: "text-emerald-400",
     failed: "text-red-400",
+    cancelled: "text-gray-400",
   };
 
   // 根据状态确定行背景样式

@@ -50,6 +50,7 @@ function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
     status: "queued",
     result: null,
     error_message: null,
+    cancelled_by: null,
     source: "webui",
     queued_at: "2026-02-01T00:00:00Z",
     started_at: null,

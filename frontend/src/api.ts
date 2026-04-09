@@ -881,6 +881,39 @@ class API {
     return this.request(`/tasks/stats${query ? "?" + query : ""}`);
   }
 
+  // ==================== 任务取消 API ====================
+
+  static async cancelPreview(
+    taskId: string
+  ): Promise<{ task: { task_id: string; task_type: string; resource_id: string }; cascaded: { task_id: string; task_type: string; resource_id: string }[] }> {
+    return this.request(`/tasks/${encodeURIComponent(taskId)}/cancel-preview`);
+  }
+
+  static async cancelTask(
+    taskId: string
+  ): Promise<{ cancelled: TaskItem[]; skipped_running: TaskItem[] }> {
+    return this.request(`/tasks/${encodeURIComponent(taskId)}/cancel`, {
+      method: "POST",
+    });
+  }
+
+  static async cancelAllPreview(
+    projectName: string
+  ): Promise<{ queued_count: number }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/tasks/cancel-all-preview`
+    );
+  }
+
+  static async cancelAllQueued(
+    projectName: string
+  ): Promise<{ cancelled_count: number; skipped_running_count: number }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/tasks/cancel-all`,
+      { method: "POST" }
+    );
+  }
+
   static openTaskStream(options: TaskStreamOptions = {}): EventSource {
     const params = new URLSearchParams();
     if (options.projectName)
