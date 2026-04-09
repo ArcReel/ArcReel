@@ -53,6 +53,7 @@ class ProjectManager:
         "videos",
         "thumbnails",
         "output",
+        "grids",
     ]
 
     # 项目元数据文件名
