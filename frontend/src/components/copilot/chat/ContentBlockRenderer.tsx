@@ -57,7 +57,11 @@ export function ContentBlockRenderer({ block, index }: ContentBlockRendererProps
             {block.is_error ? "执行失败" : "工具结果"}
           </div>
           <pre className="text-xs text-slate-300 overflow-x-auto whitespace-pre-wrap">
-            {block.content || ""}
+            {typeof block.content === "string"
+              ? block.content
+              : block.content
+                ? JSON.stringify(block.content, null, 2)
+                : ""}
           </pre>
         </div>
       );
@@ -109,9 +113,11 @@ export function ContentBlockRenderer({ block, index }: ContentBlockRendererProps
       return null;
 
     default: {
-      // Fallback: render as text
-      const text = block.text || block.content || JSON.stringify(block);
-      return <TextBlock key={block.id ?? `block-${index}`} text={text} />;
+      // Fallback: render as text (content may be non-string from SDK)
+      const fallback = block.text
+        || (typeof block.content === "string" ? block.content : null)
+        || JSON.stringify(block);
+      return <TextBlock key={block.id ?? `block-${index}`} text={fallback} />;
     }
   }
 }

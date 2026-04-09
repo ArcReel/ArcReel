@@ -1,6 +1,7 @@
 """Unit tests for turn_schema shared normalization."""
 
 from server.agent_runtime.turn_schema import (
+    _stringify_content,
     infer_block_type,
     normalize_block,
     normalize_content,
@@ -190,3 +191,69 @@ class TestNormalizeTurns:
 
     def test_empty_list(self):
         assert normalize_turns([]) == []
+
+
+class TestStringifyContent:
+    def test_string_passthrough(self):
+        assert _stringify_content("hello") == "hello"
+
+    def test_list_of_text_blocks(self):
+        content = [{"type": "text", "text": "line1"}, {"type": "text", "text": "line2"}]
+        assert _stringify_content(content) == "line1\nline2"
+
+    def test_list_with_plain_strings(self):
+        assert _stringify_content(["a", "b"]) == "a\nb"
+
+    def test_empty_list(self):
+        assert _stringify_content([]) == ""
+
+    def test_none(self):
+        assert _stringify_content(None) == ""
+
+    def test_non_string_non_list(self):
+        assert _stringify_content(42) == "42"
+
+    def test_mixed_list(self):
+        content = [{"type": "text", "text": "dict"}, "plain", 99]
+        assert _stringify_content(content) == "dict\nplain\n99"
+
+
+class TestToolResultContentNormalization:
+    """Verify tool_result blocks always have string content after normalization."""
+
+    def test_normalize_block_tool_result_with_list_content(self):
+        """SDK sends content as [{type: text, text: ...}] — must be flattened."""
+        block = {
+            "type": "tool_result",
+            "tool_use_id": "t1",
+            "content": [{"type": "text", "text": "result here"}],
+        }
+        result = normalize_block(block)
+        assert result["type"] == "tool_result"
+        assert isinstance(result["content"], str)
+        assert result["content"] == "result here"
+
+    def test_normalize_block_tool_result_with_string_content(self):
+        block = {
+            "type": "tool_result",
+            "tool_use_id": "t1",
+            "content": "already string",
+        }
+        result = normalize_block(block)
+        assert result["content"] == "already string"
+
+    def test_normalize_turn_with_tool_result_list_content(self):
+        """End-to-end: turn containing tool_result with array content."""
+        turn = {
+            "type": "assistant",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "t1",
+                    "content": [{"type": "text", "text": "ok"}],
+                }
+            ],
+        }
+        result = normalize_turn(turn)
+        assert isinstance(result["content"][0]["content"], str)
+        assert result["content"][0]["content"] == "ok"

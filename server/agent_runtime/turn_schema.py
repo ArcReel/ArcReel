@@ -34,6 +34,30 @@ import copy
 from typing import Any
 
 
+def _stringify_content(content: Any) -> str:
+    """Ensure tool_result content is always a string.
+
+    The Claude SDK may send tool_result content as a list of content blocks
+    (e.g. ``[{"type": "text", "text": "..."}]``).  The frontend expects a
+    plain string, so we flatten arrays here.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(item.get("text", ""))
+            elif isinstance(item, str):
+                parts.append(item)
+            else:
+                parts.append(str(item))
+        return "\n".join(parts)
+    if content is None:
+        return ""
+    return str(content)
+
+
 def infer_block_type(block: dict[str, Any]) -> str:
     """Infer content block type when SDK omits explicit ``type``.
 
@@ -89,6 +113,8 @@ def normalize_block(block: Any) -> dict[str, Any]:
     elif block_type == "tool_use":
         if not isinstance(normalized.get("input"), dict):
             normalized["input"] = {}
+    elif block_type == "tool_result":
+        normalized["content"] = _stringify_content(normalized.get("content", ""))
     elif block_type == "image":
         pass  # image blocks pass through as-is (source field preserved by deepcopy)
 

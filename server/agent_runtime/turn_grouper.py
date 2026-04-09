@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from server.agent_runtime.turn_schema import (
+    _stringify_content,
     infer_block_type,
     normalize_turn,
 )
@@ -111,7 +112,7 @@ def _normalize_tool_result_block(block: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "tool_result",
         "tool_use_id": block.get("tool_use_id"),
-        "content": block.get("content", ""),
+        "content": _stringify_content(block.get("content", "")),
         "is_error": block.get("is_error", False),
     }
 
