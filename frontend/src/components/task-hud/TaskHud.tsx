@@ -50,6 +50,26 @@ function RunningProgressBar() {
 }
 
 // ---------------------------------------------------------------------------
+// Static lookup tables (hoisted out of TaskRow — they never change)
+// ---------------------------------------------------------------------------
+
+const statusLabel: Record<TaskItem["status"], string> = {
+  running: "生成中...",
+  queued: "排队中",
+  succeeded: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
+const statusColor: Record<TaskItem["status"], string> = {
+  running: "text-indigo-400",
+  queued: "text-gray-500",
+  succeeded: "text-emerald-400",
+  failed: "text-red-400",
+  cancelled: "text-gray-400",
+};
+
+// ---------------------------------------------------------------------------
 // TaskRow — 单个任务条目（含完成高亮、失败展开、运行进度条）
 // ---------------------------------------------------------------------------
 
@@ -66,21 +86,6 @@ function TaskRow({
   onToggleError: (taskId: string) => void;
   onCancel?: (taskId: string) => void;
 }) {
-  const statusLabel: Record<TaskItem["status"], string> = {
-    running: "生成中...",
-    queued: "排队中",
-    succeeded: "已完成",
-    failed: "失败",
-    cancelled: "已取消",
-  };
-
-  const statusColor: Record<TaskItem["status"], string> = {
-    running: "text-indigo-400",
-    queued: "text-gray-500",
-    succeeded: "text-emerald-400",
-    failed: "text-red-400",
-    cancelled: "text-gray-400",
-  };
 
   // 根据状态确定行背景样式
   const rowBg =
@@ -128,12 +133,13 @@ function TaskRow({
             }}
             className="ml-1 rounded px-1 py-0.5 text-xs text-gray-500 hover:bg-gray-700 hover:text-gray-300"
             title="取消任务"
+            aria-label="取消此任务"
           >
             取消
           </button>
         )}
         {task.status === "cancelled" && task.cancelled_by === "cascade" && (
-          <span className="ml-1 text-xs text-gray-600">级联</span>
+          <span className="ml-1 text-xs text-gray-500">级联</span>
         )}
         {hasError && (
           <ChevronDown
@@ -296,16 +302,18 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
     projectName?: string;
   } | null>(null);
 
-  const handleCancelSingle = async (taskId: string) => {
+  const [cancelling, setCancelling] = useState(false);
+
+  const handleCancelSingle = useCallback(async (taskId: string) => {
     try {
       const preview = await API.cancelPreview(taskId);
       setCancelConfirm({ taskId, preview });
     } catch {
       // task no longer queued
     }
-  };
+  }, []);
 
-  const handleCancelAll = async () => {
+  const handleCancelAll = useCallback(async () => {
     const queuedTask = tasks.find((t) => t.status === "queued");
     if (!queuedTask) return;
     const projectName = queuedTask.project_name;
@@ -315,10 +323,11 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
     } catch {
       // no queued tasks
     }
-  };
+  }, [tasks]);
 
-  const confirmCancel = async () => {
+  const confirmCancel = useCallback(async () => {
     if (!cancelConfirm) return;
+    setCancelling(true);
     try {
       if (cancelConfirm.taskId) {
         await API.cancelTask(cancelConfirm.taskId);
@@ -326,9 +335,22 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
         await API.cancelAllQueued(cancelConfirm.projectName);
       }
     } finally {
+      setCancelling(false);
       setCancelConfirm(null);
     }
-  };
+  }, [cancelConfirm]);
+
+  // Escape 键关闭确认面板
+  useEffect(() => {
+    if (!cancelConfirm) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setCancelConfirm(null);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [cancelConfirm]);
 
   const imageTasks = tasks.filter((t) => t.media_type === "image");
   const videoTasks = tasks.filter((t) => t.media_type === "video");
@@ -378,6 +400,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
               <button
                 onClick={handleCancelAll}
                 className="ml-auto text-xs text-gray-500 hover:text-red-400"
+                aria-label="取消所有排队中的任务"
               >
                 全部取消
               </button>
@@ -392,7 +415,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
 
           {/* 取消确认面板 */}
           {cancelConfirm && (
-            <div className="border-t border-gray-800 px-3 py-2">
+            <div className="border-t border-gray-800 px-3 py-2" role="alertdialog" aria-label="取消确认">
               <p className="text-xs text-gray-300">
                 {cancelConfirm.preview
                   ? cancelConfirm.preview.cascaded.length > 0
@@ -412,9 +435,10 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
               <div className="mt-2 flex gap-2">
                 <button
                   onClick={confirmCancel}
-                  className="rounded bg-red-600/80 px-2 py-0.5 text-xs text-white hover:bg-red-600"
+                  disabled={cancelling}
+                  className="rounded bg-red-600/80 px-2 py-0.5 text-xs text-white hover:bg-red-600 disabled:opacity-50"
                 >
-                  确认取消
+                  {cancelling ? "取消中..." : "确认取消"}
                 </button>
                 <button
                   onClick={() => setCancelConfirm(null)}
