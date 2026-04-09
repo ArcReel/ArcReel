@@ -69,6 +69,7 @@ class TestGrokVideoBackend:
             backend = GrokVideoBackend(api_key="test-key")
 
             mock_http_response = AsyncMock()
+            mock_http_response.status_code = 200
             mock_http_response.raise_for_status = MagicMock()
             mock_http_response.aiter_bytes = lambda chunk_size=None: _async_iter([b"fake-video-data"])
 
@@ -122,6 +123,7 @@ class TestGrokVideoBackend:
             backend = GrokVideoBackend(api_key="test-key")
 
             mock_http_response = AsyncMock()
+            mock_http_response.status_code = 200
             mock_http_response.raise_for_status = MagicMock()
             mock_http_response.aiter_bytes = lambda chunk_size=None: _async_iter([b"fake-video-data"])
 

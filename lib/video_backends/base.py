@@ -85,6 +85,9 @@ async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     async with httpx.AsyncClient() as http_client:
         async with http_client.stream("GET", url, timeout=timeout) as resp:
+            if resp.status_code >= 400:
+                # 流式模式下需先读取响应体，否则 HTTPStatusError.response.text 不可用
+                await resp.aread()
             resp.raise_for_status()
             with open(output_path, "wb") as f:
                 async for chunk in resp.aiter_bytes(chunk_size=65536):

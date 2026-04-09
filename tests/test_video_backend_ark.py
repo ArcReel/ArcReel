@@ -37,6 +37,7 @@ def _mock_httpx_stream(data: bytes = b"fake-mp4-data"):
     mock_httpx = patcher.start()
 
     mock_stream_response = MagicMock()
+    mock_stream_response.status_code = 200
     mock_stream_response.raise_for_status = MagicMock()
 
     async def _aiter_bytes(chunk_size=65536):
