@@ -29,6 +29,10 @@ class TaskFailedError(RuntimeError):
     """Raised when queued task finishes as failed."""
 
 
+class TaskCancelledError(RuntimeError):
+    """Raised when queued task is cancelled by user."""
+
+
 class TaskWaitTimeoutError(TimeoutError):
     """Raised when queued task does not finish before timeout."""
 
@@ -83,7 +87,7 @@ async def wait_for_task(
             raise RuntimeError(f"task not found: {task_id}")
 
         status = task.get("status")
-        if status in ("succeeded", "failed"):
+        if status in ("succeeded", "failed", "cancelled"):
             return task
 
         now = time.monotonic()
@@ -142,6 +146,8 @@ async def enqueue_and_wait(
     if task.get("status") == "failed":
         message = task.get("error_message") or "task failed"
         raise TaskFailedError(message)
+    if task.get("status") == "cancelled":
+        raise TaskCancelledError(f"task '{enqueue_result['task_id']}' was cancelled")
 
     return {
         "enqueue": enqueue_result,
@@ -270,6 +276,13 @@ def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: 
             task_id=task_id,
             status="failed",
             error=task.get("error_message") or "task failed",
+        )
+    if task.get("status") == "cancelled":
+        return BatchTaskResult(
+            resource_id=resource_id,
+            task_id=task_id,
+            status="cancelled",
+            error="task cancelled",
         )
     return BatchTaskResult(
         resource_id=resource_id,

@@ -7,9 +7,11 @@ import pytest
 from lib.generation_queue_client import (
     BatchTaskResult,
     BatchTaskSpec,
+    TaskCancelledError,
     TaskWaitTimeoutError,
     WorkerOfflineError,
     batch_enqueue_and_wait_sync,
+    enqueue_and_wait,
     enqueue_task_only,
     wait_for_task,
 )
@@ -87,6 +89,45 @@ class TestGenerationQueueClient:
                 poll_interval=0.05,
                 timeout_seconds=5.0,
                 worker_offline_grace_seconds=0.2,
+            )
+
+    async def test_wait_for_task_returns_when_cancelled(self, generation_queue):
+        task = await generation_queue.enqueue_task(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="S03",
+            payload={"prompt": "p"},
+            script_file="episode_01.json",
+            source="skill",
+        )
+        # 取消任务后 wait_for_task 应正常返回（不抛异常），状态为 cancelled
+        await generation_queue.cancel_task(task["task_id"])
+
+        result = await wait_for_task(
+            task["task_id"],
+            poll_interval=0.05,
+            timeout_seconds=5.0,
+            worker_offline_grace_seconds=10.0,
+        )
+        assert result["status"] == "cancelled"
+
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    async def test_enqueue_and_wait_raises_task_cancelled_error(self, mock_enqueue, mock_wait, generation_queue):
+        """enqueue_and_wait 应在 wait_for_task 返回 cancelled 状态时抛出 TaskCancelledError。"""
+        mock_enqueue.return_value = {"task_id": "task-cancelled-123"}
+        mock_wait.return_value = {"status": "cancelled", "task_id": "task-cancelled-123"}
+
+        with pytest.raises(TaskCancelledError):
+            await enqueue_and_wait(
+                project_name="demo",
+                task_type="storyboard",
+                media_type="image",
+                resource_id="S04",
+                payload={"prompt": "p"},
+                script_file="episode_01.json",
+                source="skill",
             )
 
 
