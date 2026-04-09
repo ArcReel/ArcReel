@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Sparkles, Loader2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { SegmentCard } from "./SegmentCard";
+import { GridSegmentGroup } from "./GridSegmentGroup";
 import { PreprocessingView } from "./PreprocessingView";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { useCostStore } from "@/stores/cost-store";
@@ -26,6 +29,29 @@ function getSegmentId(segment: Segment, mode: "narration" | "drama"): string {
     : (segment as DramaScene).scene_id;
 }
 
+/** Group segments by segment_break into contiguous groups. */
+function groupBySegmentBreak(segments: Segment[]): Segment[][] {
+  const groups: Segment[][] = [];
+  let current: Segment[] = [];
+  for (const seg of segments) {
+    if (seg.segment_break && current.length > 0) {
+      groups.push(current);
+      current = [];
+    }
+    current.push(seg);
+  }
+  if (current.length > 0) groups.push(current);
+  return groups;
+}
+
+/** Compute grid size for a group based on scene count. */
+function computeGridSize(count: number): { gridSize: string | null; rows: number; cols: number } {
+  if (count < 4) return { gridSize: null, rows: 0, cols: 0 };
+  if (count <= 4) return { gridSize: "grid_4", rows: 2, cols: 2 };
+  if (count <= 6) return { gridSize: "grid_6", rows: 2, cols: 3 };
+  return { gridSize: "grid_9", rows: 3, cols: 3 };
+}
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -41,6 +67,7 @@ interface TimelineCanvasProps {
   onUpdatePrompt?: (segmentId: string, field: string, value: unknown, scriptFile?: string) => void;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
+  onGenerateGrid?: (episode: number, scriptFile: string, sceneIds?: string[]) => void;
   durationOptions?: number[];
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
@@ -69,6 +96,7 @@ export function TimelineCanvas({
   onUpdatePrompt,
   onGenerateStoryboard,
   onGenerateVideo,
+  onGenerateGrid,
   onRestoreStoryboard,
   onRestoreVideo,
 }: TimelineCanvasProps) {
@@ -119,6 +147,42 @@ export function TimelineCanvas({
       ),
     [contentMode, segments],
   );
+
+  // Grid mode state
+  const isGridMode = projectData?.generation_mode === "grid";
+  const segmentGroups = useMemo(
+    () => (isGridMode ? groupBySegmentBreak(segments) : []),
+    [isGridMode, segments],
+  );
+  const [generatingGridGroups, setGeneratingGridGroups] = useState<Set<number>>(new Set());
+  const [generatingAllGrids, setGeneratingAllGrids] = useState(false);
+
+  const handleGenerateGroupGrid = useCallback(
+    (groupIndex: number, groupScenes: Segment[]) => {
+      if (!onGenerateGrid || !scriptFile) return;
+      const sceneIds = groupScenes.map((s) => getSegmentId(s, contentMode));
+      setGeneratingGridGroups((prev) => new Set(prev).add(groupIndex));
+      // Fire and let the toast/task system handle the result
+      onGenerateGrid(episode, scriptFile, sceneIds);
+      // Clear loading after a short delay (actual progress tracked via task queue)
+      setTimeout(() => {
+        setGeneratingGridGroups((prev) => {
+          const next = new Set(prev);
+          next.delete(groupIndex);
+          return next;
+        });
+      }, 3000);
+    },
+    [onGenerateGrid, scriptFile, contentMode, episode],
+  );
+
+  const handleGenerateAllGrids = useCallback(() => {
+    if (!onGenerateGrid || !scriptFile) return;
+    setGeneratingAllGrids(true);
+    onGenerateGrid(episode, scriptFile);
+    setTimeout(() => setGeneratingAllGrids(false), 3000);
+  }, [onGenerateGrid, scriptFile, episode]);
+
   const virtualizer = useVirtualizer({
     count: segments.length,
     getScrollElement: () => scrollRef.current,
@@ -228,43 +292,139 @@ export function TimelineCanvas({
             contentMode={contentMode}
           />
         ) : episodeScript ? (
-          <div
-            className="relative"
-            style={{ height: `${virtualizer.getTotalSize()}px` }}
-          >
-            {virtualItems.map((virtualItem) => {
-              const segment = segments[virtualItem.index];
-              const segId = getSegmentId(segment, contentMode);
-              return (
-                <div
-                  id={`segment-${segId}`}
-                  key={segId}
-                  data-index={virtualItem.index}
-                  ref={virtualizer.measureElement}
-                  className="absolute left-0 top-0 w-full"
-                  style={{
-                    transform: `translateY(${virtualItem.start}px)`,
-                    paddingBottom: virtualItem.index === segments.length - 1 ? 0 : 16,
-                  }}
-                >
-                  <SegmentCard
-                    segment={segment}
-                    contentMode={contentMode}
-                    aspectRatio={aspectRatio}
-                    characters={projectData.characters}
-                    clues={projectData.clues}
-                    projectName={projectName}
-                    durationOptions={durationOptions}
-                    onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}
-                    onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
-                    onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
-                    onRestoreStoryboard={onRestoreStoryboard}
-                    onRestoreVideo={onRestoreVideo}
-                  />
+          isGridMode && segmentGroups.length > 0 ? (
+            /* ---- Grid mode: grouped segments without virtualization ---- */
+            <div>
+              {/* Batch generate all grids button */}
+              {onGenerateGrid && scriptFile && (
+                <div className="mb-4">
+                  <motion.button
+                    type="button"
+                    onClick={handleGenerateAllGrids}
+                    disabled={generatingAllGrids}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
+                      generatingAllGrids
+                        ? "bg-blue-700 opacity-70 cursor-not-allowed"
+                        : "bg-blue-600 hover:bg-blue-500"
+                    }`}
+                    animate={
+                      generatingAllGrids
+                        ? { opacity: [0.7, 1, 0.7] }
+                        : { opacity: 1 }
+                    }
+                    transition={
+                      generatingAllGrids
+                        ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
+                        : { duration: 0.3 }
+                    }
+                  >
+                    <AnimatePresence mode="wait" initial={false}>
+                      {generatingAllGrids ? (
+                        <motion.span
+                          key="loader"
+                          initial={{ opacity: 0, rotate: -90 }}
+                          animate={{ opacity: 1, rotate: 0 }}
+                          exit={{ opacity: 0, rotate: 90 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        </motion.span>
+                      ) : (
+                        <motion.span
+                          key="sparkles"
+                          initial={{ opacity: 0, scale: 0.5 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.5 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <Sparkles className="h-4 w-4" />
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                    {generatingAllGrids ? "提交中..." : "一键生成全部宫格"}
+                  </motion.button>
                 </div>
-              );
-            })}
-          </div>
+              )}
+
+              {segmentGroups.map((group, groupIdx) => {
+                const { gridSize, rows, cols } = computeGridSize(group.length);
+                return (
+                  <GridSegmentGroup
+                    key={groupIdx}
+                    groupIndex={groupIdx}
+                    scenes={group}
+                    gridSize={gridSize}
+                    rows={rows}
+                    cols={cols}
+                    sceneCount={group.length}
+                    onGenerateGrid={() => handleGenerateGroupGrid(groupIdx, group)}
+                    generatingGrid={generatingGridGroups.has(groupIdx)}
+                  >
+                    {group.map((segment) => {
+                      const segId = getSegmentId(segment, contentMode);
+                      return (
+                        <div id={`segment-${segId}`} key={segId}>
+                          <SegmentCard
+                            segment={segment}
+                            contentMode={contentMode}
+                            aspectRatio={aspectRatio}
+                            characters={projectData.characters}
+                            clues={projectData.clues}
+                            projectName={projectName}
+                            durationOptions={durationOptions}
+                            onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}
+                            onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
+                            onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
+                            onRestoreStoryboard={onRestoreStoryboard}
+                            onRestoreVideo={onRestoreVideo}
+                          />
+                        </div>
+                      );
+                    })}
+                  </GridSegmentGroup>
+                );
+              })}
+            </div>
+          ) : (
+            /* ---- Normal mode: virtualized flat list ---- */
+            <div
+              className="relative"
+              style={{ height: `${virtualizer.getTotalSize()}px` }}
+            >
+              {virtualItems.map((virtualItem) => {
+                const segment = segments[virtualItem.index];
+                const segId = getSegmentId(segment, contentMode);
+                return (
+                  <div
+                    id={`segment-${segId}`}
+                    key={segId}
+                    data-index={virtualItem.index}
+                    ref={virtualizer.measureElement}
+                    className="absolute left-0 top-0 w-full"
+                    style={{
+                      transform: `translateY(${virtualItem.start}px)`,
+                      paddingBottom: virtualItem.index === segments.length - 1 ? 0 : 16,
+                    }}
+                  >
+                    <SegmentCard
+                      segment={segment}
+                      contentMode={contentMode}
+                      aspectRatio={aspectRatio}
+                      characters={projectData.characters}
+                      clues={projectData.clues}
+                      projectName={projectName}
+                      durationOptions={durationOptions}
+                      onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}
+                      onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
+                      onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
+                      onRestoreStoryboard={onRestoreStoryboard}
+                      onRestoreVideo={onRestoreVideo}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )
         ) : null}
 
         {/* Bottom spacer for scroll comfort */}
