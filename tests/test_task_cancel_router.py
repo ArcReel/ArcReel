@@ -6,13 +6,11 @@
   - POST /projects/{project_name}/tasks/cancel-all
 """
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import tasks as tasks_router
-
 
 # ---------------------------------------------------------------------------
 # Fake queue helpers
@@ -64,9 +62,7 @@ class _FakeQueue:
 def _make_app(fake_queue: _FakeQueue) -> FastAPI:
     """构建用于测试的最小 FastAPI 应用，注入假队列和假用户。"""
     app = FastAPI()
-    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(
-        id="default", sub="testuser", role="admin"
-    )
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(tasks_router.router, prefix="/api/v1")
     return app
 
