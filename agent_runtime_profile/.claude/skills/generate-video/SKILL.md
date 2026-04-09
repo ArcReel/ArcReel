@@ -1,56 +1,56 @@
 ---
 name: generate-video
-description: 为剧本场景生成视频片段。当用户说"生成视频"、"把分镜图变成视频"、想重新生成某个场景的视频、或视频生成中断需要续传时使用。支持整集批量、单场景、断点续传等模式。
+description: Generate video clips for script scenes. Use when the user says "generate video", "turn storyboards into video", wants to regenerate a video for a specific scene, or when video generation was interrupted and needs to resume. Supports full episode batch, single scene, and resume-from-checkpoint modes.
 ---
 
-# 生成视频
+# Generate Video
 
-使用 Veo 3.1 API 为每个场景/片段创建视频，以分镜图作为起始帧。
+Use the Veo 3.1 API to create videos for each scene/segment, using storyboard images as the starting frame.
 
-> 画面比例、时长等规格由项目配置和视频模型能力决定，脚本自动处理。
+> Aspect ratio, duration, and other specifications are determined by the project configuration and video model capability; the script handles this automatically.
 
-## 命令行用法
+## Command-Line Usage
 
 ```bash
-# 标准模式：生成整集所有待处理场景（推荐）
+# Standard mode: generate all pending scenes for the entire episode (recommended)
 python .claude/skills/generate-video/scripts/generate_video.py episode_{N}.json --episode {N}
 
-# 断点续传：从上次中断处继续
+# Resume from checkpoint: continue from the last interruption
 python .claude/skills/generate-video/scripts/generate_video.py episode_{N}.json --episode {N} --resume
 
-# 单场景：测试或重新生成
+# Single scene: for testing or regeneration
 python .claude/skills/generate-video/scripts/generate_video.py episode_{N}.json --scene E1S1
 
-# 批量自选：指定多个场景
+# Batch selection: specify multiple scenes
 python .claude/skills/generate-video/scripts/generate_video.py episode_{N}.json --scenes E1S01,E1S05,E1S10
 
-# 全部待处理
+# All pending
 python .claude/skills/generate-video/scripts/generate_video.py episode_{N}.json --all
 ```
 
-> 所有任务一次性提交到生成队列，由 Worker 按 per-provider 并发配置自动调度。
+> All tasks are submitted to the generation queue at once; the Worker auto-schedules based on per-provider concurrency configuration.
 
-## 工作流程
+## Workflow
 
-1. **加载项目和剧本** — 确认所有场景都有 `storyboard_image`
-2. **生成视频** — 脚本自动构建 Prompt、调用 API、保存 checkpoint
-3. **审核检查点** — 展示结果，用户可重新生成不满意的场景
-4. **更新剧本** — 自动更新 `video_clip` 路径和场景状态
+1. **Load project and script** — confirm all scenes have `storyboard_image`
+2. **Generate video** — the script auto-builds the prompt, calls the API, and saves checkpoints
+3. **Review checkpoint** — display results; the user can regenerate unsatisfactory scenes
+4. **Update script** — automatically update `video_clip` path and scene status
 
-## Prompt 构建
+## Prompt Building
 
-Prompt 由脚本内部自动构建，根据 content_mode 选择不同策略。脚本从剧本 JSON 读取以下字段：
+The prompt is automatically built internally by the script, using different strategies based on content_mode. The script reads the following fields from the script JSON:
 
-**image_prompt**（用于分镜图参考）：scene、composition（shot_type、lighting、ambiance）
+**image_prompt** (for storyboard image reference): scene, composition (shot_type, lighting, ambiance)
 
-**video_prompt**（用于视频生成）：action、camera_motion、ambiance_audio、dialogue、narration（仅 drama）
+**video_prompt** (for video generation): action, camera_motion, ambiance_audio, dialogue, narration (drama only)
 
-- 说书模式：`novel_text` 不参与视频生成（后期人工配音），`dialogue` 仅包含原文中的角色对话
-- 剧集动画模式：包含完整的对话、旁白、音效
-- Negative prompt 自动排除 BGM
+- Narration mode: `novel_text` does not participate in video generation (post-production manual voiceover); `dialogue` includes only character dialogue from the original text
+- Drama animation mode: includes complete dialogue, narration, and sound effects
+- Negative prompt automatically excludes BGM
 
-## 生成前检查
+## Pre-Generation Checklist
 
-- [ ] 所有场景都有已批准的分镜图
-- [ ] 对话文本长度适当
-- [ ] 动作描述清晰简单
+- [ ] All scenes have approved storyboard images
+- [ ] Dialogue text length is appropriate
+- [ ] Action descriptions are clear and simple

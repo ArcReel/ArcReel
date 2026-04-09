@@ -1,74 +1,74 @@
 [
   {
-    "query": "我有一部都市悬疑小说，大概5万字，想做成竖屏短视频发抖音，从头开始帮我弄吧",
+    "query": "I have an urban mystery novel, about 50,000 characters, want to make it into a portrait short video for Douyin, help me set it up from scratch",
     "should_trigger": true
   },
   {
-    "query": "继续，角色应该提取完了，接下来该干嘛",
+    "query": "Continue, characters should have been extracted, what's next",
     "should_trigger": true
   },
   {
-    "query": "帮我把 source 目录里那个仙侠小说做成视频吧，说书模式，每集大概1000字",
+    "query": "Help me turn that xianxia novel in the source directory into a video, narration mode, about 1000 characters per episode",
     "should_trigger": true
   },
   {
-    "query": "我上次做到一半的那个项目 my_novel_01，帮我看看进度到哪了",
+    "query": "My project my_novel_01 that I started halfway, help me check where the progress is at",
     "should_trigger": true
   },
   {
-    "query": "下一步",
+    "query": "Next step",
     "should_trigger": true
   },
   {
-    "query": "开个新项目叫 test_romance，我待会上传小说文本",
+    "query": "Start a new project called test_romance, I'll upload the novel text later",
     "should_trigger": true
   },
   {
-    "query": "帮我看看现在有哪些项目，以及各自做到什么进度了",
+    "query": "Help me see what projects there are and how far along each one is",
     "should_trigger": true
   },
   {
-    "query": "把我那个古装剧本拆成每集800字，然后自动跑完后面所有流程",
+    "query": "Split that costume drama script into 800 characters per episode, then automatically run all subsequent processes",
     "should_trigger": true
   },
   {
-    "query": "第3集的分镜图有几张角色脸不对，帮我单独重新生成 E3S02 和 E3S05",
+    "query": "A few character faces are wrong in Episode 3's storyboards, help me individually regenerate E3S02 and E3S05",
     "should_trigger": false
   },
   {
-    "query": "视频生成到一半中断了，帮我用 --resume 继续第2集",
+    "query": "Video generation stopped halfway, help me use --resume to continue Episode 2",
     "should_trigger": false
   },
   {
-    "query": "帮我给最终视频加一段片头和片尾",
+    "query": "Help me add an intro and outro to the final video",
     "should_trigger": false
   },
   {
-    "query": "project.json 里的 content_mode 字段是什么意思？narration 和 drama 有什么区别",
+    "query": "What does the content_mode field in project.json mean? What's the difference between narration and drama?",
     "should_trigger": false
   },
   {
-    "query": "帮我修一下 lib/script_generator.py 里的 _parse_response 方法，JSON 解析有 bug",
+    "query": "Help me fix the _parse_response method in lib/script_generator.py, there's a JSON parsing bug",
     "should_trigger": false
   },
   {
-    "query": "帮我看看 generate_storyboard.py 脚本的 --scene-ids 参数是怎么实现的",
+    "query": "Help me look at how the --scene-ids parameter in the generate_storyboard.py script is implemented",
     "should_trigger": false
   },
   {
-    "query": "数据库迁移报错了，alembic upgrade head 执行失败",
+    "query": "Database migration failed, alembic upgrade head execution failed",
     "should_trigger": false
   },
   {
-    "query": "前端 zustand store 里的 useProjectStore 状态更新有延迟，帮我看看",
+    "query": "There's a delay in the useProjectStore state update in the frontend zustand store, help me look at it",
     "should_trigger": false
   },
   {
-    "query": "帮我写个新的 API endpoint，让用户可以批量删除项目",
+    "query": "Help me write a new API endpoint so users can batch delete projects",
     "should_trigger": false
   },
   {
-    "query": "给第1集所有角色重新画设计图，上次生成的风格不统一",
+    "query": "Redraw all the character design sheets for Episode 1, the style from last time was inconsistent",
     "should_trigger": false
   }
 ]

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Character Generator - 使用 Gemini API 生成角色设计图
+Character Generator - Generate character design sheets using the Gemini API
 
 Usage:
-    python generate_character.py --character "张三"
-    python generate_character.py --characters "张三" "李四"
+    python generate_character.py --character "Zhang San"
+    python generate_character.py --characters "Zhang San" "Li Si"
     python generate_character.py --all
     python generate_character.py --list
 
 Note:
-    参考图会自动从 project.json 中的 reference_image 字段读取
+    Reference images are automatically read from the reference_image field in project.json
 """
 
 import argparse
@@ -31,18 +31,18 @@ def generate_character(
     character_name: str,
 ) -> Path:
     """
-    生成单个角色设计图
+    Generate a single character design sheet
 
     Args:
-        character_name: 角色名称
+        character_name: character name
 
     Returns:
-        生成的图片路径
+        path to the generated image
     """
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
 
-    # 从 project.json 获取角色信息
+    # get character information from project.json
     project = pm.load_project(project_name)
 
     description = ""
@@ -51,10 +51,10 @@ def generate_character(
         description = char_info.get("description", "")
 
     if not description:
-        raise ValueError(f"角色 '{character_name}' 的描述为空，请先在 project.json 中添加描述")
+        raise ValueError(f"Character '{character_name}' has no description; please add a description in project.json first")
 
-    print(f"🎨 正在生成角色设计图: {character_name}")
-    print(f"   描述: {description[:50]}...")
+    print(f"🎨 Generating character design sheet: {character_name}")
+    print(f"   Description: {description[:50]}...")
 
     queued = enqueue_and_wait(
         project_name=project_name,
@@ -68,25 +68,25 @@ def generate_character(
     relative_path = result.get("file_path") or f"characters/{character_name}.png"
     output_path = project_dir / relative_path
     version = result.get("version")
-    version_text = f" (版本 v{version})" if version is not None else ""
-    print(f"✅ 角色设计图已保存: {output_path}{version_text}")
+    version_text = f" (version v{version})" if version is not None else ""
+    print(f"✅ Character design sheet saved: {output_path}{version_text}")
     return output_path
 
 
 def list_pending_characters() -> None:
-    """列出待生成设计图的角色"""
+    """List characters pending design sheet generation"""
     pm, project_name = ProjectManager.from_cwd()
     pending = pm.get_pending_characters(project_name)
 
     if not pending:
-        print(f"✅ 项目 '{project_name}' 中所有角色都已有设计图")
+        print(f"✅ All characters in project '{project_name}' already have design sheets")
         return
 
-    print(f"\n📋 待生成的角色 ({len(pending)} 个):\n")
+    print(f"\n📋 Pending characters ({len(pending)}):\n")
     for char in pending:
         print(f"  🧑 {char['name']}")
         desc = char.get("description", "")
-        print(f"     描述: {desc[:60]}..." if len(desc) > 60 else f"     描述: {desc}")
+        print(f"     Description: {desc[:60]}..." if len(desc) > 60 else f"     Description: {desc}")
         print()
 
 
@@ -94,13 +94,13 @@ def generate_batch_characters(
     character_names: list[str] | None = None,
 ) -> tuple[int, int]:
     """
-    批量生成角色设计图（全部入队，由 Worker 并行处理）
+    Batch generate character design sheets (all queued; processed in parallel by the Worker)
 
     Args:
-        character_names: 指定的角色名称列表。None 表示所有待处理角色。
+        character_names: list of specified character names. None means all pending characters.
 
     Returns:
-        (成功数, 失败数)
+        (success count, failure count)
     """
     pm, project_name = ProjectManager.from_cwd()
     project = pm.load_project(project_name)
@@ -110,10 +110,10 @@ def generate_batch_characters(
         names_to_process = []
         for name in character_names:
             if name not in chars:
-                print(f"⚠️  角色 '{name}' 不存在于 project.json 中，跳过")
+                print(f"⚠️  Character '{name}' does not exist in project.json, skipping")
                 continue
             if not chars[name].get("description"):
-                print(f"⚠️  角色 '{name}' 缺少描述，跳过")
+                print(f"⚠️  Character '{name}' is missing a description, skipping")
                 continue
             names_to_process.append(name)
     else:
@@ -121,7 +121,7 @@ def generate_batch_characters(
         names_to_process = [c["name"] for c in pending]
 
     if not names_to_process:
-        print("✅ 没有需要生成的角色")
+        print("✅ No characters need to be generated")
         return (0, 0)
 
     specs = [
@@ -135,15 +135,15 @@ def generate_batch_characters(
     ]
 
     total = len(specs)
-    print(f"\n🚀 批量提交 {total} 个角色设计图到生成队列...\n")
+    print(f"\n🚀 Submitting {total} character design sheets to the generation queue...\n")
 
     def on_success(br: BatchTaskResult) -> None:
         version = (br.result or {}).get("version")
-        version_text = f" (版本 v{version})" if version is not None else ""
-        print(f"✅ 角色设计图: {br.resource_id} 完成{version_text}")
+        version_text = f" (version v{version})" if version is not None else ""
+        print(f"✅ Character design sheet: {br.resource_id} complete{version_text}")
 
     def on_failure(br: BatchTaskResult) -> None:
-        print(f"❌ 角色设计图: {br.resource_id} 失败 - {br.error}")
+        print(f"❌ Character design sheet: {br.resource_id} failed - {br.error}")
 
     successes, failures = batch_enqueue_and_wait_sync(
         project_name=project_name,
@@ -153,20 +153,20 @@ def generate_batch_characters(
     )
 
     print(f"\n{'=' * 40}")
-    print("生成完成!")
-    print(f"   ✅ 成功: {len(successes)}")
-    print(f"   ❌ 失败: {len(failures)}")
+    print("Generation complete!")
+    print(f"   ✅ Successful: {len(successes)}")
+    print(f"   ❌ Failed: {len(failures)}")
     print(f"{'=' * 40}")
 
     return (len(successes), len(failures))
 
 
 def main():
-    parser = argparse.ArgumentParser(description="生成角色设计图")
-    parser.add_argument("--character", help="指定单个角色名称")
-    parser.add_argument("--characters", nargs="+", help="指定多个角色名称")
-    parser.add_argument("--all", action="store_true", help="生成所有待处理的角色")
-    parser.add_argument("--list", action="store_true", help="列出待生成的角色")
+    parser = argparse.ArgumentParser(description="Generate character design sheets")
+    parser.add_argument("--character", help="Specify a single character name")
+    parser.add_argument("--characters", nargs="+", help="Specify multiple character names")
+    parser.add_argument("--all", action="store_true", help="Generate all pending characters")
+    parser.add_argument("--list", action="store_true", help="List pending characters")
 
     args = parser.parse_args()
 
@@ -181,14 +181,14 @@ def main():
             sys.exit(0 if fail == 0 else 1)
         elif args.character:
             output_path = generate_character(args.character)
-            print(f"\n🖼️  请查看生成的图片: {output_path}")
+            print(f"\n🖼️  Please view the generated image: {output_path}")
         else:
             parser.print_help()
-            print("\n❌ 请指定 --all、--characters、--character 或 --list")
+            print("\n❌ Please specify --all, --characters, --character, or --list")
             sys.exit(1)
 
     except Exception as e:
-        print(f"❌ 错误: {e}")
+        print(f"❌ Error: {e}")
         sys.exit(1)
 
 

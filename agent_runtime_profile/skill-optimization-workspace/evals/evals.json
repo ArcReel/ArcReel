@@ -3,100 +3,100 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "我有一部武侠小说想做成短视频，大概3万字，帮我开始",
-      "expected_output": "应触发 manga-workflow，引导创建新项目、询问项目名称和内容模式，不直接读取小说原文",
+      "prompt": "I have a martial arts novel I want to turn into a short video, about 30,000 characters, help me get started",
+      "expected_output": "Should trigger manga-workflow, guide the user to create a new project and ask for project name and content mode; should not directly read the novel text",
       "target_skills": ["manga-workflow"],
       "assertions": [
         {
           "name": "asks_project_name",
-          "text": "询问用户项目名称",
+          "text": "Asks the user for the project name",
           "type": "behavior"
         },
         {
           "name": "asks_content_mode",
-          "text": "询问内容模式（narration 或 drama）",
+          "text": "Asks for the content mode (narration or drama)",
           "type": "behavior"
         },
         {
           "name": "does_not_read_novel",
-          "text": "不直接读取小说原文到 context",
+          "text": "Does not directly read the novel text into context",
           "type": "constraint"
         }
       ]
     },
     {
       "id": 2,
-      "prompt": "继续上次的项目，我记得角色已经分析完了，帮我继续",
-      "expected_output": "应触发 manga-workflow 状态检测，按检测清单顺序找到第一个缺失项，从对应阶段继续",
+      "prompt": "Continue the last project, I remember the characters have been analyzed, help me continue",
+      "expected_output": "Should trigger manga-workflow status detection, find the first missing item in the checklist in order, and continue from the corresponding phase",
       "target_skills": ["manga-workflow"],
       "assertions": [
         {
           "name": "reads_project_json",
-          "text": "读取 project.json 检查当前状态",
+          "text": "Reads project.json to check current status",
           "type": "behavior"
         },
         {
           "name": "uses_glob_check",
-          "text": "使用 Glob 检查文件系统确认各阶段文件是否存在",
+          "text": "Uses Glob to check the file system to confirm whether files for each phase exist",
           "type": "behavior"
         },
         {
           "name": "identifies_correct_stage",
-          "text": "根据检测结果确定正确的下一阶段",
+          "text": "Identifies the correct next phase based on the detection results",
           "type": "behavior"
         }
       ]
     },
     {
       "id": 3,
-      "prompt": "帮我把第2集的分镜图重新生成，E2S03 和 E2S07 的画面不太满意",
-      "expected_output": "应使用 generate-storyboard 的 --scene-ids 参数重新生成指定场景，不重新生成全部",
+      "prompt": "Help me regenerate the storyboard images for Episode 2; I'm not satisfied with the visuals of E2S03 and E2S07",
+      "expected_output": "Should use generate-storyboard with the --scene-ids parameter to regenerate the specified scenes; should not regenerate all",
       "target_skills": ["generate-storyboard"],
       "assertions": [
         {
           "name": "uses_scene_ids_flag",
-          "text": "使用 --scene-ids E2S03 E2S07 参数而非生成全部",
+          "text": "Uses --scene-ids E2S03 E2S07 parameter instead of generating all",
           "type": "behavior"
         },
         {
           "name": "correct_script_path",
-          "text": "在正确的项目目录下执行脚本",
+          "text": "Executes the script in the correct project directory",
           "type": "behavior"
         }
       ]
     },
     {
       "id": 4,
-      "prompt": "这集视频生成到一半断了，帮我接着来",
-      "expected_output": "应使用 generate-video 的 --resume 参数断点续传，不重新生成已完成的场景",
+      "prompt": "Video generation for this episode stopped halfway, help me continue",
+      "expected_output": "Should use generate-video with the --resume parameter to resume from checkpoint; should not regenerate already-completed scenes",
       "target_skills": ["generate-video"],
       "assertions": [
         {
           "name": "uses_resume_flag",
-          "text": "使用 --resume 参数断点续传",
+          "text": "Uses --resume parameter to resume from checkpoint",
           "type": "behavior"
         },
         {
           "name": "does_not_regenerate_all",
-          "text": "不重新生成已完成的场景视频",
+          "text": "Does not regenerate already-completed scene videos",
           "type": "constraint"
         }
       ]
     },
     {
       "id": 5,
-      "prompt": "视频做好了，帮我加个背景音乐，音量小一点大概0.2",
-      "expected_output": "应使用 compose-video 添加 BGM，设置 --music-volume 0.2",
+      "prompt": "The video is done, help me add background music at a low volume, around 0.2",
+      "expected_output": "Should use compose-video to add BGM with --music-volume 0.2",
       "target_skills": ["compose-video"],
       "assertions": [
         {
           "name": "uses_compose_video",
-          "text": "调用 compose-video 脚本",
+          "text": "Calls the compose-video script",
           "type": "behavior"
         },
         {
           "name": "correct_volume",
-          "text": "设置 --music-volume 0.2",
+          "text": "Sets --music-volume 0.2",
           "type": "behavior"
         }
       ]

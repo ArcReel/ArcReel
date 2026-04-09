@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Clue Generator - 使用 Gemini API 生成线索设计图
+Clue Generator - Generate clue design sheets using the Gemini API
 
 Usage:
     python generate_clue.py --all
-    python generate_clue.py --clue "玉佩"
-    python generate_clue.py --clues "玉佩" "老槐树"
+    python generate_clue.py --clue "jade pendant"
+    python generate_clue.py --clues "jade pendant" "old scholar tree"
     python generate_clue.py --list
 
 Example:
     python generate_clue.py --all
-    python generate_clue.py --clue "老槐树"
+    python generate_clue.py --clue "old scholar tree"
 """
 
 import argparse
@@ -30,28 +30,28 @@ from lib.project_manager import ProjectManager
 
 def generate_clue(clue_name: str) -> Path:
     """
-    生成单个线索设计图
+    Generate a single clue design sheet
 
     Args:
-        clue_name: 线索名称
+        clue_name: clue name
 
     Returns:
-        生成的图片路径
+        path to the generated image
     """
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
 
-    # 获取线索信息
+    # get clue information
     clue = pm.get_clue(project_name, clue_name)
     clue_type = clue.get("type", "prop")
     description = clue.get("description", "")
 
     if not description:
-        raise ValueError(f"线索 '{clue_name}' 的描述为空，请先添加描述")
+        raise ValueError(f"Clue '{clue_name}' has no description; please add a description first")
 
-    print(f"🎨 正在生成线索设计图: {clue_name}")
-    print(f"   类型: {clue_type}")
-    print(f"   描述: {description[:50]}..." if len(description) > 50 else f"   描述: {description}")
+    print(f"🎨 Generating clue design sheet: {clue_name}")
+    print(f"   Type: {clue_type}")
+    print(f"   Description: {description[:50]}..." if len(description) > 50 else f"   Description: {description}")
 
     queued = enqueue_and_wait(
         project_name=project_name,
@@ -65,29 +65,29 @@ def generate_clue(clue_name: str) -> Path:
     relative_path = result.get("file_path") or f"clues/{clue_name}.png"
     output_path = project_dir / relative_path
     version = result.get("version")
-    version_text = f" (版本 v{version})" if version is not None else ""
-    print(f"✅ 线索设计图已保存: {output_path}{version_text}")
+    version_text = f" (version v{version})" if version is not None else ""
+    print(f"✅ Clue design sheet saved: {output_path}{version_text}")
     return output_path
 
 
 def list_pending_clues() -> None:
     """
-    列出待生成的线索
+    List pending clues for design sheet generation
     """
     pm, project_name = ProjectManager.from_cwd()
     pending = pm.get_pending_clues(project_name)
 
     if not pending:
-        print(f"✅ 项目 '{project_name}' 中所有重要线索都已有设计图")
+        print(f"✅ All major clues in project '{project_name}' already have design sheets")
         return
 
-    print(f"\n📋 待生成的线索 ({len(pending)} 个):\n")
+    print(f"\n📋 Pending clues ({len(pending)}):\n")
     for clue in pending:
         clue_type = clue.get("type", "prop")
         type_emoji = "📦" if clue_type == "prop" else "🏠"
         print(f"  {type_emoji} {clue['name']}")
-        print(f"     类型: {clue_type}")
-        print(f"     描述: {clue.get('description', '')[:60]}...")
+        print(f"     Type: {clue_type}")
+        print(f"     Description: {clue.get('description', '')[:60]}...")
         print()
 
 
@@ -95,13 +95,13 @@ def generate_batch_clues(
     clue_names: list[str] | None = None,
 ) -> tuple[int, int]:
     """
-    批量生成线索设计图（全部入队，由 Worker 并行处理）
+    Batch generate clue design sheets (all queued; processed in parallel by the Worker)
 
     Args:
-        clue_names: 指定的线索名称列表。None 表示所有待处理线索。
+        clue_names: list of specified clue names. None means all pending clues.
 
     Returns:
-        (成功数, 失败数)
+        (success count, failure count)
     """
     pm, project_name = ProjectManager.from_cwd()
     project = pm.load_project(project_name)
@@ -111,10 +111,10 @@ def generate_batch_clues(
         names_to_process = []
         for name in clue_names:
             if name not in clues_dict:
-                print(f"⚠️  线索 '{name}' 不存在于 project.json 中，跳过")
+                print(f"⚠️  Clue '{name}' does not exist in project.json, skipping")
                 continue
             if not clues_dict[name].get("description"):
-                print(f"⚠️  线索 '{name}' 缺少描述，跳过")
+                print(f"⚠️  Clue '{name}' is missing a description, skipping")
                 continue
             names_to_process.append(name)
     else:
@@ -122,7 +122,7 @@ def generate_batch_clues(
         names_to_process = [c["name"] for c in pending]
 
     if not names_to_process:
-        print("✅ 没有需要生成的线索")
+        print("✅ No clues need to be generated")
         return (0, 0)
     specs = [
         BatchTaskSpec(
@@ -135,15 +135,15 @@ def generate_batch_clues(
     ]
 
     total = len(specs)
-    print(f"\n🚀 批量提交 {total} 个线索设计图到生成队列...\n")
+    print(f"\n🚀 Submitting {total} clue design sheets to the generation queue...\n")
 
     def on_success(br: BatchTaskResult) -> None:
         version = (br.result or {}).get("version")
-        version_text = f" (版本 v{version})" if version is not None else ""
-        print(f"✅ 线索设计图: {br.resource_id} 完成{version_text}")
+        version_text = f" (version v{version})" if version is not None else ""
+        print(f"✅ Clue design sheet: {br.resource_id} complete{version_text}")
 
     def on_failure(br: BatchTaskResult) -> None:
-        print(f"❌ 线索设计图: {br.resource_id} 失败 - {br.error}")
+        print(f"❌ Clue design sheet: {br.resource_id} failed - {br.error}")
 
     successes, failures = batch_enqueue_and_wait_sync(
         project_name=project_name,
@@ -153,20 +153,20 @@ def generate_batch_clues(
     )
 
     print(f"\n{'=' * 40}")
-    print("生成完成!")
-    print(f"   ✅ 成功: {len(successes)}")
-    print(f"   ❌ 失败: {len(failures)}")
+    print("Generation complete!")
+    print(f"   ✅ Successful: {len(successes)}")
+    print(f"   ❌ Failed: {len(failures)}")
     print(f"{'=' * 40}")
 
     return (len(successes), len(failures))
 
 
 def main():
-    parser = argparse.ArgumentParser(description="生成线索设计图")
-    parser.add_argument("--all", action="store_true", help="生成所有待处理的线索")
-    parser.add_argument("--clue", help="指定单个线索名称")
-    parser.add_argument("--clues", nargs="+", help="指定多个线索名称")
-    parser.add_argument("--list", action="store_true", help="列出待生成的线索")
+    parser = argparse.ArgumentParser(description="Generate clue design sheets")
+    parser.add_argument("--all", action="store_true", help="Generate all pending clues")
+    parser.add_argument("--clue", help="Specify a single clue name")
+    parser.add_argument("--clues", nargs="+", help="Specify multiple clue names")
+    parser.add_argument("--list", action="store_true", help="List pending clues")
 
     args = parser.parse_args()
 
@@ -181,14 +181,14 @@ def main():
             sys.exit(0 if fail == 0 else 1)
         elif args.clue:
             output_path = generate_clue(args.clue)
-            print(f"\n🖼️  请查看生成的图片: {output_path}")
+            print(f"\n🖼️  Please view the generated image: {output_path}")
         else:
             parser.print_help()
-            print("\n❌ 请指定 --all、--clues、--clue 或 --list")
+            print("\n❌ Please specify --all, --clues, --clue, or --list")
             sys.exit(1)
 
     except Exception as e:
-        print(f"❌ 错误: {e}")
+        print(f"❌ Error: {e}")
         sys.exit(1)
 
 

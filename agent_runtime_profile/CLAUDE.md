@@ -1,150 +1,150 @@
-# AI 视频生成工作空间
+# AI Video Generation Workspace
 
 ---
 
-## 重要总则
+## Important General Rules
 
-以下规则适用于整个项目的所有操作：
+The following rules apply to all operations across the entire project:
 
-### 语言规范
-- **回答用户必须使用中文**：所有回复、思考过程、任务清单及计划文件，均须使用中文
-- **视频内容必须为中文**：所有生成的视频对话、旁白、字幕均使用中文
-- **文档使用中文**：所有的 Markdown 文件均使用中文编写
-- **Prompt 使用中文**：图片生成/视频生成使用的 prompt 应使用中文编写
+### Language Policy
+- **Respond to users in English**: all replies, reasoning, task lists, and planning documents must use English
+- **Video content must be in Chinese**: all generated video dialogues, narrations, and subtitles use Chinese
+- **Documents use English**: all Markdown files are written in English
+- **Prompts use Chinese**: image generation/video generation prompts should be written in Chinese
 
-### 视频规格
-- **视频比例**：由项目 `aspect_ratio` 配置决定，无需在 prompt 中指定
-  - 说书+画面模式默认：**9:16 竖屏**
-  - 剧集动画模式默认：16:9 横屏
-- **单片段/场景时长**：由视频模型能力和项目 `default_duration` 配置决定
-  - 说书+画面模式默认：**4 秒**
-  - 剧集动画模式默认：8 秒
-- **图片分辨率**：1K
-- **视频分辨率**：1080p
-- **生成方式**：每个片段/场景独立生成，使用分镜图作为起始帧
+### Video Specifications
+- **Aspect ratio**: determined by the project's `aspect_ratio` configuration; no need to specify in the prompt
+  - Narration + visuals mode default: **9:16 portrait**
+  - Drama animation mode default: 16:9 landscape
+- **Single segment/scene duration**: determined by video model capability and the project's `default_duration` configuration
+  - Narration + visuals mode default: **4 seconds**
+  - Drama animation mode default: 8 seconds
+- **Image resolution**: 1K
+- **Video resolution**: 1080p
+- **Generation method**: each segment/scene generated independently, using the storyboard image as the starting frame
 
-> **关于 extend 功能**：Veo 3.1 extend 功能仅用于延长单个片段/场景，
-> 每次固定 +7 秒，不适合用于串联不同镜头。不同片段/场景之间使用 ffmpeg 拼接。
+> **About the extend feature**: Veo 3.1 extend is only for extending a single segment/scene,
+> each time adding a fixed +7 seconds; it is not suitable for connecting different shots. Different segments/scenes are concatenated with ffmpeg.
 
-### 音频规范
-- **BGM 自动禁止**：通过 `negative_prompt` API 参数自动排除背景音乐
+### Audio Policy
+- **BGM automatically excluded**: background music is automatically excluded via the `negative_prompt` API parameter
 
-### 脚本调用
-- **Skill 内部脚本**：各 skill 的可执行脚本位于 `agent_runtime_profile/.claude/skills/{skill-name}/scripts/` 目录下
-- **虚拟环境**：默认已激活，脚本无需手动激活 .venv
-
----
-
-## 内容模式
-
-系统支持两种内容模式（说书+画面 / 剧集动画），通过 `project.json` 的 `content_mode` 字段切换。
-
-> 详细规格（画面比例、时长、数据结构、预处理 Agent 等）见 `.claude/references/content-modes.md`。
+### Script Invocation
+- **Skill internal scripts**: each skill's executable scripts are located in the `agent_runtime_profile/.claude/skills/{skill-name}/scripts/` directory
+- **Virtual environment**: activated by default; scripts do not need to manually activate .venv
 
 ---
 
-## 项目结构
+## Content Modes
 
-- `projects/{项目名}` - 视频项目的工作空间
-- `lib/` - 共享 Python 库（Gemini API 封装、项目管理）
-- `agent_runtime_profile/.claude/skills/` - 可用的 skills
+The system supports two content modes (narration + visuals / drama animation), switched via the `content_mode` field in `project.json`.
 
-## 架构：编排 Skill + 聚焦 Subagent
+> Detailed specifications (aspect ratio, duration, data structure, preprocessing Agent, etc.) are in `.claude/references/content-modes.md`.
+
+---
+
+## Project Structure
+
+- `projects/{project-name}` - workspace for video projects
+- `lib/` - shared Python library (Gemini API wrappers, project management)
+- `agent_runtime_profile/.claude/skills/` - available skills
+
+## Architecture: Orchestration Skill + Focused Subagents
 
 ```
-主 Agent（编排层 — 极轻量）
-  │  只持有：项目状态摘要 + 用户对话历史
-  │  职责：状态检测、流程决策、用户确认、dispatch subagent
+Main Agent (orchestration layer — extremely lightweight)
+  │  Holds only: project status summary + user conversation history
+  │  Responsibilities: status detection, flow decisions, user confirmation, dispatch subagents
   │
-  ├─ dispatch → analyze-characters-clues     全局角色/线索提取
-  ├─ dispatch → split-narration-segments     说书模式片段拆分
-  ├─ dispatch → normalize-drama-script       剧集模式规范化剧本
-  ├─ dispatch → create-episode-script        JSON 剧本生成（预加载 generate-script skill）
-  └─ dispatch → generate-assets              资产生成（角色/线索/分镜/视频）
+  ├─ dispatch → analyze-characters-clues     global character/clue extraction
+  ├─ dispatch → split-narration-segments     narration mode segment splitting
+  ├─ dispatch → normalize-drama-script       drama mode script normalization
+  ├─ dispatch → create-episode-script        JSON script generation (preloads generate-script skill)
+  └─ dispatch → generate-assets             asset generation (characters/clues/storyboard/video)
 ```
 
-### Skill/Agent 边界原则
+### Skill/Agent Boundary Principles
 
-| 类型 | 用途 | 示例 |
+| Type | Purpose | Examples |
 |------|------|------|
-| **Subagent（聚焦任务）** | 需要大量上下文或推理分析 → 保护主 agent context | analyze-characters-clues、split-narration-segments |
-| **Skill（在 subagent 内调用）** | 确定性脚本执行 → API 调用、文件生成 | generate-script、generate-characters |
-| **主 Agent 直接操作** | 仅限轻量操作 | 读项目状态、简单文件操作、用户交互 |
+| **Subagent (focused task)** | Requires large context or reasoning analysis → protects main agent context | analyze-characters-clues, split-narration-segments |
+| **Skill (called within subagent)** | Deterministic script execution → API calls, file generation | generate-script, generate-characters |
+| **Main Agent direct operations** | Lightweight operations only | read project status, simple file operations, user interaction |
 
-### 关键约束
+### Key Constraints
 
-- **Subagent 不能 spawn subagent**：多步工作流只能通过主 agent 链式 dispatch
-- **小说原文不进入主 agent**：由 subagent 自行读取，主 agent 只传文件路径
-- **每个 subagent 一个聚焦任务**：完成即返回，不在内部做多步用户确认
+- **Subagents cannot spawn subagents**: multi-step workflows can only be chained by the main agent dispatching sequentially
+- **Novel text never enters main agent**: read by the subagent independently; the main agent only passes file paths
+- **Each subagent has one focused task**: returns immediately upon completion; does not perform multi-step user confirmations internally
 
-### 职责边界
+### Responsibility Boundaries
 
-- **禁止编写代码**：不得创建或修改任何代码文件（.py/.js/.sh 等），数据处理必须通过现有 skill 脚本完成
-- **代码 bug 上报**：如果明确判断 skill 脚本出现的是代码 bug（而非参数或环境问题），向用户报告错误并建议反馈给开发者
+- **No coding**: must not create or modify any code files (.py/.js/.sh etc.); data processing must be done through existing skill scripts
+- **Code bug reporting**: if a skill script has a clear code bug (not a parameter or environment issue), report the error to the user and suggest filing feedback with the developers
 
-## 可用 Skills
+## Available Skills
 
-| Skill | 触发命令 | 功能 |
+| Skill | Trigger Command | Function |
 |-------|---------|------|
-| manga-workflow | `/manga-workflow` | 编排 skill：状态检测 + subagent dispatch + 用户确认 |
-| manage-project | — | 项目管理工具集：分集切分（peek+split）、角色/线索批量写入 |
-| generate-script | — | 使用 Gemini 生成 JSON 剧本（由 subagent 调用） |
-| generate-characters | `/generate-characters` | 生成角色设计图 |
-| generate-clues | `/generate-clues` | 生成线索设计图 |
-| generate-storyboard | `/generate-storyboard` | 生成分镜图片 |
-| generate-video | `/generate-video` | 生成视频 |
+| manga-workflow | `/manga-workflow` | Orchestration skill: status detection + subagent dispatch + user confirmation |
+| manage-project | — | Project management toolset: episode splitting (peek+split), batch character/clue writing |
+| generate-script | — | Generate JSON script using Gemini (called by subagent) |
+| generate-characters | `/generate-characters` | Generate character design sheets |
+| generate-clues | `/generate-clues` | Generate clue design sheets |
+| generate-storyboard | `/generate-storyboard` | Generate storyboard images |
+| generate-video | `/generate-video` | Generate video clips |
 
-## 快速开始
+## Quick Start
 
-新用户请使用 `/manga-workflow` 开始完整的视频创作流程。
+New users should use `/manga-workflow` to begin the complete video creation workflow.
 
-## 工作流程概览
+## Workflow Overview
 
-`/manga-workflow` 编排 skill 按以下阶段自动推进（每个阶段完成后等待用户确认）：
+The `/manga-workflow` orchestration skill automatically advances through the following phases (waits for user confirmation after each phase):
 
-1. **项目设置**：创建项目、上传小说、生成项目概述
-2. **全局角色/线索设计** → dispatch `analyze-characters-clues` subagent
-3. **分集规划** → 主 agent 直接执行 peek+split 切分（manage-project 工具集）
-4. **单集预处理** → dispatch `split-narration-segments`（narration）或 `normalize-drama-script`（drama）
-5. **JSON 剧本生成** → dispatch `create-episode-script` subagent
-6. **角色设计 + 线索设计**（可并行） → dispatch `generate-assets` subagent
-7. **分镜图生成** → dispatch `generate-assets` subagent
-8. **视频生成** → dispatch `generate-assets` subagent
+1. **Project Setup**: create project, upload novel, generate project overview
+2. **Global character/clue design** → dispatch `analyze-characters-clues` subagent
+3. **Episode planning** → main agent directly executes peek+split (manage-project toolset)
+4. **Single episode preprocessing** → dispatch `split-narration-segments` (narration) or `normalize-drama-script` (drama)
+5. **JSON script generation** → dispatch `create-episode-script` subagent
+6. **Character design + clue design** (can run in parallel) → dispatch `generate-assets` subagent
+7. **Storyboard generation** → dispatch `generate-assets` subagent
+8. **Video generation** → dispatch `generate-assets` subagent
 
-工作流支持**灵活入口**：状态检测自动定位到第一个未完成的阶段，支持中断后恢复。
-视频生成完成后，用户可在 Web 端导出为剪映草稿。
+The workflow supports **flexible entry points**: status detection automatically locates the first incomplete phase, supporting resume after interruption.
+After video generation is complete, users can export to CapCut draft in the Web interface.
 
-## 关键原则
+## Key Principles
 
-- **角色一致性**：每个场景都使用分镜图作为起始帧，确保角色形象一致
-- **线索一致性**：重要物品和环境元素通过 `clues` 机制固化，确保跨场景一致
-- **分镜连贯性**：使用 segment_break 标记场景切换点，后期可添加转场效果
-- **质量控制**：每个场景生成后检查质量，可单独重新生成不满意的场景
+- **Character consistency**: each scene uses the storyboard image as the starting frame, ensuring consistent character appearance
+- **Clue consistency**: important items and environmental elements are fixed through the `clues` mechanism, ensuring cross-scene consistency
+- **Storyboard continuity**: use segment_break markers for scene transition points; transition effects can be added later
+- **Quality control**: check quality after each scene is generated; unsatisfactory scenes can be individually regenerated
 
-## 项目目录结构
+## Project Directory Structure
 
 ```
-projects/{项目名}/
-├── project.json       # 项目元数据（角色、线索、剧集、风格）
-├── source/            # 原始小说内容
-├── scripts/           # 分镜剧本 (JSON)
-├── characters/        # 角色设计图
-├── clues/             # 线索设计图
-├── storyboards/       # 分镜图片
-├── videos/            # 生成的视频
-└── output/            # 最终输出
+projects/{project-name}/
+├── project.json       # project metadata (characters, clues, episodes, style)
+├── source/            # original novel content
+├── scripts/           # storyboard scripts (JSON)
+├── characters/        # character design sheets
+├── clues/             # clue design sheets
+├── storyboards/       # storyboard images
+├── videos/            # generated videos
+└── output/            # final output
 ```
 
-### project.json 核心字段
+### Core Fields in project.json
 
-- `title`、`content_mode`（`narration`/`drama`）、`style`、`style_description`
-- `overview`：项目概述（synopsis、genre、theme、world_setting）
-- `episodes`：剧集核心元数据（episode、title、script_file）
-- `characters`：角色完整定义（description、character_sheet、voice_style）
-- `clues`：线索完整定义（type、description、importance、clue_sheet）
+- `title`, `content_mode` (`narration`/`drama`), `style`, `style_description`
+- `overview`: project overview (synopsis, genre, theme, world_setting)
+- `episodes`: episode core metadata (episode, title, script_file)
+- `characters`: complete character definitions (description, character_sheet, voice_style)
+- `clues`: complete clue definitions (type, description, importance, clue_sheet)
 
-### 数据分层原则
+### Data Layering Principles
 
-- 角色/线索的完整定义**只存储在 project.json**，剧本中仅引用名称
-- `scenes_count`、`status`、`progress` 等统计字段由 StatusCalculator **读时计算**，不存储
-- 剧集元数据（episode/title/script_file）在剧本保存时**写时同步**
+- Complete character/clue definitions are **stored only in project.json**; scripts only reference names
+- Stats fields like `scenes_count`, `status`, `progress` are **computed on read** by StatusCalculator, not stored
+- Episode metadata (episode/title/script_file) is **synced on write** when the script is saved

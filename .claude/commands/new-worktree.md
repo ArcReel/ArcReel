@@ -1,68 +1,68 @@
 ---
 name: "New Worktree"
-description: 创建隔离的 git worktree，并自动同步本地配置文件（settings.local.json、.env、.vscode/）和链接 projects/ 目录
+description: Create an isolated git worktree and automatically sync local configuration files (settings.local.json, .env, .vscode/) and link the projects/ directory
 category: Workflow
 tags: [git, worktree, setup]
 ---
 
-创建隔离工作区，完成后将本地环境文件同步到新 worktree。
+Create an isolated workspace and sync local environment files to the new worktree upon completion.
 
-**Input**: 可选指定分支名（如 `/new-worktree feature/auth`）。未指定则从对话上下文推断。
+**Input**: optionally specify a branch name (e.g., `/new-worktree feature/auth`). If not specified, infer from conversation context.
 
-**开始时宣告：** "使用 new-worktree 命令创建隔离工作区。"
+**Announce at start:** "Using the new-worktree command to create an isolated workspace."
 
 ---
 
-## 步骤
+## Steps
 
-### 1. 确定分支名和基准 ref
+### 1. Determine Branch Name and Base Ref
 
-若用户提供了分支名则使用，否则从对话上下文推断（如正在讨论某功能）。
-若用户指定了基准 ref（如远程分支 `origin/feature/xxx`），作为第二个参数传入。
+If the user provided a branch name, use it; otherwise infer from the conversation context (e.g., a feature being discussed).
+If the user specified a base ref (e.g., remote branch `origin/feature/xxx`), pass it as the second argument.
 
-### 2. 执行脚本
+### 2. Execute Script
 
 ```bash
 bash scripts/new-worktree.sh <branch-name> [base-ref]
 ```
 
-脚本会自动完成：
-- 创建 worktree 到 `.worktrees/<branch-name>`
-- 同步 .claude/settings.local.json、.env、.vscode/
-- 链接 projects/ 目录（符号链接，共享数据）
-- 安装 Python 和前端依赖
+The script automatically:
+- Creates a worktree at `.worktrees/<branch-name>`
+- Syncs .claude/settings.local.json, .env, .vscode/
+- Links the projects/ directory (symbolic link, shared data)
+- Installs Python and frontend dependencies
 
-### 3. 验证基线（可选）
+### 3. Validate Baseline (Optional)
 
-脚本完成后，运行测试确认 worktree 起点干净：
+After the script completes, run tests to confirm the worktree starts clean:
 
 ```bash
-cd <worktree路径> && uv run python -m pytest --tb=short -q
+cd <worktree-path> && uv run python -m pytest --tb=short -q
 ```
 
-若测试失败：报告失败情况，询问是否继续或先排查。
+If tests fail: report the failures, ask whether to continue or investigate first.
 
-### 4. 报告结果
+### 4. Report Results
 
 ```
-Worktree 已就绪：<完整路径>
+Worktree ready: <full path>
 
-已同步文件：
+Synced files:
   ✓ .claude/settings.local.json
   ✓ .env
-  ✓ projects/ (符号链接，共享数据)
+  ✓ projects/ (symbolic link, shared data)
   ✓ .vscode/
 
-测试基线：通过（N 个测试，0 个失败）
-可以开始实现 <feature-name>
+Test baseline: passed (N tests, 0 failures)
+Ready to implement <feature-name>
 ```
 
 ---
 
-## 快速参考
+## Quick Reference
 
-| 情况 | 操作 |
+| Situation | Action |
 |------|------|
-| worktree 目录 | 固定 `.worktrees/` |
-| 源文件/目录不存在 | 静默跳过，报告中标注 |
-| 测试失败 | 报告失败 + 询问 |
+| Worktree directory | Fixed at `.worktrees/` |
+| Source file/directory does not exist | Skip silently; note in report |
+| Tests fail | Report failures + ask |

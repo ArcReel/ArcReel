@@ -1,54 +1,54 @@
 ---
 name: generate-characters
-description: 生成角色设计参考图（三视图）。当用户说"生成角色图"、"画角色设计"、想为新角色创建参考图、或有角色缺少 character_sheet 时使用。确保视频中角色形象一致。
+description: Generate character design reference sheets (three-view). Use when the user says "generate character images", "draw character designs", wants to create reference sheets for new characters, or when characters are missing character_sheet. Ensures consistent character appearance throughout the video.
 ---
 
-# 生成角色设计图
+# Generate Character Design Sheets
 
-使用 Gemini 3 Pro Image API 创建角色设计图，确保整个视频中的视觉一致性。
+Use the Gemini 3 Pro Image API to create character design sheets, ensuring visual consistency throughout the entire video.
 
-> Prompt 编写原则详见 `.claude/references/content-modes.md` 的"Prompt 语言"章节。
+> For prompt writing principles, see the "Prompt Language" section of `.claude/references/content-modes.md`.
 
-## 角色描述编写指南
+## Character Description Writing Guide
 
-编写角色 `description` 时使用**叙事式写法**，不要罗列关键词。
+When writing the character `description`, use a **narrative style** rather than listing keywords.
 
-**推荐**：
-> "二十出头的女子，身材纤细，鹅蛋脸上有一双清澈的杏眼，柳叶眉微蹙时带着几分忧郁。身着淡青色绣花罗裙，腰间系着同色丝带，显得端庄而不失灵动。"
+**Recommended**:
+> "A woman in her early twenties, slender, with bright almond-shaped eyes on an oval face, and gently furrowed willow-leaf eyebrows that carry a touch of melancholy. She wears a pale blue embroidered silk skirt with a matching sash at the waist, appearing elegant yet lively."
 
-**要点**：用连贯段落描述外貌、服装、气质，包含年龄、体态、面部特征、服饰细节。
+**Key points**: use flowing paragraphs to describe appearance, clothing, and temperament, including age, build, facial features, and clothing details.
 
-## 命令行用法
+## Command-Line Usage
 
 ```bash
-# 生成所有待处理的角色
+# Generate all pending characters
 python .claude/skills/generate-characters/scripts/generate_character.py --all
 
-# 生成指定单个角色
-python .claude/skills/generate-characters/scripts/generate_character.py --character "{角色名}"
+# Generate a specified single character
+python .claude/skills/generate-characters/scripts/generate_character.py --character "{character-name}"
 
-# 生成指定多个角色
-python .claude/skills/generate-characters/scripts/generate_character.py --characters "{角色1}" "{角色2}" "{角色3}"
+# Generate specified multiple characters
+python .claude/skills/generate-characters/scripts/generate_character.py --characters "{character1}" "{character2}" "{character3}"
 
-# 列出待生成的角色
+# List characters pending generation
 python .claude/skills/generate-characters/scripts/generate_character.py --list
 ```
 
-## 工作流程
+## Workflow
 
-1. **加载项目数据** — 从 project.json 找出缺少 `character_sheet` 的角色
-2. **生成角色设计** — 根据描述构建 prompt，调用脚本生成
-3. **审核检查点** — 展示每张设计图，用户可批准或要求重新生成
-4. **更新 project.json** — 更新 `character_sheet` 路径
+1. **Load project data** — find characters missing `character_sheet` from project.json
+2. **Generate character designs** — build the prompt from the description, call the script to generate
+3. **Review checkpoint** — display each design sheet; the user can approve or request regeneration
+4. **Update project.json** — update the `character_sheet` path
 
-## Prompt 模板
+## Prompt Template
 
 ```
-一张专业的角色设计参考图，{项目 style}。
+A professional character design reference sheet, {project style}.
 
-角色「[角色名称]」的三视图设计稿。[角色描述 - 叙事式段落]
+Three-view design sheet for the character "[character name]". [character description - narrative paragraph]
 
-三个等比例全身像水平排列在纯净浅灰背景上：左侧正面、中间四分之三侧面、右侧纯侧面轮廓。柔和均匀的摄影棚照明，无强烈阴影。
+Three full-body images of equal proportions arranged horizontally on a clean light gray background: front view on the left, three-quarter view in the middle, pure side profile on the right. Soft and even studio lighting, no harsh shadows.
 ```
 
-> 画风由项目的 `style` 字段决定，不使用固定的"漫画/动漫"描述。
+> The art style is determined by the project's `style` field; do not use fixed "manga/anime" descriptions.

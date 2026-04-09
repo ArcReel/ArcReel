@@ -1,77 +1,77 @@
 ---
 name: manage-project
-description: 项目管理工具集。使用场景：(1) 分集切分——探测切分点并执行切分，(2) 批量添加角色/线索到 project.json。提供 peek（预览）+ split（执行）的渐进式切分工作流，以及角色/线索批量写入。
+description: Project management toolset. Use cases: (1) episode splitting — detect split points and execute splitting, (2) batch add characters/clues to project.json. Provides a progressive peek (preview) + split (execute) splitting workflow and batch character/clue writing.
 user-invocable: false
 ---
 
-# 项目管理工具集
+# Project Management Toolset
 
-提供项目文件管理的命令行工具，主要用于分集切分和角色/线索批量写入。
+Provides command-line tools for project file management, primarily for episode splitting and batch character/clue writing.
 
-## 工具一览
+## Tool Overview
 
-| 脚本 | 功能 | 调用者 |
+| Script | Function | Caller |
 |------|------|--------|
-| `peek_split_point.py` | 探测目标字数附近的上下文和自然断点 | 主 agent（阶段 2） |
-| `split_episode.py` | 执行分集切分，生成 episode_N.txt + _remaining.txt | 主 agent（阶段 2） |
-| `add_characters_clues.py` | 批量添加角色/线索到 project.json | subagent |
+| `peek_split_point.py` | Detect context and natural break points near the target word count | Main agent (Phase 2) |
+| `split_episode.py` | Execute episode splitting, generate episode_N.txt + _remaining.txt | Main agent (Phase 2) |
+| `add_characters_clues.py` | Batch add characters/clues to project.json | Subagent |
 
-## 分集切分工作流
+## Episode Splitting Workflow
 
-分集切分采用 **peek → 用户确认 → split** 的渐进式流程，由主 agent 在 manga-workflow 阶段 2 直接执行。
+Episode splitting uses a progressive **peek → user confirmation → split** flow, executed directly by the main agent in manga-workflow Phase 2.
 
-### Step 1: 探测切分点
-
-```bash
-python .claude/skills/manage-project/scripts/peek_split_point.py --source {源文件} --target {目标字数}
-```
-
-**参数**：
-- `--source`：源文件路径（`source/novel.txt` 或 `source/_remaining.txt`）
-- `--target`：目标有效字数
-- `--context`：上下文窗口大小（默认 200 字符）
-
-**输出**（JSON）：
-- `total_chars`：总有效字数
-- `target_offset`：目标字数对应的原文偏移
-- `context_before` / `context_after`：切分点前后上下文
-- `nearby_breakpoints`：附近自然断点列表（按距离排序，最多 10 个）
-
-### Step 2: 执行切分
+### Step 1: Detect Split Point
 
 ```bash
-# Dry run（仅预览）
-python .claude/skills/manage-project/scripts/split_episode.py --source {源文件} --episode {N} --target {目标字数} --anchor "{锚点文本}" --dry-run
-
-# 实际执行
-python .claude/skills/manage-project/scripts/split_episode.py --source {源文件} --episode {N} --target {目标字数} --anchor "{锚点文本}"
+python .claude/skills/manage-project/scripts/peek_split_point.py --source {source-file} --target {target-word-count}
 ```
 
-**参数**：
-- `--source`：源文件路径
-- `--episode`：集数编号
-- `--target`：目标有效字数（与 peek 一致）
-- `--anchor`：切分点的锚点文本（10-20 字符）
-- `--context`：搜索窗口大小（默认 500 字符）
-- `--dry-run`：仅预览，不写文件
+**Parameters**:
+- `--source`: source file path (`source/novel.txt` or `source/_remaining.txt`)
+- `--target`: target effective word count
+- `--context`: context window size (default 200 characters)
 
-**定位机制**：target 字数计算大致偏移 → 在 ±window 范围内搜索 anchor → 使用距离最近的匹配
+**Output** (JSON):
+- `total_chars`: total effective character count
+- `target_offset`: original text offset corresponding to target word count
+- `context_before` / `context_after`: context before and after the split point
+- `nearby_breakpoints`: list of nearby natural break points (sorted by distance, up to 10)
 
-**输出文件**：
-- `source/episode_{N}.txt`：前半部分
-- `source/_remaining.txt`：后半部分（下一集的源文件）
-
-## 角色/线索批量写入
-
-从项目目录内执行，自动检测项目名称：
-
-⚠️ 必须单行，JSON 使用紧凑格式，不可用 `\` 换行：
+### Step 2: Execute Split
 
 ```bash
-python .claude/skills/manage-project/scripts/add_characters_clues.py --characters '{"角色名": {"description": "...", "voice_style": "..."}}' --clues '{"线索名": {"type": "prop", "description": "...", "importance": "major"}}'
+# Dry run (preview only)
+python .claude/skills/manage-project/scripts/split_episode.py --source {source-file} --episode {N} --target {target-word-count} --anchor "{anchor-text}" --dry-run
+
+# Actual execution
+python .claude/skills/manage-project/scripts/split_episode.py --source {source-file} --episode {N} --target {target-word-count} --anchor "{anchor-text}"
 ```
 
-## 字数统计规则
+**Parameters**:
+- `--source`: source file path
+- `--episode`: episode number
+- `--target`: target effective word count (consistent with peek)
+- `--anchor`: anchor text at the split point (10-20 characters)
+- `--context`: search window size (default 500 characters)
+- `--dry-run`: preview only, do not write files
 
-- 统计非空行的所有字符（包括标点）
-- 空行（仅含空白字符的行）不计入
+**Positioning mechanism**: target word count calculates approximate offset → search for anchor within ±window range → use the closest match
+
+**Output files**:
+- `source/episode_{N}.txt`: first half
+- `source/_remaining.txt`: second half (source file for the next episode)
+
+## Batch Character/Clue Writing
+
+Execute from within the project directory; automatically detects the project name:
+
+⚠️ Must be a single line; JSON must use compact format; do not use `\` for line breaks:
+
+```bash
+python .claude/skills/manage-project/scripts/add_characters_clues.py --characters '{"CharacterName": {"description": "...", "voice_style": "..."}}' --clues '{"ClueName": {"type": "prop", "description": "...", "importance": "major"}}'
+```
+
+## Character Count Rules
+
+- Count all characters in non-empty lines (including punctuation)
+- Empty lines (lines containing only whitespace) are not counted

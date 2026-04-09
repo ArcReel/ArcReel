@@ -4,102 +4,102 @@ Best practices for creating effective prompts for Veo 3.1 video generation.
 
 ## Prompt Structure
 
-按照 Veo 最佳实践，prompt 应包含以下元素（自然融合，不使用标签）：
+Following Veo best practices, prompts should include the following elements (naturally blended, no tags):
 
-1. **Composition** 构图：镜头类型（wide shot, close-up, medium shot）
-2. **Subject** 主体：场景描述，包含角色、环境、物体
-3. **Action** 动作：角色在做什么
-4. **Dialogue** 对话：Speaker（manner）说道："text"
-5. **Sound Effects** 音效：自然融入场景描述
-6. **Camera** 镜头：运动方式的自然描述
-7. **Ambiance** 氛围：光线和情绪
+1. **Composition**: shot type (wide shot, close-up, medium shot)
+2. **Subject**: scene description including characters, environment, objects
+3. **Action**: what the characters are doing
+4. **Dialogue**: Speaker (manner) says: "text"
+5. **Sound Effects**: naturally integrated into the scene description
+6. **Camera**: natural description of the camera movement
+7. **Ambiance**: lighting and mood
 
-**重要**：不要在 prompt 中写入以下内容（这些通过 API 参数传递）：
-- 视频时长（如 "8 秒"）
-- 宽高比（如 "16:9"、"9:16"）
+**Important**: do not include the following in the prompt (these are passed via API parameters):
+- Video duration (e.g., "8 seconds")
+- Aspect ratio (e.g., "16:9", "9:16")
 
 ## Dialogue and Audio
 
-### 对话格式
+### Dialogue Format
 ```
-男人（手握猎刀）说道："这不是普通的熊。"
-女人（声音因恐惧而紧绷，四处张望）说道："那是什么？"
-```
-
-使用引号包裹对话内容，在括号中描述动作和说话方式。
-
-### 说话方式描述
-- `轻声`, `低语`, `大喊`, `喃喃自语`
-- `温柔地`, `紧张地`, `坚定地`
-- `低沉的男声`, `清脆的女声`
-
-### 音效（自然融入）
-不使用 "音效：" 标签，而是自然描述：
-```
-一声粗犷的吠叫，树枝折断的声音，潮湿泥土上的脚步声。一只孤鸟鸣叫。
+The man (gripping a hunting knife) says: "This is no ordinary bear."
+The woman (voice taut with fear, looking around) says: "What is it then?"
 ```
 
+Wrap dialogue content in quotation marks; describe actions and speaking manner in parentheses.
+
+### Speaking Manner Descriptions
+- `softly`, `in a whisper`, `shouting`, `muttering`
+- `gently`, `nervously`, `resolutely`
+- `in a deep male voice`, `in a clear female voice`
+
+### Sound Effects (Naturally Integrated)
+Do not use "Sound effects:" labels; instead, describe naturally:
 ```
-轮胎尖锐的刹车声，引擎轰鸣。
+A rough bark, the sound of snapping branches, footsteps on wet soil. A lone bird cries.
 ```
 
-### 关于 BGM
-- **不要在 prompt 中描述背景音乐**
-- BGM 通过 `negative_prompt` 参数自动禁止
-- 后期配乐使用 `/compose-video` 处理
+```
+The sharp squeal of tires, the roar of an engine.
+```
+
+### About BGM
+- **Do not describe background music in the prompt**
+- BGM is automatically excluded via the `negative_prompt` parameter
+- Add background music in post-production using `/compose-video`
 
 ## Camera Movement
 
-| 英文术语 | 中文描述 |
+| English Term | Description |
 |---------|---------|
-| static | 镜头静止 |
-| pan left/right | 镜头向左/右平移 |
-| tilt up/down | 镜头向上/下倾斜 |
-| dolly in/out | 镜头缓缓推进/拉远 |
-| track left/right | 镜头向左/右跟踪移动 |
-| crane up/down | 镜头升起/降落 |
-| handheld | 手持镜头轻微晃动 |
+| static | Camera still |
+| pan left/right | Camera pans left/right |
+| tilt up/down | Camera tilts up/down |
+| dolly in/out | Camera slowly pushes in/pulls back |
+| track left/right | Camera tracks left/right |
+| crane up/down | Camera cranes up/down |
+| handheld | Handheld camera with slight shake |
 
 ## Shot Types
 
-| 英文术语 | 中文术语 | 适用场景 |
+| English Term | Chinese Term | Suitable Scenes |
 |---------|---------|---------|
-| extreme close-up | 特写 | 情绪、细节 |
-| close-up | 近景 | 面部、对话 |
-| medium shot | 中景 | 上半身、对话 |
-| full shot | 全景 | 全身 |
-| wide shot | 远景 | 环境、建立镜头 |
-| aerial | 俯瞰 | 鸟瞰视角 |
+| extreme close-up | Extreme close-up | Emotion, detail |
+| close-up | Close-up | Face, dialogue |
+| medium shot | Medium shot | Upper body, dialogue |
+| full shot | Full shot | Full body |
+| wide shot | Wide shot | Environment, establishing shot |
+| aerial | Aerial | Bird's-eye view |
 
 ## Negative Prompts
 
-使用 `negative_prompt` API 参数排除不想要的元素：
-- ❌ 不要使用否定语言："no walls"
-- ✅ 直接描述不想要的内容："walls, frames, borders"
+Use the `negative_prompt` API parameter to exclude unwanted elements:
+- Do not use negative language: "no walls"
+- Directly describe what you don't want: "walls, frames, borders"
 
-默认 negative prompt（自动应用）：
+Default negative prompt (automatically applied):
 ```
 background music, BGM, soundtrack, musical accompaniment
 ```
 
 ## Examples
 
-### 对话与氛围场景
+### Dialogue and Atmosphere Scene
 ```
-wide shot，迷雾笼罩的太平洋西北森林。两个疲惫的徒步者，一男一女，穿过蕨类植物丛，男人突然停下，盯着一棵树。close-up：树皮上有新鲜的深深的爪痕。男人（手握猎刀）说道："这不是普通的熊。" 女人（声音因恐惧而紧绷，四处张望）说道："那是什么？" 一声粗犷的吠叫，树枝折断的声音，潮湿泥土上的脚步声。一只孤鸟鸣叫。
-```
-
-### 详细描写场景
-```
-close-up 电影镜头跟随一个绝望的男人，他身穿破旧的绿色风衣，在一面粗糙的砖墙上拨打转盘电话，笼罩在绿色霓虹灯诡异的光芒中。镜头缓缓推进，揭示他下巴的紧绷和脸上刻满的绝望，他挣扎着试图打通电话。浅景深聚焦在他紧皱的眉头和黑色转盘电话上，背景模糊成霓虹色彩和模糊阴影的海洋，营造出紧迫感和孤立感。
+wide shot, fog-shrouded Pacific Northwest forest. Two exhausted hikers, a man and a woman, push through ferns; the man suddenly stops, staring at a tree. close-up: deep fresh claw marks in the bark. The man (gripping a hunting knife) says: "This is no ordinary bear." The woman (voice taut with fear, looking around) says: "What is it then?" A rough bark, the sound of snapping branches, footsteps on wet soil. A lone bird cries.
 ```
 
-### 动画风格场景
+### Detailed Scene
 ```
-一个欢快卡通风格的 3D 动画场景。一只有着雪豹般皮毛、大大的富有表情的眼睛、友好圆润外形的可爱生物，欢快地在异想天开的冬季森林中蹦跳。场景中有圆润的积雪覆盖的树木、轻柔飘落的雪花，以及透过树枝洒下的温暖阳光。生物弹跳的动作和灿烂的笑容传达出纯粹的喜悦。明亮、欢快的色彩和活泼的动画，温馨治愈的基调。
+close-up cinematic shot following a desperate man in a worn green trench coat dialing a rotary phone on a rough brick wall, bathed in the eerie glow of green neon lights. The camera slowly pushes in, revealing the tension in his jaw and the desperation etched on his face as he struggles to make the call. Shallow depth of field focuses on his furrowed brow and the black rotary phone, while the background blurs into a sea of neon colors and blurred shadows, creating a sense of urgency and isolation.
 ```
 
-### 图生视频场景
+### Animated Style Scene
 ```
-一段超现实、电影感的微距视频。小小的冲浪者在石头洗手池里乘着永不停歇的翻滚波浪。一个老式黄铜水龙头正在流水，制造出无尽的海浪。镜头缓缓平移过这个异想天开、阳光明媚的场景，微型角色熟练地在碧绿的水面上划水。
+A cheerful cartoon-style 3D animated scene. A cute creature with snow leopard fur, large expressive eyes, and a friendly rounded form bounces joyfully through a whimsical winter forest. The scene features rounded snow-covered trees, gently falling snowflakes, and warm sunlight filtering through the branches. The creature's bouncy movements and bright smile convey pure joy. Bright, cheerful colors and lively animation, warm and heartwarming tone.
+```
+
+### Image-to-Video Scene
+```
+A surreal, cinematic macro video. A tiny surfer rides endless rolling waves in a stone sink. A vintage brass faucet is running, creating endless waves. The camera slowly pans across this whimsical, sun-drenched scene, with a miniature figure skillfully paddling on the emerald water surface.
 ```

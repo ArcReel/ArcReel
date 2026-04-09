@@ -1,47 +1,49 @@
 """
-_text_utils.py - 分集切分共享工具函数
+_text_utils.py - Shared utilities for episode splitting
 
-提供字数计数和字符偏移转换功能，供 peek_split_point.py 和 split_episode.py 共享。
+Provides character counting and character offset conversion functions,
+shared by peek_split_point.py and split_episode.py.
 
-计数规则：含标点，不含空行（纯空白行不计入字数）。
+Counting rules: includes punctuation, excludes empty lines (pure whitespace lines are not counted).
 """
 
 
 def count_chars(text: str) -> int:
-    """计算有效字数：所有非空行中的字符总数（含标点，不含空行）。"""
+    """Count effective characters: total characters in all non-empty lines (including punctuation, excluding empty lines)."""
     total = 0
     for line in text.split("\n"):
         stripped = line.strip()
-        if stripped:  # 跳过空行
+        if stripped:  # skip empty lines
             total += len(stripped)
     return total
 
 
 def find_char_offset(text: str, target_count: int) -> int:
-    """将有效字数转换为原文字符偏移位置。
+    """Convert an effective character count to an original text character offset position.
 
-    遍历原文，跳过空行中的字符，当累计有效字数达到 target_count 时，
-    返回对应的原文字符偏移（0-based）。
+    Traverse the original text, skipping characters in empty lines; when the accumulated
+    effective character count reaches target_count, return the corresponding original text
+    character offset (0-based).
 
-    如果 target_count 超过总有效字数，返回文本末尾偏移。
+    If target_count exceeds the total effective character count, return the end-of-text offset.
     """
     counted = 0
     lines = text.split("\n")
-    pos = 0  # 原文中的字符位置
+    pos = 0  # character position in the original text
 
     for line_idx, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
-            # 空行：跳过整行（含换行符）
+            # empty line: skip the entire line (including newline character)
             pos += len(line)
             if line_idx < len(lines) - 1:
-                pos += 1  # 换行符
+                pos += 1  # newline character
             continue
 
-        # 非空行：逐字符计数
+        # non-empty line: count character by character
         for char_idx, char in enumerate(line):
             if not char.strip():
-                # 行首/行尾空白不计入有效字数，但推进偏移
+                # leading/trailing whitespace not counted in effective characters, but advance offset
                 pos += 1
                 continue
             counted += 1
@@ -50,19 +52,19 @@ def find_char_offset(text: str, target_count: int) -> int:
             pos += 1
 
         if line_idx < len(lines) - 1:
-            pos += 1  # 换行符
+            pos += 1  # newline character
 
     return pos
 
 
 def find_natural_breakpoints(text: str, center_offset: int, window: int = 200) -> list[dict]:
-    """在指定偏移附近查找自然断点（句号、段落边界等）。
+    """Find natural break points near the specified offset (sentence endings, paragraph boundaries, etc.).
 
-    返回断点列表，每个断点包含：
-    - offset: 原文字符偏移
-    - char: 断点字符
-    - type: 断点类型（sentence/paragraph）
-    - distance: 距离 center_offset 的字符数
+    Returns a list of break points, each containing:
+    - offset: original text character offset
+    - char: break point character
+    - type: break point type (sentence/paragraph)
+    - distance: number of characters from center_offset
     """
     start = max(0, center_offset - window)
     end = min(len(text), center_offset + window)
@@ -84,13 +86,13 @@ def find_natural_breakpoints(text: str, center_offset: int, window: int = 200) -
         elif ch in sentence_endings:
             breakpoints.append(
                 {
-                    "offset": i + 1,  # 在标点之后切分
+                    "offset": i + 1,  # split after the punctuation
                     "char": ch,
                     "type": "sentence",
                     "distance": abs(i + 1 - center_offset),
                 }
             )
 
-    # 按距离排序
+    # sort by distance
     breakpoints.sort(key=lambda bp: bp["distance"])
     return breakpoints

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Storyboard Generator - 通过生成队列生成分镜图
+Storyboard Generator - Generate storyboard images via the generation queue
 
-两种模式统一通过 generation worker 生成分镜图：
-- narration 模式（说书+画面）：生成 9:16 竖屏分镜图
-- drama 模式（剧集动画）：生成 16:9 横屏分镜图
+Both modes generate storyboard images through the generation worker:
+- narration mode (narration + visuals): generates 9:16 portrait storyboard images
+- drama mode (drama animation): generates 16:9 landscape storyboard images
 
 Usage:
-    # narration 模式：提交分镜图生成任务（默认）
+    # narration mode: submit storyboard generation tasks (default)
     python generate_storyboard.py <project_name> <script_file>
     python generate_storyboard.py <project_name> <script_file> --scene E1S05
     python generate_storyboard.py <project_name> <script_file> --segment-ids E1S01 E1S02
 
-    # drama 模式：提交分镜图生成任务
+    # drama mode: submit storyboard generation tasks
     python generate_storyboard.py <project_name> <script_file>
     python generate_storyboard.py <project_name> <script_file> --scene E1S05
     python generate_storyboard.py <project_name> <script_file> --scene-ids E1S01 E1S02
@@ -40,7 +40,7 @@ from lib.storyboard_sequence import (
 
 
 class FailureRecorder:
-    """失败记录管理器（线程安全）"""
+    """Failure record manager (thread-safe)"""
 
     def __init__(self, output_dir: Path):
         self.output_path = output_dir / "generation_failures.json"
@@ -55,7 +55,7 @@ class FailureRecorder:
         attempts: int = 3,
         **extra,
     ):
-        """记录一次失败"""
+        """Record a failure"""
         with self._lock:
             self.failures.append(
                 {
@@ -69,7 +69,7 @@ class FailureRecorder:
             )
 
     def save(self):
-        """保存失败记录到文件"""
+        """Save failure records to file"""
         if not self.failures:
             return
 
@@ -84,25 +84,25 @@ class FailureRecorder:
             with open(self.output_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
 
-        print(f"\n⚠️  失败记录已保存: {self.output_path}")
+        print(f"\n⚠️  Failure records saved: {self.output_path}")
 
     def get_failed_scene_ids(self) -> list[str]:
-        """获取所有失败的场景 ID（用于重新生成）"""
+        """Get all failed scene IDs (for regeneration)"""
         return [f["scene_id"] for f in self.failures if f["type"] == "scene"]
 
 
-# ==================== Prompt 构建函数 ====================
+# ==================== Prompt Building Functions ====================
 
 
 def get_items_from_script(script: dict) -> tuple:
     """
-    根据内容模式获取场景/片段列表和 ID 字段名
+    Get the scene/segment list and ID field name based on content mode
 
     Args:
-        script: 剧本数据
+        script: script data
 
     Returns:
-        (items_list, id_field, char_field, clue_field) 元组
+        (items_list, id_field, char_field, clue_field) tuple
     """
     return get_storyboard_items(script)
 
@@ -119,15 +119,15 @@ def build_storyboard_prompt(
     content_mode: str = "narration",
 ) -> str:
     """
-    构建分镜图任务 prompt（通用，适用于 narration 和 drama 模式）
+    Build the storyboard task prompt (universal, applies to both narration and drama modes).
 
-    支持结构化 prompt 格式：如果 image_prompt 是 dict，则转换为 YAML 格式。
+    Supports structured prompt format: if image_prompt is a dict, converts to YAML format.
     """
     image_prompt = segment.get("image_prompt", "")
     if not image_prompt:
-        raise ValueError(f"片段/场景 {segment[id_field]} 缺少 image_prompt 字段")
+        raise ValueError(f"Segment/scene {segment[id_field]} is missing the image_prompt field")
 
-    # 构建风格前缀
+    # build style prefix
     style_parts = []
     if style:
         style_parts.append(f"Style: {style}")
@@ -135,15 +135,15 @@ def build_storyboard_prompt(
         style_parts.append(f"Visual style: {style_description}")
     style_prefix = "\n".join(style_parts) + "\n\n" if style_parts else ""
 
-    # narration 模式追加竖屏构图后缀，drama 模式通过 API aspect_ratio 参数控制
+    # narration mode appends portrait composition suffix; drama mode is controlled via API aspect_ratio parameter
     composition_suffix = ""
     if content_mode == "narration":
         if is_structured_image_prompt(image_prompt):
-            composition_suffix = "\n竖屏构图。"
+            composition_suffix = "\nPortrait composition."
         else:
-            composition_suffix = " 竖屏构图。"
+            composition_suffix = " Portrait composition."
 
-    # 检测是否为结构化格式
+    # detect whether it is a structured format
     if is_structured_image_prompt(image_prompt):
         yaml_prompt = image_prompt_to_yaml(image_prompt, style)
         return f"{style_prefix}{yaml_prompt}{composition_suffix}"
@@ -213,10 +213,10 @@ def _load_project_metadata(pm: ProjectManager, project_name: str) -> dict | None
         return None
     try:
         data = pm.load_project(project_name)
-        print("📁 已加载项目元数据 (project.json)")
+        print("📁 Project metadata loaded (project.json)")
         return data
     except Exception as e:
-        print(f"⚠️  无法加载项目元数据: {e}")
+        print(f"⚠️  Unable to load project metadata: {e}")
         return None
 
 
@@ -242,10 +242,10 @@ def generate_storyboard_direct(
     segment_ids: list[str] | None = None,
 ) -> tuple[list[Path], list[tuple[str, str]]]:
     """
-    通过生成队列提交分镜图任务（narration 和 drama 模式通用）。
+    Submit storyboard generation tasks via the generation queue (works for both narration and drama modes).
 
     Returns:
-        (成功路径列表, 失败列表) 元组
+        (list of successful paths, list of failures) tuple
     """
     pm, project_name = ProjectManager.from_cwd()
     script = pm.load_script(project_name, script_filename)
@@ -257,7 +257,7 @@ def generate_storyboard_direct(
     segments_to_process = _select_storyboard_items(items, id_field, segment_ids)
 
     if not segments_to_process:
-        print("✨ 所有片段的分镜图都已生成")
+        print("✨ Storyboard images for all segments have already been generated")
         return [], []
 
     characters = project_data.get("characters", {}) if project_data else {}
@@ -286,12 +286,12 @@ def generate_storyboard_direct(
         script_filename=script_filename,
     )
 
-    print(f"📷 批量提交 {len(specs)} 个分镜图到生成队列...")
+    print(f"📷 Submitting {len(specs)} storyboard images to the generation queue...")
 
     recorder = FailureRecorder(project_dir / "storyboards")
 
     def on_success(br: BatchTaskResult) -> None:
-        print(f"✅ 分镜图生成: {br.resource_id} 完成")
+        print(f"✅ Storyboard generation: {br.resource_id} complete")
 
     def on_failure(br: BatchTaskResult) -> None:
         recorder.record_failure(
@@ -300,7 +300,7 @@ def generate_storyboard_direct(
             error=br.error or "unknown",
             attempts=3,
         )
-        print(f"❌ 分镜图生成: {br.resource_id} 失败 - {br.error}")
+        print(f"❌ Storyboard generation: {br.resource_id} failed - {br.error}")
 
     successes, failures = batch_enqueue_and_wait_sync(
         project_name=project_name,
@@ -316,25 +316,25 @@ def generate_storyboard_direct(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="生成分镜图")
-    parser.add_argument("script", help="剧本文件名")
+    parser = argparse.ArgumentParser(description="Generate storyboard images")
+    parser.add_argument("script", help="Script filename")
 
-    # 辅助参数
-    parser.add_argument("--scene", help="指定单个场景 ID（单场景模式）")
-    parser.add_argument("--scene-ids", nargs="+", help="指定场景 ID")
-    parser.add_argument("--segment-ids", nargs="+", help="指定片段 ID（narration 模式别名）")
+    # auxiliary parameters
+    parser.add_argument("--scene", help="Specify a single scene ID (single-scene mode)")
+    parser.add_argument("--scene-ids", nargs="+", help="Specify scene IDs")
+    parser.add_argument("--segment-ids", nargs="+", help="Specify segment IDs (narration mode alias)")
 
     args = parser.parse_args()
 
     try:
-        # 检测 content_mode
+        # detect content_mode
         pm, project_name = ProjectManager.from_cwd()
         script = pm.load_script(project_name, args.script)
         content_mode = script.get("content_mode", "narration")
 
-        print(f"🚀 {content_mode} 模式：通过队列生成分镜图")
+        print(f"🚀 {content_mode} mode: generating storyboard images via queue")
 
-        # 合并 --scene-ids 和 --segment-ids 参数
+        # merge --scene-ids and --segment-ids parameters
         if args.scene:
             segment_ids = [args.scene]
         else:
@@ -344,12 +344,12 @@ def main():
             args.script,
             segment_ids=segment_ids,
         )
-        print(f"\n📊 生成完成: {len(results)} 个分镜图")
+        print(f"\n📊 Generation complete: {len(results)} storyboard images")
         if failed:
-            print(f"⚠️  失败: {len(failed)} 个")
+            print(f"⚠️  Failed: {len(failed)}")
 
     except Exception as e:
-        print(f"❌ 错误: {e}")
+        print(f"❌ Error: {e}")
         sys.exit(1)
 
 
