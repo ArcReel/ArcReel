@@ -43,7 +43,7 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
             event.stopPropagation();
             onClose();
           }}
-          aria-label="关闭全屏预览"
+          aria-label="Close fullscreen preview"
           className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white shadow-lg shadow-black/30 backdrop-blur transition-colors hover:bg-black/75"
         >
           <X className="h-5 w-5" />
@@ -54,7 +54,7 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={`${alt} 全屏预览`}
+          aria-label={`${alt} fullscreen preview`}
           className="relative max-h-full max-w-full"
           onClick={(event) => event.stopPropagation()}
         >

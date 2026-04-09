@@ -9,7 +9,7 @@ function makeTodo(
 ): TodoItem {
   return {
     content,
-    activeForm: `正在处理${content}`,
+    activeForm: `Processing ${content}`,
     status,
   };
 }
@@ -20,7 +20,7 @@ function makeTodoWriteBlock(overrides: Partial<ContentBlock> = {}): ContentBlock
     id: "todo-write-1",
     name: "TodoWrite",
     input: {
-      todos: [makeTodo("准备任务"), makeTodo("完成任务", "completed")],
+      todos: [makeTodo("Prepare task"), makeTodo("Complete task", "completed")],
     },
     ...overrides,
   };

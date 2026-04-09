@@ -14,7 +14,7 @@ export interface QuestionOption {
 
 function isOtherOptionLabel(label: string | undefined): boolean {
   const normalized = String(label || "").trim().toLowerCase();
-  return normalized === "其他" || normalized === "other";
+  return normalized === "other";
 }
 
 function isOtherOptionValue(value: string): boolean {

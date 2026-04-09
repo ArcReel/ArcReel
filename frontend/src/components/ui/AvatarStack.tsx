@@ -54,7 +54,7 @@ function AvatarPopover({
           <div className="flex items-center gap-1.5">
             <p className="truncate text-sm font-medium text-white">{name}</p>
             <span className="shrink-0 rounded bg-indigo-800/60 px-1 py-0.5 text-[10px] font-semibold text-indigo-300">
-              角色
+              Character
             </span>
           </div>
           {firstLine && (

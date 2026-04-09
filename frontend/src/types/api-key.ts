@@ -1,4 +1,4 @@
-/** API Key 元数据（列表展示用，不含完整 key）。 */
+/** API Key metadata (for list display, does not include the full key). */
 export interface ApiKeyInfo {
   id: number;
   name: string;
@@ -8,7 +8,7 @@ export interface ApiKeyInfo {
   last_used_at: string | null;
 }
 
-/** 创建 API Key 的响应（含完整 key，仅在创建时出现）。 */
+/** Response for creating an API Key (includes full key, only returned at creation time). */
 export interface CreateApiKeyResponse {
   id: number;
   name: string;

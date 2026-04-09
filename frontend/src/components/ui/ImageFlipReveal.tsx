@@ -2,7 +2,7 @@ import { type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 // ---------------------------------------------------------------------------
-// ImageFlipReveal — 图片切换时的 3D 翻转动画
+// ImageFlipReveal — 3D flip animation when switching images
 // ---------------------------------------------------------------------------
 
 interface ImageFlipRevealProps {

@@ -11,9 +11,9 @@ interface ProviderModelSelectProps {
   className?: string;
   /** If true, adds a default option that returns empty string */
   allowDefault?: boolean;
-  /** Label for the default option (defaults to "跟随全局默认") */
+  /** Label for the default option (defaults to "Follow global default") */
   defaultLabel?: string;
-  defaultHint?: string; // "当前: gemini-aistudio/veo-3.1-generate-001"
+  defaultHint?: string; // e.g. "Current: gemini-aistudio/veo-3.1-generate-001"
   /** Accessible label for the trigger button */
   "aria-label"?: string;
 }
@@ -43,7 +43,7 @@ export function ProviderModelSelect({
   options,
   providerNames,
   onChange,
-  placeholder = "选择模型…",
+  placeholder = "Select model…",
   className,
   allowDefault,
   defaultLabel,
@@ -196,7 +196,7 @@ export function ProviderModelSelect({
         <div
           id={LISTBOX_ID}
           role="listbox"
-          aria-label="选择模型"
+          aria-label="Select model"
           className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl"
         >
           {allowDefault && (
@@ -215,7 +215,7 @@ export function ProviderModelSelect({
                 activeIndex === 0 ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800/50"
               }`}
             >
-              <span>{defaultLabel ?? "跟随全局默认"}</span>
+              <span>{defaultLabel ?? "Follow global default"}</span>
               {defaultHint && (
                 <span className="ml-auto text-xs text-gray-500">{defaultHint}</span>
               )}

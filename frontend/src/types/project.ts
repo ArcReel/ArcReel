@@ -82,8 +82,8 @@ export interface ProjectData {
   style_image?: string;
   style_description?: string;
   overview?: ProjectOverview;
-  aspect_ratio?: string | AspectRatio;  // 新项目为 string，旧项目可能为 dict
-  default_duration?: number | null;     // 新增
+  aspect_ratio?: string | AspectRatio;  // new projects use string, older projects may use dict
+  default_duration?: number | null;
   episodes: EpisodeMeta[];
   characters: Record<string, Character>;
   clues: Record<string, Clue>;

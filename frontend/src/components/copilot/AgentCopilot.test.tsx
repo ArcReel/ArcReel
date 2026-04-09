@@ -32,12 +32,12 @@ function makePendingQuestion() {
     question_id: "q-1",
     questions: [
       {
-        header: "输出",
-        question: "输出格式是什么？",
+        header: "Output",
+        question: "What is the output format?",
         multiSelect: false,
         options: [
-          { label: "摘要", description: "简洁输出" },
-          { label: "详细", description: "完整说明" },
+          { label: "Summary", description: "Concise output" },
+          { label: "Detailed", description: "Full explanation" },
         ],
       },
     ],
@@ -90,11 +90,11 @@ describe("AgentCopilot", () => {
 
     render(<AgentCopilot />);
 
-    fireEvent.click(screen.getByLabelText("摘要"));
+    fireEvent.click(screen.getByLabelText("Summary"));
     fireEvent.click(screen.getByRole("button", { name: "Submit answers" }));
 
     expect(answerQuestion).toHaveBeenCalledWith("q-1", {
-      "输出格式是什么？": "摘要",
+      "What is the output format?": "Summary",
     });
   });
 
@@ -104,7 +104,7 @@ describe("AgentCopilot", () => {
         {
           id: "session-1",
           project_name: "demo",
-          title: "当前会话",
+          title: "Current Session",
           status: "idle",
           created_at: "2026-02-01T00:00:00Z",
           updated_at: "2026-02-01T00:00:00Z",

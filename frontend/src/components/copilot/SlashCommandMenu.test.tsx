@@ -6,9 +6,9 @@ import { SlashCommandMenu } from "./SlashCommandMenu";
 import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 
 const SKILLS = [
-  { name: "manga-workflow", description: "完整工作流", scope: "project" as const, path: "/tmp/a" },
-  { name: "generate-script", description: "用 Gemini 生成 JSON 剧本", scope: "project" as const, path: "/tmp/b" },
-  { name: "generate-video", description: "用 Veo 生成视频片段", scope: "project" as const, path: "/tmp/c" },
+  { name: "manga-workflow", description: "Full video workflow", scope: "project" as const, path: "/tmp/a" },
+  { name: "generate-script", description: "Generate JSON script with Gemini", scope: "project" as const, path: "/tmp/b" },
+  { name: "generate-video", description: "Generate video clips with Veo", scope: "project" as const, path: "/tmp/c" },
 ];
 
 describe("SlashCommandMenu", () => {

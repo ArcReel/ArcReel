@@ -2,7 +2,7 @@ import { Sparkles, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 // ---------------------------------------------------------------------------
-// GenerateButton — 带 framer-motion 平滑状态过渡的生成按钮
+// GenerateButton — generate button with smooth framer-motion state transitions
 // ---------------------------------------------------------------------------
 
 interface GenerateButtonProps {
@@ -17,7 +17,7 @@ interface GenerateButtonProps {
 export function GenerateButton({
   onClick,
   loading = false,
-  label = "生成",
+  label = "Generate",
   className,
   disabled = false,
   layoutId,
@@ -70,7 +70,7 @@ export function GenerateButton({
           </motion.span>
         )}
       </AnimatePresence>
-      <span>{loading ? "生成中..." : label}</span>
+      <span>{loading ? "Generating..." : label}</span>
     </motion.button>
   );
 }

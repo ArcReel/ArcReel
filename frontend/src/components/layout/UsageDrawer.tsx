@@ -244,7 +244,7 @@ function formatDateTime(isoStr: string): string {
 function extractFilename(outputPath: string | null | undefined): string {
   if (!outputPath) return "";
   // e.g. "storyboards/scene_E1S01.png" → "scene_E1S01.png"
-  // e.g. "characters/姜月茴.png" → "姜月茴.png"
+  // e.g. "characters/character-name.png" → "character-name.png"
   const parts = outputPath.split("/");
   return parts.at(-1) ?? "";
 }

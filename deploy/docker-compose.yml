@@ -1,7 +1,7 @@
 services:
   arcreel:
     image: ghcr.io/arcreel/arcreel:latest
-    # build: ../  # 本地构建时取消注释，注释掉 image 行
+    # build: ../  # Uncomment for local build, comment out the image line
     ports:
       - "1241:1241"
     env_file: .env

@@ -26,7 +26,7 @@ function CluePopover({
 }) {
 
   const firstLine = clue.description?.split("\n")[0] ?? "";
-  const typeLabel = clue.type === "location" ? "场景" : "道具";
+  const typeLabel = clue.type === "location" ? "Location" : "Prop";
   const typeBadgeClass =
     clue.type === "location"
       ? "bg-amber-800/60 text-amber-300"

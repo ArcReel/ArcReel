@@ -250,7 +250,7 @@ describe("StudioCanvasRouter", () => {
     const uploadFileSpy = vi
       .spyOn(API, "uploadFile")
       .mockResolvedValue({ success: true, path: "x", url: "y" });
-    vi.spyOn(API, "generateCharacter").mockResolvedValue({ success: true, task_id: "t-1", message: "已提交" });
+    vi.spyOn(API, "generateCharacter").mockResolvedValue({ success: true, task_id: "t-1", message: "Submitted" });
     const addCharacterSpy = vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });
     vi.spyOn(API, "updateClue").mockRejectedValue(new Error("clue failed"));
     vi.spyOn(API, "generateClue").mockRejectedValue(new Error("generate failed"));
