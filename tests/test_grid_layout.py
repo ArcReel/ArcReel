@@ -1,6 +1,7 @@
 """Tests for grid layout calculator."""
 
 from lib.grid.layout import calculate_grid_layout
+from lib.grid.models import FrameCell, GridGeneration, build_frame_chain  # noqa: F401
 
 
 class TestCalculateGridLayout:
@@ -97,3 +98,47 @@ class TestGridLayoutPixelDimensions:
         assert height > 0
         # 9:16 ratio
         assert abs(width / height - 9 / 16) < 0.01
+
+
+class TestBuildFrameChain:
+    def test_4_scenes_grid_4(self):
+        chain = build_frame_chain(["E1S01", "E1S02", "E1S03", "E1S04"], rows=2, cols=2)
+        assert len(chain) == 4
+        assert chain[0].frame_type == "first"
+        assert chain[0].next_scene_id == "E1S01"
+        assert chain[1].frame_type == "transition"
+        assert chain[1].prev_scene_id == "E1S01"
+        assert chain[1].next_scene_id == "E1S02"
+        assert chain[3].frame_type == "transition"
+        assert chain[3].prev_scene_id == "E1S03"
+        assert chain[3].next_scene_id == "E1S04"
+
+    def test_5_scenes_grid_6_has_placeholder(self):
+        chain = build_frame_chain(["S1", "S2", "S3", "S4", "S5"], rows=3, cols=2)
+        assert len(chain) == 6
+        assert chain[5].frame_type == "placeholder"
+
+    def test_row_col_assignment(self):
+        chain = build_frame_chain(["A", "B", "C", "D"], rows=2, cols=2)
+        assert (chain[0].row, chain[0].col) == (0, 0)
+        assert (chain[1].row, chain[1].col) == (0, 1)
+        assert (chain[2].row, chain[2].col) == (1, 0)
+        assert (chain[3].row, chain[3].col) == (1, 1)
+
+
+class TestGridGeneration:
+    def test_create(self):
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="ep1.json",
+            scene_ids=["E1S01", "E1S02", "E1S03", "E1S04"],
+            rows=2,
+            cols=2,
+            grid_size="grid_4",
+            provider="test",
+            model="test-m",
+        )
+        assert grid.status == "pending"
+        assert grid.cell_count == 4
+        assert len(grid.frame_chain) == 4
+        assert grid.id.startswith("grid_")
