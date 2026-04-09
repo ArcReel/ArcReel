@@ -399,6 +399,27 @@ class MediaGenerator:
         try:
             from lib.video_backends.base import VideoGenerationRequest
 
+            # Three-level fallback based on backend video capabilities
+            actual_end_image = None
+            actual_reference_images = reference_images
+
+            if end_image and self._video_backend:
+                caps = self._video_backend.video_capabilities
+                if caps.last_frame:
+                    actual_end_image = end_image  # first_last mode
+                elif caps.reference_images:
+                    # Fallback: pass end_image as reference image
+                    actual_reference_images = (actual_reference_images or []) + [end_image]
+                    logger.info(
+                        "Video backend %s does not support last_frame, falling back to reference_images",
+                        self._video_backend.name,
+                    )
+                else:
+                    logger.warning(
+                        "Video backend %s supports neither last_frame nor reference_images, end_image will be ignored",
+                        self._video_backend.name,
+                    )
+
             request = VideoGenerationRequest(
                 prompt=prompt,
                 output_path=output_path,
@@ -406,8 +427,8 @@ class MediaGenerator:
                 duration_seconds=duration_int,
                 resolution=resolution,
                 start_image=Path(start_image) if isinstance(start_image, (str, Path)) else None,
-                end_image=end_image,
-                reference_images=reference_images,
+                end_image=actual_end_image,
+                reference_images=actual_reference_images,
                 generate_audio=effective_generate_audio,
                 negative_prompt=negative_prompt,
                 project_name=self.project_name,

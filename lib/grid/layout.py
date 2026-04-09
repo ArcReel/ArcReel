@@ -77,9 +77,10 @@ def calculate_grid_layout(num_scenes: int, aspect_ratio: str) -> GridLayout | No
         grid_size = "grid_9"
         cell_count = 9
 
-    # Determine orientation: vertical when aspect_ratio starts with "9" or "3"
-    # i.e., portrait mode (width < height). Horizontal when "16" or "4".
-    orientation = "vertical" if aspect_ratio.startswith("9") or aspect_ratio.startswith("3") else "horizontal"
+    # Determine orientation by comparing width and height numerically
+    parts = aspect_ratio.split(":")
+    w_ratio, h_ratio = int(parts[0]), int(parts[1])
+    orientation = "horizontal" if w_ratio > h_ratio else "vertical"
 
     rows, cols, grid_aspect_ratio = _GRID_CONFIGS[grid_size][orientation]
     placeholder_count = cell_count - effective

@@ -989,7 +989,7 @@ async def execute_grid_task(
     """
     from PIL import Image
 
-    from lib.grid.splitter import is_placeholder_cell, split_grid_image
+    from lib.grid.splitter import split_grid_image
     from lib.grid_manager import GridManager
 
     project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
@@ -1058,8 +1058,6 @@ async def execute_grid_task(
             for cell, frame in zip(cells, grid.frame_chain):
                 if frame.frame_type == "placeholder":
                     continue
-                if is_placeholder_cell(cell):
-                    continue
 
                 if frame.frame_type == "first" and frame.next_scene_id:
                     # Save as first frame (storyboard_image) for next_scene_id
@@ -1067,6 +1065,9 @@ async def execute_grid_task(
                     cell.save(cell_path, format="PNG")
                     frame.image_path = f"storyboards/scene_{frame.next_scene_id}_first.png"
                     asset_updates.append((frame.next_scene_id, "storyboard_image", frame.image_path))
+                    # Write grid provenance
+                    asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
+                    asset_updates.append((frame.next_scene_id, "grid_cell_index", str(frame.index)))
 
                 elif frame.frame_type == "transition":
                     # Save as last frame of prev scene
@@ -1084,6 +1085,9 @@ async def execute_grid_task(
                             cell.save(first_path, format="PNG")
                         frame.image_path = f"storyboards/scene_{frame.next_scene_id}_first.png"
                         asset_updates.append((frame.next_scene_id, "storyboard_image", frame.image_path))
+                        # Write grid provenance
+                        asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
+                        asset_updates.append((frame.next_scene_id, "grid_cell_index", str(frame.index)))
 
             # Batch-write all asset updates in one script read+write pass
             if asset_updates:

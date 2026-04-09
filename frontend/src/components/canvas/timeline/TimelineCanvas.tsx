@@ -46,11 +46,22 @@ function groupBySegmentBreak(segments: Segment[]): Segment[][] {
   return groups;
 }
 
-/** Compute grid size for a group based on scene count. */
-function computeGridSize(count: number): { gridSize: string | null; rows: number; cols: number } {
+/** Compute grid size for a group based on scene count and aspect ratio. */
+function computeGridSize(
+  count: number,
+  aspectRatio: string = "9:16",
+): { gridSize: string | null; rows: number; cols: number } {
   if (count < 4) return { gridSize: null, rows: 0, cols: 0 };
+  const [w, h] = aspectRatio.split(":").map(Number);
+  const isHorizontal = w > h;
   if (count <= 4) return { gridSize: "grid_4", rows: 2, cols: 2 };
-  if (count <= 6) return { gridSize: "grid_6", rows: 2, cols: 3 };
+  if (count <= 6) {
+    return {
+      gridSize: "grid_6",
+      rows: isHorizontal ? 3 : 2,
+      cols: isHorizontal ? 2 : 3,
+    };
+  }
   return { gridSize: "grid_9", rows: 3, cols: 3 };
 }
 
@@ -374,7 +385,7 @@ export function TimelineCanvas({
               )}
 
               {segmentGroups.map((group, groupIdx) => {
-                const { gridSize } = computeGridSize(group.length);
+                const { gridSize } = computeGridSize(group.length, aspectRatio);
                 return (
                   <GridSegmentGroup
                     key={groupIdx}
