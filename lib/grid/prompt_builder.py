@@ -90,7 +90,9 @@ def build_grid_prompt(
     lines: list[str] = []
 
     # Header
-    lines.append(f"你是一位专业的分镜画师。请严格按照 {rows}×{cols} 宫格布局生成一张包含恰好 {total} 个等大画格的联合图。")
+    lines.append(
+        f"你是一位专业的分镜画师。请严格按照 {rows}×{cols} 宫格布局生成一张包含恰好 {total} 个等大画格的联合图。"
+    )
     lines.append("")
 
     # Layout requirements
