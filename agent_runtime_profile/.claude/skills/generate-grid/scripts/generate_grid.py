@@ -97,6 +97,7 @@ def generate_grid(
             cols=layout.cols,
             style=style,
             aspect_ratio=aspect_ratio,
+            grid_aspect_ratio=layout.grid_aspect_ratio,
         )
 
         grid = GridGeneration.create(

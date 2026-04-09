@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from math import gcd
+
 
 def _extract_image_desc(scene: dict) -> str:
     """Extract image description from a scene.
@@ -35,6 +37,18 @@ def _extract_action(scene: dict) -> str:
     return str(video_prompt)
 
 
+def _compute_panel_aspect(grid_aspect_ratio: str, rows: int, cols: int) -> str:
+    """从整体宫格比例推算单格比例。
+
+    例：grid 4:3, 3行2列 → panel (4/2):(3/3) = 2:1
+    """
+    gw, gh = (int(x) for x in grid_aspect_ratio.split(":"))
+    pw = gw * rows  # 交叉相乘避免浮点
+    ph = gh * cols
+    g = gcd(pw, ph)
+    return f"{pw // g}:{ph // g}"
+
+
 def build_grid_prompt(
     *,
     scenes: list[dict],
@@ -43,6 +57,7 @@ def build_grid_prompt(
     cols: int,
     style: str,
     aspect_ratio: str = "16:9",
+    grid_aspect_ratio: str | None = None,
     reference_image_mapping: dict[str, str] | None = None,
 ) -> str:
     """Assemble a grid image generation prompt with first-last frame chain structure.
@@ -69,17 +84,23 @@ def build_grid_prompt(
     # Remaining cells: placeholders
     n_content = n_scenes  # 1 first + (n-2) transitions + 1 last = n
 
+    effective_grid_ar = grid_aspect_ratio or aspect_ratio
+    panel_ar = _compute_panel_aspect(effective_grid_ar, rows, cols)
+
     lines: list[str] = []
 
     # Header
-    lines.append(f"你是一位专业的分镜画师。请严格按照 {rows}×{cols} 宫格布局生成一张包含 {total} 个等大画格的联合图。")
+    lines.append(f"你是一位专业的分镜画师。请严格按照 {rows}×{cols} 宫格布局生成一张包含恰好 {total} 个等大画格的联合图。")
     lines.append("")
 
     # Layout requirements
     lines.append("【布局要求】")
-    lines.append(f"- {rows} 行 {cols} 列，阅读顺序：从左到右，从上到下")
-    lines.append("- 每格必须等大，格间无边框、无留白、无文字、无水印")
-    lines.append("- 所有格子保持一致的角色外观、光线和色彩风格")
+    lines.append(f"- 恰好 {rows} 行 {cols} 列，共 {total} 个画格，阅读顺序：从左到右，从上到下")
+    lines.append(f"- 整体图片比例：{effective_grid_ar}")
+    lines.append(f"- 每个画格比例：{panel_ar}，所有画格大小完全相同")
+    lines.append("- 画格之间无边框、无间隙、无留白，紧密排列")
+    lines.append("- 不得合并画格、不得遗漏画格、不得错位排列")
+    lines.append("- 所有画格保持一致的角色外观、光线和色彩风格")
     lines.append("")
 
     # Frame chain rhythm
@@ -146,6 +167,16 @@ def build_grid_prompt(
 
     # Negative constraints
     lines.append("【负面约束】")
-    lines.append("禁止出现：文字、水印、数字编号、边框、分隔线、拼贴感")
+    lines.append("禁止出现以下任何元素：")
+    lines.append("- 文字、字幕、标签、标题、数字编号、时间戳")
+    lines.append("- 水印、logo、签名")
+    lines.append("- 白色边框、黑色边框、粗边框、装饰性边框")
+    lines.append("- 分隔线、间隙、间距、留白、padding、margin")
+    lines.append("- 白色背景、纯色背景条")
+    lines.append("- 合并的画格、缺失的画格、错位的画格")
+    lines.append("- 连续全景图（非分格）、单张大图")
+    lines.append("- 模糊、低画质、噪点")
+    lines.append("- 拼贴感、蒙太奇拼接感")
+    lines.append("- 画格大小不一致、画格比例不一致")
 
     return "\n".join(lines)

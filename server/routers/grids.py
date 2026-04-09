@@ -156,6 +156,7 @@ async def generate_grid(
                     cols=chunk_layout.cols,
                     style=style,
                     aspect_ratio=aspect_ratio,
+                    grid_aspect_ratio=chunk_layout.grid_aspect_ratio,
                 )
 
                 grid.prompt = prompt
