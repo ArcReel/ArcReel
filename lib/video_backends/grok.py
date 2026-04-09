@@ -12,6 +12,7 @@ from lib.providers import PROVIDER_GROK
 from lib.retry import with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
+    VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -50,6 +51,10 @@ class GrokVideoBackend:
     @property
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return VideoCapabilities(reference_images=True, max_reference_images=5)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。生成与下载分离重试，避免下载失败导致重新生成浪费额度。"""

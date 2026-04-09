@@ -17,6 +17,7 @@ from lib.providers import PROVIDER_GEMINI
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
 from lib.video_backends.base import (
+    VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -104,6 +105,10 @@ class GeminiVideoBackend:
     @property
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=3)
 
     @staticmethod
     def _normalize_duration(duration_seconds: int) -> str:

@@ -7,7 +7,13 @@ from __future__ import annotations
 
 from lib.image_backends.base import ImageBackend, ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
-from lib.video_backends.base import VideoBackend, VideoCapability, VideoGenerationRequest, VideoGenerationResult
+from lib.video_backends.base import (
+    VideoBackend,
+    VideoCapabilities,
+    VideoCapability,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
 
 
 class CustomTextBackend:
@@ -77,6 +83,10 @@ class CustomVideoBackend:
     @property
     def capabilities(self) -> set[VideoCapability]:
         return self._delegate.capabilities
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return self._delegate.video_capabilities
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         return await self._delegate.generate(request)

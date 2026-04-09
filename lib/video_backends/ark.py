@@ -11,6 +11,7 @@ from lib.ark_shared import create_ark_client
 from lib.providers import PROVIDER_ARK
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
+    VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -70,6 +71,13 @@ class ArkVideoBackend:
     @property
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        model_lower = self._model.lower()
+        if "seedance-2" in model_lower or "seedance2" in model_lower:
+            return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=9)
+        return VideoCapabilities()
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""

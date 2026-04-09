@@ -10,6 +10,7 @@ from lib.providers import PROVIDER_OPENAI
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
+    VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -56,6 +57,10 @@ class OpenAIVideoBackend:
     @property
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return VideoCapabilities(reference_images=True, max_reference_images=3)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         kwargs: dict = {

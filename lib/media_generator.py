@@ -276,6 +276,8 @@ class MediaGenerator:
         resource_type: str,
         resource_id: str,
         start_image: str | Path | Image.Image | None = None,
+        end_image: Path | None = None,
+        reference_images: list[Path] | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str = "8",
         resolution: str = "1080p",
@@ -290,6 +292,8 @@ class MediaGenerator:
             resource_type: 资源类型 (videos)
             resource_id: 资源 ID (E1S01)
             start_image: 起始帧图片（image-to-video 模式）
+            end_image: 结束帧图片（first_last 模式）
+            reference_images: 参考图片列表（multi-reference 模式）
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认 "1080p"
@@ -305,6 +309,8 @@ class MediaGenerator:
                 resource_type=resource_type,
                 resource_id=resource_id,
                 start_image=start_image,
+                end_image=end_image,
+                reference_images=reference_images,
                 aspect_ratio=aspect_ratio,
                 duration_seconds=duration_seconds,
                 resolution=resolution,
@@ -319,6 +325,8 @@ class MediaGenerator:
         resource_type: str,
         resource_id: str,
         start_image: str | Path | Image.Image | None = None,
+        end_image: Path | None = None,
+        reference_images: list[Path] | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str = "8",
         resolution: str = "1080p",
@@ -333,6 +341,8 @@ class MediaGenerator:
             resource_type: 资源类型 (videos)
             resource_id: 资源 ID (E1S01)
             start_image: 起始帧图片（image-to-video 模式）
+            end_image: 结束帧图片（first_last 模式）
+            reference_images: 参考图片列表（multi-reference 模式）
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认 "1080p"
@@ -396,6 +406,8 @@ class MediaGenerator:
                 duration_seconds=duration_int,
                 resolution=resolution,
                 start_image=Path(start_image) if isinstance(start_image, (str, Path)) else None,
+                end_image=end_image,
+                reference_images=reference_images,
                 generate_audio=effective_generate_audio,
                 negative_prompt=negative_prompt,
                 project_name=self.project_name,
