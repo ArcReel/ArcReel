@@ -356,6 +356,177 @@ class TaskRepository(BaseRepository):
             )
         return cascaded
 
+    async def get_cancel_preview(self, task_id: str) -> dict[str, Any]:
+        """预览取消某个任务的影响范围。"""
+        result = await self.session.execute(select(Task).where(Task.task_id == task_id))
+        task = result.scalar_one_or_none()
+        if not task:
+            raise ValueError(f"任务 '{task_id}' 不存在")
+        if task.status != "queued":
+            raise ValueError("只有排队中的任务可以取消")
+
+        task_summary = {
+            "task_id": task.task_id,
+            "task_type": task.task_type,
+            "resource_id": task.resource_id,
+        }
+
+        cascaded = await self._collect_queued_dependents(task_id)
+        return {"task": task_summary, "cascaded": cascaded}
+
+    async def _collect_queued_dependents(self, task_id: str) -> list[dict[str, Any]]:
+        """递归收集依赖于 task_id 的所有 queued 任务摘要。"""
+        result = await self.session.execute(
+            select(Task.task_id, Task.task_type, Task.resource_id)
+            .where(
+                Task.dependency_task_id == task_id,
+                Task.status == "queued",
+            )
+            .order_by(Task.queued_at.asc())
+        )
+        dependents = []
+        for row in result.all():
+            summary = {"task_id": row[0], "task_type": row[1], "resource_id": row[2]}
+            dependents.append(summary)
+            dependents.extend(await self._collect_queued_dependents(row[0]))
+        return dependents
+
+    async def cancel_task(self, task_id: str) -> dict[str, Any]:
+        """取消一个 queued 任务，级联取消其所有 queued 依赖任务。"""
+        result = await self.session.execute(select(Task).where(Task.task_id == task_id))
+        task = result.scalar_one_or_none()
+        if not task:
+            raise ValueError(f"任务 '{task_id}' 不存在")
+        if task.status != "queued":
+            raise ValueError("只有排队中的任务可以取消")
+
+        cancelled = []
+        skipped_running = []
+
+        task_dict = await self._mark_cancelled(task_id, cancelled_by="user")
+        if task_dict:
+            cancelled.append(task_dict)
+        else:
+            refreshed = await self.session.execute(select(Task).where(Task.task_id == task_id))
+            t = refreshed.scalar_one_or_none()
+            if t and t.status == "running":
+                skipped_running.append(_task_to_dict(t))
+
+        await self._cascade_cancel_dependents(task_id, cancelled, skipped_running)
+
+        await self.session.commit()
+        return {"cancelled": cancelled, "skipped_running": skipped_running}
+
+    async def _mark_cancelled(self, task_id: str, *, cancelled_by: str) -> dict[str, Any] | None:
+        """将一个 queued 任务标记为 cancelled。"""
+        now = utc_now()
+        stmt = (
+            update(Task)
+            .where(Task.task_id == task_id, Task.status == "queued")
+            .values(
+                status="cancelled",
+                cancelled_by=cancelled_by,
+                finished_at=now,
+                updated_at=now,
+            )
+        )
+        result = await self.session.execute(stmt)
+        if result.rowcount == 0:
+            return None
+
+        await self.session.flush()
+        res = await self.session.execute(select(Task).where(Task.task_id == task_id))
+        cancelled_task = res.scalar_one()
+        task_data = _task_to_dict(cancelled_task)
+        await self._append_event(
+            task_id=task_id,
+            project_name=cancelled_task.project_name,
+            event_type="cancelled",
+            status="cancelled",
+            data=task_data,
+        )
+        return task_data
+
+    async def _cascade_cancel_dependents(
+        self,
+        task_id: str,
+        cancelled: list[dict[str, Any]],
+        skipped_running: list[dict[str, Any]],
+    ) -> None:
+        """递归取消依赖于 task_id 的所有 queued 任务。"""
+        result = await self.session.execute(
+            select(Task.task_id, Task.status).where(Task.dependency_task_id == task_id).order_by(Task.queued_at.asc())
+        )
+        for row in result.all():
+            dep_id, dep_status = row[0], row[1]
+            if dep_status == "queued":
+                task_data = await self._mark_cancelled(dep_id, cancelled_by="cascade")
+                if task_data:
+                    cancelled.append(task_data)
+                    await self._cascade_cancel_dependents(dep_id, cancelled, skipped_running)
+                else:
+                    refreshed = await self.session.execute(select(Task).where(Task.task_id == dep_id))
+                    t = refreshed.scalar_one_or_none()
+                    if t and t.status == "running":
+                        skipped_running.append(_task_to_dict(t))
+            elif dep_status == "running":
+                refreshed = await self.session.execute(select(Task).where(Task.task_id == dep_id))
+                t = refreshed.scalar_one_or_none()
+                if t:
+                    skipped_running.append(_task_to_dict(t))
+
+    async def get_cancel_all_preview(self, project_name: str) -> int:
+        """返回项目中当前 queued 状态的任务数量。"""
+        result = await self.session.execute(
+            select(func.count()).select_from(Task).where(Task.project_name == project_name, Task.status == "queued")
+        )
+        return result.scalar_one()
+
+    async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
+        """取消项目中所有 queued 任务。"""
+        running_result = await self.session.execute(
+            select(func.count()).select_from(Task).where(Task.project_name == project_name, Task.status == "running")
+        )
+        running_count = running_result.scalar_one()
+
+        queued_result = await self.session.execute(
+            select(Task).where(Task.project_name == project_name, Task.status == "queued")
+        )
+        queued_tasks = list(queued_result.scalars().all())
+
+        now = utc_now()
+        stmt = (
+            update(Task)
+            .where(Task.project_name == project_name, Task.status == "queued")
+            .values(
+                status="cancelled",
+                cancelled_by="user",
+                finished_at=now,
+                updated_at=now,
+            )
+        )
+        result = await self.session.execute(stmt)
+        cancelled_count = result.rowcount
+
+        for task in queued_tasks:
+            await self.session.flush()
+            res = await self.session.execute(select(Task).where(Task.task_id == task.task_id))
+            updated_task = res.scalar_one()
+            task_data = _task_to_dict(updated_task)
+            await self._append_event(
+                task_id=task.task_id,
+                project_name=project_name,
+                event_type="cancelled",
+                status="cancelled",
+                data=task_data,
+            )
+
+        await self.session.commit()
+        return {
+            "cancelled_count": cancelled_count,
+            "skipped_running_count": running_count,
+        }
+
     async def requeue_running(self, *, limit: int = 1000) -> int:
         now = utc_now()
         limit = max(1, min(5000, limit))
@@ -467,7 +638,7 @@ class TaskRepository(BaseRepository):
         stmt = self._scope_query(stmt, Task)
         result = await self.session.execute(stmt)
 
-        stats = {"queued": 0, "running": 0, "succeeded": 0, "failed": 0, "total": 0}
+        stats = {"queued": 0, "running": 0, "succeeded": 0, "failed": 0, "cancelled": 0, "total": 0}
         total = 0
         for row in result.all():
             s, cnt = row[0], row[1]
