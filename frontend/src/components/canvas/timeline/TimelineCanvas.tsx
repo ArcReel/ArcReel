@@ -8,6 +8,8 @@ import { PreprocessingView } from "./PreprocessingView";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { useCostStore } from "@/stores/cost-store";
 import { formatCost, totalBreakdown } from "@/utils/cost-format";
+import { API } from "@/api";
+import type { GridGeneration } from "@/types/grid";
 import type {
   EpisodeScript,
   NarrationEpisodeScript,
@@ -156,6 +158,31 @@ export function TimelineCanvas({
   );
   const [generatingGridGroups, setGeneratingGridGroups] = useState<Set<number>>(new Set());
   const [generatingAllGrids, setGeneratingAllGrids] = useState(false);
+  const [grids, setGrids] = useState<GridGeneration[]>([]);
+
+  // Fetch grids list for the current episode when in grid mode
+  useEffect(() => {
+    if (!isGridMode || !projectName) return;
+    API.listGrids(projectName).then(setGrids).catch(() => {/* silently ignore */});
+  }, [isGridMode, projectName, episodeScript]);
+
+  /**
+   * Build a map from sorted-scene-key → gridId for matching groups.
+   * Uses the grid's scene_ids set intersection with a group's scene IDs.
+   */
+  const gridIdByGroupScenes = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const grid of grids) {
+      const key = [...grid.scene_ids].sort().join(",");
+      map.set(key, grid.id);
+    }
+    return map;
+  }, [grids]);
+
+  function getGridIdForGroup(groupScenes: Segment[]): string | null {
+    const key = groupScenes.map((s) => getSegmentId(s, contentMode)).sort().join(",");
+    return gridIdByGroupScenes.get(key) ?? null;
+  }
 
   const handleGenerateGroupGrid = useCallback(
     (groupIndex: number, groupScenes: Segment[]) => {
@@ -359,6 +386,8 @@ export function TimelineCanvas({
                     sceneCount={group.length}
                     onGenerateGrid={() => handleGenerateGroupGrid(groupIdx, group)}
                     generatingGrid={generatingGridGroups.has(groupIdx)}
+                    gridId={getGridIdForGroup(group)}
+                    projectName={projectName}
                   >
                     {group.map((segment) => {
                       const segId = getSegmentId(segment, contentMode);

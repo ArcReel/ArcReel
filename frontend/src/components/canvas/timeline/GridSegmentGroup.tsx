@@ -1,6 +1,7 @@
 import { Grid2x2, Loader2, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { NarrationSegment, DramaScene } from "@/types";
+import { GridPreviewPanel } from "./GridPreviewPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -18,6 +19,10 @@ export interface GridSegmentGroupProps {
   onGenerateGrid: () => void;
   generatingGrid: boolean;
   children: React.ReactNode;
+  /** Optional grid ID for showing the preview panel */
+  gridId?: string | null;
+  /** Project name — required when gridId is provided */
+  projectName?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -51,15 +56,23 @@ function groupLabel(index: number): string {
  */
 export function GridSegmentGroup({
   groupIndex,
+  scenes,
   gridSize,
   sceneCount,
   onGenerateGrid,
   generatingGrid,
   children,
+  gridId = null,
+  projectName = "",
 }: GridSegmentGroupProps) {
   const label = groupLabel(groupIndex);
   const gridInfo = gridSize ? GRID_LABEL[gridSize] ?? gridSize : null;
   const canGenerate = gridSize !== null;
+
+  // Derive scene IDs for the preview panel
+  const sceneIds = scenes.map((s) =>
+    "scene_id" in s ? (s as DramaScene).scene_id : (s as NarrationSegment).segment_id
+  );
 
   return (
     <div className="mb-6">
@@ -134,6 +147,16 @@ export function GridSegmentGroup({
 
       {/* ---- Children (SegmentCards) ---- */}
       <div className="flex flex-col gap-4">{children}</div>
+
+      {/* ---- Grid Preview Panel ---- */}
+      {projectName && (
+        <GridPreviewPanel
+          projectName={projectName}
+          gridId={gridId}
+          sceneIds={sceneIds}
+          onRegenerate={onGenerateGrid}
+        />
+      )}
     </div>
   );
 }
