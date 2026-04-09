@@ -27,6 +27,7 @@ class Task(UserOwnedMixin, Base):
     dependency_task_id: Mapped[str | None] = mapped_column(String)
     dependency_group: Mapped[str | None] = mapped_column(String)
     dependency_index: Mapped[int | None] = mapped_column(Integer)
+    cancelled_by: Mapped[str | None] = mapped_column(String)
     queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

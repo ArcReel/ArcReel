@@ -50,6 +50,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "dependency_task_id": row.dependency_task_id,
         "dependency_group": row.dependency_group,
         "dependency_index": row.dependency_index,
+        "cancelled_by": row.cancelled_by,
         "queued_at": dt_to_iso(row.queued_at),
         "started_at": dt_to_iso(row.started_at),
         "finished_at": dt_to_iso(row.finished_at),
