@@ -559,6 +559,9 @@ function MediaColumn({
   const storyboardFp = useProjectsStore(
     (s) => assets?.storyboard_image ? s.getAssetFingerprint(assets.storyboard_image) : null,
   );
+  const lastFrameFp = useProjectsStore(
+    (s) => assets?.storyboard_last_image ? s.getAssetFingerprint(assets.storyboard_last_image) : null,
+  );
   const videoFp = useProjectsStore(
     (s) => assets?.video_clip ? s.getAssetFingerprint(assets.video_clip) : null,
   );
@@ -568,12 +571,18 @@ function MediaColumn({
   const storyboardUrl = assets?.storyboard_image
     ? API.getFileUrl(projectName, assets.storyboard_image, storyboardFp)
     : null;
+  const lastFrameUrl = assets?.storyboard_last_image
+    ? API.getFileUrl(projectName, assets.storyboard_last_image, lastFrameFp)
+    : null;
   const videoUrl = assets?.video_clip
     ? API.getFileUrl(projectName, assets.video_clip, videoFp)
     : null;
   const thumbnailUrl = assets?.video_thumbnail
     ? API.getFileUrl(projectName, assets.video_thumbnail, thumbnailFp)
     : null;
+
+  // Detect grid mode: segment has a last frame image
+  const hasLastFrame = !!assets?.storyboard_last_image;
 
   // Normalize aspect ratio to the union type expected by AspectFrame
   const normalizedRatio = (
@@ -596,22 +605,87 @@ function MediaColumn({
             onRestore={onRestoreStoryboard}
           />
         </div>
-        <PreviewableImageFrame src={storyboardUrl} alt={`${segmentId} 分镜图`}>
-          <AspectFrame ratio={normalizedRatio}>
-            <ImageFlipReveal
-              src={storyboardUrl}
-              alt={`${segmentId} 分镜图`}
-              loading="lazy"
-              className="h-full w-full object-cover"
-              fallback={
-                <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-600">
-                  <ImageIcon className="h-8 w-8" />
-                  <span className="text-xs">暂无分镜</span>
-                </div>
-              }
-            />
-          </AspectFrame>
-        </PreviewableImageFrame>
+
+        {hasLastFrame ? (
+          /* Grid mode: vertical stack of first frame + last frame */
+          <div className="flex flex-col gap-1.5">
+            {/* First frame */}
+            <div>
+              <div className="mb-1 flex items-center gap-1">
+                <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30">
+                  首帧
+                </span>
+              </div>
+              <PreviewableImageFrame src={storyboardUrl} alt={`${segmentId} 首帧`}>
+                <AspectFrame ratio={normalizedRatio}>
+                  <ImageFlipReveal
+                    src={storyboardUrl}
+                    alt={`${segmentId} 首帧`}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                    fallback={
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-600">
+                        <ImageIcon className="h-8 w-8" />
+                        <span className="text-xs">暂无首帧</span>
+                      </div>
+                    }
+                  />
+                </AspectFrame>
+              </PreviewableImageFrame>
+            </div>
+
+            {/* Arrow connector */}
+            <div className="flex items-center justify-center gap-2 py-0.5">
+              <div className="flex-1 border-t border-dashed border-emerald-700/40" />
+              <span className="text-sm text-emerald-500/70 select-none">↓</span>
+              <div className="flex-1 border-t border-dashed border-emerald-700/40" />
+            </div>
+
+            {/* Last frame */}
+            <div>
+              <div className="mb-1 flex items-center gap-1">
+                <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-purple-500/20 text-purple-400 ring-1 ring-purple-500/30">
+                  尾帧
+                </span>
+              </div>
+              <PreviewableImageFrame src={lastFrameUrl} alt={`${segmentId} 尾帧`}>
+                <AspectFrame ratio={normalizedRatio}>
+                  <ImageFlipReveal
+                    src={lastFrameUrl}
+                    alt={`${segmentId} 尾帧`}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                    fallback={
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-600">
+                        <ImageIcon className="h-8 w-8" />
+                        <span className="text-xs">暂无尾帧</span>
+                      </div>
+                    }
+                  />
+                </AspectFrame>
+              </PreviewableImageFrame>
+            </div>
+          </div>
+        ) : (
+          /* Single mode: existing storyboard display */
+          <PreviewableImageFrame src={storyboardUrl} alt={`${segmentId} 分镜图`}>
+            <AspectFrame ratio={normalizedRatio}>
+              <ImageFlipReveal
+                src={storyboardUrl}
+                alt={`${segmentId} 分镜图`}
+                loading="lazy"
+                className="h-full w-full object-cover"
+                fallback={
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-600">
+                    <ImageIcon className="h-8 w-8" />
+                    <span className="text-xs">暂无分镜</span>
+                  </div>
+                }
+              />
+            </AspectFrame>
+          </PreviewableImageFrame>
+        )}
+
         <div className="mt-2">
           <GenerateButton
             onClick={() => onGenerateStoryboard?.(segmentId)}
@@ -651,7 +725,7 @@ function MediaColumn({
           <GenerateButton
             onClick={() => onGenerateVideo?.(segmentId)}
             loading={generatingVideo}
-            label="生成视频"
+            label={hasLastFrame ? "生成视频 (first_last)" : "生成视频"}
             className="w-full justify-center"
             disabled={!assets?.storyboard_image}
           />
