@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 # Base resolution for grid rendering (width reference for 16:9)
 _BASE_WIDTH = 1920
-_BASE_HEIGHT = 1080
 
 
 @dataclass(frozen=True)

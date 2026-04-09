@@ -1,7 +1,7 @@
 """Tests for grid layout calculator."""
 
 from lib.grid.layout import calculate_grid_layout
-from lib.grid.models import FrameCell, GridGeneration, build_frame_chain  # noqa: F401
+from lib.grid.models import GridGeneration, build_frame_chain
 
 
 class TestCalculateGridLayout:

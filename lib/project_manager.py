@@ -803,7 +803,7 @@ class ProjectManager:
         self,
         project_name: str,
         script_filename: str,
-        updates: list[tuple[str, str, str]],
+        updates: list[tuple[str, str, Any]],
     ) -> dict:
         """批量更新多个场景的生成资源路径（单次读写）。
 

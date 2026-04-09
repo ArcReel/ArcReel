@@ -1,9 +1,12 @@
 """GridManager: file-based CRUD for GridGeneration records."""
 
 import json
+import logging
 from pathlib import Path
 
 from lib.grid.models import GridGeneration
+
+logger = logging.getLogger(__name__)
 
 
 class GridManager:
@@ -34,6 +37,6 @@ class GridManager:
         for p in self._dir.glob("grid_*.json"):
             try:
                 grids.append(GridGeneration.from_dict(json.loads(p.read_text(encoding="utf-8"))))
-            except Exception:
-                pass
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning("Skipping invalid grid file %s: %s", p.name, e)
         return sorted(grids, key=lambda g: g.created_at)

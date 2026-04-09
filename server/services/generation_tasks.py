@@ -1067,7 +1067,7 @@ async def execute_grid_task(
                     asset_updates.append((frame.next_scene_id, "storyboard_image", frame.image_path))
                     # Write grid provenance
                     asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
-                    asset_updates.append((frame.next_scene_id, "grid_cell_index", str(frame.index)))
+                    asset_updates.append((frame.next_scene_id, "grid_cell_index", frame.index))
 
                 elif frame.frame_type == "transition":
                     # Save as last frame of prev scene
@@ -1087,7 +1087,7 @@ async def execute_grid_task(
                         asset_updates.append((frame.next_scene_id, "storyboard_image", frame.image_path))
                         # Write grid provenance
                         asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
-                        asset_updates.append((frame.next_scene_id, "grid_cell_index", str(frame.index)))
+                        asset_updates.append((frame.next_scene_id, "grid_cell_index", frame.index))
 
             # Batch-write all asset updates in one script read+write pass
             if asset_updates:
