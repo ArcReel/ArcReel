@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from lib import PROJECT_ROOT
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
+from lib.i18n import get_translator
 from lib.project_manager import ProjectManager
 from lib.usage_tracker import UsageTracker
 from server.auth import CurrentUser
@@ -21,17 +22,17 @@ pm = ProjectManager(PROJECT_ROOT / "projects")
 
 
 @router.get("/projects/{project_name}/cost-estimate")
-async def get_cost_estimate(project_name: str, _user: CurrentUser):
+async def get_cost_estimate(project_name: str, _user: CurrentUser, _t=Depends(get_translator)):
     """获取项目费用估算（预估 + 实际）。"""
 
     def _sync():
         if not pm.project_exists(project_name):
-            raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+            raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
 
         try:
             project_data = pm.load_project(project_name)
         except FileNotFoundError:
-            raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+            raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
 
         # 加载所有剧本
         scripts: dict[str, dict] = {}
@@ -55,4 +56,4 @@ async def get_cost_estimate(project_name: str, _user: CurrentUser):
         return await service.compute(project_data, scripts, project_name=project_name)
     except Exception:
         logger.exception("费用估算失败")
-        raise HTTPException(status_code=500, detail="费用估算失败，请稍后重试")
+        raise HTTPException(status_code=500, detail=_t("cost_estimation_failed"))

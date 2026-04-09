@@ -7,9 +7,10 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from lib.i18n import get_locale, get_translator
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_manager import SessionCapacityError
 from server.auth import CurrentUser
@@ -125,7 +126,9 @@ async def _collect_reply(
 @router.post("/agent/chat")
 async def agent_chat(
     body: AgentChatRequest,
+    request: Request,
     _user: CurrentUser,
+    _t=Depends(get_translator),
 ) -> AgentChatResponse:
     """同步 Agent 对话端点。
 
@@ -140,17 +143,22 @@ async def agent_chat(
     try:
         service.pm.get_project_path(body.project_name)
     except (FileNotFoundError, KeyError):
-        raise HTTPException(status_code=404, detail=f"项目 '{body.project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=body.project_name))
 
     # 若传入 session_id，先校验会话归属
     if body.session_id:
         session = await service.get_session(body.session_id)
         if session is None:
-            raise HTTPException(status_code=404, detail=f"会话 '{body.session_id}' 不存在")
+            raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=body.session_id))
         if session.project_name != body.project_name:
             raise HTTPException(
                 status_code=400,
-                detail=f"会话 '{body.session_id}' 属于项目 '{session.project_name}'，与请求项目 '{body.project_name}' 不符",
+                detail=_t(
+                    "session_project_mismatch",
+                    session_id=body.session_id,
+                    session_project=session.project_name,
+                    request_project=body.project_name,
+                ),
             )
 
     # 统一通过 send_or_create 创建或复用会话并发送消息。
@@ -160,12 +168,13 @@ async def agent_chat(
             body.project_name,
             body.message,
             session_id=body.session_id,
+            locale=get_locale(request),
         )
         session_id = result["session_id"]
     except SessionCapacityError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except TimeoutError:
-        raise HTTPException(status_code=504, detail="SDK 会话创建超时")
+        raise HTTPException(status_code=504, detail=_t("sdk_session_timeout"))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 

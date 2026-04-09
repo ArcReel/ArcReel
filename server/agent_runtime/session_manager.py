@@ -328,7 +328,12 @@ class SessionManager:
 - 你不能创建或编辑代码文件（.py/.js/.sh 等），Write/Edit 仅限 .json/.md/.txt
 - 你是用户的视频制作搭档，专业、友善、高效"""
 
-    def _build_append_prompt(self, project_name: str) -> str:
+    _LOCALE_LANGUAGE_MAP: dict[str, str] = {
+        "zh": "中文",
+        "en": "English",
+    }
+
+    def _build_append_prompt(self, project_name: str, locale: str = "zh") -> str:
         """Build the append portion for SystemPromptPreset.
 
         Combines the ArcReel persona with project-specific context from
@@ -337,6 +342,15 @@ class SessionManager:
         project cwd.
         """
         parts = [self._PERSONA_PROMPT]
+
+        lang = self._LOCALE_LANGUAGE_MAP.get(locale, "中文")
+        parts.append(
+            f"\n## 语言规范\n\n"
+            f"- **回答用户必须使用{lang}**：所有回复、思考过程、任务清单及计划文件，均须使用{lang}\n"
+            f"- **视频内容语言**：所有生成的视频对话、旁白、字幕均使用{lang}\n"
+            f"- **文档使用{lang}**：所有的 Markdown 文件均使用{lang}编写\n"
+            f"- **Prompt 使用{lang}**：图片生成/视频生成使用的 prompt 应使用{lang}编写"
+        )
 
         project_context = self._build_project_context(project_name)
         if project_context:
@@ -416,6 +430,7 @@ class SessionManager:
         project_name: str,
         resume_id: str | None = None,
         can_use_tool: Callable[[str, dict[str, Any], Any], Any] | None = None,
+        locale: str = "zh",
     ) -> Any:
         """Build ClaudeAgentOptions for a session."""
         if not SDK_AVAILABLE or ClaudeAgentOptions is None:
@@ -471,7 +486,7 @@ class SessionManager:
             system_prompt=SystemPromptPreset(
                 type="preset",
                 preset="claude_code",
-                append=self._build_append_prompt(project_name),
+                append=self._build_append_prompt(project_name, locale=locale),
             ),
             include_partial_messages=True,
             resume=resume_id,
@@ -822,6 +837,7 @@ class SessionManager:
         *,
         echo_text: str | None = None,
         echo_content: list[dict[str, Any]] | None = None,
+        locale: str = "zh",
     ) -> str:
         """Create a new session via send-first: connect SDK, send message, wait for sdk_session_id."""
         if not SDK_AVAILABLE or ClaudeSDKClient is None:
@@ -835,6 +851,7 @@ class SessionManager:
             project_name,
             resume_id=None,
             can_use_tool=await self._build_can_use_tool_callback(temp_id, managed_ref),
+            locale=locale,
         )
         client = ClaudeSDKClient(options=options)
         await client.connect()

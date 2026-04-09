@@ -35,4 +35,64 @@ MESSAGES = {
     "character_task_submitted": "Character design generation task for '{char_name}' submitted",
     "clue_not_found": "Clue '{clue_name}' does not exist",
     "clue_task_submitted": "Clue design generation task for '{clue_name}' submitted",
+    # Files
+    "file_not_found": "File does not exist: {path}",
+    "forbidden_access": "Access to files outside the project directory is forbidden",
+    "invalid_upload_type": "Invalid upload type: {upload_type}",
+    "unsupported_image_type": "Unsupported file type {ext}. Allowed types: {allowed}",
+    "invalid_image_file": "Invalid image file, could not be parsed",
+    "invalid_step_num": "Invalid step number: {step_num}",
+    "draft_file_not_found": "Draft file does not exist",
+    "draft_event_label": "Episode {episode} {label_prefix}",
+    "normalized_script": "Normalized Script",
+    "segment_splitting": "Segment Splitting",
+    # Providers
+    "unknown_provider": "Unknown provider: {provider_id}",
+    "credentials_not_found": "Credentials not found",
+    "vertex_json_read_failed": "Failed to read the uploaded file",
+    "vertex_json_too_large": "Credentials file is too large",
+    "vertex_json_invalid": "Invalid JSON credentials file",
+    "vertex_json_missing_project_id": "Credentials file is missing project_id",
+    "connection_success": "Connection successful",
+    "connection_timeout": "Connection timeout, please check your network or API configuration",
+    "connection_failed": "Connection failed: {err_msg}",
+    "unsupported_test": "Provider {provider_id} does not support connection testing yet",
+    "missing_credentials": "Missing credential configuration, please add a key first",
+    # Assistant
+    "session_not_found": "Session '{session_id}' does not exist",
+    "session_or_project_not_found": "Session or project does not exist",
+    "sdk_session_timeout": "SDK session creation timed out",
+    "interface_offline": "This interface is offline, please use the recommended interface",
+    "answers_required": "answers cannot be empty",
+    # Custom Providers
+    "price_input_required": "price_input must be set when setting price_output",
+    "model_id_required": "model_id must be provided for enabled models",
+    "duplicate_model_id": "Duplicate model_id: {model_id}",
+    "default_model_conflict": "Each media_type can have at most one default model. Conflict: {conflict}",
+    "provider_not_found": "Provider does not exist",
+    "at_least_one_field_required": "At least one field must be provided for update",
+    "unsupported_format": "Unsupported api_format: {api_format}",
+    "discovery_failed": "Model discovery failed: {err_msg}",
+    # Projects
+    "project_id_not_editable": "content_mode cannot be modified after project creation",
+    "project_deleted": "Project '{name}' deleted",
+    "scene_updated": "Scene '{scene_id}' updated",
+    "segment_updated": "Segment '{segment_id}' updated",
+    # Clues & Characters
+    "invalid_clue_type": "Clue type must be 'prop' or 'location'",
+    "invalid_importance": "Importance must be 'major' or 'minor'",
+    "clue_deleted": "Clue '{clue_name}' deleted",
+    "character_deleted": "Character '{char_name}' deleted",
+    # API Keys
+    "jwt_auth_required": "API Key is not authorized to perform this action, please use JWT authentication",
+    "api_key_name_exists": "Name '{name}' already exists",
+    "api_key_not_found": "API Key {key_id} not found",
+    # Agent Chat
+    "session_project_mismatch": "Session '{session_id}' belongs to project '{session_project}', which does not match the requested project '{request_project}'",
+    # Cost Estimation
+    "cost_estimation_failed": "Cost estimation failed, please try again later",
+    # Validators
+    "invalid_backend_format": "{field_name} format should be provider/model",
+    # Versions
+    "unsupported_resource_type": "Unsupported resource type: {resource_type}",
 }

@@ -11,10 +11,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib import PROJECT_ROOT
+from lib.i18n import get_translator
 from lib.image_utils import normalize_uploaded_image
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
@@ -41,7 +42,7 @@ ALLOWED_EXTENSIONS = {
 
 
 @router.get("/files/{project_name}/{path:path}")
-async def serve_project_file(project_name: str, path: str, request: Request):
+async def serve_project_file(project_name: str, path: str, request: Request, _t=Depends(get_translator)):
     """服务项目内的静态文件（图片/视频）"""
     try:
 
@@ -50,13 +51,13 @@ async def serve_project_file(project_name: str, path: str, request: Request):
             file_path = project_dir / path
 
             if not file_path.exists():
-                raise HTTPException(status_code=404, detail=f"文件不存在: {path}")
+                raise HTTPException(status_code=404, detail=_t("file_not_found", path=path))
 
             # 安全检查：确保路径在项目目录内
             try:
                 file_path.resolve().relative_to(project_dir.resolve())
             except ValueError:
-                raise HTTPException(status_code=403, detail="禁止访问项目目录外的文件")
+                raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 
             return file_path
 
@@ -69,12 +70,17 @@ async def serve_project_file(project_name: str, path: str, request: Request):
 
         return FileResponse(file_path, headers=headers)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
 
 
 @router.post("/projects/{project_name}/upload/{upload_type}")
 async def upload_file(
-    project_name: str, upload_type: str, _user: CurrentUser, file: UploadFile = File(...), name: str = None
+    project_name: str,
+    upload_type: str,
+    _user: CurrentUser,
+    file: UploadFile = File(...),
+    name: str = None,
+    _t=Depends(get_translator),
 ):
     """
     上传文件
@@ -86,14 +92,14 @@ async def upload_file(
         name: 可选，用于角色/线索名称，或分镜 ID（自动更新元数据）
     """
     if upload_type not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail=f"无效的上传类型: {upload_type}")
+        raise HTTPException(status_code=400, detail=_t("invalid_upload_type", upload_type=upload_type))
 
     # 检查文件扩展名
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS[upload_type]:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的文件类型 {ext}，允许的类型: {ALLOWED_EXTENSIONS[upload_type]}",
+            detail=_t("unsupported_image_type", ext=ext, allowed=", ".join(ALLOWED_EXTENSIONS[upload_type])),
         )
 
     try:
@@ -144,7 +150,7 @@ async def upload_file(
                 try:
                     content, ext = normalize_uploaded_image(content, Path(file.filename).suffix.lower())
                 except ValueError:
-                    raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
+                    raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
                 filename = Path(filename).with_suffix(ext).name
 
             target_path = target_dir / filename
@@ -204,7 +210,7 @@ async def upload_file(
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:
@@ -213,7 +219,7 @@ async def upload_file(
 
 
 @router.get("/projects/{project_name}/files")
-async def list_project_files(project_name: str, _user: CurrentUser):
+async def list_project_files(project_name: str, _user: CurrentUser, _t=Depends(get_translator)):
     """列出项目中的所有文件"""
     try:
 
@@ -247,7 +253,7 @@ async def list_project_files(project_name: str, _user: CurrentUser):
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:
@@ -256,7 +262,7 @@ async def list_project_files(project_name: str, _user: CurrentUser):
 
 
 @router.get("/projects/{project_name}/source/{filename}")
-async def get_source_file(project_name: str, filename: str, _user: CurrentUser):
+async def get_source_file(project_name: str, filename: str, _user: CurrentUser, _t=Depends(get_translator)):
     """获取 source 文件的文本内容"""
     try:
 
@@ -265,13 +271,13 @@ async def get_source_file(project_name: str, filename: str, _user: CurrentUser):
             source_path = project_dir / "source" / filename
 
             if not source_path.exists():
-                raise HTTPException(status_code=404, detail=f"文件不存在: {filename}")
+                raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
 
             # 安全检查：确保路径在项目目录内
             try:
                 source_path.resolve().relative_to(project_dir.resolve())
             except ValueError:
-                raise HTTPException(status_code=403, detail="禁止访问项目目录外的文件")
+                raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 
             return source_path.read_text(encoding="utf-8")
 
@@ -279,9 +285,9 @@ async def get_source_file(project_name: str, filename: str, _user: CurrentUser):
         return PlainTextResponse(content)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="文件编码错误，无法读取")
+        raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
     except HTTPException:
         raise
     except Exception as e:
@@ -291,7 +297,11 @@ async def get_source_file(project_name: str, filename: str, _user: CurrentUser):
 
 @router.put("/projects/{project_name}/source/{filename}")
 async def update_source_file(
-    project_name: str, filename: str, _user: CurrentUser, content: str = Body(..., media_type="text/plain")
+    project_name: str,
+    filename: str,
+    _user: CurrentUser,
+    content: str = Body(..., media_type="text/plain"),
+    _t=Depends(get_translator),
 ):
     """更新或创建 source 文件"""
     try:
@@ -306,7 +316,7 @@ async def update_source_file(
             try:
                 source_path.resolve().relative_to(project_dir.resolve())
             except ValueError:
-                raise HTTPException(status_code=403, detail="禁止访问项目目录外的文件")
+                raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 
             source_path.write_text(content, encoding="utf-8")
             return {"success": True, "path": f"source/{filename}"}
@@ -314,7 +324,7 @@ async def update_source_file(
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:
@@ -323,7 +333,7 @@ async def update_source_file(
 
 
 @router.delete("/projects/{project_name}/source/{filename}")
-async def delete_source_file(project_name: str, filename: str, _user: CurrentUser):
+async def delete_source_file(project_name: str, filename: str, _user: CurrentUser, _t=Depends(get_translator)):
     """删除 source 文件"""
     try:
 
@@ -335,18 +345,18 @@ async def delete_source_file(project_name: str, filename: str, _user: CurrentUse
             try:
                 source_path.resolve().relative_to(project_dir.resolve())
             except ValueError:
-                raise HTTPException(status_code=403, detail="禁止访问项目目录外的文件")
+                raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 
             if source_path.exists():
                 source_path.unlink()
                 return {"success": True}
             else:
-                raise HTTPException(status_code=404, detail=f"文件不存在: {filename}")
+                raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
 
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:
@@ -358,7 +368,7 @@ async def delete_source_file(project_name: str, filename: str, _user: CurrentUse
 
 
 @router.get("/projects/{project_name}/drafts")
-async def list_drafts(project_name: str, _user: CurrentUser):
+async def list_drafts(project_name: str, _user: CurrentUser, _t=Depends(get_translator)):
     """列出项目的所有草稿目录和文件"""
     try:
 
@@ -377,7 +387,7 @@ async def list_drafts(project_name: str, _user: CurrentUser):
                                 {
                                     "name": f.name,
                                     "step": _extract_step_number(f.name),
-                                    "title": _get_step_title(f.name),
+                                    "title": _get_step_title(f.name, _t),
                                     "size": f.stat().st_size,
                                     "modified": f.stat().st_mtime,
                                 }
@@ -388,7 +398,7 @@ async def list_drafts(project_name: str, _user: CurrentUser):
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
 
 
 def _extract_step_number(filename: str) -> int:
@@ -407,11 +417,11 @@ def _get_step_files(content_mode: str) -> dict:
         return {1: "step1_normalized_script.md"}
 
 
-def _get_step_title(filename: str) -> str:
+def _get_step_title(filename: str, _t) -> str:
     """获取步骤标题"""
     titles = {
-        "step1_normalized_script.md": "规范化剧本",
-        "step1_segments.md": "片段拆分",
+        "step1_normalized_script.md": _t("normalized_script"),
+        "step1_segments.md": _t("segment_splitting"),
     }
     return titles.get(filename, filename)
 
@@ -427,7 +437,9 @@ def _get_content_mode(project_dir: Path) -> str:
 
 
 @router.get("/projects/{project_name}/drafts/{episode}/step{step_num}")
-async def get_draft_content(project_name: str, episode: int, step_num: int, _user: CurrentUser):
+async def get_draft_content(
+    project_name: str, episode: int, step_num: int, _user: CurrentUser, _t=Depends(get_translator)
+):
     """获取特定步骤的草稿内容"""
     try:
 
@@ -437,12 +449,12 @@ async def get_draft_content(project_name: str, episode: int, step_num: int, _use
             step_files = _get_step_files(content_mode)
 
             if step_num not in step_files:
-                raise HTTPException(status_code=400, detail=f"无效的步骤编号: {step_num}")
+                raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
             draft_path = project_dir / "drafts" / f"episode_{episode}" / step_files[step_num]
 
             if not draft_path.exists():
-                raise HTTPException(status_code=404, detail="草稿文件不存在")
+                raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
 
             return draft_path.read_text(encoding="utf-8")
 
@@ -450,7 +462,7 @@ async def get_draft_content(project_name: str, episode: int, step_num: int, _use
         return PlainTextResponse(content)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
 
 
 @router.put("/projects/{project_name}/drafts/{episode}/step{step_num}")
@@ -460,6 +472,7 @@ async def update_draft_content(
     step_num: int,
     _user: CurrentUser,
     content: str = Body(..., media_type="text/plain"),
+    _t=Depends(get_translator),
 ):
     """更新草稿内容"""
     try:
@@ -470,7 +483,7 @@ async def update_draft_content(
             step_files = _get_step_files(content_mode)
 
             if step_num not in step_files:
-                raise HTTPException(status_code=400, detail=f"无效的步骤编号: {step_num}")
+                raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
             drafts_dir = project_dir / "drafts" / f"episode_{episode}"
             drafts_dir.mkdir(parents=True, exist_ok=True)
@@ -486,7 +499,7 @@ async def update_draft_content(
                 "entity_type": "draft",
                 "action": action,
                 "entity_id": f"episode_{episode}_step{step_num}",
-                "label": f"第 {episode} 集{label_prefix}",
+                "label": _t("draft_event_label", episode=episode, label_prefix=label_prefix),
                 "episode": episode,
                 "focus": {
                     "pane": "episode",
@@ -504,11 +517,11 @@ async def update_draft_content(
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
 
 
 @router.delete("/projects/{project_name}/drafts/{episode}/step{step_num}")
-async def delete_draft(project_name: str, episode: int, step_num: int, _user: CurrentUser):
+async def delete_draft(project_name: str, episode: int, step_num: int, _user: CurrentUser, _t=Depends(get_translator)):
     """删除草稿文件"""
     try:
 
@@ -518,7 +531,7 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _user: Cu
             step_files = _get_step_files(content_mode)
 
             if step_num not in step_files:
-                raise HTTPException(status_code=400, detail=f"无效的步骤编号: {step_num}")
+                raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
             draft_path = project_dir / "drafts" / f"episode_{episode}" / step_files[step_num]
 
@@ -526,19 +539,21 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _user: Cu
                 draft_path.unlink()
                 return {"success": True}
             else:
-                raise HTTPException(status_code=404, detail="草稿文件不存在")
+                raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
 
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
 
 
 # ==================== 风格参考图管理 ====================
 
 
 @router.post("/projects/{project_name}/style-image")
-async def upload_style_image(project_name: str, _user: CurrentUser, file: UploadFile = File(...)):
+async def upload_style_image(
+    project_name: str, _user: CurrentUser, file: UploadFile = File(...), _t=Depends(get_translator)
+):
     """
     上传风格参考图并分析风格
 
@@ -551,7 +566,7 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
     if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的文件类型 {ext}，允许的类型: .png, .jpg, .jpeg, .webp",
+            detail=_t("unsupported_image_type", ext=ext, allowed=".png, .jpg, .jpeg, .webp"),
         )
 
     try:
@@ -562,7 +577,7 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
             try:
                 content_norm, new_ext = normalize_uploaded_image(content, Path(file.filename).suffix.lower())
             except ValueError:
-                raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
+                raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
             style_filename = f"style_reference{new_ext}"
 
             output_path = project_dir / style_filename
@@ -603,7 +618,7 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
         }
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:
@@ -612,7 +627,7 @@ async def upload_style_image(project_name: str, _user: CurrentUser, file: Upload
 
 
 @router.delete("/projects/{project_name}/style-image")
-async def delete_style_image(project_name: str, _user: CurrentUser):
+async def delete_style_image(project_name: str, _user: CurrentUser, _t=Depends(get_translator)):
     """
     删除风格参考图及相关字段
     """
@@ -639,7 +654,7 @@ async def delete_style_image(project_name: str, _user: CurrentUser):
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:
@@ -649,7 +664,7 @@ async def delete_style_image(project_name: str, _user: CurrentUser):
 
 @router.patch("/projects/{project_name}/style-description")
 async def update_style_description(
-    project_name: str, _user: CurrentUser, style_description: str = Body(..., embed=True)
+    project_name: str, _user: CurrentUser, style_description: str = Body(..., embed=True), _t=Depends(get_translator)
 ):
     """
     更新风格描述（手动编辑）
@@ -667,7 +682,7 @@ async def update_style_description(
         return await asyncio.to_thread(_sync)
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:

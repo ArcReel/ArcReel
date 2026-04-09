@@ -127,7 +127,7 @@ export function SystemConfigPage() {
                   {configIssues.map((issue, idx) => (
                     <li key={idx} className="flex items-start gap-2 text-xs text-rose-200/60">
                       <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-rose-500/40" />
-                      {issue.label}
+                      {t(`dashboard:${issue.label}`)}
                     </li>
                   ))}
                 </ul>

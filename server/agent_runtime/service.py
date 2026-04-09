@@ -199,6 +199,7 @@ class AssistantService:
         *,
         session_id: str | None = None,
         images: list["ImageAttachment"] | None = None,
+        locale: str = "zh",
     ) -> dict[str, Any]:
         """Unified send: create new session or send to existing one."""
         self.pm.get_project_path(project_name)  # Validate project
@@ -229,6 +230,7 @@ class AssistantService:
                 prompt,
                 echo_text=text,
                 echo_content=echo_blocks,
+                locale=locale,
             )
             return {"status": "accepted", "session_id": new_sdk_session_id}
 

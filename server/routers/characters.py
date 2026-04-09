@@ -7,10 +7,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from lib import PROJECT_ROOT
+from lib.i18n import get_translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUser
@@ -39,7 +40,7 @@ class UpdateCharacterRequest(BaseModel):
 
 
 @router.post("/projects/{project_name}/characters")
-async def add_character(project_name: str, req: CreateCharacterRequest, _user: CurrentUser):
+async def add_character(project_name: str, req: CreateCharacterRequest, _user: CurrentUser, _t=Depends(get_translator)):
     """添加角色"""
     try:
 
@@ -52,7 +53,7 @@ async def add_character(project_name: str, req: CreateCharacterRequest, _user: C
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:
@@ -66,6 +67,7 @@ async def update_character(
     char_name: str,
     req: UpdateCharacterRequest,
     _user: CurrentUser,
+    _t=Depends(get_translator),
 ):
     """更新角色"""
     try:
@@ -94,9 +96,9 @@ async def update_character(
 
         return await asyncio.to_thread(_sync)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("character_not_found", char_name=char_name))
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:
@@ -105,7 +107,7 @@ async def update_character(
 
 
 @router.delete("/projects/{project_name}/characters/{char_name}")
-async def delete_character(project_name: str, char_name: str, _user: CurrentUser):
+async def delete_character(project_name: str, char_name: str, _user: CurrentUser, _t=Depends(get_translator)):
     """删除角色"""
     try:
 
@@ -119,13 +121,13 @@ async def delete_character(project_name: str, char_name: str, _user: CurrentUser
 
             with project_change_source("webui"):
                 manager.update_project(project_name, _mutate)
-            return {"success": True, "message": f"角色 '{char_name}' 已删除"}
+            return {"success": True, "message": _t("character_deleted", char_name=char_name)}
 
         return await asyncio.to_thread(_sync)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"角色 '{char_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("character_not_found", char_name=char_name))
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:

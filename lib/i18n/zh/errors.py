@@ -35,4 +35,64 @@ MESSAGES = {
     "character_task_submitted": "角色「{char_name}」设计图生成任务已提交",
     "clue_not_found": "线索 '{clue_name}' 不存在",
     "clue_task_submitted": "线索「{clue_name}」设计图生成任务已提交",
+    # Files
+    "file_not_found": "文件不存在: {path}",
+    "forbidden_access": "禁止访问项目目录外的文件",
+    "invalid_upload_type": "无效的上传类型: {upload_type}",
+    "unsupported_image_type": "不支持的文件类型 {ext}，允许的类型: {allowed}",
+    "invalid_image_file": "无效的图片文件，无法解析",
+    "invalid_step_num": "无效的步骤编号: {step_num}",
+    "draft_file_not_found": "草稿文件不存在",
+    "draft_event_label": "第 {episode} 集{label_prefix}",
+    "normalized_script": "规范化剧本",
+    "segment_splitting": "片段拆分",
+    # Providers
+    "unknown_provider": "未知供应商: {provider_id}",
+    "credentials_not_found": "凭证不存在",
+    "vertex_json_read_failed": "读取上传文件失败",
+    "vertex_json_too_large": "凭证文件过大",
+    "vertex_json_invalid": "无效的 JSON 凭证文件",
+    "vertex_json_missing_project_id": "凭证文件缺少 project_id",
+    "connection_success": "连接成功",
+    "connection_timeout": "连接超时，请检查网络或 API 配置",
+    "connection_failed": "连接失败: {err_msg}",
+    "unsupported_test": "供应商 {provider_id} 暂不支持连接测试",
+    "missing_credentials": "缺少凭证配置，请先添加密钥",
+    # Assistant
+    "session_not_found": "会话 '{session_id}' 不存在",
+    "session_or_project_not_found": "会话或项目不存在",
+    "sdk_session_timeout": "SDK 会话创建超时",
+    "interface_offline": "该接口已下线，请使用推荐的接口",
+    "answers_required": "answers 不能为空",
+    # Custom Providers
+    "price_input_required": "设置 price_output 时必须同时设置 price_input",
+    "model_id_required": "已启用的模型必须填写 model_id",
+    "duplicate_model_id": "model_id 重复: {model_id}",
+    "default_model_conflict": "每个 media_type 最多只能有一个默认模型，冲突: {conflict}",
+    "provider_not_found": "供应商不存在",
+    "at_least_one_field_required": "至少需要提供一个更新字段",
+    "unsupported_format": "不支持的 api_format: {api_format}",
+    "discovery_failed": "模型发现失败: {err_msg}",
+    # Projects
+    "project_id_not_editable": "项目创建后不支持修改 content_mode",
+    "project_deleted": "项目 '{name}' 已删除",
+    "scene_updated": "场景 '{scene_id}' 已更新",
+    "segment_updated": "片段 '{segment_id}' 已更新",
+    # Clues & Characters
+    "invalid_clue_type": "线索类型必须是 'prop' 或 'location'",
+    "invalid_importance": "重要程度必须是 'major' 或 'minor'",
+    "clue_deleted": "线索 '{clue_name}' 已删除",
+    "character_deleted": "角色 '{char_name}' 已删除",
+    # API Keys
+    "jwt_auth_required": "API Key 无权执行此操作，请使用 JWT 认证",
+    "api_key_name_exists": "名称 '{name}' 已存在",
+    "api_key_not_found": "API Key {key_id} 不存在",
+    # Agent Chat
+    "session_project_mismatch": "会话 '{session_id}' 属于项目 '{session_project}'，与请求项目 '{request_project}' 不符",
+    # Cost Estimation
+    "cost_estimation_failed": "费用估算失败，请稍后重试",
+    # Validators
+    "invalid_backend_format": "{field_name} 格式应为 provider/model",
+    # Versions
+    "unsupported_resource_type": "不支持的资源类型: {resource_type}",
 }

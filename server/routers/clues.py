@@ -6,10 +6,11 @@ import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from lib import PROJECT_ROOT
+from lib.i18n import get_translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUser
@@ -39,7 +40,7 @@ class UpdateClueRequest(BaseModel):
 
 
 @router.post("/projects/{project_name}/clues")
-async def add_clue(project_name: str, req: CreateClueRequest, _user: CurrentUser):
+async def add_clue(project_name: str, req: CreateClueRequest, _user: CurrentUser, _t=Depends(get_translator)):
     """添加线索"""
     try:
 
@@ -54,7 +55,7 @@ async def add_clue(project_name: str, req: CreateClueRequest, _user: CurrentUser
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:
@@ -63,14 +64,16 @@ async def add_clue(project_name: str, req: CreateClueRequest, _user: CurrentUser
 
 
 @router.patch("/projects/{project_name}/clues/{clue_name}")
-async def update_clue(project_name: str, clue_name: str, req: UpdateClueRequest, _user: CurrentUser):
+async def update_clue(
+    project_name: str, clue_name: str, req: UpdateClueRequest, _user: CurrentUser, _t=Depends(get_translator)
+):
     """更新线索"""
     try:
         # 验证输入（纯 CPU，无需下沉到线程）
         if req.clue_type is not None and req.clue_type not in ["prop", "location"]:
-            raise HTTPException(status_code=400, detail="线索类型必须是 'prop' 或 'location'")
+            raise HTTPException(status_code=400, detail=_t("invalid_clue_type"))
         if req.importance is not None and req.importance not in ["major", "minor"]:
-            raise HTTPException(status_code=400, detail="重要程度必须是 'major' 或 'minor'")
+            raise HTTPException(status_code=400, detail=_t("invalid_importance"))
 
         def _sync():
             manager = get_project_manager()
@@ -96,9 +99,9 @@ async def update_clue(project_name: str, clue_name: str, req: UpdateClueRequest,
 
         return await asyncio.to_thread(_sync)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"线索 '{clue_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("clue_not_found", clue_name=clue_name))
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:
@@ -107,7 +110,7 @@ async def update_clue(project_name: str, clue_name: str, req: UpdateClueRequest,
 
 
 @router.delete("/projects/{project_name}/clues/{clue_name}")
-async def delete_clue(project_name: str, clue_name: str, _user: CurrentUser):
+async def delete_clue(project_name: str, clue_name: str, _user: CurrentUser, _t=Depends(get_translator)):
     """删除线索"""
     try:
 
@@ -121,13 +124,13 @@ async def delete_clue(project_name: str, clue_name: str, _user: CurrentUser):
 
             with project_change_source("webui"):
                 manager.update_project(project_name, _mutate)
-            return {"success": True, "message": f"线索 '{clue_name}' 已删除"}
+            return {"success": True, "message": _t("clue_deleted", clue_name=clue_name)}
 
         return await asyncio.to_thread(_sync)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"线索 '{clue_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("clue_not_found", clue_name=clue_name))
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
     except Exception as e:

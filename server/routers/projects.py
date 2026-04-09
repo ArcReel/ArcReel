@@ -11,7 +11,6 @@ import logging
 import os
 import shutil
 import tempfile
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -97,6 +96,7 @@ async def import_project_archive(
     _user: CurrentUser,
     file: UploadFile = File(...),
     conflict_policy: str = Form("prompt"),
+    _t=Depends(get_translator),
 ):
     """从 ZIP 导入项目。"""
     upload_path: str | None = None
@@ -159,15 +159,16 @@ async def create_export_token(
     name: str,
     current_user: CurrentUser,
     scope: str = Query("full"),
+    _t=Depends(get_translator),
 ):
     """签发短时效下载 token，用于浏览器原生下载认证。"""
     try:
         if scope not in ("full", "current"):
-            raise HTTPException(status_code=422, detail="scope 必须为 full 或 current")
+            raise HTTPException(status_code=422, detail=_t("scope_invalid"))
 
         def _sync():
             if not get_project_manager().project_exists(name):
-                raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在或未初始化")
+                raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
             return get_archive_service().get_export_diagnostics(name, scope=scope)
 
         diagnostics = await asyncio.to_thread(_sync)
@@ -190,10 +191,11 @@ async def export_project_archive(
     name: str,
     download_token: str = Query(...),
     scope: str = Query("full"),
+    _t=Depends(get_translator),
 ):
     """将项目导出为 ZIP。需要 download_token 认证（通过 POST /export/token 获取）。"""
     if scope not in ("full", "current"):
-        raise HTTPException(status_code=422, detail="scope 必须为 full 或 current")
+        raise HTTPException(status_code=422, detail=_t("scope_invalid"))
 
     # 验证 download_token
     import jwt as pyjwt
@@ -201,11 +203,11 @@ async def export_project_archive(
     try:
         verify_download_token(download_token, name)
     except pyjwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="下载链接已过期，请重新导出")
+        raise HTTPException(status_code=401, detail=_t("download_expired"))
     except ValueError:
-        raise HTTPException(status_code=403, detail="下载 token 与目标项目不匹配")
+        raise HTTPException(status_code=403, detail=_t("download_token_mismatch"))
     except pyjwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="下载 token 无效")
+        raise HTTPException(status_code=401, detail=_t("download_token_invalid"))
 
     try:
         archive_path, download_name = await asyncio.to_thread(
@@ -218,7 +220,7 @@ async def export_project_archive(
             background=BackgroundTask(_cleanup_temp_file, str(archive_path)),
         )
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在或未初始化")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     except HTTPException:
         raise
     except Exception as e:
@@ -235,14 +237,14 @@ def get_jianying_draft_service() -> JianyingDraftService:
     return JianyingDraftService(get_project_manager())
 
 
-def _validate_draft_path(draft_path: str) -> str:
+def _validate_draft_path(draft_path: str, _t) -> str:
     """校验 draft_path 合法性"""
     if not draft_path or not draft_path.strip():
-        raise HTTPException(status_code=422, detail="请提供有效的剪映草稿目录路径")
+        raise HTTPException(status_code=422, detail=_t("draft_path_invalid"))
     if len(draft_path) > 1024:
-        raise HTTPException(status_code=422, detail="草稿目录路径过长")
+        raise HTTPException(status_code=422, detail=_t("draft_path_too_long"))
     if any(ord(c) < 32 for c in draft_path):
-        raise HTTPException(status_code=422, detail="草稿目录路径包含非法字符")
+        raise HTTPException(status_code=422, detail=_t("draft_path_invalid_chars"))
     return draft_path.strip()
 
 
@@ -253,6 +255,7 @@ def export_jianying_draft(
     draft_path: str = Query(..., description="用户本地剪映草稿目录"),
     download_token: str = Query(..., description="下载 token"),
     jianying_version: str = Query("6", description="剪映版本：6 或 5"),
+    _t=Depends(get_translator),
 ):
     """导出指定集的剪映草稿 ZIP"""
     import jwt as pyjwt
@@ -261,14 +264,14 @@ def export_jianying_draft(
     try:
         verify_download_token(download_token, name)
     except pyjwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="下载链接已过期，请重新导出")
+        raise HTTPException(status_code=401, detail=_t("download_expired"))
     except ValueError:
-        raise HTTPException(status_code=403, detail="下载 token 与项目不匹配")
+        raise HTTPException(status_code=403, detail=_t("download_token_mismatch"))
     except pyjwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="下载 token 无效")
+        raise HTTPException(status_code=401, detail=_t("download_token_invalid"))
 
     # 2. 校验 draft_path
-    draft_path = _validate_draft_path(draft_path)
+    draft_path = _validate_draft_path(draft_path, _t)
 
     # 3. 调用服务
     svc = get_jianying_draft_service()
@@ -285,9 +288,9 @@ def export_jianying_draft(
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:
         logger.exception("剪映草稿导出失败: project=%s episode=%d", name, episode)
-        raise HTTPException(status_code=500, detail="剪映草稿导出失败，请稍后重试")
+        raise HTTPException(status_code=500, detail=_t("jianying_export_failed"))
 
-    download_name = f"{name}_第{episode}集_剪映草稿.zip"
+    download_name = f"{name}_episode_{episode}_jianying_draft.zip"
 
     return FileResponse(
         path=str(zip_path),
@@ -358,7 +361,7 @@ async def list_projects(_user: CurrentUser):
 async def create_project(
     req: CreateProjectRequest,
     _user: CurrentUser,
-    _t: Annotated[Callable[..., str], Depends(get_translator)],
+    _t=Depends(get_translator),
 ):
     """创建新项目"""
     try:
@@ -400,7 +403,7 @@ async def create_project(
 async def get_project(
     name: str,
     _user: CurrentUser,
-    _t: Annotated[Callable[..., str], Depends(get_translator)],
+    _t=Depends(get_translator),
 ):
     """获取项目详情（含实时计算字段）"""
     try:
@@ -445,7 +448,7 @@ async def get_project(
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     except HTTPException:
         raise
     except Exception as e:
@@ -454,7 +457,7 @@ async def get_project(
 
 
 @router.patch("/projects/{name}")
-async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUser):
+async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUser, _t=Depends(get_translator)):
     """更新项目元数据"""
     try:
 
@@ -465,7 +468,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
             if req.content_mode is not None:
                 raise HTTPException(
                     status_code=400,
-                    detail="项目创建后不支持修改 content_mode",
+                    detail=_t("project_id_not_editable"),
                 )
 
             if req.title is not None:
@@ -505,7 +508,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     except HTTPException:
         raise
     except Exception as e:
@@ -514,18 +517,18 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
 
 
 @router.delete("/projects/{name}")
-async def delete_project(name: str, _user: CurrentUser):
+async def delete_project(name: str, _user: CurrentUser, _t=Depends(get_translator)):
     """删除项目"""
     try:
 
         def _sync():
             project_dir = get_project_manager().get_project_path(name)
             shutil.rmtree(project_dir)
-            return {"success": True, "message": f"项目 '{name}' 已删除"}
+            return {"success": True, "message": _t("project_deleted", name=name)}
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     except HTTPException:
         raise
     except Exception as e:
@@ -534,13 +537,13 @@ async def delete_project(name: str, _user: CurrentUser):
 
 
 @router.get("/projects/{name}/scripts/{script_file}")
-async def get_script(name: str, script_file: str, _user: CurrentUser):
+async def get_script(name: str, script_file: str, _user: CurrentUser, _t=Depends(get_translator)):
     """获取剧本内容"""
     try:
         script = await asyncio.to_thread(get_project_manager().load_script, name, script_file)
         return {"script": script}
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"剧本 '{script_file}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("script_not_found", name=script_file))
     except HTTPException:
         raise
     except Exception as e:
@@ -554,7 +557,9 @@ class UpdateSceneRequest(BaseModel):
 
 
 @router.patch("/projects/{name}/scenes/{scene_id}")
-async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user: CurrentUser):
+async def update_scene(
+    name: str, scene_id: str, req: UpdateSceneRequest, _user: CurrentUser, _t=Depends(get_translator)
+):
     """更新场景"""
     try:
 
@@ -584,7 +589,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
                     break
 
             if not scene_found:
-                raise HTTPException(status_code=404, detail=f"场景 '{scene_id}' 不存在")
+                raise HTTPException(status_code=404, detail=_t("scene_not_found", scene_id=scene_id))
 
             with project_change_source("webui"):
                 manager.save_script(name, script, req.script_file)
@@ -592,7 +597,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="剧本不存在")
+        raise HTTPException(status_code=404, detail=_t("script_not_found", name=req.script_file))
     except HTTPException:
         raise
     except Exception as e:
@@ -618,7 +623,9 @@ class UpdateOverviewRequest(BaseModel):
 
 
 @router.patch("/projects/{name}/segments/{segment_id}")
-async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _user: CurrentUser):
+async def update_segment(
+    name: str, segment_id: str, req: UpdateSegmentRequest, _user: CurrentUser, _t=Depends(get_translator)
+):
     """更新说书模式片段"""
     try:
 
@@ -628,7 +635,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
 
             # 检查是否为说书模式
             if script.get("content_mode") != "narration" and "segments" not in script:
-                raise HTTPException(status_code=400, detail="该剧本不是说书模式，请使用场景更新接口")
+                raise HTTPException(status_code=400, detail=_t("not_narration_mode"))
 
             # 找到并更新片段
             segment_found = False
@@ -650,7 +657,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                     break
 
             if not segment_found:
-                raise HTTPException(status_code=404, detail=f"片段 '{segment_id}' 不存在")
+                raise HTTPException(status_code=404, detail=_t("segment_not_found", segment_id=segment_id))
 
             with project_change_source("webui"):
                 manager.save_script(name, script, req.script_file)
@@ -658,7 +665,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="剧本不存在")
+        raise HTTPException(status_code=404, detail=_t("script_not_found", name=req.script_file))
     except HTTPException:
         raise
     except Exception as e:
@@ -676,6 +683,7 @@ async def set_project_source(
     generate_overview: Annotated[bool, Form()] = True,
     content: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
+    _t=Depends(get_translator),
 ):
     """上传小说源文件或直接提交文本内容，可选触发 AI 概述生成。
 
@@ -689,9 +697,9 @@ async def set_project_source(
     ALLOWED_SUFFIXES = {".txt", ".md"}
 
     if not content and not file:
-        raise HTTPException(status_code=400, detail="需要提供 content（文本内容）或 file（文件上传）其中之一")
+        raise HTTPException(status_code=400, detail=_t("source_input_required"))
     if content and file:
-        raise HTTPException(status_code=400, detail="content 和 file 不能同时提供，请选择其一")
+        raise HTTPException(status_code=400, detail=_t("source_input_conflict"))
 
     try:
         manager = get_project_manager()
@@ -702,15 +710,15 @@ async def set_project_source(
             original_name = file.filename or "novel.txt"
             suffix = Path(original_name).suffix.lower()
             if suffix not in ALLOWED_SUFFIXES:
-                raise HTTPException(status_code=400, detail=f"仅支持 .txt / .md 文件，收到: {original_name!r}")
+                raise HTTPException(status_code=400, detail=_t("source_file_unsupported", ext=suffix))
             if file.size is not None and file.size > MAX_CHARS * 4:
-                raise HTTPException(status_code=400, detail=f"文件大小超出限制（最大约 {MAX_CHARS} 字符）")
+                raise HTTPException(status_code=400, detail=_t("source_file_too_large"))
             raw = await file.read()
 
         # 同步文件 I/O 在线程中执行
         def _sync_write():
             if not manager.project_exists(name):
-                raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
+                raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
             project_dir = manager.get_project_path(name)
             source_dir = project_dir / "source"
             source_dir.mkdir(parents=True, exist_ok=True)
@@ -720,17 +728,17 @@ async def set_project_source(
                 try:
                     text = raw.decode("utf-8")
                 except UnicodeDecodeError:
-                    raise HTTPException(status_code=400, detail="文件编码错误，请使用 UTF-8 编码的文本文件")
+                    raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
                 if len(text) > MAX_CHARS:
                     raise HTTPException(
-                        status_code=400, detail=f"文件内容超出最大限制 {MAX_CHARS} 字符（当前 {len(text)}）"
+                        status_code=400, detail=_t("source_content_too_large", max=MAX_CHARS, current=len(text))
                     )
                 (source_dir / safe_filename).write_text(text, encoding="utf-8")
                 return safe_filename, len(text)
             else:
                 if len(content) > MAX_CHARS:
                     raise HTTPException(
-                        status_code=400, detail=f"content 超出最大长度 {MAX_CHARS} 字符（当前 {len(content)}）"
+                        status_code=400, detail=_t("source_content_too_large", max=MAX_CHARS, current=len(content))
                     )
                 safe_filename = "novel.txt"
                 (source_dir / safe_filename).write_text(content, encoding="utf-8")
@@ -764,14 +772,14 @@ async def set_project_source(
 
 
 @router.post("/projects/{name}/generate-overview")
-async def generate_overview(name: str, _user: CurrentUser):
+async def generate_overview(name: str, _user: CurrentUser, _t=Depends(get_translator)):
     """使用 AI 生成项目概述"""
     try:
         with project_change_source("webui"):
             overview = await get_project_manager().generate_overview(name)
         return {"success": True, "overview": overview}
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
@@ -782,7 +790,7 @@ async def generate_overview(name: str, _user: CurrentUser):
 
 
 @router.patch("/projects/{name}/overview")
-async def update_overview(name: str, req: UpdateOverviewRequest, _user: CurrentUser):
+async def update_overview(name: str, req: UpdateOverviewRequest, _user: CurrentUser, _t=Depends(get_translator)):
     """更新项目概述（手动编辑）"""
     try:
 
@@ -808,7 +816,7 @@ async def update_overview(name: str, req: UpdateOverviewRequest, _user: CurrentU
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     except HTTPException:
         raise
     except Exception as e:

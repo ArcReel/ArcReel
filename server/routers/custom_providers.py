@@ -19,11 +19,12 @@ from lib.custom_provider import make_provider_id
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.i18n import get_translator
 from server.auth import CurrentUser
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/custom-providers", tags=["自定义供应商"])
+router = APIRouter(prefix="/custom-providers", tags=["Custom Providers"])
 
 _CONNECTION_TEST_TIMEOUT = 15  # 秒
 
@@ -188,19 +189,19 @@ def _cleanup_project_refs(prefix: str, setting_keys: tuple[str, ...]) -> None:
             pass  # 读取失败或项目不可写，跳过（非致命）
 
 
-def _check_duplicate_model_ids(models: list[ModelInput]) -> None:
+def _check_duplicate_model_ids(models: list[ModelInput], _t) -> None:
     """校验模型列表中无重复 model_id 且启用模型有合法 model_id。"""
     seen: set[str] = set()
     for m in models:
         if m.is_enabled and not m.model_id.strip():
-            raise HTTPException(status_code=422, detail="已启用的模型必须填写 model_id")
+            raise HTTPException(status_code=422, detail=_t("model_id_required"))
         if m.model_id in seen:
-            raise HTTPException(status_code=422, detail=f"model_id 重复: {m.model_id}")
+            raise HTTPException(status_code=422, detail=_t("duplicate_model_id", model_id=m.model_id))
         if m.model_id:
             seen.add(m.model_id)
 
 
-def _check_unique_defaults(models: list[ModelInput]) -> None:
+def _check_unique_defaults(models: list[ModelInput], _t) -> None:
     """校验每个 media_type 最多只有一个 is_default=True 的模型。"""
     defaults_by_type: dict[str, list[str]] = {}
     for m in models:
@@ -211,7 +212,7 @@ def _check_unique_defaults(models: list[ModelInput]) -> None:
         parts = [f"{mt}({', '.join(ids)})" for mt, ids in duplicates.items()]
         raise HTTPException(
             status_code=422,
-            detail=f"每个 media_type 最多只能有一个默认模型，冲突: {'; '.join(parts)}",
+            detail=_t("default_model_conflict", conflict="; ".join(parts)),
         )
 
 
@@ -247,11 +248,12 @@ async def create_provider(
     request: Request,
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
+    _t=Depends(get_translator),
 ):
     """创建自定义供应商，可同时创建模型列表。"""
     if body.models:
-        _check_duplicate_model_ids(body.models)
-        _check_unique_defaults(body.models)
+        _check_duplicate_model_ids(body.models, _t)
+        _check_unique_defaults(body.models, _t)
     repo = CustomProviderRepository(session)
     model_dicts = [m.to_db_dict() for m in body.models] if body.models else None
     provider = await repo.create_provider(
@@ -273,12 +275,13 @@ async def get_provider(
     provider_id: int,
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
+    _t=Depends(get_translator),
 ):
     """获取单个自定义供应商详情。"""
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
-        raise HTTPException(status_code=404, detail="供应商不存在")
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     models = await repo.list_models(provider_id)
     return _provider_to_response(provider, models)
 
@@ -290,6 +293,7 @@ async def update_provider(
     request: Request,
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
+    _t=Depends(get_translator),
 ):
     """更新自定义供应商配置。"""
     repo = CustomProviderRepository(session)
@@ -302,11 +306,11 @@ async def update_provider(
         kwargs["api_key"] = body.api_key
 
     if not kwargs:
-        raise HTTPException(status_code=400, detail="至少需要提供一个更新字段")
+        raise HTTPException(status_code=400, detail=_t("at_least_one_field_required"))
 
     provider = await repo.update_provider(provider_id, **kwargs)
     if provider is None:
-        raise HTTPException(status_code=404, detail="供应商不存在")
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
 
     await session.commit()
     await _invalidate_caches(request)
@@ -322,17 +326,18 @@ async def full_update_provider(
     request: Request,
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
+    _t=Depends(get_translator),
 ):
     """原子更新供应商元数据 + 模型列表（单一事务）。"""
-    _check_duplicate_model_ids(body.models)
-    _check_unique_defaults(body.models)
+    _check_duplicate_model_ids(body.models, _t)
+    _check_unique_defaults(body.models, _t)
     repo = CustomProviderRepository(session)
     kwargs: dict = {"display_name": body.display_name, "base_url": body.base_url}
     if body.api_key is not None:
         kwargs["api_key"] = body.api_key
     provider = await repo.update_provider(provider_id, **kwargs)
     if provider is None:
-        raise HTTPException(status_code=404, detail="供应商不存在")
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     model_dicts = [m.to_db_dict() for m in body.models]
     await repo.replace_models(provider_id, model_dicts)
     await session.commit()
@@ -348,12 +353,13 @@ async def delete_provider(
     request: Request,
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
+    _t=Depends(get_translator),
 ):
     """删除自定义供应商（级联删除模型，清理悬空默认配置）。"""
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
-        raise HTTPException(status_code=404, detail="供应商不存在")
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     prefix = f"{make_provider_id(provider_id)}/"
     await repo.delete_provider(provider_id)
     # 清理引用该 provider 的全局默认 backend 配置
@@ -382,14 +388,15 @@ async def replace_models(
     request: Request,
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
+    _t=Depends(get_translator),
 ):
     """替换供应商的整个模型列表。"""
-    _check_duplicate_model_ids(body.models)
-    _check_unique_defaults(body.models)
+    _check_duplicate_model_ids(body.models, _t)
+    _check_unique_defaults(body.models, _t)
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
-        raise HTTPException(status_code=404, detail="供应商不存在")
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     # 记录旧模型 ID，用于清理悬空引用
     old_models = await repo.list_models(provider_id)
     old_model_ids = {m.model_id for m in old_models}
@@ -426,6 +433,7 @@ async def replace_models(
 async def discover_models_endpoint(
     body: ProviderConnectionRequest,
     _user: CurrentUser,
+    _t=Depends(get_translator),
 ):
     """模型发现：根据 api_format + base_url + api_key 查询可用模型。"""
     from lib.custom_provider.discovery import discover_models
@@ -444,16 +452,17 @@ async def discover_models_endpoint(
         if len(err_msg) > 200:
             err_msg = err_msg[:200] + "..."
         logger.warning("模型发现失败: %s", err_msg)
-        raise HTTPException(status_code=502, detail=f"模型发现失败: {err_msg}")
+        raise HTTPException(status_code=502, detail=_t("discovery_failed", err_msg=err_msg))
 
 
 @router.post("/test")
 async def test_connection(
     body: ProviderConnectionRequest,
     _user: CurrentUser,
+    _t=Depends(get_translator),
 ):
     """连接测试：验证 api_format + base_url + api_key 的连通性。"""
-    return await _run_connection_test(body.api_format, body.base_url, body.api_key)
+    return await _run_connection_test(body.api_format, body.base_url, body.api_key, _t)
 
 
 @router.post("/{provider_id}/test")
@@ -461,38 +470,39 @@ async def test_connection_by_id(
     provider_id: int,
     _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
+    _t=Depends(get_translator),
 ):
     """使用已存储凭证测试指定供应商的连通性。"""
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
-        raise HTTPException(status_code=404, detail="供应商不存在")
-    return await _run_connection_test(provider.api_format, provider.base_url, provider.api_key)
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
+    return await _run_connection_test(provider.api_format, provider.base_url, provider.api_key, _t)
 
 
-async def _run_connection_test(api_format: str, base_url: str, api_key: str) -> ConnectionTestResponse:
+async def _run_connection_test(api_format: str, base_url: str, api_key: str, _t) -> ConnectionTestResponse:
     """共用的连接测试逻辑。"""
     try:
         if api_format == "openai":
             result = await asyncio.wait_for(
-                asyncio.to_thread(_test_openai, base_url, api_key),
+                asyncio.to_thread(_test_openai, base_url, api_key, _t),
                 timeout=_CONNECTION_TEST_TIMEOUT,
             )
         elif api_format == "google":
             result = await asyncio.wait_for(
-                asyncio.to_thread(_test_google, base_url, api_key),
+                asyncio.to_thread(_test_google, base_url, api_key, _t),
                 timeout=_CONNECTION_TEST_TIMEOUT,
             )
         else:
             return ConnectionTestResponse(
                 success=False,
-                message=f"不支持的 api_format: {api_format}",
+                message=_t("unsupported_format", api_format=api_format),
             )
         return result
     except TimeoutError:
         return ConnectionTestResponse(
             success=False,
-            message="连接超时，请检查网络或 API 配置",
+            message=_t("connection_timeout"),
         )
     except Exception as exc:
         err_msg = str(exc)
@@ -501,11 +511,11 @@ async def _run_connection_test(api_format: str, base_url: str, api_key: str) -> 
         logger.warning("连接测试失败 [%s]: %s", api_format, err_msg)
         return ConnectionTestResponse(
             success=False,
-            message=f"连接失败: {err_msg}",
+            message=_t("connection_failed", err_msg=err_msg),
         )
 
 
-def _test_openai(base_url: str, api_key: str) -> ConnectionTestResponse:
+def _test_openai(base_url: str, api_key: str, _t) -> ConnectionTestResponse:
     """通过 models.list() 验证 OpenAI 兼容 API。"""
     from openai import OpenAI
 
@@ -516,12 +526,12 @@ def _test_openai(base_url: str, api_key: str) -> ConnectionTestResponse:
     count = sum(1 for _ in models)
     return ConnectionTestResponse(
         success=True,
-        message="连接成功",
+        message=_t("connection_success"),
         model_count=count,
     )
 
 
-def _test_google(base_url: str, api_key: str) -> ConnectionTestResponse:
+def _test_google(base_url: str, api_key: str, _t) -> ConnectionTestResponse:
     """通过 models.list() 验证 Google genai API。"""
     from google import genai
 
@@ -534,6 +544,6 @@ def _test_google(base_url: str, api_key: str) -> ConnectionTestResponse:
     count = sum(1 for _ in pager)
     return ConnectionTestResponse(
         success=True,
-        message="连接成功",
+        message=_t("connection_success"),
         model_count=count,
     )

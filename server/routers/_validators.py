@@ -15,7 +15,7 @@ _LEGACY_PROVIDER_NAMES: dict[str, str] = {
 }
 
 
-def validate_backend_value(value: str, field_name: str) -> None:
+def validate_backend_value(value: str, field_name: str, _t=None) -> None:
     """校验 ``provider/model`` 格式的 backend 字段值。
 
     也接受旧格式的单 provider 名（如 ``"gemini"``），以兼容存量项目。
@@ -26,13 +26,15 @@ def validate_backend_value(value: str, field_name: str) -> None:
     if "/" not in value:
         if value in _LEGACY_PROVIDER_NAMES or value in PROVIDER_REGISTRY:
             return  # 旧格式或裸 registry id，下游 _normalize_provider_id() 处理
+        detail = _t("invalid_backend_format", field_name=field_name) if _t else f"{field_name} 格式应为 provider/model"
         raise HTTPException(
             status_code=400,
-            detail=f"{field_name} 格式应为 provider/model",
+            detail=detail,
         )
     provider_id = value.split("/", 1)[0]
     if provider_id not in PROVIDER_REGISTRY and not provider_id.startswith("custom-"):
+        detail = _t("unknown_provider", provider_id=provider_id) if _t else f"未知供应商: {provider_id}"
         raise HTTPException(
             status_code=400,
-            detail=f"未知供应商: {provider_id}",
+            detail=detail,
         )

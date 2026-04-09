@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Package, History, Clapperboard, ArrowLeft, Loader2 } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
+import { useTranslation } from "react-i18next";
 import type { RefObject } from "react";
 import type { EpisodeMeta } from "@/types/project";
 
@@ -36,6 +37,7 @@ export function ExportScopeDialog({
   onJianyingExport,
   jianyingExporting = false,
 }: ExportScopeDialogProps) {
+  const { t } = useTranslation(["dashboard", "common"]);
   const [mode, setMode] = useState<"select" | "jianying-form">("select");
   const [selectedEpisode, setSelectedEpisode] = useState<number>(
     episodes.length > 0 ? episodes[0].episode : 1,
@@ -75,7 +77,7 @@ export function ExportScopeDialog({
     >
       {mode === "select" ? (
         <>
-          <p className="mb-3 text-xs font-medium text-gray-300">选择导出范围</p>
+          <p className="mb-3 text-xs font-medium text-gray-300">{t("dashboard:export_scope_title")}</p>
           <div className="flex flex-col gap-2">
             <button
               type="button"
@@ -85,13 +87,13 @@ export function ExportScopeDialog({
               <Package className="mt-0.5 h-4 w-4 shrink-0 text-indigo-400" />
               <div>
                 <div className="text-sm font-medium text-gray-200">
-                  仅当前版本
+                  {t("dashboard:current_version_only")}
                   <span className="ml-1.5 rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] text-indigo-300">
-                    推荐
+                    {t("dashboard:recommended")}
                   </span>
                 </div>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  不含版本历史，体积更小
+                  {t("dashboard:small_size_hint")}
                 </p>
               </div>
             </button>
@@ -102,9 +104,9 @@ export function ExportScopeDialog({
             >
               <History className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
               <div>
-                <div className="text-sm font-medium text-gray-200">全部数据</div>
+                <div className="text-sm font-medium text-gray-200">{t("dashboard:all_data")}</div>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  包含完整版本历史
+                  {t("dashboard:full_history_hint")}
                 </p>
               </div>
             </button>
@@ -116,10 +118,10 @@ export function ExportScopeDialog({
               <Clapperboard className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
               <div>
                 <div className="text-sm font-medium text-gray-200">
-                  导出为剪映草稿
+                  {t("dashboard:export_jianying_draft")}
                 </div>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  生成剪映可导入的草稿 ZIP
+                  {t("dashboard:generate_jianying_zip_hint")}
                 </p>
               </div>
             </button>
@@ -132,18 +134,18 @@ export function ExportScopeDialog({
               type="button"
               onClick={() => setMode("select")}
               className="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-              aria-label="返回"
+              aria-label={t("common:back")}
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-            <p className="text-xs font-medium text-gray-300">导出为剪映草稿</p>
+            <p className="text-xs font-medium text-gray-300">{t("dashboard:export_jianying_draft")}</p>
           </div>
           <div className="flex flex-col gap-3">
             {/* Episode selector — hidden when only one episode */}
             {episodes.length > 1 && (
               <div>
                 <label htmlFor="jianying-episode-select" className="mb-1 block text-xs text-gray-400">
-                  选择集数
+                  {t("dashboard:select_episode")}
                 </label>
                 <select
                   id="jianying-episode-select"
@@ -153,7 +155,7 @@ export function ExportScopeDialog({
                 >
                   {episodes.map((ep) => (
                     <option key={ep.episode} value={ep.episode}>
-                      第 {ep.episode} 集 — {ep.title}
+                      {t("dashboard:episode_with_title", { episode: ep.episode, title: ep.title })}
                     </option>
                   ))}
                 </select>
@@ -163,7 +165,7 @@ export function ExportScopeDialog({
             {/* JianYing version selector */}
             <div>
               <label htmlFor="jianying-version-select" className="mb-1 block text-xs text-gray-400">
-                剪映版本
+                {t("dashboard:jianying_version")}
               </label>
               <select
                 id="jianying-version-select"
@@ -171,26 +173,26 @@ export function ExportScopeDialog({
                 onChange={(e) => setJianyingVersion(e.target.value)}
                 className="w-full rounded-md border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-sm text-gray-200 outline-none focus:border-indigo-500"
               >
-                <option value="6">剪映 6.0 及以上（推荐）</option>
-                <option value="5">剪映 5.x</option>
+                <option value="6">{t("dashboard:jianying_v6_plus")}</option>
+                <option value="5">{t("dashboard:jianying_v5_x")}</option>
               </select>
             </div>
 
             {/* Draft path input */}
             <div>
               <label htmlFor="jianying-draft-path" className="mb-1 block text-xs text-gray-400">
-                草稿目录路径
+                {t("dashboard:draft_path")}
               </label>
               <input
                 id="jianying-draft-path"
                 type="text"
                 value={draftPath}
                 onChange={(e) => setDraftPath(e.target.value)}
-                placeholder="剪映草稿目录路径"
+                placeholder={t("dashboard:draft_path_placeholder")}
                 className="w-full rounded-md border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-sm text-gray-200 placeholder:text-gray-600 outline-none focus:border-indigo-500"
               />
               <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500">
-                请填入剪映草稿目录的完整路径。打开剪映 → 设置 → 草稿位置 可查看。
+                {t("dashboard:draft_path_hint")}
               </p>
             </div>
 
@@ -204,10 +206,10 @@ export function ExportScopeDialog({
               {jianyingExporting ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  导出中...
+                  {t("dashboard:exporting")}
                 </>
               ) : (
-                "导出草稿"
+                t("dashboard:export_draft")
               )}
             </button>
           </div>
