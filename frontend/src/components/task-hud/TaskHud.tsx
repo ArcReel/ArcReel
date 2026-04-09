@@ -5,6 +5,7 @@ import { Image, Video, Check, X, Loader2, ChevronDown } from "lucide-react";
 import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
 import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
+import { API } from "@/api";
 import type { TaskItem } from "@/types";
 import { UI_LAYERS } from "@/utils/ui-layers";
 import { POPOVER_BG } from "@/components/ui/Popover";
@@ -23,6 +24,8 @@ function TaskStatusIcon({ status }: { status: TaskItem["status"] }) {
       return <Check className="h-3.5 w-3.5 text-emerald-400" />;
     case "failed":
       return <X className="h-3.5 w-3.5 text-red-400" />;
+    case "cancelled":
+      return <X className="h-3.5 w-3.5 text-gray-400" />;
   }
 }
 
@@ -55,11 +58,13 @@ function TaskRow({
   isFading,
   expandedErrorId,
   onToggleError,
+  onCancel,
 }: {
   task: TaskItem;
   isFading: boolean;
   expandedErrorId: string | null;
   onToggleError: (taskId: string) => void;
+  onCancel?: (taskId: string) => void;
 }) {
   const statusLabel: Record<TaskItem["status"], string> = {
     running: "生成中...",
@@ -115,6 +120,21 @@ function TaskRow({
         <span className={`text-xs ${statusColor[task.status]}`}>
           {statusLabel[task.status]}
         </span>
+        {task.status === "queued" && onCancel && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancel(task.task_id);
+            }}
+            className="ml-1 rounded px-1 py-0.5 text-xs text-gray-500 hover:bg-gray-700 hover:text-gray-300"
+            title="取消任务"
+          >
+            取消
+          </button>
+        )}
+        {task.status === "cancelled" && task.cancelled_by === "cascade" && (
+          <span className="ml-1 text-xs text-gray-600">级联</span>
+        )}
         {hasError && (
           <ChevronDown
             className={`h-3 w-3 text-gray-500 transition-transform ${
@@ -159,10 +179,12 @@ function ChannelSection({
   title,
   icon: Icon,
   tasks,
+  onCancel,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
   tasks: TaskItem[];
+  onCancel?: (taskId: string) => void;
 }) {
   // 跟踪正在淡出的任务 ID
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
@@ -178,16 +200,16 @@ function ChannelSection({
     setExpandedErrorId((prev) => (prev === taskId ? null : taskId));
   }, []);
 
-  // 监听任务状态变化，为 succeeded 任务设置自动淡出
+  // 监听任务状态变化，为 succeeded/cancelled 任务设置自动淡出
   useEffect(() => {
-    const succeededTasks = tasks.filter(
+    const autoFadeTasks = tasks.filter(
       (t) =>
-        t.status === "succeeded" &&
+        (t.status === "succeeded" || t.status === "cancelled") &&
         !fadingIds.has(t.task_id) &&
         !hiddenIds.has(t.task_id),
     );
 
-    for (const task of succeededTasks) {
+    for (const task of autoFadeTasks) {
       if (timersRef.current.has(task.task_id)) continue;
 
       // 3 秒后开始淡出动画
@@ -217,7 +239,7 @@ function ChannelSection({
   const running = tasks.filter((t) => t.status === "running");
   const queued = tasks.filter((t) => t.status === "queued");
   const recent = tasks
-    .filter((t) => t.status === "succeeded" || t.status === "failed")
+    .filter((t) => t.status === "succeeded" || t.status === "failed" || t.status === "cancelled")
     .filter((t) => !hiddenIds.has(t.task_id))
     .slice(0, 5);
 
@@ -242,6 +264,7 @@ function ChannelSection({
             isFading={fadingIds.has(task.task_id)}
             expandedErrorId={expandedErrorId}
             onToggleError={toggleError}
+            onCancel={onCancel}
           />
         ))}
       </AnimatePresence>
@@ -265,6 +288,47 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
     onClose: () => setTaskHudOpen(false),
     sideOffset: 4,
   });
+
+  const [cancelConfirm, setCancelConfirm] = useState<{
+    taskId?: string;
+    preview?: { task: { task_id: string; task_type: string; resource_id: string }; cascaded: { task_id: string; task_type: string; resource_id: string }[] };
+    allCount?: number;
+    projectName?: string;
+  } | null>(null);
+
+  const handleCancelSingle = async (taskId: string) => {
+    try {
+      const preview = await API.cancelPreview(taskId);
+      setCancelConfirm({ taskId, preview });
+    } catch {
+      // task no longer queued
+    }
+  };
+
+  const handleCancelAll = async () => {
+    const queuedTask = tasks.find((t) => t.status === "queued");
+    if (!queuedTask) return;
+    const projectName = queuedTask.project_name;
+    try {
+      const { queued_count } = await API.cancelAllPreview(projectName);
+      setCancelConfirm({ allCount: queued_count, projectName });
+    } catch {
+      // no queued tasks
+    }
+  };
+
+  const confirmCancel = async () => {
+    if (!cancelConfirm) return;
+    try {
+      if (cancelConfirm.taskId) {
+        await API.cancelTask(cancelConfirm.taskId);
+      } else if (cancelConfirm.projectName) {
+        await API.cancelAllQueued(cancelConfirm.projectName);
+      }
+    } finally {
+      setCancelConfirm(null);
+    }
+  };
 
   const imageTasks = tasks.filter((t) => t.media_type === "image");
   const videoTasks = tasks.filter((t) => t.media_type === "video");
@@ -304,13 +368,63 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
               失败{" "}
               <strong className="text-red-400">{stats.failed}</strong>
             </span>
+            {stats.cancelled > 0 && (
+              <span>
+                取消{" "}
+                <strong className="text-gray-400">{stats.cancelled}</strong>
+              </span>
+            )}
+            {stats.queued > 0 && (
+              <button
+                onClick={handleCancelAll}
+                className="ml-auto text-xs text-gray-500 hover:text-red-400"
+              >
+                全部取消
+              </button>
+            )}
           </div>
 
           {/* 双通道 */}
           <div className="max-h-80 divide-y divide-gray-800/50 overflow-y-auto">
-            <ChannelSection title="图片通道" icon={Image} tasks={imageTasks} />
-            <ChannelSection title="视频通道" icon={Video} tasks={videoTasks} />
+            <ChannelSection title="图片通道" icon={Image} tasks={imageTasks} onCancel={handleCancelSingle} />
+            <ChannelSection title="视频通道" icon={Video} tasks={videoTasks} onCancel={handleCancelSingle} />
           </div>
+
+          {/* 取消确认面板 */}
+          {cancelConfirm && (
+            <div className="border-t border-gray-800 px-3 py-2">
+              <p className="text-xs text-gray-300">
+                {cancelConfirm.preview
+                  ? cancelConfirm.preview.cascaded.length > 0
+                    ? `取消此任务将同时取消 ${cancelConfirm.preview.cascaded.length} 个依赖任务`
+                    : "确定取消此任务？"
+                  : `确定取消所有 ${cancelConfirm.allCount} 个排队中的任务？`}
+              </p>
+              {cancelConfirm.preview && cancelConfirm.preview.cascaded.length > 0 && (
+                <ul className="mt-1 max-h-20 overflow-y-auto text-xs text-gray-500">
+                  {cancelConfirm.preview.cascaded.map((t) => (
+                    <li key={t.task_id}>
+                      {t.task_type} / {t.resource_id}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={confirmCancel}
+                  className="rounded bg-red-600/80 px-2 py-0.5 text-xs text-white hover:bg-red-600"
+                >
+                  确认取消
+                </button>
+                <button
+                  onClick={() => setCancelConfirm(null)}
+                  className="rounded px-2 py-0.5 text-xs text-gray-400 hover:bg-gray-700"
+                >
+                  返回
+                </button>
+              </div>
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>,
