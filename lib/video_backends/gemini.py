@@ -143,6 +143,21 @@ class GeminiVideoBackend:
         }
         if self._backend_type == "vertex":
             config_params["generate_audio"] = request.generate_audio
+
+        # end_image → last_frame（帧插值）
+        if request.end_image is not None:
+            config_params["last_frame"] = self._prepare_image_param(request.end_image)
+
+        # reference_images → reference_images（参考图列表，type=ASSET）
+        if request.reference_images:
+            config_params["reference_images"] = [
+                self._types.VideoGenerationReferenceImage(
+                    image=self._prepare_image_param(img),
+                    reference_type=self._types.VideoGenerationReferenceType.ASSET,
+                )
+                for img in request.reference_images
+            ]
+
         config = self._types.GenerateVideosConfig(**config_params)
 
         # 4. 准备 source（prompt + 可选起始帧）
