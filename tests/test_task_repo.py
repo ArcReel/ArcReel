@@ -340,7 +340,7 @@ class TestTaskRepository:
 
         result = await repo.cancel_all_queued("demo")
         assert result["cancelled_count"] == 1  # only the queued video task
-        assert result["skipped_running_count"] == 1
+        assert result["skipped_running_count"] == 0  # running 任务在查询 queued 前已被 claim，不算 skipped
 
         task = await repo.get(t2["task_id"])
         assert task["status"] == "cancelled"

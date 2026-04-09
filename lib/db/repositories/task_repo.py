@@ -480,11 +480,6 @@ class TaskRepository(BaseRepository):
 
     async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
         """取消项目中所有 queued 任务。"""
-        running_result = await self.session.execute(
-            select(func.count()).select_from(Task).where(Task.project_name == project_name, Task.status == "running")
-        )
-        running_count = running_result.scalar_one()
-
         queued_result = await self.session.execute(
             select(Task).where(Task.project_name == project_name, Task.status == "queued")
         )
@@ -507,7 +502,9 @@ class TaskRepository(BaseRepository):
         if queued_tasks:
             await self.session.flush()
             task_ids = [t.task_id for t in queued_tasks]
-            refreshed = await self.session.execute(select(Task).where(Task.task_id.in_(task_ids)))
+            refreshed = await self.session.execute(
+                select(Task).where(Task.task_id.in_(task_ids), Task.status == "cancelled")
+            )
             for updated_task in refreshed.scalars().all():
                 task_data = _task_to_dict(updated_task)
                 await self._append_event(
@@ -519,9 +516,11 @@ class TaskRepository(BaseRepository):
                 )
 
         await self.session.commit()
+        # 竞态时部分任务可能在 UPDATE 前被 worker 领走，skipped = 预期取消数 - 实际取消数
+        skipped = len(queued_tasks) - cancelled_count
         return {
             "cancelled_count": cancelled_count,
-            "skipped_running_count": running_count,
+            "skipped_running_count": max(0, skipped),
         }
 
     async def requeue_running(self, *, limit: int = 1000) -> int:
