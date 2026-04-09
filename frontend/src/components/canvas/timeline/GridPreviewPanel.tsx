@@ -236,13 +236,6 @@ export function GridPreviewPanel({
     };
   }, [expanded, gridId, projectName]);
 
-  // Re-fetch when gridId changes while panel is open
-  useEffect(() => {
-    if (gridId && expanded) {
-      setGrid(null);
-    }
-  }, [gridId]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const imageUrl =
     grid?.grid_image_path
       ? API.getFileUrl(projectName, grid.grid_image_path)
@@ -254,6 +247,7 @@ export function GridPreviewPanel({
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
         className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-amber-900/10 focus:outline-none"
       >
         <motion.span

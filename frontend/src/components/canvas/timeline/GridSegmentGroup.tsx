@@ -13,8 +13,6 @@ export interface GridSegmentGroupProps {
   groupIndex: number;
   scenes: Segment[];
   gridSize: string | null; // "grid_4" | "grid_6" | "grid_9" or null if < 4
-  rows: number;
-  cols: number;
   sceneCount: number;
   onGenerateGrid: () => void;
   generatingGrid: boolean;
@@ -100,6 +98,7 @@ export function GridSegmentGroup({
           type="button"
           onClick={onGenerateGrid}
           disabled={!canGenerate || generatingGrid}
+          title={!canGenerate ? "不足 4 场景，无法生成宫格" : undefined}
           className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
             generatingGrid
               ? "bg-blue-700 text-white"

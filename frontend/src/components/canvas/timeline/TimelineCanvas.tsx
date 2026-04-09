@@ -374,15 +374,13 @@ export function TimelineCanvas({
               )}
 
               {segmentGroups.map((group, groupIdx) => {
-                const { gridSize, rows, cols } = computeGridSize(group.length);
+                const { gridSize } = computeGridSize(group.length);
                 return (
                   <GridSegmentGroup
                     key={groupIdx}
                     groupIndex={groupIdx}
                     scenes={group}
                     gridSize={gridSize}
-                    rows={rows}
-                    cols={cols}
                     sceneCount={group.length}
                     onGenerateGrid={() => handleGenerateGroupGrid(groupIdx, group)}
                     generatingGrid={generatingGridGroups.has(groupIdx)}
