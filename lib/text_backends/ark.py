@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 
 from lib.ark_shared import ARK_BASE_URL, create_ark_client, resolve_ark_api_key
 from lib.providers import PROVIDER_ARK
@@ -60,9 +59,7 @@ class ArkTextBackend:
 
     @with_retry_async()
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        if request.images:
-            return await self._generate_vision(request)
-        if request.response_schema:
+        if request.response_schema and not request.images:
             return await self._generate_structured(request)
         return await self._generate_plain(request)
 
@@ -114,47 +111,26 @@ class ArkTextBackend:
             provider=PROVIDER_ARK,
         )
 
-    async def _generate_vision(self, request: TextGenerationRequest) -> TextGenerationResult:
-        content: list[dict[str, Any]] = []
-        for img in request.images or []:
-            if img.path:
-                from lib.image_backends.base import image_to_base64_data_uri
-
-                data_uri = image_to_base64_data_uri(img.path)
-                content.append({"type": "input_image", "image_url": data_uri})
-            elif img.url:
-                content.append({"type": "input_image", "image_url": img.url})
-
-        content.append({"type": "input_text", "text": request.prompt})
-
-        messages: list[dict] = []
-        if request.system_prompt:
-            messages.append({"role": "system", "content": request.system_prompt})
-        messages.append({"role": "user", "content": content})
-
-        response = await asyncio.to_thread(
-            self._client.responses.create,
-            model=self._model,
-            input=messages,
-        )
-
-        text = response.output_text if hasattr(response, "output_text") else str(response)
-        input_tokens = getattr(getattr(response, "usage", None), "input_tokens", None)
-        output_tokens = getattr(getattr(response, "usage", None), "output_tokens", None)
-
-        return TextGenerationResult(
-            text=text.strip() if isinstance(text, str) else str(text),
-            provider=PROVIDER_ARK,
-            model=self._model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-        )
-
     def _build_messages(self, request: TextGenerationRequest) -> list[dict]:
         messages: list[dict] = []
         if request.system_prompt:
             messages.append({"role": "system", "content": request.system_prompt})
-        messages.append({"role": "user", "content": request.prompt})
+
+        if request.images:
+            from lib.image_backends.base import image_to_base64_data_uri
+
+            content: list[dict] = []
+            for img in request.images:
+                if img.path:
+                    data_uri = image_to_base64_data_uri(img.path)
+                    content.append({"type": "image_url", "image_url": {"url": data_uri}})
+                elif img.url:
+                    content.append({"type": "image_url", "image_url": {"url": img.url}})
+            content.append({"type": "text", "text": request.prompt})
+            messages.append({"role": "user", "content": content})
+        else:
+            messages.append({"role": "user", "content": request.prompt})
+
         return messages
 
     def _parse_chat_response(self, response) -> TextGenerationResult:

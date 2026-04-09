@@ -62,6 +62,59 @@ class TestGenerate:
         assert result.output_tokens == 8
 
 
+class TestVision:
+    async def test_vision_uses_chat_completions(self, mock_ark, sync_to_thread):
+        """vision 路径走 chat.completions.create，与 plain 共用响应解析。"""
+        from lib.text_backends.base import ImageInput
+
+        _, mock_client = mock_ark
+        b = ArkTextBackend(api_key="k")
+
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="  style description  "))],
+            usage=SimpleNamespace(prompt_tokens=100, completion_tokens=50),
+        )
+        mock_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        result = await b.generate(
+            TextGenerationRequest(prompt="describe style", images=[ImageInput(url="https://example.com/img.jpg")])
+        )
+
+        assert result.text == "style description"
+        assert result.input_tokens == 100
+        assert result.output_tokens == 50
+        # 确认走的是 chat.completions 而不是 responses API
+        mock_client.chat.completions.create.assert_called_once()
+
+    async def test_vision_message_format(self, mock_ark, sync_to_thread):
+        """vision 请求构建 image_url 格式的多模态消息。"""
+        from lib.text_backends.base import ImageInput
+
+        _, mock_client = mock_ark
+        b = ArkTextBackend(api_key="k")
+
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+        mock_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        await b.generate(
+            TextGenerationRequest(
+                prompt="describe",
+                system_prompt="you are helpful",
+                images=[ImageInput(url="https://example.com/img.jpg")],
+            )
+        )
+
+        call_args = mock_client.chat.completions.create.call_args
+        messages = call_args.kwargs["messages"]
+        assert messages[0] == {"role": "system", "content": "you are helpful"}
+        user_content = messages[1]["content"]
+        assert user_content[0] == {"type": "image_url", "image_url": {"url": "https://example.com/img.jpg"}}
+        assert user_content[1] == {"type": "text", "text": "describe"}
+
+
 class TestCapabilityAwareStructured:
     """测试基于模型能力的结构化输出路径选择。"""
 
