@@ -1,47 +1,46 @@
-# 风格参考图机制设计
+# Style Reference Image Mechanism Design
 
-**日期**: 2026-02-04
-**状态**: 待实现
+**Date**: 2026-02-04
+**Status**: Pending implementation
 
-## 概述
+## Overview
 
-为视频项目添加项目级的风格参考图机制。用户可以上传一张风格参考图，系统自动分析生成风格描述文字，后续所有图片生成都使用该风格描述，确保整个项目风格统一。
+Adds a project-level style reference image mechanism to video projects. Users can upload a style reference image; the system automatically analyzes it to generate a style description, which is then used for all subsequent image generation to ensure visual consistency across the project.
 
-## 设计决策
+## Design Decisions
 
-| 方面 | 决策 |
-|------|------|
-| 存储方式 | 本地文件 `style_reference.png` |
-| 使用范围 | 所有图片生成（characters、clues、storyboard） |
-| 分析机制 | AI 分析 → 保存描述 → 后续仅用描述 |
-| 触发方式 | WebUI（新建项目 + 项目概览） |
-| 字段设计 | `style`（手动）+ `style_description`（AI）+ `style_image`（路径） |
-| UI 交互 | 缩略图 + 可编辑描述 |
+| Aspect | Decision |
+|--------|----------|
+| Storage | Local file `style_reference.png` |
+| Scope | All image generation (characters, clues, storyboard) |
+| Analysis mechanism | AI analyzes → saves description → only description used afterwards |
+| Trigger | WebUI (create project + project overview) |
+| Field design | `style` (manual) + `style_description` (AI) + `style_image` (path) |
+| UI interaction | Thumbnail + editable description |
 
-## 数据结构
+## Data Structure
 
-在 `project.json` 中新增以下字段：
+Add the following fields to `project.json`:
 
 ```json
 {
-  "title": "项目名称",
+  "title": "Project Name",
   "style": "Anime",
   "style_image": "style_reference.png",
   "style_description": "Soft lighting, pastel color palette, digital painting medium...",
-  "content_mode": "narration",
-  ...
+  "content_mode": "narration"
 }
 ```
 
-### 字段说明
+### Field Descriptions
 
-| 字段 | 来源 | 用途 |
-|------|------|------|
-| `style` | 用户手动填写 | 基础风格标签（如 Anime、Photographic） |
-| `style_image` | 用户上传 | 风格参考图相对路径，留档用 |
-| `style_description` | AI 分析生成 | 详细风格描述，用于生成时的 Prompt |
+| Field | Source | Purpose |
+|-------|--------|---------|
+| `style` | User input | Base style tag (e.g., Anime, Photographic) |
+| `style_image` | User upload | Relative path to style reference image; kept for reference |
+| `style_description` | AI-generated | Detailed style description used in generation prompts |
 
-### 生成时 Prompt 合成
+### Prompt Composition During Generation
 
 ```
 Style: {style}
@@ -50,92 +49,92 @@ Visual style: {style_description}
 {image_prompt}
 ```
 
-## 文件存储
+## File Storage
 
 ```
-projects/{项目名}/
-├── style_reference.png    # 风格参考图（固定文件名）
+projects/{project_name}/
+├── style_reference.png    # Style reference image (fixed filename)
 ├── project.json
 ├── characters/
 ├── ...
 ```
 
-## API 设计
+## API Design
 
-### 新增端点
+### New Endpoints
 
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/projects/{name}/style-image` | `POST` | 上传风格参考图，触发 AI 分析 |
-| `/projects/{name}/style-image` | `DELETE` | 删除风格参考图及相关字段 |
+| Endpoint | Method | Function |
+|----------|--------|----------|
+| `/projects/{name}/style-image` | `POST` | Upload style reference image and trigger AI analysis |
+| `/projects/{name}/style-image` | `DELETE` | Delete style reference image and related fields |
 
-### POST 上传流程
+### POST Upload Flow
 
-1. 接收上传的图片文件
-2. 保存到 `projects/{项目名}/style_reference.png`
-3. 调用 Gemini API 分析图片风格
-4. 保存 `style_description` 和 `style_image` 到 project.json
-5. 返回 `{ style_image, style_description }`
+1. Receive the uploaded image file
+2. Save to `projects/{project_name}/style_reference.png`
+3. Call Gemini API to analyze image style
+4. Save `style_description` and `style_image` to project.json
+5. Return `{ style_image, style_description }`
 
-### 风格分析 Prompt
+### Style Analysis Prompt
 
 ```
 Analyze the visual style of this image. Describe the lighting, color palette, medium (e.g., oil painting, digital art, photography), texture, and overall mood. Do NOT describe the subject matter (e.g., people, objects) or specific content. Focus ONLY on the artistic style. Provide a concise comma-separated list of descriptors suitable for an image generation prompt.
 ```
 
-## WebUI 设计
+## WebUI Design
 
-### 新建项目模态框
+### Create Project Modal
 
-在现有表单字段后添加风格参考图上传区（可选）：
+Add an optional style reference image upload area after the existing form fields:
 
-- 用户选择图片 → 前端暂存，显示本地预览
-- 用户点击"创建" → 创建项目 → 上传图片 → 分析风格
-- 用户点击"取消" → 直接丢弃，无服务器操作
+- User selects image → frontend stores locally, shows local preview
+- User clicks "Create" → create project → upload image → analyze style
+- User clicks "Cancel" → discard without any server operations
 
-### 项目概览页
+### Project Overview Page
 
-在概览 Tab 中添加风格参考图管理区：
+Add a style reference image management section to the Overview tab:
 
-- 显示风格图缩略图
-- 显示 AI 生成的风格描述（可编辑）
-- 支持更换图片、删除、保存描述
+- Display style image thumbnail
+- Display AI-generated style description (editable)
+- Support replacing image, deleting, and saving description
 
-## 实现清单
+## Implementation Checklist
 
-### 后端修改
+### Backend Changes
 
-| 文件 | 修改内容 |
-|------|----------|
-| `webui/server/routers/files.py` | 新增 `POST/DELETE /projects/{name}/style-image` 端点 |
-| `lib/gemini_client.py` | 新增 `analyze_style_image()` 方法 |
-| `lib/prompt_builders.py` | 新增 `build_style_prompt()` 函数 |
-| `lib/project_manager.py` | 支持 `style_image` 和 `style_description` 字段读写 |
+| File | Change |
+|------|--------|
+| `webui/server/routers/files.py` | Add `POST/DELETE /projects/{name}/style-image` endpoints |
+| `lib/gemini_client.py` | Add `analyze_style_image()` method |
+| `lib/prompt_builders.py` | Add `build_style_prompt()` function |
+| `lib/project_manager.py` | Support reading/writing `style_image` and `style_description` fields |
 
-### 前端修改
+### Frontend Changes
 
-| 文件 | 修改内容 |
-|------|----------|
-| `webui/index.html` | 新建项目模态框添加风格图上传区 |
-| `webui/js/projects.js` | 处理风格图暂存、创建时上传 |
-| `webui/js/api.js` | 新增 `uploadStyleImage()` 和 `deleteStyleImage()` 方法 |
-| `webui/project.html` | 概览 Tab 添加风格图管理区 |
-| `webui/js/project/overview.js` | 风格图上传/删除/编辑描述逻辑 |
+| File | Change |
+|------|--------|
+| `webui/index.html` | Add style image upload area to create project modal |
+| `webui/js/projects.js` | Handle style image staging; upload on project creation |
+| `webui/js/api.js` | Add `uploadStyleImage()` and `deleteStyleImage()` methods |
+| `webui/project.html` | Add style image management section to Overview tab |
+| `webui/js/project/overview.js` | Style image upload/delete/edit description logic |
 
-### Skill 脚本修改
+### Skill Script Changes
 
-| 文件 | 修改内容 |
-|------|----------|
-| `generate-characters/scripts/generate_character.py` | 使用 `build_style_prompt()` |
-| `generate-clues/scripts/generate_clue.py` | 使用 `build_style_prompt()` |
-| `generate-storyboard/scripts/generate_storyboard.py` | 使用 `build_style_prompt()` |
+| File | Change |
+|------|--------|
+| `generate-characters/scripts/generate_character.py` | Use `build_style_prompt()` |
+| `generate-clues/scripts/generate_clue.py` | Use `build_style_prompt()` |
+| `generate-storyboard/scripts/generate_storyboard.py` | Use `build_style_prompt()` |
 
-### 文档更新
+### Documentation Updates
 
-| 文件 | 修改内容 |
-|------|----------|
-| `CLAUDE.md` | 添加风格参考图机制说明 |
+| File | Change |
+|------|--------|
+| `CLAUDE.md` | Add style reference image mechanism documentation |
 
-## 参考
+## References
 
-- Storycraft 风格参考图实现：`docs/storycraft/app/features/create/actions/analyze-style.ts`
+- Storycraft style reference image implementation: `docs/storycraft/app/features/create/actions/analyze-style.ts`

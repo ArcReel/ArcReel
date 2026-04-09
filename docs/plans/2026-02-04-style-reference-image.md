@@ -1,27 +1,27 @@
-# 风格参考图机制实现计划
+# Style Reference Image Mechanism Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 为视频项目添加项目级风格参考图机制，用户可上传风格参考图，AI 自动分析生成风格描述，后续图片生成使用该描述保持风格一致。
+**Goal:** Add a project-level style reference image mechanism to video projects. Users can upload a style reference image; AI automatically analyzes it to generate a style description, which is used for all subsequent image generation to maintain visual consistency.
 
 **Architecture:**
-- 后端新增风格分析 API 端点，调用 Gemini API 分析图片风格
-- 前端在新建项目和项目概览页面添加风格图上传 UI
-- 修改 prompt_builders.py 统一处理风格描述的合成
-- 修改各生成脚本使用新的风格 prompt 构建函数
+- Backend adds a new style analysis API endpoint that calls the Gemini API to analyze image style
+- Frontend adds style image upload UI to the create project and project overview pages
+- Modify prompt_builders.py to centralize style description composition
+- Modify generation scripts to use the new style prompt builder function
 
 **Tech Stack:** Python/FastAPI, JavaScript ES Modules, Gemini API, TailwindCSS
 
 ---
 
-## Task 1: 添加风格分析方法到 GeminiClient
+## Task 1: Add Style Analysis Method to GeminiClient
 
 **Files:**
-- Modify: `lib/gemini_client.py:1110-1163` (在 generate_text 方法附近)
+- Modify: `lib/gemini_client.py:1110-1163` (near the generate_text method)
 
-**Step 1: 添加 analyze_style_image 方法**
+**Step 1: Add analyze_style_image method**
 
-在 `GeminiClient` 类中添加：
+Add to the `GeminiClient` class:
 
 ```python
 @with_retry(max_attempts=3, backoff_seconds=(2, 4, 8))
@@ -31,22 +31,22 @@ def analyze_style_image(
     model: str = "gemini-2.5-flash"
 ) -> str:
     """
-    分析图片的视觉风格
+    Analyze the visual style of an image.
 
     Args:
-        image: 图片路径或 PIL Image 对象
-        model: 模型名称，默认使用 flash 模型
+        image: Image path or PIL Image object
+        model: Model name, defaults to flash model
 
     Returns:
-        风格描述文字（逗号分隔的描述词列表）
+        Style description text (comma-separated list of descriptors)
     """
-    # 准备图片
+    # Prepare image
     if isinstance(image, (str, Path)):
         img = Image.open(image)
     else:
         img = image
 
-    # 风格分析 Prompt（参考 Storycraft）
+    # Style analysis prompt (based on Storycraft)
     prompt = (
         "Analyze the visual style of this image. Describe the lighting, "
         "color palette, medium (e.g., oil painting, digital art, photography), "
@@ -56,7 +56,7 @@ def analyze_style_image(
         "suitable for an image generation prompt."
     )
 
-    # 调用 API
+    # Call API
     response = self.client.models.generate_content(
         model=model,
         contents=[img, prompt]
@@ -65,7 +65,7 @@ def analyze_style_image(
     return response.text.strip()
 ```
 
-**Step 2: 验证方法可调用**
+**Step 2: Verify the method is callable**
 
 Run: `python -c "from lib.gemini_client import GeminiClient; print(hasattr(GeminiClient, 'analyze_style_image'))"`
 Expected: `True`
@@ -74,41 +74,41 @@ Expected: `True`
 
 ```bash
 git add lib/gemini_client.py
-git commit -m "feat(lib): 添加 analyze_style_image 方法到 GeminiClient"
+git commit -m "feat(lib): add analyze_style_image method to GeminiClient"
 ```
 
 ---
 
-## Task 2: 添加 build_style_prompt 函数
+## Task 2: Add build_style_prompt Function
 
 **Files:**
 - Modify: `lib/prompt_builders.py`
 
-**Step 1: 添加 build_style_prompt 函数**
+**Step 1: Add build_style_prompt function**
 
-在文件末尾添加：
+Add at the end of the file:
 
 ```python
 def build_style_prompt(project_data: dict) -> str:
     """
-    构建风格描述 Prompt 片段
+    Build a style description prompt fragment.
 
-    合并 style（用户手动填写）和 style_description（AI 分析生成）。
+    Combines style (user-entered) and style_description (AI-generated).
 
     Args:
-        project_data: project.json 数据
+        project_data: project.json data
 
     Returns:
-        风格描述字符串，用于拼接到生成 Prompt 中
+        Style description string for concatenating into generation prompts
     """
     parts = []
 
-    # 基础风格标签
+    # Base style tag
     style = project_data.get('style', '')
     if style:
         parts.append(f"Style: {style}")
 
-    # AI 分析的风格描述
+    # AI-analyzed style description
     style_description = project_data.get('style_description', '')
     if style_description:
         parts.append(f"Visual style: {style_description}")
@@ -116,7 +116,7 @@ def build_style_prompt(project_data: dict) -> str:
     return '\n'.join(parts)
 ```
 
-**Step 2: 验证函数可导入**
+**Step 2: Verify function is importable**
 
 Run: `python -c "from lib.prompt_builders import build_style_prompt; print('OK')"`
 Expected: `OK`
@@ -125,30 +125,30 @@ Expected: `OK`
 
 ```bash
 git add lib/prompt_builders.py
-git commit -m "feat(lib): 添加 build_style_prompt 函数"
+git commit -m "feat(lib): add build_style_prompt function"
 ```
 
 ---
 
-## Task 3: 添加风格图上传 API 端点
+## Task 3: Add Style Image Upload API Endpoint
 
 **Files:**
 - Modify: `webui/server/routers/files.py`
 
-**Step 1: 添加导入和常量**
+**Step 1: Add imports and constants**
 
-在文件顶部导入部分添加：
+Add to the imports at the top of the file:
 
 ```python
 from lib.gemini_client import GeminiClient
 ```
 
-**Step 2: 添加 POST /projects/{name}/style-image 端点**
+**Step 2: Add POST /projects/{name}/style-image endpoint**
 
-在文件末尾添加：
+Add at the end of the file:
 
 ```python
-# ==================== 风格参考图管理 ====================
+# ==================== Style Reference Image Management ====================
 
 @router.post("/projects/{project_name}/style-image")
 async def upload_style_image(
@@ -156,39 +156,39 @@ async def upload_style_image(
     file: UploadFile = File(...)
 ):
     """
-    上传风格参考图并分析风格
+    Upload a style reference image and analyze its style.
 
-    1. 保存图片到 projects/{project_name}/style_reference.png
-    2. 调用 Gemini API 分析风格
-    3. 更新 project.json 的 style_image 和 style_description 字段
+    1. Save image to projects/{project_name}/style_reference.png
+    2. Call Gemini API to analyze style
+    3. Update style_image and style_description fields in project.json
     """
-    # 检查文件类型
+    # Check file type
     ext = Path(file.filename).suffix.lower()
     if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的文件类型 {ext}，允许的类型: .png, .jpg, .jpeg, .webp"
+            detail=f"Unsupported file type {ext}. Allowed: .png, .jpg, .jpeg, .webp"
         )
 
     try:
         project_dir = pm.get_project_path(project_name)
 
-        # 保存图片（统一转换为 PNG）
+        # Save image (convert to PNG)
         content = await file.read()
         try:
             png_content = convert_image_bytes_to_png(content)
         except ValueError:
-            raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
+            raise HTTPException(status_code=400, detail="Invalid image file, cannot parse")
 
         output_path = project_dir / "style_reference.png"
         with open(output_path, "wb") as f:
             f.write(png_content)
 
-        # 调用 Gemini API 分析风格
+        # Call Gemini API to analyze style
         client = GeminiClient()
         style_description = client.analyze_style_image(output_path)
 
-        # 更新 project.json
+        # Update project.json
         project_data = pm.load_project(project_name)
         project_data["style_image"] = "style_reference.png"
         project_data["style_description"] = style_description
@@ -202,7 +202,7 @@ async def upload_style_image(
         }
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -210,17 +210,17 @@ async def upload_style_image(
 @router.delete("/projects/{project_name}/style-image")
 async def delete_style_image(project_name: str):
     """
-    删除风格参考图及相关字段
+    Delete the style reference image and related fields.
     """
     try:
         project_dir = pm.get_project_path(project_name)
 
-        # 删除图片文件
+        # Delete image file
         image_path = project_dir / "style_reference.png"
         if image_path.exists():
             image_path.unlink()
 
-        # 清除 project.json 中的相关字段
+        # Clear related fields from project.json
         project_data = pm.load_project(project_name)
         project_data.pop("style_image", None)
         project_data.pop("style_description", None)
@@ -229,7 +229,7 @@ async def delete_style_image(project_name: str):
         return {"success": True}
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -240,7 +240,7 @@ async def update_style_description(
     style_description: str = Body(..., embed=True)
 ):
     """
-    更新风格描述（手动编辑）
+    Update the style description (manual edit).
     """
     try:
         project_data = pm.load_project(project_name)
@@ -250,7 +250,7 @@ async def update_style_description(
         return {"success": True, "style_description": style_description}
 
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' does not exist")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 ```
@@ -259,27 +259,27 @@ async def update_style_description(
 
 ```bash
 git add webui/server/routers/files.py
-git commit -m "feat(api): 添加风格参考图上传/删除/更新端点"
+git commit -m "feat(api): add style reference image upload/delete/update endpoints"
 ```
 
 ---
 
-## Task 4: 添加前端 API 方法
+## Task 4: Add Frontend API Methods
 
 **Files:**
 - Modify: `webui/js/api.js`
 
-**Step 1: 添加风格图相关 API 方法**
+**Step 1: Add style image API methods**
 
-在 `// ==================== 费用统计 API ====================` 之前添加：
+Add before `// ==================== Cost Statistics API ====================`:
 
 ```javascript
-// ==================== 风格参考图 API ====================
+// ==================== Style Reference Image API ====================
 
 /**
- * 上传风格参考图
- * @param {string} projectName - 项目名称
- * @param {File} file - 图片文件
+ * Upload a style reference image.
+ * @param {string} projectName - Project name
+ * @param {File} file - Image file
  * @returns {Promise<{success: boolean, style_image: string, style_description: string, url: string}>}
  */
 static async uploadStyleImage(projectName, file) {
@@ -296,15 +296,15 @@ static async uploadStyleImage(projectName, file) {
 
     if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: response.statusText }));
-        throw new Error(error.detail || '上传失败');
+        throw new Error(error.detail || 'Upload failed');
     }
 
     return response.json();
 }
 
 /**
- * 删除风格参考图
- * @param {string} projectName - 项目名称
+ * Delete the style reference image.
+ * @param {string} projectName - Project name
  */
 static async deleteStyleImage(projectName) {
     return this.request(`/projects/${encodeURIComponent(projectName)}/style-image`, {
@@ -313,9 +313,9 @@ static async deleteStyleImage(projectName) {
 }
 
 /**
- * 更新风格描述
- * @param {string} projectName - 项目名称
- * @param {string} styleDescription - 风格描述
+ * Update the style description.
+ * @param {string} projectName - Project name
+ * @param {string} styleDescription - Style description
  */
 static async updateStyleDescription(projectName, styleDescription) {
     return this.request(`/projects/${encodeURIComponent(projectName)}/style-description`, {
@@ -329,56 +329,56 @@ static async updateStyleDescription(projectName, styleDescription) {
 
 ```bash
 git add webui/js/api.js
-git commit -m "feat(frontend): 添加风格参考图 API 方法"
+git commit -m "feat(frontend): add style reference image API methods"
 ```
 
 ---
 
-## Task 5: 修改新建项目模态框
+## Task 5: Modify Create Project Modal
 
 **Files:**
 - Modify: `webui/index.html`
 - Modify: `webui/js/projects.js`
 
-**Step 1: 在 index.html 添加风格图上传区**
+**Step 1: Add style image upload area to index.html**
 
-在 `<!-- 按钮 -->` 注释之前，`project-style` 选择框之后添加：
+Before the `<!-- Buttons -->` comment, after the `project-style` select box, add:
 
 ```html
 <div>
     <label class="block text-sm font-medium text-gray-300 mb-1">
-        风格参考图（可选）
+        Style Reference Image (optional)
     </label>
     <div id="style-image-upload" class="border-2 border-dashed border-gray-600 rounded-lg p-4 text-center cursor-pointer hover:border-gray-500 transition-colors">
         <div id="style-image-placeholder">
             <svg class="mx-auto h-8 w-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            <p class="mt-1 text-sm text-gray-500">点击或拖拽上传</p>
+            <p class="mt-1 text-sm text-gray-500">Click or drag to upload</p>
         </div>
         <div id="style-image-preview" class="hidden">
-            <img id="style-image-thumb" class="mx-auto h-20 w-20 object-cover rounded" alt="风格参考图">
-            <button type="button" id="remove-style-image" class="mt-2 text-sm text-red-400 hover:text-red-300">移除</button>
+            <img id="style-image-thumb" class="mx-auto h-20 w-20 object-cover rounded" alt="Style reference image">
+            <button type="button" id="remove-style-image" class="mt-2 text-sm text-red-400 hover:text-red-300">Remove</button>
         </div>
     </div>
     <input type="file" id="style-image-input" class="hidden" accept=".png,.jpg,.jpeg,.webp">
-    <p class="mt-1 text-xs text-gray-500">上传后将自动分析风格，生成风格描述</p>
+    <p class="mt-1 text-xs text-gray-500">After upload, style will be analyzed automatically to generate a style description.</p>
 </div>
 ```
 
-**Step 2: 在 projects.js 添加风格图暂存逻辑**
+**Step 2: Add style image staging logic to projects.js**
 
-在文件顶部添加变量：
+Add variable at the top of the file:
 
 ```javascript
-// 暂存的风格参考图（创建项目时再上传）
+// Staged style reference image (uploaded when project is created)
 let pendingStyleImage = null;
 ```
 
-在 `setupEventListeners()` 函数末尾添加：
+Add to the end of `setupEventListeners()`:
 
 ```javascript
-// 风格参考图上传
+// Style reference image upload
 const styleImageUpload = document.getElementById('style-image-upload');
 const styleImageInput = document.getElementById('style-image-input');
 
@@ -389,7 +389,7 @@ styleImageInput.onchange = (e) => {
 
     pendingStyleImage = file;
 
-    // 显示本地预览
+    // Show local preview
     const placeholder = document.getElementById('style-image-placeholder');
     const preview = document.getElementById('style-image-preview');
     const thumb = document.getElementById('style-image-thumb');
@@ -398,228 +398,153 @@ styleImageInput.onchange = (e) => {
     placeholder.classList.add('hidden');
     preview.classList.remove('hidden');
 };
-
-document.getElementById('remove-style-image').onclick = (e) => {
-    e.stopPropagation();
-    pendingStyleImage = null;
-
-    const placeholder = document.getElementById('style-image-placeholder');
-    const preview = document.getElementById('style-image-preview');
-    const thumb = document.getElementById('style-image-thumb');
-
-    URL.revokeObjectURL(thumb.src);
-    thumb.src = '';
-    preview.classList.add('hidden');
-    placeholder.classList.remove('hidden');
-    document.getElementById('style-image-input').value = '';
-};
 ```
 
-**Step 3: 修改 closeModal() 函数**
+Add to the project creation handler after the project is created:
 
 ```javascript
-function closeModal() {
-    document.getElementById('new-project-modal').classList.add('hidden');
-    document.getElementById('create-project-form').reset();
-
-    // 清理风格图暂存
-    pendingStyleImage = null;
-    const placeholder = document.getElementById('style-image-placeholder');
-    const preview = document.getElementById('style-image-preview');
-    const thumb = document.getElementById('style-image-thumb');
-    if (thumb.src) {
-        URL.revokeObjectURL(thumb.src);
-        thumb.src = '';
-    }
-    preview.classList.add('hidden');
-    placeholder.classList.remove('hidden');
-}
-```
-
-**Step 4: 修改 createProject() 函数**
-
-```javascript
-async function createProject() {
-    const name = document.getElementById('project-name').value.trim();
-    const title = document.getElementById('project-title').value.trim() || name;
-    const contentMode = document.getElementById('content-mode').value;
-    const style = document.getElementById('project-style').value.trim();
-
-    if (!name) {
-        alert('请输入项目名称');
-        return;
-    }
-
-    const submitBtn = document.getElementById('submit-btn');
-    const originalText = submitBtn.textContent;
-
+// Upload style image if staged
+if (pendingStyleImage) {
     try {
-        submitBtn.disabled = true;
-        submitBtn.textContent = '创建中...';
-
-        // 1. 创建项目
-        await API.createProject(name, title, style, contentMode);
-
-        // 2. 如果有风格参考图，上传并分析
-        if (pendingStyleImage) {
-            submitBtn.textContent = '分析风格中...';
-            try {
-                await API.uploadStyleImage(name, pendingStyleImage);
-            } catch (error) {
-                console.error('风格图上传失败:', error);
-                // 不阻断创建流程，只记录错误
-            }
-        }
-
-        closeModal();
-        loadProjects();
-
-    } catch (error) {
-        alert('创建失败: ' + error.message);
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
+        await API.uploadStyleImage(projectName, pendingStyleImage);
+    } catch (err) {
+        console.warn('Style image upload failed:', err);
+        // Not a fatal error; continue
     }
+    pendingStyleImage = null;
 }
 ```
 
-**Step 5: Commit**
+**Step 3: Commit**
 
 ```bash
 git add webui/index.html webui/js/projects.js
-git commit -m "feat(frontend): 新建项目时支持上传风格参考图"
+git commit -m "feat(frontend): add style image upload to create project modal"
 ```
 
 ---
 
-## Task 6: 修改项目概览页添加风格参考图管理
+## Task 6: Add Style Image Management to Project Overview Page
 
 **Files:**
 - Modify: `webui/project.html`
-- Modify: `webui/js/project/render.js`
-- Create: `webui/js/project/style_image.js`
+- New: `webui/js/project/style_image.js`
+- Modify: `webui/js/project.js`
 
-**Step 1: 在 project.html 概览 Tab 添加风格参考图区块**
+**Step 1: Add style image section to project.html**
 
-在 `<!-- 故事概述 -->` section 之前添加：
+In the Overview tab, add after the basic info section:
 
 ```html
-<!-- 风格参考图 -->
-<section class="bg-gray-800 rounded-lg p-6">
-    <h2 class="text-lg font-semibold mb-4">🎨 风格参考图</h2>
-    <div id="style-image-section">
-        <!-- 无风格图时 -->
-        <div id="style-image-empty" class="hidden">
-            <div id="style-image-upload-area" class="border-2 border-dashed border-gray-600 rounded-lg p-6 text-center cursor-pointer hover:border-gray-500 transition-colors">
-                <svg class="mx-auto h-10 w-10 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <p class="mt-2 text-sm text-gray-400">点击上传风格参考图</p>
-                <p class="mt-1 text-xs text-gray-500">上传后将自动分析并生成风格描述</p>
-            </div>
-            <input type="file" id="style-image-file-input" class="hidden" accept=".png,.jpg,.jpeg,.webp">
-        </div>
+<!-- Style reference image management -->
+<div id="style-image-section" class="bg-gray-800 rounded-lg p-4 mb-4">
+    <h3 class="text-sm font-medium text-gray-300 mb-3">Style Reference Image</h3>
 
-        <!-- 有风格图时 -->
-        <div id="style-image-content" class="hidden">
-            <div class="flex gap-4">
-                <div class="flex-shrink-0">
-                    <img id="style-image-display" class="w-32 h-32 object-cover rounded-lg" alt="风格参考图">
-                </div>
-                <div class="flex-1">
-                    <label class="block text-sm font-medium text-gray-300 mb-1">风格描述（AI 生成，可编辑）</label>
-                    <textarea id="style-description-edit" rows="3" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:border-blue-500 text-white resize-none text-sm"></textarea>
-                </div>
-            </div>
-            <div class="flex justify-end space-x-2 mt-4">
-                <button id="change-style-image-btn" class="px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg transition-colors">
-                    更换图片
-                </button>
-                <button id="delete-style-image-btn" class="px-3 py-1.5 text-sm text-red-400 hover:text-red-300 hover:bg-gray-700 rounded-lg transition-colors">
-                    删除
-                </button>
-                <button id="save-style-description-btn" class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
-                    保存描述
-                </button>
-            </div>
+    <!-- Empty state: no image -->
+    <div id="style-image-empty" class="hidden">
+        <div id="style-image-dropzone" class="border-2 border-dashed border-gray-600 rounded-lg p-6 text-center cursor-pointer hover:border-gray-500 transition-colors">
+            <p class="text-sm text-gray-500">Click to upload a style reference image</p>
+            <p class="text-xs text-gray-600 mt-1">AI will automatically analyze and generate a style description</p>
         </div>
-
-        <!-- 上传/分析中状态 -->
-        <div id="style-image-loading" class="hidden text-center py-6">
-            <svg class="animate-spin mx-auto h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p class="mt-2 text-sm text-gray-400">正在分析风格...</p>
-        </div>
+        <input type="file" id="style-image-file-input" class="hidden" accept=".png,.jpg,.jpeg,.webp">
     </div>
-</section>
+
+    <!-- Loading state -->
+    <div id="style-image-loading" class="hidden text-center py-4">
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+        <p class="text-sm text-gray-400 mt-2">Analyzing style...</p>
+    </div>
+
+    <!-- Content state: image exists -->
+    <div id="style-image-content" class="hidden">
+        <div class="flex gap-4">
+            <img id="style-image-thumb-overview" class="w-24 h-32 object-cover rounded" alt="Style reference">
+            <div class="flex-1">
+                <label class="block text-xs text-gray-400 mb-1">Style Description (editable)</label>
+                <textarea
+                    id="style-description-edit"
+                    class="w-full bg-gray-700 text-white text-sm rounded p-2 h-24 resize-none"
+                    placeholder="AI-generated style description..."
+                ></textarea>
+                <div class="flex gap-2 mt-2">
+                    <button id="save-style-description" class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded">Save Description</button>
+                    <button id="replace-style-image" class="text-sm bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded">Replace Image</button>
+                    <button id="delete-style-image" class="text-sm bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded">Delete</button>
+                </div>
+            </div>
+        </div>
+        <input type="file" id="style-image-replace-input" class="hidden" accept=".png,.jpg,.jpeg,.webp">
+    </div>
+</div>
 ```
 
-**Step 2: 创建 style_image.js 模块**
+**Step 2: Create webui/js/project/style_image.js**
 
 ```javascript
-// webui/js/project/style_image.js
-import { state } from "./state.js";
+/**
+ * Style reference image management component.
+ */
+
+import { API } from '../api.js';
+import { state } from '../project.js';
 
 /**
- * 渲染风格参考图区块
+ * Render the style image section based on current state.
  */
 export function renderStyleImageSection() {
     const project = state.currentProject;
+    const hasImage = !!project?.style_image;
+
     const emptyState = document.getElementById('style-image-empty');
-    const contentState = document.getElementById('style-image-content');
     const loadingState = document.getElementById('style-image-loading');
+    const contentState = document.getElementById('style-image-content');
 
-    loadingState.classList.add('hidden');
+    emptyState?.classList.toggle('hidden', hasImage);
+    loadingState?.classList.add('hidden');
+    contentState?.classList.toggle('hidden', !hasImage);
 
-    if (project.style_image) {
-        // 有风格图
-        emptyState.classList.add('hidden');
-        contentState.classList.remove('hidden');
+    if (hasImage) {
+        const thumb = document.getElementById('style-image-thumb-overview');
+        const descEdit = document.getElementById('style-description-edit');
 
-        const imgEl = document.getElementById('style-image-display');
-        imgEl.src = API.getFileUrl(state.projectName, project.style_image);
-
-        const descEl = document.getElementById('style-description-edit');
-        descEl.value = project.style_description || '';
-    } else {
-        // 无风格图
-        emptyState.classList.remove('hidden');
-        contentState.classList.add('hidden');
+        if (thumb) {
+            thumb.src = `/api/v1/files/${state.projectName}/style_reference.png?t=${Date.now()}`;
+        }
+        if (descEdit) {
+            descEdit.value = project.style_description || '';
+        }
     }
 }
 
 /**
- * 设置风格参考图事件监听
+ * Set up style image event listeners.
  */
 export function setupStyleImageEvents() {
-    const uploadArea = document.getElementById('style-image-upload-area');
+    // Empty state: click to upload
+    const dropzone = document.getElementById('style-image-dropzone');
     const fileInput = document.getElementById('style-image-file-input');
 
-    // 点击上传区域
-    uploadArea?.addEventListener('click', () => fileInput.click());
+    dropzone?.addEventListener('click', () => fileInput?.click());
+    fileInput?.addEventListener('change', (e) => handleUpload(e.target.files[0]));
 
-    // 文件选择
-    fileInput?.addEventListener('change', handleStyleImageUpload);
+    // Content state: replace image
+    const replaceBtn = document.getElementById('replace-style-image');
+    const replaceInput = document.getElementById('style-image-replace-input');
 
-    // 更换图片
-    document.getElementById('change-style-image-btn')?.addEventListener('click', () => {
-        fileInput.click();
-    });
+    replaceBtn?.addEventListener('click', () => replaceInput?.click());
+    replaceInput?.addEventListener('change', (e) => handleUpload(e.target.files[0]));
 
-    // 删除图片
-    document.getElementById('delete-style-image-btn')?.addEventListener('click', handleDeleteStyleImage);
+    // Save description
+    document.getElementById('save-style-description')?.addEventListener('click', handleSaveStyleDescription);
 
-    // 保存描述
-    document.getElementById('save-style-description-btn')?.addEventListener('click', handleSaveStyleDescription);
+    // Delete image
+    document.getElementById('delete-style-image')?.addEventListener('click', handleDeleteStyleImage);
 }
 
 /**
- * 处理风格图上传
+ * Handle style image upload.
  */
-async function handleStyleImageUpload(e) {
-    const file = e.target.files[0];
+async function handleUpload(file) {
     if (!file) return;
 
     const emptyState = document.getElementById('style-image-empty');
@@ -627,23 +552,23 @@ async function handleStyleImageUpload(e) {
     const loadingState = document.getElementById('style-image-loading');
 
     try {
-        // 显示加载状态
+        // Show loading state
         emptyState.classList.add('hidden');
         contentState.classList.add('hidden');
         loadingState.classList.remove('hidden');
 
-        // 上传并分析
+        // Upload and analyze
         const result = await API.uploadStyleImage(state.projectName, file);
 
-        // 更新本地状态
+        // Update local state
         state.currentProject.style_image = result.style_image;
         state.currentProject.style_description = result.style_description;
 
-        // 重新渲染
+        // Re-render
         renderStyleImageSection();
 
     } catch (error) {
-        alert('上传失败: ' + error.message);
+        alert('Upload failed: ' + error.message);
         renderStyleImageSection();
     } finally {
         e.target.value = '';
@@ -651,28 +576,28 @@ async function handleStyleImageUpload(e) {
 }
 
 /**
- * 处理删除风格图
+ * Handle style image deletion.
  */
 async function handleDeleteStyleImage() {
-    if (!confirm('确定要删除风格参考图吗？')) return;
+    if (!confirm('Are you sure you want to delete the style reference image?')) return;
 
     try {
         await API.deleteStyleImage(state.projectName);
 
-        // 更新本地状态
+        // Update local state
         delete state.currentProject.style_image;
         delete state.currentProject.style_description;
 
-        // 重新渲染
+        // Re-render
         renderStyleImageSection();
 
     } catch (error) {
-        alert('删除失败: ' + error.message);
+        alert('Delete failed: ' + error.message);
     }
 }
 
 /**
- * 处理保存风格描述
+ * Handle saving the style description.
  */
 async function handleSaveStyleDescription() {
     const descEl = document.getElementById('style-description-edit');
@@ -681,54 +606,54 @@ async function handleSaveStyleDescription() {
     try {
         await API.updateStyleDescription(state.projectName, newDescription);
 
-        // 更新本地状态
+        // Update local state
         state.currentProject.style_description = newDescription;
 
-        alert('描述已保存');
+        alert('Description saved');
 
     } catch (error) {
-        alert('保存失败: ' + error.message);
+        alert('Save failed: ' + error.message);
     }
 }
 ```
 
-**Step 3: 在 project.js 中导入并初始化**
+**Step 3: Import and initialize in project.js**
 
-在 `webui/js/project.js` 中添加导入：
+Add import to `webui/js/project.js`:
 
 ```javascript
 import { renderStyleImageSection, setupStyleImageEvents } from "./project/style_image.js";
 ```
 
-在初始化函数中调用 `setupStyleImageEvents()`。
+Call `setupStyleImageEvents()` in the initialization function.
 
-在渲染概览时调用 `renderStyleImageSection()`。
+Call `renderStyleImageSection()` when rendering the overview.
 
 **Step 4: Commit**
 
 ```bash
 git add webui/project.html webui/js/project/style_image.js webui/js/project.js webui/js/project/render.js
-git commit -m "feat(frontend): 项目概览页支持风格参考图管理"
+git commit -m "feat(frontend): add style reference image management to project overview"
 ```
 
 ---
 
-## Task 7: 修改 generate_storyboard.py 使用风格描述
+## Task 7: Modify generate_storyboard.py to Use Style Description
 
 **Files:**
 - Modify: `.claude/skills/generate-storyboard/scripts/generate_storyboard.py`
 
-**Step 1: 添加导入**
+**Step 1: Add import**
 
-在文件顶部导入部分添加：
+Add to imports at the top of the file:
 
 ```python
 from lib.prompt_builders import build_style_prompt
 ```
 
-**Step 2: 修改 build_direct_scene_prompt 函数**
+**Step 2: Modify build_direct_scene_prompt function**
 
-在函数开头获取风格描述，并合并到 prompt 中：
+Fetch style description at the start of the function and merge it into the prompt:
 
 ```python
 def build_direct_scene_prompt(
@@ -736,19 +661,19 @@ def build_direct_scene_prompt(
     characters: dict = None,
     clues: dict = None,
     style: str = "",
-    style_description: str = "",  # 新增参数
+    style_description: str = "",  # New parameter
     id_field: str = 'segment_id',
     char_field: str = 'characters_in_segment',
     clue_field: str = 'clues_in_segment'
 ) -> str:
     """
-    构建直接生成场景图的 prompt（narration 模式，无多宫格参考）
+    Build a prompt for directly generating a scene image (narration mode, no multi-panel reference).
     """
     image_prompt = segment.get('image_prompt', '')
     if not image_prompt:
-        raise ValueError(f"片段 {segment[id_field]} 缺少 image_prompt 字段")
+        raise ValueError(f"Segment {segment[id_field]} is missing image_prompt field")
 
-    # 构建风格前缀
+    # Build style prefix
     style_parts = []
     if style:
         style_parts.append(f"Style: {style}")
@@ -756,57 +681,57 @@ def build_direct_scene_prompt(
         style_parts.append(f"Visual style: {style_description}")
     style_prefix = '\n'.join(style_parts) + '\n\n' if style_parts else ''
 
-    # 检测是否为结构化格式
+    # Detect structured format
     if is_structured_image_prompt(image_prompt):
         yaml_prompt = image_prompt_to_yaml(image_prompt, style)
-        return f"{style_prefix}{yaml_prompt}\n竖屏构图。"
+        return f"{style_prefix}{yaml_prompt}\nPortrait composition."
 
-    return f"{style_prefix}{image_prompt} 竖屏构图。"
+    return f"{style_prefix}{image_prompt} Portrait composition."
 ```
 
-**Step 3: 修改 generate_single 函数中的调用**
+**Step 3: Modify generate_single call in generate_storyboard_direct**
 
-在 `generate_storyboard_direct` 函数内的 `generate_single` 闭包中：
+Inside the `generate_single` closure in `generate_storyboard_direct`:
 
 ```python
-# 获取风格描述
+# Get style description
 style_description = project_data.get('style_description', '') if project_data else ''
 
-# 构建 prompt（直接生成，无需参考多宫格）
+# Build prompt (direct generation, no multi-panel reference needed)
 prompt = build_direct_scene_prompt(
     segment, characters, clues, style, style_description,
     id_field, char_field, clue_field
 )
 ```
 
-**Step 4: 类似修改 build_grid_prompt 和 build_scene_prompt**
+**Step 4: Similarly modify build_grid_prompt and build_scene_prompt**
 
-添加 `style_description` 参数并在 prompt 中使用。
+Add `style_description` parameter and use it in the prompt.
 
 **Step 5: Commit**
 
 ```bash
 git add .claude/skills/generate-storyboard/scripts/generate_storyboard.py
-git commit -m "feat(storyboard): 使用风格描述生成分镜图"
+git commit -m "feat(storyboard): use style description when generating storyboard images"
 ```
 
 ---
 
-## Task 8: 修改 generate_character.py 和 generate_clue.py
+## Task 8: Modify generate_character.py and generate_clue.py
 
 **Files:**
 - Modify: `.claude/skills/generate-characters/scripts/generate_character.py`
 - Modify: `.claude/skills/generate-clues/scripts/generate_clue.py`
 
-**Step 1: 修改角色生成脚本**
+**Step 1: Modify character generation script**
 
-在构建 prompt 时添加风格描述：
+When building the prompt, add style description:
 
 ```python
-# 获取风格描述
+# Get style description
 style_description = project_data.get('style_description', '')
 
-# 构建风格前缀
+# Build style prefix
 style_prefix = ''
 if style:
     style_prefix += f"Style: {style}\n"
@@ -815,98 +740,97 @@ if style_description:
 if style_prefix:
     style_prefix += "\n"
 
-# 构建完整 prompt
+# Build full prompt
 prompt = f"{style_prefix}{build_character_prompt(name, description, style)}"
 ```
 
-**Step 2: 类似修改线索生成脚本**
+**Step 2: Similarly modify clue generation script**
 
 **Step 3: Commit**
 
 ```bash
 git add .claude/skills/generate-characters/scripts/generate_character.py
 git add .claude/skills/generate-clues/scripts/generate_clue.py
-git commit -m "feat(generate): 角色和线索生成使用风格描述"
+git commit -m "feat(generate): use style description in character and clue generation"
 ```
 
 ---
 
-## Task 9: 更新 CLAUDE.md 文档
+## Task 9: Update CLAUDE.md Documentation
 
 **Files:**
 - Modify: `CLAUDE.md`
 
-**Step 1: 在 project.json 结构说明中添加新字段**
+**Step 1: Add new fields to project.json structure description**
 
-在完整示例 JSON 中添加：
+In the complete example JSON, add:
 
 ```json
 {
-  "title": "重生之皇后威武",
+  "title": "Project Title",
   "content_mode": "narration",
-  "style": "古装宫廷风格，精致唯美画面",
+  "style": "Anime",
   "style_image": "style_reference.png",
-  "style_description": "Soft lighting, muted earth tones, traditional Chinese painting influence...",
-  ...
+  "style_description": "Soft lighting, muted earth tones, traditional Chinese painting influence..."
 }
 ```
 
-**Step 2: 添加风格参考图说明段落**
+**Step 2: Add style reference image documentation section**
 
-在适当位置添加：
+Add at an appropriate location:
 
 ```markdown
-### 风格参考图（可选）
+### Style Reference Image (Optional)
 
-项目支持上传风格参考图，系统会自动分析并生成风格描述。后续所有图片生成（角色、线索、分镜）都会使用该风格描述，确保整体风格一致。
+Projects support uploading a style reference image; the system automatically analyzes it and generates a style description. All subsequent image generation (characters, clues, storyboards) uses this style description to maintain visual consistency.
 
-| 字段 | 说明 |
-|------|------|
-| `style` | 用户手动填写的基础风格标签 |
-| `style_image` | 风格参考图路径（相对于项目目录） |
-| `style_description` | AI 分析生成的详细风格描述（可手动编辑） |
+| Field | Description |
+|-------|-------------|
+| `style` | Base style tag entered manually by the user |
+| `style_image` | Path to style reference image (relative to project directory) |
+| `style_description` | Detailed style description generated by AI (can be edited manually) |
 
-**使用方式**：
-1. 在 WebUI 新建项目时上传风格参考图（可选）
-2. 或在项目概览页面上传/更换风格参考图
-3. 系统自动分析并生成风格描述
-4. 可手动编辑风格描述进行微调
+**How to use**:
+1. Upload a style reference image when creating a project in the WebUI (optional)
+2. Or upload/replace the style reference image on the project overview page
+3. The system automatically analyzes and generates a style description
+4. You can manually edit the style description for fine-tuning
 ```
 
 **Step 3: Commit**
 
 ```bash
 git add CLAUDE.md
-git commit -m "docs: 更新文档添加风格参考图说明"
+git commit -m "docs: add style reference image documentation"
 ```
 
 ---
 
-## Task 10: 最终测试和验证
+## Task 10: Final Testing and Verification
 
-**Step 1: 启动 WebUI 服务器**
+**Step 1: Start the WebUI server**
 
 Run: `python -m uvicorn webui.server.app:app --reload --port 8080`
 
-**Step 2: 测试新建项目流程**
+**Step 2: Test create project flow**
 
-1. 打开 http://localhost:8080/
-2. 点击"新建项目"
-3. 填写项目信息，上传风格参考图
-4. 点击创建，验证风格分析是否成功
+1. Open http://localhost:8080/
+2. Click "New Project"
+3. Fill in project information and upload a style reference image
+4. Click create; verify style analysis succeeds
 
-**Step 3: 测试项目概览页流程**
+**Step 3: Test project overview page flow**
 
-1. 进入已创建的项目
-2. 在概览页面上传/更换/删除风格参考图
-3. 编辑并保存风格描述
+1. Enter an existing project
+2. On the overview page, upload/replace/delete the style reference image
+3. Edit and save the style description
 
-**Step 4: 测试生成流程**
+**Step 4: Test generation flow**
 
-1. 生成角色设计图，验证是否包含风格描述
-2. 生成分镜图，验证是否包含风格描述
+1. Generate a character design image; verify it includes the style description
+2. Generate a storyboard image; verify it includes the style description
 
-**Step 5: 最终提交**
+**Step 5: Final commit**
 
 ```bash
 git status
@@ -915,15 +839,15 @@ git log --oneline -10
 
 ---
 
-## 实现检查清单
+## Implementation Checklist
 
-- [ ] Task 1: GeminiClient.analyze_style_image() 方法
-- [ ] Task 2: build_style_prompt() 函数
-- [ ] Task 3: 风格图上传 API 端点
-- [ ] Task 4: 前端 API 方法
-- [ ] Task 5: 新建项目模态框
-- [ ] Task 6: 项目概览页风格图管理
-- [ ] Task 7: generate_storyboard.py 使用风格描述
-- [ ] Task 8: generate_character.py 和 generate_clue.py
-- [ ] Task 9: CLAUDE.md 文档更新
-- [ ] Task 10: 最终测试验证
+- [ ] Task 1: GeminiClient.analyze_style_image() method
+- [ ] Task 2: build_style_prompt() function
+- [ ] Task 3: Style image upload API endpoint
+- [ ] Task 4: Frontend API methods
+- [ ] Task 5: Create project modal
+- [ ] Task 6: Project overview page style image management
+- [ ] Task 7: generate_storyboard.py uses style description
+- [ ] Task 8: generate_character.py and generate_clue.py
+- [ ] Task 9: CLAUDE.md documentation update
+- [ ] Task 10: Final testing and verification

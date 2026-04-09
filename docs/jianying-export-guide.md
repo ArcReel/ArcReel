@@ -1,104 +1,80 @@
-# 剪映草稿导出指南
+# CapCut Draft Export Guide
 
-将 ArcReel 已生成的视频片段按集导出为剪映（JianYing）草稿文件，在剪映桌面版中直接打开并进行二次编辑——调整节奏、添加字幕、转场、配音等。
+ArcReel supports exporting a single episode's generated video clips as a CapCut (JianYing) draft file. After extracting the archive to your local CapCut drafts folder, you can open it directly in CapCut for secondary editing (subtitles, transitions, effects, etc.).
 
-## 前置条件
+## Limitations
 
-- 已在 ArcReel 中完成至少一集的视频片段生成
-- 本地已安装 **剪映桌面版**（5.x 或 6+）
+- Export is per-episode; multi-episode batch export is not supported
+- Audio tracks (BGM, voiceover) are not exported
+- Drama mode does not export subtitles (multi-character dialogue structure is complex — not in MVP scope)
+- CapCut international version is not supported; only the Chinese version (JianYing) is supported
 
-## 操作步骤
+## Steps
 
-### 1. 找到剪映草稿目录
+### 1. Confirm Video Clips Are Ready
 
-导出前需要知道本地剪映草稿的存放路径。
+Before exporting, make sure all video clips for the episode have been generated. Scenes with no video will be skipped automatically (no clips in the draft).
 
-**macOS：**
-```
-/Users/<用户名>/Movies/JianyingPro/User Data/Projects/com.lveditor.draft
-```
+### 2. Find Your CapCut Drafts Directory
 
-**Windows：**
-```
-C:\Users\<用户名>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft
-```
+The CapCut drafts directory varies by OS and version. Common paths:
 
-> **提示**：可在剪映设置中查看"草稿路径"的位置。如果你修改过默认路径，请使用实际的草稿目录。
+| OS | Default Path |
+|----|-------------|
+| macOS | `~/Movies/JianyingPro/User Data/Projects/com.lveditor.draft` |
+| Windows | `C:\Users\<username>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft` |
 
-### 2. 在 ArcReel 中发起导出
+You can also open CapCut, create a blank draft, then check the newly created folder to confirm the correct path.
 
-1. 打开目标项目
-2. 点击右上角 **导出** 按钮
-3. 选择 **导出为剪映草稿**
+### 3. Export the Draft
 
-### 3. 填写导出参数
+In the ArcReel Web UI:
 
-| 参数 | 说明 |
-|------|------|
-| **集数** | 选择要导出的集（多集项目会出现下拉选择器） |
-| **剪映版本** | 选择 **6.0+**（推荐）或 **5.x**，需与本地安装的剪映版本匹配 |
-| **草稿目录** | 填入上面找到的剪映草稿路径（首次填写后会自动记忆） |
+1. Open the project and navigate to the target episode
+2. Click the **"Export as CapCut Draft"** button
+3. In the popup dialog, enter your local CapCut drafts directory path (e.g. `/Users/yourname/Movies/JianyingPro/User Data/Projects/com.lveditor.draft`)
+4. Click **Confirm** — the browser will automatically download a ZIP file
 
-点击 **导出草稿**，浏览器会下载一个 ZIP 文件。
+### 4. Extract to the CapCut Drafts Folder
 
-### 4. 解压到草稿目录
-
-将下载的 ZIP 文件解压到上面填写的剪映草稿目录中。解压后的结构如下：
+Extract the downloaded ZIP directly into the CapCut drafts directory. The result should look like:
 
 ```
 com.lveditor.draft/
-├── ... (其他已有草稿)
-└── {项目名}_第{N}集/          ← 解压出来的文件夹
-    ├── draft_info.json        (剪映 6+) 或 draft_content.json (5.x)
-    ├── draft_meta_info.json
-    └── assets/
-        ├── segment_S1.mp4
-        ├── segment_S2.mp4
-        └── ...
+  ArcReel_<project>_ep<N>_<timestamp>/
+    draft_content.json
+    draft_meta_info.json
+    video_001.mp4
+    video_002.mp4
+    ...
 ```
 
-### 5. 在剪映中打开
+### 5. Open in CapCut
 
-1. 打开（或重启）剪映桌面版
-2. 在"草稿"列表中找到新出现的 **{项目名}\_第{N}集** 草稿
-3. 双击打开即可在时间线上看到所有视频片段
+Restart CapCut (or refresh the draft list). You should see the new draft. Open it and the video clips will be arranged in sequence on the timeline.
 
-## 导出内容说明
+## Troubleshooting
 
-### 说书模式（Narration）
+### Draft not showing in CapCut
 
-- **视频轨**：所有已生成的视频片段按顺序排列
-- **字幕轨**：自动附带每个片段对应的小说原文作为字幕（白色文字、黑色描边），可在剪映中自由调整样式和位置
+- Confirm the ZIP was extracted directly into the drafts directory (not into a subdirectory of the drafts directory)
+- Confirm CapCut has been restarted or the draft list has been refreshed
+- Check that `draft_meta_info.json` exists in the extracted folder
 
-### 剧集模式（Drama）
+### Video clips not playing
 
-- **视频轨**：按场景顺序排列所有已生成的视频片段
-- 不附带字幕（多角色对话场景的字幕结构较复杂，建议在剪映中手动添加）
+- Confirm the video files exist in the same directory as `draft_content.json`
+- Confirm CapCut can access the drafts directory (check permissions on macOS)
 
-### 画布尺寸
+### Export button is grayed out / error occurs
 
-自动根据项目设置确定：
-- 竖屏（9:16）→ 1080×1920
-- 横屏（16:9）→ 1920×1080
+- Make sure at least one video clip for the episode has been generated
+- Confirm the CapCut drafts directory path entered does not contain special characters or control characters
 
-如项目未设置宽高比，会从首个视频文件自动检测。
+## Technical Details
 
-## 常见问题
+The export uses [pyJianYingDraft](https://github.com/leiurayer/pyJianYingDraft) to generate a `draft_content.json` compatible with CapCut.
 
-### 剪映中看不到导出的草稿？
+For narration mode, subtitles are exported on a subtitle track based on the `novel_text` field of each segment. For drama mode, subtitles are not exported.
 
-- 确认 ZIP 解压到了正确的草稿目录
-- 确认解压后的文件夹直接位于草稿目录下（不要多套一层文件夹）
-- 尝试重启剪映
-
-### 版本不匹配怎么办？
-
-导出时选择的剪映版本必须与本地安装版本对应：
-- 剪映 6.0 及以上 → 选择 **6.0+**
-- 剪映 5.x → 选择 **5.x**
-
-如果选错了版本，重新导出并选择正确版本即可。
-
-### 部分视频片段缺失？
-
-导出仅包含已成功生成的视频片段。如果某些片段尚未生成或生成失败，它们不会出现在草稿中。回到 ArcReel 补充生成后重新导出即可。
+The draft path must be the absolute path to the CapCut drafts **root directory**; the system will automatically create a subdirectory named `ArcReel_<project>_ep<N>_<timestamp>` inside it.

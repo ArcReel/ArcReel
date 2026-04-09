@@ -1,32 +1,32 @@
-# 视频引用持久化方案实现计划
+# Video Reference Persistence Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 实现 Veo 视频引用的持久化存储，使得在多步任务中可以继续延长之前生成的视频。
+**Goal:** Implement persistent storage of Veo video references so that previously generated videos can be extended in multi-step tasks.
 
-**Architecture:** 将视频生成后返回的 `video.uri` 保存到 checkpoint JSON 文件中。当需要恢复时，使用 `types.Video(uri=saved_uri)` 重建 Video 对象，然后继续调用 extend API。
+**Architecture:** Save the `video.uri` returned after video generation to a checkpoint JSON file. When resuming, reconstruct the Video object using `types.Video(uri=saved_uri)` and continue calling the extend API.
 
-**Tech Stack:** Python, google-genai SDK, JSON 文件存储
+**Tech Stack:** Python, google-genai SDK, JSON file storage
 
-**关键发现：**
-- `types.Video` 对象有 `uri` 字段，包含 Gemini 服务器上的视频 URI
-- 视频在服务器保存 2 天，每次 extend 会重置计时器
-- 可以通过 `types.Video(uri=saved_uri)` 重建 Video 对象
+**Key Findings:**
+- The `types.Video` object has a `uri` field containing the video URI on Gemini servers
+- Videos are retained on the server for 2 days; each extend call resets the timer
+- Video objects can be reconstructed via `types.Video(uri=saved_uri)`
 
-**重要限制：**
-- ⚠️ Veo extend 目前只支持 16:9 横屏视频（API 返回错误：9:16 不被支持）
-- 需要决定是改用 16:9 格式还是等待 API 更新
+**Important Limitations:**
+- Veo extend currently only supports 16:9 landscape videos (the API returns an error for 9:16)
+- Need to decide whether to switch to 16:9 format or wait for an API update
 
 ---
 
-## Task 1: 更新 Checkpoint 数据结构
+## Task 1: Update the Checkpoint Data Structure
 
 **Files:**
 - Modify: `.claude/skills/generate-video/scripts/generate_video.py:105-127`
 
-**Step 1: 修改 checkpoint 结构，添加 video_uri 字段**
+**Step 1: Modify the checkpoint structure to add the video_uri field**
 
-更新 `save_checkpoint()` 函数，添加 `video_uri` 参数：
+Update the `save_checkpoint()` function to add a `video_uri` parameter:
 
 ```python
 def save_checkpoint(
@@ -36,9 +36,9 @@ def save_checkpoint(
     current_scene_index: int,
     completed_segments: list,
     started_at: str,
-    video_uri: Optional[str] = None  # 新增：视频 URI 用于恢复
+    video_uri: Optional[str] = None  # New: video URI for resume
 ):
-    """保存 checkpoint，包含视频引用 URI"""
+    """Save checkpoint, including the video reference URI."""
     checkpoint_path = get_checkpoint_path(project_dir, episode)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -49,7 +49,7 @@ def save_checkpoint(
         "completed_segments": completed_segments,
         "started_at": started_at,
         "updated_at": datetime.now().isoformat(),
-        "video_uri": video_uri,  # 新增：保存视频 URI
+        "video_uri": video_uri,  # New: save video URI
         "video_uri_expires_at": (datetime.now() + timedelta(days=2)).isoformat() if video_uri else None
     }
 
@@ -57,18 +57,18 @@ def save_checkpoint(
         json.dump(checkpoint, f, ensure_ascii=False, indent=2)
 ```
 
-**Step 2: 添加 timedelta 导入**
+**Step 2: Add timedelta import**
 
-在文件顶部添加：
+Add at the top of the file:
 
 ```python
 from datetime import datetime, timedelta
 ```
 
-**Step 3: 验证语法**
+**Step 3: Verify syntax**
 
 Run: `python -m py_compile .claude/skills/generate-video/scripts/generate_video.py`
-Expected: 无输出（成功）
+Expected: no output (success)
 
 **Step 4: Commit**
 
@@ -79,46 +79,47 @@ git commit -m "feat: add video_uri field to checkpoint for resume support"
 
 ---
 
-## Task 2: 添加 Video URI 恢复功能到 GeminiClient
+## Task 2: Add Video URI Restore Method to GeminiClient
 
 **Files:**
-- Modify: `lib/gemini_client.py` (在 `extend_video` 方法后添加新方法)
+- Modify: `lib/gemini_client.py` (add new method after `extend_video`)
 
-**Step 1: 添加 restore_video_ref() 方法**
+**Step 1: Add restore_video_ref() method**
 
-在 `extend_video()` 方法后添加：
+After `extend_video()`, add:
 
 ```python
 def restore_video_ref(self, video_uri: str):
     """
-    从保存的 URI 恢复视频引用对象
+    Restore a video reference object from a saved URI.
 
     Args:
-        video_uri: 之前保存的视频 URI（如 "https://generativelanguage.googleapis.com/..."）
+        video_uri: Previously saved video URI
+                   (e.g. "https://generativelanguage.googleapis.com/...")
 
     Returns:
-        types.Video 对象，可用于 extend_video()
+        A types.Video object that can be passed to extend_video()
 
     Note:
-        - 视频在服务器保存 2 天
-        - 每次 extend 会重置 2 天计时器
-        - 如果视频已过期，将抛出异常
+        - Videos are retained on the server for 2 days
+        - Each extend call resets the 2-day timer
+        - If the video has expired, an exception will be raised
     """
     if not video_uri:
-        raise ValueError("video_uri 不能为空")
+        raise ValueError("video_uri cannot be empty")
 
     return self.types.Video(uri=video_uri)
 ```
 
-**Step 2: 验证语法**
+**Step 2: Verify syntax**
 
 Run: `python -m py_compile lib/gemini_client.py`
-Expected: 无输出（成功）
+Expected: no output (success)
 
-**Step 3: 测试导入**
+**Step 3: Test import**
 
-Run: `PYTHONPATH=. python -c "from lib.gemini_client import GeminiClient; c = GeminiClient(); print('restore_video_ref 存在:', hasattr(c, 'restore_video_ref'))"`
-Expected: `restore_video_ref 存在: True`
+Run: `PYTHONPATH=. python -c "from lib.gemini_client import GeminiClient; c = GeminiClient(); print('restore_video_ref exists:', hasattr(c, 'restore_video_ref'))"`
+Expected: `restore_video_ref exists: True`
 
 **Step 4: Commit**
 
@@ -129,48 +130,48 @@ git commit -m "feat: add restore_video_ref() method for resuming video extension
 
 ---
 
-## Task 3: 更新 generate_video_with_ref 返回视频 URI
+## Task 3: Update generate_video_with_ref to Return the Video URI
 
 **Files:**
-- Modify: `lib/gemini_client.py:275-353` (`generate_video_with_ref` 方法)
+- Modify: `lib/gemini_client.py:275-353` (`generate_video_with_ref` method)
 
-**Step 1: 修改返回值，包含 video_uri**
+**Step 1: Modify return value to include video_uri**
 
-将返回语句从：
+Change the return statement from:
 
 ```python
 return output_path, video_ref
 ```
 
-改为：
+to:
 
 ```python
 return output_path, video_ref, video_ref.uri
 ```
 
-同时更新方法签名的返回类型文档：
+Also update the docstring return type:
 
 ```python
 def generate_video_with_ref(
     ...
 ) -> tuple:
     """
-    生成视频并返回视频引用，用于后续扩展
+    Generate a video and return the video reference for subsequent extension.
 
     ...
 
     Returns:
-        (output_path, video_ref, video_uri) 三元组
-        - output_path: 视频文件路径
-        - video_ref: Video 对象，用于当前会话的 extend_video()
-        - video_uri: 字符串 URI，可保存用于跨会话恢复
+        A (output_path, video_ref, video_uri) triple:
+        - output_path: path to the video file
+        - video_ref: Video object for use with extend_video() in the current session
+        - video_uri: string URI that can be saved for cross-session resumption
     """
 ```
 
-**Step 2: 验证语法**
+**Step 2: Verify syntax**
 
 Run: `python -m py_compile lib/gemini_client.py`
-Expected: 无输出（成功）
+Expected: no output (success)
 
 **Step 3: Commit**
 
@@ -181,48 +182,48 @@ git commit -m "feat: return video_uri from generate_video_with_ref for persisten
 
 ---
 
-## Task 4: 更新 extend_video 返回视频 URI
+## Task 4: Update extend_video to Return the Video URI
 
 **Files:**
-- Modify: `lib/gemini_client.py:355-432` (`extend_video` 方法)
+- Modify: `lib/gemini_client.py:355-432` (`extend_video` method)
 
-**Step 1: 修改返回值，包含 video_uri**
+**Step 1: Modify return value to include video_uri**
 
-将返回语句从：
+Change the return statement from:
 
 ```python
 return output_path, new_video_ref
 ```
 
-改为：
+to:
 
 ```python
 return output_path, new_video_ref, new_video_ref.uri
 ```
 
-同时更新方法签名的返回类型文档：
+Also update the docstring return type:
 
 ```python
 def extend_video(
     ...
 ) -> tuple:
     """
-    扩展现有视频（每次 +7 秒，最多扩展 20 次）
+    Extend an existing video (+7 seconds per call, up to 20 extensions).
 
     ...
 
     Returns:
-        (output_path, new_video_ref, new_video_uri) 三元组
-        - output_path: 扩展后的视频文件路径
-        - new_video_ref: 新的 Video 对象，用于继续扩展
-        - new_video_uri: 字符串 URI，可保存用于跨会话恢复
+        A (output_path, new_video_ref, new_video_uri) triple:
+        - output_path: path to the extended video file
+        - new_video_ref: new Video object for continuing to extend
+        - new_video_uri: string URI that can be saved for cross-session resumption
     """
 ```
 
-**Step 2: 验证语法**
+**Step 2: Verify syntax**
 
 Run: `python -m py_compile lib/gemini_client.py`
-Expected: 无输出（成功）
+Expected: no output (success)
 
 **Step 3: Commit**
 
@@ -233,54 +234,54 @@ git commit -m "feat: return video_uri from extend_video for persistence"
 
 ---
 
-## Task 5: 更新 generate_continuous_video 以保存和恢复视频 URI
+## Task 5: Update generate_continuous_video to Save and Restore Video URIs
 
 **Files:**
 - Modify: `.claude/skills/generate-video/scripts/generate_video.py:218-369`
 
-**Step 1: 更新视频生成逻辑以保存 URI**
+**Step 1: Update video generation logic to save URI**
 
-在 `generate_continuous_video()` 函数中修改视频生成部分：
+In the `generate_continuous_video()` function, modify the video generation section:
 
 ```python
-# 在 for scene_idx, scene in enumerate(segment) 循环内
+# Inside the for scene_idx, scene in enumerate(segment): loop
 
 try:
     if video_ref is None:
-        # 第一个场景：使用 image-to-video
-        print(f"    🎥 生成初始视频（{duration}秒）...")
+        # First scene: use image-to-video
+        print(f"    Generating initial video ({duration}s)...")
         output_path, video_ref, video_uri = client.generate_video_with_ref(
             prompt=prompt,
             start_image=storyboard_path,
-            aspect_ratio="16:9",  # 注意：extend 只支持 16:9
+            aspect_ratio="16:9",  # Note: extend only supports 16:9
             duration_seconds=str(duration),
             resolution="720p",
             output_path=segment_output
         )
     else:
-        # 后续场景：使用 extend
-        print(f"    🔗 扩展视频（+7秒）...")
+        # Subsequent scenes: use extend
+        print(f"    Extending video (+7s)...")
         output_path, video_ref, video_uri = client.extend_video(
             video_ref=video_ref,
             prompt=prompt,
             output_path=segment_output
         )
 
-    # 保存 checkpoint（包含 video_uri）
+    # Save checkpoint (including video_uri)
     save_checkpoint(
         project_dir, episode,
         seg_idx, scene_idx + 1,
         segment_videos, started_at,
-        video_uri=video_uri  # 保存 URI 用于恢复
+        video_uri=video_uri  # Save URI for resume
     )
 ```
 
-**Step 2: 添加恢复逻辑**
+**Step 2: Add restore logic**
 
-在加载 checkpoint 后添加恢复逻辑：
+After loading the checkpoint, add restore logic:
 
 ```python
-# 在 if resume: 块内，checkpoint 加载后
+# Inside the if resume: block, after checkpoint is loaded
 if resume:
     checkpoint = load_checkpoint(project_dir, episode)
     if checkpoint:
@@ -288,7 +289,7 @@ if resume:
         completed_segments = checkpoint.get('completed_segments', [])
         started_at = checkpoint.get('started_at', started_at)
 
-        # 恢复视频引用
+        # Restore video reference
         saved_uri = checkpoint.get('video_uri')
         if saved_uri:
             expires_at = checkpoint.get('video_uri_expires_at')
@@ -296,20 +297,20 @@ if resume:
                 expires = datetime.fromisoformat(expires_at)
                 if datetime.now() < expires:
                     video_ref = client.restore_video_ref(saved_uri)
-                    print(f"🔄 从 checkpoint 恢复视频引用")
+                    print("Restored video reference from checkpoint")
                 else:
-                    print(f"⚠️ 视频引用已过期，将从该片段重新生成")
+                    print("Video reference has expired; will regenerate from this segment")
                     video_ref = None
 
-        print(f"🔄 从片段 {start_segment + 1} 继续")
+        print(f"Resuming from segment {start_segment + 1}")
     else:
-        print("⚠️  未找到 checkpoint，从头开始")
+        print("No checkpoint found; starting from the beginning")
 ```
 
-**Step 3: 验证语法**
+**Step 3: Verify syntax**
 
 Run: `python -m py_compile .claude/skills/generate-video/scripts/generate_video.py`
-Expected: 无输出（成功）
+Expected: no output (success)
 
 **Step 4: Commit**
 
@@ -320,40 +321,40 @@ git commit -m "feat: save and restore video_uri in continuous video generation"
 
 ---
 
-## Task 6: 更新文档说明视频引用持久化
+## Task 6: Update Documentation for Video Reference Persistence
 
 **Files:**
 - Modify: `.claude/skills/generate-video/SKILL.md`
 - Modify: `CLAUDE.md`
 
-**Step 1: 更新 SKILL.md 添加持久化说明**
+**Step 1: Update SKILL.md to add persistence notes**
 
-在 "断点续传" 部分后添加：
+After the "Resume from checkpoint" section, add:
 
 ```markdown
-### 视频引用持久化
+### Video Reference Persistence
 
-连续视频模式会自动保存视频引用（URI）到 checkpoint 文件：
+Continuous video mode automatically saves the video reference (URI) to the checkpoint file:
 
-- 保存位置：`projects/{项目名}/videos/.checkpoint_ep{N}.json`
-- 视频在 Gemini 服务器保存 2 天
-- 每次 extend 会重置 2 天计时器
-- 使用 `--resume` 时自动恢复视频引用
+- Location: `projects/{project_name}/videos/.checkpoint_ep{N}.json`
+- Videos are retained on Gemini servers for 2 days
+- Each extend call resets the 2-day timer
+- When using `--resume`, the video reference is automatically restored
 
-**注意事项：**
-- 如果超过 2 天未继续，视频引用将过期
-- 过期后需要从该片段重新生成
-- 建议在开始生成后尽快完成整集
+**Notes:**
+- If more than 2 days pass without resuming, the video reference will expire
+- After expiry, that segment must be regenerated from scratch
+- It is recommended to complete the entire episode as soon as generation starts
 ```
 
-**Step 2: 更新 CLAUDE.md 添加相关说明**
+**Step 2: Update CLAUDE.md to add related notes**
 
-在 "断点续传" 部分添加：
+In the "Resume from checkpoint" section, add:
 
 ```markdown
-### 视频引用保存
+### Saving Video References
 
-Checkpoint 文件会保存视频引用 URI，有效期 2 天：
+Checkpoint files save the video reference URI, valid for 2 days:
 
 ```json
 {
@@ -375,42 +376,43 @@ git commit -m "docs: add video reference persistence documentation"
 
 ---
 
-## Task 7: 添加 16:9 格式支持说明
+## Task 7: Add 16:9 Format Support Notes
 
 **Files:**
 - Modify: `CLAUDE.md`
 - Modify: `.claude/skills/generate-video/SKILL.md`
 
-**Step 1: 更新 CLAUDE.md 视频规格说明**
+**Step 1: Update CLAUDE.md video spec notes**
 
-修改 "视频规格" 部分：
+Modify the "Video Specs" section:
 
 ```markdown
-### 视频规格
-- **视频比例**：16:9 横屏格式（Veo extend 限制）
-- **单场景时长**：默认 8 秒
-- **扩展时长**：每次 +7 秒
-- **连续视频最大时长**：148 秒（约 2.5 分钟）
-- **分辨率**：720p（扩展模式限制）
-- **分镜图格式**：多宫格分镜图（16:9 横屏，自适应 2x2 或 2x3 布局）
+### Video Specs
+- **Aspect ratio**: 16:9 landscape (Veo extend limitation)
+- **Single scene duration**: 8 seconds by default
+- **Extension duration**: +7 seconds per call
+- **Maximum continuous video duration**: 148 seconds (~2.5 minutes)
+- **Resolution**: 720p (extend mode limitation)
+- **Storyboard format**: multi-panel grid (16:9 landscape, adaptive 2x2 or 2x3 layout)
 
-> ⚠️ **重要**：Veo extend API 目前只支持 16:9 横屏视频，9:16 竖屏视频无法扩展。
-> 如需 9:16 竖屏格式，可在后期处理时使用 ffmpeg 裁剪转换。
+> **Important**: The Veo extend API currently only supports 16:9 landscape videos.
+> 9:16 portrait videos cannot be extended.
+> To produce 9:16 portrait output, use ffmpeg to crop/convert in post-processing.
 ```
 
-**Step 2: 更新 SKILL.md 添加格式限制说明**
+**Step 2: Update SKILL.md to add format restriction notes**
 
-在 "Veo 3.1 扩展限制" 表格中添加：
+In the "Veo 3.1 Extension Limits" table, add:
 
 ```markdown
-| 宽高比限制 | 仅 16:9 横屏 |
+| Aspect ratio restriction | 16:9 landscape only |
 ```
 
-并添加说明：
+And add the note:
 
 ```markdown
-> ⚠️ **API 限制**：虽然文档说支持 9:16 和 16:9，但实际测试发现 extend API 只接受 16:9 横屏视频。
-> 9:16 竖屏视频会返回错误：`Aspect ratio of the input video must be 16:9`
+> **API Limitation**: Although the documentation says both 9:16 and 16:9 are supported, testing has shown that the extend API only accepts 16:9 landscape videos.
+> 9:16 portrait videos return the error: `Aspect ratio of the input video must be 16:9`
 ```
 
 **Step 3: Commit**
@@ -422,25 +424,25 @@ git commit -m "docs: clarify 16:9 aspect ratio requirement for Veo extend"
 
 ---
 
-## Task 8: 验证完整流程
+## Task 8: Verify the Full Flow
 
-**Files:** 无修改，仅验证
+**Files:** No modifications — verification only
 
-**Step 1: 验证脚本语法**
+**Step 1: Verify script syntax**
 
 Run:
 ```bash
 python -m py_compile lib/gemini_client.py
 python -m py_compile .claude/skills/generate-video/scripts/generate_video.py
 ```
-Expected: 无输出（成功）
+Expected: no output (success)
 
-**Step 2: 验证 CLI 帮助**
+**Step 2: Verify CLI help**
 
 Run: `PYTHONPATH=. python .claude/skills/generate-video/scripts/generate_video.py --help`
-Expected: 显示帮助信息，包含 `--continuous`, `--episode`, `--resume` 选项
+Expected: help text shown, including `--continuous`, `--episode`, `--resume` options
 
-**Step 3: 验证 segment 分组**
+**Step 3: Verify segment grouping**
 
 Run:
 ```bash
@@ -461,15 +463,15 @@ for s in scenes:
 if current:
     segments.append(current)
 
-print(f'场景数: {len(scenes)}')
-print(f'片段数: {len(segments)}')
+print(f'Scenes: {len(scenes)}')
+print(f'Segments: {len(segments)}')
 for i, seg in enumerate(segments):
-    print(f'  片段 {i+1}: {len(seg)} 场景')
+    print(f'  Segment {i+1}: {len(seg)} scenes')
 "
 ```
-Expected: 显示 22 个场景，4 个片段
+Expected: 22 scenes, 4 segments
 
-**Step 4: 最终 Commit**
+**Step 4: Final commit**
 
 ```bash
 git add -A
@@ -478,11 +480,11 @@ git commit -m "feat: complete video reference persistence implementation"
 
 ---
 
-## 可选：Task 9: 实际 API 测试
+## Optional: Task 9: Live API Test
 
-**注意：此任务需要消耗 API 配额，可选执行**
+**Note: This task consumes API quota and is optional.**
 
-**Step 1: 生成第一个视频并保存 checkpoint**
+**Step 1: Generate first video and save checkpoint**
 
 ```bash
 PYTHONPATH=. python -c "
@@ -493,9 +495,9 @@ import json
 client = GeminiClient()
 project_dir = Path('projects/shanyang_renlei')
 
-# 生成视频
+# Generate video
 path, ref, uri = client.generate_video_with_ref(
-    prompt='一段 6 秒的横屏视频（16:9）。夜晚都市，五星级酒店外观。',
+    prompt='A 6-second landscape video (16:9). Night cityscape, exterior of a five-star hotel.',
     start_image=project_dir / 'storyboards/grid_001.png',
     aspect_ratio='16:9',
     duration_seconds='6',
@@ -503,16 +505,16 @@ path, ref, uri = client.generate_video_with_ref(
     output_path=project_dir / 'videos/test_persist.mp4'
 )
 
-print(f'视频生成成功: {path}')
+print(f'Video generated: {path}')
 print(f'URI: {uri}')
 
-# 保存 URI
+# Save URI
 (project_dir / 'videos/test_uri.txt').write_text(uri)
-print('URI 已保存')
+print('URI saved')
 "
 ```
 
-**Step 2: 恢复并扩展视频**
+**Step 2: Restore and extend video**
 
 ```bash
 PYTHONPATH=. python -c "
@@ -522,37 +524,37 @@ from pathlib import Path
 client = GeminiClient()
 project_dir = Path('projects/shanyang_renlei')
 
-# 读取保存的 URI
+# Read saved URI
 uri = (project_dir / 'videos/test_uri.txt').read_text().strip()
-print(f'读取 URI: {uri[:50]}...')
+print(f'Read URI: {uri[:50]}...')
 
-# 恢复视频引用
+# Restore video reference
 video_ref = client.restore_video_ref(uri)
-print('视频引用已恢复')
+print('Video reference restored')
 
-# 扩展视频
+# Extend video
 path, ref, new_uri = client.extend_video(
     video_ref=video_ref,
-    prompt='继续：酒店大厅内部，水晶吊灯，猩红地毯，一个穿黑色皮夹克的男子走入。',
+    prompt='Continued: hotel lobby interior, crystal chandelier, crimson carpet, a man in a black leather jacket walks in.',
     output_path=project_dir / 'videos/test_persist_extended.mp4'
 )
 
-print(f'扩展成功: {path}')
+print(f'Extension successful: {path}')
 "
 ```
 
-Expected: 两个视频文件生成成功，扩展后的视频时长约 13 秒
+Expected: two video files generated successfully; the extended video is approximately 13 seconds long
 
 ---
 
-## 总结
+## Summary
 
-实现完成后，视频引用持久化工作流程：
+After implementation, the video reference persistence workflow is:
 
-1. **首次生成**：`generate_video_with_ref()` 返回 `(path, video_ref, video_uri)`
-2. **保存 URI**：`save_checkpoint(..., video_uri=video_uri)`
-3. **中断后恢复**：`load_checkpoint()` 读取 `video_uri`
-4. **重建引用**：`restore_video_ref(video_uri)` 返回 `video_ref`
-5. **继续扩展**：`extend_video(video_ref, ...)`
+1. **First generation**: `generate_video_with_ref()` returns `(path, video_ref, video_uri)`
+2. **Save URI**: `save_checkpoint(..., video_uri=video_uri)`
+3. **After interruption**: `load_checkpoint()` reads `video_uri`
+4. **Rebuild reference**: `restore_video_ref(video_uri)` returns `video_ref`
+5. **Continue extending**: `extend_video(video_ref, ...)`
 
-有效期：2 天（每次 extend 重置）
+Validity period: 2 days (reset by each extend call)

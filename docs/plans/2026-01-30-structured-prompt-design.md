@@ -1,26 +1,26 @@
-# 结构化 Prompt 设计
+# Structured Prompt Design
 
-**日期**: 2026-01-30
-**状态**: 待确认
-
----
-
-## 概述
-
-基于 StoryCraft 项目的 Prompt 工程实践，对我们项目的 `image_prompt` 和 `video_prompt` 进行结构化改造，并引入固定风格选项系统。
-
-### 改进目标
-
-1. **结构化 Prompt 模板** - 将自由文本改为结构化字段
-2. **YAML 格式传递** - 转换为 YAML 格式传给 Gemini/Veo API
-3. **固定风格选项** - 将自由填写的风格改为预设选项
-4. **统一 negative_prompt** - 标准化禁止生成的元素
+**Date**: 2026-01-30
+**Status**: Pending confirmation
 
 ---
 
-## 一、结构化 Prompt 模板
+## Overview
 
-### 1.1 imagePrompt 结构
+Based on the prompt engineering practices from the StoryCraft project, this document restructures the `image_prompt` and `video_prompt` fields in our project and introduces a fixed style option system.
+
+### Improvement Goals
+
+1. **Structured prompt template** — convert free text to structured fields
+2. **YAML format** — convert to YAML format before passing to the Gemini/Veo API
+3. **Fixed style options** — replace free-form style input with preset options
+4. **Unified negative_prompt** — standardize the elements to exclude from generation
+
+---
+
+## 1. Structured Prompt Template
+
+### 1.1 imagePrompt Structure
 
 ```json
 {
@@ -35,20 +35,20 @@
 }
 ```
 
-#### 字段说明
+#### Field Descriptions
 
-| 字段 | 类型 | 说明 |
-|-----|------|------|
-| `scene` | string | 场景描述，包含环境、物品、氛围 |
-| `composition.shot_type` | enum | 镜头类型，从预设选项中选择 |
-| `composition.lighting` | string | 光线描述（光源、色温、阴影） |
-| `composition.ambiance` | string | 氛围描述（色调、情绪、环境效果） |
+| Field | Type | Description |
+|-------|------|-------------|
+| `scene` | string | Scene description: environment, objects, atmosphere |
+| `composition.shot_type` | enum | Shot type, chosen from preset options |
+| `composition.lighting` | string | Lighting description (light source, color temperature, shadows) |
+| `composition.ambiance` | string | Atmosphere description (color tone, mood, environmental effects) |
 
-> **注意**：
-> - **Style（风格）** 由项目级 `project.json` 的 `style` 字段统一决定，不在每个 segment 中重复
-> - **角色和线索** 通过现有的 `characters_in_segment` / `clues_in_segment` 字段引用，不在 imagePrompt 中重复
+> **Notes:**
+> - **Style** is determined at the project level by the `style` field in `project.json` and is not repeated in each segment
+> - **Characters and clues** are referenced via the existing `characters_in_segment` / `clues_in_segment` fields and are not repeated in `imagePrompt`
 
-### 1.2 videoPrompt 结构
+### 1.2 videoPrompt Structure
 
 ```json
 {
@@ -66,65 +66,65 @@
 }
 ```
 
-#### 字段说明
+#### Field Descriptions
 
-| 字段 | 类型 | 说明 |
-|-----|------|------|
-| `action` | string | 动作描述，明确说明主体在做什么 |
-| `camera_motion` | enum | 摄像机运动，从预设选项中选择 |
-| `ambiance_audio` | string | 环境音效描述（仅 diegetic sound，不含音乐） |
-| `dialogue` | array | 对话列表，每条包含 speaker 和 line |
-
----
-
-## 二、预设选项定义
-
-### 2.1 Style（视觉风格）
-
-| 选项 | 说明 |
-|-----|------|
-| `Photographic` | 写实摄影风格 |
-| `Anime` | 日式动漫风格 |
-| `3D Animation` | 3D 动画风格 |
-
-### 2.2 shot_type（镜头类型）
-
-| 选项 | 中文 | 说明 |
-|-----|------|------|
-| `Extreme Close-up` | 大特写 | 面部局部或物体细节 |
-| `Close-up` | 特写 | 面部或重要物体 |
-| `Medium Close-up` | 中近景 | 头部到胸部 |
-| `Medium Shot` | 中景 | 头部到腰部 |
-| `Medium Long Shot` | 中远景 | 头部到膝盖 |
-| `Long Shot` | 远景 | 全身可见 |
-| `Extreme Long Shot` | 大远景 | 角色在环境中很小 |
-| `Over-the-shoulder` | 过肩镜头 | 从一个角色肩后看另一个角色 |
-| `Point-of-view` | 主观镜头 | 从角色视角看 |
-
-### 2.3 camera_motion（摄像机运动）
-
-| 选项 | 中文 | 说明 |
-|-----|------|------|
-| `Static` | 静止 | 摄像机固定不动 |
-| `Pan Left` | 左摇 | 摄像机水平向左转动 |
-| `Pan Right` | 右摇 | 摄像机水平向右转动 |
-| `Tilt Up` | 上摇 | 摄像机垂直向上转动 |
-| `Tilt Down` | 下摇 | 摄像机垂直向下转动 |
-| `Zoom In` | 推进 | 镜头拉近 |
-| `Zoom Out` | 拉远 | 镜头拉远 |
-| `Tracking Shot` | 跟踪 | 摄像机跟随主体移动 |
+| Field | Type | Description |
+|-------|------|-------------|
+| `action` | string | Action description: explicitly states what the subject is doing |
+| `camera_motion` | enum | Camera movement, chosen from preset options |
+| `ambiance_audio` | string | Ambient sound description (diegetic sound only; no music) |
+| `dialogue` | array | List of dialogue entries, each with `speaker` and `line` |
 
 ---
 
-## 三、YAML 格式转换
+## 2. Preset Option Definitions
 
-### 3.1 转换工具函数
+### 2.1 Style (Visual Style)
 
-在调用 Gemini/Veo API 时，将结构化 Prompt 转换为 YAML 格式字符串。
+| Option | Description |
+|--------|-------------|
+| `Photographic` | Realistic photography style |
+| `Anime` | Japanese anime style |
+| `3D Animation` | 3D animation style |
 
-#### imagePrompt 转换示例
+### 2.2 shot_type (Shot Types)
 
-**输入 JSON**：
+| Option | Description |
+|--------|-------------|
+| `Extreme Close-up` | Partial face or object detail |
+| `Close-up` | Face or important object |
+| `Medium Close-up` | Head to chest |
+| `Medium Shot` | Head to waist |
+| `Medium Long Shot` | Head to knees |
+| `Long Shot` | Full body visible |
+| `Extreme Long Shot` | Character is small in the environment |
+| `Over-the-shoulder` | Looking at one character from behind another's shoulder |
+| `Point-of-view` | From the character's perspective |
+
+### 2.3 camera_motion (Camera Movements)
+
+| Option | Description |
+|--------|-------------|
+| `Static` | Camera fixed in place |
+| `Pan Left` | Camera rotates horizontally to the left |
+| `Pan Right` | Camera rotates horizontally to the right |
+| `Tilt Up` | Camera rotates vertically upward |
+| `Tilt Down` | Camera rotates vertically downward |
+| `Zoom In` | Lens zooms in |
+| `Zoom Out` | Lens zooms out |
+| `Tracking Shot` | Camera follows the subject |
+
+---
+
+## 3. YAML Format Conversion
+
+### 3.1 Conversion Utility Functions
+
+When calling the Gemini/Veo API, convert the structured prompt to a YAML-format string.
+
+#### imagePrompt Conversion Example
+
+**Input JSON:**
 ```json
 {
   "scene": "A dimly lit underground laboratory with flickering monitors",
@@ -136,7 +136,7 @@
 }
 ```
 
-**输出 YAML**（Style 从项目配置注入）：
+**Output YAML** (Style injected from project config):
 ```yaml
 Style: Anime
 Scene: A dimly lit underground laboratory with flickering monitors
@@ -146,9 +146,9 @@ Composition:
   ambiance: tense, mysterious atmosphere
 ```
 
-#### videoPrompt 转换示例
+#### videoPrompt Conversion Example
 
-**输入 JSON**：
+**Input JSON:**
 ```json
 {
   "action": "The scientist slowly turns around, eyes widening",
@@ -163,7 +163,7 @@ Composition:
 }
 ```
 
-**输出 YAML**：
+**Output YAML:**
 ```yaml
 Action: The scientist slowly turns around, eyes widening
 Camera_Motion: Dolly In
@@ -173,18 +173,18 @@ Dialogue:
     Line: It's happening...
 ```
 
-### 3.2 Python 实现
+### 3.2 Python Implementation
 
 ```python
 import yaml
 
 def image_prompt_to_yaml(image_prompt: dict, project_style: str) -> str:
     """
-    将 imagePrompt 结构转换为 YAML 格式字符串
+    Convert an imagePrompt structure to a YAML-format string.
 
     Args:
-        image_prompt: segment 中的 image_prompt 对象
-        project_style: 项目级风格设置（从 project.json 读取）
+        image_prompt: the image_prompt object from a segment
+        project_style: project-level style setting (read from project.json)
     """
     ordered = {
         "Style": project_style,
@@ -199,7 +199,7 @@ def image_prompt_to_yaml(image_prompt: dict, project_style: str) -> str:
 
 
 def video_prompt_to_yaml(video_prompt: dict) -> str:
-    """将 videoPrompt 结构转换为 YAML 格式字符串"""
+    """Convert a videoPrompt structure to a YAML-format string."""
     dialogue = [
         {"Speaker": d["speaker"], "Line": d["line"]}
         for d in video_prompt.get("dialogue", [])
@@ -216,23 +216,23 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
 
 ---
 
-## 四、negative_prompt 标准化
+## 4. Standardized negative_prompt
 
-在调用 Veo API 时，统一使用以下 negative_prompt：
+When calling the Veo API, use the following `negative_prompt` consistently:
 
 ```python
 negative_prompt = "music, BGM, background music, subtitles, low quality"
 ```
 
-### 更新位置
+### Update Location
 
-`lib/gemini_client.py` 中的 `generate_video()` 方法：
+The `generate_video()` method in `lib/gemini_client.py`:
 
 ```python
 def generate_video(
     self,
     prompt: str,
-    # ... 其他参数
+    # ... other parameters
     negative_prompt: str = "music, BGM, background music, subtitles, low quality",
     # ...
 ) -> tuple:
@@ -240,28 +240,28 @@ def generate_video(
 
 ---
 
-## 五、数据结构变更
+## 5. Data Structure Changes
 
-### 5.1 剧本 JSON 结构（说书模式）
+### 5.1 Script JSON Structure (Narration Mode)
 
-**变更前**：
+**Before:**
 ```json
 {
   "segment_id": "E1S01",
-  "novel_text": "原文内容...",
-  "image_prompt": "中景镜头，实验室内...",
-  "video_prompt": "镜头缓慢推进...",
+  "novel_text": "Original novel text...",
+  "image_prompt": "Medium shot, inside the laboratory...",
+  "video_prompt": "Camera slowly pushes in...",
   "characters_in_segment": ["Dr. Chen"],
   "clues_in_segment": ["Blueprint"],
   "duration_seconds": 4
 }
 ```
 
-**变更后**：
+**After:**
 ```json
 {
   "segment_id": "E1S01",
-  "novel_text": "原文内容...",
+  "novel_text": "Original novel text...",
   "image_prompt": {
     "scene": "A high-tech laboratory with holographic displays and scattered research papers",
     "composition": {
@@ -282,31 +282,31 @@ def generate_video(
 }
 ```
 
-### 5.2 project.json 风格字段
+### 5.2 project.json Style Field
 
-**变更前**：
+**Before:**
 ```json
 {
-  "style": "古装宫廷风格，精致唯美画面"
+  "style": "Ancient imperial court style, delicate and beautiful visuals"
 }
 ```
 
-**变更后**：
+**After:**
 ```json
 {
   "style": "Anime"
 }
 ```
 
-仅允许预设选项：`Photographic` | `Anime` | `3D Animation`
+Only preset options are allowed: `Photographic` | `Anime` | `3D Animation`
 
 ---
 
-## 六、Agent 生成指令更新
+## 6. Agent Generation Instruction Updates
 
-需要更新 `novel-to-narration-script` 和 `novel-to-storyboard-script` Agent 的 System Prompt，指导其输出结构化格式。
+The System Prompts of the `novel-to-narration-script` and `novel-to-storyboard-script` agents must be updated to guide them to output the structured format.
 
-### 6.1 imagePrompt 生成指令
+### 6.1 imagePrompt Generation Instruction
 
 ```
 For each segment, generate an image_prompt object with the following structure:
@@ -325,7 +325,7 @@ Note:
 - Characters and clues are referenced via characters_in_segment and clues_in_segment fields
 ```
 
-### 6.2 videoPrompt 生成指令
+### 6.2 videoPrompt Generation Instruction
 
 ```
 For each segment, generate a video_prompt object with the following structure:
@@ -345,32 +345,32 @@ For each segment, generate a video_prompt object with the following structure:
 
 ---
 
-## 七、实现计划
+## 7. Implementation Plan
 
-| 阶段 | 内容 | 涉及文件 |
-|------|------|---------|
-| Phase 1 | 新增 YAML 转换工具函数 | `lib/prompt_utils.py` (新增) |
-| Phase 2 | 更新 negative_prompt 默认值 | `lib/gemini_client.py` |
-| Phase 3 | 更新 Agent System Prompt | `.claude/commands/novel-to-narration-script.md`, `.claude/commands/novel-to-storyboard-script.md` |
-| Phase 4 | 更新分镜生成脚本以使用 YAML | `generate_storyboard.py`, `generate_video.py` |
-| Phase 5 | 更新 WebUI 风格选择器 | `webui/` 相关文件 |
-
----
-
-## 八、迁移策略
-
-**直接重构**：所有项目统一使用新的结构化格式，不保留旧格式兼容。
-
-### 迁移步骤
-
-1. 更新 Agent System Prompt，输出结构化格式
-2. 更新分镜/视频生成脚本，解析结构化 Prompt 并转换为 YAML
-3. 现有项目剧本需重新生成或手动迁移
+| Phase | Content | Files Involved |
+|-------|---------|----------------|
+| Phase 1 | Add YAML conversion utility functions | `lib/prompt_utils.py` (new) |
+| Phase 2 | Update negative_prompt default | `lib/gemini_client.py` |
+| Phase 3 | Update Agent System Prompts | `.claude/commands/novel-to-narration-script.md`, `.claude/commands/novel-to-storyboard-script.md` |
+| Phase 4 | Update storyboard generation scripts to use YAML | `generate_storyboard.py`, `generate_video.py` |
+| Phase 5 | Update WebUI style selector | relevant `webui/` files |
 
 ---
 
-## 九、参考
+## 8. Migration Strategy
 
-- [StoryCraft 调研报告](/docs/storycraft-investigation.md)
-- [Veo Prompt Guide:423](/docs/google-genai-docs/veo.md)
+**Direct refactor**: all projects will use the new structured format; backward compatibility with the old format will not be maintained.
+
+### Migration Steps
+
+1. Update Agent System Prompts to output structured format
+2. Update storyboard/video generation scripts to parse the structured prompt and convert to YAML
+3. Existing project scripts must be regenerated or manually migrated
+
+---
+
+## 9. References
+
+- [StoryCraft investigation report](/docs/storycraft-investigation.md)
+- [Veo Prompt Guide](/docs/google-genai-docs/veo.md)
 - [StoryCraft prompt-utils.ts](/docs/storycraft/lib/utils/prompt-utils.ts)

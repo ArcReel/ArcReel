@@ -1,171 +1,171 @@
-# 角色参考图功能设计
+# Character Reference Image Feature Design
 
-**日期**: 2026-02-05  
-**状态**: 已实现
+**Date**: 2026-02-05
+**Status**: Implemented
 
-## 概述
+## Overview
 
-为角色生成功能添加参考图支持。用户可以上传一张参考图（如演员照片、手绘草稿），生成角色设计图时 AI 会参考该图片保持角色外貌一致性。
+Adds reference image support to the character generation feature. Users can upload a reference image (e.g., actor photo, hand-drawn sketch); when generating character design images, the AI uses this image to maintain appearance consistency.
 
-## 术语定义
+## Terminology
 
-| 类型 | 用途 | 来源 |
-|------|------|------|
-| **参考图 (reference_image)** | 生成角色设计图时作为 AI 输入，控制外貌 | 用户上传 |
-| **设计图 (character_sheet)** | 生成分镜图/视频时作为参考，确保角色一致 | AI 生成 |
+| Type | Purpose | Source |
+|------|---------|--------|
+| **Reference image (reference_image)** | Used as AI input when generating character design images; controls appearance | Uploaded by user |
+| **Design image (character_sheet)** | Used as reference when generating storyboards/videos; ensures character consistency | AI-generated |
 
-## 数据结构变更
+## Data Structure Changes
 
 ### project.json
 
-`characters` 结构新增 `reference_image` 字段：
+Add `reference_image` field to the `characters` structure:
 
 ```json
 {
   "characters": {
-    "姜月茴": {
-      "description": "二十出头女子，鹅蛋脸，柳叶眉...",
-      "reference_image": "characters/refs/姜月茴.png",
-      "character_sheet": "characters/姜月茴.png",
-      "voice_style": "温柔但有威严"
+    "Jiang Yuehui": {
+      "description": "Young woman in her early twenties, oval face, willow-leaf brows...",
+      "reference_image": "characters/refs/Jiang Yuehui.png",
+      "character_sheet": "characters/Jiang Yuehui.png",
+      "voice_style": "Gentle but authoritative"
     }
   }
 }
 ```
 
-### 文件存储结构
+### File Storage Structure
 
 ```
-projects/{项目名}/
+projects/{project_name}/
 ├── characters/
-│   ├── refs/           # 新增：参考图目录
-│   │   └── 姜月茴.png  # 用户上传的参考图
-│   └── 姜月茴.png      # AI 生成的设计图
+│   ├── refs/                  # New: reference image directory
+│   │   └── Jiang Yuehui.png   # User-uploaded reference image
+│   └── Jiang Yuehui.png       # AI-generated design image
 ```
 
-## 后端 API 变更
+## Backend API Changes
 
-### 1. 文件上传路由 (`webui/server/routers/files.py`)
+### 1. File Upload Route (`webui/server/routers/files.py`)
 
-新增上传类型 `character_ref`：
+Add new upload type `character_ref`:
 
-- 路径：`POST /projects/{project_name}/upload/character_ref?name={char_name}`
-- 保存到：`characters/refs/{name}.png`
-- 自动更新 `project.json` 中的 `reference_image` 字段
+- Path: `POST /projects/{project_name}/upload/character_ref?name={char_name}`
+- Save to: `characters/refs/{name}.png`
+- Automatically update `reference_image` field in `project.json`
 
-在 `ALLOWED_EXTENSIONS` 中添加：
+Add to `ALLOWED_EXTENSIONS`:
 ```python
 "character_ref": [".png", ".jpg", ".jpeg", ".webp"],
 ```
 
-在 `upload_file` 函数中添加处理逻辑。
+Add handling logic in the `upload_file` function.
 
-### 2. 角色管理路由 (`webui/server/routers/characters.py`)
+### 2. Character Management Route (`webui/server/routers/characters.py`)
 
-`UpdateCharacterRequest` 新增可选字段：
+Add optional field to `UpdateCharacterRequest`:
 ```python
 reference_image: Optional[str] = None
 ```
 
-更新逻辑中处理该字段。
+Handle this field in the update logic.
 
-### 3. 生成路由 (`webui/server/routers/generate.py`)
+### 3. Generation Route (`webui/server/routers/generate.py`)
 
-`generate_character` 端点增加逻辑：
-1. 检查角色是否有 `reference_image` 字段
-2. 若有，读取图片文件
-3. 传入 `MediaGenerator.generate_image_async()` 的 `reference_images` 参数
+`generate_character` endpoint adds logic to:
+1. Check if the character has a `reference_image` field
+2. If so, load the image file
+3. Pass it to the `reference_images` parameter of `MediaGenerator.generate_image_async()`
 
-### 4. CLI 脚本 (`.claude/skills/generate-characters/scripts/generate_character.py`)
+### 4. CLI Script (`.claude/skills/generate-characters/scripts/generate_character.py`)
 
-- **移除** `--ref` 命令行参数
-- 自动从 `project.json` 读取角色的 `reference_image` 字段
-- 若存在则加载图片作为参考
+- **Remove** `--ref` command-line parameter
+- Automatically read the character's `reference_image` field from `project.json`
+- If present, load the image as a reference
 
-## 前端 WebUI 变更
+## Frontend WebUI Changes
 
-### 角色编辑弹窗布局
+### Character Edit Modal Layout
 
-参考图和设计图上下排布：
+Reference image and design image stacked vertically:
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  编辑角色                                    [X] │
+│  Edit Character                              [X] │
 ├─────────────────────────────────────────────────┤
-│  名称：[姜月茴_____________]                    │
-│  描述：[二十出头女子...____]                    │
-│  声线：[温柔但有威严_______]                    │
+│  Name: [Jiang Yuehui__________]                 │
+│  Description: [Young woman in her early...]     │
+│  Voice: [Gentle but authoritative______]        │
 ├─────────────────────────────────────────────────┤
-│  参考图（用户上传）                             │
+│  Reference Image (user upload)                  │
 │  ┌──────────────────────────────────────┐      │
 │  │                                      │      │
-│  │          [预览图/占位符]             │      │
+│  │          [preview/placeholder]       │      │
 │  │                                      │      │
 │  └──────────────────────────────────────┘      │
-│  [选择文件...]                                  │
+│  [Choose file...]                               │
 ├─────────────────────────────────────────────────┤
-│  设计图（AI 生成）                              │
+│  Design Image (AI-generated)                    │
 │  ┌──────────────────────────────────────┐      │
 │  │                                      │      │
-│  │          [预览图/占位符]             │      │
+│  │          [preview/placeholder]       │      │
 │  │                                      │      │
 │  └──────────────────────────────────────┘      │
-│  [生成设计图]  版本: [v1 ▼] [还原]             │
+│  [Generate Design Image]  Version: [v1 ▼] [Restore] │
 ├─────────────────────────────────────────────────┤
-│                    [保存] [取消]                │
+│                    [Save] [Cancel]              │
 └─────────────────────────────────────────────────┘
 ```
 
-### 交互逻辑
+### Interaction Logic
 
-1. **选择参考图**：选择文件后暂存在前端（File 对象），显示预览
-2. **点击保存**：
-   - 若有新选择的参考图文件 → 先调用 `upload/character_ref` API
-   - 再保存角色数据（包含 `reference_image` 路径）
-3. **生成设计图**：调用 `generate/character` API，后端自动读取参考图
-4. **版本控制**：设计图支持版本管理（现有功能）
+1. **Select reference image**: After selecting a file, stage it in the frontend (File object) and show preview
+2. **Click Save**:
+   - If a new reference image file is selected → call `upload/character_ref` API first
+   - Then save character data (including `reference_image` path)
+3. **Generate design image**: Call `generate/character` API; backend automatically reads the reference image
+4. **Version control**: Design images support version management (existing feature)
 
-### 涉及文件
+### Files Involved
 
-- `webui/js/project/characters.js` - 编辑弹窗逻辑
-- `webui/index.html` - 弹窗 HTML 结构（若需要）
+- `webui/js/project/characters.js` — edit modal logic
+- `webui/index.html` — modal HTML structure (if needed)
 
-## 用户操作流程
+## User Operation Flow
 
 ```
-1. 添加/编辑角色 → 填写名称、描述
+1. Add/edit character → fill in name, description
          ↓
-2. 选择参考图（可选）→ 前端预览
+2. Select reference image (optional) → frontend preview
          ↓
-3. 点击"保存" → 上传参考图 + 保存角色数据
+3. Click "Save" → upload reference image + save character data
          ↓
-4. 点击"生成设计图" → API 自动使用参考图 → AI 生成
+4. Click "Generate Design Image" → API automatically uses reference image → AI generates
          ↓
-5. 查看设计图 → 不满意可重新生成（版本管理）
+5. View design image → if unsatisfied, regenerate (version management)
 ```
 
-## 关键设计决定
+## Key Design Decisions
 
-| 项目 | 决定 | 理由 |
-|------|------|------|
-| 新增字段名 | `reference_image` | 与 `character_sheet` 对应，语义清晰 |
-| 存储路径 | `characters/refs/{name}.png` | 单独目录，文件组织清晰 |
-| 参考图数量 | 单张 | 简化实现，满足主要场景 |
-| UI 布局 | 上下排布 | 符合用户阅读习惯 |
-| 保存时机 | 点击保存时一并上传 | 避免临时文件残留 |
-| CLI --ref 参数 | 移除 | 统一从 project.json 读取，减少用户操作 |
+| Item | Decision | Reason |
+|------|----------|--------|
+| New field name | `reference_image` | Corresponds to `character_sheet`; clear semantics |
+| Storage path | `characters/refs/{name}.png` | Separate directory; clean file organization |
+| Number of reference images | Single | Simplifies implementation; covers main use cases |
+| UI layout | Vertically stacked | Follows natural reading order |
+| Save timing | Upload together when clicking Save | Avoids orphaned temporary files |
+| CLI --ref parameter | Removed | Unified read from project.json; reduces user steps |
 
-## 实现清单
+## Implementation Checklist
 
-### 后端
+### Backend
 
-- [ ] `files.py`: 添加 `character_ref` 上传类型
-- [ ] `characters.py`: `UpdateCharacterRequest` 添加 `reference_image` 字段
-- [ ] `generate.py`: `generate_character` 读取并使用参考图
-- [ ] `generate_character.py` (CLI): 移除 `--ref` 参数，自动从 project.json 读取
+- [ ] `files.py`: Add `character_ref` upload type
+- [ ] `characters.py`: Add `reference_image` field to `UpdateCharacterRequest`
+- [ ] `generate.py`: `generate_character` reads and uses reference image
+- [ ] `generate_character.py` (CLI): Remove `--ref` parameter; auto-read from project.json
 
-### 前端
+### Frontend
 
-- [ ] `characters.js`: 弹窗添加参考图上传区域
-- [ ] `characters.js`: 保存时处理参考图上传
-- [ ] `index.html`: 更新弹窗 HTML 结构（若需要）
+- [ ] `characters.js`: Add reference image upload area to modal
+- [ ] `characters.js`: Handle reference image upload when saving
+- [ ] `index.html`: Update modal HTML structure (if needed)

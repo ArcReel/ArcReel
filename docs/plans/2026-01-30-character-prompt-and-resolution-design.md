@@ -1,85 +1,85 @@
-# 角色设计 Prompt 优化与分辨率升级设计
+# Character Design Prompt Optimization and Resolution Upgrade Design
 
-> 优化角色设计图的 prompt 模板，升级图片/视频分辨率，调整角色设计图比例
-
----
-
-## 1. 需求概述
-
-| 需求 | 说明 |
-|------|------|
-| 角色描述结构化 | 优化 prompt 模板格式，保持 description 单一字段 |
-| 角色设计图比例 | 从 16:9 改为 **3:4**（单人全身像） |
-| 线索设计图比例 | 保持 **16:9** 不变 |
-| 图片分辨率 | 所有图片默认使用 **2K**（API 参数 `image_size="2K"`） |
-| 视频分辨率 | 从 720p 改为 **1080p** |
-| WebUI 同步 | 调整角色卡片展示框适配 3:4 比例 |
+> Optimize the prompt template for character design images, upgrade image/video resolution, and adjust the character design image aspect ratio
 
 ---
 
-## 2. Prompt 模板优化
+## 1. Requirements Overview
 
-### 2.1 角色设计图 Prompt
+| Requirement | Description |
+|-------------|-------------|
+| Structured character description | Optimize the prompt template format; keep `description` as a single field |
+| Character design image aspect ratio | Change from 16:9 to **3:4** (single full-body portrait) |
+| Clue design image aspect ratio | Keep **16:9** unchanged |
+| Image resolution | All images default to **2K** (API parameter `image_size="2K"`) |
+| Video resolution | Change from 720p to **1080p** |
+| WebUI sync | Adjust character card display box to accommodate 3:4 ratio |
 
-**修改文件**: `.claude/skills/generate-characters/scripts/generate_character.py`
+---
 
-**之前**:
+## 2. Prompt Template Optimization
+
+### 2.1 Character Design Image Prompt
+
+**File to modify**: `.claude/skills/generate-characters/scripts/generate_character.py`
+
+**Before**:
 ```python
 def build_character_prompt(name: str, description: str, style: str = "") -> str:
-    style_prefix = f"，{style}" if style else ""
+    style_prefix = f", {style}" if style else ""
 
-    prompt = f"""一张专业的角色设计参考图{style_prefix}。
+    prompt = f"""A professional character design reference image{style_prefix}.
 
-角色「{name}」的三视图设计稿。{description}
+Three-view design sheet for character "{name}". {description}
 
-三个等比例全身像水平排列在纯净浅灰背景上：左侧正面、中间四分之三侧面、右侧纯侧面轮廓。柔和均匀的摄影棚照明，无强烈阴影。"""
+Three proportional full-body views arranged horizontally on a clean light-gray background: front view on the left, three-quarter view in the center, pure side profile on the right. Soft uniform studio lighting, no harsh shadows."""
 
     return prompt
 ```
 
-**之后**:
+**After**:
 ```python
 def build_character_prompt(name: str, description: str, style: str = "") -> str:
-    style_part = f"，{style}" if style else ""
+    style_part = f", {style}" if style else ""
 
-    prompt = f"""角色设计参考图{style_part}。
+    prompt = f"""Character design reference image{style_part}.
 
-「{name}」的全身立绘。
+Full-body character illustration of "{name}".
 
 {description}
 
-构图要求：单人全身像，站立姿态自然，面向镜头。
-背景：纯净浅灰色，无任何装饰元素。
-光线：柔和均匀的摄影棚照明，无强烈阴影。
-画质：高清，细节清晰，色彩准确。"""
+Composition: single full-body portrait, natural standing pose, facing the camera.
+Background: clean light gray, no decorative elements.
+Lighting: soft uniform studio lighting, no harsh shadows.
+Quality: high resolution, clear details, accurate colors."""
 
     return prompt
 ```
 
-**改进点**:
-- 移除三视图要求（改为单人全身像适配 3:4）
-- 结构化呈现构图/背景/光线要求
-- 更清晰的层次便于模型理解
+**Improvements**:
+- Removed the three-view requirement (changed to single full-body portrait for 3:4 ratio)
+- Structured composition / background / lighting requirements
+- Clearer hierarchy for better model comprehension
 
-### 2.2 线索设计图 Prompt
+### 2.2 Clue Design Image Prompt
 
-**修改文件**: `.claude/skills/generate-clues/scripts/generate_clue.py`
+**File to modify**: `.claude/skills/generate-clues/scripts/generate_clue.py`
 
-保持现有 prompt 结构不变，仅确保使用 2K 分辨率。
+Keep the existing prompt structure unchanged; only ensure 2K resolution is used.
 
 ---
 
-## 3. API 参数修改
+## 3. API Parameter Changes
 
-### 3.1 GeminiClient 图片生成
+### 3.1 GeminiClient Image Generation
 
-**修改文件**: `lib/gemini_client.py`
+**File to modify**: `lib/gemini_client.py`
 
-在 `_prepare_image_config` 方法中添加 `image_size` 参数支持：
+Add `image_size` parameter support in the `_prepare_image_config` method:
 
 ```python
 def _prepare_image_config(self, aspect_ratio: str, image_size: str = "2K"):
-    """构建图片生成配置"""
+    """Build the image generation configuration."""
     return self.types.GenerateContentConfig(
         response_modalities=['IMAGE'],
         image_config=self.types.ImageConfig(
@@ -89,13 +89,13 @@ def _prepare_image_config(self, aspect_ratio: str, image_size: str = "2K"):
     )
 ```
 
-更新所有调用 `_prepare_image_config` 的方法签名：
-- `generate_image()` 添加 `image_size: str = "2K"` 参数
-- `generate_image_async()` 添加 `image_size: str = "2K"` 参数
+Update all method signatures that call `_prepare_image_config`:
+- `generate_image()` — add `image_size: str = "2K"` parameter
+- `generate_image_async()` — add `image_size: str = "2K"` parameter
 
-### 3.2 MediaGenerator 默认值
+### 3.2 MediaGenerator Defaults
 
-**修改文件**: `lib/media_generator.py`
+**File to modify**: `lib/media_generator.py`
 
 ```python
 def generate_image(
@@ -105,12 +105,12 @@ def generate_image(
     resource_id: str,
     reference_images: Optional[List[Union[str, Path, Image.Image]]] = None,
     aspect_ratio: str = "9:16",
-    image_size: str = "2K",  # 新增，默认 2K
+    image_size: str = "2K",  # New, default 2K
     **version_metadata
 ) -> Tuple[Path, int]:
 ```
 
-视频生成默认分辨率改为 1080p：
+Change the default video resolution to 1080p:
 
 ```python
 def generate_video(
@@ -121,51 +121,51 @@ def generate_video(
     start_image: Optional[Union[str, Path, Image.Image]] = None,
     aspect_ratio: str = "9:16",
     duration_seconds: str = "8",
-    resolution: str = "1080p",  # 从 720p 改为 1080p
+    resolution: str = "1080p",  # Changed from 720p to 1080p
     ...
 ) -> Tuple[Path, int, any, Optional[str]]:
 ```
 
-### 3.3 角色设计图比例
+### 3.3 Character Design Image Aspect Ratio
 
-**修改文件**: `.claude/skills/generate-characters/scripts/generate_character.py`
+**File to modify**: `.claude/skills/generate-characters/scripts/generate_character.py`
 
 ```python
 output_path, version = generator.generate_image(
     prompt=prompt,
     resource_type="characters",
     resource_id=character_name,
-    aspect_ratio="3:4"  # 从 16:9 改为 3:4
+    aspect_ratio="3:4"  # Changed from 16:9 to 3:4
 )
 ```
 
-### 3.4 WebUI 生成路由
+### 3.4 WebUI Generation Router
 
-**修改文件**: `webui/server/routers/generate.py`
+**File to modify**: `webui/server/routers/generate.py`
 
-更新 `get_aspect_ratio` 函数：
+Update the `get_aspect_ratio` function:
 
 ```python
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
     content_mode = project.get("content_mode", "narration")
 
-    # 检查自定义比例
+    # Check for custom ratios
     custom_ratios = project.get("aspect_ratio", {})
     if resource_type in custom_ratios:
         return custom_ratios[resource_type]
 
-    # 默认比例
+    # Default ratios
     if resource_type == "characters":
-        return "3:4"  # 角色设计图改为 3:4
+        return "3:4"  # Character design images changed to 3:4
     elif resource_type == "clues":
-        return "16:9"  # 线索保持 16:9
+        return "16:9"  # Clues keep 16:9
     elif content_mode == "narration":
-        return "9:16"  # 说书模式竖屏
+        return "9:16"  # Narration mode portrait
     else:
-        return "16:9"  # 剧集模式横屏
+        return "16:9"  # Drama mode landscape
 ```
 
-角色生成 API 添加 `image_size` 参数：
+Add `image_size` parameter to the character generation API:
 
 ```python
 _, new_version = await generator.generate_image_async(
@@ -173,97 +173,97 @@ _, new_version = await generator.generate_image_async(
     resource_type="characters",
     resource_id=char_name,
     aspect_ratio=aspect_ratio,
-    image_size="2K"  # 新增
+    image_size="2K"  # New
 )
 ```
 
 ---
 
-## 4. WebUI 调整
+## 4. WebUI Adjustments
 
-### 4.1 CSS 添加 3:4 比例类
+### 4.1 Add 3:4 Ratio CSS Class
 
-**修改文件**: `webui/css/styles.css`
+**File to modify**: `webui/css/styles.css`
 
 ```css
-/* 3:4 竖版比例（角色设计图） */
+/* 3:4 portrait ratio (character design images) */
 .aspect-portrait-3-4 {
     aspect-ratio: 3 / 4;
 }
 ```
 
-### 4.2 角色卡片渲染
+### 4.2 Character Card Rendering
 
-**修改文件**: `webui/js/project.js`
+**File to modify**: `webui/js/project.js`
 
-在渲染角色卡片时，图片容器使用新的比例类：
+Use the new ratio class for character card image containers:
 
 ```javascript
-// 角色卡片图片容器
+// Character card image container
 <div class="aspect-portrait-3-4 bg-gray-700 rounded-lg overflow-hidden">
     <img src="${imageSrc}" class="w-full h-full object-cover" />
 </div>
 ```
 
-### 4.3 角色编辑模态框预览
+### 4.3 Character Edit Modal Preview
 
-**修改文件**: `webui/project.html`
+**File to modify**: `webui/project.html`
 
-角色图片预览区域调整：
+Adjust the character image preview area:
 
 ```html
-<!-- 之前 -->
+<!-- Before -->
 <div id="char-image-preview" class="hidden mb-4">
-    <img src="" alt="预览" class="max-h-48 mx-auto rounded">
+    <img src="" alt="Preview" class="max-h-48 mx-auto rounded">
 </div>
 
-<!-- 之后 -->
+<!-- After -->
 <div id="char-image-preview" class="hidden mb-4">
-    <img src="" alt="预览" class="max-h-64 mx-auto rounded aspect-portrait-3-4 object-cover">
+    <img src="" alt="Preview" class="max-h-64 mx-auto rounded aspect-portrait-3-4 object-cover">
 </div>
 ```
 
 ---
 
-## 5. 文档更新
+## 5. Documentation Updates
 
-**修改文件**: `CLAUDE.md`
+**File to modify**: `CLAUDE.md`
 
-更新相关说明：
+Update relevant notes:
 
 ```markdown
-### 视频规格
-- **图片分辨率**：2K（通过 API 参数设置）
-- **视频分辨率**：1080p
+### Video Specs
+- **Image resolution**: 2K (set via API parameter)
+- **Video resolution**: 1080p
 
-### 设计图规格
-- **角色设计图**：3:4 竖版，2K 分辨率
-- **线索设计图**：16:9 横版，2K 分辨率
+### Design Image Specs
+- **Character design images**: 3:4 portrait, 2K resolution
+- **Clue design images**: 16:9 landscape, 2K resolution
 ```
 
 ---
 
-## 6. 修改文件清单
+## 6. Modified File Checklist
 
-| 文件 | 修改内容 |
-|------|----------|
-| `lib/gemini_client.py` | 添加 `image_size` 参数支持 |
-| `lib/media_generator.py` | 默认 `image_size="2K"`，视频 `resolution="1080p"` |
-| `.claude/skills/generate-characters/scripts/generate_character.py` | 优化 prompt，比例改为 3:4 |
-| `webui/server/routers/generate.py` | 更新默认比例和分辨率 |
-| `webui/css/styles.css` | 添加 `.aspect-portrait-3-4` 类 |
-| `webui/js/project.js` | 角色卡片使用新比例 |
-| `webui/project.html` | 角色预览区域调整 |
-| `CLAUDE.md` | 更新文档说明 |
-
----
-
-## 7. 向后兼容性
-
-- `project.json` 中的 `aspect_ratio` 自定义配置优先级最高，可覆盖默认值
-- 现有项目的角色/线索设计图不受影响，仅新生成的图片使用新规格
-- `description` 字段保持不变，无需迁移数据
+| File | Changes |
+|------|---------|
+| `lib/gemini_client.py` | Add `image_size` parameter support |
+| `lib/media_generator.py` | Default `image_size="2K"`, video `resolution="1080p"` |
+| `.claude/skills/generate-characters/scripts/generate_character.py` | Optimize prompt, aspect ratio changed to 3:4 |
+| `webui/server/routers/generate.py` | Update default aspect ratio and resolution |
+| `webui/css/styles.css` | Add `.aspect-portrait-3-4` class |
+| `webui/js/project.js` | Character card uses new aspect ratio |
+| `webui/project.html` | Adjust character preview area |
+| `CLAUDE.md` | Update documentation |
 
 ---
 
-*设计完成时间: 2026-01-30*
+## 7. Backward Compatibility
+
+- Custom `aspect_ratio` configuration in `project.json` has the highest priority and overrides defaults
+- Existing character/clue design images in current projects are not affected; only newly generated images use the new specs
+- The `description` field remains unchanged; no data migration required
+
+---
+
+*Design completed: 2026-01-30*
