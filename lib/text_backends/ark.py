@@ -59,7 +59,7 @@ class ArkTextBackend:
 
     @with_retry_async()
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        if request.response_schema and not request.images:
+        if request.response_schema:
             return await self._generate_structured(request)
         return await self._generate_plain(request)
 
