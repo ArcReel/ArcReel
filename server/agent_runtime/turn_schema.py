@@ -48,8 +48,6 @@ def _stringify_content(content: Any) -> str:
         for item in content:
             if isinstance(item, dict):
                 parts.append(str(item.get("text") or ""))
-            elif isinstance(item, str):
-                parts.append(item)
             else:
                 parts.append(str(item))
         return "\n".join(parts)
