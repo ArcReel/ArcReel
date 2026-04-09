@@ -61,7 +61,7 @@ def calculate_grid_layout(num_scenes: int, aspect_ratio: str) -> GridLayout | No
     Returns:
         GridLayout if num_scenes >= 4, otherwise None.
     """
-    if num_scenes < 4:
+    if num_scenes < 1:
         return None
 
     effective = min(num_scenes, 9)

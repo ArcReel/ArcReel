@@ -68,10 +68,16 @@ class TestCalculateGridLayout:
         assert layout.cell_count == 9
         assert layout.placeholder_count == 0
 
-    def test_below_4_returns_none(self):
-        assert calculate_grid_layout(1, "16:9") is None
-        assert calculate_grid_layout(2, "16:9") is None
-        assert calculate_grid_layout(3, "16:9") is None
+    def test_below_4_uses_grid_4_with_placeholders(self):
+        for n in (1, 2, 3):
+            layout = calculate_grid_layout(n, "16:9")
+            assert layout is not None
+            assert layout.grid_size == "grid_4"
+            assert layout.cell_count == 4
+            assert layout.placeholder_count == 4 - n
+
+    def test_zero_returns_none(self):
+        assert calculate_grid_layout(0, "16:9") is None
 
     def test_above_9_caps_at_grid_9(self):
         layout = calculate_grid_layout(12, "16:9")

@@ -118,15 +118,14 @@ async def generate_grid(
             n = len(all_scene_ids)
             layout = calculate_grid_layout(n, aspect_ratio)
             if layout is None:
-                continue  # 场景数 < 4，跳过
+                continue
 
-            # 将大分组拆分为多个宫格批次
+            # 将大分组拆分为多个宫格批次（余下不足4个的场景也用 grid_4 + 占位符）
             chunks: list[list] = []
             if n > layout.cell_count:
                 for i in range(0, n, layout.cell_count):
                     chunk = group[i : i + layout.cell_count]
-                    if len(chunk) >= 4:  # 最小宫格为 grid_4
-                        chunks.append(chunk)
+                    chunks.append(chunk)
             else:
                 chunks.append(group)
 
