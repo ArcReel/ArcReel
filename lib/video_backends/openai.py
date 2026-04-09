@@ -60,7 +60,7 @@ class OpenAIVideoBackend:
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return VideoCapabilities()
+        return VideoCapabilities(reference_images=True, max_reference_images=3)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         kwargs: dict = {
@@ -70,8 +70,17 @@ class OpenAIVideoBackend:
             "size": _resolve_size(request.resolution, request.aspect_ratio),
         }
 
+        # 收集所有参考图：start_image + reference_images
+        refs = []
         if request.start_image and Path(request.start_image).exists():
-            kwargs["input_reference"] = _encode_start_image(request.start_image)
+            refs.append(_encode_start_image(Path(request.start_image)))
+        if request.reference_images:
+            for ref_path in request.reference_images:
+                p = Path(ref_path) if not isinstance(ref_path, Path) else ref_path
+                if p.exists():
+                    refs.append(_encode_start_image(p))
+        if refs:
+            kwargs["input_reference"] = refs
 
         logger.info("OpenAI 视频生成开始: model=%s, seconds=%s", self._model, kwargs["seconds"])
 
