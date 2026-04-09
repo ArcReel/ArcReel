@@ -63,6 +63,7 @@ class CreateProjectRequest(BaseModel):
     content_mode: str | None = "narration"
     aspect_ratio: str | None = "9:16"
     default_duration: int | None = None
+    generation_mode: str | None = None
 
 
 class UpdateProjectRequest(BaseModel):
@@ -71,6 +72,7 @@ class UpdateProjectRequest(BaseModel):
     content_mode: str | None = None
     aspect_ratio: str | None = None
     default_duration: int | None = None
+    generation_mode: str | None = None
     video_backend: str | None = None
     image_backend: str | None = None
     video_generate_audio: bool | None = None
@@ -378,6 +380,9 @@ async def create_project(req: CreateProjectRequest, _user: CurrentUser):
                     aspect_ratio=req.aspect_ratio,
                     default_duration=req.default_duration,
                 )
+                if req.generation_mode is not None:
+                    project["generation_mode"] = req.generation_mode
+                    manager.save_project(project_name, project)
             return {"success": True, "name": project_name, "project": project}
 
         return await asyncio.to_thread(_sync)
@@ -483,6 +488,11 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     project["video_generate_audio"] = req.video_generate_audio
             if "aspect_ratio" in req.model_fields_set and req.aspect_ratio is not None:
                 project["aspect_ratio"] = req.aspect_ratio
+            if "generation_mode" in req.model_fields_set:
+                if req.generation_mode is None:
+                    project.pop("generation_mode", None)
+                else:
+                    project["generation_mode"] = req.generation_mode
             if "default_duration" in req.model_fields_set:
                 if req.default_duration is None:
                     project.pop("default_duration", None)
