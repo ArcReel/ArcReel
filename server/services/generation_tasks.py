@@ -642,6 +642,18 @@ async def execute_storyboard_task(
     }
 
 
+def _resolve_video_end_image(project_path: Path, item: dict) -> Path | None:
+    """Check if scene has a last frame image for first_last video mode."""
+    assets = item.get("generated_assets", {})
+    if isinstance(assets, str):
+        return None
+    last_img = assets.get("storyboard_last_image")
+    if not last_img:
+        return None
+    path = project_path / last_img
+    return path if path.exists() else None
+
+
 async def execute_video_task(
     project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
 ) -> dict[str, Any]:
@@ -654,9 +666,16 @@ async def execute_video_task(
         raise ValueError("prompt is required for video task")
 
     def _load():
-        return get_project_manager().load_project(project_name), get_project_manager().get_project_path(project_name)
+        _pm = get_project_manager()
+        _project = _pm.load_project(project_name)
+        _project_path = _pm.get_project_path(project_name)
+        _script = _pm.load_script(project_name, script_file)
+        _items, _id_field, _, _ = get_storyboard_items(_script)
+        _resolved = find_storyboard_item(_items, _id_field, resource_id)
+        _item = _resolved[0] if _resolved else {}
+        return _project, _project_path, _item
 
-    project, project_path = await asyncio.to_thread(_load)
+    project, project_path, item = await asyncio.to_thread(_load)
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
 
     storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
@@ -702,11 +721,14 @@ async def execute_video_task(
     if not duration_seconds:
         duration_seconds = _get_model_default_duration(registry_provider_id, model_name)
 
+    end_image = _resolve_video_end_image(project_path, item)
+
     _, version, _, video_uri = await generator.generate_video_async(
         prompt=prompt_text,
         resource_type="videos",
         resource_id=resource_id,
         start_image=storyboard_file,
+        end_image=end_image,
         aspect_ratio=aspect_ratio,
         duration_seconds=duration_seconds,
         resolution=resolution,

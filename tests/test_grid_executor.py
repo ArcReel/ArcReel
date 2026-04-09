@@ -244,3 +244,27 @@ class TestTaskExecutorsRegistry:
 
         assert "grid" in _TASK_EXECUTORS
         assert _TASK_EXECUTORS["grid"] is execute_grid_task
+
+
+class TestResolveVideoEndImage:
+    def test_returns_path_when_exists(self, tmp_path):
+        from server.services.generation_tasks import _resolve_video_end_image
+
+        (tmp_path / "storyboards").mkdir()
+        (tmp_path / "storyboards" / "scene_E1S01_last.png").write_bytes(b"fake")
+        item = {"generated_assets": {"storyboard_last_image": "storyboards/scene_E1S01_last.png"}}
+        result = _resolve_video_end_image(tmp_path, item)
+        assert result is not None
+        assert "last" in str(result)
+
+    def test_returns_none_when_no_field(self, tmp_path):
+        from server.services.generation_tasks import _resolve_video_end_image
+
+        item = {"generated_assets": {"storyboard_image": "x.png"}}
+        assert _resolve_video_end_image(tmp_path, item) is None
+
+    def test_returns_none_when_file_missing(self, tmp_path):
+        from server.services.generation_tasks import _resolve_video_end_image
+
+        item = {"generated_assets": {"storyboard_last_image": "storyboards/missing.png"}}
+        assert _resolve_video_end_image(tmp_path, item) is None
