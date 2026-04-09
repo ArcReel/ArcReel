@@ -80,7 +80,8 @@ class OpenAIVideoBackend:
                 if p.exists():
                     refs.append(_encode_start_image(p))
         if refs:
-            kwargs["input_reference"] = refs
+            # 单张图时保持 tuple 格式（API 兼容），多张时用 list
+            kwargs["input_reference"] = refs[0] if len(refs) == 1 else refs
 
         logger.info("OpenAI 视频生成开始: model=%s, seconds=%s", self._model, kwargs["seconds"])
 
