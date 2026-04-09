@@ -39,7 +39,7 @@ def center_crop_to_ratio(img: Image.Image, target_ratio: str) -> Image.Image:
         return img.crop((0, top, w, top + new_h))
 
 
-def is_placeholder_cell(img: Image.Image, threshold: float = 0.90) -> bool:
+def is_placeholder_cell(img: Image.Image) -> bool:
     """Detect whether an image cell is a placeholder (solid gray/black).
 
     Samples the center 50% of the image and checks if it has low variance
@@ -47,7 +47,6 @@ def is_placeholder_cell(img: Image.Image, threshold: float = 0.90) -> bool:
 
     Args:
         img: PIL image to check.
-        threshold: Unused parameter kept for API compatibility.
 
     Returns:
         True if the cell appears to be a placeholder.

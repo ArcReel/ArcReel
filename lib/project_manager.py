@@ -799,6 +799,59 @@ class ProjectManager:
 
         raise KeyError(f"场景 '{scene_id}' 不存在")
 
+    def batch_update_scene_assets(
+        self,
+        project_name: str,
+        script_filename: str,
+        updates: list[tuple[str, str, str]],
+    ) -> dict:
+        """批量更新多个场景的生成资源路径（单次读写）。
+
+        Args:
+            project_name: 项目名称
+            script_filename: 剧本文件名
+            updates: 列表，每项为 (scene_id, asset_type, asset_path)
+
+        Returns:
+            更新后的剧本
+        """
+        if not updates:
+            return {}
+
+        script = self.load_script(project_name, script_filename)
+
+        content_mode = script.get("content_mode", "narration")
+        if content_mode == "narration" and "segments" in script:
+            items = script["segments"]
+            id_field = "segment_id"
+        else:
+            items = script.get("scenes", [])
+            id_field = "scene_id"
+
+        # 建立 scene_id → item 索引，避免 O(N*M) 查找
+        item_by_id: dict[str, dict] = {str(item.get(id_field)): item for item in items}
+
+        for scene_id, asset_type, asset_path in updates:
+            item = item_by_id.get(str(scene_id))
+            if item is None:
+                continue
+
+            assets = item.get("generated_assets")
+            if not isinstance(assets, dict):
+                assets = {}
+                item["generated_assets"] = assets
+
+            assets_template = self.create_generated_assets(content_mode)
+            for key, default_value in assets_template.items():
+                if key not in assets:
+                    assets[key] = default_value
+
+            assets[asset_type] = asset_path
+            self.update_scene_status(item)
+
+        self.save_script(project_name, script, script_filename)
+        return script
+
     def get_pending_scenes(self, project_name: str, script_filename: str, asset_type: str) -> list[dict]:
         """
         获取待处理的场景/片段列表

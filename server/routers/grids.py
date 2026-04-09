@@ -21,7 +21,7 @@ from lib.grid.models import GridGeneration
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.project_manager import ProjectManager
-from lib.storyboard_sequence import get_storyboard_items
+from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
@@ -32,6 +32,32 @@ pm = ProjectManager(PROJECT_ROOT / "projects")
 
 def get_project_manager() -> ProjectManager:
     return pm
+
+
+def _build_grid_task_payload(
+    *,
+    prompt: str | None,
+    script_file: str,
+    scene_ids: list[str],
+    grid_size: str,
+    rows: int,
+    cols: int,
+    grid_aspect_ratio: str,
+    video_aspect_ratio: str,
+    backend_snapshot: dict,
+) -> dict:
+    """Build a consistent payload dict for grid generation tasks."""
+    return {
+        "prompt": prompt,
+        "script_file": script_file,
+        "scene_ids": scene_ids,
+        "grid_size": grid_size,
+        "rows": rows,
+        "cols": cols,
+        "grid_aspect_ratio": grid_aspect_ratio,
+        "video_aspect_ratio": video_aspect_ratio,
+        **backend_snapshot,
+    }
 
 
 # ==================== 请求/响应模型 ====================
@@ -66,7 +92,6 @@ async def generate_grid(
     """
     try:
         from server.routers.generate import _snapshot_image_backend
-        from server.services.generation_tasks import _group_scenes_by_segment_break
 
         project = get_project_manager().load_project(project_name)
         script = get_project_manager().load_script(project_name, req.script_file)
@@ -76,7 +101,7 @@ async def generate_grid(
         aspect_ratio = project.get("aspect_ratio", "9:16")
         style = project.get("style", "")
 
-        groups = _group_scenes_by_segment_break(items, id_field)
+        groups = group_scenes_by_segment_break(items, id_field)
 
         # 若指定了 scene_ids，只保留包含这些 scene 的分组
         if req.scene_ids:
@@ -130,17 +155,17 @@ async def generate_grid(
                 task_type="grid",
                 media_type="image",
                 resource_id=grid.id,
-                payload={
-                    "prompt": prompt,
-                    "script_file": req.script_file,
-                    "scene_ids": scene_ids,
-                    "grid_size": layout.grid_size,
-                    "rows": layout.rows,
-                    "cols": layout.cols,
-                    "grid_aspect_ratio": layout.grid_aspect_ratio,
-                    "video_aspect_ratio": aspect_ratio,
-                    **backend_snapshot,
-                },
+                payload=_build_grid_task_payload(
+                    prompt=prompt,
+                    script_file=req.script_file,
+                    scene_ids=scene_ids,
+                    grid_size=layout.grid_size,
+                    rows=layout.rows,
+                    cols=layout.cols,
+                    grid_aspect_ratio=layout.grid_aspect_ratio,
+                    video_aspect_ratio=aspect_ratio,
+                    backend_snapshot=backend_snapshot,
+                ),
                 script_file=req.script_file,
                 source="webui",
                 user_id=_user.id,
@@ -222,6 +247,11 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
         grid.error_message = None
         gm.save(grid)
 
+        project = get_project_manager().load_project(project_name)
+        aspect_ratio = project.get("aspect_ratio", "9:16")
+        layout = calculate_grid_layout(len(grid.scene_ids), aspect_ratio)
+        grid_aspect_ratio = layout.grid_aspect_ratio if layout else aspect_ratio
+
         backend_snapshot = _snapshot_image_backend(project_name)
         queue = get_generation_queue()
         task = await queue.enqueue_task(
@@ -229,15 +259,17 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
             task_type="grid",
             media_type="image",
             resource_id=grid.id,
-            payload={
-                "prompt": grid.prompt,
-                "script_file": grid.script_file,
-                "scene_ids": grid.scene_ids,
-                "grid_size": grid.grid_size,
-                "rows": grid.rows,
-                "cols": grid.cols,
-                **backend_snapshot,
-            },
+            payload=_build_grid_task_payload(
+                prompt=grid.prompt,
+                script_file=grid.script_file,
+                scene_ids=grid.scene_ids,
+                grid_size=grid.grid_size,
+                rows=grid.rows,
+                cols=grid.cols,
+                grid_aspect_ratio=grid_aspect_ratio,
+                video_aspect_ratio=aspect_ratio,
+                backend_snapshot=backend_snapshot,
+            ),
             script_file=grid.script_file,
             source="webui",
             user_id=_user.id,

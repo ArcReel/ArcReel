@@ -32,6 +32,7 @@ from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
     get_storyboard_items,
+    group_scenes_by_segment_break,
     resolve_previous_storyboard_path,
 )
 from lib.thumbnail import extract_video_thumbnail
@@ -413,6 +414,47 @@ def _get_model_default_duration(provider_name: str, model_name: str | None) -> i
     return 4
 
 
+def _collect_sheet_paths(
+    project: dict,
+    project_path: Path,
+    items: list[dict],
+    *,
+    char_field: str,
+    clue_field: str,
+    max_count: int = 0,
+) -> tuple[list[Path], set[str]]:
+    """Collect character_sheet and clue_sheet paths from scene/segment items.
+
+    Returns (list of existing Paths, set of relative sheet strings for dedup).
+    If *max_count* > 0 collection stops after that many images.
+    """
+    seen: set[str] = set()
+    paths: list[Path] = []
+
+    characters = project.get("characters", {})
+    clues = project.get("clues", {})
+
+    for item in items:
+        for char_name in item.get(char_field, []):
+            sheet = characters.get(char_name, {}).get("character_sheet")
+            if sheet and sheet not in seen:
+                path = project_path / sheet
+                if path.exists():
+                    paths.append(path)
+                    seen.add(sheet)
+        for clue_name in item.get(clue_field, []):
+            sheet = clues.get(clue_name, {}).get("clue_sheet")
+            if sheet and sheet not in seen:
+                path = project_path / sheet
+                if path.exists():
+                    paths.append(path)
+                    seen.add(sheet)
+        if max_count and len(paths) >= max_count:
+            break
+
+    return paths, seen
+
+
 def _collect_reference_images(
     project: dict,
     project_path: Path,
@@ -423,23 +465,10 @@ def _collect_reference_images(
     extra_reference_images: list[str] | None = None,
     previous_storyboard_path: Path | None = None,
 ) -> list[object] | None:
-    reference_images: list[object] = []
-
-    for char_name in target_item.get(char_field, []):
-        char_data = project.get("characters", {}).get(char_name, {})
-        sheet = char_data.get("character_sheet")
-        if sheet:
-            path = project_path / sheet
-            if path.exists():
-                reference_images.append(path)
-
-    for clue_name in target_item.get(clue_field, []):
-        clue_data = project.get("clues", {}).get(clue_name, {})
-        sheet = clue_data.get("clue_sheet")
-        if sheet:
-            path = project_path / sheet
-            if path.exists():
-                reference_images.append(path)
+    sheet_paths, _ = _collect_sheet_paths(
+        project, project_path, [target_item], char_field=char_field, clue_field=clue_field
+    )
+    reference_images: list[object] = list(sheet_paths)
 
     for extra in extra_reference_images or []:
         extra_path = Path(extra)
@@ -894,17 +923,11 @@ async def execute_clue_task(
 
 
 def _group_scenes_by_segment_break(items: list[dict], id_field: str) -> list[list[dict]]:
-    """Groups consecutive scene dicts, breaking at segment_break=True."""
-    groups: list[list[dict]] = []
-    current: list[dict] = []
-    for item in items:
-        if item.get("segment_break", False) and current:
-            groups.append(current)
-            current = []
-        current.append(item)
-    if current:
-        groups.append(current)
-    return groups
+    """Groups consecutive scene dicts, breaking at segment_break=True.
+
+    Delegates to :func:`lib.storyboard_sequence.group_scenes_by_segment_break`.
+    """
+    return group_scenes_by_segment_break(items, id_field)
 
 
 def _collect_grid_reference_images(
@@ -924,8 +947,6 @@ def _collect_grid_reference_images(
     import json
 
     project = json.loads(project_json.read_text(encoding="utf-8"))
-    characters = project.get("characters", {})
-    clues = project.get("clues", {})
 
     script_file = payload.get("script_file")
     if not script_file:
@@ -937,45 +958,21 @@ def _collect_grid_reference_images(
 
     script = json.loads(script_path.read_text(encoding="utf-8"))
 
-    content_mode = script.get("content_mode", "narration")
-    if content_mode == "narration" and "segments" in script:
-        items = script["segments"]
-        id_field = "segment_id"
-        char_field = "characters_in_segment"
-        clue_field = "clues_in_segment"
-    else:
-        items = script.get("scenes", [])
-        id_field = "scene_id"
-        char_field = "characters_in_scene"
-        clue_field = "clues_in_scene"
+    items, id_field, char_field, clue_field = get_storyboard_items(script)
 
     scene_id_set = set(scene_ids)
-    seen_paths: set[str] = set()
-    reference_images: list[object] = []
+    matched_items = [item for item in items if str(item.get(id_field, "")) in scene_id_set]
 
-    for item in items:
-        if str(item.get(id_field, "")) not in scene_id_set:
-            continue
-        for char_name in item.get(char_field, []):
-            char_data = characters.get(char_name, {})
-            sheet = char_data.get("character_sheet")
-            if sheet and sheet not in seen_paths:
-                path = project_path / sheet
-                if path.exists():
-                    reference_images.append(path)
-                    seen_paths.add(sheet)
-        for clue_name in item.get(clue_field, []):
-            clue_data = clues.get(clue_name, {})
-            sheet = clue_data.get("clue_sheet")
-            if sheet and sheet not in seen_paths:
-                path = project_path / sheet
-                if path.exists():
-                    reference_images.append(path)
-                    seen_paths.add(sheet)
-        if len(reference_images) >= 6:
-            break
+    paths, _ = _collect_sheet_paths(
+        project,
+        project_path,
+        matched_items,
+        char_field=char_field,
+        clue_field=clue_field,
+        max_count=6,
+    )
 
-    return reference_images[:6] or None
+    return list(paths[:6]) or None
 
 
 async def execute_grid_task(
@@ -1054,6 +1051,10 @@ async def execute_grid_task(
         storyboards_dir.mkdir(parents=True, exist_ok=True)
 
         def _assign_cells():
+            import shutil
+
+            asset_updates: list[tuple[str, str, str]] = []
+
             for cell, frame in zip(cells, grid.frame_chain):
                 if frame.frame_type == "placeholder":
                     continue
@@ -1065,38 +1066,32 @@ async def execute_grid_task(
                     cell_path = storyboards_dir / f"scene_{frame.next_scene_id}_first.png"
                     cell.save(cell_path, format="PNG")
                     frame.image_path = f"storyboards/scene_{frame.next_scene_id}_first.png"
-                    get_project_manager().update_scene_asset(
-                        project_name=project_name,
-                        script_filename=script_file,
-                        scene_id=frame.next_scene_id,
-                        asset_type="storyboard_image",
-                        asset_path=f"storyboards/scene_{frame.next_scene_id}_first.png",
-                    )
+                    asset_updates.append((frame.next_scene_id, "storyboard_image", frame.image_path))
 
                 elif frame.frame_type == "transition":
                     # Save as last frame of prev scene
                     if frame.prev_scene_id:
                         last_path = storyboards_dir / f"scene_{frame.prev_scene_id}_last.png"
                         cell.save(last_path, format="PNG")
-                        get_project_manager().update_scene_asset(
-                            project_name=project_name,
-                            script_filename=script_file,
-                            scene_id=frame.prev_scene_id,
-                            asset_type="storyboard_last_image",
-                            asset_path=f"storyboards/scene_{frame.prev_scene_id}_last.png",
-                        )
-                    # Save as first frame of next scene
+                        last_rel = f"storyboards/scene_{frame.prev_scene_id}_last.png"
+                        asset_updates.append((frame.prev_scene_id, "storyboard_last_image", last_rel))
+                    # Copy as first frame of next scene (same image, avoid re-encoding)
                     if frame.next_scene_id:
                         first_path = storyboards_dir / f"scene_{frame.next_scene_id}_first.png"
-                        cell.save(first_path, format="PNG")
+                        if frame.prev_scene_id:
+                            shutil.copy2(last_path, first_path)
+                        else:
+                            cell.save(first_path, format="PNG")
                         frame.image_path = f"storyboards/scene_{frame.next_scene_id}_first.png"
-                        get_project_manager().update_scene_asset(
-                            project_name=project_name,
-                            script_filename=script_file,
-                            scene_id=frame.next_scene_id,
-                            asset_type="storyboard_image",
-                            asset_path=f"storyboards/scene_{frame.next_scene_id}_first.png",
-                        )
+                        asset_updates.append((frame.next_scene_id, "storyboard_image", frame.image_path))
+
+            # Batch-write all asset updates in one script read+write pass
+            if asset_updates:
+                get_project_manager().batch_update_scene_assets(
+                    project_name=project_name,
+                    script_filename=script_file,
+                    updates=asset_updates,
+                )
 
         await asyncio.to_thread(_assign_cells)
 

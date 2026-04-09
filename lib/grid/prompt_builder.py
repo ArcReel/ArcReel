@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-def _extract_image_desc(scene: dict, id_field: str) -> str:
+def _extract_image_desc(scene: dict) -> str:
     """Extract image description from a scene.
 
     If image_prompt is a dict, join scene + composition fields.
@@ -110,7 +110,7 @@ def build_grid_prompt(
             # First scene opening
             scene = scenes[0]
             scene_id = scene.get(id_field, "")
-            image_desc = _extract_image_desc(scene, id_field)
+            image_desc = _extract_image_desc(scene)
             lines.append(f"格{cell_idx}（{position}）— {scene_id}开场：")
             lines.append(f"  {image_desc}")
 
@@ -121,7 +121,7 @@ def build_grid_prompt(
             prev_scene_id = prev_scene.get(id_field, "")
             next_scene_id = next_scene.get(id_field, "")
             prev_action = _extract_action(prev_scene)
-            next_image_desc = _extract_image_desc(next_scene, id_field)
+            next_image_desc = _extract_image_desc(next_scene)
             lines.append(f"格{cell_idx}（{position}）— {prev_scene_id}→{next_scene_id}过渡：")
             lines.append(f"  {prev_action}，过渡到 {next_image_desc}")
 
@@ -129,7 +129,7 @@ def build_grid_prompt(
             # Last scene opening
             scene = scenes[-1]
             scene_id = scene.get(id_field, "")
-            image_desc = _extract_image_desc(scene, id_field)
+            image_desc = _extract_image_desc(scene)
             lines.append(f"格{cell_idx}（{position}）— {scene_id}开场：")
             lines.append(f"  {image_desc}")
 

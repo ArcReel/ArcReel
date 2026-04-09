@@ -12,24 +12,24 @@ class TestExtractImageDesc:
 
     def test_dict_prompt_joins_scene_and_composition(self):
         scene = self._scene_dict("a hero stands", {"shot_type": "medium", "lighting": "natural"})
-        result = _extract_image_desc(scene, "scene_id")
+        result = _extract_image_desc(scene)
         assert "a hero stands" in result
         assert "medium" in result
         assert "natural" in result
 
     def test_string_prompt_returns_as_is(self):
         scene = {"scene_id": "S1", "image_prompt": "plain text prompt"}
-        result = _extract_image_desc(scene, "scene_id")
+        result = _extract_image_desc(scene)
         assert result == "plain text prompt"
 
     def test_dict_prompt_missing_scene_key(self):
         scene = {"scene_id": "S1", "image_prompt": {"composition": {"lighting": "bright"}}}
-        result = _extract_image_desc(scene, "scene_id")
+        result = _extract_image_desc(scene)
         assert "bright" in result
 
     def test_empty_image_prompt(self):
         scene = {"scene_id": "S1", "image_prompt": ""}
-        result = _extract_image_desc(scene, "scene_id")
+        result = _extract_image_desc(scene)
         assert result == ""
 
 

@@ -106,7 +106,7 @@ class GridGeneration:
     cols: int
     cell_count: int
     frame_chain: list[FrameCell]
-    status: str
+    status: Literal["pending", "generating", "splitting", "completed", "failed"]
     prompt: str | None
     provider: str
     model: str
