@@ -7,7 +7,6 @@ MESSAGES: dict[str, str] = {
     "provider_name_ark": "Volcengine Ark",
     "provider_name_grok": "Grok",
     "provider_name_openai": "OpenAI",
-
     # Provider descriptions
     "provider_desc_gemini-aistudio": "Google AI Studio provides Gemini models with image and video generation, ideal for rapid prototyping and personal projects.",
     "provider_desc_gemini-vertex": "Google Cloud Vertex AI enterprise platform supporting Gemini and Imagen models with higher quotas and audio generation.",

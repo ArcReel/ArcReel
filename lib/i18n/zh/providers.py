@@ -7,7 +7,6 @@ MESSAGES: dict[str, str] = {
     "provider_name_ark": "火山方舟",
     "provider_name_grok": "Grok",
     "provider_name_openai": "OpenAI",
-
     # Provider descriptions
     "provider_desc_gemini-aistudio": "Google AI Studio 提供 Gemini 系列模型，支持图片和视频生成，适合快速原型和个人项目。",
     "provider_desc_gemini-vertex": "Google Cloud Vertex AI 企业级平台，支持 Gemini 和 Imagen 模型，提供更高配额和音频生成能力。",
