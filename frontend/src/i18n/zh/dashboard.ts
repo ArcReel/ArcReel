@@ -508,6 +508,7 @@ export default {
   'loading_config': '加载配置中…',
   'saved': '已保存',
   'unsaved_changes_confirm': '有未保存的修改，确定要离开吗？',
+  'unsaved_changes_hint': '有未保存的更改',
 
   // ProviderSection
   'status_ready': '已就绪',
@@ -652,6 +653,7 @@ export default {
   'generate_video_first_last': '生成视频 (first_last)',
   'duration_selector_aria': '时长选择',
   'video_section': '视频',
+  'storyboard_prompt_placeholder': '分镜图描述...',
 
   // PreprocessingView
   'preprocessing_saved': '预处理内容已保存',
@@ -665,6 +667,7 @@ export default {
   'grid_batch_count': '{{count}} 个宫格',
   'generating_grid': '生成中...',
   'generate_grid_btn': '生成宫格',
+  'insufficient_scenes_for_grid': '场景不足，无法生成宫格',
 
   // StudioCanvasRouter
   'grid_generation_failed': '宫格生成失败: {{message}}',

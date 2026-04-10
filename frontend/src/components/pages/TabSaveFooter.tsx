@@ -29,7 +29,7 @@ export function TabSaveFooter({
     >
       <div className="flex items-center gap-3 min-w-0">
         {isDirty && !error && (
-          <span className="text-sm text-gray-400">{t("unsaved_changes_confirm")}</span>
+          <span className="text-sm text-gray-400">{t("unsaved_changes_hint")}</span>
         )}
         {error && (
           <span className="text-sm text-rose-400 truncate">{error}</span>

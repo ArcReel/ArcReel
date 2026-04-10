@@ -507,6 +507,7 @@ export default {
   'loading_config': 'Loading configuration...',
   'saved': 'Saved',
   'unsaved_changes_confirm': 'You have unsaved changes. Are you sure you want to leave?',
+  'unsaved_changes_hint': 'You have unsaved changes',
 
   // ProviderSection
   'status_ready': 'Ready',
@@ -651,6 +652,7 @@ export default {
   'generate_video_first_last': 'Generate Video (first_last)',
   'duration_selector_aria': 'Duration selection',
   'video_section': 'Video',
+  'storyboard_prompt_placeholder': 'Storyboard description...',
 
   // PreprocessingView
   'preprocessing_saved': 'Preprocessing content saved',
@@ -664,6 +666,7 @@ export default {
   'grid_batch_count': '{{count}} grids',
   'generating_grid': 'Generating...',
   'generate_grid_btn': 'Generate Grid',
+  'insufficient_scenes_for_grid': 'Not enough scenes for grid generation',
 
   // StudioCanvasRouter
   'grid_generation_failed': 'Grid generation failed: {{message}}',
