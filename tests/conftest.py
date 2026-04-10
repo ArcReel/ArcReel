@@ -14,6 +14,7 @@ def make_translator(locale: str = "zh") -> Callable[..., str]:
 
     return translate
 
+
 import os
 import subprocess
 from pathlib import Path
