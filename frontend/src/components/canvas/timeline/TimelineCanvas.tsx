@@ -46,23 +46,42 @@ function groupBySegmentBreak(segments: Segment[]): Segment[][] {
   return groups;
 }
 
-/** Compute grid size for a group based on scene count and aspect ratio. */
+/** Compute grid size for a group based on scene count and aspect ratio.
+ *  Mirrors backend calculate_grid_layout + chunking logic in grids.py. */
 function computeGridSize(
   count: number,
   aspectRatio: string = "9:16",
-): { gridSize: string | null; rows: number; cols: number } {
-  if (count < 4) return { gridSize: null, rows: 0, cols: 0 };
+): { gridSize: string | null; rows: number; cols: number; cellCount: number; batchCount: number } {
+  if (count < 1) return { gridSize: null, rows: 0, cols: 0, cellCount: 0, batchCount: 0 };
   const [w, h] = aspectRatio.split(":").map(Number);
   const isHorizontal = w > h;
-  if (count <= 4) return { gridSize: "grid_4", rows: 2, cols: 2 };
-  if (count <= 6) {
-    return {
-      gridSize: "grid_6",
-      rows: isHorizontal ? 3 : 2,
-      cols: isHorizontal ? 2 : 3,
-    };
+  const effective = Math.min(count, 9);
+
+  let gridSize: string;
+  let cellCount: number;
+  let rows: number;
+  let cols: number;
+
+  if (effective <= 4) {
+    gridSize = "grid_4";
+    cellCount = 4;
+    rows = 2;
+    cols = 2;
+  } else if (effective <= 6) {
+    gridSize = "grid_6";
+    cellCount = 6;
+    rows = isHorizontal ? 3 : 2;
+    cols = isHorizontal ? 2 : 3;
+  } else {
+    gridSize = "grid_9";
+    cellCount = 9;
+    rows = 3;
+    cols = 3;
   }
-  return { gridSize: "grid_9", rows: 3, cols: 3 };
+
+  const batchCount = count > cellCount ? Math.ceil(count / cellCount) : 1;
+
+  return { gridSize, rows, cols, cellCount, batchCount };
 }
 
 // ---------------------------------------------------------------------------
@@ -385,14 +404,15 @@ export function TimelineCanvas({
               )}
 
               {segmentGroups.map((group, groupIdx) => {
-                const { gridSize } = computeGridSize(group.length, aspectRatio);
+                const gridResult = computeGridSize(group.length, aspectRatio);
                 return (
                   <GridSegmentGroup
                     key={groupIdx}
                     groupIndex={groupIdx}
                     scenes={group}
-                    gridSize={gridSize}
+                    gridSize={gridResult.gridSize}
                     sceneCount={group.length}
+                    batchCount={gridResult.batchCount}
                     onGenerateGrid={() => handleGenerateGroupGrid(groupIdx, group)}
                     generatingGrid={generatingGridGroups.has(groupIdx)}
                     gridId={getGridIdForGroup(group)}

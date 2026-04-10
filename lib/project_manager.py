@@ -489,9 +489,12 @@ class ProjectManager:
         """
         return {
             "storyboard_image": None,
+            "storyboard_last_image": None,
             "video_clip": None,
             "video_thumbnail": None,
             "video_uri": None,
+            "grid_id": None,
+            "grid_cell_index": None,
             "status": "pending",
         }
 

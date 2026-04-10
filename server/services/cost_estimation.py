@@ -5,9 +5,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import math
+
 from lib.config.resolver import ConfigResolver
 from lib.cost_calculator import cost_calculator
-from lib.storyboard_sequence import get_storyboard_items
+from lib.grid.layout import calculate_grid_layout
+from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.usage_tracker import UsageTracker
 
 logger = logging.getLogger(__name__)
@@ -80,8 +83,12 @@ class CostEstimationService:
         # Get actual costs
         actual_by_segment = await self._tracker.get_actual_costs_by_segment(project_name)
 
-        # 预计算图片单价（所有 segment 相同）
+        generation_mode = project_data.get("generation_mode", "single")
+        aspect_ratio = project_data.get("aspect_ratio", "9:16")
+
+        # 预计算图片单价
         image_unit_cost: tuple[float, str] | None = None
+        grid_image_unit_cost: tuple[float, str] | None = None
         try:
             image_unit_cost = cost_calculator.calculate_cost(
                 provider=image_provider,
@@ -91,6 +98,17 @@ class CostEstimationService:
             )
         except Exception:
             logger.debug("无法计算 image 预估单价", exc_info=True)
+
+        if generation_mode == "grid":
+            try:
+                grid_image_unit_cost = cost_calculator.calculate_cost(
+                    provider=image_provider,
+                    call_type="image",
+                    model=image_model,
+                    resolution="2K",
+                )
+            except Exception:
+                grid_image_unit_cost = image_unit_cost
 
         episodes_result = []
         proj_est: dict[str, CostBreakdown] = {}
@@ -104,6 +122,20 @@ class CostEstimationService:
 
             raw_segments, id_key, _, _ = get_storyboard_items(script)
 
+            # Grid 模式：预计算每个 segment 的图片分摊费用
+            grid_cost_per_segment: dict[str, tuple[float, str]] = {}
+            if generation_mode == "grid" and grid_image_unit_cost:
+                groups = group_scenes_by_segment_break(raw_segments, id_key)
+                for group in groups:
+                    n = len(group)
+                    layout = calculate_grid_layout(n, aspect_ratio)
+                    if layout is None:
+                        continue
+                    grid_count = math.ceil(n / layout.cell_count) if n > layout.cell_count else 1
+                    per_scene_cost = round(grid_image_unit_cost[0] * grid_count / n, 6)
+                    for seg in group:
+                        grid_cost_per_segment[seg.get(id_key, "")] = (per_scene_cost, grid_image_unit_cost[1])
+
             segments_result = []
             ep_est: dict[str, CostBreakdown] = {}
             ep_act: dict[str, CostBreakdown] = {}
@@ -115,7 +147,10 @@ class CostEstimationService:
                 est_image: CostBreakdown = {}
                 est_video: CostBreakdown = {}
 
-                if image_unit_cost:
+                if generation_mode == "grid" and seg_id in grid_cost_per_segment:
+                    cost_amount, cost_currency = grid_cost_per_segment[seg_id]
+                    _add_cost(est_image, cost_amount, cost_currency)
+                elif image_unit_cost:
                     _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
 
                 try:
@@ -177,6 +212,14 @@ class CostEstimationService:
         project_level = actual_by_segment.get("__project__", {})
         if "image" in project_level:
             proj_act["character_and_clue"] = project_level["image"]
+
+        # Grid actual costs — segment_id is grid_id (starts with "grid_")
+        grid_actual_image: CostBreakdown = {}
+        for seg_key, seg_costs in actual_by_segment.items():
+            if isinstance(seg_key, str) and seg_key.startswith("grid_") and "image" in seg_costs:
+                grid_actual_image = _merge_breakdowns(grid_actual_image, seg_costs["image"])
+        if grid_actual_image:
+            proj_act["grid"] = grid_actual_image
 
         return {
             "project_name": project_name,

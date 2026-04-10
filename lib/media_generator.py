@@ -43,6 +43,7 @@ class MediaGenerator:
         "videos": "videos/scene_{resource_id}.mp4",
         "characters": "characters/{resource_id}.png",
         "clues": "clues/{resource_id}.png",
+        "grids": "grids/{resource_id}.png",
     }
 
     def __init__(
@@ -211,7 +212,7 @@ class MediaGenerator:
             aspect_ratio=aspect_ratio,
             provider=self._image_backend.name,
             user_id=self._user_id,
-            segment_id=resource_id if resource_type in ("storyboards", "videos") else None,
+            segment_id=resource_id if resource_type in ("storyboards", "videos", "grids") else None,
         )
 
         try:

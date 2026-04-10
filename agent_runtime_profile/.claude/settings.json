@@ -25,6 +25,7 @@
       "Bash(python .claude/skills/manage-project/scripts/add_characters_clues.py:*)",
       "Bash(python .claude/skills/manage-project/scripts/peek_split_point.py:*)",
       "Bash(python .claude/skills/manage-project/scripts/split_episode.py:*)",
+      "Bash(python .claude/skills/generate-grid/scripts/generate_grid.py:*)",
       "Bash(python .claude/skills/compose-video/scripts/compose_video.py:*)",
       "Bash(ffmpeg:*)",
       "Bash(ffprobe:*)",

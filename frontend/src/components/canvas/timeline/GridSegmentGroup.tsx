@@ -12,8 +12,10 @@ type Segment = NarrationSegment | DramaScene;
 export interface GridSegmentGroupProps {
   groupIndex: number;
   scenes: Segment[];
-  gridSize: string | null; // "grid_4" | "grid_6" | "grid_9" or null if < 4
+  gridSize: string | null; // "grid_4" | "grid_6" | "grid_9" or null if < 1
   sceneCount: number;
+  /** Number of grid batches (> 1 when scene count exceeds cell capacity) */
+  batchCount?: number;
   onGenerateGrid: () => void;
   generatingGrid: boolean;
   children: React.ReactNode;
@@ -57,6 +59,7 @@ export function GridSegmentGroup({
   scenes,
   gridSize,
   sceneCount,
+  batchCount = 1,
   onGenerateGrid,
   generatingGrid,
   children,
@@ -83,13 +86,20 @@ export function GridSegmentGroup({
           </span>
           <span className="text-xs text-gray-500">
             {sceneCount} 场景
-            {gridInfo && (
+            {gridInfo && batchCount > 1 ? (
+              <>
+                {" \u2192 "}
+                <span className="font-mono text-amber-500/70">{batchCount} 个宫格</span>
+                <span className="text-gray-600">{" "}({gridInfo})</span>
+              </>
+            ) : gridInfo ? (
               <>
                 {" \u2192 "}
                 <span className="font-mono text-amber-500/70">{gridInfo}</span>
               </>
+            ) : (
+              " (场景不足，无法生成宫格)"
             )}
-            {!gridInfo && " (不足 4 场景，无法生成宫格)"}
           </span>
         </div>
 
