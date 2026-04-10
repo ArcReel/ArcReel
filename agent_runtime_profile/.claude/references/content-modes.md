@@ -1,33 +1,33 @@
-# 内容模式参考
+# Content Mode Reference
 
-通过 `project.json` 的 `content_mode` 字段切换。各 skill 的脚本会自动读取并应用对应规格，无需在 prompt 中指定画面比例。
+Switched via the `content_mode` field in `project.json`. Each skill's scripts automatically read and apply the corresponding spec — no need to specify aspect ratios in the prompt.
 
-| 维度 | 说书+画面（narration，默认） | 剧集动画（drama） |
-|------|---------------------------|-----------------|
-| 数据结构 | `segments` 数组 | `scenes` 数组 |
-| 画面比例 | 项目配置（默认 9:16 竖屏） | 项目配置（默认 16:9 横屏） |
-| 默认时长 | 项目配置（默认 4 秒/片段） | 项目配置（默认 8 秒/场景） |
-| 时长可选 | 由视频模型能力决定 | 由视频模型能力决定 |
-| 对白来源 | 后期人工配音（小说原文） | 演员对话 |
-| 视频 Prompt | 仅角色对话（如有），无旁白 | 包含对话、旁白、音效 |
-| 预处理 Agent | split-narration-segments | normalize-drama-script |
+| Dimension | Narration + Visuals (narration, default) | Drama Animation (drama) |
+|-----------|------------------------------------------|------------------------|
+| Data structure | `segments` array | `scenes` array |
+| Aspect ratio | Project config (default 9:16 portrait) | Project config (default 16:9 landscape) |
+| Default duration | Project config (default 4 sec/segment) | Project config (default 8 sec/scene) |
+| Duration options | Determined by video model capability | Determined by video model capability |
+| Dialogue source | Post-production voiceover (novel text) | Actor dialogue |
+| Video prompt | Character dialogue only (if any), no narration | Includes dialogue, narration, sound effects |
+| Preprocessing agent | split-narration-segments | normalize-drama-script |
 
-## 视频规格
+## Video Specifications
 
-- **分辨率**：图片 1K，视频 1080p
-- **生成方式**：每个片段/场景独立生成，分镜图作为起始帧
-- **拼接方式**：ffmpeg 拼接独立片段，不使用 Veo extend 串联镜头
-- **BGM**：通过 `negative_prompt` API 参数自动排除，后期用 compose-video 添加
+- **Resolution**: Images 1K, video 1080p
+- **Generation**: Each segment/scene generated independently, storyboard image used as starting frame
+- **Concatenation**: ffmpeg concatenates independent segments; Veo extend is not used to chain shots
+- **BGM**: Automatically excluded via the `negative_prompt` API parameter; added in post-production with compose-video
 
-## Veo 3.1 extend 说明
+## Veo 3.1 Extend Notes
 
-- 仅用于延长**单个**片段/场景（每次 +7 秒，最多 148 秒）
-- **仅支持 720p**，1080p 无法延长
-- 不适合串联不同镜头
+- Only used to extend a **single** segment/scene (each call adds +7 seconds, max 148 seconds)
+- **720p only** — 1080p cannot be extended
+- Not suitable for chaining different shots
 
-## Prompt 语言
+## Prompt Language
 
-- 图片/视频生成 prompt 使用**中文**
-- 采用叙事式描述，不使用关键词罗列
+- Image/video generation prompts use **Chinese**
+- Use narrative-style descriptions, not keyword lists
 
-> 参考 `docs/google-genai-docs/nano-banana.md` 第 365 行起的 Prompting guide and strategies。
+> Reference `docs/google-genai-docs/nano-banana.md` from line 365 for the Prompting guide and strategies.
