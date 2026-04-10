@@ -277,10 +277,10 @@ export function CreateProjectModal() {
           {/* Generation Mode */}
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-0.5">
-              分镜生成模式
+              {t("dashboard:generation_mode")}
             </label>
             <p className="text-xs text-gray-600 mb-1.5">
-              宫格模式按段落分组一次生成，首尾帧链式衔接，画风更一致
+              {t("dashboard:generation_mode_desc")}
             </p>
             <div className="flex gap-3">
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
@@ -296,7 +296,7 @@ export function CreateProjectModal() {
                   onChange={() => setGenerationMode("single")}
                   className="sr-only"
                 />
-                逐张生成
+                {t("dashboard:single_generation")}
               </label>
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
                 generationMode === "grid"
@@ -311,7 +311,7 @@ export function CreateProjectModal() {
                   onChange={() => setGenerationMode("grid")}
                   className="sr-only"
                 />
-                宫格生成
+                {t("dashboard:grid_generation")}
               </label>
             </div>
           </div>

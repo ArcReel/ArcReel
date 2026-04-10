@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Sparkles, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { SegmentCard } from "./SegmentCard";
 import { GridSegmentGroup } from "./GridSegmentGroup";
 import { PreprocessingView } from "./PreprocessingView";
@@ -132,6 +133,7 @@ export function TimelineCanvas({
   onRestoreStoryboard,
   onRestoreVideo,
 }: TimelineCanvasProps) {
+  const { t } = useTranslation("dashboard");
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentMode = projectData?.content_mode ?? "narration";
 
@@ -266,7 +268,7 @@ export function TimelineCanvas({
   if (!projectData || (!episodeScript && !hasDraft)) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
-        请在左侧选择剧集
+        {t("select_episode_hint")}
       </div>
     );
   }
@@ -276,8 +278,6 @@ export function TimelineCanvas({
     episodeScript?.duration_seconds ??
     segments.reduce((sum, s) => sum + s.duration_seconds, 0);
 
-  // Label depends on content mode
-  const segmentLabel = contentMode === "narration" ? "个片段" : "个场景";
   const virtualItems = virtualizer.getVirtualItems();
 
   return (
@@ -292,20 +292,22 @@ export function TimelineCanvas({
           </h2>
           {episodeScript && (
             <p className="text-xs text-gray-500">
-              {segments.length} {segmentLabel} · 约 {totalDuration}s
+              {contentMode === "narration"
+                ? t("segment_count", { count: segments.length })
+                : t("scene_count_label", { count: segments.length })} · ~{totalDuration}s
             </p>
           )}
           {episodeCost && (
             <div className="mt-2 flex items-center gap-4 rounded-lg bg-gray-900 border border-gray-800 px-3 py-2 text-xs tabular-nums">
-              <span className="text-gray-600">预估</span>
-              <span className="text-gray-500">分镜 <span className="text-gray-300">{formatCost(episodeCost.totals.estimate.image)}</span></span>
-              <span className="text-gray-500">视频 <span className="text-gray-300">{formatCost(episodeCost.totals.estimate.video)}</span></span>
-              <span className="text-gray-500">总计 <span className="font-medium text-amber-400">{formatCost(totalBreakdown(episodeCost.totals.estimate))}</span></span>
+              <span className="text-gray-600">{t("cost_estimate_short")}</span>
+              <span className="text-gray-500">{t("cost_storyboard_short")} <span className="text-gray-300">{formatCost(episodeCost.totals.estimate.image)}</span></span>
+              <span className="text-gray-500">{t("cost_video_short")} <span className="text-gray-300">{formatCost(episodeCost.totals.estimate.video)}</span></span>
+              <span className="text-gray-500">{t("cost_total_short")} <span className="font-medium text-amber-400">{formatCost(totalBreakdown(episodeCost.totals.estimate))}</span></span>
               <span className="text-gray-700">|</span>
-              <span className="text-gray-600">实际</span>
-              <span className="text-gray-500">分镜 <span className="text-gray-300">{formatCost(episodeCost.totals.actual.image)}</span></span>
-              <span className="text-gray-500">视频 <span className="text-gray-300">{formatCost(episodeCost.totals.actual.video)}</span></span>
-              <span className="text-gray-500">总计 <span className="font-medium text-emerald-400">{formatCost(totalBreakdown(episodeCost.totals.actual))}</span></span>
+              <span className="text-gray-600">{t("cost_actual_short")}</span>
+              <span className="text-gray-500">{t("cost_storyboard_short")} <span className="text-gray-300">{formatCost(episodeCost.totals.actual.image)}</span></span>
+              <span className="text-gray-500">{t("cost_video_short")} <span className="text-gray-300">{formatCost(episodeCost.totals.actual.video)}</span></span>
+              <span className="text-gray-500">{t("cost_total_short")} <span className="font-medium text-emerald-400">{formatCost(totalBreakdown(episodeCost.totals.actual))}</span></span>
             </div>
           )}
         </div>
@@ -322,7 +324,7 @@ export function TimelineCanvas({
                   : "border-transparent text-gray-500 hover:text-gray-300"
               }`}
             >
-              预处理
+              {t("preprocessing_tab")}
             </button>
             <button
               type="button"
@@ -336,7 +338,7 @@ export function TimelineCanvas({
                     : "border-transparent text-gray-500 hover:text-gray-300"
               }`}
             >
-              剧本时间线
+              {t("timeline_tab")}
             </button>
           </div>
         )}
@@ -398,7 +400,7 @@ export function TimelineCanvas({
                         </motion.span>
                       )}
                     </AnimatePresence>
-                    {generatingAllGrids ? "提交中..." : "一键生成全部宫格"}
+                    {generatingAllGrids ? t("submitting") : t("generate_all_grids")}
                   </motion.button>
                 </div>
               )}

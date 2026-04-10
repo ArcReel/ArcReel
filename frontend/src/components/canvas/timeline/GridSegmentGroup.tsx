@@ -1,5 +1,6 @@
 import { Grid2x2, Loader2, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import type { NarrationSegment, DramaScene } from "@/types";
 import { GridPreviewPanel } from "./GridPreviewPanel";
 
@@ -66,6 +67,7 @@ export function GridSegmentGroup({
   gridId = null,
   projectName = "",
 }: GridSegmentGroupProps) {
+  const { t } = useTranslation("dashboard");
   const label = groupLabel(groupIndex);
   const gridInfo = gridSize ? GRID_LABEL[gridSize] ?? gridSize : null;
   const canGenerate = gridSize !== null;
@@ -85,11 +87,11 @@ export function GridSegmentGroup({
             Segment {label}
           </span>
           <span className="text-xs text-gray-500">
-            {sceneCount} 场景
+            {t("grid_scene_count", { count: sceneCount })}
             {gridInfo && batchCount > 1 ? (
               <>
                 {" \u2192 "}
-                <span className="font-mono text-amber-500/70">{batchCount} 个宫格</span>
+                <span className="font-mono text-amber-500/70">{t("grid_batch_count", { count: batchCount })}</span>
                 <span className="text-gray-600">{" "}({gridInfo})</span>
               </>
             ) : gridInfo ? (
@@ -97,9 +99,7 @@ export function GridSegmentGroup({
                 {" \u2192 "}
                 <span className="font-mono text-amber-500/70">{gridInfo}</span>
               </>
-            ) : (
-              " (场景不足，无法生成宫格)"
-            )}
+            ) : null}
           </span>
         </div>
 
@@ -108,7 +108,7 @@ export function GridSegmentGroup({
           type="button"
           onClick={onGenerateGrid}
           disabled={!canGenerate || generatingGrid}
-          title={!canGenerate ? "场景不足，无法生成宫格" : undefined}
+          title={!canGenerate ? t("insufficient_scenes_for_grid") : undefined}
           className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
             generatingGrid
               ? "bg-blue-700 text-white"
@@ -150,7 +150,7 @@ export function GridSegmentGroup({
               </motion.span>
             )}
           </AnimatePresence>
-          <span>{generatingGrid ? "生成中..." : "生成宫格"}</span>
+          <span>{generatingGrid ? t("generating_grid") : t("generate_grid_btn")}</span>
         </motion.button>
       </div>
 

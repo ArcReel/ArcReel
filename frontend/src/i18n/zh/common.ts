@@ -35,4 +35,7 @@ export default {
   'deleted': '已删除',
   'config_incomplete': '配置不完整',
   'refresh': '刷新',
+  'close': '关闭',
+  'show': '显示',
+  'hide': '隐藏',
 } satisfies Record<keyof typeof enCommon, string>;

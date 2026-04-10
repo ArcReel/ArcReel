@@ -1,6 +1,6 @@
 import { startTransition, useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { ChevronLeft, Activity, Settings, Bell, Download, Loader2, Languages } from "lucide-react";
+import { ChevronLeft, Activity, Settings, Bell, Download, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -106,7 +106,7 @@ interface GlobalHeaderProps {
 }
 
 export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [, setLocation] = useLocation();
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const { stats } = useTasksStore();
@@ -133,11 +133,6 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const displayProjectTitle =
     currentProjectData?.title?.trim() || currentProjectName || t("no_project_selected");
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
-
-  const toggleLanguage = () => {
-    const nextLang = i18n.language.startsWith("zh") ? "en" : "zh";
-    void i18n.changeLanguage(nextLang);
-  };
 
   // 加载费用统计数据（任务完成时自动刷新）
   const completedTaskCount = stats.succeeded + stats.failed;
@@ -396,17 +391,6 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           )}
         </button>
 
-        {/* Language Toggle */}
-        <button
-          type="button"
-          onClick={toggleLanguage}
-          className="flex items-center gap-1 rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-          title={t("language")}
-          aria-label={t("language")}
-        >
-          <Languages className="h-4 w-4" />
-          <span className="text-[10px] font-bold uppercase">{i18n.language.split("-")[0]}</span>
-        </button>
 
       </div>
     </header>

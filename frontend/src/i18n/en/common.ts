@@ -34,4 +34,7 @@ export default {
   'deleted': 'Deleted',
   'config_incomplete': 'Configuration incomplete',
   'refresh': 'Refresh',
+  'close': 'Close',
+  'show': 'Show',
+  'hide': 'Hide',
 };

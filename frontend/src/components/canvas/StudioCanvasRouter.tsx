@@ -284,7 +284,7 @@ export function StudioCanvasRouter() {
       const result = await API.generateGrid(currentProjectName, episode, scriptFile, sceneIds);
       useAppStore.getState().pushToast(result.message, "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`宫格生成失败: ${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(tRef.current("grid_generation_failed", { message: (err as Error).message }), "error");
     }
   }, [currentProjectName]);
 

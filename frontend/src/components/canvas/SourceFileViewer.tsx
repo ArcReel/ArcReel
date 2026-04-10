@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { FileText, Edit3, Save, X, Trash2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { API } from "@/api";
@@ -14,6 +15,7 @@ interface SourceFileViewerProps {
 }
 
 export function SourceFileViewer({ projectName, filename }: SourceFileViewerProps) {
+  const { t } = useTranslation("dashboard");
   const [, setLocation] = useLocation();
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,7 +62,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
 
   // 删除文件
   const handleDelete = useCallback(async () => {
-    if (!confirm(`确定要删除文件 "${filename}" 吗？此操作不可撤销。`)) return;
+    if (!confirm(t("confirm_delete_source_file", { filename }))) return;
     try {
       await API.deleteSourceFile(projectName, filename);
       useAppStore.getState().invalidateSourceFiles();
@@ -68,12 +70,12 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
     } catch {
       // 可以添加 toast 提示
     }
-  }, [projectName, filename, setLocation]);
+  }, [projectName, filename, setLocation, t]);
 
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
-        加载文件中...
+        {t("loading_file")}
       </div>
     );
   }
@@ -81,7 +83,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
   if (content === null) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
-        无法加载文件 "{filename}"
+        {t("cannot_load_file", { filename })}
       </div>
     );
   }
@@ -104,7 +106,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-green-400 transition-colors hover:bg-gray-800 disabled:opacity-50"
               >
                 <Save className="h-3.5 w-3.5" />
-                {saving ? "保存中..." : "保存"}
+                {saving ? t("common:saving") : t("common:save")}
               </button>
               <button
                 type="button"
@@ -112,7 +114,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800"
               >
                 <X className="h-3.5 w-3.5" />
-                取消
+                {t("common:cancel")}
               </button>
             </>
           ) : (
@@ -123,7 +125,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
               >
                 <Edit3 className="h-3.5 w-3.5" />
-                编辑
+                {t("common:edit")}
               </button>
               <button
                 type="button"
@@ -131,7 +133,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-red-400"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                删除
+                {t("common:delete")}
               </button>
             </>
           )}
