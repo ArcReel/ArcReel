@@ -241,7 +241,7 @@ export function GridPreviewPanel({
       : null;
 
   return (
-    <div className="mt-2.5 overflow-hidden rounded-lg border border-amber-900/20 bg-amber-950/10">
+    <div className="my-3 overflow-hidden rounded-lg border border-amber-900/20 bg-amber-950/10">
       {/* Toggle header */}
       <button
         type="button"

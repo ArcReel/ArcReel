@@ -756,7 +756,7 @@ async def execute_video_task(
     if not duration_seconds:
         duration_seconds = _get_model_default_duration(registry_provider_id, model_name)
 
-    end_image = _resolve_video_end_image(project_path, item)
+    end_image = None  # 宫格模式不再使用首尾帧，统一走普通图生视频
 
     _, version, _, video_uri = await generator.generate_video_async(
         prompt=prompt_text,

@@ -154,10 +154,7 @@ export function GridSegmentGroup({
         </motion.button>
       </div>
 
-      {/* ---- Children (SegmentCards) ---- */}
-      <div className="flex flex-col gap-4">{children}</div>
-
-      {/* ---- Grid Preview Panel ---- */}
+      {/* ---- Grid Preview Panel (above cards, collapsible) ---- */}
       {projectName && (
         <GridPreviewPanel
           projectName={projectName}
@@ -166,6 +163,9 @@ export function GridSegmentGroup({
           onRegenerate={onGenerateGrid}
         />
       )}
+
+      {/* ---- Children (SegmentCards) ---- */}
+      <div className="flex flex-col gap-4">{children}</div>
     </div>
   );
 }

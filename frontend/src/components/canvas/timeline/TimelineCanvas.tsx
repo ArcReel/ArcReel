@@ -192,11 +192,15 @@ export function TimelineCanvas({
   const [generatingAllGrids, setGeneratingAllGrids] = useState(false);
   const [grids, setGrids] = useState<GridGeneration[]>([]);
 
-  // Fetch grids list for the current episode when in grid mode
-  useEffect(() => {
+  const refreshGrids = useCallback(() => {
     if (!isGridMode || !projectName) return;
     API.listGrids(projectName).then(setGrids).catch(() => {/* silently ignore */});
-  }, [isGridMode, projectName, episodeScript]);
+  }, [isGridMode, projectName]);
+
+  // Fetch grids list for the current episode when in grid mode
+  useEffect(() => {
+    refreshGrids();
+  }, [refreshGrids, episodeScript]);
 
   /**
    * Build a map from sorted-scene-key → gridId for matching groups.
@@ -230,6 +234,7 @@ export function TimelineCanvas({
           next.delete(groupIndex);
           return next;
         });
+        refreshGrids();
       }, 3000);
     },
     [onGenerateGrid, scriptFile, contentMode, episode],
@@ -239,8 +244,11 @@ export function TimelineCanvas({
     if (!onGenerateGrid || !scriptFile) return;
     setGeneratingAllGrids(true);
     onGenerateGrid(episode, scriptFile);
-    setTimeout(() => setGeneratingAllGrids(false), 3000);
-  }, [onGenerateGrid, scriptFile, episode]);
+    setTimeout(() => {
+      setGeneratingAllGrids(false);
+      refreshGrids();
+    }, 3000);
+  }, [onGenerateGrid, scriptFile, episode, refreshGrids]);
 
   const virtualizer = useVirtualizer({
     count: segments.length,
@@ -361,10 +369,10 @@ export function TimelineCanvas({
                     type="button"
                     onClick={handleGenerateAllGrids}
                     disabled={generatingAllGrids}
-                    className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
                       generatingAllGrids
-                        ? "bg-blue-700 opacity-70 cursor-not-allowed"
-                        : "bg-blue-600 hover:bg-blue-500"
+                        ? "border-blue-700 text-blue-400 opacity-70 cursor-not-allowed"
+                        : "border-blue-600 text-blue-400 hover:bg-blue-600/10"
                     }`}
                     animate={
                       generatingAllGrids
@@ -432,6 +440,7 @@ export function TimelineCanvas({
                             clues={projectData.clues}
                             projectName={projectName}
                             durationOptions={durationOptions}
+                            isGridMode
                             onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}
                             onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
                             onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
