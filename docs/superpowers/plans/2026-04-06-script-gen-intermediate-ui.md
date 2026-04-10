@@ -10,11 +10,11 @@
 
 ---
 
-## 文件结构
+## File Structure
 
 ### 修改的文件
 
-| 文件 | 职责 |
+| File | Responsibility |
 |------|------|
 | `lib/status_calculator.py` | 修复 drama 模式 step1 检测 |
 | `server/routers/files.py` | 清理 step2/step3 映射，集成事件发射 |
@@ -29,7 +29,7 @@
 
 ### 新建的文件
 
-| 文件 | 职责 |
+| File | Responsibility |
 |------|------|
 | `frontend/src/components/canvas/timeline/PreprocessingView.tsx` | 预处理内容查看/编辑组件 |
 
@@ -137,7 +137,7 @@ Expected: FAIL — `_load_episode_script() got an unexpected keyword argument 'c
 Run: `uv run python -m pytest tests/test_status_calculator.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/status_calculator.py tests/test_status_calculator.py
@@ -287,7 +287,7 @@ async def update_draft_content(
 Run: `uv run python -m pytest tests/test_files_router.py tests/test_status_calculator.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 8: 提交**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add server/routers/files.py tests/test_files_router.py
@@ -443,7 +443,7 @@ const CHANGE_PRIORITY: Record<string, number> = {
           }
 ```
 
-注意：需要在 hook 函数头部添加 `startTransition` 的使用（已在第1行导入）。
+Note: 需要在 hook 函数头部添加 `startTransition` 的使用（已在第1行导入）。
 
 - [ ] **Step 3: 构建检查**
 
@@ -921,12 +921,12 @@ export function TimelineCanvas({
 Run: `cd frontend && pnpm build`
 Expected: 成功
 
-- [ ] **Step 4: 运行后端全部测试确认无回归**
+- [ ] **Step 4: 运行后端全部测试confirm no regressions**
 
 Run: `uv run python -m pytest -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/canvas/timeline/TimelineCanvas.tsx frontend/src/components/canvas/StudioCanvasRouter.tsx

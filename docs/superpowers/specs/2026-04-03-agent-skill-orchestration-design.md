@@ -1,8 +1,8 @@
-# Agent Skill Orchestration 优化设计
+# Agent Skill Orchestration Optimization Design
 
-## 背景
+## Background
 
-对 `agent_runtime_profile/` 的全面审查发现 11 个需要修复的问题，涉及准确性错误、架构缺陷、信息冗余和路径不一致。本设计为方案 B（引入 Asset Generation Agent + 信息去重）。
+对 `agent_runtime_profile/` 的全面Review found 11 个需要修复的问题，涉及准确性错误、架构缺陷、信息冗余和路径不一致。本设计为方案 B（引入 Asset Generation Agent + 信息去重）。
 
 ## 问题清单
 
@@ -225,7 +225,7 @@ python .claude/skills/{skill}/scripts/{script}.py {args}
 
 **需修改的文件**：
 
-| 文件 | 改动 |
+| 文件 | Modify |
 |------|------|
 | `manga-workflow/SKILL.md` | 阶段 2 的 peek/split 命令去掉 `cd` 前缀 |
 | `analyze-characters-clues.md` | 删除错误的 `{项目名}` 位置参数，使用 `python .claude/skills/manage-project/scripts/add_characters_clues.py --characters ...` |
@@ -266,18 +266,18 @@ python .claude/skills/{skill}/scripts/{script}.py {args}
 
 | 操作 | 文件 | 对应问题 |
 |------|------|---------|
-| **新建** | `.claude/agents/generate-assets.md` | #4, #7 |
-| **修改** | `CLAUDE.md` | #1, #8 |
-| **修改** | `.claude/skills/manga-workflow/SKILL.md` | #4, #7, #8, #9, #11 |
-| **修改** | `.claude/agents/analyze-characters-clues.md` | #3, #9 |
-| **修改** | `.claude/agents/create-episode-script.md` | #9 |
-| **修改** | `.claude/agents/normalize-drama-script.md` | #9 |
-| **修改** | `.claude/skills/generate-storyboard/SKILL.md` | #10, #11 |
-| **修改** | `.claude/skills/generate-characters/SKILL.md` | #11 |
-| **修改** | `.claude/skills/generate-clues/SKILL.md` | #11 |
-| **修改** | `.claude/skills/generate-video/SKILL.md` | #11 |
-| **修改** | `.claude/settings.json` | #2 |
-| **修改** | `server/agent_runtime/session_manager.py` | #6 |
+| **Create** | `.claude/agents/generate-assets.md` | #4, #7 |
+| **Modify** | `CLAUDE.md` | #1, #8 |
+| **Modify** | `.claude/skills/manga-workflow/SKILL.md` | #4, #7, #8, #9, #11 |
+| **Modify** | `.claude/agents/analyze-characters-clues.md` | #3, #9 |
+| **Modify** | `.claude/agents/create-episode-script.md` | #9 |
+| **Modify** | `.claude/agents/normalize-drama-script.md` | #9 |
+| **Modify** | `.claude/skills/generate-storyboard/SKILL.md` | #10, #11 |
+| **Modify** | `.claude/skills/generate-characters/SKILL.md` | #11 |
+| **Modify** | `.claude/skills/generate-clues/SKILL.md` | #11 |
+| **Modify** | `.claude/skills/generate-video/SKILL.md` | #11 |
+| **Modify** | `.claude/settings.json` | #2 |
+| **Modify** | `server/agent_runtime/session_manager.py` | #6 |
 
 ## 不在范围内
 

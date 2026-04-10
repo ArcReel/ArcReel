@@ -1,10 +1,10 @@
-# 视频生成服务层实施计划
+# Video Generation Service Layer Implementation Plan
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 提取通用视频生成服务层抽象，接入 Seedance 1.5 作为第二个视频供应商
+**Goal:** Extract a generic video generation service layer abstraction and integrate Seedance 1.5 as a second video provider
 
-**Architecture:** VideoBackend Protocol 定义通用接口，GeminiVideoBackend 从 GeminiClient 提取视频逻辑，SeedanceVideoBackend 封装火山方舟 Ark SDK。MediaGenerator 通过注入的 VideoBackend 调用，保留版本管理和用量追踪横切关注点。
+**Architecture:** The VideoBackend Protocol defines the generic interface. GeminiVideoBackend extracts video logic from GeminiClient. SeedanceVideoBackend wraps the Volcano Ark SDK. MediaGenerator calls through the injected VideoBackend, retaining version management and usage tracking as cross-cutting concerns.
 
 **Tech Stack:** Python 3.12, SQLAlchemy async ORM, Alembic, volcengine-python-sdk[ark], google-genai
 
@@ -16,15 +16,15 @@
 
 | Action | File | Responsibility |
 |--------|------|---------------|
-| Create | `lib/video_backends/__init__.py` | 导出公共 API |
+| Create | `lib/video_backends/__init__.py` | Export public API |
 | Create | `lib/video_backends/base.py` | Protocol, dataclasses, VideoCapability enum |
-| Create | `lib/video_backends/gemini.py` | GeminiVideoBackend — 提取自 GeminiClient |
-| Create | `lib/video_backends/seedance.py` | SeedanceVideoBackend — Ark SDK 封装 |
-| Create | `lib/video_backends/registry.py` | Backend 注册 + 工厂函数 |
-| Create | `tests/test_video_backend_base.py` | base.py 单元测试 |
-| Create | `tests/test_video_backend_gemini.py` | GeminiVideoBackend 单元测试 |
-| Create | `tests/test_video_backend_seedance.py` | SeedanceVideoBackend 单元测试 |
-| Create | `tests/test_video_backend_registry.py` | Registry 单元测试 |
+| Create | `lib/video_backends/gemini.py` | GeminiVideoBackend — extracted from GeminiClient |
+| Create | `lib/video_backends/seedance.py` | SeedanceVideoBackend — Ark SDK wrapper |
+| Create | `lib/video_backends/registry.py` | Backend registration + factory functions |
+| Create | `tests/test_video_backend_base.py` | base.py unit tests |
+| Create | `tests/test_video_backend_gemini.py` | GeminiVideoBackend unit tests |
+| Create | `tests/test_video_backend_seedance.py` | SeedanceVideoBackend unit tests |
+| Create | `tests/test_video_backend_registry.py` | Registry unit tests |
 | Modify | `lib/cost_calculator.py` | 新增 Seedance 计费策略 |
 | Modify | `tests/test_cost_calculator.py` | 新增 Seedance 计费测试 |
 | Modify | `lib/db/models/api_call.py` | 新增 provider/currency/usage_tokens 列 |
@@ -34,24 +34,24 @@
 | Modify | `tests/test_usage_repo.py` | 新增多供应商用量测试 |
 | Modify | `lib/system_config.py` | 新增 video_provider / ark_api_key / file_service_base_url 配置项 |
 | Modify | `server/routers/system_config.py` | 配置 API 支持新字段 |
-| Modify | `lib/media_generator.py` | 注入 VideoBackend，重命名 video_backend → _gemini_backend_type |
-| Modify | `server/services/generation_tasks.py` | get_media_generator 读取项目配置创建 Backend |
-| Modify | `server/routers/generate.py` | payload 中快照 provider + settings |
-| Modify | `tests/test_media_generator_module.py` | 适配新签名 |
-| Modify | `tests/test_generation_tasks_service.py` | 适配新流程 |
+| Modify | `lib/media_generator.py` | Inject VideoBackend, rename video_backend → _gemini_backend_type |
+| Modify | `server/services/generation_tasks.py` | get_media_generator reads project config to create Backend |
+| Modify | `server/routers/generate.py` | snapshot provider + settings in payload |
+| Modify | `tests/test_media_generator_module.py` | adapt to new signature |
+| Modify | `tests/test_generation_tasks_service.py` | adapt to new flow |
 
 ---
 
-## Chunk 1: 核心接口 + Registry
+## Chunk 1: Core Interface + Registry
 
-### Task 1: VideoBackend Protocol 和数据类
+### Task 1: VideoBackend Protocol and Data Classes
 
 **Files:**
 - Create: `lib/video_backends/__init__.py`
 - Create: `lib/video_backends/base.py`
 - Create: `tests/test_video_backend_base.py`
 
-- [ ] **Step 1: 编写 base.py 测试**
+- [ ] **Step 1: Write base.py tests**
 
 ```python
 # tests/test_video_backend_base.py
@@ -136,16 +136,16 @@ class TestVideoGenerationResult:
         assert result.task_id == "cgt-20250101"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `python -m pytest tests/test_video_backend_base.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'lib.video_backends'`
 
-- [ ] **Step 3: 实现 base.py**
+- [ ] **Step 3: Implement base.py**
 
 ```python
 # lib/video_backends/base.py
-"""视频生成服务层核心接口定义。"""
+"""Core interface definitions for the video generation service layer."""
 
 from __future__ import annotations
 
@@ -156,7 +156,7 @@ from typing import Optional, Protocol, Set
 
 
 class VideoCapability(str, Enum):
-    """视频后端支持的能力枚举。"""
+    """Enum of capabilities supported by video backends."""
     TEXT_TO_VIDEO = "text_to_video"
     IMAGE_TO_VIDEO = "image_to_video"
     GENERATE_AUDIO = "generate_audio"
@@ -168,7 +168,7 @@ class VideoCapability(str, Enum):
 
 @dataclass
 class VideoGenerationRequest:
-    """通用视频生成请求。各 Backend 忽略不支持的字段。"""
+    """Generic video generation request. Each Backend ignores fields it does not support."""
     prompt: str
     output_path: Path
     aspect_ratio: str = "9:16"
@@ -187,7 +187,7 @@ class VideoGenerationRequest:
 
 @dataclass
 class VideoGenerationResult:
-    """通用视频生成结果。"""
+    """Generic video generation result."""
     video_path: Path
     provider: str
     model: str
@@ -200,7 +200,7 @@ class VideoGenerationResult:
 
 
 class VideoBackend(Protocol):
-    """视频生成后端协议。"""
+    """Video generation backend protocol."""
 
     @property
     def name(self) -> str: ...
@@ -213,7 +213,7 @@ class VideoBackend(Protocol):
 
 ```python
 # lib/video_backends/__init__.py
-"""视频生成服务层公共 API。"""
+"""Public API for the video generation service layer."""
 
 from lib.video_backends.base import (
     VideoBackend,
@@ -230,12 +230,12 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `python -m pytest tests/test_video_backend_base.py -v`
-Expected: PASS — 所有 7 个测试通过
+Expected: PASS — all 7 个测试通过
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/video_backends/__init__.py lib/video_backends/base.py tests/test_video_backend_base.py
@@ -244,13 +244,13 @@ git commit -m "feat: add VideoBackend protocol and data classes"
 
 ---
 
-### Task 2: Registry 模块
+### Task 2: Registry Module
 
 **Files:**
 - Create: `lib/video_backends/registry.py`
 - Create: `tests/test_video_backend_registry.py`
 
-- [ ] **Step 1: 编写 registry 测试**
+- [ ] **Step 1: Write registry tests**
 
 ```python
 # tests/test_video_backend_registry.py
@@ -281,7 +281,7 @@ class _FakeBackend:
 
 @pytest.fixture(autouse=True)
 def _clean_registry():
-    """每个测试前清空 registry，测试后恢复。"""
+    """Clear the registry before each test and restore after."""
     saved = dict(_BACKEND_FACTORIES)
     _BACKEND_FACTORIES.clear()
     yield
@@ -311,7 +311,7 @@ class TestRegistry:
         assert backend.api_key == "overwritten"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `python -m pytest tests/test_video_backend_registry.py -v`
 Expected: FAIL — `ModuleNotFoundError`
@@ -363,12 +363,12 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 5: 运行测试确认通过**
+- [ ] **Step 5: Run tests to confirm they pass**
 
 Run: `python -m pytest tests/test_video_backend_registry.py -v`
-Expected: PASS — 所有 4 个测试通过
+Expected: PASS — all 4 个测试通过
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/video_backends/registry.py lib/video_backends/__init__.py tests/test_video_backend_registry.py
@@ -456,7 +456,7 @@ class TestSeedanceCost:
         assert amount == pytest.approx(16.0)
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `python -m pytest tests/test_cost_calculator.py::TestSeedanceCost -v`
 Expected: FAIL — `AttributeError: 'CostCalculator' object has no attribute 'calculate_seedance_video_cost'`
@@ -504,12 +504,12 @@ Expected: FAIL — `AttributeError: 'CostCalculator' object has no attribute 'ca
         return amount, "CNY"
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `python -m pytest tests/test_cost_calculator.py -v`
-Expected: PASS — 所有测试通过（原有 + 新增 6 个）
+Expected: PASS — all测试通过（原有 + 新增 6 个）
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/cost_calculator.py tests/test_cost_calculator.py
@@ -549,9 +549,9 @@ Run: `uv run alembic revision --autogenerate -m "add provider currency usage_tok
 - 新增 `provider` 列（String，server_default="gemini"）
 - 新增 `usage_tokens` 列（Integer，nullable=True）
 
-> 注意：SQLite 不支持 `ALTER COLUMN RENAME`，需要用 `batch_alter_table` 上下文管理器。检查迁移脚本是否使用了 `with op.batch_alter_table("api_calls") as batch_op:` 的形式。如果 Alembic 没有自动生成重命名，需要手动编辑迁移脚本。
+> Note: SQLite 不支持 `ALTER COLUMN RENAME`，需要用 `batch_alter_table` 上下文管理器。检查迁移脚本是否使用了 `with op.batch_alter_table("api_calls") as batch_op:` 的形式。如果 Alembic 没有自动生成重命名，需要手动编辑迁移脚本。
 
-- [ ] **Step 2.5: 全局搜索 cost_usd 引用**
+- [ ] **Step 2.5: Global search for cost_usd 引用**
 
 Run: `rg "cost_usd" --type py`
 
@@ -577,7 +577,7 @@ Expected: 成功执行，无报错
 Run: `python -m pytest tests/test_db_models.py -v`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/db/models/api_call.py alembic/versions/*.py
@@ -674,7 +674,7 @@ class TestMultiProviderUsage:
         assert stats["total_cost"] == pytest.approx(3.2)
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `python -m pytest tests/test_usage_repo.py::TestMultiProviderUsage -v`
 Expected: FAIL
@@ -700,7 +700,7 @@ Expected: FAIL
 Run: `python -m pytest tests/test_usage_repo.py tests/test_usage_tracker.py -v`
 Expected: PASS
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/db/repositories/usage_repo.py lib/usage_tracker.py tests/test_usage_repo.py
@@ -843,7 +843,7 @@ class TestGeminiVideoBackendGenerate:
         assert result.provider == "gemini"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `python -m pytest tests/test_video_backend_gemini.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'lib.video_backends.gemini'`
@@ -914,17 +914,17 @@ async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResu
     )
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `python -m pytest tests/test_video_backend_gemini.py -v`
 Expected: PASS
 
-- [ ] **Step 5: 运行全量测试确认无回归**
+- [ ] **Step 5: 运行全量测试confirm no regressions**
 
 Run: `python -m pytest -x -q`
 Expected: PASS — 无回归
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/video_backends/gemini.py tests/test_video_backend_gemini.py
@@ -1203,7 +1203,7 @@ Expected: FAIL — `ModuleNotFoundError`
 - 超时：`default` → 600s，`flex` → 172800s
 - `generate` 接受可选 `_poll_interval_override` 参数供测试用
 
-- [ ] **Step 5: 运行测试确认通过**
+- [ ] **Step 5: Run tests to confirm they pass**
 
 Run: `python -m pytest tests/test_video_backend_seedance.py -v`
 Expected: PASS
@@ -1221,7 +1221,7 @@ register_backend("gemini", lambda **kw: GeminiVideoBackend(**kw))
 register_backend("seedance", lambda **kw: SeedanceVideoBackend(**kw))
 ```
 
-- [ ] **Step 7: 提交**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add lib/video_backends/seedance.py lib/video_backends/__init__.py tests/test_video_backend_seedance.py
@@ -1277,7 +1277,7 @@ PATCH 端点的验证规则：
 - [ ] **Step 3: 运行现有系统配置测试**
 
 Run: `python -m pytest tests/test_system_config.py tests/test_system_config_router.py -v`
-Expected: PASS — 确认无回归
+Expected: PASS — confirm no regressions
 
 - [ ] **Step 4: 提交**
 
@@ -1438,12 +1438,12 @@ class GenerateVideoRequest(BaseModel):
 
 修改 `tests/test_generation_tasks_service.py` 中 `execute_video_task` 相关测试以适配新参数。
 
-- [ ] **Step 5: 运行全量测试**
+- [ ] **Step 5: Run the full test suite**
 
 Run: `python -m pytest -x -q`
-Expected: PASS — 所有测试通过
+Expected: PASS — all测试通过
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add server/services/generation_tasks.py server/routers/generate.py tests/test_generation_tasks_service.py
@@ -1476,7 +1476,7 @@ def generate_video(self, ...):
     ...
 ```
 
-- [ ] **Step 2: 运行全量测试确认无回归**
+- [ ] **Step 2: 运行全量测试confirm no regressions**
 
 Run: `python -m pytest -x -q`
 Expected: PASS
@@ -1517,7 +1517,7 @@ Expected: 输出 `ok`
 - [ ] **Step 3: 运行全量测试最终确认**
 
 Run: `python -m pytest -x -q`
-Expected: PASS — 所有测试通过
+Expected: PASS — all测试通过
 
 - [ ] **Step 4: 提交**
 

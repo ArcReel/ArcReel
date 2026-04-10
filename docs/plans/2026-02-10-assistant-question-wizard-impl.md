@@ -2,11 +2,11 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 将助手“需要你的选择”区域改为逐题向导（顶部步骤条 + 单题作答），并在最后一题点击“完成并提交”时一次性提交所有答案。
+**Goal:** Change the assistant's “Your Choices Needed” area to a step-by-step wizard (top progress bar + one question at a time), and submit all answers at once when clicking “Finish & Submit” on the final question.
 
-**Architecture:** 保持后端批量提交接口不变，仅重构前端交互层。先抽出纯函数模块承载题目导航/校验/payload 组装逻辑并通过单测锁定行为，再改造 `AssistantMessageArea` 只渲染当前题并接入“上一步/下一题/完成并提交”流程。最后做回归验证，确保聊天主流程与会话状态不受影响。
+**Architecture:** Keep backend batch submit interface unchanged; only refactor the frontend interaction layer. Extract a pure function module for question navigation/validation/payload assembly logic and lock behavior via unit tests, then refactor `AssistantMessageArea` to render only the current question and integrate the “Previous/Next Question/Finish & Submit” flow. Finally do regression verification to ensure the main chat flow and session state are unaffected.
 
-**Tech Stack:** React 18 + HTM (`frontend/src/react/pages/assistant-page.js`), Node `node:test` + `assert`, Vite build。
+**Tech Stack:** React 18 + HTM (`frontend/src/react/pages/assistant-page.js`), Node `node:test` + `assert`, Vite build.
 
 ---
 
@@ -19,26 +19,26 @@
 - Reference: `frontend/src/react/pages/assistant-page.js`
 - Reference: `frontend/src/react/hooks/use-assistant-state.js`
 
-**Step 1: 确认工作目录与分支状态**
+**Step 1: Confirm working directory and branch status**
 
 Run: `pwd && git branch --show-current && git status --short`  
-Expected: 位于仓库根目录；识别当前分支；只存在预期未跟踪文件（如本地配置文件）。
+Expected: In repo root; identifies current branch; only expected untracked files (e.g., local config files) exist.
 
-**Step 2: 运行现有前端基线测试**
+**Step 2: Run existing frontend baseline tests**
 
 Run: `node frontend/tests/landing-page.test.mjs && node frontend/tests/app-shell-floating-button.test.mjs`  
-Expected: 两个测试均 PASS。
+Expected: Both tests PASS.
 
-**Step 3: 记录本次改造边界**
+**Step 3: Document the scope of this refactor**
 
-在实现说明中明确：
-- 不修改后端路由：`webui/server/routers/assistant.py`
-- 不修改提交协议：`answers` 仍为整批对象
-- UI 仅改 `AssistantMessageArea` 的 pending question 区域
+Clarify in the implementation notes:
+- Do not modify backend routes: `webui/server/routers/assistant.py`
+- Do not modify submission protocol: `answers` remains a batch object
+- UI only changes the pending question area of `AssistantMessageArea`
 
-**Step 4: 提交基线检查说明（可选）**
+**Step 4: Commit baseline check notes (optional)**
 
-若需要留痕，创建简短 commit note；否则进入 Task 2。
+If a record is needed, create a brief commit note; otherwise proceed to Task 2.
 
 ### Task 2: Write Failing Tests For Wizard Logic (Pure Functions)
 
@@ -46,7 +46,7 @@ Expected: 两个测试均 PASS。
 - Create: `frontend/tests/assistant-question-wizard.test.mjs`
 - Target module (to be created in Task 3): `frontend/src/react/pages/assistant-question-wizard.js`
 
-**Step 1: 写失败测试，先定义行为契约**
+**Step 1: Write failing tests to define behavioral contract first**
 
 ```js
 import test from "node:test";
@@ -63,16 +63,16 @@ import {
 
 const questions = [
     {
-        header: "选择项目",
-        question: "你想基于哪个项目继续？",
+        header: "Select Project",
+        question: "Which project do you want to continue with?",
         multiSelect: false,
-        options: [{ label: "test" }, { label: "创建新项目" }, { label: "其他" }],
+        options: [{ label: "test" }, { label: "Create New Project" }, { label: "Other" }],
     },
     {
-        header: "视频内容",
-        question: "你想制作什么内容？",
+        header: "Video Content",
+        question: "What content do you want to create?",
         multiSelect: true,
-        options: [{ label: "使用已有素材" }, { label: "我来描述内容" }, { label: "其他" }],
+        options: [{ label: "Use Existing Assets" }, { label: "I will describe the content" }, { label: "Other" }],
     },
 ];
 
@@ -90,12 +90,12 @@ test("isQuestionAnswerReady should validate single and multi question answers", 
     assert.equal(isQuestionAnswerReady(q1, "", ""), false);
     assert.equal(isQuestionAnswerReady(q1, "test", ""), true);
     assert.equal(isQuestionAnswerReady(q1, ASSISTANT_OTHER_OPTION_VALUE, ""), false);
-    assert.equal(isQuestionAnswerReady(q1, ASSISTANT_OTHER_OPTION_VALUE, "自定义项目"), true);
+    assert.equal(isQuestionAnswerReady(q1, ASSISTANT_OTHER_OPTION_VALUE, "custom project"), true);
 
     assert.equal(isQuestionAnswerReady(q2, [], ""), false);
-    assert.equal(isQuestionAnswerReady(q2, ["使用已有素材"], ""), true);
+    assert.equal(isQuestionAnswerReady(q2, ["Use Existing Assets"], ""), true);
     assert.equal(isQuestionAnswerReady(q2, [ASSISTANT_OTHER_OPTION_VALUE], ""), false);
-    assert.equal(isQuestionAnswerReady(q2, [ASSISTANT_OTHER_OPTION_VALUE], "自定义内容"), true);
+    assert.equal(isQuestionAnswerReady(q2, [ASSISTANT_OTHER_OPTION_VALUE], "custom content"), true);
 
     assert.equal(q1Key.length > 0, true);
     assert.equal(q2Key.length > 0, true);
@@ -104,17 +104,17 @@ test("isQuestionAnswerReady should validate single and multi question answers", 
 test("buildAnswersPayload should map other values to custom text", () => {
     const questionAnswers = {
         [getQuestionKey(questions[0], 0)]: ASSISTANT_OTHER_OPTION_VALUE,
-        [getQuestionKey(questions[1], 1)]: ["使用已有素材", ASSISTANT_OTHER_OPTION_VALUE],
+        [getQuestionKey(questions[1], 1)]: ["Use Existing Assets", ASSISTANT_OTHER_OPTION_VALUE],
     };
     const customAnswers = {
-        [getQuestionKey(questions[0], 0)]: "我的旧项目",
-        [getQuestionKey(questions[1], 1)]: "补充镜头需求",
+        [getQuestionKey(questions[0], 0)]: "my old project",
+        [getQuestionKey(questions[1], 1)]: "additional shot requirements",
     };
     const payload = buildAnswersPayload(questions, questionAnswers, customAnswers);
 
     assert.deepEqual(payload, {
-        "你想基于哪个项目继续？": "我的旧项目",
-        "你想制作什么内容？": "使用已有素材, 补充镜头需求",
+        "Which project do you want to continue with?": "my old project",
+        "What content do you want to create?": "Use Existing Assets, additional shot requirements",
     });
 });
 
@@ -125,12 +125,12 @@ test("getNextVisitedSteps should keep unique and sorted visited indexes", () => 
 });
 ```
 
-**Step 2: 运行测试确认失败**
+**Step 2: Run tests to confirm they fail**
 
 Run: `node frontend/tests/assistant-question-wizard.test.mjs`  
-Expected: FAIL，报 `assistant-question-wizard.js` 模块不存在或导出缺失。
+Expected: FAIL — reports that `assistant-question-wizard.js` module does not exist or exports are missing.
 
-**Step 3: 提交失败测试（红灯）**
+**Step 3: Commit failing tests (red)**
 
 ```bash
 git add frontend/tests/assistant-question-wizard.test.mjs
@@ -143,11 +143,11 @@ git commit -m "test(assistant): add failing wizard logic contract tests"
 - Create: `frontend/src/react/pages/assistant-question-wizard.js`
 - Test: `frontend/tests/assistant-question-wizard.test.mjs`
 
-**Step 1: 实现最小逻辑函数（仅满足测试）**
+**Step 1: Implement minimum logic functions (just enough to pass tests)**
 
 ```js
 export const ASSISTANT_OTHER_OPTION_VALUE = "__assistant_option_other__";
-export const ASSISTANT_OTHER_OPTION_LABEL = "其他";
+export const ASSISTANT_OTHER_OPTION_LABEL = "Other";
 
 export function getQuestionKey(question, index) {
     const rawQuestion = typeof question?.question === "string" ? question.question.trim() : "";
@@ -156,12 +156,12 @@ export function getQuestionKey(question, index) {
 
 function isOtherOptionLabel(label) {
     const normalized = String(label || "").trim().toLowerCase();
-    return normalized === "其他" || normalized === "other";
+    return normalized === "other";
 }
 
 export function buildQuestionOptions(options) {
     const normalized = (Array.isArray(options) ? options : []).map((option, index) => {
-        const label = option?.label || `选项 ${index + 1}`;
+        const label = option?.label || `Option ${index + 1}`;
         const isOther = isOtherOptionLabel(label);
         return {
             ...option,
@@ -174,7 +174,7 @@ export function buildQuestionOptions(options) {
     if (!normalized.some((item) => item.isOther)) {
         normalized.push({
             label: ASSISTANT_OTHER_OPTION_LABEL,
-            description: "若以上选项都不符合，可自行输入",
+            description: "If none of the above options fit, you can enter your own",
             value: ASSISTANT_OTHER_OPTION_VALUE,
             isOther: true,
         });
@@ -234,17 +234,17 @@ export function getNextVisitedSteps(currentVisitedSteps, nextIndex) {
 }
 ```
 
-**Step 2: 运行测试确认通过**
+**Step 2: Run tests to confirm they pass**
 
 Run: `node frontend/tests/assistant-question-wizard.test.mjs`  
-Expected: PASS。
+Expected: PASS.
 
-**Step 3: 做一次快速静态回归**
+**Step 3: Do a quick static regression**
 
 Run: `node frontend/tests/landing-page.test.mjs && node frontend/tests/app-shell-floating-button.test.mjs`  
-Expected: PASS，无回归。
+Expected: PASS, no regressions.
 
-**Step 4: 提交最小实现（绿灯）**
+**Step 4: Commit minimum implementation (green)**
 
 ```bash
 git add frontend/src/react/pages/assistant-question-wizard.js frontend/tests/assistant-question-wizard.test.mjs
@@ -257,7 +257,7 @@ git commit -m "feat(assistant): add question wizard pure logic module"
 - Create: `frontend/tests/assistant-message-area-wizard.test.mjs`
 - Target component: `frontend/src/react/pages/assistant-page.js`
 
-**Step 1: 先写失败的 UI 约束测试**
+**Step 1: Write failing UI constraint tests first**
 
 ```js
 import test from "node:test";
@@ -270,7 +270,7 @@ function renderArea(extra = {}) {
     return renderToStaticMarkup(
         React.createElement(AssistantMessageArea, {
             assistantCurrentSessionId: "session-1",
-            assistantSessions: [{ id: "session-1", title: "test 会话" }],
+            assistantSessions: [{ id: "session-1", title: "test session" }],
             assistantMessagesLoading: false,
             assistantComposedMessages: [],
             assistantError: "",
@@ -291,16 +291,16 @@ function renderArea(extra = {}) {
                 id: "q-1",
                 questions: [
                     {
-                        header: "选择项目",
-                        question: "问题A：选项目",
+                        header: "Select Project",
+                        question: "Question A: Select project",
                         multiSelect: false,
-                        options: [{ label: "test" }, { label: "创建新项目" }],
+                        options: [{ label: "test" }, { label: "Create New Project" }],
                     },
                     {
-                        header: "视频内容",
-                        question: "问题B：选内容",
+                        header: "Video Content",
+                        question: "Question B: Select content",
                         multiSelect: false,
-                        options: [{ label: "使用已有素材" }, { label: "我来描述内容" }],
+                        options: [{ label: "Use Existing Assets" }, { label: "I will describe the content" }],
                     },
                 ],
             },
@@ -312,20 +312,20 @@ function renderArea(extra = {}) {
 test("pending question area should render wizard progress and only current question", () => {
     const html = renderArea();
 
-    assert.ok(html.includes("问题 1/2"));
-    assert.ok(html.includes("下一题"));
-    assert.ok(!html.includes("提交答案"));
-    assert.ok(html.includes("问题A：选项目"));
-    assert.ok(!html.includes("问题B：选内容"));
+    assert.ok(html.includes("Question 1/2"));
+    assert.ok(html.includes("Next Question"));
+    assert.ok(!html.includes("Submit Answers"));
+    assert.ok(html.includes("Question A: Select project"));
+    assert.ok(!html.includes("Question B: Select content"));
 });
 ```
 
-**Step 2: 运行测试确认失败**
+**Step 2: Run tests to confirm they fail**
 
 Run: `node frontend/tests/assistant-message-area-wizard.test.mjs`  
-Expected: FAIL（当前实现会显示全部问题，并出现“提交答案”按钮）。
+Expected: FAIL (current implementation shows all questions and has a “Submit Answers” button).
 
-**Step 3: 提交失败测试**
+**Step 3: Commit failing tests**
 
 ```bash
 git add frontend/tests/assistant-message-area-wizard.test.mjs
@@ -339,15 +339,15 @@ git commit -m "test(assistant): add failing single-question wizard rendering tes
 - Import from: `frontend/src/react/pages/assistant-question-wizard.js`
 - Test: `frontend/tests/assistant-message-area-wizard.test.mjs`
 
-**Step 1: 引入 wizard 状态和 helper**
+**Step 1: Import wizard state and helpers**
 
-在 `AssistantMessageArea` 增加：
-- `currentQuestionIndex`（number）
-- `visitedSteps`（number[]）
-- `currentQuestionReady`（当前题可推进）
-- `isLastQuestion`（末题判断）
+Add to `AssistantMessageArea`:
+- `currentQuestionIndex` (number)
+- `visitedSteps` (number[])
+- `currentQuestionReady` (current question can advance)
+- `isLastQuestion` (whether it's the last question)
 
-并从 helper 模块引入：
+And import from the helper module:
 - `getQuestionKey`
 - `buildQuestionOptions`
 - `isOtherSelected`
@@ -355,9 +355,9 @@ git commit -m "test(assistant): add failing single-question wizard rendering tes
 - `buildAnswersPayload`
 - `getNextVisitedSteps`
 
-**Step 2: 将 pending 区域改为“步骤条 + 单题卡片”**
+**Step 2: Change the pending area to “progress bar + single question card”**
 
-核心渲染形态：
+Core rendering structure:
 
 ```js
 const totalQuestions = assistantPendingQuestion?.questions?.length || 0;
@@ -374,18 +374,18 @@ const currentQuestion = totalQuestions > 0 ? assistantPendingQuestion.questions[
                 onClick={() => setCurrentQuestionIndex(index)}
                 className={cn("shrink-0 rounded-full px-3 py-1 text-xs border", active ? "border-amber-300/60 bg-amber-300/20 text-amber-100" : "border-white/15 bg-white/5 text-slate-300")}
             >
-                {`${index + 1}. ${question?.header || `问题 ${index + 1}`}`}
+                {`${index + 1}. ${question?.header || `Question ${index + 1}`}`}
             </button>
         );
     })}
 </div>
 
-<p className="text-xs text-slate-400">{`问题 ${currentQuestionIndex + 1}/${totalQuestions}`}</p>
+<p className="text-xs text-slate-400">{`Question ${currentQuestionIndex + 1}/${totalQuestions}`}</p>
 ```
 
-只渲染 `currentQuestion` 的选项卡，不再 `map` 全部题目。
+Only render the `currentQuestion` option card; no longer `map` over all questions.
 
-**Step 3: 绑定“上一步/下一题/完成并提交”动作**
+**Step 3: Bind “Previous/Next Question/Finish & Submit” actions**
 
 ```js
 const handlePrev = () => {
@@ -407,19 +407,19 @@ const handleFinalSubmit = (event) => {
 };
 ```
 
-按钮规则：
-- 首题禁用 `上一步`
-- 非末题显示 `下一题`（当前题无效时禁用）
-- 末题显示 `完成并提交`（全量无效或提交中时禁用）
+Button rules:
+- `Previous` disabled on first question
+- Show `Next Question` on non-last questions (disabled when current question is invalid)
+- Show `Finish & Submit` on last question (disabled when invalid or submitting)
 
-**Step 4: 确保 question 切换重置逻辑正确**
+**Step 4: Ensure question switch reset logic is correct**
 
-当 `assistantPendingQuestion` 变化时：
-- 重置 `questionAnswers` 和 `questionCustomAnswers`
+When `assistantPendingQuestion` changes:
+- Reset `questionAnswers` and `questionCustomAnswers`
 - `setCurrentQuestionIndex(0)`
 - `setVisitedSteps([0])`
 
-**Step 5: 跑测试并修复到全绿**
+**Step 5: Run tests and fix until all green**
 
 Run:
 - `node frontend/tests/assistant-message-area-wizard.test.mjs`
@@ -427,9 +427,9 @@ Run:
 - `node frontend/tests/landing-page.test.mjs`
 - `node frontend/tests/app-shell-floating-button.test.mjs`
 
-Expected: 全部 PASS。
+Expected: All PASS.
 
-**Step 6: 提交 UI 改造**
+**Step 6: Commit UI refactor**
 
 ```bash
 git add frontend/src/react/pages/assistant-page.js frontend/tests/assistant-message-area-wizard.test.mjs
@@ -444,12 +444,12 @@ git commit -m "feat(assistant): switch pending question UI to step-by-step wizar
 - Verify: `frontend/tests/assistant-question-wizard.test.mjs`
 - Verify: `frontend/tests/assistant-message-area-wizard.test.mjs`
 
-**Step 1: 运行前端构建验证**
+**Step 1: Run frontend build verification**
 
 Run: `npm --prefix frontend run build`  
-Expected: `vite build` 成功，无语法错误。
+Expected: `vite build` succeeds with no syntax errors.
 
-**Step 2: 再次运行完整相关测试**
+**Step 2: Run the full related test suite again**
 
 Run:
 ```bash
@@ -459,27 +459,27 @@ node frontend/tests/landing-page.test.mjs
 node frontend/tests/app-shell-floating-button.test.mjs
 ```
 
-Expected: 全部 PASS。
+Expected: All PASS.
 
-**Step 3: 自检改造是否符合设计文档**
+**Step 3: Self-check that the refactor matches the design document**
 
-对照 `docs/plans/2026-02-10-assistant-question-wizard-design.md`，逐项确认：
-- 逐题展示
-- 顶部横向步骤条
-- 可回退修改
-- 末题“完成并提交”
-- 后端接口不变
+Verify against `docs/plans/2026-02-10-assistant-question-wizard-design.md`, item by item:
+- One question at a time
+- Top horizontal progress bar
+- Can go back and edit
+- Last question has “Finish & Submit”
+- Backend interface unchanged
 
-**Step 4: 终态提交**
+**Step 4: Final commit**
 
 ```bash
 git add frontend/src/react/pages/assistant-page.js frontend/src/react/pages/assistant-question-wizard.js frontend/tests/assistant-question-wizard.test.mjs frontend/tests/assistant-message-area-wizard.test.mjs
-git commit -m "feat(assistant): implement step wizard for pending question flow"
+git commit -m “feat(assistant): implement step wizard for pending question flow”
 ```
 
-**Step 5: 请求代码评审**
+**Step 5: Request code review**
 
-使用 `@requesting-code-review` 对最终差异做一次 review，请求重点检查：
-- 回退修改是否会产生 payload 异常
-- “其他”选项在单选/多选两类题目的边界行为
-- 提交中状态是否彻底阻断重复触发
+Use `@requesting-code-review` to review the final diff, with focus on:
+- Whether going back and editing could produce payload anomalies
+- Edge behavior of the “Other” option in both single-choice and multi-choice questions
+- Whether the “submitting” state fully prevents duplicate triggers

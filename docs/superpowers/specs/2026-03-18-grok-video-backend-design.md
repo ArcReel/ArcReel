@@ -1,62 +1,62 @@
-# GrokVideoBackend 接入设计
+# GrokVideoBackend Integration Design
 
-> Issue: [#100](https://github.com/ArcReel/ArcReel/issues/100) — grok-imagine-video 接入
-> 父任务: [#98](https://github.com/ArcReel/ArcReel/issues/98) — 多供应商视频生成
-> 前置依赖: [#99](https://github.com/ArcReel/ArcReel/issues/99) — 提取通用视频生成服务层（已完成）
+> Issue: [#100](https://github.com/ArcReel/ArcReel/issues/100) — grok-imagine-video integration
+> Parent task: [#98](https://github.com/ArcReel/ArcReel/issues/98) — multi-provider video generation
+> Prerequisite: [#99](https://github.com/ArcReel/ArcReel/issues/99) — extract generic video generation service layer (completed)
 
-## 范围
+## Scope
 
-纯后端接入。前端配置页改动留给 #102（供应商管理页）。
+Backend-only integration. Frontend config page changes are deferred to #102 (provider management page).
 
-## 1. GrokVideoBackend 实现
+## 1. GrokVideoBackend Implementation
 
-新建 `lib/video_backends/grok.py`。
+Create `lib/video_backends/grok.py`.
 
-### SDK 选择
+### SDK Selection
 
-使用 `xai_sdk` 官方 Python SDK。通过 `xai_sdk.AsyncClient` 调用 `grok-imagine-video` 模型。
+Uses the official `xai_sdk` Python SDK. Calls the `grok-imagine-video` model via `xai_sdk.AsyncClient`.
 
-### 模型常量
+### Model Constants
 
 ```python
 DEFAULT_MODEL = "grok-imagine-video"
 ```
 
-### 初始化
+### Initialization
 
 ```python
 def __init__(self, *, api_key: str | None = None, model: str | None = None):
 ```
 
-- `api_key`：从构造参数传入（来源于 WebUI 配置页写入的 `XAI_API_KEY` 环境变量）
-- 创建 `xai_sdk.AsyncClient(api_key=api_key)`
+- `api_key`: passed from constructor parameters (sourced from the `XAI_API_KEY` environment variable set by the WebUI config page)
+- Creates `xai_sdk.AsyncClient(api_key=api_key)`
 
-### 能力集
+### Capability Set
 
 ```python
 {VideoCapability.TEXT_TO_VIDEO, VideoCapability.IMAGE_TO_VIDEO}
 ```
 
-不支持：`GENERATE_AUDIO`、`NEGATIVE_PROMPT`、`VIDEO_EXTEND`、`SEED_CONTROL`、`FLEX_TIER`。
+Not supported: `GENERATE_AUDIO`, `NEGATIVE_PROMPT`, `VIDEO_EXTEND`, `SEED_CONTROL`, `FLEX_TIER`.
 
-### generate() 流程
+### generate() Flow
 
-1. 构建参数：prompt、aspect_ratio、duration（1-15 秒整数值，直接传入）
-2. 若有 `start_image`：读取本地文件，base64 编码为 `data:image/{ext};base64,{data}`
-3. 调用 `client.video.generate(...)`（具体参数名以 `xai_sdk` 实际 API 为准，实现时参考 `docs/grok-docs/video-generation.md`）
-4. SDK 自动处理轮询，返回结果包含临时视频 URL
-5. 用 `httpx.AsyncClient` 异步下载视频到 `output_path`
-6. 返回 `VideoGenerationResult(video_path=output_path, provider="grok", model=model, duration_seconds=...)`
+1. Build parameters: prompt, aspect_ratio, duration (integer 1-15 seconds, passed directly)
+2. If `start_image` provided: read the local file, base64-encode as `data:image/{ext};base64,{data}`
+3. Call `client.video.generate(...)` (exact parameter names follow the actual `xai_sdk` API; refer to `docs/grok-docs/video-generation.md` when implementing)
+4. SDK handles polling automatically; the result contains a temporary video URL
+5. Async-download the video to `output_path` using `httpx.AsyncClient`
+6. Return `VideoGenerationResult(video_path=output_path, provider="grok", model=model, duration_seconds=...)`
 
-### 分辨率
+### Resolution
 
-从 `VideoGenerationRequest.resolution` 读取（由调用方从 `video_model_settings` 注入）。仅支持 `480p` / `720p`。
+Read from `VideoGenerationRequest.resolution` (injected by the caller from `video_model_settings`). Only `480p` / `720p` are supported.
 
-## 2. 注册与工厂
+## 2. Registration and Factory
 
 ### base.py
 
-新增常量：
+Add constant:
 
 ```python
 PROVIDER_GROK = "grok"
@@ -64,18 +64,18 @@ PROVIDER_GROK = "grok"
 
 ### __init__.py
 
-新增注册：
+Add registration:
 
 ```python
 from lib.video_backends.grok import GrokVideoBackend
 register_backend(PROVIDER_GROK, GrokVideoBackend)
 ```
 
-与 Gemini/Seedance 一致，模块加载时自动注册。
+Consistent with Gemini/Seedance: automatically registered on module load.
 
 ### generation_tasks.py
 
-`_get_or_create_video_backend()` 新增 `grok` 分支：
+`_get_or_create_video_backend()` adds a `grok` branch:
 
 ```python
 elif provider_name == PROVIDER_GROK:
@@ -85,17 +85,17 @@ elif provider_name == PROVIDER_GROK:
     }
 ```
 
-沿用 `(provider_name, model)` 缓存策略。
+Reuses the `(provider_name, model)` caching strategy.
 
-## 3. 计费与用量追踪
+## 3. Billing and Usage Tracking
 
 ### CostCalculator
 
-新增 Grok 计费字典和实例方法（与现有 `calculate_video_cost` / `calculate_seedance_video_cost` 模式一致）：
+Add Grok billing dict and instance method (consistent with the existing `calculate_video_cost` / `calculate_seedance_video_cost` pattern):
 
 ```python
 GROK_VIDEO_COST = {
-    "grok-imagine-video": 0.050,  # USD/秒，不区分分辨率（来源：docs/grok-docs/models.md）
+    "grok-imagine-video": 0.050,  # USD/second, no resolution distinction (source: docs/grok-docs/models.md)
 }
 
 def calculate_grok_video_cost(self, duration_seconds: int, model: str) -> float:
@@ -103,37 +103,37 @@ def calculate_grok_video_cost(self, duration_seconds: int, model: str) -> float:
     return duration_seconds * per_second
 ```
 
-货币：USD（与 Gemini 一致）。
+Currency: USD (consistent with Gemini).
 
-> **注意**：$0.050/秒为参考值，实现时需核实 xAI 官方定价页面。
+> **Note**: $0.050/second is a reference value; verify against the official xAI pricing page when implementing.
 
 ### UsageRepository
 
-`finish_call()` 新增 `PROVIDER_GROK` 分支：
+`finish_call()` adds a `PROVIDER_GROK` branch:
 
-- 通过 `row.provider` 判断路由到 `calculate_grok_video_cost()`
-- 使用 `duration_seconds`（从 `VideoGenerationResult` 提取）× 单价计算费用
-- 不依赖 `usage_tokens`（Grok 按秒计费）
+- Routes to `calculate_grok_video_cost()` based on `row.provider`
+- Calculates cost using `duration_seconds` (extracted from `VideoGenerationResult`) × unit price
+- Does not depend on `usage_tokens` (Grok billed per second)
 
-## 4. 配置管理
+## 4. Configuration Management
 
 ### SystemConfigManager
 
-**`_ENV_KEYS`** 新增：
+**`_ENV_KEYS`** adds:
 
 ```python
 "XAI_API_KEY"
 ```
 
-**`_apply_to_env()`** 新增 `xai_api_key` → `XAI_API_KEY` 的映射（与 `ark_api_key` → `ARK_API_KEY` 模式一致），确保 WebUI 配置写入后能正确应用到环境变量。
+**`_apply_to_env()`** adds the `xai_api_key` → `XAI_API_KEY` mapping (consistent with the `ark_api_key` → `ARK_API_KEY` pattern), ensuring that WebUI config writes are correctly applied to environment variables.
 
-`DEFAULT_VIDEO_PROVIDER` 合法值扩展为 `gemini | seedance | grok`。
+`DEFAULT_VIDEO_PROVIDER` valid values extended to `gemini | seedance | grok`.
 
-### 分辨率：模型级子配置
+### Resolution: Model-Level Sub-Configuration
 
-分辨率从 `video_model_settings.{model}.resolution` 读取，而非全局或供应商级别。
+Resolution is read from `video_model_settings.{model}.resolution`, not at the global or provider level.
 
-配置结构示例（`.system_config.json`）：
+Configuration structure example (`.system_config.json`):
 
 ```json
 {
@@ -151,47 +151,47 @@ def calculate_grok_video_cost(self, duration_seconds: int, model: str) -> float:
 }
 ```
 
-**分辨率注入点**：`server/services/generation_tasks.py` 的 `execute_video_task()` 中，在构建 `VideoGenerationRequest` 前，根据当前选中的模型名从 `video_model_settings` 取对应分辨率，设置到 `request.resolution`。各模型默认值：
+**Resolution injection point**: In `execute_video_task()` in `server/services/generation_tasks.py`, before constructing `VideoGenerationRequest`, look up the resolution for the currently selected model from `video_model_settings` and set it on `request.resolution`. Default values per model:
 
-| 模型 | 默认分辨率 |
+| Model | Default Resolution |
 |------|-----------|
 | veo-3.1-* | 1080p |
 | seedance-1.5-* | 720p |
 | grok-imagine-video | 720p |
 
-## 5. 测试策略
+## 5. Testing Strategy
 
-### 单元测试
+### Unit Tests
 
 `tests/test_grok_video_backend.py`：
 
-- mock `xai_sdk.AsyncClient`，验证 `generate()` 正确构建参数并返回 `VideoGenerationResult`
-- text-to-video 路径：验证 prompt、aspect_ratio、duration 正确传递
-- image-to-video 路径：验证本地图片被 base64 编码并传递
-- 不支持的能力（如 `generate_audio`）被正确忽略
+- mock `xai_sdk.AsyncClient`, verify `generate()` correctly builds parameters and returns `VideoGenerationResult`
+- text-to-video path: verify prompt, aspect_ratio, duration are correctly passed
+- image-to-video path: verify local image is base64-encoded and passed
+- Unsupported capabilities (e.g., `generate_audio`) are correctly ignored
 
-### 计费测试
+### Billing Tests
 
 `tests/test_cost_calculator.py`：
 
-- 新增 Grok 计费用例：验证 `calculate_grok_video_cost()` 按秒计费
+- Add Grok billing test cases: verify `calculate_grok_video_cost()` bills per second
 
-### 不新增
+### Not Added
 
-- 集成测试（需要真实 API Key）
-- 前端测试（本次不涉及前端改动）
+- Integration tests (require a real API key)
+- Frontend tests (this change does not involve frontend modifications)
 
-## 涉及文件清单
+## Affected File Checklist
 
-| 文件 | 操作 |
+| File | Action |
 |------|------|
-| `lib/video_backends/grok.py` | 新增 |
-| `lib/video_backends/base.py` | 修改（新增 `PROVIDER_GROK`） |
-| `lib/video_backends/__init__.py` | 修改（注册 Grok） |
-| `lib/cost_calculator.py` | 修改（新增 Grok 计费） |
-| `lib/db/repositories/usage_repo.py` | 修改（`finish_call()` 新增 Grok 分支） |
-| `lib/system_config.py` | 修改（`_ENV_KEYS` + `_apply_to_env`） |
-| `server/services/generation_tasks.py` | 修改（工厂 + 分辨率注入） |
-| `pyproject.toml` | 修改（新增 `xai_sdk` 依赖） |
-| `tests/test_grok_video_backend.py` | 新增 |
-| `tests/test_cost_calculator.py` | 修改（新增用例） |
+| `lib/video_backends/grok.py` | Add |
+| `lib/video_backends/base.py` | Modify (add `PROVIDER_GROK`) |
+| `lib/video_backends/__init__.py` | Modify (register Grok) |
+| `lib/cost_calculator.py` | Modify (add Grok billing) |
+| `lib/db/repositories/usage_repo.py` | Modify (`finish_call()` add Grok branch) |
+| `lib/system_config.py` | Modify (`_ENV_KEYS` + `_apply_to_env`) |
+| `server/services/generation_tasks.py` | Modify (factory + resolution injection) |
+| `pyproject.toml` | Modify (add `xai_sdk` dependency) |
+| `tests/test_grok_video_backend.py` | Add |
+| `tests/test_cost_calculator.py` | Modify (add test cases) |

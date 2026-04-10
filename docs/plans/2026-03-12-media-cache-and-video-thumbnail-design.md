@@ -1,30 +1,30 @@
-# 媒体缓存与视频缩略图优化设计
+# Media Cache and Video Thumbnail Optimization Design
 
-## 背景
+## Background
 
-当前 ArcReel 时间线在滚动（虚拟滚动卸载/重挂载）和重进页面时，图片/视频会重复下载。
-根因是：前端 `entityRevisions` 是 session 级计数器，后端 `FileResponse` 无缓存头。
+The current ArcReel timeline re-downloads images/videos on scroll (virtual scroll unmount/remount) and on re-entering the page.
+Root cause: the frontend `entityRevisions` is a session-level counter, and the backend `FileResponse` has no cache headers.
 
-## 目标
+## Goals
 
-1. **零网络请求缓存**：文件内容未变时，滚动回来和跨 session 重进均从浏览器 disk cache 加载
-2. **视频带宽优化**：视频默认不预加载，用首帧缩略图作为封面，点击后才加载
-3. **版本浏览缓存**：版本快照文件设 immutable 缓存，版本切换即时刷新
+1. **Zero-network-request caching**: When file content has not changed, returning after scroll and re-entering across sessions both load from browser disk cache
+2. **Video bandwidth optimization**: Videos do not preload by default; the first-frame thumbnail is used as the poster, and the video only loads on click
+3. **Version browse caching**: Version snapshot files use immutable cache; version switching triggers an instant refresh
 
-## 设计
+## Design
 
-### Part 1：基于文件指纹的内容寻址缓存
+### Part 1: Content-addressed Caching Based on File Fingerprints
 
-#### 核心思路
+#### Core Concept
 
-用文件 `mtime`（修改时间）作为 URL cache-bust 参数，替代 session 级计数器。
-文件不变 → mtime 不变 → URL 不变 → 浏览器 disk cache 命中 → 零网络。
+Use the file `mtime` (modification time) as the URL cache-bust parameter, replacing the session-level counter.
+File unchanged → mtime unchanged → URL unchanged → browser disk cache hit → zero network.
 
-#### 后端
+#### Backend
 
-**1) 项目 API 返回 `asset_fingerprints`**
+**1) Project API returns `asset_fingerprints`**
 
-`GET /api/v1/projects/{name}` 响应新增顶层字段：
+`GET /api/v1/projects/{name}` response adds a top-level field:
 
 ```json
 {
@@ -34,46 +34,46 @@
     "storyboards/scene_E1S01.png": 1710288000,
     "videos/scene_E1S01.mp4": 1710289000,
     "thumbnails/scene_E1S01.jpg": 1710289000,
-    "characters/角色名.png": 1710287000
+    "characters/character-name.png": 1710287000
   }
 }
 ```
 
-实现：扫描项目目录下 `storyboards/`、`videos/`、`thumbnails/`、`characters/`、`clues/`，
-用 `int(file.stat().st_mtime)` 生成指纹 map。~50 个文件耗时 <1ms。
+Implementation: Scan `storyboards/`, `videos/`, `thumbnails/`, `characters/`, `clues/` under the project directory,
+and generate a fingerprint map using `int(file.stat().st_mtime)`. ~50 files takes <1ms.
 
-**2) SSE 事件携带 `asset_fingerprints`**
+**2) SSE events carry `asset_fingerprints`**
 
-在 `_emit_generation_success_batch()` 中，生成完成后计算受影响文件的 mtime：
+In `_emit_generation_success_batch()`, calculate the mtime of affected files after generation completes:
 
 ```json
 {
   "entity_type": "segment",
   "action": "storyboard_ready",
   "entity_id": "S1",
-  "label": "分镜「S1」",
+  "label": "Storyboard S1",
   "asset_fingerprints": {
     "storyboards/scene_S1.png": 1710289000
   }
 }
 ```
 
-好处：fingerprint 随 SSE 事件即时到达，前端无需额外 API 调用就能更新 URL。
+Benefit: fingerprints arrive instantly with SSE events; the frontend can update URLs without additional API calls.
 
-**3) 文件路由设置 immutable 缓存头**
+**3) File routes set immutable cache headers**
 
-`GET /api/v1/files/{project}/{path}` 响应头：
+`GET /api/v1/files/{project}/{path}` response headers:
 
 ```
-有 ?v= 参数 或 路径包含 versions/  →  Cache-Control: public, max-age=31536000, immutable
-其他                                →  无特殊缓存头
+Has ?v= parameter or path contains versions/  →  Cache-Control: public, max-age=31536000, immutable
+Other                                            →  No special cache headers
 ```
 
-#### 前端
+#### Frontend
 
-**4) 新增 fingerprint 状态管理**
+**4) Add fingerprint state management**
 
-在 projects-store 中新增：
+Add to projects-store:
 
 ```typescript
 assetFingerprints: Record<string, number>;
@@ -81,20 +81,20 @@ updateAssetFingerprints: (fps: Record<string, number>) => void;
 getAssetFingerprint: (path: string) => number | null;
 ```
 
-初始加载时从项目 API 响应设置；SSE 事件到达时增量更新。
+Set from the project API response on initial load; incrementally update when SSE events arrive.
 
-**5) SSE 处理优化**
+**5) SSE handling optimization**
 
 ```typescript
 onChanges(payload) {
-  // 立即更新 fingerprints
+  // Immediately update fingerprints
   for (const change of payload.changes) {
     if (change.asset_fingerprints) {
       updateAssetFingerprints(change.asset_fingerprints);
     }
   }
 
-  // 仅在结构性变更时 refreshProject()
+  // Only call refreshProject() on structural changes
   const needsRefresh = payload.changes.some(c =>
     ["created", "deleted"].includes(c.action) ||
     ["episode", "project", "overview"].includes(c.entity_type)
@@ -103,9 +103,9 @@ onChanges(payload) {
 }
 ```
 
-首次生成（`generated_assets` 从 null → 路径）仍需 refreshProject() 获取脚本更新。
+First generation (`generated_assets` going from null → path) still requires refreshProject() to get script updates.
 
-**6) URL 构建使用 fingerprint**
+**6) URL construction uses fingerprint**
 
 ```typescript
 const fp = useProjectsStore(s => s.getAssetFingerprint(assetPath));
@@ -113,20 +113,20 @@ const url = API.getFileUrl(projectName, assetPath, fp);
 // → "/api/v1/files/MyProject/storyboards/scene_E1S01.png?v=1710288000"
 ```
 
-#### 缓存命中场景
+#### Cache Hit Scenarios
 
-| 场景 | 旧方案 | 新方案 |
+| Scenario | Old Approach | New Approach |
 |------|--------|--------|
-| 虚拟滚动卸载再挂载 | 重新下载 | disk cache，零网络 |
-| 刷新页面 | ?v=N 重新下载 | 同 mtime → 同 URL → 缓存命中 |
-| 新 session 打开 | ?v=0 内容可能已变 | 同 mtime → 同 URL → 缓存命中 |
-| 文件重新生成 | revision+1 | mtime 变 → URL 变 → 重下 |
+| Virtual scroll unmount + remount | Re-download | Disk cache, zero network |
+| Page refresh | ?v=N re-download | Same mtime → same URL → cache hit |
+| Open new session | ?v=0 content may have changed | Same mtime → same URL → cache hit |
+| File regenerated | revision+1 | mtime changes → URL changes → re-download |
 
-### Part 2：视频首帧缩略图
+### Part 2: Video First-Frame Thumbnail
 
-#### 生成时机
+#### Generation Timing
 
-在视频生成完成后（`execute_video_task` 中），由同一 worker 用 ffmpeg 提取首帧：
+After video generation completes (in `execute_video_task`), the same worker extracts the first frame using ffmpeg:
 
 ```python
 thumbnail_path = project_path / "thumbnails" / f"scene_{resource_id}.jpg"
@@ -139,21 +139,21 @@ await asyncio.create_subprocess_exec(
 )
 ```
 
-#### 存储结构
+#### Storage Structure
 
 ```
 projects/{project_name}/
 ├── videos/scene_E1S01.mp4
-├── thumbnails/scene_E1S01.jpg        ← 新增：视频首帧
+├── thumbnails/scene_E1S01.jpg        ← new: video first frame
 ├── storyboards/scene_E1S01.png
 └── versions/
-    └── thumbnails/                    ← 新增：版本视频首帧
+    └── thumbnails/                    ← new: version video first frames
         └── E1S01_v1_20260312T103045.jpg
 ```
 
-#### 数据模型扩展
+#### Data Model Extension
 
-`generated_assets` 新增 `video_thumbnail` 字段：
+`generated_assets` adds a new `video_thumbnail` field:
 
 ```json
 {
@@ -165,7 +165,7 @@ projects/{project_name}/
 }
 ```
 
-#### 前端使用
+#### Frontend Usage
 
 ```tsx
 <video
@@ -177,7 +177,7 @@ projects/{project_name}/
 />
 ```
 
-#### SSE 事件包含缩略图 fingerprint
+#### SSE Events Include Thumbnail Fingerprint
 
 ```json
 {
@@ -189,22 +189,22 @@ projects/{project_name}/
 }
 ```
 
-### Part 3：版本浏览与切换的缓存适配
+### Part 3: Cache Adaptation for Version Browsing and Switching
 
-#### 版本文件缓存
+#### Version File Caching
 
-版本文件（`versions/` 下）是不可变快照，URL 包含版本号+时间戳，天然唯一。
-后端检测路径包含 `versions/` 时直接设 `immutable` 缓存头。
+Version files (under `versions/`) are immutable snapshots; the URL includes a version number + timestamp, making them naturally unique.
+The backend sets `immutable` cache headers when it detects that the path contains `versions/`.
 
-#### 版本视频缩略图
+#### Version Video Thumbnails
 
-在 `VersionManager.add_version()` 中，对视频版本文件也提取首帧：
-- 存储在 `versions/thumbnails/{resource_id}_v{N}_{timestamp}.jpg`
-- VersionTimeMachine 中的视频预览也使用 `preload="none"` + poster
+In `VersionManager.add_version()`, also extract the first frame for video version files:
+- Stored at `versions/thumbnails/{resource_id}_v{N}_{timestamp}.jpg`
+- Video previews in VersionTimeMachine also use `preload="none"` + poster
 
-#### 版本切换刷新
+#### Version Switch Refresh
 
-`restore_version()` API 返回新的 `asset_fingerprints`：
+`restore_version()` API returns new `asset_fingerprints`:
 
 ```python
 return {
@@ -217,34 +217,34 @@ return {
 }
 ```
 
-前端直接用返回的 fingerprint 更新 store，主显示区 URL 即时变化。
+The frontend directly updates the store with the returned fingerprint, causing the main display URL to change instantly.
 
-## 涉及文件
+## Affected Files
 
-### 后端
+### Backend
 
-| 文件 | 改动 |
+| File | Change |
 |------|------|
-| `server/routers/projects.py` | 项目 API 返回 `asset_fingerprints` |
-| `server/routers/files.py` | 添加 `Cache-Control: immutable` 响应头 |
-| `server/routers/versions.py` | restore API 返回 `asset_fingerprints` |
-| `server/services/generation_tasks.py` | SSE 事件携带 `asset_fingerprints` |
-| `server/services/project_events.py` | ProjectChange 类型扩展（可选） |
-| `lib/media_generator.py` | 视频生成后提取首帧缩略图 |
-| `lib/version_manager.py` | 版本保存时为视频提取缩略图 |
-| `lib/project_manager.py` | `create_generated_assets` 新增 `video_thumbnail` 字段 |
+| `server/routers/projects.py` | Project API returns `asset_fingerprints` |
+| `server/routers/files.py` | Add `Cache-Control: immutable` response header |
+| `server/routers/versions.py` | restore API returns `asset_fingerprints` |
+| `server/services/generation_tasks.py` | SSE events carry `asset_fingerprints` |
+| `server/services/project_events.py` | ProjectChange type extension (optional) |
+| `lib/media_generator.py` | Extract first-frame thumbnail after video generation |
+| `lib/version_manager.py` | Extract thumbnail for video when saving a version |
+| `lib/project_manager.py` | Add `video_thumbnail` field to `create_generated_assets` |
 
-### 前端
+### Frontend
 
-| 文件 | 改动 |
+| File | Change |
 |------|------|
-| `frontend/src/stores/projects-store.ts` | 新增 fingerprint 状态管理 |
-| `frontend/src/hooks/useProjectEventsSSE.ts` | SSE 处理使用 fingerprint |
-| `frontend/src/components/canvas/timeline/SegmentCard.tsx` | URL 用 fingerprint；视频用 poster + preload=none |
-| `frontend/src/components/canvas/timeline/VersionTimeMachine.tsx` | 视频用 poster + preload=none；还原用 fingerprint |
-| `frontend/src/components/canvas/lorebook/CharacterCard.tsx` | URL 用 fingerprint |
-| `frontend/src/components/canvas/lorebook/ClueCard.tsx` | URL 用 fingerprint |
-| `frontend/src/components/canvas/OverviewCanvas.tsx` | URL 用 fingerprint |
-| `frontend/src/components/ui/AvatarStack.tsx` | URL 用 fingerprint |
-| `frontend/src/api.ts` | VersionInfo 类型扩展 |
-| `frontend/src/types/workspace.ts` | ProjectChange 类型扩展 |
+| `frontend/src/stores/projects-store.ts` | Add fingerprint state management |
+| `frontend/src/hooks/useProjectEventsSSE.ts` | SSE handling uses fingerprint |
+| `frontend/src/components/canvas/timeline/SegmentCard.tsx` | URL uses fingerprint; video uses poster + preload=none |
+| `frontend/src/components/canvas/timeline/VersionTimeMachine.tsx` | Video uses poster + preload=none; restore uses fingerprint |
+| `frontend/src/components/canvas/lorebook/CharacterCard.tsx` | URL uses fingerprint |
+| `frontend/src/components/canvas/lorebook/ClueCard.tsx` | URL uses fingerprint |
+| `frontend/src/components/canvas/OverviewCanvas.tsx` | URL uses fingerprint |
+| `frontend/src/components/ui/AvatarStack.tsx` | URL uses fingerprint |
+| `frontend/src/api.ts` | VersionInfo type extension |
+| `frontend/src/types/workspace.ts` | ProjectChange type extension |

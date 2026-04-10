@@ -1,23 +1,23 @@
-# Prompt 约束规则设计
+# Prompt Constraint Rules Design
 
-## 背景
+## Background
 
-在审核 `episode_1.json` 的 `image_prompt` 和 `video_prompt` 时，发现生成的 prompt 包含大量抽象、主观、比喻性描述，导致 AI 图像/视频生成效果不理想。
+When reviewing `image_prompt` and `video_prompt` in `episode_1.json`, the generated prompts were found to contain large amounts of abstract, subjective, and metaphorical descriptions, causing poor AI image/video generation results.
 
-### 问题示例
+### Problem Examples
 
-| 片段 | 问题描述 | 问题类型 |
-|------|---------|---------|
-| E1S06 | "画面迅速闪过一本古朴的封面书" | 抽象概念（"穿书"） |
-| E1S13 | "像是一座不可撼动的恐怖山峦" | 比喻/隐喻 |
-| E1S21 | "多场景混剪" | 多场景切换（技术不可行） |
-| E1S23 | "现代灵魂与古代身体的对话" | 抽象心理活动 |
-| E1S25 | "鲜红色的染料泼洒"隐喻刑罚 | 隐喻表达 |
-| E1S34 | "认知失调" | 抽象情绪词 |
+| Segment | Problem Description | Problem Type |
+|---------|--------------------| -------------|
+| E1S06 | "The frame quickly flashes a rustic book cover" | Abstract concept ("transmigration") |
+| E1S13 | "Like an immovable mountain of terror" | Metaphor/simile |
+| E1S21 | "Multi-scene quick cuts" | Multi-scene switching (technically infeasible) |
+| E1S23 | "A conversation between a modern soul and an ancient body" | Abstract psychological activity |
+| E1S25 | "A splash of crimson dye" as metaphor for punishment | Metaphorical expression |
+| E1S34 | "Cognitive dissonance" | Abstract emotional term |
 
-### 参考方案
+### Reference Approach
 
-借鉴 StoryCraft 的 prompt 约束风格：
+Draws on StoryCraft's prompt constraint style:
 
 ```
 "Scene": "Describe the specific scene being depicted - what is happening in this moment, 
@@ -31,151 +31,151 @@ Exclude any details that suggest a broader story or character arcs.
 The scene should be self-contained, not implying past events or future developments."
 ```
 
-**核心原则**：
-1. 聚焦当下时刻（Focus on the immediate action）
-2. 具体可见元素（characters and objects positions, actions, and interactions）
-3. 排除抽象扩展（Exclude any details that suggest a broader story）
-4. 自包含（self-contained, not implying past events or future developments）
+**Core Principles**:
+1. Focus on the immediate action (Focus on the immediate action)
+2. Concrete visible elements (characters and objects positions, actions, and interactions)
+3. Exclude abstract extensions (Exclude any details that suggest a broader story)
+4. Self-contained (self-contained, not implying past events or future developments)
 
 ---
 
-## 设计方案
+## Design
 
-### 修改文件
+### Files to Modify
 
-| 文件 | 修改内容 |
+| File | Changes |
 |------|---------|
-| `lib/prompt_builders_script.py` | 更新 `build_narration_prompt()` 和 `build_drama_prompt()` 中的 image_prompt 和 video_prompt 约束 |
+| `lib/prompt_builders_script.py` | Update image_prompt and video_prompt constraints in `build_narration_prompt()` and `build_drama_prompt()` |
 
-### 1. image_prompt 约束优化
+### 1. image_prompt Constraint Optimization
 
-**当前版本**：
+**Current Version**:
 ```python
-d. **image_prompt**：生成包含以下字段的对象：
-   - scene：用中文描述具体场景——角色位置、表情、动作、环境细节。要具体、可视化。一段话。
-   - composition：
-     - shot_type：镜头类型（Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view）
-     - lighting：用中文描述光源、方向和氛围
-     - ambiance：用中文描述整体氛围，与情绪基调匹配
+d. **image_prompt**: Generate an object with these fields:
+   - scene: Describe the specific scene in Chinese — character positions, expressions, actions, environmental details. Be concrete and visual. One paragraph.
+   - composition:
+     - shot_type: Shot type (Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view)
+     - lighting: Describe light source, direction, and mood in Chinese
+     - ambiance: Describe overall atmosphere in Chinese, matching the emotional tone
 ```
 
-**优化版本**：
+**Optimized Version**:
 ```python
-d. **image_prompt**：生成包含以下字段的对象：
-   - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。
-     聚焦当下瞬间的可见画面。仅描述摄像机能够捕捉到的具体视觉元素。
-     确保描述避免超出此刻画面的元素。排除比喻、隐喻、抽象情绪词、主观评价、多场景切换等无法直接渲染的描述。
-     画面应自包含，不暗示过去事件或未来发展。
-   - composition：
-     - shot_type：镜头类型（Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view）
-     - lighting：用中文描述具体的光源类型、方向和色温（如"左侧窗户透入的暖黄色晨光"）
-     - ambiance：用中文描述可见的环境效果（如"薄雾弥漫"、"尘埃飞扬"），避免抽象情绪词
+d. **image_prompt**: Generate an object with these fields:
+   - scene: Describe the specific scene visible at this moment — character positions, postures, expressions, clothing details, and visible environmental elements and objects.
+     Focus on the visually present elements at this instant. Only describe concrete visual elements that a camera can capture.
+     Ensure the description avoids elements beyond this moment. Exclude metaphors, similes, abstract emotional terms, subjective evaluations, multi-scene cuts, and other non-renderable descriptions.
+     The image should be self-contained, not implying past events or future developments.
+   - composition:
+     - shot_type: Shot type (Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view)
+     - lighting: Describe the specific light source type, direction, and color temperature (e.g., "warm yellow morning light entering from the left window")
+     - ambiance: Describe visible environmental effects (e.g., "thin mist", "dust floating in the air"), avoid abstract emotional terms
 ```
 
-### 2. video_prompt 约束优化
+### 2. video_prompt Constraint Optimization
 
-**当前版本**：
+**Current Version**:
 ```python
-e. **video_prompt**：生成包含以下字段的对象：
-   - action：用中文精确描述该时长内发生的动作。具体描述运动细节。
-   - camera_motion：镜头运动（Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot）
-   - ambiance_audio：用中文描述场景内的声音。禁止出现音乐或 BGM。
-   - dialogue：{speaker, line} 数组。仅当原文有引号对话时填写。
+e. **video_prompt**: Generate an object with these fields:
+   - action: Precisely describe the action happening during this duration in Chinese. Be specific about movement details.
+   - camera_motion: Camera motion (Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot)
+   - ambiance_audio: Describe sounds within the scene in Chinese. No music or BGM.
+   - dialogue: {speaker, line} array. Only populate when the source text has quoted dialogue.
 ```
 
-**优化版本**：
+**Optimized Version**:
 ```python
-e. **video_prompt**：生成包含以下字段的对象：
-   - action：用中文精确描述该时长内主体的具体动作——身体移动、手势变化、表情转换。
-     聚焦单一连贯动作，确保在指定时长（4/6/8秒）内可完成。
-     排除多场景切换、蒙太奇、快速剪辑等单次生成无法实现的效果。
-     排除比喻性动作描述（如"像蝴蝶般飞舞"）。
-   - camera_motion：镜头运动（Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot）
-     每个片段仅选择一种镜头运动。
-   - ambiance_audio：用中文描述画内音（diegetic sound）——环境声、脚步声、物体声音。
-     仅描述场景内真实存在的声音。排除音乐、BGM、旁白、画外音。
-   - dialogue：{speaker, line} 数组。仅当原文有引号对话时填写。speaker 必须来自 characters_in_segment。
+e. **video_prompt**: Generate an object with these fields:
+   - action: Precisely describe the subject's specific actions during this duration — body movement, gesture changes, expression transitions.
+     Focus on a single coherent action that can be completed within the specified duration (4/6/8 seconds).
+     Exclude multi-scene cuts, montage, rapid editing, and other effects that cannot be achieved in a single generation.
+     Exclude metaphorical action descriptions (e.g., "dancing like a butterfly").
+   - camera_motion: Camera motion (Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot)
+     Choose only one camera motion per segment.
+   - ambiance_audio: Describe diegetic sound — ambient sounds, footsteps, object sounds.
+     Only describe sounds that actually exist within the scene. Exclude music, BGM, narration, voice-over.
+   - dialogue: {speaker, line} array. Only populate when the source text has quoted dialogue. speaker must come from characters_in_segment.
 ```
 
-### 3. drama 模式同步更新
+### 3. Synchronize drama Mode
 
-`build_drama_prompt()` 函数需要同步应用相同的约束规则：
+The `build_drama_prompt()` function must apply the same constraint rules:
 
-**image_prompt**（与 narration 模式一致，保留 16:9 横屏说明）：
+**image_prompt** (same as narration mode, retaining 16:9 landscape note):
 ```python
-c. **image_prompt**：生成包含以下字段的对象：
-   - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。16:9 横屏构图。
-     聚焦当下瞬间的可见画面。仅描述摄像机能够捕捉到的具体视觉元素。
-     确保描述避免超出此刻画面的元素。排除比喻、隐喻、抽象情绪词、主观评价、多场景切换等无法直接渲染的描述。
-     画面应自包含，不暗示过去事件或未来发展。
-   - composition：
-     - shot_type：镜头类型（Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view）
-     - lighting：用中文描述具体的光源类型、方向和色温（如"左侧窗户透入的暖黄色晨光"）
-     - ambiance：用中文描述可见的环境效果（如"薄雾弥漫"、"尘埃飞扬"），避免抽象情绪词
+c. **image_prompt**: Generate an object with these fields:
+   - scene: Describe the specific scene visible at this moment — character positions, postures, expressions, clothing details, and visible environmental elements and objects. 16:9 landscape composition.
+     Focus on the visually present elements at this instant. Only describe concrete visual elements that a camera can capture.
+     Ensure the description avoids elements beyond this moment. Exclude metaphors, similes, abstract emotional terms, subjective evaluations, multi-scene cuts, and other non-renderable descriptions.
+     The image should be self-contained, not implying past events or future developments.
+   - composition:
+     - shot_type: Shot type (Extreme Close-up, Close-up, Medium Close-up, Medium Shot, Medium Long Shot, Long Shot, Extreme Long Shot, Over-the-shoulder, Point-of-view)
+     - lighting: Describe the specific light source type, direction, and color temperature (e.g., "warm yellow morning light entering from the left window")
+     - ambiance: Describe visible environmental effects (e.g., "thin mist", "dust floating in the air"), avoid abstract emotional terms
 ```
 
-**video_prompt**（与 narration 模式一致，dialogue 字段说明略有不同）：
+**video_prompt** (same as narration mode, dialogue field description slightly different):
 ```python
-d. **video_prompt**：生成包含以下字段的对象：
-   - action：用中文精确描述该时长内主体的具体动作——身体移动、手势变化、表情转换。
-     聚焦单一连贯动作，确保在指定时长（4/6/8秒）内可完成。
-     排除多场景切换、蒙太奇、快速剪辑等单次生成无法实现的效果。
-     排除比喻性动作描述（如"像蝴蝶般飞舞"）。
-   - camera_motion：镜头运动（Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot）
-     每个片段仅选择一种镜头运动。
-   - ambiance_audio：用中文描述画内音（diegetic sound）——环境声、脚步声、物体声音。
-     仅描述场景内真实存在的声音。排除音乐、BGM、旁白、画外音。
-   - dialogue：{speaker, line} 数组。包含角色对话。speaker 必须来自 characters_in_scene。
+d. **video_prompt**: Generate an object with these fields:
+   - action: Precisely describe the subject's specific actions during this duration — body movement, gesture changes, expression transitions.
+     Focus on a single coherent action that can be completed within the specified duration (4/6/8 seconds).
+     Exclude multi-scene cuts, montage, rapid editing, and other effects that cannot be achieved in a single generation.
+     Exclude metaphorical action descriptions (e.g., "dancing like a butterfly").
+   - camera_motion: Camera motion (Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot)
+     Choose only one camera motion per segment.
+   - ambiance_audio: Describe diegetic sound — ambient sounds, footsteps, object sounds.
+     Only describe sounds that actually exist within the scene. Exclude music, BGM, narration, voice-over.
+   - dialogue: {speaker, line} array. Include character dialogue. speaker must come from characters_in_scene.
 ```
 
 ---
 
-## 预期效果
+## Expected Results
 
-### 修改前（问题示例）
+### Before (Problem Examples)
 
 ```json
 {
   "image_prompt": {
-    "scene": "温暖视角：谢渊的身影在大殿中被无限放大，像是一座不可撼动的恐怖山峦。",
+    "scene": "Warm perspective: Xie Yuan's silhouette fills the great hall, like an immovable mountain of terror.",
     "composition": {
-      "ambiance": "压抑而绝望"
+      "ambiance": "Oppressive and despairing"
     }
   },
   "video_prompt": {
-    "action": "镜头快速在几个场景切换：被推开的奏折、假山上晃动的枝叶、偏殿凌乱的床褥。"
+    "action": "The camera quickly cuts between several scenes: a memorial tablet being pushed aside, swaying branches on the garden rockery, disheveled bedding in the side hall."
   }
 }
 ```
 
-### 修改后（预期效果）
+### After (Expected Results)
 
 ```json
 {
   "image_prompt": {
-    "scene": "温暖仰视视角，谢渊身着玄色龙袍站在金色龙椅前，双手负于身后，居高临下俯视。大殿内红色立柱排列，地面倒映人影。",
+    "scene": "Low-angle warm perspective. Xie Yuan, dressed in a black dragon robe, stands before a golden throne with hands clasped behind his back, gazing down. Red columns line the great hall, human silhouettes reflected on the floor.",
     "composition": {
-      "ambiance": "殿内烛火摇曳，光影交错"
+      "ambiance": "Candlelight flickers inside the hall, light and shadow interplay"
     }
   },
   "video_prompt": {
-    "action": "谢渊缓缓抬起右手，衣袖随动作轻摆，指尖指向画面前方。"
+    "action": "Xie Yuan slowly raises his right hand, sleeve swaying gently with the motion, fingertip pointing toward the foreground."
   }
 }
 ```
 
 ---
 
-## 实现步骤
+## Implementation Steps
 
-1. 修改 `lib/prompt_builders_script.py` 中的 `build_narration_prompt()` 函数
-2. 修改 `lib/prompt_builders_script.py` 中的 `build_drama_prompt()` 函数
-3. 使用现有测试项目重新生成剧本，验证效果
+1. Modify the `build_narration_prompt()` function in `lib/prompt_builders_script.py`
+2. Modify the `build_drama_prompt()` function in `lib/prompt_builders_script.py`
+3. Re-generate the script for an existing test project to verify the results
 
 ---
 
-## 验证方法
+## Verification
 
-1. 使用 `/generate-script` 重新生成测试项目的剧本
-2. 检查生成的 `image_prompt` 和 `video_prompt` 是否符合约束
-3. 抽样进行图像/视频生成测试，评估效果
+1. Use `/generate-script` to re-generate the test project's script
+2. Check whether the generated `image_prompt` and `video_prompt` comply with the constraints
+3. Sample image/video generation tests to evaluate results

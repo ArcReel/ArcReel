@@ -1,33 +1,33 @@
-# Alembic 最佳实践修复设计
+# Alembic Best Practices Fix Design
 
-## 概述
+## Overview
 
-对项目 Alembic + Async SQLAlchemy 配置进行全面修复，包括：基础设施配置补齐、时间戳类型统一（String → DateTime）、外键约束添加、PostgreSQL 连接池优化。采用单次迁移方案，一步到位。
+Performs a comprehensive fix of the project Alembic + Async SQLAlchemy configuration, including: infrastructure config completion, timestamp type unification (String → DateTime), foreign key constraint addition, and PostgreSQL connection pool optimization. Uses a single-migration approach for a one-shot fix.
 
-## 背景
+## Background
 
-审查发现 6 个问题：
+Review found 6 issues:
 
-1. **`render_as_batch=True` 缺失（高优先级）** — 未来 SQLite 上 ALTER TABLE 迁移会失败
-2. **时间戳类型混用（中优先级）** — 5 张表用 String，1 张表（ApiKey）用 DateTime，三个 repo 的格式还不一致
-3. **TaskEvent 无外键（中优先级）** — 数据完整性无数据库级保护
-4. **post_write_hooks 未启用（低优先级）** — 迁移文件格式不统一
-5. **PostgreSQL 连接池未配置（低优先级）** — 仅影响生产性能
-6. **`server_default` 跨库兼容性（低优先级）** — Boolean 默认值写法不规范
+1. **`render_as_batch=True` missing (High priority)** — future ALTER TABLE migrations on SQLite will fail
+2. **Mixed timestamp types (Medium priority)** — 5 tables use String, 1 table (ApiKey) uses DateTime, and the format is inconsistent across 3 repos
+3. **TaskEvent has no foreign key (Medium priority)** — data integrity has no database-level protection
+4. **post_write_hooks not enabled (Low priority)** — migration file formatting is inconsistent
+5. **PostgreSQL connection pool not configured (Low priority)** — only affects production performance
+6. **`server_default` cross-database compatibility (Low priority)** — Boolean default value syntax is non-standard
 
-## 方案选择
+## Solution Selection
 
-**选定方案一：单次大迁移**。理由：项目早期（仅 2 个迁移版本）、表数据量小、改动逻辑单一（String→DateTime），拆分反而引入中间不一致状态。
+**Selected Option 1: Single large migration**. Rationale: the project is early-stage (only 2 migration versions), table data volumes are small, and the change logic is singular (String→DateTime); splitting would introduce intermediate inconsistent states.
 
-数据迁移策略：**直接转换**（非新旧列并存），理由同上。
+Data migration strategy: **direct conversion** (not old/new column coexistence), for the same rationale as above.
 
-## 改动范围
+## Change Scope
 
-### 1. Alembic 基础设施（3 个文件）
+### 1. Alembic Infrastructure (3 files)
 
 #### `alembic/env.py`
 
-`do_run_migrations()` 和 `run_migrations_offline()` 都加 `render_as_batch=True`：
+Add `render_as_batch=True` to both `do_run_migrations()` and `run_migrations_offline()`:
 
 ```python
 def do_run_migrations(connection) -> None:
@@ -40,11 +40,11 @@ def do_run_migrations(connection) -> None:
         context.run_migrations()
 ```
 
-离线模式同理。
+The offline mode is the same.
 
 #### `alembic.ini`
 
-取消注释 ruff post_write_hook：
+Uncomment the ruff post_write_hook:
 
 ```ini
 [post_write_hooks]
@@ -56,194 +56,194 @@ ruff.options = check --fix REVISION_SCRIPT_FILENAME
 
 #### `lib/db/engine.py`
 
-PostgreSQL 时添加连接池参数：
+Add connection pool parameters for PostgreSQL:
 
 ```python
 if not _is_sqlite:
     kwargs.update(pool_size=10, max_overflow=20, pool_recycle=3600)
 ```
 
-### 2. 数据库迁移脚本（1 个新迁移文件）
+### 2. Database Migration Script (1 new migration file)
 
-新迁移 `xxxx_unify_timestamps_and_add_fk.py`。
+New migration `xxxx_unify_timestamps_and_add_fk.py`.
 
-#### 涉及的列（11 列，5 张表）
+#### Affected Columns (11 columns, 5 tables)
 
-| 表 | 列 | String → DateTime(timezone=True) |
+| Table | Column | String → DateTime(timezone=True) |
 |---|---|---|
-| tasks | queued_at, started_at, finished_at, updated_at | 4 列 |
-| task_events | created_at | 1 列 |
-| worker_lease | updated_at | 1 列 |
-| api_calls | started_at, finished_at, created_at | 3 列 |
-| agent_sessions | created_at, updated_at | 2 列 |
+| tasks | queued_at, started_at, finished_at, updated_at | 4 columns |
+| task_events | created_at | 1 column |
+| worker_lease | updated_at | 1 column |
+| api_calls | started_at, finished_at, created_at | 3 columns |
+| agent_sessions | created_at, updated_at | 2 columns |
 
-**不改的列**：`worker_lease.lease_until`（Float，epoch 时间戳语义，保持不变）。
+**Unchanged column**: `worker_lease.lease_until` (Float, epoch timestamp semantics, kept as is).
 
-#### SQLite 路径
+#### SQLite Path
 
-`render_as_batch=True` 下，Alembic 通过重建表实现列类型变更。流程：创建新表 → `INSERT INTO new SELECT * FROM old` → 删旧表 → 重命名。SQLite 没有原生 DateTime 类型，ISO 字符串会原样复制到新列中（仍为 TEXT 存储）。aiosqlite + SQLAlchemy 在读取 DateTime 列时会自动做 `fromisoformat` 解析，所以运行时不受影响。
+With `render_as_batch=True`, Alembic implements column type changes by reconstructing the table. The process: create new table → `INSERT INTO new SELECT * FROM old` → drop old table → rename. SQLite has no native DateTime type; ISO strings are copied as-is to the new column (still stored as TEXT). aiosqlite + SQLAlchemy automatically performs `fromisoformat` parsing when reading DateTime columns, so runtime behavior is unaffected.
 
-#### PostgreSQL 路径
+#### PostgreSQL Path
 
-使用防御性 USING 子句处理可能的脏数据：
+Use a defensive USING clause to handle potentially dirty data:
 
 ```sql
 ALTER COLUMN col TYPE TIMESTAMP WITH TIME ZONE
 USING CASE WHEN col IS NOT NULL AND col != '' THEN col::timestamptz END
 ```
 
-三种现存 ISO 格式（`2026-03-17T12:00:00Z`、`...000+00:00`、`...+00:00`）PostgreSQL 都能正确解析。
+All three existing ISO formats (`2026-03-17T12:00:00Z`, `...000+00:00`, `...+00:00`) are correctly parsed by PostgreSQL.
 
-#### 外键约束
+#### Foreign Key Constraints
 
-`task_events.task_id` 添加 `ForeignKey("tasks.task_id", ondelete="CASCADE")`。
+`task_events.task_id` adds `ForeignKey("tasks.task_id", ondelete="CASCADE")`.
 
-**孤立数据清理**：迁移 upgrade 中，在添加外键约束之前，先清理可能存在的孤立记录：
+**Orphan data cleanup**: During migration upgrade, clean up any potentially orphaned records before adding the foreign key constraint:
 
 ```sql
 DELETE FROM task_events WHERE task_id NOT IN (SELECT task_id FROM tasks)
 ```
 
-#### server_default 修正
+#### server_default Fix
 
-`api_calls.generate_audio` 的 `server_default="1"` 改为 `server_default=sa.true_()`。`sa.true_()` 是 SQLAlchemy 提供的跨后端布尔字面量（PostgreSQL 生成 `true`，SQLite 生成 `1`），避免 `sa.text("true")` 在 SQLite 上存储字符串 "true" 的问题。
+`api_calls.generate_audio` `server_default="1"` changed to `server_default=sa.true_()`. `sa.true_()` is a cross-backend boolean literal provided by SQLAlchemy (PostgreSQL generates `true`, SQLite generates `1`), avoiding the issue where `sa.text("true")` stores the string "true" on SQLite.
 
 #### downgrade
 
-- DateTime 列改回 String
-  - PostgreSQL 用 `USING to_char(col AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
-  - SQLite 用 batch mode 重建表
-  - **注意**：downgrade 后时间戳格式统一为 `YYYY-MM-DDTHH:MM:SSZ`（无毫秒），与原始三种不同格式不完全一致。这是可接受的退化，已记录在案
-- 删除 task_events 外键
-- `server_default` 改回 `"1"`
+- Revert DateTime columns back to String
+  - PostgreSQL uses `USING to_char(col AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
+  - SQLite uses batch mode to reconstruct the table
+  - **Note**: After downgrade, the timestamp format is unified to `YYYY-MM-DDTHH:MM:SSZ` (no milliseconds), which is not fully consistent with the original three formats. This is an acceptable degradation and has been documented.
+- Remove task_events foreign key
+- Revert `server_default` back to `"1"`
 
-### 3. ORM 模型改动（4 个文件）
+### 3. ORM Model Changes (4 files)
 
-- `lib/db/models/task.py` — Task（4 列）、TaskEvent（1 列 + 外键）、WorkerLease（1 列）
-- `lib/db/models/api_call.py` — ApiCall（3 列 + server_default）
-- `lib/db/models/session.py` — AgentSession（2 列）
-- `lib/db/models/api_key.py` — 不改（已经是 DateTime）
+- `lib/db/models/task.py` — Task (4 columns), TaskEvent (1 column + foreign key), WorkerLease (1 column)
+- `lib/db/models/api_call.py` — ApiCall (3 columns + server_default)
+- `lib/db/models/session.py` — AgentSession (2 columns)
+- `lib/db/models/api_key.py` — unchanged (already uses DateTime)
 
-所有时间戳字段：
+All timestamp fields:
 ```python
-# 之前
+# Before
 queued_at: Mapped[str] = mapped_column(String, nullable=False)
 
-# 之后
+# After
 queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 ```
 
-TaskEvent 新增外键：
+TaskEvent new foreign key:
 ```python
 task_id: Mapped[str] = mapped_column(
     String, ForeignKey("tasks.task_id", ondelete="CASCADE"), nullable=False
 )
 ```
 
-### 4. Repository 层改动（3 个文件）
+### 4. Repository Layer Changes (3 files)
 
-三个 repo 各自的 `_utc_now_iso()` helper 统一改为 `_utc_now()`，返回 `datetime.now(timezone.utc)`。
+The `_utc_now_iso()` helper in each of the three repos is unified to `_utc_now()`, returning `datetime.now(timezone.utc)`.
 
-#### `lib/db/repositories/task_repo.py`（~12 处）
+#### `lib/db/repositories/task_repo.py` (~12 locations)
 
-- `_utc_now_iso()` → `_utc_now()`，删除 strftime
-- 所有 `queued_at=now`、`started_at=now` 等写入点直接赋 datetime 对象
-- **`_task_to_dict()` 和 `_event_to_dict()`**：datetime 字段必须显式调用 `.isoformat()` 转为字符串。原因：
-  1. `_task_to_dict()` 结果被传入 `json.dumps()`（存入 `TaskEvent.data_json`），datetime 对象会导致 `TypeError: Object of type datetime is not JSON serializable`
-  2. `_event_to_dict()` 结果被传入 SSE 事件流，同样需要字符串
+- `_utc_now_iso()` → `_utc_now()`, remove strftime
+- All write points like `queued_at=now`, `started_at=now` etc. assign datetime objects directly
+- **`_task_to_dict()` and `_event_to_dict()`**: datetime fields must explicitly call `.isoformat()` to convert to strings. Reason:
+  1. `_task_to_dict()` result is passed to `json.dumps()` (stored in `TaskEvent.data_json`), datetime objects would cause `TypeError: Object of type datetime is not JSON serializable`
+  2. `_event_to_dict()` result is passed to the SSE event stream, which also requires strings
 
-#### `lib/db/repositories/usage_repo.py`（~8 处）
+#### `lib/db/repositories/usage_repo.py` (~8 locations)
 
-- 删除 `_iso_millis()` helper
+- Remove the `_iso_millis()` helper
 - `_utc_now_iso()` → `_utc_now()`
-- 删除 `datetime.fromisoformat()` 解析（`finish_call` 中计算 duration_ms 直接用 datetime 减法）
-- 过滤条件 `ApiCall.started_at >= _iso_millis(start)` 改为 `ApiCall.started_at >= start`（直接传 datetime）
-- **`_row_to_dict()`**：datetime 字段显式 `.isoformat()` 以保证 API 返回格式一致
+- Remove `datetime.fromisoformat()` parsing (`finish_call` duration_ms calculation uses datetime subtraction directly)
+- Filter condition `ApiCall.started_at >= _iso_millis(start)` changed to `ApiCall.started_at >= start` (pass datetime directly)
+- **`_row_to_dict()`**: datetime fields explicitly use `.isoformat()` to ensure consistent API response format
 
-#### `lib/db/repositories/session_repo.py`（~6 处）
+#### `lib/db/repositories/session_repo.py` (~6 locations)
 
 - `_utc_now_iso()` → `_utc_now()`
-- 所有写入点同上
-- **`_row_to_dict()`**：datetime 字段显式 `.isoformat()` 以保证 API 返回格式一致
+- All write points same as above
+- **`_row_to_dict()`**: datetime fields explicitly use `.isoformat()` to ensure consistent API response format
 
-### 5. Pydantic 模型适配
+### 5. Pydantic Model Adaptation
 
 #### `server/agent_runtime/models.py` — SessionMeta
 
-`created_at` 和 `updated_at` 从 `str` 改为 `datetime` 类型：
+`created_at` and `updated_at` changed from `str` to `datetime` type:
 
 ```python
-# 之前
+# Before
 created_at: str
 updated_at: str
 
-# 之后
+# After
 created_at: datetime
 updated_at: datetime
 ```
 
-原因：当 `session_repo._row_to_dict()` 返回 datetime 对象时，Pydantic 用 `str()` 强转 datetime 会产生 `2026-03-17 12:00:00+00:00`（注意空格而非 T），破坏下游 `_parse_iso_datetime()` 的解析。改为 datetime 类型后 Pydantic 正确处理。
+Reason: when `session_repo._row_to_dict()` returns a datetime object, Pydantic's `str()` coercion produces `2026-03-17 12:00:00+00:00` (note the space instead of T), which breaks the downstream `_parse_iso_datetime()` parsing. Changing to a datetime type allows Pydantic to handle it correctly.
 
-### 6. 周边代码适配
+### 6. Peripheral Code Adaptation
 
 #### `server/auth.py`
 
-删除 `datetime.fromisoformat(expires_at.replace("Z", "+00:00"))` 字符串解析。`ApiKey.expires_at` 从数据库读出即 datetime 对象，直接比较。
+Remove `datetime.fromisoformat(expires_at.replace("Z", "+00:00"))` string parsing. `ApiKey.expires_at` is read from the database as a datetime object and can be compared directly.
 
-#### `server/agent_runtime/service.py` — **不改**
+#### `server/agent_runtime/service.py` — **unchanged**
 
-`_parse_iso_datetime()` 仅用于解析 SSE buffer 消息的 timestamp 字段（来自 session_manager 的 `_utc_now_iso()` 和 SDK 原始消息流），完全不涉及数据库字段。保持不变。
+`_parse_iso_datetime()` is only used to parse the timestamp field in SSE buffer messages (from session_manager's `_utc_now_iso()` and the raw SDK message stream), and does not involve any database fields. Keep unchanged.
 
-#### `server/agent_runtime/session_manager.py` — **不改**
+#### `server/agent_runtime/session_manager.py` — **unchanged**
 
-`_utc_now_iso()` 仅用于构造 SSE buffer 中的 `"timestamp"` 字段值（第 817、917、957 行），不涉及数据库写入。保持不变。
+`_utc_now_iso()` is only used to construct the `"timestamp"` field value in the SSE buffer (lines 817, 917, 957), and does not involve any database writes. Keep unchanged.
 
-### 7. 不改的部分
+### 7. Parts Not Changed
 
-- `lib/project_manager.py` — 写 JSON 文件的 `.isoformat()` 不变
-- `lib/script_generator.py` — 同上
-- `server/services/project_archive.py` — 同上
-- `server/agent_runtime/service.py` — SSE 解析，不涉及数据库
-- `server/agent_runtime/session_manager.py` — SSE 时间戳，不涉及数据库
+- `lib/project_manager.py` — `.isoformat()` for JSON file writing unchanged
+- `lib/script_generator.py` — same as above
+- `server/services/project_archive.py` — same as above
+- `server/agent_runtime/service.py` — SSE parsing, does not involve the database
+- `server/agent_runtime/session_manager.py` — SSE timestamps, does not involve the database
 
-### 8. 测试适配
+### 8. Test Adaptation
 
-- `tests/conftest.py`、`tests/factories.py`、`tests/fakes.py` 中的时间戳字符串 fixture 改为 datetime 对象
-- `tests/test_app_module.py` 及其他测试中的时间戳断言适配
-- `SessionMeta` 相关测试适配新的 datetime 类型
-- 确保 `pytest` 全部通过
+- `tests/conftest.py`, `tests/factories.py`, `tests/fakes.py` timestamp string fixtures updated to datetime objects
+- `tests/test_app_module.py` and other tests: timestamp assertions adapted
+- `SessionMeta` related tests adapted to the new datetime type
+- Ensure all `pytest` tests pass
 
-## API 兼容性
+## API Compatibility
 
-FastAPI JSON 序列化默认将 `datetime` 输出为 ISO 8601 字符串（`datetime.isoformat()` 格式，即 `+00:00` 后缀而非 `Z`）。
+FastAPI JSON serialization defaults to outputting `datetime` as ISO 8601 strings (`datetime.isoformat()` format, with `+00:00` suffix instead of `Z`).
 
-**格式细微差异**：原来 task_repo 输出 `Z` 后缀，改后统一为 `+00:00` 后缀。JavaScript 的 `new Date()` / `Date.parse()` 对两种格式都能正确解析，前端大概率不受影响。
+**Minor format difference**: previously task_repo output `Z` suffix; after the change it is unified to `+00:00` suffix. JavaScript's `new Date()` / `Date.parse()` can correctly parse both formats, so the frontend is very likely unaffected.
 
-**降低风险措施**：在 `*_to_dict()` 中统一用 `.isoformat()` 显式序列化，确保输出格式可控。如需保持 `Z` 后缀兼容性，可用 `.isoformat().replace("+00:00", "Z")`。
+**Risk reduction**: Use `.isoformat()` explicitly in `*_to_dict()` for consistent output format control. If `Z` suffix compatibility is required, use `.isoformat().replace("+00:00", "Z")`.
 
-## 验证计划
+## Verification Plan
 
-1. `python -m pytest` — 全部测试通过
-2. `alembic upgrade head` → `alembic downgrade -1` → `alembic upgrade head` — 往返验证
-3. 检查 API 响应中时间戳格式（确认 JavaScript Date.parse 兼容）
-4. 检查前端代码中对时间戳字段的解析方式，确认无硬编码 `Z` 后缀匹配
+1. `python -m pytest` — all tests pass
+2. `alembic upgrade head` → `alembic downgrade -1` → `alembic upgrade head` — round-trip verification
+3. Check timestamp format in API responses (confirm JavaScript Date.parse compatibility)
+4. Check how the frontend code parses timestamp fields; confirm no hardcoded `Z` suffix matching
 
-## 文件清单
+## File Checklist
 
-| 文件 | 改动类型 |
+| File | Change Type |
 |---|---|
-| `alembic/env.py` | 加 `render_as_batch=True` |
-| `alembic.ini` | 启用 ruff hook |
-| `lib/db/engine.py` | PG 连接池参数 |
-| `alembic/versions/xxxx_unify_timestamps_and_add_fk.py` | 新迁移 |
-| `lib/db/models/task.py` | String → DateTime, 外键 |
+| `alembic/env.py` | Add `render_as_batch=True` |
+| `alembic.ini` | Enable ruff hook |
+| `lib/db/engine.py` | PG connection pool parameters |
+| `alembic/versions/xxxx_unify_timestamps_and_add_fk.py` | New migration |
+| `lib/db/models/task.py` | String → DateTime, foreign key |
 | `lib/db/models/api_call.py` | String → DateTime, server_default |
 | `lib/db/models/session.py` | String → DateTime |
 | `lib/db/repositories/task_repo.py` | _utc_now_iso → _utc_now |
-| `lib/db/repositories/usage_repo.py` | 同上 + 删除解析逻辑 |
-| `lib/db/repositories/session_repo.py` | 同上 |
-| `server/auth.py` | 删除字符串解析 |
-| `server/agent_runtime/models.py` | SessionMeta 时间戳 str → datetime |
-| `tests/conftest.py` | fixture 适配 |
-| `tests/factories.py` | fixture 适配 |
-| `tests/fakes.py` | fixture 适配 |
+| `lib/db/repositories/usage_repo.py` | Same + remove parse logic |
+| `lib/db/repositories/session_repo.py` | Same as above |
+| `server/auth.py` | Remove string parsing |
+| `server/agent_runtime/models.py` | SessionMeta timestamp str → datetime |
+| `tests/conftest.py` | fixture adaptation |
+| `tests/factories.py` | fixture adaptation |
+| `tests/fakes.py` | fixture adaptation |

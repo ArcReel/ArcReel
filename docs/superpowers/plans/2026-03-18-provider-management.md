@@ -1,8 +1,8 @@
-# 供应商管理页 实现计划
+# Provider Management Page Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将系统配置从 JSON 文件迁移到数据库，新增供应商管理 API 和前端页面，支持按供应商独立并发/限流。
+**Goal:** Migrate system configuration from JSON files to the database, add provider management API and frontend page, and support per-provider independent concurrency/rate limiting.
 
 **Architecture:** 数据层（ORM + Repository）→ 业务层（ConfigService + Provider Registry）→ API 层（providers + system_config 重构）→ 前端（侧边栏布局 + 供应商管理 + 模型选择 + 用量统计）。所有 `os.environ.get()` 配置读取迁移到 ConfigService。GenerationWorker 从全局池改为按供应商分池。
 
@@ -86,7 +86,7 @@ async def test_system_setting_crud(session: AsyncSession):
     assert found.value == "gemini-vertex/veo-3.1-fast-generate-001"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_config_models.py -v`
 Expected: ImportError — `lib.db.models.config` 不存在
@@ -145,7 +145,7 @@ class SystemSetting(Base):
 from lib.db.models.config import ProviderConfig, SystemSetting
 ```
 
-- [ ] **Step 5: 运行测试确认通过**
+- [ ] **Step 5: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_config_models.py -v`
 Expected: 3 tests PASS
@@ -155,7 +155,7 @@ Expected: 3 tests PASS
 Run: `uv run alembic revision --autogenerate -m "add provider_config and system_setting tables"`
 Run: `uv run alembic upgrade head`
 
-- [ ] **Step 7: 提交**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add lib/db/models/config.py lib/db/models/__init__.py tests/test_config_models.py alembic/versions/
@@ -215,7 +215,7 @@ def test_secret_keys_are_subset_of_required_or_optional():
             assert sk in all_keys, f"{name}: secret key {sk} not in all keys"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_config_registry.py -v`
 Expected: ImportError
@@ -278,12 +278,12 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
 }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_config_registry.py -v`
 Expected: 5 tests PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/config/ tests/test_config_registry.py
@@ -387,7 +387,7 @@ async def test_setting_get_all(session: AsyncSession):
     assert all_settings == {"key1": "val1", "key2": "val2"}
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_config_repository.py -v`
 Expected: ImportError
@@ -493,12 +493,12 @@ class SystemSettingRepository:
         return {row.key: row.value for row in result.scalars()}
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_config_repository.py -v`
 Expected: 8 tests PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/config/repository.py tests/test_config_repository.py
@@ -594,7 +594,7 @@ async def test_unknown_provider_raises(config_service: ConfigService):
         await config_service.set_provider_config("unknown-provider", "key", "val")
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_config_service.py -v`
 Expected: ImportError
@@ -712,12 +712,12 @@ class ConfigService:
         return parts[0], parts[1]
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_config_service.py -v`
 Expected: 8 tests PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/config/service.py tests/test_config_service.py
@@ -835,7 +835,7 @@ async def test_migrate_max_workers_to_all_configured_providers(
     assert "video_max_workers" not in grok
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_config_migration.py -v`
 Expected: ImportError
@@ -972,12 +972,12 @@ async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
     logger.info("Migration complete. Renamed to %s", bak_path)
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_config_migration.py -v`
 Expected: 4 tests PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/config/migration.py tests/test_config_migration.py
@@ -1069,7 +1069,7 @@ async def test_patch_null_clears(client: AsyncClient):
 
 > **注意**: API 测试可能需要适配项目现有的测试基础设施（DB 初始化、认证绕过等）。实现时参考 `tests/conftest.py` 中已有的 fixture 模式。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_providers_api.py -v`
 Expected: ImportError 或 404
@@ -1094,12 +1094,12 @@ from server.routers.providers import router as providers_router
 app.include_router(providers_router)
 ```
 
-- [ ] **Step 5: 运行测试确认通过**
+- [ ] **Step 5: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_providers_api.py -v`
 Expected: 5 tests PASS
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add server/routers/providers.py server/app.py tests/test_providers_api.py
@@ -1220,9 +1220,9 @@ api_key = config.get("api_key")
 - [ ] **Step 4: 运行全部测试确保无回归**
 
 Run: `uv run python -m pytest -v`
-Expected: 全部 PASS
+Expected: all PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add server/services/generation_tasks.py lib/media_generator.py lib/gemini_client.py server/routers/assistant.py server/auth.py server/agent_runtime/
@@ -1281,7 +1281,7 @@ class ProviderPool:
 Run: `uv run python -m pytest tests/test_generation_worker.py -v`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/generation_worker.py tests/test_generation_worker.py
@@ -1407,7 +1407,7 @@ async getUsageStats(params: { provider?: string; start?: string; end?: string; g
 Run: `cd frontend && pnpm typecheck`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add frontend/src/types/ frontend/src/api.ts
@@ -1738,4 +1738,4 @@ Run: `cd frontend && pnpm dev`
 - [ ] **Step 5: 运行全部测试套件**
 
 Run: `uv run python -m pytest -v && cd frontend && pnpm check`
-Expected: 全部 PASS
+Expected: all PASS

@@ -1,109 +1,103 @@
-# 前端重构计划（AI 漫剧管理后台）
+# Frontend Refactor Plan (AI Drama Management Dashboard)
 
-## 1. 目标与问题
+## 1. Goals and Problems
 
-### 当前问题
-- 页面入口分散（项目、助手、费用拆在不同页面），缺少统一“管理后台”信息架构。
-- 项目页虽然有侧栏，但整体视觉层级弱、布局不稳定，缺少“产品化后台”感。
-- 助手工作台在全局顶栏入口，不符合“项目内随时调用技能助手”的操作路径。
-- 缺少引流型落地页，不利于 SEO 与注册转化。
+### Current Problems
+- Page entry points are scattered (projects, assistant, and usage on separate pages), lacking a unified "management dashboard" information architecture.
+- The project page has a sidebar but overall visual hierarchy is weak, layout is unstable, and lacks a "productized dashboard" feel.
+- The assistant workspace is accessed from the global top bar, which does not match the "call skill assistant at any time within a project" workflow.
+- No landing page for user acquisition, which is unfavorable for SEO and registration conversion.
 
-### 本次重构目标
-- 建立标准 SaaS 后台结构：`Landing -> App Dashboard -> Project Workspace`。
-- 技术栈统一到 `React + TailwindCSS + shadcn/ui 风格组件`，助手渲染继续用 `Streamdown`。
-- 项目内形成固定二级菜单：`概览 / 任务 / 线索 / 剧集·场景`。
-- 助手改为“全局悬浮球”，并提供独立“会话管理”菜单页。
-- 费用统计作为主菜单独立入口，避免和项目管理混杂。
+### Refactor Goals
+- Establish a standard SaaS dashboard structure: `Landing -> App Dashboard -> Project Workspace`.
+- Unify tech stack to `React + TailwindCSS + shadcn/ui style components`; assistant rendering continues to use `Streamdown`.
+- Form a fixed secondary menu within projects: `Overview / Tasks / Clues / Episodes & Scenes`.
+- Change assistant to a "global floating button", with a dedicated "session management" menu page.
+- Usage statistics as an independent main menu entry, separate from project management.
 
-## 2. 信息架构（IA）
+## 2. Information Architecture (IA)
 
-### 顶层路由
-- `/`：SaaS Landing Page（引流页）
-- `/app`：管理后台主入口（React）
-- `/app?view=projects`：项目列表
-- `/app?view=usage`：费用统计
-- `/app?view=assistant`：对话管理
+### Top-Level Routes
+- `/`: SaaS Landing Page (acquisition page)
+- `/app`: Main dashboard entry point (React)
+- `/app?view=projects`: Project list
+- `/app?view=usage`: Usage statistics
+- `/app?view=assistant`: Conversation management
 
-### 管理后台主菜单（左侧）
-- 漫剧项目（Projects）
-- 对话管理（Assistant Sessions）
-- 费用统计（Usage）
+### Dashboard Main Menu (left sidebar)
+- Drama Projects (Projects)
+- Conversation Management (Assistant Sessions)
+- Usage Statistics (Usage)
 
-### 项目内菜单（二级）
-- 概览（Overview）
-- 任务（Tasks）
-- 线索（Clues）
-- 剧集/场景（Episodes/Scenes）
+### Project Inner Menu (secondary)
+- Overview
+- Tasks
+- Clues
+- Episodes/Scenes
 
-## 3. 页面方案
+## 3. Page Design
 
-### 3.1 Landing Page（`/`）
-- Hero 区：动态背景、核心价值文案、主 CTA（进入后台/注册引导）。
-- 引流区：微信公众号二维码曝光位（首屏可见或次屏固定卡片）。
-- 案例区：展示“小说 -> 漫剧视频”代表案例（封面、时长、风格标签）。
-- 页脚区：产品说明、文档入口、联系方式。
-- SEO：完善 title/description/OG 基础标签，结构化语义标签（`section`/`article`）。
+### 3.1 Landing Page (`/`)
+- Hero section: animated background, core value copy, primary CTA (enter dashboard / registration prompt).
+- Acquisition section: WeChat public account QR code placement (visible above the fold or fixed card in second screen).
+- Case studies section: showcase "novel -> drama video" representative examples (cover, duration, style tags).
+- Footer section: product description, documentation entry, contact information.
+- SEO: add title/description/OG base tags, structured semantic tags (`section`/`article`).
 
-### 3.2 Dashboard（`/app`）
-- 左侧固定主菜单 + 右侧内容区。
-- 顶部保留轻量全局状态栏（当前项目、快速搜索、用户入口预留）。
-- 项目列表卡片化，进入项目后显示二级菜单内容。
+### 3.2 Dashboard (`/app`)
+- Fixed left main menu + right content area.
+- Lightweight global status bar at top (current project, quick search, user entry placeholder).
+- Project list as cards; entering a project shows secondary menu content.
 
-### 3.3 助手悬浮球
-- 常驻右下角，支持最小化/展开。
-- 在项目上下文中自动关联当前项目（发送消息时带 project_name）。
-- 展开后为侧边对话窗，消息流式渲染使用 Streamdown。
-- 独立“对话管理”页用于查看、切换、重命名、删除历史会话。
+### 3.3 Assistant Floating Button
+- Persistent in bottom-right corner, supports minimize/expand.
+- Automatically associates with current project within project context (sends `project_name` with messages).
+- Expands to a side chat panel; message streaming uses Streamdown.
+- Separate "conversation management" page for viewing, switching, renaming, and deleting history sessions.
 
-### 3.4 费用统计
-- 保留现有统计能力，重做为后台统一风格页面。
-- 支持项目、类型、状态、日期筛选和分页。
+### 3.4 Usage Statistics
+- Retain existing statistics capability, rebuilt with unified dashboard style.
+- Supports filtering by project, type, status, date with pagination.
 
-## 4. 技术方案
+## 4. Technical Approach
 
-### 4.1 前端实现策略（最小侵入）
-- 后端 FastAPI API 保持不变，仅新增页面路由。
-- 采用 React 作为页面渲染层；API 继续复用 `webui/js/api.js`。
-- 组件采用 shadcn/ui 语义风格（`Button/Card/Badge/Tabs/Sheet`），先实现项目内所需最小集合。
-- Tailwind 继续作为样式基础，统一设计 token（颜色、间距、圆角、阴影）。
-- Streamdown 在助手消息区域按需动态加载，避免初始包体过大。
+### 4.1 Frontend Implementation Strategy (minimal intrusion)
+- Backend FastAPI APIs unchanged; only new page routes added.
+- React as the page rendering layer; API continues to reuse `webui/js/api.js`.
+- Components use shadcn/ui semantic style (`Button/Card/Badge/Tabs/Sheet`); implement minimum set needed for project pages first.
+- Tailwind continues as styling foundation, with unified design tokens (colors, spacing, border-radius, shadows).
+- Streamdown loaded on demand in assistant message area to avoid large initial bundle.
 
-### 4.2 迁移策略
-- 前端入口统一为 React 单页应用，不再维护旧页面回退路径。
-- 迁移后只保留新路由：`/`、`/app/projects`、`/app/projects/:name`、`/app/assistant`、`/app/usage`。
+### 4.2 Migration Strategy
+- Frontend entry unified as a React single-page application; old pages no longer maintained as fallback paths.
+- After migration, only new routes remain: `/`, `/app/projects`, `/app/projects/:name`, `/app/assistant`, `/app/usage`.
 
-## 5. 分期实施
+## 5. Phased Implementation
 
-### Phase 1（已实施）
-- 新增重构计划文档。
-- 上线全 React 单页应用入口（`app.html + React Router 风格路径状态`）。
-- 路由统一支持：`/`、`/app/projects`、`/app/projects/:name`、`/app/assistant`、`/app/usage`。
-- 项目页二级菜单（概览/任务/线索/剧集场景）在 React 页面展示。
-- 全局悬浮助手球 + 对话管理页（Streamdown 流式渲染）。
-- 费用统计页 React 化。
+### Phase 1 (Completed)
+- Added refactor plan document.
+- Launched full React single-page application entry (`app.html + React Router-style path state`).
+- Unified route support: `/`, `/app/projects`, `/app/projects/:name`, `/app/assistant`, `/app/usage`.
+- Project page secondary menu (Overview/Tasks/Clues/Episodes & Scenes) displayed in React pages.
+- Global floating assistant button + conversation management page (Streamdown streaming rendering).
+- Usage statistics page migrated to React.
 
-### 实施更新（2026-02-07）
-- 当前前端页面路由已经全部由 React 渲染，后端仅负责 API 与静态资源服务。
-- 旧的静态 HTML 页面与旧页面脚本已移除，不再保留兼容入口。
+### Implementation Update (2026-02-07)
+- All frontend page routes are now rendered by React; backend only handles API and static asset serving.
+- Old static HTML pages and old page scripts have been removed; no compatibility entry points retained.
 
-### Phase 2（后续）
-- 继续完善 React 项目工作台编辑能力（角色/线索/剧集场景完整操作流）。
-- 任务页接入可执行动作（生成分镜、生成视频、批量重试、状态追踪）。
-- 线索与剧集场景支持完整 CRUD 与版本操作。
+### Phase 2 (Future)
+- Continue improving React project workspace editing capabilities (complete operations for characters/clues/episodes & scenes).
+- Tasks page integrates executable actions (generate storyboard, generate video, batch retry, status tracking).
+- Clues and episodes & scenes support full CRUD and version operations.
 
-### Phase 3（后续）
-- Landing SEO 增强（结构化数据、案例详情页、关键词布局）。
-- 登录/注册真实化（OAuth 或邀请码）与增长漏斗埋点。
+### Phase 3 (Future)
+- Landing page SEO enhancements (structured data, case study detail pages, keyword layout).
+- Real login/registration (OAuth or invite code) and growth funnel tracking.
 
-## 6. 验收标准（Phase 1）
-- 可以从 `/` 进入 `/app`，并完成页面导航。
-- 左侧菜单可切换：项目、对话管理、费用统计。
-- 在任意项目页面都能通过悬浮球打开助手并发起流式对话。
-- 项目页展示二级菜单四个模块，并可读取对应项目数据。
-- 不破坏现有 API 可用性。
-
-## 7. 风险与控制
-- 风险：一次性全量迁移旧页面功能成本高。  
-  控制：按模块拆分迁移，优先保证核心操作路径可用。
-- 风险：无前端构建链路时组件复用受限。  
-  控制：Phase 1 先以最小组件集落地，后续可切换完整构建体系。
+## 6. Acceptance Criteria (Phase 1)
+- Navigate from `/` to `/app` and complete page navigation.
+- Left menu can switch between: Projects, Conversation Management, Usage Statistics.
+- Within a project, secondary menu can navigate: Overview / Tasks / Clues / Episodes & Scenes.
+- Floating assistant button opens a side panel with streaming message rendering.
+- Usage statistics page displays correctly.

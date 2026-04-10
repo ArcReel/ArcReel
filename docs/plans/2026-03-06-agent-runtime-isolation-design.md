@@ -1,47 +1,47 @@
-# Agent Runtime 双向隔离设计
+# Agent Runtime Bidirectional Isolation Design
 
-## 背景
+## Background
 
-项目的 Claude Code 运行环境配置（`.claude/`、`CLAUDE.md`）混合了两种场景：
+The project's Claude Code runtime configuration (`.claude/`, `CLAUDE.md`) mixes two scenarios:
 
-1. **智能体态**（WebUI 内嵌 Claude Agent SDK）：面向终端用户的视频创作助手
-2. **开发态**（开发者本地 CLI）：面向开发者的编码助手
+1. **Agent mode** (Claude Agent SDK embedded in WebUI): video creation assistant for end users
+2. **Development mode** (developer local CLI): coding assistant for developers
 
-当前问题：
-- `CLAUDE.md` 同时承担系统 Prompt 和开发指南，互相干扰
-- 业务 Skills 和第三方开发 Skills 混在 `.claude/skills/`
-- 智能体会加载开发者的 `CLAUDE.md`、`CLAUDE.local.md` 和开发态 Skills
+Current problems:
+- `CLAUDE.md` serves both as system prompt and development guide, causing mutual interference
+- Business Skills and third-party development Skills are mixed in `.claude/skills/`
+- The agent loads the developer's `CLAUDE.md`, `CLAUDE.local.md`, and development-mode Skills
 
-## 实验验证结论
+## Experimental Validation Findings
 
-通过 Claude Agent SDK 实验验证了以下行为：
+The following behaviors were validated through Claude Agent SDK experiments:
 
-| 条件 | skill 发现 | CLAUDE.md 加载 |
+| Condition | Skill Discovery | CLAUDE.md Loading |
 |------|-----------|---------------|
-| `setting_sources=[]` | 不发现任何 skill | 不加载 |
-| `setting_sources=["project"]` + cwd 无 git | 只扫描 cwd | 只加载 cwd |
-| `setting_sources=["project"]` + cwd 在 git repo 内 | 扫描 cwd + git root | 加载两级 |
-| `setting_sources=["project"]` + cwd 有符号链接 `.claude/` | 符号链接目标被发现 | 加载 |
-| `add_dirs` 参数 | 不参与 skill 发现 | 不参与 |
+| `setting_sources=[]` | No skills discovered | Not loaded |
+| `setting_sources=["project"]` + cwd has no git | Only scans cwd | Only loads cwd |
+| `setting_sources=["project"]` + cwd inside git repo | Scans cwd + git root | Loads both levels |
+| `setting_sources=["project"]` + cwd has symlink `.claude/` | Symlink target is discovered | Loaded |
+| `add_dirs` parameter | Does not participate in skill discovery | Does not participate |
 
-**关键推论**：Docker 部署环境无 git → `setting_sources=["project"]` 只扫描 cwd → 天然零泄漏。
+**Key inference**: Docker deployment has no git → `setting_sources=["project"]` only scans cwd → naturally zero leakage.
 
-## 设计方案
+## Design
 
-### 核心策略
+### Core Strategy
 
-- `setting_sources=["project"]`：保留 Skill 工具的原生发现能力
-- Docker 无 git：天然隔离，cwd 只发现自身的 `.claude/`
-- 符号链接：项目目录 `.claude/` → `agent_runtime_profile/.claude/`
-- 系统 Prompt：从 `agent_runtime_profile/CLAUDE.md` 编程式加载
+- `setting_sources=["project"]`: retain native Skill tool discovery capability
+- Docker without git: natural isolation, cwd only discovers its own `.claude/`
+- Symlink: project directory `.claude/` → `agent_runtime_profile/.claude/`
+- System prompt: programmatically loaded from `agent_runtime_profile/CLAUDE.md`
 
-### 目录结构
+### Directory Structure
 
 ```
-agent_runtime_profile/                 # 智能体专用运行环境（新建）
-├── CLAUDE.md                          # 智能体系统 Prompt
+agent_runtime_profile/                 # Agent-dedicated runtime environment (new)
+├── CLAUDE.md                          # Agent system prompt
 └── .claude/
-    ├── skills/                        # 业务 Skills（从 .claude/skills/ 迁入）
+    ├── skills/                        # Business Skills (migrated from .claude/skills/)
     │   ├── generate-characters/
     │   ├── generate-clues/
     │   ├── generate-storyboard/
@@ -50,60 +50,60 @@ agent_runtime_profile/                 # 智能体专用运行环境（新建）
     │   ├── compose-video/
     │   ├── manga-workflow/
     │   └── edit-script-items/
-    └── agents/                        # 业务 Agents（从 .claude/agents/ 迁入）
+    └── agents/                        # Business Agents (migrated from .claude/agents/)
         ├── novel-to-narration-script.md
         └── novel-to-storyboard-script.md
 
-.claude/                               # 回归纯开发态
+.claude/                               # Returns to pure development mode
 ├── commands/
 ├── settings.local.json
 ├── plans/
-└── skills/                            # 仅第三方开发 skills（openspec-* 等）
+└── skills/                            # Third-party development skills only (openspec-*, etc.)
 
-CLAUDE.md                              # 瘦身为纯开发者 Codebase 指南
+CLAUDE.md                              # Slimmed down to pure developer codebase guide
 ```
 
-### SessionManager 改动
+### SessionManager Changes
 
-#### `_build_options()` 变更
+#### `_build_options()` Changes
 
 ```python
 ClaudeAgentOptions(
     cwd=str(project_cwd),
-    setting_sources=["project"],       # Docker 无 git，安全
+    setting_sources=["project"],       # Docker has no git, safe
     allowed_tools=self.DEFAULT_ALLOWED_TOOLS,
     system_prompt=self._build_system_prompt(project_name),
-    agents=self._load_agent_definitions(),  # 编程式加载（双保险）
+    agents=self._load_agent_definitions(),  # Programmatic loading (double safety net)
     ...
 )
 ```
 
-#### `DEFAULT_ALLOWED_TOOLS` 修正
+#### `DEFAULT_ALLOWED_TOOLS` Corrections
 
-对齐 SDK 文档中的实际工具名：
+Aligned with actual tool names in the SDK documentation:
 
 ```python
-# 之前
+# Before
 DEFAULT_ALLOWED_TOOLS = [
     "Skill", "Read", "Write", "Edit", "MultiEdit",
     "Bash", "Grep", "Glob", "LS", "AskUserQuestion",
 ]
 
-# 之后
+# After
 DEFAULT_ALLOWED_TOOLS = [
     "Skill", "Task", "Read", "Write", "Edit",
     "Bash", "Grep", "Glob", "AskUserQuestion",
 ]
 ```
 
-变更说明：
-- 新增 `Task`（子 agent 调度，SDK 实际工具名）
-- 移除 `MultiEdit`、`LS`（SDK 文档中不存在）
+Change notes:
+- Added `Task` (subagent scheduling, actual SDK tool name)
+- Removed `MultiEdit`, `LS` (do not exist in SDK documentation)
 
-#### `_PATH_TOOLS` 修正
+#### `_PATH_TOOLS` Corrections
 
 ```python
-# 移除 LS
+# Remove LS
 _PATH_TOOLS: dict[str, str] = {
     "Read": "file_path",
     "Write": "file_path",
@@ -113,42 +113,42 @@ _PATH_TOOLS: dict[str, str] = {
 }
 ```
 
-#### `_READONLY_DIRS` / `_READONLY_FILES` 更新
+#### `_READONLY_DIRS` / `_READONLY_FILES` Updates
 
 ```python
 _READONLY_DIRS = [
     "docs", "lib", "agent_runtime_profile",
     "scripts",
 ]
-# 移除 ".claude/skills", ".claude/agents", ".claude/plans"
-# 新增 "agent_runtime_profile"
+# Remove ".claude/skills", ".claude/agents", ".claude/plans"
+# Add "agent_runtime_profile"
 
 _READONLY_FILES = []
-# 移除 "CLAUDE.md"（agent 不需要读取 git root 的开发文档）
+# Remove "CLAUDE.md" (agent does not need to read the developer docs at git root)
 ```
 
-#### `_build_system_prompt()` 改造
+#### `_build_system_prompt()` Refactor
 
-从 `agent_runtime_profile/CLAUDE.md` 读取基础 prompt（替代环境变量），再拼接项目上下文：
+Reads the base prompt from `agent_runtime_profile/CLAUDE.md` (replacing the environment variable), then appends project context:
 
 ```python
 def _build_system_prompt(self, project_name: str) -> str:
-    # 1. 从 agent_runtime_profile/CLAUDE.md 加载基础 prompt
+    # 1. Load base prompt from agent_runtime_profile/CLAUDE.md
     profile_prompt_path = self.project_root / "agent_runtime_profile" / "CLAUDE.md"
     base_prompt = profile_prompt_path.read_text(encoding="utf-8")
 
-    # 2. 拼接项目上下文（现有逻辑）
+    # 2. Append project context (existing logic)
     ...
 ```
 
-#### `_load_agent_definitions()` 新方法
+#### `_load_agent_definitions()` New Method
 
-扫描 `agent_runtime_profile/.claude/agents/*.md`，解析为 `dict[str, AgentDefinition]`。
-作为双保险——即使 `setting_sources=["project"]` 未能自动发现 agents，编程式注入确保 agents 可用。
+Scans `agent_runtime_profile/.claude/agents/*.md` and parses them into `dict[str, AgentDefinition]`.
+Serves as a double safety net — even if `setting_sources=["project"]` fails to auto-discover agents, programmatic injection ensures agents are available.
 
-### 项目创建时符号链接
+### Symlink Creation on Project Creation
 
-`ProjectManager` 创建新项目时，自动创建相对符号链接：
+`ProjectManager` automatically creates a relative symlink when creating a new project:
 
 ```python
 # projects/{name}/.claude → ../../agent_runtime_profile/.claude
@@ -157,71 +157,71 @@ target = Path("../../agent_runtime_profile/.claude")
 symlink_path.symlink_to(target)
 ```
 
-已有项目：提供迁移脚本，为缺少符号链接的项目补建。
+Existing projects: a migration script is provided to create missing symlinks.
 
-### Dockerfile 更新
+### Dockerfile Update
 
 ```dockerfile
-# 之前
+# Before
 COPY .claude/skills/ .claude/skills/
 COPY .claude/agents/ .claude/agents/
 
-# 之后
+# After
 COPY agent_runtime_profile/ agent_runtime_profile/
 ```
 
-### CLAUDE.md 瘦身
+### CLAUDE.md Slimdown
 
-当前 `CLAUDE.md`（git root）拆分为：
+The current `CLAUDE.md` (git root) is split into:
 
-| 内容 | 去向 |
+| Content | Destination |
 |------|------|
-| 视频规格、音频规范 | `agent_runtime_profile/CLAUDE.md` |
-| 内容模式（说书/剧集） | `agent_runtime_profile/CLAUDE.md` |
-| 可用 Skills 列表 | `agent_runtime_profile/CLAUDE.md` |
-| 工作流程（两种模式） | `agent_runtime_profile/CLAUDE.md` |
-| 视频生成模式 | `agent_runtime_profile/CLAUDE.md` |
-| 剧本核心字段 | `agent_runtime_profile/CLAUDE.md` |
-| Veo 3.1 技术参考 | `agent_runtime_profile/CLAUDE.md` |
-| project.json 结构 | `agent_runtime_profile/CLAUDE.md` |
-| 项目目录结构 | `agent_runtime_profile/CLAUDE.md` |
-| API 使用 | `agent_runtime_profile/CLAUDE.md` |
-| 关键原则 | `agent_runtime_profile/CLAUDE.md` |
-| 环境要求 | `agent_runtime_profile/CLAUDE.md` |
-| API 后端配置 | `agent_runtime_profile/CLAUDE.md` |
-| 重要总则（语言规范等） | 两边各保留相关部分 |
+| Video specs, audio specs | `agent_runtime_profile/CLAUDE.md` |
+| Content modes (narration/drama) | `agent_runtime_profile/CLAUDE.md` |
+| Available Skills list | `agent_runtime_profile/CLAUDE.md` |
+| Workflow (two modes) | `agent_runtime_profile/CLAUDE.md` |
+| Video generation modes | `agent_runtime_profile/CLAUDE.md` |
+| Script core fields | `agent_runtime_profile/CLAUDE.md` |
+| Veo 3.1 technical reference | `agent_runtime_profile/CLAUDE.md` |
+| project.json structure | `agent_runtime_profile/CLAUDE.md` |
+| Project directory structure | `agent_runtime_profile/CLAUDE.md` |
+| API usage | `agent_runtime_profile/CLAUDE.md` |
+| Key principles | `agent_runtime_profile/CLAUDE.md` |
+| Environment requirements | `agent_runtime_profile/CLAUDE.md` |
+| API backend configuration | `agent_runtime_profile/CLAUDE.md` |
+| General rules (language standards, etc.) | Retain relevant parts on both sides |
 
-`CLAUDE.md`（git root）保留：
-- 项目简介（一句话）
-- 架构概览（引用 `CLAUDE.local.md`）
-- 语言规范（回答用中文）
+`CLAUDE.md` (git root) retains:
+- Project introduction (one sentence)
+- Architecture overview (references `CLAUDE.local.md`)
+- Language standards (responses in Chinese)
 
-### 兼容性
+### Compatibility
 
-- Skill 脚本的 `lib/` import 路径不变（Python path 不受文件位置影响）
-- 前端 API 调用无需修改
-- `generation_queue_client.py` 路径不变
-- 现有项目需运行一次迁移脚本补建符号链接
+- Skill scripts' `lib/` import paths are unchanged (Python path is not affected by file location)
+- Frontend API calls require no changes
+- `generation_queue_client.py` path is unchanged
+- Existing projects need to run the migration script once to create missing symlinks
 
-## 隔离效果总结
+## Isolation Effect Summary
 
-### Docker 部署（生产环境）
+### Docker Deployment (Production)
 
-| 资源 | 智能体是否可见 | 原因 |
+| Resource | Visible to Agent | Reason |
 |------|--------------|------|
-| `agent_runtime_profile/CLAUDE.md` | 是（system_prompt 注入） | 编程式加载 |
-| `agent_runtime_profile/.claude/skills/` | 是 | 符号链接 + setting_sources |
-| `agent_runtime_profile/.claude/agents/` | 是 | 编程式 + 符号链接 |
-| `CLAUDE.md`（git root） | 否 | 未打包进镜像 |
-| `CLAUDE.local.md` | 否 | 未打包进镜像 |
-| `.claude/skills/`（开发态） | 否 | 未打包进镜像 |
-| 第三方 Skills | 否 | 未打包进镜像 |
+| `agent_runtime_profile/CLAUDE.md` | Yes (system_prompt injection) | Programmatic loading |
+| `agent_runtime_profile/.claude/skills/` | Yes | Symlink + setting_sources |
+| `agent_runtime_profile/.claude/agents/` | Yes | Programmatic + symlink |
+| `CLAUDE.md` (git root) | No | Not packaged into image |
+| `CLAUDE.local.md` | No | Not packaged into image |
+| `.claude/skills/` (development mode) | No | Not packaged into image |
+| Third-party Skills | No | Not packaged into image |
 
-### 本地开发（开发者 CLI）
+### Local Development (Developer CLI)
 
-| 资源 | 开发者是否可见 | 影响 |
+| Resource | Visible to Developer | Impact |
 |------|--------------|------|
-| `CLAUDE.md`（瘦身后） | 是 | 纯开发指南，正确 |
-| `.claude/skills/`（第三方） | 是 | 开发工具，正确 |
-| `agent_runtime_profile/` | 可读但不自动加载 | 无干扰 |
-| 业务 Skills | 不自动加载 | 无噪音 |
+| `CLAUDE.md` (slimmed down) | Yes | Pure development guide, correct |
+| `.claude/skills/` (third-party) | Yes | Development tools, correct |
+| `agent_runtime_profile/` | Readable but not auto-loaded | No interference |
+| Business Skills | Not auto-loaded | No noise |

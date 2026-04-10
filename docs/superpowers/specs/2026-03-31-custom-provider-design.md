@@ -1,4 +1,4 @@
-# 自定义供应商设计文档
+# Custom Provider Design文档
 
 > 日期：2026-03-31  
 > 分支：feature/custom-provider  
@@ -6,13 +6,13 @@
 
 ---
 
-## 概述
+## Overview
 
 支持用户自行添加「自定义供应商」，通过 API 格式 + Base URL + API Key + 模型列表接入任意兼容服务。本次支持两种 API 格式：OpenAI 兼容、Google 兼容（仅 API Key 认证模式）。
 
 同时处理 Issue #189 中除限流外的 3 项 OpenAI 预置供应商改进。
 
-## 范围
+## Scope
 
 ### 自定义供应商（主体）
 
@@ -277,7 +277,7 @@ discover_models(api_format, base_url, api_key):
 - **ProviderIcon**：已有 fallback（显示首字母），自定义供应商自动适用
 - **用量统计**：后端返回 `display_name`，前端改用 `display_name ?? provider`
 
-### 新增文件
+### New Files
 
 - `frontend/src/components/pages/settings/CustomProviderSection.tsx`
 - `frontend/src/components/pages/settings/CustomProviderDetail.tsx`
@@ -314,7 +314,7 @@ discover_models(api_format, base_url, api_key):
 
 ### 新增
 
-| 文件 | 说明 |
+| File | Description |
 |------|------|
 | `lib/custom_provider/__init__.py` | 模块入口 |
 | `lib/custom_provider/service.py` | CustomProviderService |
@@ -323,18 +323,18 @@ discover_models(api_format, base_url, api_key):
 | `lib/custom_provider/discovery.py` | 模型自动发现逻辑 |
 | `lib/db/models/custom_provider.py` | ORM 模型 |
 | `lib/db/repositories/custom_provider_repo.py` | 数据仓储 |
-| `alembic/versions/xxx_add_custom_provider.py` | 数据库迁移 |
+| `alembic/versions/xxx_add_custom_provider.py` | Database migration |
 | `server/routers/custom_providers.py` | API 路由 |
 | `frontend/src/types/custom-provider.ts` | TypeScript 类型 |
 | `frontend/src/components/pages/settings/CustomProviderSection.tsx` | 列表 UI |
 | `frontend/src/components/pages/settings/CustomProviderDetail.tsx` | 详情面板 |
 | `frontend/src/components/pages/settings/CustomProviderForm.tsx` | 新建/编辑表单 |
-| `tests/test_custom_provider_service.py` | Service 单元测试 |
-| `tests/test_custom_provider_api.py` | API 集成测试 |
+| `tests/test_custom_provider_service.py` | Service unit tests |
+| `tests/test_custom_provider_api.py` | API integration tests |
 
 ### 修改
 
-| 文件 | 改动 |
+| 文件 | Modify |
 |------|------|
 | `lib/config/resolver.py` | `_auto_resolve_backend()` 扩展查询自定义供应商 |
 | `lib/cost_calculator.py` | 新增 `_calculate_custom_cost()` 分支 |

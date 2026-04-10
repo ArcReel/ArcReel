@@ -180,13 +180,13 @@ async def get_media_generator(project_name, ..., user_id=None):
 `generate_video` 路由第 213-216 行中，`_load_all_config()` 仅在 `else` 分支（项目无 `video_backend` 配置时）用于获取全局默认后端。替换为：
 
 ```python
-# 之前
+# Before
 else:
     from server.services.generation_tasks import _load_all_config
     bulk = await _load_all_config()
     video_provider, video_model = bulk.default_video_backend
 
-# 之后
+# After
 else:
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
@@ -225,7 +225,7 @@ else:
 | `lib/db/repositories/usage_repo.py` | `finish_call` 支持用后端实际值覆盖 `generate_audio` |
 | 测试文件 | 更新 MediaGenerator 构造方式 |
 
-## 测试策略
+## Testing Strategy
 
 1. **ConfigResolver 单元测试**
    - 默认值：DB 无值时返回 `False`

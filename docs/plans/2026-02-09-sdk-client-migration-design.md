@@ -1,69 +1,69 @@
-# ClaudeSDKClient 迁移设计方案
+# ClaudeSDKClient Migration Design
 
-## 概述
+## Overview
 
-将项目从 `query()` 迁移到 `ClaudeSDKClient`，实现原生多轮对话支持、后台持续执行、断线重连等特性。
+Migrate the project from `query()` to `ClaudeSDKClient`, enabling native multi-turn conversation support, background continuous execution, reconnection after disconnect, and other features.
 
-## 设计决策
+## Design Decisions
 
-| 决策点 | 选择 |
-|--------|------|
-| 迁移目标 | 完全迁移到 ClaudeSDKClient 原生会话 |
-| 历史查询 | UI 展示 + 会话恢复（resume） |
-| 消息存储 | SDK session_id + 按需读取 transcript |
-| 连接生命周期 | 后台持续执行 + 前端断线重连 |
-| 重连机制 | 进入页面时立即尝试重连 SSE |
-| 服务重启 | 优雅关闭（等待当前 turn 完成） |
-| 消息格式 | 前端直接适配 SDK 消息结构，无转换层 |
+| Decision | Choice |
+|----------|--------|
+| Migration target | Fully migrate to native ClaudeSDKClient sessions |
+| History queries | UI display + session resume |
+| Message storage | SDK session_id + on-demand transcript reads |
+| Connection lifecycle | Background continuous execution + frontend reconnect on disconnect |
+| Reconnect mechanism | Attempt SSE reconnect immediately on page enter |
+| Service restart | Graceful shutdown (wait for current turn to complete) |
+| Message format | Frontend adapts directly to SDK message structure; no conversion layer |
 
 ---
 
-## 架构设计
+## Architecture Design
 
-### 整体架构
+### Overall Architecture
 
 ```
-当前架构:
+Current architecture:
 ┌─────────┐    ┌─────────┐    ┌─────────────┐
-│ Frontend│───▶│ FastAPI │───▶│ query()     │ ← 每次新 session
-└─────────┘    │ + SQLite│    │ + prompt拼接│
+│ Frontend│───▶│ FastAPI │───▶│ query()     │ ← new session each time
+└─────────┘    │ + SQLite│    │ + prompt    │
                └─────────┘    └─────────────┘
 
-新架构:
+New architecture:
 ┌─────────┐    ┌─────────────────┐    ┌──────────────────┐
 │ Frontend│───▶│ FastAPI         │───▶│ ClaudeSDKClient  │
-└─────────┘    │ + SessionManager│    │ (后台持续运行)    │
+└─────────┘    │ + SessionManager│    │ (background run) │
     ▲          └────────┬────────┘    └────────┬─────────┘
     │                   │                      │
-    │ SSE 断线重连      │ 元数据存储           │ transcript
+    │ SSE reconnect     │ metadata storage     │ transcript
     └───────────────────┴──────────────────────┘
 ```
 
-### 核心组件
+### Core Components
 
-| 组件 | 职责 |
-|------|------|
-| `SessionManager` | 管理所有活跃的 ClaudeSDKClient 实例，处理生命周期 |
-| `SessionMetaStore` | SQLite 存储 session 元数据（id、title、project、status、时间戳） |
-| `TranscriptReader` | 读取 SDK 的 transcript 文件，原样返回消息列表 |
-| `StreamBridge` | 将 ClaudeSDKClient 的消息流桥接到 SSE |
+| Component | Responsibility |
+|-----------|---------------|
+| `SessionManager` | Manages all active ClaudeSDKClient instances, handles lifecycle |
+| `SessionMetaStore` | SQLite storage for session metadata (id, title, project, status, timestamps) |
+| `TranscriptReader` | Reads SDK transcript files, returns message list as-is |
+| `StreamBridge` | Bridges ClaudeSDKClient message stream to SSE |
 
 ---
 
-## 数据存储设计
+## Data Storage Design
 
-### Transcript 统一存储路径
+### Unified Transcript Storage Path
 
 ```
 projects/.agent_data/
-├── transcripts/                    # 所有会话的 transcript
-│   ├── {session_id}.json          # SDK 生成的完整对话记录
+├── transcripts/                    # Transcripts for all sessions
+│   ├── {session_id}.json          # SDK-generated complete conversation record
 │   └── ...
-├── sessions.db                     # SQLite 元数据
-└── checkpoints/                    # 可选：用于 resume 的检查点数据
+├── sessions.db                     # SQLite metadata
+└── checkpoints/                    # Optional: checkpoint data for resume
 ```
 
-### ClaudeAgentOptions 配置
+### ClaudeAgentOptions Configuration
 
 ```python
 options = ClaudeAgentOptions(
@@ -74,16 +74,16 @@ options = ClaudeAgentOptions(
 )
 ```
 
-### SessionMetaStore 表结构
+### SessionMetaStore Table Schema
 
 ```sql
 CREATE TABLE sessions (
-    id TEXT PRIMARY KEY,              -- 我们生成的 session_id（UUID）
-    sdk_session_id TEXT,              -- SDK 返回的 session_id（用于 resume）
+    id TEXT PRIMARY KEY,              -- Our generated session_id (UUID)
+    sdk_session_id TEXT,              -- SDK-returned session_id (for resume)
     project_name TEXT NOT NULL,
     title TEXT DEFAULT '',
     status TEXT DEFAULT 'running',    -- running | completed | error | interrupted
-    transcript_path TEXT,             -- 相对路径：transcripts/{id}.json
+    transcript_path TEXT,             -- Relative path: transcripts/{id}.json
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -92,7 +92,7 @@ CREATE INDEX idx_sessions_project ON sessions(project_name, updated_at DESC);
 CREATE INDEX idx_sessions_status ON sessions(status);
 ```
 
-### Docker 容器化映射
+### Docker Container Volume Mapping
 
 ```yaml
 volumes:
@@ -101,70 +101,70 @@ volumes:
 
 ---
 
-## SessionManager 设计
+## SessionManager Design
 
-### 数据结构
+### Data Structures
 
 ```python
 class ManagedSession:
-    client: ClaudeSDKClient          # SDK 客户端实例
-    sdk_session_id: str              # SDK 返回的 session_id
+    client: ClaudeSDKClient          # SDK client instance
+    sdk_session_id: str              # SDK-returned session_id
     status: Literal["running", "completed", "error", "interrupted"]
-    message_buffer: list[Message]    # 缓存最近的消息（供重连时回放）
-    subscribers: set[asyncio.Queue]  # 当前订阅的 SSE 连接
+    message_buffer: list[Message]    # Cache of recent messages (for replay on reconnect)
+    subscribers: set[asyncio.Queue]  # Currently subscribed SSE connections
 
 class SessionManager:
     sessions: dict[str, ManagedSession]  # session_id -> ManagedSession
 
     async def create_session(project_name: str, options: ClaudeAgentOptions) -> str
     async def send_message(session_id: str, content: str) -> None
-    async def subscribe(session_id: str) -> asyncio.Queue  # SSE 订阅
+    async def subscribe(session_id: str) -> asyncio.Queue  # SSE subscription
     async def unsubscribe(session_id: str, queue: asyncio.Queue) -> None
     async def get_status(session_id: str) -> SessionStatus
-    async def shutdown_gracefully() -> None  # 优雅关闭
+    async def shutdown_gracefully() -> None  # Graceful shutdown
 ```
 
-### 后台运行机制
+### Background Execution Mechanism
 
-1. `send_message()` 启动一个后台 task 消费 `client.receive_messages()`
-2. 消息同时：推送到所有 `subscribers`、缓存到 `message_buffer`
-3. 前端断开时只是 `unsubscribe()`，后台 task 继续运行
-4. 前端重连时 `subscribe()`，先回放 buffer 中的消息，再接收新消息
+1. `send_message()` starts a background task to consume `client.receive_messages()`
+2. Messages are simultaneously: pushed to all `subscribers`, cached to `message_buffer`
+3. When frontend disconnects, it only calls `unsubscribe()`; the background task continues running
+4. When frontend reconnects, it calls `subscribe()`, replays buffer messages first, then receives new messages
 
-### 消息缓存策略
+### Message Caching Strategy
 
-- `message_buffer` 保留最近 100 条消息
-- 会话完成后清空 buffer（历史从 transcript 读取）
+- `message_buffer` retains the latest 100 messages
+- Buffer is cleared after session completion (history is read from transcript)
 
 ---
 
-## 消息格式设计
+## Message Format Design
 
-### 后端直接透传 SDK 消息
+### Backend Passes SDK Messages Through Directly
 
 ```python
 class TranscriptReader:
     def read_messages(self, session_id: str) -> list[dict]:
-        """读取 transcript，原样返回 SDK 消息列表"""
+        """Read transcript and return SDK message list as-is."""
         transcript_path = self.transcripts_dir / f"{session_id}.json"
         with open(transcript_path) as f:
             data = json.load(f)
         return data.get("messages", [])
 ```
 
-### 前端适配 SDK 消息类型
+### Frontend Adapts to SDK Message Types
 
-| SDK 消息类型 | 关键字段 |
-|-------------|---------|
+| SDK Message Type | Key Fields |
+|-----------------|-----------|
 | `UserMessage` | `type: "user"`, `content: str \| ContentBlock[]` |
 | `AssistantMessage` | `type: "assistant"`, `content: ContentBlock[]`, `model` |
 | `SystemMessage` | `type: "system"`, `subtype`, `data` |
 | `ResultMessage` | `type: "result"`, `subtype`, `duration_ms`, `total_cost_usd` |
 
-### ContentBlock 类型
+### ContentBlock Types
 
-| 类型 | 字段 |
-|-----|------|
+| Type | Fields |
+|------|--------|
 | `TextBlock` | `type: "text"`, `text` |
 | `ThinkingBlock` | `type: "thinking"`, `thinking`, `signature` |
 | `ToolUseBlock` | `type: "tool_use"`, `id`, `name`, `input` |
@@ -172,22 +172,22 @@ class TranscriptReader:
 
 ---
 
-## API 接口设计
+## API Interface Design
 
 ### REST API
 
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/v1/sessions` | POST | 创建会话 |
-| `/api/v1/sessions` | GET | 列出会话（支持 project_name 过滤） |
-| `/api/v1/sessions/{id}` | GET | 获取会话详情（含 status） |
-| `/api/v1/sessions/{id}` | PATCH | 更新会话（title） |
-| `/api/v1/sessions/{id}` | DELETE | 删除会话 |
-| `/api/v1/sessions/{id}/messages` | GET | 获取历史消息（从 transcript 读取） |
-| `/api/v1/sessions/{id}/messages` | POST | 发送消息 |
-| `/api/v1/sessions/{id}/stream` | GET | SSE 流（订阅实时消息 + 断线重连） |
+| Endpoint | Method | Function |
+|----------|--------|---------|
+| `/api/v1/sessions` | POST | Create session |
+| `/api/v1/sessions` | GET | List sessions (supports `project_name` filter) |
+| `/api/v1/sessions/{id}` | GET | Get session details (including status) |
+| `/api/v1/sessions/{id}` | PATCH | Update session (title) |
+| `/api/v1/sessions/{id}` | DELETE | Delete session |
+| `/api/v1/sessions/{id}/messages` | GET | Get message history (read from transcript) |
+| `/api/v1/sessions/{id}/messages` | POST | Send message |
+| `/api/v1/sessions/{id}/stream` | GET | SSE stream (subscribe to real-time messages + reconnect) |
 
-### 关键接口详情
+### Key Interface Details
 
 ```python
 # POST /api/v1/sessions
@@ -195,57 +195,57 @@ Request:  {"project_name": "my_project", "title": ""}
 Response: {"id": "uuid", "status": "running", "created_at": "..."}
 
 # GET /api/v1/sessions/{id}/stream
-# SSE 事件流，行为：
-# 1. 如果 status=running：先回放 buffer，再实时推送
-# 2. 如果 status=completed：返回空流（历史从 /messages 获取）
-# 3. 事件格式：直接推送 SDK Message JSON
+# SSE event stream behavior:
+# 1. If status=running: replay buffer first, then stream live
+# 2. If status=completed: return empty stream (history from /messages)
+# 3. Event format: push SDK Message JSON directly
 
 # POST /api/v1/sessions/{id}/messages
-Request:  {"content": "用户输入"}
-Response: {"status": "accepted"}  # 立即返回，消息通过 SSE 推送
+Request:  {"content": "user input"}
+Response: {"status": "accepted"}  # Returns immediately; messages pushed via SSE
 ```
 
-### 与现有 API 的变化
+### Changes from Existing API
 
-- 移除 `/sessions/{id}/streams/{request_id}` —— 简化为单一 `/stream` 端点
-- `/messages` GET 从 transcript 读取而非 SQLite
+- Remove `/sessions/{id}/streams/{request_id}` — simplified to single `/stream` endpoint
+- `/messages` GET reads from transcript instead of SQLite
 
 ---
 
-## 前端状态管理重构
+## Frontend State Management Refactor
 
-### 核心状态
+### Core State
 
 ```javascript
-// 现有状态（保留）
+// Existing state (retained)
 const [sessions, setSessions] = useState([]);
 const [currentSessionId, setCurrentSessionId] = useState("");
-const [messages, setMessages] = useState([]);        // 存储 SDK 原始消息
-const [streamingMessage, setStreamingMessage] = useState(null);  // 当前流式消息
+const [messages, setMessages] = useState([]);        // Stores raw SDK messages
+const [streamingMessage, setStreamingMessage] = useState(null);  // Current streaming message
 const [input, setInput] = useState("");
 const [sending, setSending] = useState(false);
 
-// 新增状态
+// New state
 const [sessionStatus, setSessionStatus] = useState("idle");  // idle | running | completed | error
 ```
 
-### 进入会话的流程
+### Session Entry Flow
 
 ```
-1. 切换到 session_id
+1. Switch to session_id
       │
-2. GET /sessions/{id} 获取状态
+2. GET /sessions/{id} to get status
       │
-      ├─ status=completed ──▶ GET /messages 加载历史
+      ├─ status=completed ──▶ GET /messages to load history
       │
-      └─ status=running ──▶ 连接 SSE /stream
+      └─ status=running ──▶ Connect SSE /stream
                                   │
-                           接收消息追加到 messages
+                           Receive messages, append to messages
                                   │
-                           收到 ResultMessage ──▶ status=completed
+                           Receive ResultMessage ──▶ status=completed
 ```
 
-### SSE 重连逻辑
+### SSE Reconnect Logic
 
 ```javascript
 const connectStream = useCallback((sessionId) => {
@@ -262,7 +262,7 @@ const connectStream = useCallback((sessionId) => {
   };
 
   source.onerror = () => {
-    // 断线后 3 秒重连
+    // Reconnect after 3 seconds on disconnect
     setTimeout(() => connectStream(sessionId), 3000);
   };
 }, []);
@@ -270,12 +270,12 @@ const connectStream = useCallback((sessionId) => {
 
 ---
 
-## 优雅关闭与会话恢复
+## Graceful Shutdown and Session Resume
 
-### 服务关闭流程
+### Service Shutdown Flow
 
 ```python
-# 注册 shutdown 信号处理
+# Register shutdown signal handler
 @app.on_event("shutdown")
 async def shutdown():
     await session_manager.shutdown_gracefully()
@@ -284,36 +284,36 @@ class SessionManager:
     async def shutdown_gracefully(self):
         for session_id, managed in self.sessions.items():
             if managed.status == "running":
-                # 1. 等待当前 turn 完成（最多 30 秒）
+                # 1. Wait for current turn to complete (max 30 seconds)
                 try:
                     await asyncio.wait_for(
                         managed.current_turn_task,
                         timeout=30
                     )
                 except asyncio.TimeoutError:
-                    # 2. 超时则中断
+                    # 2. Interrupt on timeout
                     await managed.client.interrupt()
 
-                # 3. 更新状态为 interrupted
+                # 3. Update status to interrupted
                 managed.status = "interrupted"
                 self.meta_store.update_status(session_id, "interrupted")
 
-                # 4. 断开连接
+                # 4. Disconnect
                 await managed.client.disconnect()
 ```
 
-### 服务重启后恢复
+### Resume After Service Restart
 
 ```python
 class SessionManager:
     async def resume_session(self, session_id: str) -> ManagedSession:
         meta = self.meta_store.get(session_id)
 
-        # 使用 SDK 的 resume 参数恢复会话
+        # Resume session using the SDK's resume parameter
         client = ClaudeSDKClient(options=ClaudeAgentOptions(
             resume=meta.sdk_session_id,  # SDK session_id
             cwd=get_project_path(meta.project_name),
-            # ... 其他配置
+            # ... other configuration
         ))
         await client.connect()
 
@@ -322,59 +322,59 @@ class SessionManager:
         return managed
 ```
 
-### 前端处理 interrupted 状态
+### Frontend Handling of `interrupted` Status
 
 ```javascript
-// 进入会话时
+// On entering session
 if (session.status === "interrupted") {
-  // 显示提示："会话已中断，是否继续？"
-  // 用户确认后 POST /messages 触发 resume
+  // Show prompt: "Session was interrupted. Continue?"
+  // After user confirms, POST /messages to trigger resume
 }
 ```
 
 ---
 
-## 文件变更清单
+## File Change Checklist
 
-### 后端（Python）
+### Backend (Python)
 
-| 文件 | 操作 | 说明 |
-|------|------|------|
-| `webui/server/agent_runtime/session_manager.py` | 新建 | SessionManager + ManagedSession |
-| `webui/server/agent_runtime/session_store.py` | 重写 | 简化为 SessionMetaStore |
-| `webui/server/agent_runtime/transcript_reader.py` | 新建 | 读取 SDK transcript |
-| `webui/server/agent_runtime/service.py` | 重写 | 使用 SessionManager |
-| `webui/server/agent_runtime/models.py` | 简化 | 移除 AgentMessage，只保留 Session 元数据 |
-| `webui/server/routers/assistant.py` | 重写 | 新 API 结构 |
+| File | Action | Notes |
+|------|--------|-------|
+| `webui/server/agent_runtime/session_manager.py` | Create | SessionManager + ManagedSession |
+| `webui/server/agent_runtime/session_store.py` | Rewrite | Simplify to SessionMetaStore |
+| `webui/server/agent_runtime/transcript_reader.py` | Create | Read SDK transcript |
+| `webui/server/agent_runtime/service.py` | Rewrite | Use SessionManager |
+| `webui/server/agent_runtime/models.py` | Simplify | Remove AgentMessage, retain only Session metadata |
+| `webui/server/routers/assistant.py` | Rewrite | New API structure |
 
-### 前端（React）
+### Frontend (React)
 
-| 文件 | 操作 | 说明 |
-|------|------|------|
-| `frontend/src/api.js` | 更新 | 新 API 端点 |
-| `frontend/src/react/hooks/use-assistant-state.js` | 重写 | 新状态管理逻辑 |
-| `frontend/src/react/components/chat/ChatMessage.js` | 更新 | 适配 SDK 消息格式 |
+| File | Action | Notes |
+|------|--------|-------|
+| `frontend/src/api.js` | Update | New API endpoints |
+| `frontend/src/react/hooks/use-assistant-state.js` | Rewrite | New state management logic |
+| `frontend/src/react/components/chat/ChatMessage.js` | Update | Adapt to SDK message format |
 
 ---
 
-## 实现顺序
+## Implementation Order
 
-1. **后端核心组件**
-   - SessionMetaStore（SQLite 元数据）
-   - TranscriptReader（读取 transcript）
-   - SessionManager（管理 ClaudeSDKClient）
+1. **Backend Core Components**
+   - SessionMetaStore (SQLite metadata)
+   - TranscriptReader (read transcript)
+   - SessionManager (manage ClaudeSDKClient)
 
-2. **后端 API**
-   - 新路由结构
-   - SSE 流式端点
+2. **Backend API**
+   - New route structure
+   - SSE streaming endpoint
 
-3. **前端适配**
-   - API 调用更新
-   - 消息渲染组件适配 SDK 格式
-   - 状态管理重构
+3. **Frontend Adaptation**
+   - Update API calls
+   - Update message rendering components for SDK format
+   - State management refactor
 
-4. **端到端测试**
-   - 新建会话
-   - 多轮对话
-   - 断线重连
-   - 会话恢复
+4. **End-to-End Testing**
+   - Create session
+   - Multi-turn conversation
+   - Reconnect after disconnect
+   - Session resume

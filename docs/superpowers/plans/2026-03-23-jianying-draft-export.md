@@ -1,8 +1,8 @@
-# 剪映草稿导出 实施计划
+# CapCut Draft Export Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将 ArcReel 单集已生成的视频片段导出为剪映草稿 ZIP，用户解压到本地剪映草稿目录后直接在剪映中打开编辑。
+**Goal:** Export ArcReel's generated video clips for a single episode as a CapCut draft ZIP, which users unzip to their local CapCut drafts directory and open directly in CapCut for editing.
 
 **Architecture:** 后端新增 `JianyingDraftService` 服务层，调用 pyjianyingdraft 库生成草稿文件 + ZIP 打包。复用现有 download token 签发机制，新增一个 GET 端点返回 ZIP 流。前端改造 `ExportScopeDialog`，新增剪映草稿选项（含集数下拉 + 草稿目录输入框）。
 
@@ -14,18 +14,18 @@
 
 ---
 
-## 文件结构
+## File Structure
 
-| 操作 | 文件路径 | 职责 |
+| Action | File Path | Responsibility |
 |------|---------|------|
-| 创建 | `server/services/jianying_draft_service.py` | 剪映草稿生成核心服务 |
-| 创建 | `tests/test_jianying_draft_service.py` | 服务层单元测试 |
-| 创建 | `tests/test_jianying_draft_routes.py` | 路由层集成测试 |
-| 修改 | `server/routers/projects.py` | 新增 GET 导出端点 |
-| 修改 | `frontend/src/api.ts` | 新增下载 URL 构造方法 |
-| 修改 | `frontend/src/components/layout/ExportScopeDialog.tsx` | 扩展 ExportScope 类型 + 新增剪映草稿选项 + 表单 |
-| 修改 | `frontend/src/components/layout/GlobalHeader.tsx` | 处理剪映导出回调 |
-| 修改 | `frontend/src/components/layout/GlobalHeader.test.tsx` | 适配新的 ExportScopeDialog props |
+| Create | `server/services/jianying_draft_service.py` | Core CapCut draft generation service |
+| Create | `tests/test_jianying_draft_service.py` | service layer unit tests |
+| Create | `tests/test_jianying_draft_routes.py` | router layer integration tests |
+| Modify | `server/routers/projects.py` | Add GET export endpoint |
+| Modify | `frontend/src/api.ts` | Add download URL construction method |
+| Modify | `frontend/src/components/layout/ExportScopeDialog.tsx` | Extend ExportScope type + add CapCut draft option + form |
+| Modify | `frontend/src/components/layout/GlobalHeader.tsx` | Handle CapCut export callback |
+| Modify | `frontend/src/components/layout/GlobalHeader.test.tsx` | adapt to new ExportScopeDialog props |
 
 ---
 
@@ -171,7 +171,7 @@ class TestResolveCanvasSize:
         assert (w, h) == (1920, 1080)
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_jianying_draft_service.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'server.services.jianying_draft_service'`
@@ -271,12 +271,12 @@ class JianyingDraftService:
         return 1920, 1080
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_jianying_draft_service.py -v`
 Expected: 6 passed
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add server/services/jianying_draft_service.py tests/test_jianying_draft_service.py
@@ -291,7 +291,7 @@ git commit -m "feat(jianying): add video clip collection and canvas size resolut
 - Modify: `server/services/jianying_draft_service.py`
 - Modify: `tests/test_jianying_draft_service.py`
 
-> 注意：此任务的测试需要真实的视频文件（pyjianyingdraft 的 `VideoMaterial` 需要 mediainfo 提取时长）。使用 `imageio` 生成极短的测试视频。
+> Note: 此任务的测试需要真实的视频文件（pyjianyingdraft 的 `VideoMaterial` 需要 mediainfo 提取时长）。使用 `imageio` 生成极短的测试视频。
 
 - [ ] **Step 1: 编写草稿生成 + 路径替换的集成测试**
 
@@ -428,7 +428,7 @@ class TestReplacePaths:
         assert result["other"] == "no change"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_jianying_draft_service.py::TestGenerateDraft -v`
 Expected: FAIL — `AttributeError: 'JianyingDraftService' object has no attribute '_generate_draft'`
@@ -524,7 +524,7 @@ Expected: FAIL — `AttributeError: 'JianyingDraftService' object has no attribu
 Run: `uv run python -m pytest tests/test_jianying_draft_service.py -v`
 Expected: 9 passed
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add server/services/jianying_draft_service.py tests/test_jianying_draft_service.py
@@ -685,7 +685,7 @@ class TestExportEpisodeDraft:
             svc.export_episode_draft(project_name="empty", episode=1, draft_path="/tmp")
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_jianying_draft_service.py::TestExportEpisodeDraft -v`
 Expected: FAIL — `AttributeError: 'JianyingDraftService' object has no attribute 'export_episode_draft'`
@@ -781,7 +781,7 @@ Expected: FAIL — `AttributeError: 'JianyingDraftService' object has no attribu
 Run: `uv run python -m pytest tests/test_jianying_draft_service.py -v`
 Expected: 13 passed
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add server/services/jianying_draft_service.py tests/test_jianying_draft_service.py
@@ -793,7 +793,7 @@ git commit -m "feat(jianying): implement full export_episode_draft pipeline"
 ## Task 4: 后端路由 — GET 导出端点
 
 **Files:**
-- Modify: `server/routers/projects.py` (在现有导出端点附近添加)
+- Modify: `server/routers/projects.py` (在现有导出端点nearby)
 - Create: `tests/test_jianying_draft_routes.py`
 
 - [ ] **Step 1: 编写路由测试**
@@ -995,7 +995,7 @@ class TestJianyingDraftExport:
         assert response.status_code == 403
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_jianying_draft_routes.py -v`
 Expected: FAIL — 404（端点不存在）
@@ -1080,12 +1080,12 @@ async def export_jianying_draft(
 Run: `uv run python -m pytest tests/test_jianying_draft_routes.py -v`
 Expected: 9 passed
 
-- [ ] **Step 5: 运行全部后端测试确认无回归**
+- [ ] **Step 5: 运行全部后端测试confirm no regressions**
 
 Run: `uv run python -m pytest tests/ -v --timeout=60`
 Expected: 全部通过
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add server/routers/projects.py tests/test_jianying_draft_routes.py
@@ -1258,7 +1258,7 @@ const handleJianyingExport = async (episode: number, draftPath: string) => {
 Run: `cd frontend && pnpm check`
 Expected: 无错误
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/layout/GlobalHeader.tsx frontend/src/components/layout/GlobalHeader.test.tsx

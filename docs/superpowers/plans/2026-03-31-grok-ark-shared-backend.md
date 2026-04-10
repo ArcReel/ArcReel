@@ -1,8 +1,8 @@
-# Grok & Ark 共享后端重构 Implementation Plan
+# Grok & Ark Shared Backend Refactor Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 Grok 和 Ark 创建共享模块（`grok_shared.py` / `ark_shared.py`），统一客户端创建逻辑，消除三处后端中的重复代码。
+**Goal:** Create shared modules (`grok_shared.py` / `ark_shared.py`) for Grok and Ark, unify client creation logic, and eliminate duplicate code across three backends.
 
 **Architecture:** 新增两个共享模块 `lib/grok_shared.py` 和 `lib/ark_shared.py`，提供工厂函数。各后端改为调用共享工厂。Grok 文本后端额外从同步 Client 迁移到 AsyncClient。
 
@@ -12,23 +12,23 @@
 
 ## File Structure
 
-| 文件 | 操作 | 职责 |
+| File | Action | Responsibility |
 |------|------|------|
-| `lib/ark_shared.py` | 新增 | `ARK_BASE_URL` 常量 + `create_ark_client()` 工厂 |
-| `lib/grok_shared.py` | 新增 | `create_grok_client()` 工厂 |
-| `lib/image_backends/ark.py` | 改动 | 改用 `create_ark_client()` |
-| `lib/video_backends/ark.py` | 改动 | 改用 `create_ark_client()` |
-| `lib/text_backends/ark.py` | 改动 | 改用 `create_ark_client()` + 导入 `ARK_BASE_URL` |
-| `lib/image_backends/grok.py` | 改动 | 改用 `create_grok_client()` |
-| `lib/video_backends/grok.py` | 改动 | 改用 `create_grok_client()` |
-| `lib/text_backends/grok.py` | 改动 | 改用 `create_grok_client()` + 异步化 |
-| `server/routers/providers.py` | 改动 | `_test_ark()` 改用 `create_ark_client()` |
-| `tests/test_image_backends/test_ark.py` | 改动 | mock 路径从 `volcenginesdkarkruntime.Ark` 改为 `lib.ark_shared.create_ark_client` |
-| `tests/test_video_backend_ark.py` | 改动 | 同上 |
-| `tests/test_text_backends/test_ark.py` | 改动 | 同上 |
-| `tests/test_image_backends/test_grok.py` | 改动 | mock 路径适配 |
-| `tests/test_grok_video_backend.py` | 改动 | mock 路径适配 |
-| `tests/test_text_backends/test_grok.py` | 改动 | mock 路径适配 + 移除 `sync_to_thread` |
+| `lib/ark_shared.py` | Add | `ARK_BASE_URL` constant + `create_ark_client()` factory |
+| `lib/grok_shared.py` | Add | `create_grok_client()` factory |
+| `lib/image_backends/ark.py` | Modify | Use `create_ark_client()` |
+| `lib/video_backends/ark.py` | Modify | Use `create_ark_client()` |
+| `lib/text_backends/ark.py` | Modify | Use `create_ark_client()` + import `ARK_BASE_URL` |
+| `lib/image_backends/grok.py` | Modify | Use `create_grok_client()` |
+| `lib/video_backends/grok.py` | Modify | Use `create_grok_client()` |
+| `lib/text_backends/grok.py` | Modify | Use `create_grok_client()` + make async |
+| `server/routers/providers.py` | Modify | `_test_ark()` uses `create_ark_client()` |
+| `tests/test_image_backends/test_ark.py` | Modify | mock 路径从 `volcenginesdkarkruntime.Ark` 改为 `lib.ark_shared.create_ark_client` |
+| `tests/test_video_backend_ark.py` | Modify | 同上 |
+| `tests/test_text_backends/test_ark.py` | Modify | 同上 |
+| `tests/test_image_backends/test_grok.py` | Modify | mock 路径适配 |
+| `tests/test_grok_video_backend.py` | Modify | mock 路径适配 |
+| `tests/test_text_backends/test_grok.py` | Modify | mock 路径适配 + 移除 `sync_to_thread` |
 
 ---
 
@@ -324,9 +324,9 @@ class TestArkImageBackendInit:
 - [ ] **Step 4: 运行 Ark 图片后端测试**
 
 Run: `uv run python -m pytest tests/test_image_backends/test_ark.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/ark_shared.py lib/image_backends/ark.py tests/test_image_backends/test_ark.py
@@ -478,12 +478,12 @@ def backend(mock_ark_client):
                 ArkVideoBackend(api_key=None)
 ```
 
-注意：错误消息从 `"ARK_API_KEY"` 变为 `"Ark API Key"`（统一为 `ark_shared.py` 中的消息）。不再需要 mock `volcenginesdkarkruntime.Ark`，因为 `create_ark_client()` 会在校验失败时直接抛出。
+Note: 错误消息从 `"ARK_API_KEY"` 变为 `"Ark API Key"`（统一为 `ark_shared.py` 中的消息）。不再需要 mock `volcenginesdkarkruntime.Ark`，因为 `create_ark_client()` 会在校验失败时直接抛出。
 
 - [ ] **Step 3: 运行 Ark 视频后端测试**
 
 Run: `uv run python -m pytest tests/test_video_backend_ark.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 4: 提交**
 
@@ -592,7 +592,7 @@ class ArkTextBackend:
 - 主客户端改为 `create_ark_client(api_key=api_key)`
 - `OpenAI` 兼容客户端保留，但使用 `ARK_BASE_URL`。因为 `self._api_key` 已删除，需要重新解析 key 给 OpenAI 客户端
 
-**注意：** `self._openai_client` 需要原始 api_key。由于 `create_ark_client()` 内部已处理 env fallback，这里也需要同样的逻辑。更干净的做法是从 `os` 获取：
+**Note: ** `self._openai_client` 需要原始 api_key。由于 `create_ark_client()` 内部已处理 env fallback，这里也需要同样的逻辑。更干净的做法是从 `os` 获取：
 
 ```python
     def __init__(self, *, api_key: str | None = None, model: str | None = None):
@@ -752,7 +752,7 @@ class TestGenerate:
 - [ ] **Step 3: 运行 Ark 文本后端测试**
 
 Run: `uv run python -m pytest tests/test_text_backends/test_ark.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 4: 提交**
 
@@ -805,10 +805,10 @@ def _test_ark(config: dict[str, str]) -> ConnectionTestResponse:
     )
 ```
 
-- [ ] **Step 2: 运行全部 Ark 相关测试确认无回归**
+- [ ] **Step 2: 运行全部 Ark 相关测试confirm no regressions**
 
 Run: `uv run python -m pytest tests/test_image_backends/test_ark.py tests/test_video_backend_ark.py tests/test_text_backends/test_ark.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 3: 提交**
 
@@ -1029,7 +1029,7 @@ class TestInit:
                 GrokImageBackend(api_key="")
 ```
 
-注意：由于 `_patch_xai_sdk` 已经 mock 了 `create_grok_client` 返回成功，错误测试需要用 `side_effect` 覆盖来模拟校验失败。或者更简单的方式 —— 不使用 `_patch_xai_sdk` fixture，直接测试：
+Note: 由于 `_patch_xai_sdk` 已经 mock 了 `create_grok_client` 返回成功，错误测试需要用 `side_effect` 覆盖来模拟校验失败。或者更简单的方式 —— 不使用 `_patch_xai_sdk` fixture，直接测试：
 
 ```python
 class TestInit:
@@ -1073,9 +1073,9 @@ def _patch_xai_sdk(_mock_xai_sdk_module):
 - [ ] **Step 4: 运行 Grok 图片后端测试**
 
 Run: `uv run python -m pytest tests/test_image_backends/test_grok.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/grok_shared.py lib/image_backends/grok.py tests/test_image_backends/test_grok.py
@@ -1295,7 +1295,7 @@ class GrokVideoBackend:
 - [ ] **Step 3: 运行 Grok 视频后端测试**
 
 Run: `uv run python -m pytest tests/test_grok_video_backend.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 4: 提交**
 
@@ -1471,7 +1471,7 @@ class GrokTextBackend:
 - `await asyncio.to_thread(chat.sample)` → `await chat.sample()`
 - `await asyncio.to_thread(chat.parse, DynamicModel)` → `await chat.parse(DynamicModel)`
 
-**Fallback 注意：** 如果 `xai_sdk.AsyncClient` 的 `chat` API 不提供 async `sample()` / `parse()`，需退回 `asyncio.to_thread` 方式。实施时通过运行测试确认。
+**Fallback Note: ** 如果 `xai_sdk.AsyncClient` 的 `chat` API 不提供 async `sample()` / `parse()`，需退回 `asyncio.to_thread` 方式。实施时通过运行测试确认。
 
 - [ ] **Step 2: 适配测试 `tests/test_text_backends/test_grok.py`**
 
@@ -1607,7 +1607,7 @@ class TestGenerate:
 - 移除 `sync_to_thread` fixture 参数
 - `mock_chat.parse = MagicMock(...)` → `mock_chat.parse = AsyncMock(...)`
 
-别忘了在文件顶部添加 `AsyncMock` 的导入：
+别忘了At the top of the file添加 `AsyncMock` 的导入：
 
 ```python
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -1618,7 +1618,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 - [ ] **Step 3: 运行 Grok 文本后端测试**
 
 Run: `uv run python -m pytest tests/test_text_backends/test_grok.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 如果 `chat.sample()` / `chat.parse()` 在 AsyncClient 上不是 async 方法，测试会报错。此时需要退回 `asyncio.to_thread` 方案并恢复 `sync_to_thread` + `MagicMock`。
 
@@ -1652,7 +1652,7 @@ Expected: 无需格式化
 - [ ] **Step 3: 全量测试**
 
 Run: `uv run python -m pytest -v`
-Expected: 全部 PASS，无回归
+Expected: all PASS，无回归
 
 - [ ] **Step 4: 如有 lint/format 修复，提交**
 

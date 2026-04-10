@@ -1,12 +1,12 @@
-# OpenAI 预置供应商设计文档
+# OpenAI Preset Provider Design文档
 
 > 日期：2026-03-31 | 状态：已确认 | 分支：feature/openai-provider
 
-## 概述
+## Overview
 
-在 ArcReel 中新增 OpenAI 为第五个预置供应商，支持文本（GPT-5.4）、图片（GPT Image 1.5）、视频（Sora 2）三种媒体类型。采用"共享模块 + 三个独立 Backend"的架构，参照现有 `gemini_shared.py` 模式新增 `openai_shared.py`。
+在 ArcReel 中新增 OpenAI 为第五个预置供应商，支持文本（GPT-5.4）、图片（GPT Image 1.5）、视频（Sora 2）三种媒体类型。Uses"共享模块 + 三个独立 Backend"的架构，参照现有 `gemini_shared.py` 模式新增 `openai_shared.py`。
 
-### 范围
+### Scope
 
 - OpenAI 预置供应商（文本 + 图片 + 视频）
 - **不包含**自定义供应商（下一个迭代）
@@ -372,7 +372,7 @@ def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
 
 注册到 `_TEST_DISPATCH["openai"] = _test_openai`。
 
-> **注意：** 使用同步 `OpenAI` 客户端而非 `AsyncOpenAI`，因为现有框架通过 `asyncio.to_thread(test_fn, config)` 在线程池中运行所有连接测试函数（与 `_test_grok`、`_test_ark` 等一致）。
+> **Note: ** 使用同步 `OpenAI` 客户端而非 `AsyncOpenAI`，因为现有框架通过 `asyncio.to_thread(test_fn, config)` 在线程池中运行所有连接测试函数（与 `_test_grok`、`_test_ark` 等一致）。
 
 ---
 
@@ -418,11 +418,11 @@ def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
 
 ---
 
-## 文件变更清单
+## File Change Checklist
 
-### 新增文件
+### New Files
 
-| 文件 | 说明 |
+| File | Description |
 |------|------|
 | `lib/openai_shared.py` | 共享客户端工厂 + 可重试错误类型 |
 | `lib/text_backends/openai.py` | OpenAI 文本后端 |
@@ -432,7 +432,7 @@ def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
 | `tests/test_openai_image_backend.py` | 图片后端测试 |
 | `tests/test_openai_video_backend.py` | 视频后端测试 |
 
-### 修改文件
+### Modified Files
 
 | 文件 | 变更 |
 |------|------|

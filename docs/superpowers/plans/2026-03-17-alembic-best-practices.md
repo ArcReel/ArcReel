@@ -1,10 +1,10 @@
-# Alembic 最佳实践修复 实施计划
+# Alembic Best Practices Fix Implementation Plan
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 修复 Alembic 配置缺陷，将 11 个 String 时间戳列统一为 DateTime(timezone=True)，添加外键约束，优化 PostgreSQL 连接池。
+**Goal:** Fix Alembic configuration defects, unify 11 String timestamp columns to DateTime(timezone=True), add foreign key constraints, and optimize the PostgreSQL connection pool.
 
-**Architecture:** 单次迁移脚本处理所有 schema 变更（列类型、外键、server_default）；ORM 模型和 repository 层同步适配；`*_to_dict()` 显式 `.isoformat()` 确保 JSON 序列化安全。
+**Architecture:** A single migration script handles all schema changes (column types, foreign keys, server_default); ORM models and repository layer are adapted in sync; `*_to_dict()` 显式 `.isoformat()` 确保 JSON 序列化安全。
 
 **Tech Stack:** SQLAlchemy 2.0 async, Alembic (batch mode), aiosqlite, asyncpg, Pydantic
 
@@ -14,19 +14,19 @@
 
 ## File Structure
 
-| 文件 | 职责 | 操作 |
+| File | Responsibility | Action |
 |---|---|---|
-| `alembic/env.py` | Alembic 环境配置 | Modify |
-| `alembic.ini` | Alembic INI 配置 | Modify |
-| `lib/db/engine.py` | 数据库引擎工厂 | Modify |
-| `alembic/versions/*_unify_timestamps_and_add_fk.py` | 迁移脚本 | Create |
-| `lib/db/models/task.py` | Task/TaskEvent/WorkerLease 模型 | Modify |
-| `lib/db/models/api_call.py` | ApiCall 模型 | Modify |
-| `lib/db/models/session.py` | AgentSession 模型 | Modify |
-| `lib/db/repositories/task_repo.py` | 任务 repo | Modify |
-| `lib/db/repositories/usage_repo.py` | 用量 repo | Modify |
-| `lib/db/repositories/session_repo.py` | 会话 repo | Modify |
-| `server/agent_runtime/models.py` | SessionMeta Pydantic 模型 | Modify |
+| `alembic/env.py` | Alembic environment configuration | Modify |
+| `alembic.ini` | Alembic INI configuration | Modify |
+| `lib/db/engine.py` | Database engine factory | Modify |
+| `alembic/versions/*_unify_timestamps_and_add_fk.py` | Migration script | Create |
+| `lib/db/models/task.py` | Task/TaskEvent/WorkerLease models | Modify |
+| `lib/db/models/api_call.py` | ApiCall model | Modify |
+| `lib/db/models/session.py` | AgentSession model | Modify |
+| `lib/db/repositories/task_repo.py` | Task repo | Modify |
+| `lib/db/repositories/usage_repo.py` | Usage repo | Modify |
+| `lib/db/repositories/session_repo.py` | Session repo | Modify |
+| `server/agent_runtime/models.py` | SessionMeta Pydantic model | Modify |
 | `server/auth.py` | API Key 过期检查 | Modify |
 | `tests/factories.py` | 测试工厂 | Modify |
 | `tests/conftest.py` | 共享 fixture | No change (创建 in-memory DB via `Base.metadata.create_all`，自动适配新 schema) |
@@ -176,7 +176,7 @@ git commit -m "perf(db): add PostgreSQL connection pool params"
 
 - [ ] **Step 1: 更新导入和 Task 模型**
 
-替换导入行和所有时间戳字段：
+替换导入行和All timestamp fields:
 
 ```python
 """Task queue ORM models."""
@@ -1007,7 +1007,7 @@ git commit -m "feat(db): add migration to unify timestamps and add FK constraint
 - [ ] **Step 1: 运行完整测试套件**
 
 Run: `python -m pytest -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 2: 排查失败（如有）**
 

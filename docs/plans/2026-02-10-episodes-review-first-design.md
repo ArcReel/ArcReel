@@ -1,94 +1,94 @@
-# 剧集/场景页「审片优先」改版设计（确认稿）
+# Episodes/Scenes Page "Review-First" Redesign (Confirmed)
 
-## 目标
-- 将当前「剧集/场景」从“编辑驱动”调整为“审片驱动”。
-- 在不改后端接口的前提下，把视频播放与分镜查看提升为首屏主任务。
-- 保留现有保存、分镜生成、视频生成、上传、展开编辑能力，作为次级操作。
+## Goals
+- Change the current "Episodes/Scenes" page from "edit-driven" to "review-driven".
+- Without changing backend interfaces, elevate video playback and storyboard viewing to the primary first-screen task.
+- Retain existing save, storyboard generation, video generation, upload, and expand-to-edit capabilities as secondary operations.
 
-## 已确认决策
-- 审片模式：单条播放（不做连播）。
-- 播放器位置：页内主播放器（固定在列表上方）。
-- 触发方式：点击场景卡中的视频缩略图开始播放。
-- 审片布局：视频主画面 + 分镜副画面同时展示。
-- 默认行为：进入页面后不自动播放，等待手动点击。
-- 列表密度：5 列紧凑卡片。
+## Confirmed Decisions
+- Review mode: single-item playback (no auto-playlist).
+- Player position: in-page main player (fixed above the list).
+- Trigger: click the video thumbnail on a scene card to start playback.
+- Review layout: primary video view + secondary storyboard view shown simultaneously.
+- Default behavior: no auto-play when entering the page; wait for manual click.
+- List density: 5-column compact card grid.
 
-## 现状问题（重心偏移）
-- 当前每条场景卡中，视频与分镜仅为小尺寸角落预览，难以承担审片主任务。
-- 页面视觉焦点集中在状态、文本与编辑按钮，而不是“看生成结果”。
-- 小视频内嵌在列表中，播放时干扰浏览与切换，审片路径不连续。
+## Current Problems (Misaligned Focus)
+- In the current scene cards, video and storyboard are shown as small corner previews, inadequate for the review task.
+- Page visual focus is on status, text, and edit buttons rather than "viewing generated results".
+- Small embedded videos in the list interfere with browsing and switching when playing; review flow is not continuous.
 
-## 设计方案
+## Design
 
-### 1) 页面结构
-- 在 `ProjectEpisodes` 视图内，新增顶部主审片区，位于剧集列表之前。
-- 主审片区默认空态文案：点击任意场景的视频缩略图开始审片。
-- 主审片区激活后：
-  - 左侧：16:9 大视频播放器（浏览器原生 controls）。
-  - 右侧：对应场景分镜大图 + 关键信息（场景 ID、时长、状态）。
-- 下方保留剧集卡和场景网格，承担“选片器”角色。
+### 1) Page Structure
+- Within the `ProjectEpisodes` view, add a top-level main review area, positioned before the episode list.
+- Main review area default empty state text: "Click any scene's video thumbnail to start reviewing."
+- When the main review area is activated:
+  - Left: 16:9 large video player (native browser controls).
+  - Right: corresponding scene's large storyboard image + key info (scene ID, duration, status).
+- Below: retain episode cards and scene grid, serving as a "scene selector".
 
-### 2) 场景卡策略
-- 保留现有卡片信息与动作按钮（保存/分镜/视频/上传/展开编辑）。
-- 卡片改为 5 列紧凑网格，维持高密度浏览效率。
-- 点击卡片中的视频缩略图时，仅更新顶部主播放器，不在卡片内做主播放。
-- 当前审片中的卡片高亮（边框/发光/标签），提升定位效率。
+### 2) Scene Card Strategy
+- Retain existing card info and action buttons (save / storyboard / video / upload / expand-to-edit).
+- Cards changed to 5-column compact grid to maintain high-density browsing efficiency.
+- Clicking the video thumbnail in a card only updates the top main player; does not play within the card.
+- The currently-reviewed card is highlighted (border/glow/label) for improved navigation.
 
-### 3) 参考 UI 取舍
-- 采用参考图中的“深色主舞台 + 紧凑卡片矩阵”作为视觉基线。
-- 差异点：新增固定主审片区，避免仅靠卡片浏览；保持“审片优先”。
+### 3) Reference UI Trade-offs
+- Adopt "dark main stage + compact card matrix" from the reference image as the visual baseline.
+- Difference: add a fixed main review area to avoid relying solely on card browsing; maintain "review-first".
 
-## 组件与状态设计
+## Component and State Design
 
-### 组件层级（前端）
-- 页面容器：`ProjectEpisodes`
-- 新增组件建议：
-  - `EpisodeReviewPanel`：顶部主审片区（空态/视频态）
-  - `SceneGrid`：5 列场景卡网格（可复用现有渲染逻辑）
-- 现有接口复用：
-  - `resolveFileUrl(currentProjectName, path)` 解析视频与分镜地址
+### Component Hierarchy (frontend)
+- Page container: `ProjectEpisodes`
+- Suggested new components:
+  - `EpisodeReviewPanel`: top main review area (empty state / video state)
+  - `SceneGrid`: 5-column scene card grid (can reuse existing rendering logic)
+- Existing interfaces reused:
+  - `resolveFileUrl(currentProjectName, path)` resolves video and storyboard URLs
   - `onGenerateStoryboard` / `onGenerateVideo` / `onSaveItem` / `onUploadStoryboard`
 
-### 新增状态
+### New State
 - `selectedReview: { scriptFile: string, itemId: string } | null`
-  - 初始值为 `null`
-  - 点击有视频的场景缩略图后写入
-  - 主播放器根据该状态反查当前 item 和资产地址
+  - Initial value: `null`
+  - Written when user clicks a scene thumbnail that has a video
+  - Main player queries current item and asset URLs based on this state
 
-## 数据流
-1. 用户点击场景卡视频缩略图。
-2. 前端检查该场景是否存在 `generated_assets.video_clip`。
-3. 若存在：设置 `selectedReview`，主审片区加载并播放。
-4. 若不存在：toast 提示“该场景暂无可播放视频”，不切换选中。
-5. 主审片区同步展示同条分镜图（`generated_assets.storyboard_image`）与场景元信息。
+## Data Flow
+1. User clicks the video thumbnail on a scene card.
+2. Frontend checks whether the scene has `generated_assets.video_clip`.
+3. If yes: set `selectedReview`, main review area loads and plays.
+4. If no: toast notification "This scene has no playable video yet"; selected state does not change.
+5. Main review area also shows the storyboard image (`generated_assets.storyboard_image`) and scene metadata.
 
-## 错误处理与容错
-- 选中失效：切换项目或数据刷新后，若选中项不存在则自动清空 `selectedReview`，回到空态。
-- 视频不可用：主播放器 `onError` 时显示失败提示，并给当前条“重新生成视频”入口。
-- 重生成功自动刷新：若当前选中项重新生成成功，播放器地址自动使用最新 `video_clip`。
-- 空数据兜底：无剧集、无场景、有场景但无视频，分别给出清晰空态文案。
+## Error Handling and Resilience
+- Stale selection: after switching projects or refreshing data, if the selected item no longer exists, automatically clear `selectedReview` and return to empty state.
+- Video unavailable: show failure message on main player `onError`, and provide a "Regenerate Video" entry for the current item.
+- Auto-refresh after regeneration: if the currently selected item is successfully regenerated, the player URL automatically uses the latest `video_clip`.
+- Empty data fallback: clearly show distinct empty-state messages for no episodes, no scenes, or scenes without video.
 
-## 测试策略
-- 文件：`frontend/tests/*`（新增或扩展 `workspace-page` 相关测试）
-- 覆盖最小回归集：
-  - 默认进入页面显示主审片区空态，不自动播放。
-  - 点击有视频缩略图后，主播放器渲染并绑定正确资源。
-  - 点击无视频缩略图时仅提示错误，不切换选中态。
-  - 当前选中卡片高亮可见。
-  - 切换项目后选中态清空。
-  - 主播放器加载失败时显示错误态。
+## Testing Strategy
+- File: `frontend/tests/*` (add or extend `workspace-page` related tests)
+- Minimum regression coverage:
+  - Entering the page shows the main review area in empty state with no auto-play.
+  - After clicking a scene with a video thumbnail, the main player renders and binds the correct resource.
+  - Clicking a scene without a video only shows an error notification; selected state does not change.
+  - Currently selected card highlight is visible.
+  - Selected state is cleared when switching projects.
+  - Main player shows error state when loading fails.
 
-## 实施范围
-- 主要修改：
+## Implementation Scope
+- Primary modification:
   - `frontend/src/react/pages/workspace-page.js`
-- 样式修改（若需要）：
-  - `frontend/src/css/styles.css` 或 `frontend/src/css/app.css`
-- 测试修改：
-  - `frontend/tests/*workspace*`（按现有测试结构增补）
+- Style modifications (if needed):
+  - `frontend/src/css/styles.css` or `frontend/src/css/app.css`
+- Test modifications:
+  - `frontend/tests/*workspace*` (additions following existing test structure)
 
-## 验收标准
-- 进入「剧集/场景」后，顶部有主审片区，默认空态不自动播放。
-- 点击任一有视频场景后，顶部出现大播放器并可正常播放。
-- 主审片区同时显示同条分镜大图和场景关键信息。
-- 下方保持 5 列紧凑场景网格，当前选中项有明确高亮。
-- 原有生成/保存/上传/展开编辑操作仍可用且无回归。
+## Acceptance Criteria
+- After entering "Episodes/Scenes", there is a main review area at the top with an empty state and no auto-play.
+- After clicking any scene with a video, a large player appears at the top and plays correctly.
+- The main review area simultaneously shows the large storyboard image and key scene information.
+- The 5-column compact scene grid is maintained below, with the current selection clearly highlighted.
+- Existing generate/save/upload/expand-to-edit operations still work without regression.

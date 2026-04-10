@@ -208,7 +208,7 @@ globalThis.window = {
 function renderEpisodes(extraProps = {}) {
     const baseProps = {
         currentProjectData: {
-            episodes: [{ episode: 1, title: "第一集", script_file: "scripts/episode_1.json" }],
+            episodes: [{ episode: 1, title: "Episode 1", script_file: "scripts/episode_1.json" }],
         },
         currentProjectName: "demo",
         currentScripts: {
@@ -249,7 +249,7 @@ function renderEpisodes(extraProps = {}) {
 
 test("ProjectEpisodes should render review empty state when no selection", () => {
     const html = renderEpisodes();
-    assert.ok(html.includes("点击任意场景的视频缩略图开始审片"));
+    assert.ok(html.includes("Click any scene's video thumbnail to start reviewing"));
 });
 
 test("ProjectEpisodes should use compact 5-column scene grid", () => {
@@ -282,7 +282,7 @@ function EpisodeReviewPanel({
     if (!reviewTarget) {
         return html`
             <article className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <p className="text-sm text-slate-300">点击任意场景的视频缩略图开始审片</p>
+                <p className="text-sm text-slate-300">Click any scene's video thumbnail to start reviewing</p>
             </article>
         `;
     }
@@ -298,14 +298,14 @@ function EpisodeReviewPanel({
                         src=${videoUrl}
                         controls
                         className="w-full aspect-video rounded-lg bg-black object-contain"
-                        onError=${() => onReviewMediaError("视频加载失败，可重试生成")}
+                        onError=${() => onReviewMediaError("Video failed to load; you can retry generation")}
                     ></video>
                 </div>
                 <div className="space-y-2">
                     <div className="rounded-xl border border-white/10 bg-ink-900/60 p-2">
                         ${storyboardUrl
                             ? html`<img src=${storyboardUrl} alt=${`${reviewTarget.itemId} storyboard`} className="w-full aspect-video rounded-lg object-cover" />`
-                            : html`<div className="w-full aspect-video rounded-lg bg-ink-950/70 flex items-center justify-center text-xs text-slate-500">暂无分镜</div>`}
+                            : html`<div className="w-full aspect-video rounded-lg bg-ink-950/70 flex items-center justify-center text-xs text-slate-500">No storyboard</div>`}
                     </div>
                     <p className="text-xs text-slate-300">${reviewTarget.itemId} · ${reviewTarget.duration}s · ${reviewTarget.status}</p>
                     ${reviewMediaError
@@ -361,7 +361,7 @@ And pass into tab content:
                 >
                     ${videoUrl
                         ? html`<img src=${storyboardUrl || videoPosterFallback} alt=${`${itemId} preview`} className="w-full aspect-video object-cover" />`
-                        : html`<div className="w-full aspect-video flex items-center justify-center text-xs text-slate-500">暂无视频</div>`}
+                        : html`<div className="w-full aspect-video flex items-center justify-center text-xs text-slate-500">No video</div>`}
                 </button>
                 <div className="mt-2 flex items-center justify-between text-[11px] text-slate-300">
                     <span>${itemId}</span>
@@ -400,7 +400,7 @@ import { getReviewSelectionResult } from "../src/react/pages/workspace-page.js";
 test("getReviewSelectionResult should reject items without video", () => {
     const result = getReviewSelectionResult(scripts, { scriptFile: "episode_1.json", itemId: "E1S02" }, {});
     assert.equal(result.ok, false);
-    assert.equal(result.error, "该场景暂无可播放视频");
+    assert.equal(result.error, "This scene has no playable video yet");
 });
 
 test("getSafeReviewSelection should clear selection when script data is removed", () => {
@@ -426,10 +426,10 @@ Expected: FAIL because `getReviewSelectionResult` is not implemented.
 export function getReviewSelectionResult(currentScripts, selectedReview, uploadedStoryboardMap = {}) {
     const target = buildReviewTargetFromSelection(currentScripts, selectedReview, uploadedStoryboardMap);
     if (!target) {
-        return { ok: false, error: "找不到对应片段/场景", target: null };
+        return { ok: false, error: "Cannot find the corresponding segment/scene", target: null };
     }
     if (!target.videoPath) {
-        return { ok: false, error: "该场景暂无可播放视频", target };
+        return { ok: false, error: "This scene has no playable video yet", target };
     }
     return { ok: true, error: "", target };
 }

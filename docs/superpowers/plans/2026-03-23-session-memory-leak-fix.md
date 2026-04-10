@@ -1,8 +1,8 @@
-# Claude 子进程内存泄漏修复 Implementation Plan
+# Claude Subprocess Memory Leak Fix Implementation Plan
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 修复 Claude SDK 子进程内存泄漏，实现 idle 会话自动清理 + 并发上限 + 定期巡检三层防线
+**Goal:** Fix Claude SDK subprocess memory leak; implement three defensive layers: automatic cleanup of idle sessions, concurrency limit, and periodic inspection.
 
 **Architecture:** 在 `SessionManager` 中新增 `_disconnect_session()` 统一清理方法、`_schedule_cleanup()` TTL 定时器、`_ensure_capacity()` 并发控制、`_patrol_loop()` 安全网巡检。配置通过 `SystemSetting` K-V 表存储，前端 `AgentConfigTab` 新增折叠式高级设置面板。
 
@@ -29,7 +29,7 @@
     _cleanup_task: Optional[asyncio.Task] = None             # current idle cleanup timer
 ```
 
-同时在文件顶部 `import` 区添加 `import time`（如果尚未导入）。
+同时At the top of the file `import` 区添加 `import time`（如果尚未导入）。
 
 - [ ] **Step 2: 给 FakeSDKClient 添加 disconnect 和 connected 追踪**
 
@@ -48,10 +48,10 @@
         self.disconnected = False
 ```
 
-- [ ] **Step 3: 运行现有测试确认无回归**
+- [ ] **Step 3: 运行现有测试confirm no regressions**
 
 Run: `uv run python -m pytest tests/test_session_manager_more.py tests/test_session_manager_sdk_session_id.py tests/test_session_manager_user_input.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 4: Commit**
 
@@ -168,7 +168,7 @@ class TestDisconnectSession:
         await mgr._disconnect_session("nonexistent")  # should not raise
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_session_lifecycle.py::TestDisconnectSession -v`
 Expected: FAIL — `_disconnect_session` 不存在
@@ -199,10 +199,10 @@ Expected: FAIL — `_disconnect_session` 不存在
         self._connect_locks.pop(session_id, None)
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_session_lifecycle.py::TestDisconnectSession -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 5: Commit**
 
@@ -247,7 +247,7 @@ class TestConfigReading:
         assert result == 5
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_session_lifecycle.py::TestConfigReading -v`
 Expected: FAIL
@@ -286,10 +286,10 @@ Expected: FAIL
             return 5
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_session_lifecycle.py::TestConfigReading -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 5: Commit**
 
@@ -379,7 +379,7 @@ class TestIdleCleanup:
         assert managed.idle_since is not None
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_session_lifecycle.py::TestIdleCleanup -v`
 Expected: FAIL
@@ -434,15 +434,15 @@ Expected: FAIL
             self._schedule_cleanup(managed.session_id)
 ```
 
-- [ ] **Step 5: 运行测试确认通过**
+- [ ] **Step 5: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_session_lifecycle.py::TestIdleCleanup -v`
-Expected: 全部 PASS
+Expected: all PASS
 
-- [ ] **Step 6: 运行全部 session_manager 测试确认无回归**
+- [ ] **Step 6: 运行全部 session_manager 测试confirm no regressions**
 
 Run: `uv run python -m pytest tests/test_session_manager_more.py tests/test_session_manager_sdk_session_id.py tests/test_session_manager_user_input.py tests/test_session_lifecycle.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 7: Commit**
 
@@ -510,7 +510,7 @@ class TestEnsureCapacity:
                 await mgr._ensure_capacity()
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_session_lifecycle.py::TestEnsureCapacity -v`
 Expected: FAIL
@@ -569,7 +569,7 @@ Expected: FAIL
 - [ ] **Step 6: 运行测试确认通过**
 
 Run: `uv run python -m pytest tests/test_session_lifecycle.py::TestEnsureCapacity -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 7: Commit**
 
@@ -629,7 +629,7 @@ class TestPatrolLoop:
                 mock_disc.assert_not_called()
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_session_lifecycle.py::TestPatrolLoop -v`
 Expected: FAIL
@@ -676,10 +676,10 @@ Expected: FAIL
             patrol.cancel()
 ```
 
-- [ ] **Step 5: 运行测试确认通过**
+- [ ] **Step 5: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_session_lifecycle.py::TestPatrolLoop -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 6: Commit**
 
@@ -728,7 +728,7 @@ git commit -m "feat: 实现层 3 定期巡检安全网"
 - [ ] **Step 4: 运行全部生命周期测试**
 
 Run: `uv run python -m pytest tests/test_session_lifecycle.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 5: Commit**
 
@@ -775,7 +775,7 @@ from server.agent_runtime.session_manager import SessionCapacityError
         raise HTTPException(status_code=503, detail=str(exc))
 ```
 
-- [ ] **Step 3: 运行现有路由测试（如果有）确认无回归**
+- [ ] **Step 3: 运行现有路由测试（如果有）confirm no regressions**
 
 Run: `uv run python -m pytest tests/ -k "agent_chat or assistant" -v --no-header 2>&1 | head -30`
 
@@ -836,7 +836,7 @@ git commit -m "feat: 路由层捕获 SessionCapacityError 返回 503"
             await svc.set_setting(key, str(value))
 ```
 
-- [ ] **Step 4: 运行全部测试确认无回归**
+- [ ] **Step 4: 运行全部测试confirm no regressions**
 
 Run: `uv run python -m pytest tests/ -v --no-header 2>&1 | tail -10`
 Expected: 无新失败
@@ -1017,7 +1017,7 @@ git commit -m "feat: 智能体配置页新增高级设置折叠面板"
 - [ ] **Step 1: 运行全部后端测试**
 
 Run: `uv run python -m pytest -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 2: 运行前端检查**
 

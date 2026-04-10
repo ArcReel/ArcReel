@@ -1,127 +1,127 @@
-# Agent 对话 Turn 统一规范化设计
+# Agent Conversation Turn Unified Normalization Design
 
-## 问题
+## Problem
 
-Agent 对话的加载有 3 种场景：实时对话、历史对话、正在进行的对话重连。由于数据来源不同（JSONL transcript、SDK 内存 buffer、流式 DraftProjector），输出的 Turn 结构存在系统性差异，导致渲染不一致。
+Agent conversation loading has 3 scenarios: real-time conversation, history conversation, and reconnection to an ongoing conversation. Because the data sources differ (JSONL transcript, SDK memory buffer, streaming DraftProjector), the resulting Turn structures have systematic differences, causing inconsistent rendering.
 
-### 数据结构差异全景
+### Data Structure Difference Overview
 
-| 差异维度 | JSONL Transcript | SDK Buffer | Draft (流式) |
-|---------|-----------------|------------|-------------|
-| `uuid` | 始终存在 | User 有, Assistant/Result **无** | `"draft-{id}"` 合成 |
-| `timestamp` | 始终存在 | **始终缺失** | **缺失** |
-| `tool_use.result` | 由 turn_grouper 附加 | 由 turn_grouper 附加 | **永远缺失** |
-| `tool_use.skill_content` | 由 turn_grouper 附加 | 由 turn_grouper 附加 | **永远缺失** |
-| `tool_use.id` | 真实字符串 | 真实字符串 | 初始为 `null` |
-| `result` turn | **不存在**（JSONL 无此类型） | 存在 | 不适用 |
-| Content 格式 | string 或 array | string 或 array | 始终 array |
-| block `type` | 通常存在 | 可能缺失 | 始终存在 |
+| Dimension | JSONL Transcript | SDK Buffer | Draft (streaming) |
+|-----------|-----------------|------------|------------------|
+| `uuid` | Always present | User has it; Assistant/Result **absent** | `"draft-{id}"` synthesized |
+| `timestamp` | Always present | **Always missing** | **Missing** |
+| `tool_use.result` | Attached by turn_grouper | Attached by turn_grouper | **Always missing** |
+| `tool_use.skill_content` | Attached by turn_grouper | Attached by turn_grouper | **Always missing** |
+| `tool_use.id` | Real string | Real string | Initially `null` |
+| `result` turn | **Not present** (JSONL has no such type) | Present | Not applicable |
+| Content format | string or array | string or array | Always array |
+| Block `type` | Usually present | May be missing | Always present |
 
-### 根因
+### Root Cause
 
-Normalization 散落在 4 处，各自只解决部分问题：
-1. `turn_grouper._normalize_block()` — block type 推断
-2. `stream_projector._normalize_block()` — 字段默认值
-3. `service._build_initial_raw_messages()` — 去重过滤
-4. 前端 `ChatMessage.normalizeContent()` — string→array 转换
+Normalization is scattered across 4 places, each solving only part of the problem:
+1. `turn_grouper._normalize_block()` — block type inference
+2. `stream_projector._normalize_block()` — field defaults
+3. `service._build_initial_raw_messages()` — deduplication filtering
+4. Frontend `ChatMessage.normalizeContent()` — string→array conversion
 
-### 重连消息丢失
+### Reconnect Message Loss
 
-`_build_initial_raw_messages()` 在 service.py:451 过滤掉缺少 uuid 的 assistant/result 消息，导致最近一轮尚未写入 JSONL 的 assistant 回复在重连时丢失。
+`_build_initial_raw_messages()` at service.py:451 filters out assistant/result messages that lack a uuid, causing the most recent assistant reply (not yet written to JSONL) to be lost during reconnection.
 
 ---
 
-## 方案：统一 Projector 内部规范化
+## Approach: Unified Projector-Level Normalization
 
-从根源让 `turn_grouper` 和 `stream_projector` 共享相同的 normalization 逻辑。
+Share the same normalization logic between `turn_grouper` and `stream_projector` at the source.
 
-### Turn Contract（输出规范）
+### Turn Contract (Output Specification)
 
 ```python
 Turn = {
     "type": "user" | "assistant" | "system" | "result",
-    "content": list[ContentBlock],   # 始终为 array，永不为 string
+    "content": list[ContentBlock],   # Always an array, never a string
     "uuid": str | None,
     "timestamp": str | None,
 }
 
 ContentBlock = {
-    "type": str,                     # 始终存在
+    "type": str,                     # Always present
     "text": str,                     # Optional, type=text/skill_content
     "thinking": str,                 # Optional, type=thinking
-    "id": str | None,                # Optional, type=tool_use（流式初期可为 None）
-    "name": str,                     # Optional, type=tool_use（流式初期可为 ""）
-    "input": dict,                   # Optional, type=tool_use（始终为 dict）
-    "result": str,                   # Optional, type=tool_use（已完成的工具调用）
+    "id": str | None,                # Optional, type=tool_use (may be None during early streaming)
+    "name": str,                     # Optional, type=tool_use (may be "" during early streaming)
+    "input": dict,                   # Optional, type=tool_use (always dict)
+    "result": str,                   # Optional, type=tool_use (for completed tool calls)
     "is_error": bool,                # Optional, type=tool_use
-    "skill_content": str,            # Optional, type=tool_use 且 name=Skill
+    "skill_content": str,            # Optional, type=tool_use when name=Skill
 }
 ```
 
-### 共享模块：`turn_schema.py`
+### Shared Module: `turn_schema.py`
 
-新建 `server/agent_runtime/turn_schema.py`，提取共享的规范化逻辑：
+Create `server/agent_runtime/turn_schema.py` with shared normalization logic:
 
 ```python
 def infer_block_type(block: dict) -> str:
-    """推断缺失的 block type。"""
+    """Infer missing block type."""
 
 def normalize_block(block: dict) -> dict:
-    """统一的 block 规范化。"""
+    """Unified block normalization."""
 
 def normalize_content(content: Any) -> list[dict]:
-    """content 始终转为 list[dict]。"""
+    """Convert content to list[dict] always."""
 
 def normalize_turn(turn: dict) -> dict:
-    """确保 Turn 满足 contract。"""
+    """Ensure Turn satisfies the contract."""
 
 def normalize_turns(turns: list[dict]) -> list[dict]:
-    """批量规范化。"""
+    """Batch normalization."""
 ```
 
 ---
 
-## 实现步骤
+## Implementation Steps
 
-### Step 1: 新建 `turn_schema.py`
-- 从 `turn_grouper.py` 提取 `_infer_block_type()`、`_normalize_block()`、`_normalize_content()`
-- 新增 `normalize_turn()`、`normalize_turns()`
+### Step 1: Create `turn_schema.py`
+- Extract `_infer_block_type()`, `_normalize_block()`, `_normalize_content()` from `turn_grouper.py`
+- Add `normalize_turn()`, `normalize_turns()`
 
-### Step 2: 重构 `turn_grouper.py`
-- 删除本地的 `_infer_block_type()`、`_normalize_block()`、`_normalize_content()`
-- 改为 `from turn_schema import` 调用
-- `group_messages_into_turns()` 输出前对每个 turn 调用 `normalize_turn()`
+### Step 2: Refactor `turn_grouper.py`
+- Remove local `_infer_block_type()`, `_normalize_block()`, `_normalize_content()`
+- Replace with `from turn_schema import` calls
+- Call `normalize_turn()` on each turn before `group_messages_into_turns()` outputs
 
-### Step 3: 重构 `stream_projector.py`
-- `DraftAssistantProjector._normalize_block()` 替换为共享实现
-- `build_turn()` 输出前调用 `normalize_turn()`
-- 保留 `_ensure_block()` 的 streaming 特有逻辑（创建空壳 block）
+### Step 3: Refactor `stream_projector.py`
+- Replace `DraftAssistantProjector._normalize_block()` with shared implementation
+- Call `normalize_turn()` before `build_turn()` outputs
+- Retain `_ensure_block()`'s streaming-specific logic (creating empty-shell blocks)
 
-### Step 4: 修复 `service.py` 重连消息丢失
-- 修改 `_build_initial_raw_messages()` 中的过滤逻辑
-- 允许 buffer 中位于 transcript 末尾之后的 assistant/result 消息通过
-- `build_snapshot()` 和 `_emit_running_snapshot()` 输出前调用 `normalize_turns()` 作为最终关卡
+### Step 4: Fix `service.py` Reconnect Message Loss
+- Modify the filter logic in `_build_initial_raw_messages()`
+- Allow assistant/result messages from the buffer that come after the transcript's last entry to pass through
+- Call `normalize_turns()` in `build_snapshot()` and `_emit_running_snapshot()` as the final gate
 
-### Step 5: 精简前端冗余 normalization
-- `ChatMessage.tsx` 简化 `normalizeContent()`，移除 JSON parse 分支
-- `ContentBlockRenderer.tsx` 移除 silent fallback（`block.type || "text"`）
-- 可选：dev-only Turn contract 验证
+### Step 5: Simplify Frontend Redundant Normalization
+- `ChatMessage.tsx`: simplify `normalizeContent()`, remove JSON parse branch
+- `ContentBlockRenderer.tsx`: remove silent fallback (`block.type || "text"`)
+- Optional: dev-only Turn contract validation
 
 ---
 
-## 涉及文件
+## Files Involved
 
-| 文件 | 操作 | 风险 |
-|------|------|------|
-| `server/agent_runtime/turn_schema.py` | **新建** | 低 |
-| `server/agent_runtime/turn_grouper.py` | 重构（提取→导入） | 中 |
-| `server/agent_runtime/stream_projector.py` | 重构（替换 normalize） | 中 |
-| `server/agent_runtime/service.py` | 修改过滤逻辑 + 输出规范化 | 中 |
-| `frontend/src/components/copilot/chat/ChatMessage.tsx` | 简化 | 低 |
-| `frontend/src/components/copilot/chat/ContentBlockRenderer.tsx` | 简化 | 低 |
+| File | Action | Risk |
+|------|--------|------|
+| `server/agent_runtime/turn_schema.py` | **Create** | Low |
+| `server/agent_runtime/turn_grouper.py` | Refactor (extract → import) | Medium |
+| `server/agent_runtime/stream_projector.py` | Refactor (replace normalize) | Medium |
+| `server/agent_runtime/service.py` | Modify filter logic + output normalization | Medium |
+| `frontend/src/components/copilot/chat/ChatMessage.tsx` | Simplify | Low |
+| `frontend/src/components/copilot/chat/ContentBlockRenderer.tsx` | Simplify | Low |
 
-## 测试策略
+## Testing Strategy
 
-- 现有 turn_grouper 测试应继续通过（行为不变，代码位置迁移）
-- 新增 `test_turn_schema.py` 覆盖各种输入格式的规范化
-- 手动验证三种场景：历史加载、实时流、重连
+- Existing turn_grouper tests should continue to pass (behavior unchanged, code location migrated)
+- Add `test_turn_schema.py` covering normalization for various input formats
+- Manually verify three scenarios: history loading, real-time streaming, reconnection

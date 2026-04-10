@@ -1,98 +1,98 @@
-# Assistant 问题分步向导交互设计（确认稿）
+# Assistant Question Step-by-Step Wizard Interaction Design (Confirmed)
 
-## 目标
-将当前“全部问题同时展示 + 底部统一提交”改为“逐题作答向导”，解决“选了但未提交感不明确”的体验问题。在不改后端协议的前提下，让用户明确知道当前进度、下一步动作与最终提交时机。
+## Goal
+Change the current "display all questions at once + submit all at the bottom" pattern to a "step-by-step question wizard", resolving the UX issue of "unclear whether selected answers have been submitted". Without changing the backend protocol, make users clearly understand the current progress, next action, and final submission timing.
 
-## 已确认决策
-- 采用“前端分步向导 + 最后一题一次提交”。
-- 推进方式：单选/多选都通过点击“下一题”推进，不自动提交。
-- 允许回退修改：提供“上一步”并保留已填内容。
-- 布局方式：顶部横向步骤条 + 下方当前题内容。
-- 最后一题动作：显示“完成并提交”按钮。
+## Confirmed Decisions
+- Use "frontend step-by-step wizard + submit all at the final question".
+- Navigation: both single and multiple choice advance by clicking "Next Question"; no auto-submit.
+- Allow going back to edit: provide "Previous" and preserve already-filled content.
+- Layout: horizontal progress bar at the top + current question content below.
+- Final question action: display "Finish & Submit" button.
 
-## 现状与约束
-- 现有后端接口 `POST /assistant/sessions/{session_id}/questions/{question_id}/answer` 接收整批 `answers`，不支持逐题提交。
-- 前端当前实现位于 `frontend/src/react/pages/assistant-page.js`，已具备：
-  - 单选/多选答案状态管理。
-  - “其他”选项补充输入。
-  - 统一答案组装并提交。
-- 结论：本次以 UI/交互重构为主，保持后端接口与数据结构不变。
+## Current State and Constraints
+- Existing backend endpoint `POST /assistant/sessions/{session_id}/questions/{question_id}/answer` receives a batch of `answers`; does not support per-question submission.
+- Frontend implementation currently lives in `frontend/src/react/pages/assistant-page.js` and already supports:
+  - Single/multiple choice answer state management.
+  - "Other" option supplemental input.
+  - Unified answer assembly and submission.
+- Conclusion: this iteration is primarily a UI/interaction refactor; backend interface and data structure remain unchanged.
 
-## 方案对比
-1. 前端分步向导 + 末题一次提交（推荐）
-- 优点：改动最小、风险低、与当前后端完全兼容。
-- 缺点：中途没有服务端草稿，刷新后需重答（可后续增强本地缓存）。
+## Approach Comparison
+1. Frontend step-by-step wizard + submit all at the final question (Recommended)
+   - Pros: minimal changes, low risk, fully compatible with current backend.
+   - Cons: no server-side draft mid-way; user must re-answer if page is refreshed (local cache can be added later).
 
-2. 分步向导 + 每步草稿落后端 + 最终提交
-- 优点：可恢复、容错更强。
-- 缺点：需新增草稿协议与存储，超出本期目标。
+2. Step-by-step wizard + per-step draft to backend + final submit
+   - Pros: recoverable, more fault-tolerant.
+   - Cons: requires new draft protocol and storage; out of scope for this iteration.
 
-3. 真正逐题对话提交
-- 优点：对话感最强。
-- 缺点：协议与 agent 行为变更大，不适合本轮快速优化。
+3. True per-question conversational submission
+   - Pros: strongest conversational feel.
+   - Cons: significant changes to protocol and agent behavior; not suitable for this quick optimization round.
 
-## 交互设计
-### 顶部步骤条
-- 在“需要你的选择”区域顶部显示横向步骤条，节点为 `1..N`。
-- 节点文案优先用 `question.header`，无则显示 `问题 x`。
-- 状态：
-  - 当前题：高亮。
-  - 已访问：可点击回退。
-  - 未访问：仅展示，不允许跳题前进。
-- 移动端支持横向滚动，避免压缩题目与选项区。
+## Interaction Design
+### Top Progress Bar
+- Show a horizontal progress bar at the top of the "Your Choices Needed" area; nodes are `1..N`.
+- Node labels prefer `question.header`; show `Question x` if absent.
+- States:
+  - Current question: highlighted.
+  - Already visited: clickable to go back.
+  - Not yet visited: displayed only, no jumping forward allowed.
+- Mobile supports horizontal scrolling to avoid compressing question and option areas.
 
-### 当前题卡片
-- 每次仅渲染一题。
-- 保持现有视觉风格：题干、单/多选标记、选项描述、“其他”输入。
-- 底部操作区固定：
-  - 左侧 `上一步`（首题禁用）。
-  - 右侧 `下一题`；到末题切换为 `完成并提交`。
-- 显示进度文案：`问题 i/N`。
+### Current Question Card
+- Only render one question at a time.
+- Maintain existing visual style: question stem, single/multiple choice label, option descriptions, "Other" input.
+- Fixed bottom action area:
+  - Left: `Previous` (disabled on first question).
+  - Right: `Next Question`; switches to `Finish & Submit` on the last question.
+- Show progress text: `Question i/N`.
 
-## 状态与数据流
-新增/重用状态（前端）：
-- `currentQuestionIndex`：当前题序号。
-- `questionAnswers`：题目答案（单选字符串/多选数组）。
-- `questionCustomAnswers`：“其他”输入内容。
-- `visitedSteps`：已访问步骤（用于步骤条样式与可回退控制）。
+## State and Data Flow
+New/reused state (frontend):
+- `currentQuestionIndex`: current question index.
+- `questionAnswers`: question answers (single-choice string / multi-choice array).
+- `questionCustomAnswers`: "Other" input content.
+- `visitedSteps`: visited steps (for progress bar styling and back-navigation control).
 
-关键流程：
-1. 收到新的 `assistantPendingQuestion`（或 `question_id` 变化）后重置状态，定位到第 1 题。
-2. 用户在当前题选择后，`下一题` 才可用；点击后仅推进 index，不调用提交 API。
-3. 用户可通过 `上一步` 或步骤条回退修改，已填答案保持。
-4. 在最后一题点击 `完成并提交` 时，才触发现有批量组装与提交逻辑。
+Key flow:
+1. When a new `assistantPendingQuestion` (or `question_id` change) is received, reset state and position to question 1.
+2. `Next Question` becomes available only after the user selects an answer for the current question; clicking it only advances the index, does not call the submit API.
+3. User can go back via `Previous` or the progress bar to edit; already-filled answers are preserved.
+4. Clicking `Finish & Submit` on the last question triggers the existing batch assembly and submission logic.
 
-## 提交与错误处理
-- `完成并提交` 前做全量校验：
-  - 每题必答。
-  - 选择“其他”时对应文本必填。
-- 提交中：
-  - 禁用步骤切换、回退与提交按钮。
-  - 按钮文案显示 `提交中...`。
-- 提交失败：
-  - 保留当前题与全部答案，不清空状态。
-  - 展示错误信息，允许原位重试。
-- 提交成功：
-  - 复用现有行为清除 pending question，问答区收起。
+## Submission and Error Handling
+- Validate all before `Finish & Submit`:
+  - Every question must be answered.
+  - If "Other" is selected, corresponding text input is required.
+- During submission:
+  - Disable step switching, back navigation, and submit button.
+  - Button label shows `Submitting...`.
+- Submission failure:
+  - Retain current question and all answers; do not clear state.
+  - Show error message; allow inline retry.
+- Submission success:
+  - Reuse existing behavior to clear pending question; collapse the Q&A section.
 
-## 测试策略
-新增前端测试文件：`frontend/tests/assistant-question-wizard.test.mjs`，覆盖：
-1. 仅展示当前题，步骤条正确高亮。
-2. 未作答时“下一题”禁用，作答后启用。
-3. 点击“下一题”不触发 API 提交。
-4. “上一步”可回退且答案保留。
-5. 末题按钮文案为“完成并提交”。
-6. 最终仅调用一次提交 API，payload 与现有格式一致。
-7. 提交失败不丢答案，提交成功清除 pending。
-8. 小屏下步骤条可横向滚动。
+## Testing Strategy
+Add frontend test file: `frontend/tests/assistant-question-wizard.test.mjs`, covering:
+1. Only current question is shown; progress bar highlights correctly.
+2. "Next Question" disabled when unanswered; enabled after answering.
+3. Clicking "Next Question" does not trigger API submission.
+4. "Previous" can go back and answers are preserved.
+5. Last question button label is "Finish & Submit".
+6. Final submit API is called exactly once; payload matches existing format.
+7. Submission failure does not lose answers; submission success clears pending.
+8. On small screens, progress bar is horizontally scrollable.
 
-## 实施范围
-- 主要修改：`frontend/src/react/pages/assistant-page.js`
-- 可能微调：`frontend/src/css/app.css`（若步骤条样式需补充）
-- 状态 hook：`frontend/src/react/hooks/use-assistant-state.js` 保持现有批量提交协议，不做接口变更
+## Implementation Scope
+- Primary modification: `frontend/src/react/pages/assistant-page.js`
+- Possible minor adjustment: `frontend/src/css/app.css` (if progress bar styles need additions)
+- State hook: `frontend/src/react/hooks/use-assistant-state.js` retains the existing batch submission protocol; no interface changes
 
-## 验收标准
-- 用户能清楚识别当前题号、总题数和最终提交时机。
-- 不再出现“已选项但是否已提交不明确”的体验。
-- 保持现有后端问答接口兼容，无额外协议变更。
-- 不影响普通聊天发送、会话切换、会话中断等既有功能。
+## Acceptance Criteria
+- Users can clearly identify the current question number, total questions, and final submission timing.
+- No more "selected but unclear if submitted" UX confusion.
+- Existing backend Q&A interface remains compatible; no additional protocol changes.
+- Does not affect regular chat sending, session switching, session interruption, or other existing functionality.

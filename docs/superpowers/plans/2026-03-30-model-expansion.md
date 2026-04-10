@@ -1,4 +1,4 @@
-# 预置模型扩充 Implementation Plan
+# Preset Model Expansion Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -70,7 +70,7 @@ models={
 - [ ] **Step 2: 运行测试验证**
 
 Run: `uv run python -m pytest tests/test_config_registry_models.py -v`
-Expected: 全部 PASS（7 个模型，text/image/video 各有 1 个 default）
+Expected: all PASS（7 个模型，text/image/video 各有 1 个 default）
 
 ---
 
@@ -132,7 +132,7 @@ models={
 - [ ] **Step 2: 运行测试验证**
 
 Run: `uv run python -m pytest tests/test_config_registry_models.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 ---
 
@@ -206,7 +206,7 @@ models={
 - [ ] **Step 2: 运行测试验证**
 
 Run: `uv run python -m pytest tests/test_config_registry_models.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 ---
 
@@ -266,7 +266,7 @@ models={
 - [ ] **Step 2: 运行测试验证**
 
 Run: `uv run python -m pytest tests/test_config_registry_models.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 ---
 
@@ -278,7 +278,7 @@ Expected: 全部 PASS
 - [ ] **Step 1: 运行全量 registry 测试**
 
 Run: `uv run python -m pytest tests/test_config_registry.py tests/test_config_registry_models.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 2: 验证模型总数**
 

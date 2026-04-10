@@ -1,31 +1,31 @@
-# SDK v0.1.46 升级 + Agent Runtime 重构设计
+# SDK v0.1.46 Upgrade + Agent Runtime Refactor Design
 
-日期: 2026-03-05
-状态: 待实施
+Date: 2026-03-05
+Status: Pending Implementation
 
-## 背景
+## Background
 
-升级 `claude-agent-sdk` 至 v0.1.46，利用两个新 PR 的功能重构 agent_runtime 模块：
+Upgrade `claude-agent-sdk` to v0.1.46 and use features from two new PRs to refactor the agent_runtime module:
 
-- **PR #621**: Typed Task Messages — `TaskStartedMessage`/`TaskProgressMessage`/`TaskNotificationMessage` 作为 `SystemMessage` 子类
-- **PR #622**: `get_session_messages()` / `list_sessions()` — 基于 `parentUuid` 链路重建的会话读取
+- **PR #621**: Typed Task Messages — `TaskStartedMessage`/`TaskProgressMessage`/`TaskNotificationMessage` as `SystemMessage` subclasses
+- **PR #622**: `get_session_messages()` / `list_sessions()` — session reading based on `parentUuid` chain reconstruction
 
-## 实测数据
+## Empirical Data
 
-### `get_session_messages()` 行为
+### `get_session_messages()` Behavior
 
-| 维度 | 结果 |
-|------|------|
-| tool_result user 消息 | **保留** — 不过滤 system-injected user 消息 |
-| 分支/sidechain 消息 | **过滤** — 通过 parentUuid 链路重建只保留主线 |
-| result 条目 | JSONL 中不存在（SessionManager 管理的会话不写入 result） |
-| compaction | **正确处理** — 1487 条目 → 12 条 post-compaction 消息 |
-| UUID 可用性 | 所有 SessionMessage 都有 uuid（必填字段） |
+| Dimension | Result |
+|-----------|--------|
+| tool_result user messages | **Retained** — does not filter system-injected user messages |
+| Branch/sidechain messages | **Filtered** — only main chain retained via parentUuid reconstruction |
+| result entries | Not present in JSONL (SessionManager-managed sessions don't write result) |
+| compaction | **Handled correctly** — 1487 entries → 12 post-compaction messages |
+| UUID availability | All SessionMessages have uuid (required field) |
 
-### SDK 流式消息 UUID 可用性
+### SDK Streaming Message UUID Availability
 
-| SDK 消息类 | uuid | session_id |
-|-----------|:----:|:----------:|
+| SDK Message Class | uuid | session_id |
+|-------------------|:----:|:----------:|
 | UserMessage | ❌ | ❌ |
 | AssistantMessage | ❌ | ❌ |
 | SystemMessage | ❌ | ❌ |
@@ -35,17 +35,17 @@
 | StreamEvent | ✅ | ✅ |
 | ResultMessage | ❌ | ✅ |
 
-**核心约束**: `UserMessage` 和 `AssistantMessage`（最需要去重的类型）没有 uuid。content-based dedup 不可消除，但可简化。
+**Core Constraint**: `UserMessage` and `AssistantMessage` (the types most in need of deduplication) have no uuid. Content-based dedup cannot be eliminated, but it can be simplified.
 
-## 设计方案：多 Pass 管线 + SDK 整合 + 务实去重
+## Design: Multi-Pass Pipeline + SDK Integration + Pragmatic Dedup
 
 ### 1. TranscriptReader → SdkTranscriptAdapter
 
-**替换** `transcript_reader.py` 为 `sdk_transcript_adapter.py`。
+**Replace** `transcript_reader.py` with `sdk_transcript_adapter.py`.
 
 ```python
 class SdkTranscriptAdapter:
-    """用 SDK get_session_messages() 替代手写 JSONL 解析。"""
+    """Replaces hand-written JSONL parsing with SDK get_session_messages()."""
 
     def read_raw_messages(self, sdk_session_id: str) -> list[dict]:
         if not sdk_session_id:
@@ -76,27 +76,27 @@ class SdkTranscriptAdapter:
             return False
 ```
 
-**优势对比**:
-- 链路重建（parentUuid）：正确处理分支对话、compaction ← TranscriptReader 的线性读取不处理
-- 过滤 sidechain/branch 消息 ← TranscriptReader 全部包含
-- 减少约 180 行自维护代码
+**Advantages over TranscriptReader**:
+- Chain reconstruction (parentUuid): correctly handles branched conversations and compaction; TranscriptReader's linear reading does not
+- Filters sidechain/branch messages; TranscriptReader includes all
+- Reduces ~180 lines of self-maintained code
 
-**注意事项**:
-- `get_session_messages()` 是同步函数。当前 TranscriptReader 也是同步调用（`_build_projector` 中），不引入新问题
-- 它不返回 result 消息。JSONL 中也没有 result 条目，所以不存在功能退化
-- Skill content 消息在非主分支上可能被过滤（实测 2/6 被过滤的消息是 skill content）。这对 turn grouping 影响很小，因为这些 skill content 本身就是分支上的冗余内容
+**Caveats**:
+- `get_session_messages()` is synchronous. The current TranscriptReader is also synchronous (in `_build_projector`), so no new issues are introduced
+- It does not return result messages. JSONL also has no result entries, so there is no functional regression
+- Skill content messages on non-main branches may be filtered (empirically, 2/6 filtered messages were skill content). This has minimal impact on turn grouping, as these skill contents are redundant on branches anyway
 
-### 2. turn_grouper 多 Pass 重构
+### 2. turn_grouper Multi-Pass Refactor
 
-将 `group_messages_into_turns` 从单函数拆分为多 pass 管线。
+Split `group_messages_into_turns` from a single function into a multi-pass pipeline.
 
-#### Pass 1: Classify（分类）
+#### Pass 1: Classify
 
-识别每条消息的语义类型。**保留** `_is_system_injected_user_message` 和 `_has_subagent_user_metadata`，因为 SDK 不过滤 tool_result user 消息。
+Identify the semantic type of each message. **Retain** `_is_system_injected_user_message` and `_has_subagent_user_metadata`, because the SDK does not filter tool_result user messages.
 
 ```python
 def classify_message(msg: dict) -> str:
-    """返回: real_user | system_inject | assistant | task_progress | result"""
+    """Returns: real_user | system_inject | assistant | task_progress | result"""
     msg_type = msg.get("type", "")
     if msg_type == "assistant":
         return "assistant"
@@ -106,7 +106,7 @@ def classify_message(msg: dict) -> str:
         subtype = msg.get("subtype", "")
         if subtype in ("task_started", "task_progress", "task_notification"):
             return "task_progress"
-        return "system_other"  # compact_boundary 等，忽略
+        return "system_other"  # compact_boundary etc., ignored
     if msg_type == "user":
         content = msg.get("content", "")
         if _is_system_injected_user_message(content) or _has_subagent_user_metadata(msg):
@@ -115,72 +115,72 @@ def classify_message(msg: dict) -> str:
     return "ignore"
 ```
 
-#### Pass 2: Pair（配对）
+#### Pass 2: Pair
 
-将 tool_result/skill_content/task_progress 附加到对应的 assistant blocks。
+Attach tool_result/skill_content/task_progress to corresponding assistant blocks.
 
-- `tool_result` → 匹配 `tool_use.id` 并附加 result/is_error（逻辑不变）
-- `skill_content` → 附加到最近的 Skill tool_use block（逻辑不变）
-- `task_progress` → 转换为 `task_progress` block 附加到当前 assistant turn（新增）
+- `tool_result` → match `tool_use.id` and attach result/is_error (logic unchanged)
+- `skill_content` → attach to the nearest Skill tool_use block (logic unchanged)
+- `task_progress` → convert to `task_progress` block and attach to current assistant turn (new)
 
-#### Pass 3: Group（分组）
+#### Pass 3: Group
 
-连续 assistant 合并，real_user 开始新 turn。
+Merge consecutive assistant turns; `real_user` starts a new turn.
 
-**消除 result turn**: result 消息仅 flush current_turn，不创建独立 turn。
+**Eliminate result turn**: result messages only flush the current_turn; they do not create a separate turn.
 
 ```python
 if classification == "result":
     if current_turn:
         turns.append(current_turn)
         current_turn = None
-    continue  # 不创建 result turn
+    continue  # do not create result turn
 ```
 
-**安全性**: JSONL 中不存在 result 条目，result 只出现在 runtime buffer 中。前端 result turn 没有任何渲染内容，移除无 UI 影响。
+**Safety**: JSONL has no result entries; result only appears in the runtime buffer. Frontend result turns have no rendered content; removing them has no UI impact.
 
-### 3. 去重策略简化
+### 3. Simplified Dedup Strategy
 
-**现有复杂度**: ~100 行（`_build_seen_sets` + `_content_key` + `_is_duplicate` + `_should_skip_local_echo` + round-scoping）
+**Current complexity**: ~100 lines (`_build_seen_sets` + `_content_key` + `_is_duplicate` + `_should_skip_local_echo` + round-scoping)
 
-**简化为**: ~50 行
+**Simplified to**: ~50 lines
 
 ```python
 def _build_projector(self, meta, session_id, replayed_messages=None):
-    # Step 1: SDK 读取 transcript（正确链、全有 UUID）
+    # Step 1: Read transcript via SDK (correct chain, all have UUID)
     transcript_msgs = self._adapter.read_raw_messages(meta.sdk_session_id)
 
-    # Step 2: UUID 集合
+    # Step 2: UUID set
     transcript_uuids = {m["uuid"] for m in transcript_msgs if m.get("uuid")}
 
-    # Step 3: 当前轮次内容指纹（最后一个 real_user 之后的消息）
+    # Step 3: Content fingerprints for current-round tail (messages after last real_user)
     tail_fps = self._fingerprint_tail(transcript_msgs)
 
-    # Step 4: 初始化投影器
+    # Step 4: Initialize projector
     projector = AssistantStreamProjector(initial_messages=transcript_msgs)
 
-    # Step 5: 应用 buffer 并去重
+    # Step 5: Apply buffer with dedup
     buffer = replayed_messages or self.session_manager.get_buffered_messages(session_id)
     for msg in buffer:
         if not isinstance(msg, dict):
             continue
         msg_type = msg.get("type", "")
 
-        # 非 groupable 直接通过
+        # Non-groupable messages pass through directly
         if msg_type not in {"user", "assistant", "result"}:
             projector.apply_message(msg)
             continue
 
-        # ① UUID 去重
+        # (1) UUID dedup
         uuid = msg.get("uuid")
         if uuid and uuid in transcript_uuids:
             continue
 
-        # ② Local echo 去重
+        # (2) Local echo dedup
         if msg.get("local_echo") and self._echo_in_transcript(msg, transcript_msgs):
             continue
 
-        # ③ 内容指纹去重（兜底）
+        # (3) Content fingerprint dedup (fallback)
         if not uuid and msg_type in {"assistant", "result"}:
             fp = self._fingerprint(msg)
             if fp and fp in tail_fps:
@@ -191,28 +191,28 @@ def _build_projector(self, meta, session_id, replayed_messages=None):
     return projector
 ```
 
-**被消除的复杂度**:
+**Eliminated complexity**:
 
-| 被删除 | 原因 |
-|--------|------|
-| `_build_seen_sets` (last_user_idx 追踪) | SDK 返回的 user 都是真实用户，`_fingerprint_tail` 直接找最后一个 user |
-| `_content_key` (MD5 哈希 thinking blocks) | 替换为 `_fingerprint`：truncate 到 200 字符即可 |
-| Round-scoping (`seen_content_keys.clear()`) | 自然限定到 tail（最后一个 user 之后的消息） |
-| `_is_system_injected_user_message` 在去重中的调用 | 不需要 — SDK 的 user 都是真实用户，无需判断 |
+| Removed | Reason |
+|---------|--------|
+| `_build_seen_sets` (last_user_idx tracking) | SDK-returned users are all real users; `_fingerprint_tail` directly finds the last user |
+| `_content_key` (MD5 hash of thinking blocks) | Replaced with `_fingerprint`: truncating to 200 chars is sufficient |
+| Round-scoping (`seen_content_keys.clear()`) | Naturally bounded to tail (messages after last user) |
+| `_is_system_injected_user_message` in dedup | Not needed — SDK users are all real users, no injection detection required |
 
-**保留的逻辑**:
+**Retained logic**:
 
-| 保留 | 说明 |
-|------|------|
-| UUID 集合去重 | 主路径，不变 |
-| Local echo 去重 | 简化 — 只在 transcript 中搜索匹配文本 |
-| 内容指纹去重 | 仅 assistant/result，truncate 替代 MD5 |
+| Retained | Notes |
+|----------|-------|
+| UUID set dedup | Main path, unchanged |
+| Local echo dedup | Simplified — only searches transcript for matching text |
+| Content fingerprint dedup | Only for assistant/result; truncate replaces MD5 |
 
-### 4. PR #621: 子代理任务进度
+### 4. PR #621: Subagent Task Progress
 
-#### 后端消息处理
+#### Backend Message Handling
 
-在 `session_manager.py` 的 `_MESSAGE_TYPE_MAP` 中新增映射：
+Add new mappings to `_MESSAGE_TYPE_MAP` in `session_manager.py`:
 
 ```python
 _MESSAGE_TYPE_MAP = {
@@ -227,7 +227,7 @@ _MESSAGE_TYPE_MAP = {
 }
 ```
 
-在 `_message_to_dict` 中注入精确 subtype：
+Inject precise subtype in `_message_to_dict`:
 
 ```python
 _TASK_MESSAGE_SUBTYPES = {
@@ -242,7 +242,7 @@ def _message_to_dict(self, message):
         msg_type = self._infer_message_type(message)
         if msg_type:
             msg_dict["type"] = msg_type
-    # 注入 typed task message subtype
+    # Inject typed task message subtype
     class_name = type(message).__name__
     subtype = self._TASK_MESSAGE_SUBTYPES.get(class_name)
     if subtype and isinstance(msg_dict, dict):
@@ -250,9 +250,9 @@ def _message_to_dict(self, message):
     return msg_dict
 ```
 
-#### turn_grouper 处理
+#### turn_grouper Handling
 
-在 Pass 2 (Pair) 中，task_progress 类型消息转换为 block：
+In Pass 2 (Pair), convert task_progress type messages to blocks:
 
 ```python
 task_progress_block = {
@@ -266,26 +266,26 @@ task_progress_block = {
 }
 ```
 
-附加到当前 assistant turn 的 content 中。如果没有当前 assistant turn，创建一个 type="system" turn。
+Attach to the content of the current assistant turn. If there is no current assistant turn, create a type="system" turn.
 
-#### 前端渲染
+#### Frontend Rendering
 
-新增 `TaskProgressBlock` 组件：
+Add `TaskProgressBlock` component:
 
 ```
-ContentBlock.type 新增: "task_progress"
+ContentBlock.type new value: "task_progress"
 
-TaskProgressBlock 渲染:
-  task_started  → "🔄 子任务开始: {description}"
-  task_progress → "⏳ {description} (tokens: {usage.total_tokens})"
-  task_notification(completed) → "✅ 子任务完成: {summary}"
-  task_notification(failed)    → "❌ 子任务失败: {summary}"
+TaskProgressBlock rendering:
+  task_started  → "Subagent started: {description}"
+  task_progress → "{description} (tokens: {usage.total_tokens})"
+  task_notification(completed) → "Subagent completed: {summary}"
+  task_notification(failed)    → "Subagent failed: {summary}"
 ```
 
-### 5. 前端类型变更
+### 5. Frontend Type Changes
 
 ```typescript
-// Turn.type: 移除 "result"
+// Turn.type: remove "result"
 export interface Turn {
   type: "user" | "assistant" | "system";
   content: ContentBlock[];
@@ -293,11 +293,11 @@ export interface Turn {
   timestamp?: string;
 }
 
-// ContentBlock.type: 新增 "task_progress"
+// ContentBlock.type: add "task_progress"
 export interface ContentBlock {
   type: "text" | "thinking" | "tool_use" | "tool_result" | "skill_content" | "task_progress";
   // ... existing fields ...
-  // 新增 task_progress 字段
+  // New task_progress fields
   task_id?: string;
   status?: string;
   description?: string;
@@ -307,28 +307,28 @@ export interface ContentBlock {
 }
 ```
 
-## 文件变更清单
+## File Change Checklist
 
-| 文件 | 操作 | 说明 |
-|------|------|------|
-| `pyproject.toml` | 修改 | ✅ 已完成：`>=0.1.44` → `>=0.1.46` |
-| `server/agent_runtime/transcript_reader.py` | 删除 | 替换为 sdk_transcript_adapter.py |
-| `server/agent_runtime/sdk_transcript_adapter.py` | 新建 | SDK get_session_messages() 封装 |
-| `server/agent_runtime/turn_grouper.py` | 重构 | 多 Pass 管线 + 消除 result turn + task_progress 处理 |
-| `server/agent_runtime/session_manager.py` | 修改 | _MESSAGE_TYPE_MAP 新增 + _message_to_dict 增强 |
-| `server/agent_runtime/service.py` | 修改 | 替换 TranscriptReader 引用 + 简化去重 |
-| `server/agent_runtime/models.py` | 修改 | SessionStatus 保持不变 |
-| `frontend/src/types/assistant.ts` | 修改 | Turn.type 移除 result + ContentBlock 新增 task_progress |
-| `frontend/src/components/copilot/chat/ContentBlockRenderer.tsx` | 修改 | 新增 task_progress case |
-| `frontend/src/components/copilot/chat/TaskProgressBlock.tsx` | 新建 | 子代理进度渲染组件 |
-| `tests/test_turn_grouper.py` | 修改 | 新增 multi-pass 测试 + task_progress 测试 |
-| `tests/test_sdk_transcript_adapter.py` | 新建 | SdkTranscriptAdapter 单元测试 |
+| File | Action | Notes |
+|------|--------|-------|
+| `pyproject.toml` | Modify | Already done: `>=0.1.44` → `>=0.1.46` |
+| `server/agent_runtime/transcript_reader.py` | Delete | Replaced by sdk_transcript_adapter.py |
+| `server/agent_runtime/sdk_transcript_adapter.py` | Create | SDK get_session_messages() wrapper |
+| `server/agent_runtime/turn_grouper.py` | Refactor | Multi-pass pipeline + eliminate result turn + task_progress handling |
+| `server/agent_runtime/session_manager.py` | Modify | Add to _MESSAGE_TYPE_MAP + enhance _message_to_dict |
+| `server/agent_runtime/service.py` | Modify | Replace TranscriptReader references + simplify dedup |
+| `server/agent_runtime/models.py` | Modify | SessionStatus unchanged |
+| `frontend/src/types/assistant.ts` | Modify | Remove result from Turn.type + add task_progress to ContentBlock |
+| `frontend/src/components/copilot/chat/ContentBlockRenderer.tsx` | Modify | Add task_progress case |
+| `frontend/src/components/copilot/chat/TaskProgressBlock.tsx` | Create | Subagent progress rendering component |
+| `tests/test_turn_grouper.py` | Modify | Add multi-pass tests + task_progress tests |
+| `tests/test_sdk_transcript_adapter.py` | Create | SdkTranscriptAdapter unit tests |
 
-## 风险与缓解
+## Risks and Mitigation
 
-| 风险 | 缓解 |
-|------|------|
-| SDK `get_session_messages()` 过滤了主分支上有意义的 skill content | 实测仅 2/6 被过滤且都是分支冗余内容；即使偶尔过滤，turn grouping 不受影响（skill content 仅作装饰性附加） |
-| content-based dedup 的 truncate 策略可能误匹配 | 限定到当前轮次 tail，collision 概率极低；仅用于 UUID 缺失的 buffer 消息 |
-| 消除 result turn 可能影响前端逻辑 | 实测 result turn 无渲染内容；前端只需移除 type 判断，无功能退化 |
-| `get_session_messages()` 同步阻塞事件循环 | 现有 TranscriptReader 也是同步调用，不引入新问题；后续可包装 run_in_executor |
+| Risk | Mitigation |
+|------|-----------|
+| SDK `get_session_messages()` filters meaningful skill content on the main branch | Empirically only 2/6 were filtered and all were branch-redundant content; even if occasionally filtered, turn grouping is unaffected (skill content is only decorative) |
+| Truncate strategy for content-based dedup may cause false matches | Bounded to the current-round tail; collision probability is extremely low; only used for UUID-less buffer messages |
+| Eliminating result turn may affect frontend logic | Empirically result turn has no rendered content; frontend only needs to remove type checks; no functional regression |
+| `get_session_messages()` synchronously blocks the event loop | Existing TranscriptReader is also synchronous; no new issues introduced; can be wrapped in run_in_executor later |

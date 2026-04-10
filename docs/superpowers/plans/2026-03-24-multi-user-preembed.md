@@ -1,16 +1,16 @@
-# 多用户预埋重构实施计划
+# Multi-User Pre-embedding Refactor Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在开源版中预埋多用户支持的基础设施（User 模型、Mixin 基类、Repository 模板方法、Auth 对象化），为未来扩展做准备。
+**Goal:** Pre-embed multi-user support infrastructure (User model, Mixin base class, Repository template method, Auth objectification) into the open-source version for future extensibility.
 
 **Architecture:** 通过 Mixin 统一审计字段，Repository 基类提供 `_scope_query` 覆盖点，Auth 返回 Pydantic 对象替代 dict。所有改动对开源版单用户体验透明。
 
 **Tech Stack:** SQLAlchemy 2.0 ORM, Pydantic v2, Alembic, FastAPI Depends
 
-**重要约束:** 所有 commit message 不得提及商业版本。
+**Important Constraint:** 所有 commit message 不得提及商业版本。
 
-**设计文档:** `docs/superpowers/specs/2026-03-24-multi-user-preembed-design.md`
+**Design Doc:** `docs/superpowers/specs/2026-03-24-multi-user-preembed-design.md`
 
 ---
 
@@ -96,7 +96,7 @@ from lib.db.models.user import User
 Run: `uv run python -m pytest tests/test_db_models.py -v`
 Expected: PASS
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/db/base.py lib/db/models/user.py lib/db/models/__init__.py tests/test_db_models.py
@@ -122,7 +122,7 @@ git commit -m "refactor: add User model and Mixin base classes (TimestampMixin, 
 - `Task(Base)` → `Task(UserOwnedMixin, Base)`
 - Task 保留现有的 `queued_at`/`updated_at`，不用 TimestampMixin
 
-注意：TaskEvent 和 WorkerLease 不加 Mixin。
+Note: TaskEvent 和 WorkerLease 不加 Mixin。
 
 - [ ] **Step 2: ApiCall 模型应用 TimestampMixin + UserOwnedMixin**
 
@@ -166,7 +166,7 @@ git commit -m "refactor: add User model and Mixin base classes (TimestampMixin, 
 Run: `uv run python -m pytest tests/test_db_models.py -v`
 Expected: PASS
 
-- [ ] **Step 8: 提交**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add lib/db/models/task.py lib/db/models/api_call.py lib/db/models/api_key.py lib/db/models/session.py lib/db/models/config.py tests/test_db_models.py
@@ -286,7 +286,7 @@ class TestBaseRepository:
 Run: `uv run python -m pytest tests/test_repository_base.py tests/test_task_repo.py tests/test_usage_repo.py tests/test_session_repo.py -v`
 Expected: PASS
 
-- [ ] **Step 8: 提交**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add lib/db/repositories/base.py lib/db/repositories/task_repo.py lib/db/repositories/usage_repo.py lib/db/repositories/session_repo.py lib/db/repositories/api_key_repository.py tests/test_repository_base.py
@@ -366,7 +366,7 @@ async def create(self, *, name: str, key_hash: str, key_prefix: str, expires_at:
 Run: `uv run python -m pytest tests/ -x -v --timeout=60`
 Expected: PASS
 
-- [ ] **Step 7: 提交**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add lib/db/repositories/task_repo.py lib/db/repositories/usage_repo.py lib/db/repositories/session_repo.py lib/db/repositories/api_key_repository.py
@@ -441,7 +441,7 @@ async def get_current_user_flexible(
 Run: `uv run python -m pytest tests/test_auth.py tests/test_auth_api_key.py tests/test_auth_middleware.py -v`
 Expected: PASS
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add server/auth.py tests/test_auth.py tests/test_auth_api_key.py tests/test_auth_middleware.py
@@ -518,12 +518,12 @@ SSE 端点使用 `get_current_user_flexible`。
 Run: `uv run python -m pytest tests/test_*router*.py tests/test_*routes*.py tests/test_*sse*.py -v --timeout=60`
 Expected: PASS
 
-- [ ] **Step 8: 运行全部测试确认无回归**
+- [ ] **Step 8: 运行全部测试confirm no regressions**
 
 Run: `uv run python -m pytest tests/ -x --timeout=60`
 Expected: PASS
 
-- [ ] **Step 9: 提交**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add server/routers/
@@ -599,7 +599,7 @@ async def start_call(
 - `get_media_generator(project_name, payload, user_id="default")` 新增 `user_id` 参数
 - 在创建 MediaGenerator 时传入 `user_id=user_id`
 
-注意：`GenerationWorker._process_task()` 调用的是 `execute_generation_task(task)`，MediaGenerator 由 `get_media_generator()` 工厂函数创建，不在 GenerationWorker 中直接构造。
+Note: `GenerationWorker._process_task()` 调用的是 `execute_generation_task(task)`，MediaGenerator 由 `get_media_generator()` 工厂函数创建，不在 GenerationWorker 中直接构造。
 
 - [ ] **Step 6: generate.py 路由传入 user.id**
 
@@ -611,7 +611,7 @@ async def start_call(
 Run: `uv run python -m pytest tests/test_generation_queue.py tests/test_generation_queue_client.py tests/test_generation_worker_module.py tests/test_media_generator_module.py tests/test_generate_router.py -v --timeout=60`
 Expected: PASS
 
-- [ ] **Step 8: 提交**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add lib/generation_queue.py lib/generation_queue_client.py lib/usage_tracker.py lib/media_generator.py server/services/generation_tasks.py server/routers/generate.py
@@ -663,7 +663,7 @@ Expected: 回退和重新应用均无报错
 Run: `uv run python -m pytest tests/ -x --timeout=60`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add alembic/versions/
@@ -680,7 +680,7 @@ git commit -m "feat: add users table and user_id fields via migration"
 - [ ] **Step 1: 运行全部测试套件**
 
 Run: `uv run python -m pytest tests/ -v --timeout=120`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 2: TypeScript 类型检查（前端未改但确认不受影响）**
 

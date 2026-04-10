@@ -328,7 +328,7 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'lib.text_backends'`
 
 `lib/text_backends/base.py`:
 ```python
-"""文本生成服务层核心接口定义。"""
+"""Core interface definitions for the text generation service layer."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -338,7 +338,7 @@ from typing import Protocol, Set
 
 
 class TextCapability(str, Enum):
-    """文本后端支持的能力枚举。"""
+    """Enum of capabilities supported by text backends."""
     TEXT_GENERATION = "text_generation"
     STRUCTURED_OUTPUT = "structured_output"
     VISION = "vision"
@@ -360,7 +360,7 @@ class ImageInput:
 
 @dataclass
 class TextGenerationRequest:
-    """通用文本生成请求。各 Backend 忽略不支持的字段。"""
+    """Generic text generation request. Each Backend ignores fields it does not support."""
     prompt: str
     response_schema: dict | None = None
     images: list[ImageInput] | None = None
@@ -369,7 +369,7 @@ class TextGenerationRequest:
 
 @dataclass
 class TextGenerationResult:
-    """通用文本生成结果。"""
+    """Generic text generation result."""
     text: str
     provider: str
     model: str
@@ -378,7 +378,7 @@ class TextGenerationResult:
 
 
 class TextBackend(Protocol):
-    """文本生成后端协议。"""
+    """Text generation backend protocol."""
 
     @property
     def name(self) -> str: ...
@@ -493,7 +493,7 @@ Expected: FAIL with `ImportError`
 
 `lib/text_backends/registry.py`:
 ```python
-"""文本后端注册与工厂。"""
+"""Text backend registration and factory."""
 from __future__ import annotations
 
 from typing import Any, Callable

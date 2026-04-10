@@ -2,7 +2,7 @@
 
 > Issue: #168 — 提取通用文本生成服务层，补齐多供应商文本生成能力
 
-## 背景
+## Background
 
 当前文本生成任务（剧本生成、概述生成、风格分析）通过 `lib/text_client.py` 硬编码创建 `GeminiClient`，仅支持 Gemini（AI Studio / Vertex AI）。图片和视频生成已在 #165 中完成 Backend Protocol + Registry 的供应商抽象，文本生成需对齐该架构。
 
@@ -426,7 +426,7 @@ def calculate_text_cost(
 - 仅配置 Gemini 的用户，未设置 `default_text_backend`，自动推断正常工作
 - 现有图片/视频功能不受 ProviderMeta 重构影响
 
-## 不在本次范围
+## Out of Scope
 
 - 文本生成流式输出（streaming）
 - 文本任务进入 GenerationQueue 任务队列

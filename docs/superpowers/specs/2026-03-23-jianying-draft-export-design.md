@@ -5,7 +5,7 @@
 
 ---
 
-## 概述
+## Overview
 
 将 ArcReel 单集已生成的视频片段导出为剪映（JianYing）草稿文件，用户解压到本地剪映草稿目录后，在剪映中直接打开进行二次编辑（字幕、转场、特效等）。
 
@@ -236,7 +236,7 @@ json_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 ---
 
-## 依赖变更
+## Dependencies变更
 
 ### Python
 
@@ -253,14 +253,14 @@ RUN apt-get update && apt-get install -y mediainfo && rm -rf /var/lib/apt/lists/
 
 ---
 
-## 测试策略
+## Testing Strategy
 
 - **单元测试**：mock 视频文件（用 `imageio` 生成短视频），验证 `draft_content.json` 结构正确、路径替换正确、字幕轨存在（narration 模式）
 - **路由集成测试**：复用现有 `test_projects_archive_routes.py` 模式，测试 token 签发 + ZIP 下载 + 错误码
 
 ---
 
-## 风险与缓解
+## Risks and Mitigation
 
 | 风险 | 缓解 |
 |------|------|

@@ -1,68 +1,68 @@
-# 权限控制优化设计
+# Permission Control Optimization Design
 
-## 目标
+## Goal
 
-将 Agent Runtime 的权限控制从自定义 Hook + Bash 全放行迁移到 **SDK 声明式规则 + 简化 Hook** 体系，实现：
+Migrate the Agent Runtime permission control from custom Hook + Bash full-allowlist to an **SDK declarative rules + simplified Hook** system, achieving:
 
-1. **Bash 白名单机制**：从全部自动放行变为精确到路径的白名单，默认拒绝
-2. **声明式规则替代静态配置**：用 `settings.json` 的 `deny` 规则替代代码中的 `_READONLY_DIRS` / `_READONLY_FILES`
-3. **简化 Hook 代码**：Hook 只保留动态的"项目范围"检查，删除约 60 行静态配置代码
-4. **canUseTool 兜底拒绝**：未匹配任何规则的工具调用一律拒绝
+1. **Bash allowlist mechanism**: Change from automatic full-allowlist to a path-specific allowlist, deny by default
+2. **Declarative rules replace static config**: Replace `_READONLY_DIRS` / `_READONLY_FILES` in code with `deny` rules in `settings.json`
+3. **Simplified Hook code**: Hook only retains the dynamic "project scope" check, removing ~60 lines of static config code
+4. **canUseTool default deny**: Tool calls that do not match any rule are denied
 
-## 当前问题
+## Current Problems
 
-### Bash 全放行（最大安全隐患）
+### Bash Full-Allowlist (Greatest Security Risk)
 
-`DEFAULT_ALLOWED_TOOLS` 包含 `Bash`，意味着所有 Bash 命令自动放行，无任何约束。
-Agent 可以执行 `curl`、`wget`、`pip install` 等危险命令。
+`DEFAULT_ALLOWED_TOOLS` includes `Bash`, meaning all Bash commands are automatically allowed without any constraints.
+The agent can execute dangerous commands such as `curl`, `wget`, and `pip install`.
 
-### 自定义 Hook 承担过多职责
+### Custom Hook Has Too Many Responsibilities
 
-`_build_file_access_hook` 同时处理：
-- 项目范围检查（动态，依赖 per-session 的 `project_cwd`）
-- 只读目录检查（静态，可用 settings.json 替代）
+`_build_file_access_hook` handles both:
+- Project scope check (dynamic, depends on per-session `project_cwd`)
+- Read-only directory check (static, can be replaced with settings.json)
 
-### canUseTool 全部放行
+### canUseTool Full-Allowlist
 
-`_can_use_tool` 回调对非 `AskUserQuestion` 的工具一律返回 `PermissionResultAllow`，
-相当于绕过了所有未匹配的权限检查。
+`_can_use_tool` callback returns `PermissionResultAllow` for all tools except `AskUserQuestion`,
+effectively bypassing all unmatched permission checks.
 
-### 未使用 settings.json
+### settings.json Not Used
 
-`agent_runtime_profile/.claude/` 下没有 `settings.json`，完全不使用 SDK 的声明式权限规则。
+`agent_runtime_profile/.claude/` has no `settings.json`, making no use of the SDK's declarative permission rules.
 
-## 设计方案
+## Design
 
-### 权限评估流程
+### Permission Evaluation Flow
 
 ```
-工具调用
+Tool call
     │
     ▼
-① PreToolUse Hook ←── 第一道防线，对所有工具生效（包括 auto-approved）
-    │                   检查 Read/Write/Edit/Glob/Grep 的路径是否在
-    │                   project_cwd（写）或 project_root（读）内
-    │                   路径非法 → deny，流程终止
+① PreToolUse Hook ←── First line of defense, applies to all tools (including auto-approved)
+    │                   Checks whether the path for Read/Write/Edit/Glob/Grep is within
+    │                   project_cwd (write) or project_root (read)
+    │                   Invalid path → deny, flow terminates
     ▼
-② settings.json deny 规则 ←── Read(//app/.env), Edit(//app/docs/**) 等
-    │                          匹配 deny → 拒绝，流程终止
+② settings.json deny rules ←── Read(//app/.env), Edit(//app/docs/**), etc.
+    │                          Matches deny → reject, flow terminates
     ▼
-③ Permission mode (default) ←── 不处理，继续
+③ Permission mode (default) ←── Not handled, continue
     │
     ▼
-④ settings.json allow 规则 ←── Read, Grep, Glob, Bash(python .../script.py *) 等
-    │                           匹配 → 自动放行，流程终止
+④ settings.json allow rules ←── Read, Grep, Glob, Bash(python .../script.py *), etc.
+    │                           Matches → auto-allow, flow terminates
     ▼
-⑤ canUseTool 回调 ←── 只有前面都没匹配的才到这里
-    │                   AskUserQuestion → 异步用户交互
-    │                   其他 → PermissionResultDeny("未授权的工具调用")
+⑤ canUseTool callback ←── Only reached if nothing above matched
+    │                   AskUserQuestion → async user interaction
+    │                   Other → PermissionResultDeny("Unauthorized tool call")
     ▼
-   拒绝
+   Deny
 ```
 
-### 1. 创建 settings.json
+### 1. Create settings.json
 
-**文件**：`agent_runtime_profile/.claude/settings.json`
+**File**: `agent_runtime_profile/.claude/settings.json`
 
 ```json
 {
@@ -95,59 +95,59 @@ Agent 可以执行 `curl`、`wget`、`pip install` 等危险命令。
 }
 ```
 
-**设计决策**：
+**Design decisions**:
 
-- **Bash 白名单**：只允许 Skill 的 Python 脚本和 ffmpeg/ffprobe。
-  文件操作（ls、rm、cp、mv 等）不通过 Bash，而是使用 SDK 内置工具
-  （Read/Write/Edit/Glob/Grep），这些工具经过 Hook 路径检查。
-- **deny 规则**：保护只读目录（docs、lib 等）和敏感文件（.env、vertex_keys）。
-  使用 `//app/` 绝对路径前缀（Docker 内固定路径）。
-- **allow 规则**：Python 脚本路径精确到 `.claude/skills/<skill>/scripts/<script>.py`
-  （相对于 agent cwd，通过 symlink 解析到 `agent_runtime_profile/.claude/`）。
-- **Read/Grep/Glob 全局 allow**：只读工具自动放行，由 Hook（项目范围）和 deny
-  规则（敏感文件）双重保护。
+- **Bash allowlist**: Only allows Skill Python scripts and ffmpeg/ffprobe.
+  File operations (ls, rm, cp, mv, etc.) do not go through Bash; instead they use SDK built-in tools
+  (Read/Write/Edit/Glob/Grep), which are subject to Hook path checks.
+- **deny rules**: Protect read-only directories (docs, lib, etc.) and sensitive files (.env, vertex_keys).
+  Uses `//app/` absolute path prefix (fixed path inside Docker).
+- **allow rules**: Python script paths are precise down to `.claude/skills/<skill>/scripts/<script>.py`
+  (relative to agent cwd, resolved via symlink to `agent_runtime_profile/.claude/`).
+- **Read/Grep/Glob global allow**: Read-only tools are auto-allowed, doubly protected by Hook (project scope) and deny
+  rules (sensitive files).
 
-### 2. 修改 DEFAULT_ALLOWED_TOOLS
+### 2. Modify DEFAULT_ALLOWED_TOOLS
 
 ```python
-# 修改前
+# Before
 DEFAULT_ALLOWED_TOOLS = [
     "Skill", "Task", "Read", "Write", "Edit",
     "Bash", "Grep", "Glob", "AskUserQuestion",
 ]
 
-# 修改后 — 移除 Bash（由 settings.json 白名单控制）
+# After — remove Bash (controlled by settings.json allowlist)
 DEFAULT_ALLOWED_TOOLS = [
     "Skill", "Task", "Read", "Write", "Edit",
     "Grep", "Glob", "AskUserQuestion",
 ]
 ```
 
-### 3. 修改 canUseTool 回调
+### 3. Modify canUseTool callback
 
 ```python
-# 修改前 — 全部放行
+# Before — full allowlist
 async def _can_use_tool(tool_name, input_data, _context):
     if normalized_tool == "askuserquestion":
         return await self._handle_ask_user_question(...)
     return PermissionResultAllow(updated_input=input_data)
 
-# 修改后 — 默认拒绝（白名单兜底）
+# After — default deny (allowlist fallback)
 async def _can_use_tool(tool_name, input_data, _context):
     if normalized_tool == "askuserquestion":
         return await self._handle_ask_user_question(...)
-    return PermissionResultDeny(message="未授权的工具调用")
+    return PermissionResultDeny(message="Unauthorized tool call")
 ```
 
-### 4. 简化 Hook
+### 4. Simplify Hook
 
-**删除**：
-- `_READONLY_DIRS` 常量
-- `_READONLY_FILES` 常量
-- `_check_file_access()` 方法
-- `_deny_path_access()` 方法
+**Delete**:
+- `_READONLY_DIRS` constant
+- `_READONLY_FILES` constant
+- `_check_file_access()` method
+- `_deny_path_access()` method
 
-**简化 `_is_path_allowed()`**：
+**Simplify `_is_path_allowed()`**:
 
 ```python
 _PATH_TOOLS: dict[str, str] = {
@@ -182,53 +182,53 @@ def _is_path_allowed(self, file_path: str, tool_name: str, project_cwd: Path) ->
     return False
 ```
 
-**变化**：
-- 移除 `_READONLY_DIRS` 循环 → 改为允许读取整个 `project_root`（`/app/`）
-- 敏感文件由 settings.json deny 规则保护（deny 在权限评估中优先于 Hook 的 allow）
-- 写操作仍严格限制在 `project_cwd` 内
+**Changes**:
+- Remove `_READONLY_DIRS` loop → allow reading the entire `project_root` (`/app/`)
+- Sensitive files are protected by settings.json deny rules (deny takes priority over Hook allow in permission evaluation)
+- Write operations remain strictly limited to `project_cwd`
 
-### 5. 本地开发环境
+### 5. Local Development Environment
 
-settings.json 中的 `//app/` 绝对路径在本地开发环境（macOS）下不匹配，
-deny 规则不生效。这是可接受的——开发环境由 `.claude/settings.local.json` 独立控制。
+The `//app/` absolute path in settings.json does not match the local development environment (macOS),
+so deny rules do not take effect. This is acceptable — the development environment is independently controlled by `.claude/settings.local.json`.
 
-建议同步更新 `.claude/settings.local.json` 使用新的规则语法
-（移除已废弃的 `:*` 后缀）。
+It is recommended to also update `.claude/settings.local.json` to use the new rule syntax
+(remove the deprecated `:*` suffix).
 
-## 影响分析
+## Impact Analysis
 
-### 变更文件
+### Changed Files
 
-| 文件 | 变更类型 | 说明 |
+| File | Change Type | Description |
 |------|---------|------|
-| `agent_runtime_profile/.claude/settings.json` | 新建 | 声明式权限规则 |
-| `server/agent_runtime/session_manager.py` | 修改 | 简化 Hook、修改 DEFAULT_ALLOWED_TOOLS、canUseTool 兜底拒绝 |
-| `tests/test_session_manager_project_scope.py` | 修改 | 适配新的 Hook 逻辑 |
-| `tests/test_session_manager_more.py` | 修改 | 适配 canUseTool 行为变更 |
+| `agent_runtime_profile/.claude/settings.json` | Create | Declarative permission rules |
+| `server/agent_runtime/session_manager.py` | Modify | Simplify Hook, modify DEFAULT_ALLOWED_TOOLS, canUseTool default deny |
+| `tests/test_session_manager_project_scope.py` | Modify | Adapt to new Hook logic |
+| `tests/test_session_manager_more.py` | Modify | Adapt to canUseTool behavior change |
 
-### 安全性提升
+### Security Improvements
 
-| 维度 | 修改前 | 修改后 |
+| Dimension | Before | After |
 |------|--------|--------|
-| Bash 命令 | 全部自动放行 | 白名单放行（精确到脚本路径） |
-| 只读目录 | 自定义 Hook 检查 | settings.json deny + Hook |
-| 敏感文件 | 无保护 | settings.json deny 规则 |
-| canUseTool 兜底 | 全部放行 | 默认拒绝 |
-| 文件操作 | Bash + SDK 工具 | 仅 SDK 工具（有路径检查） |
+| Bash commands | All auto-allowed | Allowlist (precise to script path) |
+| Read-only directories | Custom Hook check | settings.json deny + Hook |
+| Sensitive files | No protection | settings.json deny rules |
+| canUseTool fallback | All allowed | Default deny |
+| File operations | Bash + SDK tools | SDK tools only (with path checks) |
 
-### 风险
+### Risks
 
-- **Bash 白名单过紧**：如果后续新增 Skill 脚本，需要同步更新 settings.json 的 allow 规则
-- **本地 deny 规则不生效**：开发环境下 `//app/` 路径不匹配，依赖 settings.local.json
-- **ffmpeg/ffprobe 可绕过 Read deny 规则**：`Bash(ffmpeg *)` 允许任意参数，理论上可用
-  `ffmpeg -i /app/.env ...` 读取敏感文件。实际风险可控（非媒体文件处理会报错），
-  但彻底防护需要 OS 级 Sandboxing 的文件系统隔离（见下方"未来扩展"）
+- **Bash allowlist too strict**: If new Skill scripts are added later, the allow rules in settings.json must be updated accordingly
+- **Local deny rules do not take effect**: `//app/` path does not match in the development environment, relies on settings.local.json
+- **ffmpeg/ffprobe can bypass Read deny rules**: `Bash(ffmpeg *)` allows arbitrary arguments, so in theory
+  `ffmpeg -i /app/.env ...` could read sensitive files. The actual risk is manageable (non-media file processing will error),
+  but complete protection requires OS-level Sandboxing filesystem isolation (see "Future Extensions" below)
 
-## 未来扩展
+## Future Extensions
 
-### Sandboxing（下一阶段）
+### Sandboxing (Next Phase)
 
-当前方案不包含 OS 级 Sandboxing。未来可在此基础上启用：
+The current solution does not include OS-level Sandboxing. This can be enabled in the future:
 
 ```json
 {
@@ -245,7 +245,7 @@ deny 规则不生效。这是可接受的——开发环境由 `.claude/settings
 }
 ```
 
-需要验证：
-1. Agent SDK（Python）是否支持 sandbox runtime
-2. Docker 内需要 `bubblewrap` + `socat` + `enableWeakerNestedSandbox`
-3. Docker 镜像需要增加 Node.js（sandbox runtime 是 npm 包）
+Needs verification:
+1. Whether Agent SDK (Python) supports sandbox runtime
+2. Docker requires `bubblewrap` + `socat` + `enableWeakerNestedSandbox`
+3. Docker image needs to add Node.js (sandbox runtime is an npm package)

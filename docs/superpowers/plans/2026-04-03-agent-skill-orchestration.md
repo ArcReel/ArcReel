@@ -1,8 +1,8 @@
-# Agent Skill Orchestration 优化实施计划
+# Agent Skill Orchestration Optimization Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 修复 agent_runtime_profile/ 中的 11 个问题——准确性错误、架构缺陷、信息冗余、路径不一致。
+**Goal:** Fix 11 issues in agent_runtime_profile/ — accuracy errors, architectural defects, information redundancy, and path inconsistencies.
 
 **Architecture:** 新建 `generate-assets` agent 替代模糊的 "general-purpose subagent"，重写 manga-workflow 阶段 5-8 的 dispatch 逻辑并支持并行，统一脚本调用路径为 settings.json allow 规则格式，消除 CLAUDE.md / Persona Prompt 间的信息重复。
 
@@ -14,20 +14,20 @@
 
 ## File Map
 
-| 操作 | 文件 | 职责 |
+| Action | File | Responsibility |
 |------|------|------|
-| **新建** | `agent_runtime_profile/.claude/agents/generate-assets.md` | 统一资产生成 subagent 定义 |
-| **修改** | `agent_runtime_profile/.claude/settings.json` | 删除幽灵 skill 权限行 |
-| **修改** | `agent_runtime_profile/CLAUDE.md` | 修正 agent 名称、去除重复内容模式表、更新架构图和工作流 |
-| **修改** | `agent_runtime_profile/.claude/skills/manga-workflow/SKILL.md` | 重写阶段 5-8 dispatch、统一路径、修正 reference 引用 |
-| **修改** | `agent_runtime_profile/.claude/agents/analyze-characters-clues.md` | 修正脚本调用方式、统一路径 |
-| **修改** | `agent_runtime_profile/.claude/agents/create-episode-script.md` | 统一脚本路径 |
-| **修改** | `agent_runtime_profile/.claude/agents/normalize-drama-script.md` | 统一脚本路径 |
-| **修改** | `agent_runtime_profile/.claude/skills/generate-storyboard/SKILL.md` | 说明别名关系、修正 reference 路径 |
-| **修改** | `agent_runtime_profile/.claude/skills/generate-characters/SKILL.md` | 修正 reference 路径 |
-| **修改** | `agent_runtime_profile/.claude/skills/generate-clues/SKILL.md` | 修正 reference 路径 |
-| **修改** | `agent_runtime_profile/.claude/skills/generate-video/SKILL.md` | 修正 reference 路径 |
-| **修改** | `server/agent_runtime/session_manager.py` | 精简 Persona Prompt |
+| **Create** | `agent_runtime_profile/.claude/agents/generate-assets.md` | Unified asset generation subagent definition |
+| **Modify** | `agent_runtime_profile/.claude/settings.json` | Remove ghost skill permission lines |
+| **Modify** | `agent_runtime_profile/CLAUDE.md` | Fix agent names, remove duplicate content pattern table, update architecture diagram and workflow |
+| **Modify** | `agent_runtime_profile/.claude/skills/manga-workflow/SKILL.md` | Rewrite phases 5-8 dispatch, unify paths, modify正 reference 引用 |
+| **Modify** | `agent_runtime_profile/.claude/agents/analyze-characters-clues.md` | 修正脚本调用方式、统一路径 |
+| **Modify** | `agent_runtime_profile/.claude/agents/create-episode-script.md` | 统一脚本路径 |
+| **Modify** | `agent_runtime_profile/.claude/agents/normalize-drama-script.md` | 统一脚本路径 |
+| **Modify** | `agent_runtime_profile/.claude/skills/generate-storyboard/SKILL.md` | 说明别名关系、修正 reference 路径 |
+| **Modify** | `agent_runtime_profile/.claude/skills/generate-characters/SKILL.md` | 修正 reference 路径 |
+| **Modify** | `agent_runtime_profile/.claude/skills/generate-clues/SKILL.md` | 修正 reference 路径 |
+| **Modify** | `agent_runtime_profile/.claude/skills/generate-video/SKILL.md` | 修正 reference 路径 |
+| **Modify** | `server/agent_runtime/session_manager.py` | 精简 Persona Prompt |
 
 ---
 
@@ -136,7 +136,7 @@ description: "统一资产生成 subagent。接收任务清单（资产类型、
 {如果是 BLOCKED，说明阻塞原因和建议}
 ```
 
-## 注意事项
+## Notes
 
 - 不做主 agent 未要求的额外操作
 - 不等待用户确认，完成即返回

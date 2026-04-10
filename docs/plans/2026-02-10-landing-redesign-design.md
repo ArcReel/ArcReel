@@ -1,41 +1,41 @@
-# 首页改版设计（确认稿）
+# Landing Page Redesign (Confirmed)
 
-## 目标
-将 ArcReel 首页从“信息分区型（平台价值/案例/公众号）”改为“强首屏引导 + 发现更多内容流”，提升第一屏冲击力与转化路径清晰度，同时保持品牌辨识度，不做参考站点的机械复刻。
+## Goals
+Change the ArcReel landing page from "segmented information layout (platform value / case studies / official account)" to "strong above-the-fold hero + discover more content feed", improving first-screen impact and conversion path clarity while maintaining brand identity, without mechanically copying the reference site.
 
-## 用户已确认的关键决策
-- 页面结构：`首屏 Hero + 发现更多`。
-- 移除模块：平台价值、案例、公众号独立板块全部移除。
-- 顶栏策略：极简模式，仅保留 Logo、`联系我们`、`进入管理台`。
-- 联系方式交互：
-  - 桌面端：微信入口 hover 显示二维码小卡片。
-  - 移动端：点击微信入口展开/收起同款小卡片。
-- 首屏按钮：仅保留一个主 CTA（进入管理台）。
-- 发现更多内容：第一期用静态占位卡片（8~12 张），后续再替换真实素材。
-- 文案风格：短 Slogan + 一行副标题。
+## User-Confirmed Key Decisions
+- Page structure: `Above-the-fold Hero + Discover More`.
+- Removed sections: platform value, case studies, and official account sections all removed.
+- Top bar strategy: minimal — retain only Logo, `Contact Us`, `Enter Dashboard`.
+- Contact interaction:
+  - Desktop: hovering the WeChat entry shows a small QR card.
+  - Mobile: clicking the WeChat entry toggles the same small card open/closed.
+- Above-the-fold button: retain only one primary CTA (Enter Dashboard).
+- Discover more content: phase 1 uses static placeholder cards (8–12 cards); replace with real content later.
+- Copy style: short slogan + one-line subtitle.
 
-## 视觉方向
-- 深色背景 + 透视网格 + 霓虹点缀，强调舞台感。
-- 大标题使用短句双行排版，形成中心视觉锚点。
-- 主视觉下方使用“角色能力阵列”替代复杂插画，先满足结构和节奏，再等待资产替换。
-- 发现更多卡片统一 16:9 视觉比例与播放按钮覆盖层，支持轻量 hover 提示。
+## Visual Direction
+- Dark background + perspective grid + neon accents, emphasizing a "stage" feel.
+- Large headline uses short two-line layout to form a central visual anchor.
+- Below the hero, use a "character ability array" instead of complex illustrations; satisfies structure and rhythm first, then wait for asset replacement.
+- Discover more cards uniformly use 16:9 ratio with a play button overlay; support lightweight hover tooltips.
 
-## 交互与状态
-- 联系我们入口采用统一状态机：`closed / open`。
-- `open` 触发方式按设备能力分流：
-  - hover 能力设备：mouseenter 打开，mouseleave 关闭。
-  - touch 设备：click 切换，点击外部关闭。
-- Esc 关闭支持保留，二维码加载失败时显示降级占位文案。
+## Interaction and State
+- Contact Us entry uses a unified state machine: `closed / open`.
+- `open` trigger depends on device capability:
+  - Hover-capable devices: mouseenter opens, mouseleave closes.
+  - Touch devices: click toggles; clicking outside closes.
+- Esc to close is retained; show degraded fallback text when QR code fails to load.
 
-## 实施范围
-- 主要修改：`frontend/src/react/components/landing-page.js`。
-- 路由接线调整：`frontend/src/react/main.js`。
-- 样式增强：`frontend/src/css/app.css`。
-- 回归测试：`frontend/tests/landing-page.test.mjs`。
+## Implementation Scope
+- Primary modification: `frontend/src/react/components/landing-page.js`.
+- Route wiring adjustment: `frontend/src/react/main.js`.
+- Style enhancements: `frontend/src/css/app.css`.
+- Regression tests: `frontend/tests/landing-page.test.mjs`.
 
-## 验收标准
-- 首页不再出现“平台价值/案例/公众号”板块。
-- 顶栏仅有“联系我们 + 进入管理台”操作。
-- 首屏仅一个主 CTA。
-- 存在“发现更多”及静态卡片集合。
-- 联系我们桌面 hover / 移动 click 行为可用，二维码不可用时有降级反馈。
+## Acceptance Criteria
+- Landing page no longer shows "platform value / case studies / official account" sections.
+- Top bar has only "Contact Us + Enter Dashboard" actions.
+- Above the fold has only one primary CTA.
+- "Discover More" section and static card collection are present.
+- Contact Us desktop hover / mobile click behavior works; has fallback when QR code is unavailable.

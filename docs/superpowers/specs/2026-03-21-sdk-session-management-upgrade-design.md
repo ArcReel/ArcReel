@@ -1,6 +1,6 @@
-# SDK 会话管理升级设计
+# SDK Session Management Upgrade Design
 
-## 背景
+## Background
 
 项目从 claude-agent-sdk 0.1.48 升级到 0.1.50，利用新增的会话管理 API 简化架构：
 
@@ -86,7 +86,7 @@ POST /sessions/send(project_name, message, session_id=xxx)
 ### Tag 标签
 
 在 `sdk_session_id` 首次到达时，调用 `tag_session(sdk_session_id, f"project:{project_name}")`。
-注意：`tag_session` 是同步文件 I/O，需用 `asyncio.to_thread()` 包装。
+Note: `tag_session` 是同步文件 I/O，需用 `asyncio.to_thread()` 包装。
 当前不用于查询，为将来 SDK 原生按 tag 过滤铺路。
 
 ## 详细改动清单
@@ -172,7 +172,7 @@ Alembic 迁移：
 - DB 迁移会删除 `sdk_session_id=null` 的幽灵记录（即空会话），这是预期行为
 - 前端缓存/localStorage 中引用旧 app_id 的条目将失效（API 返回的 id 现在是 sdk_session_id），用户需刷新页面
 
-## 不在本次范围
+## Out of Scope
 
 - 用户手动改名（前端无入口，暂不实现）
 - `AssistantMessage.usage` token 追踪

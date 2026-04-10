@@ -1,8 +1,8 @@
-# Image Backend 通用图片生成服务层实施计划
+# Image Backend Generic Image Generation Service Layer Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 提取 `ImageBackend` 抽象层，接入 Gemini/Ark/Grok 三大供应商的图片生成能力，同时将 `seedance` 重命名为 `ark`。
+**Goal:** Extract an `ImageBackend` abstraction layer, integrate image generation capabilities from Gemini/Ark/Grok three providers, and rename `seedance` to `ark`.
 
 **Architecture:** 镜像 `lib/video_backends/` 的 Protocol + Registry + 具体实现模式，在 `lib/image_backends/` 下创建对称结构。重构 `MediaGenerator` 和 `generation_tasks.py` 以注入 `ImageBackend`，移除 `GeminiClient` 图片生成直调。
 
@@ -12,29 +12,29 @@
 
 ---
 
-## 文件变更清单
+## File Change Checklist
 
-### 新建文件
+### New Files
 
-| 文件 | 职责 |
+| File | Responsibility |
 |------|------|
-| `lib/image_backends/__init__.py` | 公共 API 导出 + auto-register backends |
+| `lib/image_backends/__init__.py` | public API export + auto-register backends |
 | `lib/image_backends/base.py` | `ImageBackend` Protocol + `ImageGenerationRequest/Result` + `ImageCapability` enum |
 | `lib/image_backends/registry.py` | factory registry (`create_backend`/`register_backend`) |
 | `lib/image_backends/gemini.py` | `GeminiImageBackend` (AI Studio + Vertex AI) |
 | `lib/image_backends/ark.py` | `ArkImageBackend` (Seedream) |
 | `lib/image_backends/grok.py` | `GrokImageBackend` (Aurora) |
-| `lib/video_backends/ark.py` | 从 `seedance.py` 重命名 |
+| `lib/video_backends/ark.py` | renamed from `seedance.py` |
 | `alembic/versions/xxxx_rename_seedance_to_ark.py` | DB migration |
-| `tests/test_image_backends/test_base.py` | base 数据模型测试 |
-| `tests/test_image_backends/test_registry.py` | registry 测试 |
-| `tests/test_image_backends/test_gemini.py` | GeminiImageBackend 测试 |
-| `tests/test_image_backends/test_ark.py` | ArkImageBackend 测试 |
-| `tests/test_image_backends/test_grok.py` | GrokImageBackend 测试 |
+| `tests/test_image_backends/test_base.py` | base data model tests |
+| `tests/test_image_backends/test_registry.py` | registry tests |
+| `tests/test_image_backends/test_gemini.py` | GeminiImageBackend tests |
+| `tests/test_image_backends/test_ark.py` | ArkImageBackend tests |
+| `tests/test_image_backends/test_grok.py` | GrokImageBackend tests |
 
-### 修改文件
+### Modified Files
 
-| 文件 | 变更概述 |
+| File | Change Summary |
 |------|---------|
 | `lib/video_backends/base.py` | `PROVIDER_SEEDANCE` → `PROVIDER_ARK` |
 | `lib/video_backends/__init__.py` | 更新 import/注册，使用 ark |
@@ -221,14 +221,14 @@ def _normalize_provider_id(raw: str) -> str:
 
 将 `tests/test_video_backend_seedance.py` 重命名为 `tests/test_video_backend_ark.py`，更新内部引用。
 
-- [ ] **Step 15: 全局搜索替换残留引用**
+- [ ] **Step 15: Global search for替换残留引用**
 
 搜索 `PROVIDER_SEEDANCE`、`"seedance"` 的所有残留，确保全部更新为 `PROVIDER_ARK`/`"ark"`。注意保留 `_normalize_provider_id` 中的向后兼容 `"seedance"` 字符串和 migration 中的 SQL 值。
 
 - [ ] **Step 16: 运行测试验证重命名无破坏**
 
 Run: `uv run python -m pytest -x -q`
-Expected: 全部 PASS（或仅存在与本次无关的已有失败）
+Expected: all PASS（或仅存在与本次无关的已有失败）
 
 - [ ] **Step 17: 提交**
 
@@ -277,7 +277,7 @@ uv run alembic upgrade head
 
 在测试或 Python shell 中验证：向 DB 插入 `seedance` provider_config 行，运行 migration，断言变为 `ark`。也验证空表场景不报错。
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add alembic/ && git commit -m "migration: rename seedance provider to ark in DB"
@@ -541,7 +541,7 @@ Expected: PASS
 
 - [ ] **Step 10: 新增 `FakeImageBackend` 到 `tests/fakes.py`**
 
-在文件末尾添加：
+At the end of the file添加：
 
 ```python
 from pathlib import Path
@@ -868,7 +868,7 @@ from lib.image_backends.gemini import GeminiImageBackend
 register_backend(PROVIDER_GEMINI, GeminiImageBackend)
 ```
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/image_backends/ tests/test_image_backends/
@@ -910,7 +910,7 @@ from lib.image_backends.ark import ArkImageBackend
 register_backend(PROVIDER_ARK, ArkImageBackend)
 ```
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/image_backends/ tests/test_image_backends/
@@ -949,7 +949,7 @@ from lib.image_backends.grok import GrokImageBackend
 register_backend(PROVIDER_GROK, GrokImageBackend)
 ```
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/image_backends/ tests/test_image_backends/
@@ -1044,7 +1044,7 @@ elif row.call_type == "image":
 
 Run: `uv run python -m pytest tests/test_cost_calculator.py -v`
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/cost_calculator.py lib/db/repositories/usage_repo.py tests/
@@ -1151,7 +1151,7 @@ async def get_media_generator(project_name: str, payload: dict | None = None, *,
 - 新增 `image_backend` 参数
 - 移除 `image_backend_type`、`gemini_image_model`、`gemini_api_key`、`gemini_base_url`、`gemini_video_model` 参数
 - 移除 `_gemini_image`、`_gemini_video`、`_get_gemini_image()`、`_get_gemini_video()` 方法
-- 注意：`video_backend` 已通过构造函数注入，不再需要 GeminiClient 做视频 fallback；如果 `video_backend` 为 None，视频生成方法应抛出 `RuntimeError` 而非 fallback 到 GeminiClient
+- Note: `video_backend` 已通过构造函数注入，不再需要 GeminiClient 做视频 fallback；如果 `video_backend` 为 None，视频生成方法应抛出 `RuntimeError` 而非 fallback 到 GeminiClient
 
 `generate_image_async`:
 ```python
@@ -1225,7 +1225,7 @@ async def generate_image_async(self, prompt, resource_type, resource_id,
 Run: `uv run python -m pytest -x -q`
 Expected: PASS
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add server/services/generation_tasks.py lib/media_generator.py
@@ -1269,7 +1269,7 @@ git commit -m "feat: integrate ImageBackend into generation pipeline"
 
 Run: `uv run python -m pytest -x -q`
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/gemini_client.py lib/media_generator.py lib/__init__.py lib/image_backends/base.py

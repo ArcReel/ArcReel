@@ -4,7 +4,7 @@
 > 日期: 2026-04-03
 > 范围: 最小可用（模型注册 + 定价 + 能力声明）
 
-## 背景
+## Background
 
 Seedance 2.0 已对企业公测开放。当前 Ark 视频后端仅注册了 Seedance 1.5 Pro (`doubao-seedance-1-5-pro-251215`)。需要添加 Seedance 2.0 和 2.0 Fast 两个模型，使用户可以在配置中选用。
 
@@ -98,7 +98,7 @@ self._capabilities = self._MODEL_CAPABILITIES.get(self._model, self._DEFAULT_CAP
 - **`test_video_backend_ark.py`**: 参数化测试验证 2.0 模型获得正确 capabilities（有 `video_extend`，无 `flex_tier`）
 - **`test_cost_calculator.py`**（如存在）: 添加 2.0 模型费用计算断言
 
-## 不在本次范围
+## Out of Scope
 
 - Prompt 适配器（Issue #42 剩余项，单独处理）
 - Seedance 2.0 新增能力：首尾帧、多模态参考图、视频编辑/延长、联网搜索

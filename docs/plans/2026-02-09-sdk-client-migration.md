@@ -1,22 +1,22 @@
-# ClaudeSDKClient 迁移实现计划
+# ClaudeSDKClient Migration Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 将项目从 `query()` 迁移到 `ClaudeSDKClient`，实现原生多轮对话、后台持续执行、断线重连功能。
+**Goal:** Migrate the project from `query()` to `ClaudeSDKClient`, enabling native multi-turn conversation, background continuous execution, and reconnection after disconnect.
 
-**Architecture:** 使用 `SessionManager` 管理所有活跃的 `ClaudeSDKClient` 实例，SQLite 只存储会话元数据，消息历史从 SDK 的 transcript 文件按需读取。前端直接适配 SDK 消息格式，无转换层。
+**Architecture:** Use `SessionManager` to manage all active `ClaudeSDKClient` instances. SQLite only stores session metadata; message history is read on-demand from SDK transcript files. Frontend adapts directly to SDK message format with no conversion layer.
 
 **Tech Stack:** Python 3.10+, FastAPI, claude_agent_sdk, SQLite, React, EventSource (SSE)
 
 ---
 
-## Task 1: 创建数据目录结构
+## Task 1: Create Data Directory Structure
 
 **Files:**
 - Create: `projects/.agent_data/.gitkeep`
 - Create: `projects/.agent_data/transcripts/.gitkeep`
 
-**Step 1: 创建目录结构**
+**Step 1: Create directory structure**
 
 ```bash
 mkdir -p projects/.agent_data/transcripts
@@ -24,9 +24,9 @@ touch projects/.agent_data/.gitkeep
 touch projects/.agent_data/transcripts/.gitkeep
 ```
 
-**Step 2: 更新 .gitignore**
+**Step 2: Update .gitignore**
 
-添加以下行到 `.gitignore`（如果不存在）：
+Add the following lines to `.gitignore` (if not already present):
 
 ```
 # Agent data (transcripts are large, only keep structure)
@@ -43,12 +43,12 @@ git commit -m "chore: add agent data directory structure"
 
 ---
 
-## Task 2: 重写 models.py - 简化数据模型
+## Task 2: Rewrite models.py - Simplify Data Models
 
 **Files:**
 - Modify: `webui/server/agent_runtime/models.py`
 
-**Step 1: 重写 models.py**
+**Step 1: Rewrite models.py**
 
 ```python
 """
@@ -83,12 +83,12 @@ git commit -m "refactor(models): simplify to SessionMeta only, remove AgentMessa
 
 ---
 
-## Task 3: 重写 session_store.py - SessionMetaStore
+## Task 3: Rewrite session_store.py - SessionMetaStore
 
 **Files:**
 - Modify: `webui/server/agent_runtime/session_store.py`
 
-**Step 1: 重写为 SessionMetaStore**
+**Step 1: Rewrite as SessionMetaStore**
 
 ```python
 """
@@ -267,12 +267,12 @@ git commit -m "refactor(session_store): rewrite as SessionMetaStore for metadata
 
 ---
 
-## Task 4: 创建 transcript_reader.py
+## Task 4: Create transcript_reader.py
 
 **Files:**
 - Create: `webui/server/agent_runtime/transcript_reader.py`
 
-**Step 1: 创建 TranscriptReader**
+**Step 1: Create TranscriptReader**
 
 ```python
 """
@@ -319,12 +319,12 @@ git commit -m "feat(transcript_reader): add TranscriptReader for SDK transcripts
 
 ---
 
-## Task 5: 创建 session_manager.py - 核心组件
+## Task 5: Create session_manager.py - Core Component
 
 **Files:**
 - Create: `webui/server/agent_runtime/session_manager.py`
 
-**Step 1: 创建 ManagedSession 和 SessionManager**
+**Step 1: Create ManagedSession and SessionManager**
 
 ```python
 """
@@ -405,7 +405,7 @@ class SessionManager:
         """Load configuration from environment."""
         self.system_prompt = os.environ.get(
             "ASSISTANT_SYSTEM_PROMPT",
-            "你是视频项目协作助手。优先复用项目中的 Skills 与现有文件结构，避免擅自改写数据格式。"
+            "You are a video project collaboration assistant. Prioritize reusing project Skills and existing file structures; avoid arbitrarily rewriting data formats."
         ).strip()
         self.max_turns = int(os.environ.get("ASSISTANT_MAX_TURNS", "8"))
         self.cli_path = os.environ.get("ASSISTANT_CLAUDE_CLI_PATH", "").strip() or None
@@ -575,12 +575,12 @@ git commit -m "feat(session_manager): add SessionManager with ClaudeSDKClient li
 
 ---
 
-## Task 6: 重写 service.py
+## Task 6: Rewrite service.py
 
 **Files:**
 - Modify: `webui/server/agent_runtime/service.py`
 
-**Step 1: 重写 AssistantService 使用 SessionManager**
+**Step 1: Rewrite AssistantService to use SessionManager**
 
 ```python
 """
@@ -625,7 +625,7 @@ class AssistantService:
     async def create_session(self, project_name: str, title: str = "") -> SessionMeta:
         """Create a new session."""
         self.pm.get_project_path(project_name)  # Validate project exists
-        normalized_title = title.strip() or f"{project_name} 会话"
+        normalized_title = title.strip() or f"{project_name} session"
         return await self.session_manager.create_session(project_name, normalized_title)
 
     def list_sessions(
@@ -655,7 +655,7 @@ class AssistantService:
         """Update session title."""
         if self.meta_store.get(session_id) is None:
             return None
-        normalized = title.strip() or "未命名会话"
+        normalized = title.strip() or "Untitled Session"
         if not self.meta_store.update_title(session_id, normalized):
             return None
         return self.meta_store.get(session_id)
@@ -687,7 +687,7 @@ class AssistantService:
         """Send a message to the session."""
         text = content.strip()
         if not text:
-            raise ValueError("消息内容不能为空")
+            raise ValueError("Message content cannot be empty")
 
         meta = self.meta_store.get(session_id)
         if meta is None:
@@ -851,12 +851,12 @@ git commit -m "refactor(service): rewrite to use SessionManager and ClaudeSDKCli
 
 ---
 
-## Task 7: 重写 routers/assistant.py
+## Task 7: Rewrite routers/assistant.py
 
 **Files:**
 - Modify: `webui/server/routers/assistant.py`
 
-**Step 1: 重写路由使用新 API 结构**
+**Step 1: Rewrite routes using new API structure**
 
 ```python
 """
@@ -897,7 +897,7 @@ async def create_session(req: CreateSessionRequest):
         session = await assistant_service.create_session(req.project_name, req.title or "")
         return {"id": session.id, "status": session.status, "created_at": session.created_at}
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{req.project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{req.project_name}' not found")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -923,7 +923,7 @@ async def get_session(session_id: str):
     try:
         session = assistant_service.get_session(session_id)
         if session is None:
-            raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
         return session.model_dump()
     except HTTPException:
         raise
@@ -936,7 +936,7 @@ async def update_session(session_id: str, req: UpdateSessionRequest):
     try:
         session = assistant_service.update_session_title(session_id, req.title)
         if session is None:
-            raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
         return {"success": True, "session": session.model_dump()}
     except HTTPException:
         raise
@@ -951,7 +951,7 @@ async def delete_session(session_id: str):
     try:
         deleted = await assistant_service.delete_session(session_id)
         if not deleted:
-            raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
         return {"success": True}
     except HTTPException:
         raise
@@ -965,7 +965,7 @@ async def list_messages(session_id: str):
         messages = assistant_service.list_messages(session_id)
         return {"messages": messages}
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -976,7 +976,7 @@ async def send_message(session_id: str, req: SendMessageRequest):
         result = await assistant_service.send_message(session_id, req.content)
         return result
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -988,7 +988,7 @@ async def stream_events(session_id: str):
     try:
         session = assistant_service.get_session(session_id)
         if session is None:
-            raise HTTPException(status_code=404, detail=f"会话 '{session_id}' 不存在")
+            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
         return StreamingResponse(
             assistant_service.stream_events(session_id),
@@ -1011,17 +1011,17 @@ async def list_skills(project_name: Optional[str] = None):
         skills = assistant_service.list_available_skills(project_name=project_name)
         return {"skills": skills}
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 ```
 
-**Step 2: 更新路由注册**
+**Step 2: Update route registration**
 
-确认 `webui/server/main.py` 中路由前缀为 `/api/v1/assistant`:
+Confirm route prefix in `webui/server/main.py` is `/api/v1/assistant`:
 
 ```python
-# 确保路由使用正确前缀
+# Ensure routes use correct prefix
 app.include_router(assistant.router, prefix="/api/v1/assistant", tags=["assistant"])
 ```
 
@@ -1034,17 +1034,17 @@ git commit -m "refactor(router): rewrite assistant API with simplified endpoints
 
 ---
 
-## Task 8: 更新前端 api.js
+## Task 8: Update Frontend api.js
 
 **Files:**
 - Modify: `frontend/src/api.js`
 
-**Step 1: 更新 Assistant API 方法**
+**Step 1: Update Assistant API methods**
 
-替换 `// ==================== 助手会话 API ====================` 部分：
+Replace the `// ==================== Assistant Session API ====================` section:
 
 ```javascript
-    // ==================== 助手会话 API ====================
+    // ==================== Assistant Session API ====================
 
     static async createAssistantSession(projectName, title = '') {
         return this.request('/assistant/sessions', {
@@ -1101,9 +1101,9 @@ git commit -m "refactor(router): rewrite assistant API with simplified endpoints
     }
 ```
 
-**Step 2: 移除旧方法**
+**Step 2: Remove deprecated methods**
 
-删除以下旧方法（如果存在）：
+Delete the following deprecated methods (if they exist):
 - `archiveAssistantSession`
 - `startAssistantMessageStream`
 
@@ -1116,12 +1116,12 @@ git commit -m "refactor(api): update assistant API to match new backend structur
 
 ---
 
-## Task 9: 重写前端 use-assistant-state.js
+## Task 9: Rewrite Frontend use-assistant-state.js
 
 **Files:**
 - Modify: `frontend/src/react/hooks/use-assistant-state.js`
 
-**Step 1: 重写状态管理逻辑**
+**Step 1: Rewrite state management logic**
 
 ```javascript
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1224,7 +1224,7 @@ export function useAssistantState({
                 return sessions[0]?.id || "";
             });
         } catch (error) {
-            pushToast(`加载会话失败：${error.message}`, "error");
+            pushToast(`Failed to load sessions: ${error.message}`, "error");
         } finally {
             setAssistantLoadingSessions(false);
         }
@@ -1242,7 +1242,7 @@ export function useAssistantState({
             const data = await window.API.listAssistantSkills(currentAssistantProject || null);
             setAssistantSkills(data.skills || []);
         } catch (error) {
-            pushToast(`加载技能列表失败：${error.message}`, "error");
+            pushToast(`Failed to load skill list: ${error.message}`, "error");
             setAssistantSkills([]);
         } finally {
             setAssistantSkillsLoading(false);
@@ -1330,7 +1330,7 @@ export function useAssistantState({
                 setAssistantMessages(data.messages || []);
             }
         } catch (error) {
-            pushToast(`加载消息失败：${error.message}`, "error");
+            pushToast(`Failed to load messages: ${error.message}`, "error");
         } finally {
             setAssistantMessagesLoading(false);
         }
@@ -1353,7 +1353,7 @@ export function useAssistantState({
         if (assistantCurrentSessionId) return assistantCurrentSessionId;
 
         const projectName = currentAssistantProject || projects[0]?.name;
-        if (!projectName) throw new Error("请先创建至少一个项目");
+        if (!projectName) throw new Error("Please create at least one project first");
 
         const data = await window.API.createAssistantSession(projectName, "");
         setAssistantSessions((prev) => [{ id: data.id, ...data }, ...prev]);
@@ -1387,7 +1387,7 @@ export function useAssistantState({
             setSessionStatus("running");
             connectStream(sessionId);
         } catch (error) {
-            setAssistantError(error.message || "发送失败");
+            setAssistantError(error.message || "Send failed");
             setAssistantSending(false);
         }
     }, [assistantInput, assistantSending, connectStream, ensureAssistantSession]);
@@ -1396,7 +1396,7 @@ export function useAssistantState({
     const handleCreateSession = useCallback(() => {
         const projectName = currentAssistantProject || projects[0]?.name;
         if (!projectName) {
-            pushToast("请先创建项目", "error");
+            pushToast("Please create a project first", "error");
             return;
         }
         setSessionDialogMode("create");
@@ -1430,33 +1430,33 @@ export function useAssistantState({
             if (sessionDialogMode === "create") {
                 const projectName = currentAssistantProject || projects[0]?.name;
                 if (!projectName) {
-                    pushToast("请先创建项目", "error");
+                    pushToast("Please create a project first", "error");
                     return;
                 }
                 const data = await window.API.createAssistantSession(projectName, sessionDialogTitle.trim());
                 setAssistantCurrentSessionId(data.id);
                 setAssistantRefreshToken((prev) => prev + 1);
-                pushToast("已创建新会话", "success");
+                pushToast("New session created", "success");
             } else {
                 const normalized = sessionDialogTitle.trim();
                 if (!normalized) {
-                    pushToast("标题不能为空", "error");
+                    pushToast("Title cannot be empty", "error");
                     return;
                 }
                 if (!sessionDialogSessionId) {
-                    pushToast("未找到会话", "error");
+                    pushToast("Session not found", "error");
                     return;
                 }
                 await window.API.updateAssistantSession(sessionDialogSessionId, { title: normalized });
                 setAssistantRefreshToken((prev) => prev + 1);
-                pushToast("会话已重命名", "success");
+                pushToast("Session renamed", "success");
             }
             setSessionDialogOpen(false);
             setSessionDialogMode("create");
             setSessionDialogTitle("");
             setSessionDialogSessionId("");
         } catch (error) {
-            pushToast(`保存会话失败：${error.message}`, "error");
+            pushToast(`Failed to save session: ${error.message}`, "error");
         } finally {
             setSessionDialogSubmitting(false);
         }
@@ -1481,7 +1481,7 @@ export function useAssistantState({
         event.preventDefault();
         if (deleteDialogSubmitting) return;
         if (!deleteDialogSessionId) {
-            pushToast("未找到会话", "error");
+            pushToast("Session not found", "error");
             return;
         }
 
@@ -1493,12 +1493,12 @@ export function useAssistantState({
                 setAssistantMessages([]);
             }
             setAssistantRefreshToken((prev) => prev + 1);
-            pushToast("会话已删除", "success");
+            pushToast("Session deleted", "success");
             setDeleteDialogOpen(false);
             setDeleteDialogSessionId("");
             setDeleteDialogSessionTitle("");
         } catch (error) {
-            pushToast(`删除失败：${error.message}`, "error");
+            pushToast(`Deletion failed: ${error.message}`, "error");
         } finally {
             setDeleteDialogSubmitting(false);
         }
@@ -1566,31 +1566,31 @@ git commit -m "refactor(use-assistant-state): rewrite for ClaudeSDKClient with S
 
 ---
 
-## Task 10: 更新前端 ChatMessage 组件
+## Task 10: Update Frontend ChatMessage Component
 
 **Files:**
 - Modify: `frontend/src/react/components/chat/ChatMessage.js`
 
-**Step 1: 适配 SDK 消息格式**
+**Step 1: Adapt to SDK message format**
 
-更新组件以处理 SDK 原生消息格式：
+Update the component to handle native SDK message format:
 
 ```javascript
-// 在组件中添加消息类型判断
+// Add message type detection in component
 const getMessageType = (message) => {
-    // SDK 消息使用 type 字段
+    // SDK messages use the type field
     if (message.type) return message.type;
-    // 兼容旧格式
+    // Backward compatible with old format
     if (message.role) return message.role;
     return "unknown";
 };
 
 const getMessageContent = (message) => {
-    // SDK AssistantMessage 的 content 是数组
+    // SDK AssistantMessage content is an array
     if (Array.isArray(message.content)) {
         return message.content;
     }
-    // 字符串内容
+    // String content
     if (typeof message.content === "string") {
         return [{ type: "text", text: message.content }];
     }
@@ -1607,25 +1607,25 @@ git commit -m "refactor(ChatMessage): adapt to SDK message format"
 
 ---
 
-## Task 11: 删除旧文件和清理
+## Task 11: Delete Old Files and Cleanup
 
 **Files:**
-- Delete: `webui/server/agent_runtime/streaming.py` (如果不再需要)
+- Delete: `webui/server/agent_runtime/streaming.py` (if no longer needed)
 
-**Step 1: 检查并删除不再使用的文件**
+**Step 1: Check and delete unused files**
 
 ```bash
-# 检查 streaming.py 是否还有其他引用
+# Check if streaming.py has any other references
 grep -r "from.*streaming import" webui/server/
 ```
 
-如果没有引用，删除：
+If no references, delete:
 
 ```bash
 git rm webui/server/agent_runtime/streaming.py
 ```
 
-**Step 2: 更新 __init__.py（如果存在）**
+**Step 2: Update __init__.py (if present)**
 
 **Step 3: Commit**
 
@@ -1636,34 +1636,34 @@ git commit -m "chore: remove deprecated streaming module"
 
 ---
 
-## Task 12: 集成测试
+## Task 12: Integration Testing
 
-**Step 1: 运行后端测试**
+**Step 1: Run backend tests**
 
 ```bash
 cd /Users/pollochen/Documents/ArcReel/.worktrees/sdk-client-migration
 python -m pytest tests/ -v
 ```
 
-**Step 2: 启动服务并手动测试**
+**Step 2: Start services and manually test**
 
 ```bash
-# 终端 1: 启动后端
+# Terminal 1: Start backend
 cd webui && python -m uvicorn server.main:app --reload --port 8000
 
-# 终端 2: 启动前端
+# Terminal 2: Start frontend
 cd frontend && pnpm dev
 ```
 
-**Step 3: 测试场景**
+**Step 3: Test scenarios**
 
-1. 创建新会话
-2. 发送消息，验证 SSE 流式响应
-3. 刷新页面，验证历史消息加载
-4. 在会话进行中刷新页面，验证断线重连
-5. 测试 interrupted 状态恢复
+1. Create a new session
+2. Send a message, verify SSE streaming response
+3. Refresh the page, verify history message loading
+4. Refresh page during active session, verify reconnect after disconnect
+5. Test interrupted state recovery
 
-**Step 4: Commit 测试通过**
+**Step 4: Commit after tests pass**
 
 ```bash
 git add -A
@@ -1676,15 +1676,15 @@ git commit -m "test: verify ClaudeSDKClient migration works end-to-end"
 
 | Task | Description | Files |
 |------|-------------|-------|
-| 1 | 创建数据目录结构 | `.agent_data/`, `.gitignore` |
-| 2 | 重写 models.py | `models.py` |
-| 3 | 重写 session_store.py | `session_store.py` |
-| 4 | 创建 transcript_reader.py | `transcript_reader.py` |
-| 5 | 创建 session_manager.py | `session_manager.py` |
-| 6 | 重写 service.py | `service.py` |
-| 7 | 重写 router | `assistant.py` |
-| 8 | 更新前端 API | `api.js` |
-| 9 | 重写状态管理 | `use-assistant-state.js` |
-| 10 | 更新 ChatMessage | `ChatMessage.js` |
-| 11 | 清理旧文件 | - |
-| 12 | 集成测试 | - |
+| 1 | Create data directory structure | `.agent_data/`, `.gitignore` |
+| 2 | Rewrite models.py | `models.py` |
+| 3 | Rewrite session_store.py | `session_store.py` |
+| 4 | Create transcript_reader.py | `transcript_reader.py` |
+| 5 | Create session_manager.py | `session_manager.py` |
+| 6 | Rewrite service.py | `service.py` |
+| 7 | Rewrite router | `assistant.py` |
+| 8 | Update frontend API | `api.js` |
+| 9 | Rewrite state management | `use-assistant-state.js` |
+| 10 | Update ChatMessage | `ChatMessage.js` |
+| 11 | Cleanup old files | - |
+| 12 | Integration testing | - |

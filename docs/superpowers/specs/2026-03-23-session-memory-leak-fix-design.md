@@ -1,64 +1,64 @@
-# Claude 子进程内存泄漏修复 — 会话生命周期管理设计
+# Claude Subprocess Memory Leak Fix — Session Lifecycle Management Design
 
-## 背景
+## Background
 
-Claude SDK 子进程每个占用约 250MB 内存。当前 `SessionManager` 对 `idle` 状态的会话不执行任何清理，导致子进程永驻内存。在多会话场景下内存持续累积，最终 OOM。
+Each Claude SDK subprocess occupies approximately 250MB of memory. The current `SessionManager` does not perform any cleanup for sessions in the `idle` state, causing subprocess to remain in memory permanently. In multi-session scenarios, memory accumulates continuously and eventually causes OOM.
 
-### 根因
+### Root Cause
 
-`session_manager.py` 的 `_finalize_turn()` 中：
+In `session_manager.py`'s `_finalize_turn()`:
 
 ```python
 if final_status not in ("idle", "running"):
     self._schedule_session_cleanup(managed.session_id)
 ```
 
-`idle` 状态（正常完成一轮对话）被排除在清理之外。`_schedule_session_cleanup()` 内部也对 `idle` 状态做了二次跳过。结果：idle 会话的 SDK 子进程永远不会被释放。
+`idle` status (normal completion of a conversation round) is excluded from cleanup. `_schedule_session_cleanup()` also has a second skip for `idle` status internally. Result: the SDK subprocess for idle sessions is never released.
 
-## 目标
+## Goals
 
-1. idle 会话在可配置的超时后自动释放 SDK 子进程内存
-2. 引入最大并发会话上限，防止同时活跃过多子进程
-3. 被清理的会话对用户透明恢复（DB 记录保留，再次对话时 `get_or_connect` 重建连接）
-4. 超时和并发上限通过智能体配置页可调
+1. Idle sessions automatically release SDK subprocess memory after a configurable timeout
+2. Introduce a maximum concurrent session limit to prevent too many subprocesses being active simultaneously
+3. Cleaned-up sessions restore transparently for users (DB records retained; `get_or_connect` rebuilds the connection when chatting again)
+4. Timeout and concurrency limits are adjustable through the agent config page
 
-## 设计
+## Design
 
-### 三层防线架构
+### Three-Layer Defensive Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  层 1: 统一延迟清理 _schedule_cleanup               │
-│  idle → 可配置 TTL（默认 10 分钟）                   │
-│  completed/error/interrupted → 短延迟（30 秒）       │
-│  cleanup task 追踪在 ManagedSession._cleanup_task    │
-│  到期 → _disconnect_session → 释放内存               │
-│  用户再发消息 → get_or_connect 透明恢复               │
+│  Layer 1: Unified delayed cleanup _schedule_cleanup  │
+│  idle → configurable TTL (default 10 minutes)        │
+│  completed/error/interrupted → short delay (30s)     │
+│  cleanup task tracked in ManagedSession._cleanup_task│
+│  expires → _disconnect_session → release memory      │
+│  user sends again → get_or_connect transparent restore│
 ├─────────────────────────────────────────────────────┤
-│  层 2: 并发上限 + LRU 淘汰                            │
-│  活跃子进程数 ≤ max_concurrent（默认 5）              │
-│  新请求到来时，如超限 → 淘汰最久未活跃的非 running 会话│
-│  全部 running → 返回 503 友好提示                     │
+│  Layer 2: Concurrency limit + LRU eviction            │
+│  active subprocesses ≤ max_concurrent (default 5)   │
+│  new request arrives, if over limit → evict LRU non-running session│
+│  all running → return 503 friendly message           │
 ├─────────────────────────────────────────────────────┤
-│  层 3: 定期巡检（安全网）                              │
-│  每 5 分钟扫描一次，清理超时 idle 和残留终态会话      │
-│  防止 cleanup task 丢失导致的泄漏                     │
+│  Layer 3: Periodic inspection (safety net)            │
+│  scans every 5 minutes, cleans timeout idle and terminal sessions│
+│  prevents leaks from lost cleanup tasks               │
 └─────────────────────────────────────────────────────┘
 ```
 
-### 层 1：统一延迟清理 `_schedule_cleanup()`
+### Layer 1: Unified Delayed Cleanup `_schedule_cleanup()`
 
-#### ManagedSession 字段
+#### ManagedSession Fields
 
 ```python
-idle_since: float | None = None                        # monotonic 时间戳，进入 idle 时记录
-last_activity: float | None = None                     # 每次发送/接收消息时更新
-_cleanup_task: asyncio.Task | None = None              # 当前清理定时器（idle TTL 或终态短延迟）
+idle_since: float | None = None                        # monotonic timestamp, recorded when entering idle
+last_activity: float | None = None                     # updated each time a message is sent/received
+_cleanup_task: asyncio.Task | None = None              # current cleanup timer (idle TTL or terminal short delay)
 ```
 
-#### 触发点：`_finalize_turn()` 和 `_mark_session_terminal()`
+#### Trigger Points: `_finalize_turn()` and `_mark_session_terminal()`
 
-所有非 running 状态统一调用 `_schedule_cleanup()`：
+All non-running statuses uniformly call `_schedule_cleanup()`:
 
 ```python
 if final_status == "idle":
@@ -67,39 +67,39 @@ if final_status != "running":
     self._schedule_cleanup(managed.session_id)
 ```
 
-#### `_schedule_cleanup()` 统一清理逻辑
+#### `_schedule_cleanup()` Unified Cleanup Logic
 
-- **取消旧定时器**：调度前先检查 `managed._cleanup_task`，若存在且未完成则 `cancel()` 再创建新的
-- **按状态决定延迟**：
-  - `idle` → 可配置 TTL（默认 600 秒 = 10 分钟）
-  - `completed/error/interrupted` → 短延迟 `_TERMINAL_CLEANUP_DELAY`（30 秒）
-- 到期后检查：会话已恢复 `running` 则跳过；`idle` 且 `idle_since` 已刷新则跳过
-- cleanup task 追踪在 `managed._cleanup_task`，`_disconnect_session()` 会自动 cancel
+- **Cancel old timer**: Before scheduling, check `managed._cleanup_task`; if it exists and is not done, `cancel()` it before creating a new one
+- **Delay determined by status**:
+  - `idle` → configurable TTL (default 600 seconds = 10 minutes)
+  - `completed/error/interrupted` → short delay `_TERMINAL_CLEANUP_DELAY` (30 seconds)
+- After expiry, check: skip if session has resumed `running`; skip if `idle` and `idle_since` has been refreshed
+- cleanup task tracked in `managed._cleanup_task`; `_disconnect_session()` will automatically cancel it
 
-#### 恢复路径
+#### Recovery Path
 
-被清理的会话 DB 记录保留（`AgentSession` 行不删除），用户再发消息时走已有的 `get_or_connect()` → 重新创建 `ClaudeSDKClient` → 透明恢复。
+Cleaned-up session DB records are retained (`AgentSession` rows are not deleted); when the user sends a message again, the existing `get_or_connect()` path → recreates `ClaudeSDKClient` → transparent recovery.
 
-### 层 2：并发上限 + LRU 淘汰
+### Layer 2: Concurrency Limit + LRU Eviction
 
-#### 检查点与调用时序
+#### Checkpoint and Call Ordering
 
-在 `send_new_session()` 和 `get_or_connect()` 中，**必须在 `client.connect()` 之前、新 session 加入 `self.sessions` 之前**调用 `_ensure_capacity()`。这确保新会话不会被计入活跃数。
+In `send_new_session()` and `get_or_connect()`, **`_ensure_capacity()` must be called before `client.connect()` and before the new session is added to `self.sessions`**. This ensures the new session is not counted in the active count.
 
-#### 统一清理辅助方法 `_disconnect_session()`
+#### Unified Cleanup Helper Method `_disconnect_session()`
 
-所有清理路径（TTL、LRU 淘汰、巡检）统一使用此方法，避免遗漏：
+All cleanup paths (TTL, LRU eviction, patrol) uniformly use this method to avoid omissions:
 
 ```python
 async def _disconnect_session(self, session_id: str) -> None:
-    """安全断开并移除一个会话，处理 consumer_task 和 connect_lock。"""
+    """Safely disconnect and remove a session, handling consumer_task and connect_lock."""
     managed = self.sessions.get(session_id)
     if managed is None:
         return
-    # 取消 idle cleanup 定时器
+    # Cancel idle cleanup timer
     if managed._cleanup_task and not managed._cleanup_task.done():
         managed._cleanup_task.cancel()
-    # 取消 consumer_task（如果仍在运行）并等待完成，防止与 disconnect 竞争
+    # Cancel consumer_task (if still running) and wait for completion to prevent racing with disconnect
     if managed.consumer_task and not managed.consumer_task.done():
         managed.consumer_task.cancel()
         await asyncio.gather(managed.consumer_task, return_exceptions=True)
@@ -112,18 +112,18 @@ async def _disconnect_session(self, session_id: str) -> None:
     self._connect_locks.pop(session_id, None)
 ```
 
-#### `_ensure_capacity()` 逻辑
+#### `_ensure_capacity()` Logic
 
 ```python
 async def _ensure_capacity(self) -> None:
-    """确保有空余并发槽位，必要时淘汰最久未活跃的非 running 会话。"""
+    """Ensure there is a free concurrency slot, evicting the least recently active non-running session if necessary."""
     max_concurrent = await self._get_max_concurrent()
     active = [s for s in self.sessions.values() if s.client is not None]
 
     if len(active) < max_concurrent:
         return
 
-    # 可淘汰的会话：非 running 状态（idle / completed / error / interrupted）
+    # Evictable sessions: non-running status (idle / completed / error / interrupted)
     evictable = sorted(
         [s for s in active if s.status != "running"],
         key=lambda s: s.last_activity or 0
@@ -134,32 +134,32 @@ async def _ensure_capacity(self) -> None:
         await self._disconnect_session(victim.session_id)
         return
 
-    # 所有会话都在 running → 拒绝
+    # All sessions are running → reject
     raise SessionCapacityError(
-        f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试"
+        f"There are currently {len(active)} active sessions, the maximum limit has been reached, please try again later"
     )
 ```
 
-#### API 层错误处理
+#### API Layer Error Handling
 
-路由层捕获 `SessionCapacityError`，返回：
+The router layer catches `SessionCapacityError` and returns:
 
 ```json
 HTTP 503
-{"detail": "当前有{len(running)}个正在进行的会话，已达到最大上限，请稍后重试"}
+{"detail": "There are currently {len(running)} active sessions, the maximum limit has been reached, please try again later"}
 ```
 
-`SessionCapacityError` 定义为自定义异常，放在 `server/agent_runtime/` 下。
+`SessionCapacityError` is defined as a custom exception in `server/agent_runtime/`.
 
-### 层 3：定期巡检
+### Layer 3: Periodic Patrol
 
-在 `SessionManager` 启动时创建后台 `asyncio.Task`，同时覆盖 idle 和终态会话：
+A background `asyncio.Task` is created when `SessionManager` starts, covering both idle and terminal sessions:
 
 ```python
-_PATROL_INTERVAL = 300  # 5 分钟，类常量
+_PATROL_INTERVAL = 300  # 5 minutes, class constant
 
 async def _patrol_once(self) -> None:
-    """单次巡检：清理所有超时的非 running 会话。"""
+    """Single patrol: clean up all timed-out non-running sessions."""
     ttl = await self._get_idle_ttl()
     now = time.monotonic()
     for sid, managed in list(self.sessions.items()):
@@ -174,56 +174,56 @@ async def _patrol_once(self) -> None:
                 await self._disconnect_session(sid)
 ```
 
-在 `shutdown_gracefully()` 中取消此任务。
+Cancel this task in `shutdown_gracefully()`.
 
-### 配置读取
+### Configuration Reading
 
-SessionManager 新增两个方法，遵循已有的 `refresh_config()` 模式——每次调用创建短生命周期的 DB session + ConfigService，避免持有过期的长连接：
+SessionManager adds two methods, following the existing `refresh_config()` pattern — each call creates a short-lived DB session + ConfigService to avoid holding stale long-lived connections:
 
 ```python
 async def _get_idle_ttl(self) -> int:
-    """返回 idle TTL 秒数，默认 600。"""
+    """Return idle TTL in seconds, default 600."""
     async with async_session_factory() as session:
         svc = ConfigService(session)
         val = await svc.get_setting("agent_session_idle_ttl_minutes", "10")
     return int(val) * 60
 
 async def _get_max_concurrent(self) -> int:
-    """返回最大并发会话数，默认 5。"""
+    """Return maximum concurrent session count, default 5."""
     async with async_session_factory() as session:
         svc = ConfigService(session)
         val = await svc.get_setting("agent_max_concurrent_sessions", "5")
     return int(val)
 ```
 
-**注意**：
-- 不在 `SessionManager.__init__()` 中存储 `ConfigService` 实例属性，因为 `ConfigService` 依赖请求级的 `AsyncSession`，长期持有会导致 session 过期。
-- `_ensure_capacity()` 每次只淘汰一个 idle 会话。如果管理员动态调低 `max_concurrent`（如 10 → 3），超出的会话不会立即全部清理，而是由后续请求逐个淘汰 + TTL/巡检兜底。这是有意为之的渐进清理策略。
+**Note**:
+- Do not store a `ConfigService` instance attribute in `SessionManager.__init__()`, because `ConfigService` depends on a request-scoped `AsyncSession`; holding it long-term causes the session to expire.
+- `_ensure_capacity()` evicts only one idle session at a time. If an admin dynamically lowers `max_concurrent` (e.g., 10 → 3), the excess sessions are not immediately all cleaned up; instead they are evicted one by one by subsequent requests, with TTL/patrol as a fallback. This is an intentional gradual cleanup strategy.
 
-### 后端配置 API 扩展
+### Backend Configuration API Extension
 
-#### `SystemConfigPatchRequest` 新增字段
+#### `SystemConfigPatchRequest` New Fields
 
 ```python
-agent_session_idle_ttl_minutes: Optional[int] = None   # 范围 1-60
-agent_max_concurrent_sessions: Optional[int] = None     # 范围 1-20
+agent_session_idle_ttl_minutes: Optional[int] = None   # range 1-60
+agent_max_concurrent_sessions: Optional[int] = None     # range 1-20
 ```
 
-#### PATCH 处理
+#### PATCH Handling
 
-- 范围校验：`1 ≤ idle_ttl ≤ 60`，`1 ≤ max_concurrent ≤ 20`，超出返回 422
-- 存储为字符串到 `SystemSetting` 表
-- 不需要映射到环境变量（SessionManager 直接通过 ConfigService 读取）
+- Range validation: `1 ≤ idle_ttl ≤ 60`, `1 ≤ max_concurrent ≤ 20`, returns 422 if out of range
+- Stored as strings in the `SystemSetting` table
+- No need to map to environment variables (SessionManager reads directly through ConfigService)
 
-#### GET 响应
+#### GET Response
 
-新增这两个字段，值从 `ConfigService.get_setting()` 读取，无值时返回默认值（10 和 5）。
+Add these two fields; values are read from `ConfigService.get_setting()`; returns default values (10 and 5) when no value is set.
 
-### 前端 UI
+### Frontend UI
 
-#### 类型扩展
+#### Type Extension
 
-`SystemConfigSettings` 和 `SystemConfigPatch` 各新增：
+`SystemConfigSettings` and `SystemConfigPatch` each add:
 
 ```typescript
 agent_session_idle_ttl_minutes: number;
@@ -232,48 +232,48 @@ agent_max_concurrent_sessions: number;
 
 #### AgentConfigTab UI
 
-在现有"模型配置"之后，新增默认折叠的"高级设置"区块：
+After the existing "Model Config" section, add a "Advanced Settings" block that is collapsed by default:
 
 ```
-┌─ 智能体配置 ─────────────────────────────────────┐
-│  [API 凭证]  Anthropic API Key / Base URL        │
-│  [模型配置]  默认模型 + 高级模型路由（折叠）       │
+┌─ Agent Configuration ──────────────────────────────┐
+│  [API Credentials]  Anthropic API Key / Base URL │
+│  [Model Config]  Default model + advanced routing (collapsed) │
 │                                                   │
-│  ▶ 高级设置                                       │  ← 默认折叠
+│  ▶ Advanced Settings                              │  ← collapsed by default
 │  ┌───────────────────────────────────────────┐    │
-│  │  会话空闲超时（分钟）  [  10  ]            │    │
-│  │  会话空闲超过此时间后自动释放资源，         │    │
-│  │  再次对话时会自动恢复                      │    │
+│  │  Session idle timeout (minutes)  [  10  ]   │    │
+│  │  Resources released automatically after idle  │    │
+│  │  time; restored automatically on next chat   │    │
 │  │                                           │    │
-│  │  最大并发会话数        [   5  ]            │    │
-│  │  同时保持活跃的智能体会话上限，超出时       │    │
-│  │  自动释放最久未使用的会话（清理的会话       │    │
-│  │  会持久化，下次对话时恢复）                 │    │
+│  │  Max concurrent sessions     [   5  ]        │    │
+│  │  Max active agent sessions limit; excess     │    │
+│  │  sessions auto-released (cleaned sessions    │    │
+│  │  are persisted and restored on next chat)    │    │
 │  └───────────────────────────────────────────┘    │
 │                                                   │
-│  [保存]                                           │
+│  [Save]                                           │
 └───────────────────────────────────────────────────┘
 ```
 
-- 输入框 `type="number"`，带 `min`/`max` 约束
-- 与现有字段共享同一个"保存"按钮和 `isDirty` 检查
-- 不在 `config-status-store` 中添加缺失项检查（有默认值，非必填）
+- Input `type="number"` with `min`/`max` constraints
+- Shares the same "Save" button and `isDirty` check with existing fields
+- Do not add missing item checks in `config-status-store` (has default values, not required)
 
-## 涉及文件
+## Affected Files
 
-| 文件 | 变更 |
+| File | Change |
 |------|------|
-| `server/agent_runtime/session_manager.py` | 核心：idle TTL、LRU 淘汰、巡检循环 |
-| `server/agent_runtime/service.py` | 透传 SessionCapacityError，无需注入 ConfigService |
-| `server/routers/system_config.py` | 新增两个配置字段的 PATCH/GET |
-| `server/routers/assistant.py` | 捕获 SessionCapacityError → 503 |
-| `server/routers/agent_chat.py` | 捕获 SessionCapacityError → 503 |
-| `frontend/src/types/system.ts` | 新增类型字段 |
-| `frontend/src/components/pages/AgentConfigTab.tsx` | 高级设置折叠面板 |
+| `server/agent_runtime/session_manager.py` | Core: idle TTL, LRU eviction, patrol loop |
+| `server/agent_runtime/service.py` | Propagate SessionCapacityError, no ConfigService injection needed |
+| `server/routers/system_config.py` | Add PATCH/GET for two new config fields |
+| `server/routers/assistant.py` | Catch SessionCapacityError → 503 |
+| `server/routers/agent_chat.py` | Catch SessionCapacityError → 503 |
+| `frontend/src/types/system.ts` | Add type fields |
+| `frontend/src/components/pages/AgentConfigTab.tsx` | Advanced settings collapsible panel |
 
-## 不变的部分
+## Unchanged Parts
 
-- `AgentSession` DB 模型不变（无需新增列或迁移）
-- `SessionRepository` 不变
-- `_schedule_idle_cleanup()` 和 `_schedule_session_cleanup()` 已合并为统一的 `_schedule_cleanup()`
-- 前端会话列表、对话 UI 不变（清理对用户透明）
+- `AgentSession` DB model unchanged (no new columns or migrations needed)
+- `SessionRepository` unchanged
+- `_schedule_idle_cleanup()` and `_schedule_session_cleanup()` have been merged into the unified `_schedule_cleanup()`
+- Frontend session list and conversation UI unchanged (cleanup is transparent to users)

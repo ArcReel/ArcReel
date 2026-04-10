@@ -1,14 +1,14 @@
-# OpenAI 预置供应商实现计划
+# OpenAI Preset Provider Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 ArcReel 新增 OpenAI 为第五个预置供应商，支持文本（GPT-5.4）、图片（GPT Image 1.5）、视频（Sora 2）三种媒体类型。
+**Goal:** Add OpenAI as the fifth preset provider for ArcReel, supporting three media types: text (GPT-5.4), image (GPT Image 1.5), and video (Sora 2).
 
 **Architecture:** 新增 `lib/openai_shared.py` 共享客户端工厂，三个独立 Backend（`OpenAITextBackend`、`OpenAIImageBackend`、`OpenAIVideoBackend`）各自实现对应 Protocol，通过现有 Registry 模式注册。费用计算、连接测试、工厂集成均为最小侵入式修改。
 
 **Tech Stack:** OpenAI Python SDK 2.30.0, AsyncOpenAI, pytest
 
-> **注意：** Instructor fallback 不在本期范围内。本期仅实现原生 `response_format` 结构化输出，Instructor fallback 作为后续优化。
+> **Note: ** Instructor fallback 不在本期范围内。本期仅实现原生 `response_format` 结构化输出，Instructor fallback 作为后续优化。
 
 **Design Spec:** `docs/superpowers/specs/2026-03-31-openai-provider-design.md`
 
@@ -22,7 +22,7 @@
 
 - [ ] **Step 1: 在 `lib/providers.py` 添加 OpenAI 常量**
 
-在文件末尾现有常量旁添加：
+At the end of the file现有常量旁添加：
 
 ```python
 PROVIDER_OPENAI = "openai"
@@ -380,7 +380,7 @@ class TestOpenAITextBackend:
         assert result.output_tokens is None
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_openai_text_backend.py -v`
 
@@ -493,7 +493,7 @@ def _build_messages(request: TextGenerationRequest) -> list[dict]:
     return messages
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_openai_text_backend.py -v`
 
@@ -501,7 +501,7 @@ Expected: All PASSED
 
 - [ ] **Step 5: 注册 Backend 到 `lib/text_backends/__init__.py`**
 
-在文件末尾已有的 `register_backend(PROVIDER_GROK, GrokTextBackend)` 之后添加：
+At the end of the file已有的 `register_backend(PROVIDER_GROK, GrokTextBackend)` 之后添加：
 
 ```python
 from lib.providers import PROVIDER_OPENAI
@@ -548,7 +548,7 @@ Run: `uv run python -c "from lib.text_backends import get_registered_backends; p
 
 Expected: 输出包含 `'openai'`
 
-- [ ] **Step 8: 提交**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add lib/text_backends/openai.py tests/test_openai_text_backend.py lib/text_backends/__init__.py lib/text_backends/factory.py
@@ -726,7 +726,7 @@ class TestOpenAIImageBackend:
                 assert call_kwargs["quality"] == expected_quality, f"size={img_size}"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_openai_image_backend.py -v`
 
@@ -856,7 +856,7 @@ class OpenAIImageBackend:
         )
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_openai_image_backend.py -v`
 
@@ -864,7 +864,7 @@ Expected: All PASSED
 
 - [ ] **Step 5: 注册 Backend 到 `lib/image_backends/__init__.py`**
 
-在文件末尾已有的 `register_backend(PROVIDER_GROK, GrokImageBackend)` 之后添加：
+At the end of the file已有的 `register_backend(PROVIDER_GROK, GrokImageBackend)` 之后添加：
 
 ```python
 from lib.image_backends.openai import OpenAIImageBackend
@@ -873,7 +873,7 @@ from lib.providers import PROVIDER_OPENAI
 register_backend(PROVIDER_OPENAI, OpenAIImageBackend)
 ```
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/image_backends/openai.py tests/test_openai_image_backend.py lib/image_backends/__init__.py
@@ -1090,7 +1090,7 @@ class TestOpenAIVideoBackend:
                 assert call_kwargs["size"] == expected_size, f"aspect={aspect}"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_openai_video_backend.py -v`
 
@@ -1218,7 +1218,7 @@ def _encode_start_image(image_path: Path) -> dict:
     }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_openai_video_backend.py -v`
 
@@ -1226,7 +1226,7 @@ Expected: All PASSED
 
 - [ ] **Step 5: 注册 Backend 到 `lib/video_backends/__init__.py`**
 
-在文件末尾已有的 `register_backend(PROVIDER_GROK, GrokVideoBackend)` 之后添加：
+At the end of the file已有的 `register_backend(PROVIDER_GROK, GrokVideoBackend)` 之后添加：
 
 ```python
 # OpenAI Sora
@@ -1236,7 +1236,7 @@ from lib.video_backends.openai import OpenAIVideoBackend
 register_backend(PROVIDER_OPENAI, OpenAIVideoBackend)
 ```
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/video_backends/openai.py tests/test_openai_video_backend.py lib/video_backends/__init__.py
@@ -1253,7 +1253,7 @@ git commit -m "feat: 实现 OpenAI 视频后端（Sora 2）"
 
 - [ ] **Step 1: 在 `tests/test_cost_calculator.py` 添加 OpenAI 测试用例**
 
-在文件末尾添加：
+At the end of the file添加：
 
 ```python
 class TestOpenAICost:
@@ -1336,7 +1336,7 @@ class TestOpenAICost:
         assert amount == pytest.approx(1.20)
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_cost_calculator.py::TestOpenAICost -v`
 
@@ -1460,13 +1460,13 @@ from lib.providers import PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, CallType
     ) -> tuple[float, str]:
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_cost_calculator.py -v`
 
 Expected: All PASSED（包括原有测试和新增 OpenAI 测试）
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/cost_calculator.py tests/test_cost_calculator.py
@@ -1518,13 +1518,13 @@ _TEST_DISPATCH: dict[str, Callable[[dict[str, str]], ConnectionTestResponse]] = 
 
 - [ ] **Step 2: 在 `server/services/generation_tasks.py` 添加 OpenAI 工厂分支**
 
-在文件顶部的 `from lib.providers import ...` 导入行中添加 `PROVIDER_OPENAI`：
+At the top of the file的 `from lib.providers import ...` 导入行中添加 `PROVIDER_OPENAI`：
 
 ```python
 from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_OPENAI
 ```
 
-在 `_PROVIDER_ID_TO_BACKEND` 字典中**添加一行**（注意：不要替换整个字典，保留已有条目）：
+在 `_PROVIDER_ID_TO_BACKEND` 字典中**添加一行**（Note: 不要替换整个字典，保留已有条目）：
 
 ```python
 # 在现有字典末尾添加：
@@ -1580,7 +1580,7 @@ git commit -m "feat: 添加 OpenAI 连接测试与工厂集成"
 
 - [ ] **Step 1: 更新 `ProviderIcon.tsx`**
 
-在文件顶部 import 区域添加 OpenAI 图标导入：
+At the top of the file import 区域添加 OpenAI 图标导入：
 
 ```typescript
 import OpenAIColor from "@lobehub/icons/es/OpenAI/components/Color";

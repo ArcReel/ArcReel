@@ -1,8 +1,8 @@
-# 供应商多 API Key 支持 Implementation Plan
+# Provider Multi-API Key Support Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为每个供应商支持配置多个 API Key / Vertex 凭证，手动切换活跃 Key，连接测试可针对任意 Key 进行。
+**Goal:** Support configuring multiple API Keys / Vertex credentials per provider, manually switching the active key, and running connection tests against any key.
 
 **Architecture:** 新建 `provider_credential` 表存储凭证（名称、密钥、base_url、活跃状态），与现有 `provider_config` 表（RPM/workers 共享配置）分离。`ConfigResolver.provider_config()` 在返回时合并活跃凭证信息，使下游消费方无感知。前端 `ProviderDetail` 拆分为凭证管理区 + 共享配置区。
 
@@ -14,7 +14,7 @@
 
 ## File Structure
 
-### 新建文件
+### New Files
 - `lib/db/models/credential.py` — ProviderCredential ORM 模型
 - `lib/db/repositories/credential_repository.py` — 凭证 CRUD Repository
 - `lib/config/url_utils.py` — `normalize_base_url()` 工具函数
@@ -24,7 +24,7 @@
 - `alembic/versions/xxxx_add_provider_credential_table.py` — 数据库迁移
 - `frontend/src/components/pages/CredentialList.tsx` — 凭证列表管理组件
 
-### 修改文件
+### Modified Files
 - `lib/db/models/__init__.py` — 导出 ProviderCredential
 - `lib/config/repository.py` — 新增 CredentialRepository（或在新文件）
 - `lib/config/service.py` — 状态判定逻辑改用凭证表
@@ -162,12 +162,12 @@ def normalize_base_url(url: str | None) -> str | None:
     base_url = normalize_base_url(config.get("base_url"))
 ```
 
-- [ ] **Step 6: 运行全部测试确认无回归**
+- [ ] **Step 6: 运行全部测试confirm no regressions**
 
 运行: `uv run python -m pytest tests/test_normalize_base_url.py tests/test_providers_api.py -v`
 预期: 全部 PASS
 
-- [ ] **Step 7: 提交**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add lib/config/url_utils.py tests/test_normalize_base_url.py lib/image_backends/gemini.py lib/video_backends/gemini.py lib/gemini_client.py server/routers/providers.py
@@ -356,7 +356,7 @@ git commit -m "feat: 新增 ProviderCredential ORM 模型"
 运行: `uv run python -c "import sqlite3; conn = sqlite3.connect('projects/.arcreel.db'); print([r[1] for r in conn.execute('PRAGMA table_info(provider_credential)').fetchall()])"`
 预期: 输出列名列表，包含 `provider`, `name`, `api_key`, `credentials_path`, `base_url`, `is_active`, `created_at`, `updated_at`
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add alembic/versions/
@@ -661,7 +661,7 @@ class CredentialRepository:
 运行: `uv run python -m pytest tests/test_credential_repository.py -v`
 预期: 全部 PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/db/repositories/credential_repository.py tests/test_credential_repository.py
@@ -681,7 +681,7 @@ git commit -m "feat: 新增 CredentialRepository，支持凭证 CRUD + 活跃切
 
 修改 `lib/config/service.py` 的 `get_all_providers_status` 方法，状态判定改为基于 `provider_credential` 表。
 
-在文件顶部 imports 中添加：
+At the top of the file imports 中添加：
 ```python
 from lib.db.repositories.credential_repository import CredentialRepository
 ```
@@ -728,7 +728,7 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 from lib.db.repositories.credential_repository import CredentialRepository
 ```
-（注意：`AsyncSession` 已在 `TYPE_CHECKING` 块中导入 `async_sessionmaker`，现在需要在运行时也导入 `AsyncSession`。）
+（Note: `AsyncSession` 已在 `TYPE_CHECKING` 块中导入 `async_sessionmaker`，现在需要在运行时也导入 `AsyncSession`。）
 
 修改调用方，将 session 传入 `_resolve_*` 方法：
 
@@ -785,7 +785,7 @@ from lib.db.repositories.credential_repository import CredentialRepository
         return configs
 ```
 
-- [ ] **Step 3: 运行已有测试确认无回归**
+- [ ] **Step 3: 运行已有测试confirm no regressions**
 
 运行: `uv run python -m pytest tests/ -v -k "provider or config" --timeout=30`
 预期: 全部 PASS（可能有些测试需要调整 mock）
@@ -1123,7 +1123,7 @@ def _invalidate_caches(request: Request) -> None:
 运行: `uv run python -m pytest tests/test_credential_api.py -v`
 预期: 全部 PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add server/routers/providers.py tests/test_credential_api.py
@@ -1303,7 +1303,7 @@ _CREDENTIAL_KEYS = frozenset({"api_key", "credentials_path", "base_url"})
     status = "ready" if has_active else "unconfigured"
 ```
 
-注意：`get_provider_config` 端点需要改为同时依赖 `session`，而非仅依赖 `svc`。
+Note: `get_provider_config` 端点需要改为同时依赖 `session`，而非仅依赖 `svc`。
 
 - [ ] **Step 4: 更新已有测试**
 
@@ -1318,7 +1318,7 @@ _CREDENTIAL_KEYS = frozenset({"api_key", "credentials_path", "base_url"})
 运行: `uv run python -m pytest tests/test_providers_api.py tests/test_credential_api.py -v`
 预期: 全部 PASS
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add server/routers/providers.py tests/test_providers_api.py tests/test_credential_api.py
@@ -1430,7 +1430,7 @@ export interface ProviderCredential {
   }
 ```
 
-注意：`testProviderConnection` 的签名变更（添加了可选的 `credentialId` 参数），需要同时更新原有方法。移除旧的 `uploadVertexCredentialsForProvider` 方法。
+Note: `testProviderConnection` 的签名变更（添加了可选的 `credentialId` 参数），需要同时更新原有方法。移除旧的 `uploadVertexCredentialsForProvider` 方法。
 
 - [ ] **Step 3: 添加 ProviderCredential 到 imports**
 
@@ -1445,7 +1445,7 @@ export interface ProviderCredential {
 运行: `cd frontend && pnpm typecheck`
 预期: 无错误
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add frontend/src/types/provider.ts frontend/src/api.ts

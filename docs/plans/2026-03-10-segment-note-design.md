@@ -1,42 +1,42 @@
-# 分镜备注功能设计
+# Storyboard Note Feature Design
 
-## 概述
+## Overview
 
-在分镜卡片的文本列（第一列）下半部分添加备注区，用户可编写和查看针对每个分镜的备注。备注仅供用户参考，不参与生图/生视频。
+Add a note area to the lower portion of the text column (first column) of storyboard cards, where users can write and view notes for each storyboard. Notes are for user reference only and do not participate in image/video generation.
 
-## 数据层
+## Data Layer
 
-在 `NarrationSegment` 和 `DramaScene` 模型中新增字段：
+Add a new field to `NarrationSegment` and `DramaScene` models:
 
 ```python
 note: Optional[str] = None
 ```
 
-- 前端类型 `script.ts` 对应增加 `note?: string`
-- `Optional` + `default=None` 自动兼容旧数据，无需迁移
-- 生成逻辑不读取此字段，无需改动
+- Frontend type `script.ts` correspondingly adds `note?: string`
+- `Optional` + `default=None` automatically handles old data compatibility, no migration needed
+- Generation logic does not read this field, no changes needed
 
-## API 层
+## API Layer
 
-无需新增端点，复用现有 PATCH 接口：
+No new endpoints needed, reuse existing PATCH endpoints:
 
-- Narration：`PATCH /api/v1/projects/{name}/segments/{segment_id}` — body 含 `"note": "..."`
-- Drama：`PATCH /api/v1/projects/{name}/scenes/{scene_id}` — updates 含 `"note": "..."`
+- Narration: `PATCH /api/v1/projects/{name}/segments/{segment_id}` — body contains `"note": "..."`
+- Drama: `PATCH /api/v1/projects/{name}/scenes/{scene_id}` — updates contains `"note": "..."`
 
-## 前端 UI
+## Frontend UI
 
-在 `TextColumn` 组件中，原文/对话下方添加备注区：
+In the `TextColumn` component, add a note area below the original text/dialogue:
 
-- 标签 "备注"，样式与 "原文" 标签一致（普通样式，无特殊颜色）
-- `textarea` 占据文本列约一半空间
-- `placeholder`："添加备注..."
-- 失焦时（`onBlur`）内容有变化则调用保存接口
+- Label "Note", styled consistently with the "Source Text" label (normal style, no special color)
+- `textarea` occupies approximately half the text column space
+- `placeholder`: "Add a note..."
+- On blur (`onBlur`), if content has changed, call the save endpoint
 
-## 涉及文件
+## Affected Files
 
-| 文件 | 改动 |
+| File | Change |
 |------|------|
-| `lib/script_models.py` | `NarrationSegment` / `DramaScene` 加 `note` 字段 |
-| `frontend/src/types/script.ts` | 类型加 `note?: string` |
-| `frontend/src/components/canvas/timeline/SegmentCard.tsx` | `TextColumn` 中渲染备注区 |
-| `frontend/src/components/canvas/StudioCanvasRouter.tsx` | 保存回调传递 note |
+| `lib/script_models.py` | Add `note` field to `NarrationSegment` / `DramaScene` |
+| `frontend/src/types/script.ts` | Add `note?: string` to type |
+| `frontend/src/components/canvas/timeline/SegmentCard.tsx` | Render note area in `TextColumn` |
+| `frontend/src/components/canvas/StudioCanvasRouter.tsx` | Pass note in save callback |

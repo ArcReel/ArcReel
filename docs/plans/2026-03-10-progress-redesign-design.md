@@ -1,57 +1,57 @@
-# 进度机制重新设计
+# Progress Mechanism Redesign
 
-**日期**：2026-03-10
-**状态**：已批准，待实现
+**Date**: 2026-03-10
+**Status**: Approved, pending implementation
 
 ---
 
-## 背景与问题
+## Background and Problems
 
-当前进度机制存在以下问题：
+The current progress mechanism has the following problems:
 
-| 问题 | 现状 | 目标 |
+| Problem | Current State | Goal |
 |------|------|------|
-| 剧本创作阶段缺失 | 源文件上传、概述生成、分集规划、JSON 剧本生成均未追踪 | 纳入进度 |
-| 阶段关系不准确 | 角色/线索视为两个顺序阶段 | 独立的 worldbuilding 阶段（并行） |
-| 分镜/视频粒度错误 | 按项目汇总（所有集的总和） | 按集独立计算 |
-| 阶段推断逻辑错误 | 仅由数量比例推断当前阶段 | 基于实际工作流状态机 |
-| 角色/线索隐藏 | production 阶段后不显示 | 始终展示（后续剧集可能追加） |
+| Scripting phase missing | Source file upload, overview generation, episode planning, JSON script generation are all untracked | Include in progress |
+| Phase relationship inaccurate | Characters/clues treated as two sequential phases | Independent worldbuilding phase (parallel) |
+| Storyboard/video granularity wrong | Aggregated by project (sum of all episodes) | Calculated independently per episode |
+| Phase inference logic wrong | Only infers current phase from quantity ratio | Based on actual workflow state machine |
+| Characters/clues hidden | Not shown after production phase | Always shown (subsequent episodes may add more) |
 
 ---
 
-## 设计目标
+## Design Goal
 
-进度机制的核心目标：**帮助用户快速了解当前项目状态，明确下一步该做什么。**
+The core goal of the progress mechanism: **Help users quickly understand the current project state and clearly identify the next step.**
 
 ---
 
-## 数据模型
+## Data Model
 
-### 项目级状态（快速一览）
+### Project-level Status (Quick Overview)
 
 ```python
 class ProjectStatus:
     current_phase: Literal["setup", "worldbuilding", "scripting", "production", "completed"]
-    phase_progress: float   # 0.0–1.0，当前阶段完成率
+    phase_progress: float   # 0.0–1.0, completion rate of current phase
     characters: CategoryProgress   # { total: int, completed: int }
     clues: CategoryProgress        # { total: int, completed: int }
     episodes_summary: EpisodesSummary
     # {
     #     total: int,
-    #     scripted: int,        # script_status == "generated" 的集数
-    #     in_production: int,   # status == "in_production" 的集数
-    #     completed: int        # status == "completed" 的集数
+    #     scripted: int,        # number of episodes with script_status == "generated"
+    #     in_production: int,   # number of episodes with status == "in_production"
+    #     completed: int        # number of episodes with status == "completed"
     # }
 ```
 
-### 集级状态（详细明细）
+### Episode-level Status (Detailed Breakdown)
 
 ```python
 class EpisodeMeta:
     script_status: Literal["none", "segmented", "generated"]
-    # none      = 无任何剧本文件
-    # segmented = drafts/episode_N/step1_segments.md 存在
-    # generated = scripts/episode_N.json 存在
+    # none      = no script files at all
+    # segmented = drafts/episode_N/step1_segments.md exists
+    # generated = scripts/episode_N.json exists
 
     storyboards: CategoryProgress   # { total: int, completed: int }
     videos: CategoryProgress        # { total: int, completed: int }
@@ -60,26 +60,26 @@ class EpisodeMeta:
     duration_seconds: int
 ```
 
-### 阶段定义
+### Phase Definitions
 
-| 阶段 | 英文值 | 判断条件 | `phase_progress` 含义 |
+| Phase | Value | Condition | `phase_progress` Meaning |
 |------|--------|---------|----------------------|
-| 准备中 | `setup` | 无 overview | 有源文件 → 0.5，无 → 0.0 |
-| 世界观 | `worldbuilding` | 有 overview，无任何集的剧本 JSON | `(角色完成 + 线索完成) / (角色总数 + 线索总数)` |
-| 剧本创作 | `scripting` | 有至少一集剧本，但未全部完成 | `已生成剧本的集数 / 总集数` |
-| 制作中 | `production` | 所有集剧本完成，制作中 | `已完成视频数 / 总视频数（跨所有集）` |
-| 已完成 | `completed` | 所有视频均已完成 | `1.0` |
+| Setup | `setup` | No overview | Has source file → 0.5, none → 0.0 |
+| Worldbuilding | `worldbuilding` | Has overview, no episode script JSON | `(chars_completed + clues_completed) / (chars_total + clues_total)` |
+| Scripting | `scripting` | At least one episode has a script, but not all | `episodes_with_script / total_episodes` |
+| Production | `production` | All episode scripts complete, in production | `completed_videos / total_videos (across all episodes)` |
+| Completed | `completed` | All videos completed | `1.0` |
 
-**注意**：角色和线索在所有阶段始终显示，因为后续剧集制作时可能追加新角色/线索。
+**Note**: Characters and clues are always shown in all phases, because subsequent episode production may add new characters/clues.
 
 ---
 
-## 后端计算逻辑
+## Backend Calculation Logic
 
-### `calculate_episode_stats()` 改动
+### `calculate_episode_stats()` Changes
 
 ```python
-# 之前返回（两个扁平字段）
+# Before (two flat fields)
 {
     "storyboards_completed": int,
     "videos_completed": int,
@@ -88,29 +88,29 @@ class EpisodeMeta:
     "duration_seconds": int,
 }
 
-# 之后返回
+# After
 {
-    "script_status": "none" | "segmented" | "generated",   # 新增
-    "storyboards": { "total": int, "completed": int },      # 结构变更
-    "videos": { "total": int, "completed": int },           # 结构变更
+    "script_status": "none" | "segmented" | "generated",   # new
+    "storyboards": { "total": int, "completed": int },      # structure change
+    "videos": { "total": int, "completed": int },           # structure change
     "status": "draft" | "scripted" | "in_production" | "completed",
     "scenes_count": int,
     "duration_seconds": int,
 }
 ```
 
-`script_status` 判断逻辑：
-- `generated`：`scripts/episode_N.json` 文件存在
-- `segmented`：`drafts/episode_N/step1_segments.md` 文件存在（拆分完成，未生成 JSON）
-- `none`：以上都不存在
+`script_status` determination logic:
+- `generated`: `scripts/episode_N.json` file exists
+- `segmented`: `drafts/episode_N/step1_segments.md` file exists (segmentation complete, JSON not yet generated)
+- `none`: neither of the above exists
 
-`status` 判断逻辑：
-- `completed`：`videos.completed == videos.total > 0`
-- `in_production`：`storyboards.completed > 0 || videos.completed > 0`
-- `scripted`：`script_status == "generated"`（有剧本但无任何生成资源）
-- `draft`：其他情况
+`status` determination logic:
+- `completed`: `videos.completed == videos.total > 0`
+- `in_production`: `storyboards.completed > 0 || videos.completed > 0`
+- `scripted`: `script_status == "generated"` (has script but no generated assets)
+- `draft`: all other cases
 
-### `calculate_current_phase()` 重写
+### `calculate_current_phase()` Rewrite
 
 ```python
 def calculate_current_phase(project, episodes_stats: list[dict]) -> str:
@@ -122,7 +122,7 @@ def calculate_current_phase(project, episodes_stats: list[dict]) -> str:
 
     all_generated = all(s["script_status"] == "generated" for s in episodes_stats)
     if not all_generated:
-        # 有至少一集有 JSON 剧本则进入 scripting，否则仍是 worldbuilding
+        # If at least one episode has a JSON script, enter scripting; otherwise still worldbuilding
         any_generated = any(s["script_status"] == "generated" for s in episodes_stats)
         return "scripting" if any_generated else "worldbuilding"
 
@@ -130,11 +130,11 @@ def calculate_current_phase(project, episodes_stats: list[dict]) -> str:
     return "completed" if all_completed else "production"
 ```
 
-### `enrich_project()` 更新流程
+### `enrich_project()` Updated Flow
 
 ```python
 def enrich_project(project_name, project):
-    # 1. 计算每集明细（集级状态），注入到每个 episode 对象
+    # 1. Calculate per-episode details (episode-level status), inject into each episode object
     episodes_stats = []
     for ep in project["episodes"]:
         if ep.get("script_file"):
@@ -146,7 +146,7 @@ def enrich_project(project_name, project):
         ep.update(stats)
         episodes_stats.append(stats)
 
-    # 2. 计算项目汇总
+    # 2. Calculate project summary
     phase = self.calculate_current_phase(project, episodes_stats)
     phase_progress = self._calculate_phase_progress(project, phase, episodes_stats)
     chars = self._calculate_characters_progress(project_name, project)
@@ -168,12 +168,12 @@ def enrich_project(project_name, project):
 
 ---
 
-## 前端展示
+## Frontend Display
 
-### 类型变更（`frontend/src/types/project.ts`）
+### Type Changes (`frontend/src/types/project.ts`)
 
 ```typescript
-// 废弃 ProjectProgress，改为 ProjectStatus
+// Deprecate ProjectProgress, replace with ProjectStatus
 interface ProjectStatus {
   current_phase: "setup" | "worldbuilding" | "scripting" | "production" | "completed";
   phase_progress: number;       // 0.0–1.0
@@ -188,63 +188,63 @@ interface ProjectStatus {
 }
 
 interface EpisodeMeta {
-  script_status: "none" | "segmented" | "generated";  // 新增
-  storyboards: ProgressCategory;  // 原 storyboards_completed 改为对象
-  videos: ProgressCategory;       // 原 videos_completed 改为对象
+  script_status: "none" | "segmented" | "generated";  // new
+  storyboards: ProgressCategory;  // formerly storyboards_completed, now an object
+  videos: ProgressCategory;       // formerly videos_completed, now an object
   status: "draft" | "scripted" | "in_production" | "completed";
   scenes_count?: number;
   duration_seconds?: number;
 }
 
-// ProgressCategory 不变
+// ProgressCategory unchanged
 interface ProgressCategory {
   total: number;
   completed: number;
 }
 ```
 
-### `ProjectCard` 展示（`ProjectsPage.tsx`）
+### `ProjectCard` Display (`ProjectsPage.tsx`)
 
 ```
 ┌─────────────────────────────────────┐
-│ 项目标题                             │
-│ 风格 · 制作中                        │
+│ Project Title                        │
+│ Style · In Production                │
 │                                      │
 │ ████████████░░░  62%                 │  ← phase_progress
-│ 制作中                                │  ← current_phase 友好名称
+│ In Production                        │  ← current_phase friendly name
 │                                      │
-│ 角色 3/5  ·  线索 2/4                │  ← 始终显示
-│ 3集  ·  2集剧本完成  ·  1集制作中    │  ← episodes_summary
+│ Characters 3/5  ·  Clues 2/4        │  ← always shown
+│ 3 eps  ·  2 scripted  ·  1 in prod  │  ← episodes_summary
 └─────────────────────────────────────┘
 ```
 
-阶段友好名称映射：
-| `current_phase` | 显示文字 |
+Phase friendly name mapping:
+| `current_phase` | Display Text |
 |----------------|---------|
-| `setup` | 准备中 |
-| `worldbuilding` | 世界观 |
-| `scripting` | 剧本创作 |
-| `production` | 制作中 |
-| `completed` | 已完成 |
+| `setup` | Setup |
+| `worldbuilding` | Worldbuilding |
+| `scripting` | Scripting |
+| `production` | In Production |
+| `completed` | Completed |
 
-### `AssetSidebar` 集状态点
+### `AssetSidebar` Episode Status Dots
 
-数据来源字段路径更新：
+Source field path updates:
 - `ep.storyboards_completed` → `ep.storyboards.completed`
 - `ep.videos_completed` → `ep.videos.completed`
 
-逻辑不变，沿用现有状态色点。
+Logic unchanged, reuse existing status color dots.
 
 ---
 
-## 受影响文件
+## Affected Files
 
-| 文件 | 改动类型 |
+| File | Change Type |
 |------|---------|
-| `lib/status_calculator.py` | 核心重写 |
-| `lib/script_models.py` | 更新 `EpisodeMeta` 类型定义 |
-| `tests/test_status_calculator.py` | 更新现有测试 + 新增用例 |
-| `frontend/src/types/project.ts` | 类型更新 |
-| `frontend/src/components/pages/ProjectsPage.tsx` | `ProjectCard` 展示逻辑 |
-| `frontend/src/components/layout/AssetSidebar.tsx` | 字段引用更新 |
-| 其他引用旧 `progress.*` 字段的组件 | 字段路径更新 |
+| `lib/status_calculator.py` | Core rewrite |
+| `lib/script_models.py` | Update `EpisodeMeta` type definition |
+| `tests/test_status_calculator.py` | Update existing tests + add new cases |
+| `frontend/src/types/project.ts` | Type updates |
+| `frontend/src/components/pages/ProjectsPage.tsx` | `ProjectCard` display logic |
+| `frontend/src/components/layout/AssetSidebar.tsx` | Field reference updates |
+| Other components referencing old `progress.*` fields | Field path updates |

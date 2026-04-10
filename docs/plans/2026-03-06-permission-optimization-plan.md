@@ -1,23 +1,23 @@
-# 权限控制优化实施计划
+# Permission Control Optimization Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 将 Agent Runtime 权限控制从自定义 Hook + Bash 全放行迁移到 SDK 声明式规则 + 简化 Hook + Bash 白名单
+**Goal:** Migrate Agent Runtime permission control from custom Hook + Bash full-allowlist to SDK declarative rules + simplified Hook + Bash allowlist
 
-**Architecture:** 创建 `settings.json` 声明式权限规则，简化 `_is_path_allowed` 逻辑（删除 `_READONLY_DIRS` 循环，改为允许整个 `project_root` 的读取），修改 `canUseTool` 为默认拒绝，从 `DEFAULT_ALLOWED_TOOLS` 移除 Bash。
+**Architecture:** Create `settings.json` declarative permission rules, simplify `_is_path_allowed` logic (remove `_READONLY_DIRS` loop, allow reading the entire `project_root` instead), change `canUseTool` to default deny, remove Bash from `DEFAULT_ALLOWED_TOOLS`.
 
-**Tech Stack:** Claude Agent SDK (Python), settings.json 权限规则
+**Tech Stack:** Claude Agent SDK (Python), settings.json permission rules
 
-**设计文档:** `docs/plans/2026-03-06-permission-optimization-design.md`
+**Design doc:** `docs/plans/2026-03-06-permission-optimization-design.md`
 
 ---
 
-### Task 1: 创建 settings.json 声明式权限规则
+### Task 1: Create settings.json declarative permission rules
 
 **Files:**
 - Create: `agent_runtime_profile/.claude/settings.json`
 
-**Step 1: 创建 settings.json**
+**Step 1: Create settings.json**
 
 ```json
 {
@@ -50,10 +50,10 @@
 }
 ```
 
-**Step 2: 验证 JSON 格式**
+**Step 2: Verify JSON format**
 
 Run: `python -c "import json; json.load(open('agent_runtime_profile/.claude/settings.json'))"`
-Expected: 无输出（无解析错误）
+Expected: No output (no parse errors)
 
 **Step 3: Commit**
 
@@ -64,16 +64,16 @@ git commit -m "feat: add declarative permission rules for agent runtime"
 
 ---
 
-### Task 2: 修改 DEFAULT_ALLOWED_TOOLS 移除 Bash
+### Task 2: Modify DEFAULT_ALLOWED_TOOLS to remove Bash
 
 **Files:**
 - Modify: `server/agent_runtime/session_manager.py:199-202`
 - Test: `tests/test_session_manager_project_scope.py`
 
-**Step 1: 编写测试 — 验证 Bash 不在 DEFAULT_ALLOWED_TOOLS 中**
+**Step 1: Write test — verify Bash is not in DEFAULT_ALLOWED_TOOLS**
 
-在 `tests/test_session_manager_project_scope.py` 的 `TestAllowedToolsAndConstants` 类中，
-修改 `test_default_allowed_tools_matches_sdk` 方法：
+In the `TestAllowedToolsAndConstants` class in `tests/test_session_manager_project_scope.py`,
+modify the `test_default_allowed_tools_matches_sdk` method:
 
 ```python
 @pytest.mark.asyncio
@@ -88,21 +88,21 @@ async def test_default_allowed_tools_matches_sdk(self, tmp_path):
     assert "Skill" in tools
     assert "Read" in tools
     assert "AskUserQuestion" in tools
-    # Bash must NOT be in allowed_tools — controlled by settings.json whitelist
+    # Bash must NOT be in allowed_tools — controlled by settings.json allowlist
     assert "Bash" not in tools
     assert "MultiEdit" not in tools
     assert "LS" not in tools
     await engine.dispose()
 ```
 
-**Step 2: 运行测试确认失败**
+**Step 2: Run tests to confirm they fail**
 
 Run: `python -m pytest tests/test_session_manager_project_scope.py::TestAllowedToolsAndConstants::test_default_allowed_tools_matches_sdk -v`
-Expected: FAIL — `assert "Bash" not in tools` 失败
+Expected: FAIL — `assert "Bash" not in tools` fails
 
-**Step 3: 修改 DEFAULT_ALLOWED_TOOLS**
+**Step 3: Modify DEFAULT_ALLOWED_TOOLS**
 
-在 `server/agent_runtime/session_manager.py:199-202`，修改：
+In `server/agent_runtime/session_manager.py:199-202`, change to:
 
 ```python
 DEFAULT_ALLOWED_TOOLS = [
@@ -111,7 +111,7 @@ DEFAULT_ALLOWED_TOOLS = [
 ]
 ```
 
-同时更新注释（`session_manager.py:205-207`），替换旧的 Bash 注释：
+Also update the comment (`session_manager.py:205-207`), replacing the old Bash comment:
 
 ```python
 # Bash is NOT in DEFAULT_ALLOWED_TOOLS — it is controlled by declarative
@@ -119,7 +119,7 @@ DEFAULT_ALLOWED_TOOLS = [
 # File access control for Read/Write/Edit/Glob/Grep uses PreToolUse hooks.
 ```
 
-**Step 4: 运行测试确认通过**
+**Step 4: Run tests to confirm they pass**
 
 Run: `python -m pytest tests/test_session_manager_project_scope.py::TestAllowedToolsAndConstants -v`
 Expected: PASS
@@ -133,16 +133,16 @@ git commit -m "refactor: remove Bash from DEFAULT_ALLOWED_TOOLS, use settings.js
 
 ---
 
-### Task 3: 修改 canUseTool 回调为默认拒绝
+### Task 3: Modify canUseTool callback to default deny
 
 **Files:**
 - Modify: `server/agent_runtime/session_manager.py:727-753`
 - Test: `tests/test_session_manager_more.py:198-221`
 
-**Step 1: 修改测试 — 验证非 AskUserQuestion 工具被拒绝**
+**Step 1: Modify test — verify non-AskUserQuestion tools are denied**
 
-在 `tests/test_session_manager_more.py` 的 `test_can_use_tool_callback_branches` 方法中，
-修改第 203-206 行：
+In the `test_can_use_tool_callback_branches` method in `tests/test_session_manager_more.py`,
+modify lines 203-206:
 
 ```python
 @pytest.mark.asyncio
@@ -154,7 +154,7 @@ async def test_can_use_tool_callback_branches(self, session_manager, monkeypatch
     # Non-AskUserQuestion tools should be denied (whitelist fallback)
     result = await allow_cb("Read", {"x": 1}, None)
     assert isinstance(result, _FakeDeny)
-    assert "未授权" in result.message
+    assert "Unauthorized" in result.message
     # AskUserQuestion still handled
     result2 = await allow_cb("AskUserQuestion", {"questions": []}, None)
     assert result2.updated_input == {"questions": []}
@@ -172,15 +172,15 @@ async def test_can_use_tool_callback_branches(self, session_manager, monkeypatch
     assert "user interrupted" in deny.message
 ```
 
-**Step 2: 运行测试确认失败**
+**Step 2: Run tests to confirm they fail**
 
 Run: `python -m pytest tests/test_session_manager_more.py::TestSessionManagerMore::test_can_use_tool_callback_branches -v`
-Expected: FAIL — `assert isinstance(result, _FakeDeny)` 失败（当前返回 _FakeAllow）
+Expected: FAIL — `assert isinstance(result, _FakeDeny)` fails (currently returns _FakeAllow)
 
-**Step 3: 修改 canUseTool 回调**
+**Step 3: Modify canUseTool callback**
 
-在 `server/agent_runtime/session_manager.py`，修改 `_build_can_use_tool_callback` 方法
-（第 727-753 行）：
+In `server/agent_runtime/session_manager.py`, modify the `_build_can_use_tool_callback` method
+(lines 727-753):
 
 ```python
 async def _build_can_use_tool_callback(self, session_id: str):
@@ -210,13 +210,13 @@ async def _build_can_use_tool_callback(self, session_id: str):
         # Whitelist fallback: deny any tool that was not pre-approved
         # by allowed_tools or settings.json allow rules.
         if PermissionResultDeny is not None:
-            return PermissionResultDeny(message="未授权的工具调用")
+            return PermissionResultDeny(message="Unauthorized tool call")
         return PermissionResultAllow(updated_input=input_data)
 
     return _can_use_tool
 ```
 
-**Step 4: 运行测试确认通过**
+**Step 4: Run tests to confirm they pass**
 
 Run: `python -m pytest tests/test_session_manager_more.py::TestSessionManagerMore::test_can_use_tool_callback_branches -v`
 Expected: PASS
@@ -230,21 +230,21 @@ git commit -m "feat: canUseTool defaults to deny for unmatched tools (whitelist 
 
 ---
 
-### Task 4: 简化 _is_path_allowed 并删除冗余代码
+### Task 4: Simplify _is_path_allowed and remove redundant code
 
 **Files:**
 - Modify: `server/agent_runtime/session_manager.py:216-220, 623-660, 698-725`
 - Test: `tests/test_session_manager_project_scope.py:280-289, 287-431`
 
-**Step 1: 修改测试 — 适配新的路径检查逻辑**
+**Step 1: Modify tests — adapt to new path check logic**
 
-在 `tests/test_session_manager_project_scope.py` 中：
+In `tests/test_session_manager_project_scope.py`:
 
-1. 删除 `test_readonly_dirs_includes_agent_profile`（`_READONLY_DIRS` 已删除）
+1. Delete `test_readonly_dirs_includes_agent_profile` (`_READONLY_DIRS` has been removed)
 
-2. 修改 `test_file_access_hook_blocks_read_outside_project`：
-   读取 `other_project` 下的文件应该被允许（因为在 `project_root` 内），
-   但读取完全外部的路径应该被拒绝。
+2. Modify `test_file_access_hook_blocks_read_outside_project`:
+   Reading files under `other_project` should be allowed (because it is within `project_root`),
+   but reading a completely external path should be denied.
 
 ```python
 @pytest.mark.asyncio
@@ -302,25 +302,25 @@ async def test_file_access_hook_allows_read_within_project_root(self, tmp_path):
     await engine.dispose()
 ```
 
-3. `test_file_access_hook_blocks_write_to_readonly_dir` — 保持不变（Write 到 lib/ 仍被拒绝，
-   因为 lib/ 在 project_root 内但不在 project_cwd 内）
+3. `test_file_access_hook_blocks_write_to_readonly_dir` — unchanged (Write to lib/ is still denied,
+   because lib/ is within project_root but not within project_cwd)
 
-4. `test_file_access_hook_allows_bash_without_path_check` — 保持不变
+4. `test_file_access_hook_allows_bash_without_path_check` — unchanged
 
-5. `test_file_access_hook_allows_read_agent_profile` — 保持不变（agent_runtime_profile 在 project_root 内）
+5. `test_file_access_hook_allows_read_agent_profile` — unchanged (agent_runtime_profile is within project_root)
 
-**Step 2: 运行测试确认失败**
+**Step 2: Run tests to confirm they fail**
 
 Run: `python -m pytest tests/test_session_manager_project_scope.py -v`
-Expected: FAIL — 旧测试 `test_readonly_dirs_includes_agent_profile` 引用已删除的 `_READONLY_DIRS`
+Expected: FAIL — old test `test_readonly_dirs_includes_agent_profile` references the removed `_READONLY_DIRS`
 
-**Step 3: 删除冗余代码，简化 _is_path_allowed**
+**Step 3: Delete redundant code, simplify _is_path_allowed**
 
-在 `server/agent_runtime/session_manager.py` 中：
+In `server/agent_runtime/session_manager.py`:
 
-1. 删除 `_READONLY_DIRS` 和 `_READONLY_FILES`（第 216-220 行）
+1. Delete `_READONLY_DIRS` and `_READONLY_FILES` (lines 216-220)
 
-2. 简化 `_is_path_allowed`（第 623-660 行）：
+2. Simplify `_is_path_allowed` (lines 623-660):
 
 ```python
 def _is_path_allowed(
@@ -357,11 +357,11 @@ def _is_path_allowed(
     return False
 ```
 
-3. 删除 `_deny_path_access` 方法（第 698-707 行）
+3. Delete `_deny_path_access` method (lines 698-707)
 
-4. 删除 `_check_file_access` 方法（第 709-725 行）
+4. Delete `_check_file_access` method (lines 709-725)
 
-**Step 4: 运行测试确认通过**
+**Step 4: Run tests to confirm they pass**
 
 Run: `python -m pytest tests/test_session_manager_project_scope.py tests/test_session_manager_more.py -v`
 Expected: ALL PASS
@@ -375,28 +375,28 @@ git commit -m "refactor: simplify file access hook, remove _READONLY_DIRS in fav
 
 ---
 
-### Task 5: 运行完整测试套件
+### Task 5: Run full test suite
 
-**Step 1: 运行全部测试**
+**Step 1: Run all tests**
 
 Run: `python -m pytest -v`
 Expected: ALL PASS
 
-**Step 2: 如有失败，修复并重新运行**
+**Step 2: If there are failures, fix and re-run**
 
 ---
 
-### Task 6: 最终提交和清理
+### Task 6: Final commit and cleanup
 
-**Step 1: 验证 git 状态干净**
+**Step 1: Verify git status is clean**
 
 Run: `git status`
-Expected: 无未提交的修改
+Expected: No uncommitted changes
 
-**Step 2: 验证变更摘要**
+**Step 2: Verify change summary**
 
 Run: `git log --oneline -5`
-Expected: 4 个新 commit:
+Expected: 4 new commits:
 1. `feat: add declarative permission rules for agent runtime`
 2. `refactor: remove Bash from DEFAULT_ALLOWED_TOOLS, use settings.json whitelist`
 3. `feat: canUseTool defaults to deny for unmatched tools (whitelist fallback)`

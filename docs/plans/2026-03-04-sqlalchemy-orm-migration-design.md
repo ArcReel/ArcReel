@@ -1,47 +1,47 @@
-# SQLAlchemy Async ORM 迁移设计
+# SQLAlchemy Async ORM Migration Design
 
-**日期**：2026-03-04
-**Issue**：[#48](https://github.com/ArcReel/ArcReel/issues/48)
-**状态**：已批准
+**Date**: 2026-03-04
+**Issue**: [#48](https://github.com/ArcReel/ArcReel/issues/48)
+**Status**: Approved
 
 ---
 
-## 背景
+## Background
 
-当前运行时状态使用 3 个独立 SQLite DB，手写 SQL，无 ORM：
+The current runtime state uses 3 separate SQLite databases with hand-written SQL and no ORM:
 
-| DB | 文件路径 | 源文件 | 表数 |
+| DB | File Path | Source File | Tables |
 |---|---|---|---|
-| 任务队列 | `projects/.task_queue.db` | `lib/generation_queue.py` | 3 (tasks, task_events, worker_lease) |
-| API 用量 | `projects/.api_usage.db` | `lib/usage_tracker.py` | 1 (api_calls) |
-| Agent 会话 | `projects/.agent_data/sessions.db` | `server/agent_runtime/session_store.py` | 1 (sessions) |
+| Task Queue | `projects/.task_queue.db` | `lib/generation_queue.py` | 3 (tasks, task_events, worker_lease) |
+| API Usage | `projects/.api_usage.db` | `lib/usage_tracker.py` | 1 (api_calls) |
+| Agent Sessions | `projects/.agent_data/sessions.db` | `server/agent_runtime/session_store.py` | 1 (sessions) |
 
-**问题**：
-1. 手写 SQL 分散在各模块中，表结构变更缺乏迁移管理
-2. SQLite 单文件数据库不适合多实例部署和高并发生产环境
-3. 所有 DB 操作都是同步 `sqlite3`，在 async FastAPI 路由中阻塞 event loop
+**Problems**:
+1. Hand-written SQL scattered across modules; table schema changes lack migration management
+2. SQLite single-file databases are not suitable for multi-instance deployment and high-concurrency production environments
+3. All DB operations are synchronous `sqlite3`, blocking the event loop in async FastAPI routes
 
-## 关键决策
+## Key Decisions
 
-| 决策项 | 选择 | 理由 |
+| Decision | Choice | Reason |
 |---|---|---|
-| 迁移策略 | 硬切换 | 提供一次性迁移脚本，不保留旧代码 |
-| 异步模式 | 全异步 (AsyncSession) | 契合 FastAPI 异步架构，避免阻塞 event loop |
-| 数据库拓扑 | 3 个 SQLite 合并为单 DB | 简化部署，只需一个 DATABASE_URL |
-| 迁移管理 | Alembic，首个 migration 建全部表 | 标准做法，后续 schema 变更有迹可循 |
-| 依赖管理 | `uv add` | 自动获取最新版本并更新 lock 文件 |
+| Migration strategy | Hard cutover | Provide a one-time migration script; do not retain old code |
+| Async mode | Fully async (AsyncSession) | Matches FastAPI async architecture; avoids blocking event loop |
+| Database topology | Merge 3 SQLite files into single DB | Simplifies deployment; only one DATABASE_URL needed |
+| Migration management | Alembic; first migration creates all tables | Standard approach; future schema changes are traceable |
+| Dependency management | `uv add` | Automatically gets latest version and updates lock file |
 
-## 架构设计
+## Architecture Design
 
-### 目录结构
+### Directory Structure
 
 ```
 lib/db/
-├── __init__.py          # 导出 init_db, close_db, get_async_session
-├── engine.py            # AsyncEngine 创建、DATABASE_URL 解析
+├── __init__.py          # Exports init_db, close_db, get_async_session
+├── engine.py            # AsyncEngine creation, DATABASE_URL resolution
 ├── base.py              # DeclarativeBase
 ├── models/
-│   ├── __init__.py      # 导出所有模型
+│   ├── __init__.py      # Exports all models
 │   ├── task.py          # Task, TaskEvent, WorkerLease
 │   ├── api_call.py      # ApiCall
 │   └── session.py       # AgentSession
@@ -58,20 +58,20 @@ alembic/
     └── 001_initial_schema.py
 
 scripts/
-└── migrate_sqlite_to_orm.py  # 旧数据迁移脚本
+└── migrate_sqlite_to_orm.py  # Old data migration script
 ```
 
-### Engine 配置 (`lib/db/engine.py`)
+### Engine Configuration (`lib/db/engine.py`)
 
-- **DATABASE_URL 解析**：从环境变量 `DATABASE_URL` 读取
-  - 默认值：`sqlite+aiosqlite:///./projects/.arcreel.db`
-  - PostgreSQL：`postgresql+asyncpg://user:pass@host:5432/arcreel`
-- **SQLite 专用配置**：通过 `event.listens_for("connect")` 设置 WAL + busy_timeout
-- **AsyncSession 工厂**：`async_sessionmaker(engine, expire_on_commit=False)`
-- **FastAPI Depends**：`get_async_session()` 生成器注入 AsyncSession
+- **DATABASE_URL resolution**: read from `DATABASE_URL` environment variable
+  - Default: `sqlite+aiosqlite:///./projects/.arcreel.db`
+  - PostgreSQL: `postgresql+asyncpg://user:pass@host:5432/arcreel`
+- **SQLite-specific config**: set WAL + busy_timeout via `event.listens_for("connect")`
+- **AsyncSession factory**: `async_sessionmaker(engine, expire_on_commit=False)`
+- **FastAPI Depends**: `get_async_session()` generator injects AsyncSession
 
 ```python
-# engine.py 核心逻辑
+# engine.py core logic
 def get_database_url() -> str:
     url = os.environ.get("DATABASE_URL")
     if url:
@@ -88,7 +88,7 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
         yield session
 ```
 
-### ORM 模型
+### ORM Models
 
 #### Task (`lib/db/models/task.py`)
 
@@ -200,7 +200,7 @@ class ApiCall(Base):
 
 ```python
 class AgentSession(Base):
-    __tablename__ = "agent_sessions"  # 避免与 PostgreSQL 保留词冲突
+    __tablename__ = "agent_sessions"  # Avoid conflict with PostgreSQL reserved words
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     sdk_session_id: Mapped[Optional[str]] = mapped_column(String)
@@ -216,7 +216,7 @@ class AgentSession(Base):
     )
 ```
 
-### Repository 层
+### Repository Layer
 
 #### TaskRepository (`lib/db/repositories/task_repo.py`)
 
@@ -224,33 +224,33 @@ class AgentSession(Base):
 class TaskRepository:
     def __init__(self, session: AsyncSession): ...
 
-    # 队列操作（需要事务）
+    # Queue operations (require transactions)
     async def enqueue(self, *, project_name, task_type, media_type, resource_id, ...) -> dict
     async def claim_next(self, media_type: str) -> Optional[dict]
     async def mark_succeeded(self, task_id: str, result: dict) -> Optional[dict]
     async def mark_failed(self, task_id: str, error: str) -> Optional[dict]
     async def requeue_running(self, limit: int = 1000) -> int
 
-    # 查询（只读）
+    # Queries (read-only)
     async def get(self, task_id: str) -> Optional[dict]
     async def list_tasks(self, *, project_name=None, status=None, task_type=None, source=None, page=1, page_size=50) -> dict
     async def get_stats(self, project_name=None) -> dict
     async def get_recent_snapshot(self, *, project_name=None, limit=200) -> list
 
-    # 事件
+    # Events
     async def get_events_since(self, *, last_event_id: int, project_name=None, limit=200) -> list
     async def get_latest_event_id(self, *, project_name=None) -> int
 
-    # Worker 租约
+    # Worker lease
     async def acquire_or_renew_lease(self, *, name, owner_id, ttl) -> bool
     async def release_lease(self, *, name, owner_id) -> None
     async def is_worker_online(self, *, name="default") -> bool
     async def get_worker_lease(self, *, name="default") -> Optional[dict]
 ```
 
-**并发控制**：
-- PostgreSQL：`SELECT ... FOR UPDATE` + 事务
-- SQLite：依赖 aiosqlite 的连接级写锁 + `BEGIN IMMEDIATE`（通过 `session.execute(text("BEGIN IMMEDIATE"))` 显式控制）
+**Concurrency Control**:
+- PostgreSQL: `SELECT ... FOR UPDATE` + transaction
+- SQLite: relies on aiosqlite's connection-level write lock + `BEGIN IMMEDIATE` (explicit control via `session.execute(text("BEGIN IMMEDIATE"))`)
 
 #### UsageRepository (`lib/db/repositories/usage_repo.py`)
 
@@ -281,70 +281,70 @@ class SessionRepository:
     async def interrupt_running(self) -> int
 ```
 
-### 现有模块改造
+### Existing Module Refactoring
 
-| 现有模块 | 改造方式 |
+| Existing Module | Refactoring Approach |
 |---|---|
-| `GenerationQueue` | 内部改用 `TaskRepository`，所有方法 async 化。全局单例 → FastAPI Depends 注入 |
-| `UsageTracker` | 内部改用 `UsageRepository`，方法 async 化。路由通过 Depends 注入 |
-| `SessionMetaStore` | 内部改用 `SessionRepository`，方法 async 化 |
-| `GenerationWorker` | await queue 的 async 方法，不再阻塞 event loop |
-| `generation_queue_client.py` | Skill 脚本改为通过 HTTP API 交互，不再直接操作数据库 |
+| `GenerationQueue` | Internally uses `TaskRepository`; all methods made async. Global singleton → FastAPI Depends injection |
+| `UsageTracker` | Internally uses `UsageRepository`; methods made async. Route uses Depends injection |
+| `SessionMetaStore` | Internally uses `SessionRepository`; methods made async |
+| `GenerationWorker` | await queue's async methods; no longer blocks event loop |
+| `generation_queue_client.py` | Skill scripts interact via HTTP API; no longer directly access the database |
 
-### Alembic 配置
+### Alembic Configuration
 
 ```
 alembic/
-├── alembic.ini          # sqlalchemy.url 由 env.py 动态注入
-├── env.py               # 引入 Base.metadata，从 DATABASE_URL 读取连接字符串
+├── alembic.ini          # sqlalchemy.url injected dynamically by env.py
+├── env.py               # imports Base.metadata, reads connection string from DATABASE_URL
 └── versions/
-    └── 001_initial_schema.py  # 创建全部 5 张表 + 索引
+    └── 001_initial_schema.py  # Creates all 5 tables + indexes
 ```
 
-`env.py` 从 `lib.db.engine.get_database_url()` 获取连接字符串。
+`env.py` gets the connection string from `lib.db.engine.get_database_url()`.
 
-### 数据迁移脚本
+### Data Migration Script
 
-`scripts/migrate_sqlite_to_orm.py`：
+`scripts/migrate_sqlite_to_orm.py`:
 
-1. 检查旧 `.db` 文件是否存在（`projects/.task_queue.db`、`projects/.api_usage.db`、`projects/.agent_data/sessions.db`）
-2. 用 `sqlite3` 同步读取旧数据
-3. 用 `AsyncSession` 批量写入新数据库（每 500 条 flush）
-4. 迁移成功后旧文件重命名为 `.bak`
-5. 打印迁移统计
+1. Check if old `.db` files exist (`projects/.task_queue.db`, `projects/.api_usage.db`, `projects/.agent_data/sessions.db`)
+2. Read old data synchronously with `sqlite3`
+3. Write to new database in batches with `AsyncSession` (flush every 500 rows)
+4. Rename old files to `.bak` after successful migration
+5. Print migration statistics
 
-### 环境配置
+### Environment Configuration
 
-`.env.example` 新增：
+Add to `.env.example`:
 ```bash
-# 数据库配置（默认使用 SQLite）
-# SQLite（开发/单机）: sqlite+aiosqlite:///./projects/.arcreel.db
-# PostgreSQL（生产）:  postgresql+asyncpg://user:pass@host:5432/arcreel
+# Database configuration (defaults to SQLite)
+# SQLite (development/single-machine): sqlite+aiosqlite:///./projects/.arcreel.db
+# PostgreSQL (production):             postgresql+asyncpg://user:pass@host:5432/arcreel
 # DATABASE_URL=sqlite+aiosqlite:///./projects/.arcreel.db
 ```
 
-### 新增依赖
+### New Dependencies
 
-通过 `uv add` 安装：
+Install via `uv add`:
 - `sqlalchemy[asyncio]`
 - `aiosqlite`
 - `asyncpg`
 - `alembic`
 
-### FastAPI 集成
+### FastAPI Integration
 
-`server/app.py` lifespan 更新：
+Update `server/app.py` lifespan:
 ```python
 async def lifespan(app: FastAPI):
-    await init_db()       # 确保表存在
-    # ... 原有 worker 启动逻辑 ...
+    await init_db()       # Ensure tables exist
+    # ... existing worker startup logic ...
     yield
-    # ... 原有 shutdown 逻辑 ...
+    # ... existing shutdown logic ...
     await close_db()
 ```
 
-## 不在范围内
+## Out of Scope
 
-- 项目数据（project.json、剧本 JSON、版本 JSON、媒体文件）仍保留文件系统存储
-- 不修改前端代码（API 接口签名保持不变）
-- 不修改 Skill 脚本的用户接口
+- Project data (project.json, script JSON, version JSON, media files) remains in file system storage
+- No frontend code changes (API interface signatures remain unchanged)
+- No changes to Skill script user interfaces

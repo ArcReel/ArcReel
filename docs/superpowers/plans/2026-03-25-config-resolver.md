@@ -1,8 +1,8 @@
-# ConfigResolver 实施计划
+# ConfigResolver Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 引入统一的 ConfigResolver 替代层层透传的配置参数，修复 video_generate_audio 默认值不一致导致关闭音频无效的 bug。
+**Goal:** Introduce a unified ConfigResolver to replace the cascading parameter passing, and fix the bug where inconsistent `video_generate_audio` default values cause disabling audio to have no effect.
 
 **Architecture:** 新增 `lib/config/resolver.py` 作为 ConfigService 上层封装，提供类型化、带优先级解析的配置读取。MediaGenerator 改为持有 ConfigResolver 引用，在 generate_video 时按需读取配置，而非构造时接收参数。同时移除 generation_tasks.py 中的 `_BulkConfig` / `_load_all_config()`。
 
@@ -283,9 +283,9 @@ __all__ = ["ConfigResolver"]
 - [ ] **Step 5: 运行测试，确认全部通过**
 
 Run: `uv run python -m pytest tests/test_config_resolver.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/config/resolver.py lib/config/__init__.py tests/test_config_resolver.py
@@ -308,7 +308,7 @@ git commit -m "feat: add ConfigResolver with unified defaults and priority resol
 在 `tests/test_media_generator_module.py` 中添加 fake resolver 并更新 `_build_generator`：
 
 ```python
-# 在文件顶部 import 之后添加
+# At the top of the file import 之后添加
 class _FakeConfigResolver:
     """Fake ConfigResolver，返回可控的配置值。"""
     def __init__(self, video_generate_audio: bool = False):
@@ -400,9 +400,9 @@ else:
 - [ ] **Step 6: 运行测试确认通过**
 
 Run: `uv run python -m pytest tests/test_media_generator_module.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
-- [ ] **Step 7: 提交**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add lib/media_generator.py tests/test_media_generator_module.py
@@ -420,7 +420,7 @@ git commit -m "refactor: replace video_generate_audio param with ConfigResolver 
 - [ ] **Step 1: 运行现有测试确认基线**
 
 Run: `uv run python -m pytest tests/test_generation_tasks_service.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 2: 改造 `_get_or_create_video_backend` 为 async，接收 ConfigResolver**
 
@@ -547,9 +547,9 @@ default_provider_id, _ = await resolver.default_video_backend()
 - [ ] **Step 7: 运行测试确认通过**
 
 Run: `uv run python -m pytest tests/test_generation_tasks_service.py -v`
-Expected: 全部 PASS（测试用 monkeypatch 替换了 `get_media_generator`，不依赖内部实现细节）
+Expected: all PASS（测试用 monkeypatch 替换了 `get_media_generator`，不依赖内部实现细节）
 
-- [ ] **Step 8: 提交**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add server/services/generation_tasks.py tests/test_generation_tasks_service.py
@@ -591,10 +591,10 @@ else:
 
 移除 `server/services/generation_tasks.py` 第 68-108 行的 `_BulkConfig` 数据类和 `_load_all_config()` 函数。
 
-- [ ] **Step 3: 运行全量测试确认无回归**
+- [ ] **Step 3: 运行全量测试confirm no regressions**
 
 Run: `uv run python -m pytest -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 4: 提交**
 
@@ -643,7 +643,7 @@ async def test_video_generate_audio_vertex_respects_config(self, tmp_path):
 - [ ] **Step 2: 运行测试确认通过**
 
 Run: `uv run python -m pytest tests/test_media_generator_module.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 3: 提交**
 
@@ -662,7 +662,7 @@ git commit -m "test: add ConfigResolver integration tests for MediaGenerator"
 - [ ] **Step 1: 运行全量测试套件**
 
 Run: `uv run python -m pytest -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 2: 验证 `_load_all_config` 无残留引用**
 

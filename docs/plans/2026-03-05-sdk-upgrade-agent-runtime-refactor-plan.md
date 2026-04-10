@@ -1,23 +1,23 @@
-# SDK v0.1.46 升级 + Agent Runtime 重构实施计划
+# SDK v0.1.46 Upgrade + Agent Runtime Refactor Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 利用 SDK v0.1.46 的 `get_session_messages()` 和 Typed Task Messages 重构 agent_runtime，简化 transcript 读取、turn 分组和去重逻辑。
+**Goal:** Use SDK v0.1.46's `get_session_messages()` and Typed Task Messages to refactor agent_runtime, simplifying transcript reading, turn grouping, and dedup logic.
 
-**Architecture:** 用 SDK `get_session_messages()` 替换手写 JSONL 解析器（TranscriptReader），将 turn_grouper 重构为多 Pass 管线，简化 service.py 的去重逻辑从 ~100 行到 ~50 行，新增 PR #621 子代理任务进度支持。
+**Architecture:** Replace the hand-written JSONL parser (TranscriptReader) with SDK `get_session_messages()`, refactor turn_grouper into a multi-pass pipeline, simplify service.py dedup logic from ~100 lines to ~50 lines, and add PR #621 subagent task progress support.
 
-**Tech Stack:** Python 3.12+, claude-agent-sdk v0.1.46, FastAPI, React/TypeScript (htm 模板)
+**Tech Stack:** Python 3.12+, claude-agent-sdk v0.1.46, FastAPI, React/TypeScript (htm templates)
 
-**设计文档:** `docs/plans/2026-03-05-sdk-upgrade-agent-runtime-refactor-design.md`
+**Design Doc:** `docs/plans/2026-03-05-sdk-upgrade-agent-runtime-refactor-design.md`
 
 ---
 
-### Task 1: SdkTranscriptAdapter 单元测试
+### Task 1: SdkTranscriptAdapter Unit Tests
 
 **Files:**
 - Create: `tests/test_sdk_transcript_adapter.py`
 
-**Step 1: 编写 SdkTranscriptAdapter 的 failing tests**
+**Step 1: Write failing tests for SdkTranscriptAdapter**
 
 ```python
 """Unit tests for SdkTranscriptAdapter."""
@@ -135,12 +135,12 @@ class TestSdkTranscriptAdapter:
         assert result[0]["content"] == [{"type": "text", "text": "Hello"}]
 ```
 
-**Step 2: 运行测试确认失败**
+**Step 2: Run tests to confirm they fail**
 
 Run: `python -m pytest tests/test_sdk_transcript_adapter.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'server.agent_runtime.sdk_transcript_adapter'`
 
-**Step 3: 提交测试**
+**Step 3: Commit tests**
 
 ```bash
 git add tests/test_sdk_transcript_adapter.py
@@ -149,12 +149,12 @@ git commit -m "test: add SdkTranscriptAdapter unit tests (red)"
 
 ---
 
-### Task 2: 实现 SdkTranscriptAdapter
+### Task 2: Implement SdkTranscriptAdapter
 
 **Files:**
 - Create: `server/agent_runtime/sdk_transcript_adapter.py`
 
-**Step 1: 编写最小实现使测试通过**
+**Step 1: Write minimum implementation to pass tests**
 
 ```python
 """SDK-based transcript adapter replacing manual JSONL parsing."""
@@ -227,12 +227,12 @@ class SdkTranscriptAdapter:
             return False
 ```
 
-**Step 2: 运行测试确认通过**
+**Step 2: Run tests to confirm they pass**
 
 Run: `python -m pytest tests/test_sdk_transcript_adapter.py -v`
 Expected: All 9 tests PASS
 
-**Step 3: 提交实现**
+**Step 3: Commit implementation**
 
 ```bash
 git add server/agent_runtime/sdk_transcript_adapter.py
@@ -241,33 +241,33 @@ git commit -m "feat: add SdkTranscriptAdapter using SDK get_session_messages()"
 
 ---
 
-### Task 3: 替换 service.py 中的 TranscriptReader 引用
+### Task 3: Replace TranscriptReader References in service.py
 
 **Files:**
 - Modify: `server/agent_runtime/service.py` (lines 23, 41, 458-462)
 - Modify: `server/agent_runtime/session_manager.py` (lines 19, 243)
 
-**Step 1: 更新 service.py 的 import 和初始化**
+**Step 1: Update service.py imports and initialization**
 
-在 `service.py` 中：
-1. 替换 `from server.agent_runtime.transcript_reader import TranscriptReader` 为 `from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter`
-2. 将 `self.transcript_reader = TranscriptReader(...)` 替换为 `self.transcript_adapter = SdkTranscriptAdapter()`
-3. 更新 `_build_projector` 中的调用：
-   - 旧: `self.transcript_reader.read_raw_messages(session_id, meta.sdk_session_id, project_name=meta.project_name)`
-   - 新: `self.transcript_adapter.read_raw_messages(meta.sdk_session_id)`
+In `service.py`:
+1. Replace `from server.agent_runtime.transcript_reader import TranscriptReader` with `from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter`
+2. Replace `self.transcript_reader = TranscriptReader(...)` with `self.transcript_adapter = SdkTranscriptAdapter()`
+3. Update the call in `_build_projector`:
+   - Old: `self.transcript_reader.read_raw_messages(session_id, meta.sdk_session_id, project_name=meta.project_name)`
+   - New: `self.transcript_adapter.read_raw_messages(meta.sdk_session_id)`
 
-**Step 2: 更新 session_manager.py 的 import 和初始化**
+**Step 2: Update session_manager.py imports and initialization**
 
-在 `session_manager.py` 中：
-1. 删除 `from server.agent_runtime.transcript_reader import TranscriptReader`（line 19）
-2. 删除 `self.transcript_reader = TranscriptReader(data_dir, project_root=project_root)`（line 243）
+In `session_manager.py`:
+1. Remove `from server.agent_runtime.transcript_reader import TranscriptReader` (line 19)
+2. Remove `self.transcript_reader = TranscriptReader(data_dir, project_root=project_root)` (line 243)
 
-**Step 3: 运行全部测试确认没有破坏**
+**Step 3: Run all tests to confirm nothing is broken**
 
 Run: `python -m pytest tests/ -v`
-Expected: 所有测试通过（test_transcript_reader.py 仍通过因为不依赖 service.py）
+Expected: All tests pass (test_transcript_reader.py still passes as it does not depend on service.py)
 
-**Step 4: 提交变更**
+**Step 4: Commit changes**
 
 ```bash
 git add server/agent_runtime/service.py server/agent_runtime/session_manager.py
@@ -276,14 +276,14 @@ git commit -m "refactor: replace TranscriptReader with SdkTranscriptAdapter in s
 
 ---
 
-### Task 4: session_manager.py 新增 TaskMessage 类型支持
+### Task 4: Add TaskMessage Type Support to session_manager.py
 
 **Files:**
 - Modify: `server/agent_runtime/session_manager.py` (lines 226-232, 713-723)
 
-**Step 1: 编写 TaskMessage 处理的测试**
+**Step 1: Write tests for TaskMessage handling**
 
-追加到 `tests/test_sdk_transcript_adapter.py` 或创建单独文件：
+Append to `tests/test_sdk_transcript_adapter.py` or create a separate file:
 
 ```python
 # tests/test_task_message_types.py
@@ -306,14 +306,14 @@ class TestTaskMessageTypes:
         assert SessionManager._TASK_MESSAGE_SUBTYPES["TaskNotificationMessage"] == "task_notification"
 ```
 
-**Step 2: 运行测试确认失败**
+**Step 2: Run tests to confirm they fail**
 
 Run: `python -m pytest tests/test_task_message_types.py -v`
 Expected: FAIL with `AttributeError: type object 'SessionManager' has no attribute '_TASK_MESSAGE_SUBTYPES'`
 
-**Step 3: 更新 _MESSAGE_TYPE_MAP 和添加 _TASK_MESSAGE_SUBTYPES**
+**Step 3: Update _MESSAGE_TYPE_MAP and add _TASK_MESSAGE_SUBTYPES**
 
-在 `session_manager.py` 的 `SessionManager` 类中：
+In the `SessionManager` class in `session_manager.py`:
 
 ```python
 # SDK message class name to type mapping
@@ -336,9 +336,9 @@ _TASK_MESSAGE_SUBTYPES = {
 }
 ```
 
-**Step 4: 更新 _message_to_dict 注入 subtype**
+**Step 4: Update _message_to_dict to inject subtype**
 
-在 `_message_to_dict` 方法中，现有逻辑之后添加 subtype 注入：
+After existing logic in the `_message_to_dict` method, add subtype injection:
 
 ```python
 def _message_to_dict(self, message: Any) -> dict[str, Any]:
@@ -361,17 +361,17 @@ def _message_to_dict(self, message: Any) -> dict[str, Any]:
     return msg_dict
 ```
 
-**Step 5: 运行测试确认通过**
+**Step 5: Run tests to confirm they pass**
 
 Run: `python -m pytest tests/test_task_message_types.py -v`
 Expected: All tests PASS
 
-**Step 6: 运行全部测试确认没有破坏**
+**Step 6: Run all tests to confirm nothing is broken**
 
 Run: `python -m pytest tests/ -v`
 Expected: All tests PASS
 
-**Step 7: 提交变更**
+**Step 7: Commit changes**
 
 ```bash
 git add server/agent_runtime/session_manager.py tests/test_task_message_types.py
@@ -380,15 +380,15 @@ git commit -m "feat: add TaskMessage type support in SessionManager"
 
 ---
 
-### Task 5: turn_grouper 消除 result turn
+### Task 5: Eliminate result Turn from turn_grouper
 
 **Files:**
 - Modify: `server/agent_runtime/turn_grouper.py` (lines 251-263)
 - Modify: `tests/test_turn_grouper.py`
 
-**Step 1: 更新测试用例以反映 result turn 消除**
+**Step 1: Update test cases to reflect result turn elimination**
 
-在 `tests/test_turn_grouper.py` 中，`test_assistant_messages_merged_and_result_flushed` 当前断言 `["user", "assistant", "result"]`。更新为：
+In `tests/test_turn_grouper.py`, `test_assistant_messages_merged_and_result_flushed` currently asserts `["user", "assistant", "result"]`. Update it to:
 
 ```python
 def test_assistant_messages_merged_and_result_flushed(self):
@@ -419,7 +419,7 @@ def test_assistant_messages_merged_and_result_flushed(self):
     assert assistant_turn["content"][2]["type"] == "text"
 ```
 
-新增 result turn 消除测试：
+Add result turn elimination test:
 
 ```python
 def test_result_turn_is_eliminated(self):
@@ -445,14 +445,14 @@ def test_result_between_rounds_flushes_correctly(self):
     assert [turn["type"] for turn in turns] == ["user", "assistant", "user", "assistant"]
 ```
 
-**Step 2: 运行测试确认失败**
+**Step 2: Run tests to confirm they fail**
 
 Run: `python -m pytest tests/test_turn_grouper.py -v`
 Expected: FAIL on the modified test (still expects "result" in turn types)
 
-**Step 3: 修改 turn_grouper.py 消除 result turn**
+**Step 3: Modify turn_grouper.py to eliminate result turn**
 
-替换 `group_messages_into_turns` 中的 result 处理（lines 251-263）：
+Replace result handling in `group_messages_into_turns` (lines 251-263):
 
 ```python
 if msg_type == "result":
@@ -462,24 +462,24 @@ if msg_type == "result":
     continue  # Don't create independent result turn
 ```
 
-**Step 4: 运行测试确认通过**
+**Step 4: Run tests to confirm they pass**
 
 Run: `python -m pytest tests/test_turn_grouper.py -v`
 Expected: All tests PASS
 
-**Step 5: 同步更新 test_transcript_reader.py 中的相关断言**
+**Step 5: Sync-update assertions in test_transcript_reader.py**
 
-在 `tests/test_transcript_reader.py` 的 `test_read_jsonl_transcript_grouped` 中，
-将 `assert len(turns) == 3  # user turn, assistant turn, result`
-更新为 `assert len(turns) == 2  # user turn, assistant turn (result eliminated)`
-并删除 result turn 的断言。
+In `tests/test_transcript_reader.py`'s `test_read_jsonl_transcript_grouped`,
+change `assert len(turns) == 3  # user turn, assistant turn, result`
+to `assert len(turns) == 2  # user turn, assistant turn (result eliminated)`
+and remove the result turn assertions.
 
-**Step 6: 运行全部测试确认通过**
+**Step 6: Run all tests to confirm they pass**
 
 Run: `python -m pytest tests/ -v`
 Expected: All tests PASS
 
-**Step 7: 提交变更**
+**Step 7: Commit changes**
 
 ```bash
 git add server/agent_runtime/turn_grouper.py tests/test_turn_grouper.py tests/test_transcript_reader.py
@@ -488,15 +488,15 @@ git commit -m "refactor: eliminate result turn from turn_grouper output"
 
 ---
 
-### Task 6: turn_grouper 新增 task_progress 分类和处理
+### Task 6: Add task_progress Classification and Handling to turn_grouper
 
 **Files:**
 - Modify: `server/agent_runtime/turn_grouper.py`
 - Modify: `tests/test_turn_grouper.py`
 
-**Step 1: 编写 task_progress 处理的测试**
+**Step 1: Write tests for task_progress handling**
 
-追加到 `tests/test_turn_grouper.py`：
+Append to `tests/test_turn_grouper.py`:
 
 ```python
 def test_task_progress_attached_to_assistant_turn(self):
@@ -551,14 +551,14 @@ def test_task_progress_without_assistant_creates_system_turn(self):
     assert turns[1]["content"][0]["type"] == "task_progress"
 ```
 
-**Step 2: 运行测试确认失败**
+**Step 2: Run tests to confirm they fail**
 
 Run: `python -m pytest tests/test_turn_grouper.py::TestTurnGrouper::test_task_progress_attached_to_assistant_turn -v`
 Expected: FAIL
 
-**Step 3: 实现 task_progress 处理**
+**Step 3: Implement task_progress handling**
 
-在 `group_messages_into_turns` 中，`msg_type == "assistant"` 处理后、末尾的 `continue` 前，添加 system/task_progress 处理：
+In `group_messages_into_turns`, after the `msg_type == "assistant"` handling and before the final `continue`, add system/task_progress handling:
 
 ```python
 if msg_type == "system":
@@ -588,12 +588,12 @@ if msg_type == "system":
     continue  # Ignore other system subtypes
 ```
 
-**Step 4: 运行测试确认通过**
+**Step 4: Run tests to confirm they pass**
 
 Run: `python -m pytest tests/test_turn_grouper.py -v`
 Expected: All tests PASS
 
-**Step 5: 提交变更**
+**Step 5: Commit changes**
 
 ```bash
 git add server/agent_runtime/turn_grouper.py tests/test_turn_grouper.py
@@ -602,22 +602,22 @@ git commit -m "feat: add task_progress message handling in turn_grouper"
 
 ---
 
-### Task 7: 简化 service.py 去重逻辑
+### Task 7: Simplify service.py Dedup Logic
 
 **Files:**
 - Modify: `server/agent_runtime/service.py` (lines 451-502, 609-790)
 
-**Step 1: 重构 _build_projector 和去重方法**
+**Step 1: Refactor _build_projector and dedup methods**
 
-将 `_build_projector` 重构为使用 UUID 集合 + tail fingerprint 策略：
+Refactor `_build_projector` to use UUID set + tail fingerprint strategy:
 
-1. **删除** `_build_seen_sets` 方法（lines 673-703）
-2. **删除** `_content_key` 方法（lines 625-670）
-3. **删除** `_is_duplicate` 方法（lines 705-720）
-4. **简化** `_message_key` 为仅 UUID 查找
-5. **新增** `_fingerprint_tail` 和 `_fingerprint` 辅助方法
+1. **Delete** `_build_seen_sets` method (lines 673-703)
+2. **Delete** `_content_key` method (lines 625-670)
+3. **Delete** `_is_duplicate` method (lines 705-720)
+4. **Simplify** `_message_key` to UUID lookup only
+5. **Add** `_fingerprint_tail` and `_fingerprint` helper methods
 
-重构后的 `_build_projector`：
+Refactored `_build_projector`:
 
 ```python
 def _build_projector(
@@ -670,7 +670,7 @@ def _build_projector(
     return projector
 ```
 
-新增辅助方法：
+New helper methods:
 
 ```python
 @staticmethod
@@ -732,12 +732,12 @@ def _echo_in_transcript(
     return False
 ```
 
-**Step 2: 运行全部测试确认通过**
+**Step 2: Run all tests to confirm they pass**
 
 Run: `python -m pytest tests/ -v`
 Expected: All tests PASS
 
-**Step 3: 提交变更**
+**Step 3: Commit changes**
 
 ```bash
 git add server/agent_runtime/service.py
@@ -746,14 +746,14 @@ git commit -m "refactor: simplify service.py dedup logic with UUID sets + tail f
 
 ---
 
-### Task 8: 前端类型更新
+### Task 8: Frontend Type Updates
 
 **Files:**
 - Modify: `frontend/src/types/assistant.ts` (lines 22-42)
 
-**Step 1: 更新 ContentBlock 类型**
+**Step 1: Update ContentBlock types**
 
-添加 `"task_progress"` 到 ContentBlock.type 联合类型，添加 task_progress 相关字段：
+Add `"task_progress"` to the ContentBlock.type union type, add task_progress-related fields:
 
 ```typescript
 export interface ContentBlock {
@@ -778,7 +778,7 @@ export interface ContentBlock {
 }
 ```
 
-**Step 2: 更新 Turn 类型移除 "result"**
+**Step 2: Update Turn type to remove "result"**
 
 ```typescript
 export interface Turn {
@@ -790,7 +790,7 @@ export interface Turn {
 }
 ```
 
-**Step 3: 提交变更**
+**Step 3: Commit changes**
 
 ```bash
 git add frontend/src/types/assistant.ts
@@ -799,13 +799,13 @@ git commit -m "feat: update frontend types for task_progress and remove result t
 
 ---
 
-### Task 9: 前端 TaskProgressBlock 组件
+### Task 9: Frontend TaskProgressBlock Component
 
 **Files:**
 - Create: `frontend/src/components/copilot/chat/TaskProgressBlock.tsx`
 - Modify: `frontend/src/components/copilot/chat/ContentBlockRenderer.tsx`
 
-**Step 1: 创建 TaskProgressBlock 组件**
+**Step 1: Create TaskProgressBlock component**
 
 ```tsx
 import type { ContentBlock } from "@/types";
@@ -824,7 +824,7 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
     return (
       <div className="my-1 flex items-center gap-1.5 text-xs text-slate-400">
         <span className="inline-block h-3 w-3 animate-spin rounded-full border border-slate-500 border-t-transparent" />
-        <span>子任务开始: {description}</span>
+        <span>Subagent started: {description}</span>
       </div>
     );
   }
@@ -853,7 +853,7 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
       >
         <span>{isCompleted ? "V" : isFailed ? "X" : "-"}</span>
         <span>
-          子任务{isCompleted ? "完成" : isFailed ? "失败" : "结束"}: {summary || description}
+          Subagent {isCompleted ? "completed" : isFailed ? "failed" : "ended"}: {summary || description}
         </span>
       </div>
     );
@@ -863,9 +863,9 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
 }
 ```
 
-**Step 2: 更新 ContentBlockRenderer 添加 task_progress case**
+**Step 2: Update ContentBlockRenderer to add task_progress case**
 
-在 `ContentBlockRenderer.tsx` 的 switch 中添加：
+Add to the switch in `ContentBlockRenderer.tsx`:
 
 ```tsx
 import { TaskProgressBlock } from "./TaskProgressBlock";
@@ -880,12 +880,12 @@ case "task_progress":
   );
 ```
 
-**Step 3: 运行前端构建确认编译通过**
+**Step 3: Run frontend build to confirm compilation succeeds**
 
 Run: `cd frontend && pnpm build`
 Expected: Build success
 
-**Step 4: 提交变更**
+**Step 4: Commit changes**
 
 ```bash
 git add frontend/src/components/copilot/chat/TaskProgressBlock.tsx frontend/src/components/copilot/chat/ContentBlockRenderer.tsx
@@ -894,43 +894,43 @@ git commit -m "feat: add TaskProgressBlock component for sub-agent task progress
 
 ---
 
-### Task 10: 清理遗留代码和最终验证
+### Task 10: Cleanup Legacy Code and Final Verification
 
 **Files:**
-- Delete content: `server/agent_runtime/transcript_reader.py` (保留文件但标记废弃，或直接删除)
-- Modify: `tests/test_transcript_reader.py` (更新或标记)
+- Delete content: `server/agent_runtime/transcript_reader.py` (retain file but mark as deprecated, or delete directly)
+- Modify: `tests/test_transcript_reader.py` (update or mark)
 
-**Step 1: 确认 TranscriptReader 不再有运行时引用**
+**Step 1: Confirm TranscriptReader has no runtime references**
 
-搜索所有 `TranscriptReader` 和 `transcript_reader` 引用，确认仅测试文件和自身有引用。
+Search for all `TranscriptReader` and `transcript_reader` references; confirm only test files and the module itself have references.
 
 Run: `grep -r "TranscriptReader\|transcript_reader" server/ --include="*.py"`
-Expected: 无结果（session_manager.py 和 service.py 已移除引用）
+Expected: No results (session_manager.py and service.py have already removed references)
 
-**Step 2: 保留 TranscriptReader 及其测试，添加废弃注释**
+**Step 2: Retain TranscriptReader and its tests; add deprecation comment**
 
-在 `transcript_reader.py` 顶部添加：
+Add to the top of `transcript_reader.py`:
 ```python
 # DEPRECATED: Replaced by SdkTranscriptAdapter in v0.1.46 upgrade.
 # Kept for reference during migration period. Safe to delete after verification.
 ```
 
-**Step 3: 运行全部后端测试**
+**Step 3: Run all backend tests**
 
 Run: `python -m pytest tests/ -v --tb=short`
 Expected: All tests PASS
 
-**Step 4: 运行前端构建**
+**Step 4: Run frontend build**
 
 Run: `cd frontend && pnpm build`
 Expected: Build success
 
-**Step 5: 运行前端测试（如有）**
+**Step 5: Run frontend tests (if any)**
 
 Run: `cd frontend && node --test tests/`
 Expected: All tests PASS
 
-**Step 6: 提交最终清理**
+**Step 6: Commit final cleanup**
 
 ```bash
 git add server/agent_runtime/transcript_reader.py
@@ -939,33 +939,33 @@ git commit -m "chore: mark TranscriptReader as deprecated (replaced by SdkTransc
 
 ---
 
-### Task 11: 最终集成提交
+### Task 11: Final Integration Commit
 
-**Step 1: 确认 git 状态干净**
+**Step 1: Confirm git status is clean**
 
 Run: `git status`
 Expected: Clean working tree
 
-**Step 2: 查看完整提交历史**
+**Step 2: View full commit history**
 
 Run: `git log --oneline feat/update-agent-sdk-to-0.1.46 ^main`
-Expected: 清晰的提交序列
+Expected: Clean, well-structured commit sequence
 
 ---
 
-## 文件变更汇总
+## File Change Summary
 
-| 文件 | 操作 | Task |
+| File | Action | Task |
 |------|------|------|
-| `server/agent_runtime/sdk_transcript_adapter.py` | 新建 | Task 2 |
-| `server/agent_runtime/service.py` | 修改 | Task 3, 7 |
-| `server/agent_runtime/session_manager.py` | 修改 | Task 3, 4 |
-| `server/agent_runtime/turn_grouper.py` | 修改 | Task 5, 6 |
-| `server/agent_runtime/transcript_reader.py` | 废弃标记 | Task 10 |
-| `frontend/src/types/assistant.ts` | 修改 | Task 8 |
-| `frontend/src/components/copilot/chat/TaskProgressBlock.tsx` | 新建 | Task 9 |
-| `frontend/src/components/copilot/chat/ContentBlockRenderer.tsx` | 修改 | Task 9 |
-| `tests/test_sdk_transcript_adapter.py` | 新建 | Task 1 |
-| `tests/test_task_message_types.py` | 新建 | Task 4 |
-| `tests/test_turn_grouper.py` | 修改 | Task 5, 6 |
-| `tests/test_transcript_reader.py` | 修改 | Task 5 |
+| `server/agent_runtime/sdk_transcript_adapter.py` | Create | Task 2 |
+| `server/agent_runtime/service.py` | Modify | Task 3, 7 |
+| `server/agent_runtime/session_manager.py` | Modify | Task 3, 4 |
+| `server/agent_runtime/turn_grouper.py` | Modify | Task 5, 6 |
+| `server/agent_runtime/transcript_reader.py` | Mark deprecated | Task 10 |
+| `frontend/src/types/assistant.ts` | Modify | Task 8 |
+| `frontend/src/components/copilot/chat/TaskProgressBlock.tsx` | Create | Task 9 |
+| `frontend/src/components/copilot/chat/ContentBlockRenderer.tsx` | Modify | Task 9 |
+| `tests/test_sdk_transcript_adapter.py` | Create | Task 1 |
+| `tests/test_task_message_types.py` | Create | Task 4 |
+| `tests/test_turn_grouper.py` | Modify | Task 5, 6 |
+| `tests/test_transcript_reader.py` | Modify | Task 5 |

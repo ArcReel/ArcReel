@@ -1,41 +1,41 @@
-# 分镜备注功能实施计划
+# Storyboard Note Feature Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 在分镜卡片文本列下半部分添加备注 textarea，失焦自动保存到剧集 JSON。
+**Goal:** Add a note textarea to the lower portion of the storyboard card text column, auto-saving to the episode JSON on blur.
 
-**Architecture:** 在 `NarrationSegment` / `DramaScene` 模型中加 `note` 可选字段，复用现有 PATCH API 保存，前端 `TextColumn` 中渲染 textarea。
+**Architecture:** Add an optional `note` field to the `NarrationSegment` / `DramaScene` models, reuse the existing PATCH API for saving, and render a textarea in the frontend `TextColumn`.
 
 **Tech Stack:** Python Pydantic, FastAPI, React, TypeScript, Tailwind CSS
 
 ---
 
-### Task 1: 后端模型 — 添加 note 字段
+### Task 1: Backend model — add note field
 
 **Files:**
-- Modify: `lib/script_models.py:86-105`（NarrationSegment）
-- Modify: `lib/script_models.py:135-153`（DramaScene）
+- Modify: `lib/script_models.py:86-105` (NarrationSegment)
+- Modify: `lib/script_models.py:135-153` (DramaScene)
 
-**Step 1: 在 NarrationSegment 中添加 note 字段**
+**Step 1: Add note field to NarrationSegment**
 
-在 `generated_assets` 字段之前添加：
-
-```python
-note: Optional[str] = Field(default=None, description="用户备注（不参与生成）")
-```
-
-**Step 2: 在 DramaScene 中添加 note 字段**
-
-同样在 `generated_assets` 字段之前添加：
+Add before the `generated_assets` field:
 
 ```python
-note: Optional[str] = Field(default=None, description="用户备注（不参与生成）")
+note: Optional[str] = Field(default=None, description="User note (not used in generation)")
 ```
 
-**Step 3: 运行测试验证无破坏**
+**Step 2: Add note field to DramaScene**
+
+Similarly, add before the `generated_assets` field:
+
+```python
+note: Optional[str] = Field(default=None, description="User note (not used in generation)")
+```
+
+**Step 3: Run tests to verify no breakage**
 
 Run: `python -m pytest tests/ -x -q`
-Expected: 全部通过（Optional + default=None 兼容旧数据）
+Expected: All pass (Optional + default=None is compatible with old data)
 
 **Step 4: Commit**
 
@@ -46,43 +46,43 @@ git commit -m "feat(model): add note field to NarrationSegment and DramaScene"
 
 ---
 
-### Task 2: 后端 API — 允许 note 字段更新
+### Task 2: Backend API — allow note field updates
 
 **Files:**
-- Modify: `server/routers/projects.py:397-398`（update_scene 允许列表）
-- Modify: `server/routers/projects.py:419-425`（UpdateSegmentRequest）
-- Modify: `server/routers/projects.py:452-461`（update_segment handler）
+- Modify: `server/routers/projects.py:397-398` (update_scene allowed list)
+- Modify: `server/routers/projects.py:419-425` (UpdateSegmentRequest)
+- Modify: `server/routers/projects.py:452-461` (update_segment handler)
 
-**Step 1: Drama 模式 — update_scene 允许列表加入 note**
+**Step 1: Drama mode — add note to update_scene allowed list**
 
-在 `server/routers/projects.py:397` 的允许字段列表中加入 `"note"`：
+Add `"note"` to the allowed field list at `server/routers/projects.py:397`:
 
 ```python
 if key in ["duration_seconds", "image_prompt", "video_prompt",
            "characters_in_scene", "clues_in_scene", "segment_break", "note"]:
 ```
 
-**Step 2: Narration 模式 — UpdateSegmentRequest 加入 note 字段**
+**Step 2: Narration mode — add note field to UpdateSegmentRequest**
 
-在 `server/routers/projects.py:425` 的 `transition_to_next` 之后添加：
+Add after `transition_to_next` at `server/routers/projects.py:425`:
 
 ```python
 note: Optional[str] = None
 ```
 
-**Step 3: Narration 模式 — update_segment handler 处理 note**
+**Step 3: Narration mode — handle note in update_segment handler**
 
-在 `server/routers/projects.py:461`（`transition_to_next` 处理之后）添加：
+Add after the `transition_to_next` handling at `server/routers/projects.py:461`:
 
 ```python
 if req.note is not None:
     segment["note"] = req.note
 ```
 
-**Step 4: 运行测试验证**
+**Step 4: Run tests to verify**
 
 Run: `python -m pytest tests/ -x -q`
-Expected: 全部通过
+Expected: All pass
 
 **Step 5: Commit**
 
@@ -93,32 +93,32 @@ git commit -m "feat(api): allow note field in segment/scene PATCH endpoints"
 
 ---
 
-### Task 3: 前端类型 — 添加 note 字段
+### Task 3: Frontend types — add note field
 
 **Files:**
-- Modify: `frontend/src/types/script.ts:69-81`（NarrationSegment）
-- Modify: `frontend/src/types/script.ts:83-94`（DramaScene）
+- Modify: `frontend/src/types/script.ts:69-81` (NarrationSegment)
+- Modify: `frontend/src/types/script.ts:83-94` (DramaScene)
 
-**Step 1: 在 NarrationSegment interface 添加 note**
+**Step 1: Add note to NarrationSegment interface**
 
-在 `generated_assets` 之前添加：
-
-```typescript
-note?: string;
-```
-
-**Step 2: 在 DramaScene interface 添加 note**
-
-同样在 `generated_assets` 之前添加：
+Add before `generated_assets`:
 
 ```typescript
 note?: string;
 ```
 
-**Step 3: 运行类型检查**
+**Step 2: Add note to DramaScene interface**
+
+Similarly, add before `generated_assets`:
+
+```typescript
+note?: string;
+```
+
+**Step 3: Run type check**
 
 Run: `cd frontend && pnpm typecheck`
-Expected: 通过
+Expected: Pass
 
 **Step 4: Commit**
 
@@ -129,15 +129,15 @@ git commit -m "feat(types): add note field to NarrationSegment and DramaScene"
 
 ---
 
-### Task 4: 前端 UI — TextColumn 中渲染备注区
+### Task 4: Frontend UI — render note area in TextColumn
 
 **Files:**
-- Modify: `frontend/src/components/canvas/timeline/SegmentCard.tsx:190-237`（TextColumn）
-- Modify: `frontend/src/components/canvas/timeline/SegmentCard.tsx:545-621`（SegmentCard 主组件传参）
+- Modify: `frontend/src/components/canvas/timeline/SegmentCard.tsx:190-237` (TextColumn)
+- Modify: `frontend/src/components/canvas/timeline/SegmentCard.tsx:545-621` (SegmentCard main component props)
 
-**Step 1: 修改 TextColumn 组件**
+**Step 1: Modify TextColumn component**
 
-给 TextColumn 增加 `onUpdateNote` 回调 prop，在原文/对话下方渲染备注 textarea：
+Add `onUpdateNote` callback prop to TextColumn, rendering a note textarea below the original text/dialogue:
 
 ```tsx
 function TextColumn({
@@ -152,7 +152,7 @@ function TextColumn({
   const [noteDraft, setNoteDraft] = useState(segment.note ?? "");
   const committedRef = useRef(segment.note ?? "");
 
-  // 当 segment 数据从外部更新时同步
+  // Sync when segment data is updated from outside
   useEffect(() => {
     setNoteDraft(segment.note ?? "");
     committedRef.current = segment.note ?? "";
@@ -165,23 +165,23 @@ function TextColumn({
     }
   };
 
-  // ... 现有的 narration/drama 渲染逻辑保持不变 ...
-  // 在 return 的 div 末尾追加备注区：
+  // ... existing narration/drama rendering logic remains unchanged ...
+  // Append the note area at the end of the return div:
 
   return (
     <div className="flex flex-col gap-1.5 p-3">
-      {/* 现有原文/对话内容 */}
+      {/* Existing source text/dialogue content */}
       ...
 
-      {/* 备注区 */}
+      {/* Note area */}
       <div className="mt-auto pt-3 border-t border-gray-800">
         <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2 block">
-          备注
+          Note
         </span>
         <textarea
           className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 text-sm text-gray-300 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
           rows={4}
-          placeholder="添加备注..."
+          placeholder="Add a note..."
           value={noteDraft}
           onChange={(e) => setNoteDraft(e.target.value)}
           onBlur={handleNoteBlur}
@@ -192,9 +192,9 @@ function TextColumn({
 }
 ```
 
-**Step 2: SegmentCard 传递 onUpdateNote 到 TextColumn**
+**Step 2: Pass onUpdateNote from SegmentCard to TextColumn**
 
-在 SegmentCard 的 TextColumn 渲染处添加回调：
+Add the callback where TextColumn is rendered in SegmentCard:
 
 ```tsx
 <TextColumn
@@ -204,10 +204,10 @@ function TextColumn({
 />
 ```
 
-**Step 3: 运行类型检查和前端测试**
+**Step 3: Run type check and frontend tests**
 
 Run: `cd frontend && pnpm check`
-Expected: typecheck 和 test 均通过
+Expected: Both typecheck and tests pass
 
 **Step 4: Commit**
 
@@ -218,25 +218,25 @@ git commit -m "feat(ui): add note textarea to segment card TextColumn"
 
 ---
 
-### Task 5: 端到端验证
+### Task 5: End-to-end verification
 
-**Step 1: 启动后端**
+**Step 1: Start backend**
 
 Run: `uv run uvicorn server.app:app --reload --port 1241`
 
-**Step 2: 启动前端**
+**Step 2: Start frontend**
 
 Run: `cd frontend && pnpm dev`
 
-**Step 3: 手动验证**
+**Step 3: Manual verification**
 
-1. 打开浏览器，进入一个项目的分镜页面
-2. 在任意分镜卡片的文本列下方看到 "备注" 标签和 textarea
-3. 输入备注内容，点击其他地方（触发 blur）
-4. 刷新页面，确认备注内容已保存
-5. 检查 JSON 文件确认 `note` 字段已写入
+1. Open the browser, navigate to a project storyboard page
+2. See the "Note" label and textarea below the text column of any storyboard card
+3. Enter note content, click elsewhere (triggering blur)
+4. Refresh the page and confirm the note content has been saved
+5. Check the JSON file to confirm the `note` field was written
 
-**Step 4: 运行全部测试**
+**Step 4: Run all tests**
 
 Run: `python -m pytest tests/ -x -q && cd frontend && pnpm check`
-Expected: 全部通过
+Expected: All pass

@@ -37,7 +37,7 @@ def test_ark_video_models_include_seedance_2(self):
     assert video_models["doubao-seedance-2-0-260128"].default is False
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_config_registry_models.py::TestProviderRegistry::test_ark_video_models_include_seedance_2 -v`
 Expected: FAIL — `assert 1 == 3`（当前只有 1 个视频模型）
@@ -59,12 +59,12 @@ Expected: FAIL — `assert 1 == 3`（当前只有 1 个视频模型）
 ),
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_config_registry_models.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/config/registry.py tests/test_config_registry_models.py
@@ -81,7 +81,7 @@ git commit -m "feat: 注册 Seedance 2.0 和 2.0 Fast 视频模型到 Ark 供应
 
 - [ ] **Step 1: 写失败测试 — 验证 2.0 模型能力**
 
-在 `tests/test_video_backend_ark.py` 中添加新的测试类，放在 `TestArkProperties` 之后：
+在 `tests/test_video_backend_ark.py` 中添加新的测试类，放在 `TestArkProperties` After:
 
 ```python
 class TestArkModelCapabilities:
@@ -115,7 +115,7 @@ class TestArkModelCapabilities:
         assert VideoCapability.FLEX_TIER in caps
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_video_backend_ark.py::TestArkModelCapabilities -v`
 Expected: FAIL — 2.0 模型获得的是默认 capabilities（包含 FLEX_TIER，不含 VIDEO_EXTEND）
@@ -171,7 +171,7 @@ class ArkVideoBackend:
 Run: `uv run python -m pytest tests/test_video_backend_ark.py -v`
 Expected: ALL PASS（新测试和已有测试均通过）
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/video_backends/ark.py tests/test_video_backend_ark.py
@@ -224,7 +224,7 @@ def test_seedance_2_fast_cost(self):
     assert amount == pytest.approx(37.00)
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_cost_calculator.py::TestArkCost::test_seedance_2_cost -v`
 Expected: FAIL — 未知模型回退到 1.5 Pro 的 16.00 费率
@@ -257,7 +257,7 @@ ARK_VIDEO_COST = {
 Run: `uv run python -m pytest tests/test_cost_calculator.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/cost_calculator.py tests/test_cost_calculator.py

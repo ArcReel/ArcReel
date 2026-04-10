@@ -228,9 +228,9 @@ __all__ = [
 Add the following block (after existing GEMINI config):
 
 ```
-# 数据库配置（默认使用 SQLite）
-# SQLite（开发/单机）: sqlite+aiosqlite:///./projects/.arcreel.db
-# PostgreSQL（生产）:  postgresql+asyncpg://user:pass@host:5432/arcreel
+# Database configuration (defaults to SQLite)
+# SQLite (development/single-machine): sqlite+aiosqlite:///./projects/.arcreel.db
+# PostgreSQL (production):              postgresql+asyncpg://user:pass@host:5432/arcreel
 # DATABASE_URL=sqlite+aiosqlite:///./projects/.arcreel.db
 ```
 
@@ -1358,20 +1358,20 @@ from lib.db import init_db, close_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # DB 初始化
+    # DB initialization
     await init_db()
 
-    # 原有启动逻辑...
+    # Existing startup logic...
     ensure_auth_password()
     worker = create_generation_worker()
     # ...
 
     yield
 
-    # 原有关闭逻辑...
+    # Existing shutdown logic...
     # ...
 
-    # DB 关闭
+    # DB shutdown
     await close_db()
 ```
 

@@ -1,38 +1,38 @@
-## 官方价格参考链接
+## Official Pricing Reference Links
 
 [AI Studio](https://ai.google.dev/gemini-api/docs/pricing.md.txt)
 [Vertex AI](https://r.jina.ai/https://cloud.google.com/vertex-ai/generative-ai/pricing)
 
-## 🎬 Veo 3.1 / Veo 3.1 Fast 视频生成费用表（按秒计费）
+## 🎬 Veo 3.1 / Veo 3.1 Fast Video Generation Pricing (per second)
 
-> AI Studio 与 Vertex AI 价格一致
+> AI Studio and Vertex AI prices are the same
 
-### Veo 3.1（Standard）
+### Veo 3.1 (Standard)
 
-| 分辨率       | 是否含音频 | 单价（$/秒） | 8 秒视频费用 |
+| Resolution   | Audio      | Price ($/s)  | 8s Video Cost |
 | ------------ | ---------- | ------------ | ------------ |
-| 720p / 1080p | 含音频     | 0.40         | 3.20         |
-| 720p / 1080p | 无音频     | 0.20         | 1.60         |
-| 4K           | 含音频     | 0.60         | 4.80         |
-| 4K           | 无音频     | 0.40         | 3.20         |
+| 720p / 1080p | With audio | 0.40         | 3.20          |
+| 720p / 1080p | No audio   | 0.20         | 1.60          |
+| 4K           | With audio | 0.60         | 4.80          |
+| 4K           | No audio   | 0.40         | 3.20          |
 
 ------
 
-### Veo 3.1 Fast（低价 / 更快）
+### Veo 3.1 Fast (Lower Price / Faster)
 
-| 分辨率       | 是否含音频 | 单价（$/秒） | 8 秒视频费用 |
+| Resolution   | Audio      | Price ($/s)  | 8s Video Cost |
 | ------------ | ---------- | ------------ | ------------ |
-| 720p / 1080p | 含音频     | 0.15         | 1.20         |
-| 720p / 1080p | 无音频     | 0.10         | 0.80         |
-| 4K           | 含音频     | 0.35         | 2.80         |
-| 4K           | 无音频     | 0.30         | 2.40         |
+| 720p / 1080p | With audio | 0.15         | 1.20          |
+| 720p / 1080p | No audio   | 0.10         | 0.80          |
+| 4K           | With audio | 0.35         | 2.80          |
+| 4K           | No audio   | 0.30         | 2.40          |
 
 ------
 
-## 🖼️ 图片生成费用表（token → 单张图片）
+## 🖼️ Image Generation Pricing (tokens → per image)
 
-> token 换算规则（官方定义）：
-> **单张图片费用 = token 数 × 单价 / 1,000,000**
+> Token conversion rules (official definition):
+> **Cost per image = token count × unit price / 1,000,000**
 
 ------
 
@@ -40,34 +40,34 @@
 
 #### AI Studio
 
-##### 输入图片（作为参考图）
+##### Input Image (as reference)
 
-| 项目     | Token 数   | 单价           | 单张成本         |
+| Item     | Token Count | Unit Price     | Cost per Image   |
 | -------- | ---------- | -------------- | ---------------- |
-| 输入图片 | 560 tokens | $2 / 1M tokens | **$0.0011 / 张** |
+| Input image | 560 tokens | $2 / 1M tokens | **$0.0011 / image** |
 
-##### 输出图片
+##### Output Image
 
-| 输出分辨率 | Token 数    | 单价             | 单张成本        |
+| Output Resolution | Token Count | Unit Price       | Cost per Image  |
 | ---------- | ----------- | ---------------- | --------------- |
-| 1K / 2K    | 1120 tokens | $120 / 1M tokens | **$0.134 / 张** |
-| 4K         | 2000 tokens | $120 / 1M tokens | **$0.24 / 张**  |
+| 1K / 2K    | 1120 tokens | $120 / 1M tokens | **$0.134 / image** |
+| 4K         | 2000 tokens | $120 / 1M tokens | **$0.24 / image**  |
 
 #### Vertex AI Standard
 
-##### 输入图片（作为参考图）
+##### Input Image (as reference)
 
-| 项目     | Token 数   | 单价                         | 单张成本         |
+| Item     | Token Count | Unit Price                   | Cost per Image   |
 | -------- | ---------- | ---------------------------- | ---------------- |
-| 输入图片 | 560 tokens | $2 / 1M tokens (≤200K ctx)  | **$0.0011 / 张** |
-| 输入图片 | 560 tokens | $4 / 1M tokens (>200K ctx)  | **$0.0022 / 张** |
+| Input image | 560 tokens | $2 / 1M tokens (≤200K ctx) | **$0.0011 / image** |
+| Input image | 560 tokens | $4 / 1M tokens (>200K ctx) | **$0.0022 / image** |
 
-##### 输出图片
+##### Output Image
 
-| 输出分辨率 | Token 数    | 单价             | 单张成本        |
+| Output Resolution | Token Count | Unit Price       | Cost per Image  |
 | ---------- | ----------- | ---------------- | --------------- |
-| 1K / 2K    | 1120 tokens | $120 / 1M tokens | **$0.134 / 张** |
-| 4K         | 2000 tokens | $120 / 1M tokens | **$0.24 / 张**  |
+| 1K / 2K    | 1120 tokens | $120 / 1M tokens | **$0.134 / image** |
+| 4K         | 2000 tokens | $120 / 1M tokens | **$0.24 / image**  |
 
 ------
 
@@ -75,45 +75,45 @@
 
 #### AI Studio
 
-##### 输入图片（作为参考图）
+##### Input Image (as reference)
 
-| 项目     | Token 数    | 单价              | 单张成本           |
+| Item     | Token Count | Unit Price        | Cost per Image     |
 | -------- | ----------- | ----------------- | ------------------ |
-| 输入图片 | 1120 tokens | $0.25 / 1M tokens | **$0.00028 / 张**  |
+| Input image | 1120 tokens | $0.25 / 1M tokens | **$0.00028 / image**  |
 
-##### 输出图片
+##### Output Image
 
-| 输出分辨率 | Token 数    | 单价            | 单张成本         |
+| Output Resolution | Token Count | Unit Price      | Cost per Image   |
 | ---------- | ----------- | --------------- | ---------------- |
-| 512px      | 747 tokens  | $60 / 1M tokens | **$0.045 / 张**  |
-| 1K         | 1120 tokens | $60 / 1M tokens | **$0.067 / 张**  |
-| 2K         | 1680 tokens | $60 / 1M tokens | **$0.101 / 张**  |
-| 4K         | 2520 tokens | $60 / 1M tokens | **$0.151 / 张**  |
+| 512px      | 747 tokens  | $60 / 1M tokens | **$0.045 / image**  |
+| 1K         | 1120 tokens | $60 / 1M tokens | **$0.067 / image**  |
+| 2K         | 1680 tokens | $60 / 1M tokens | **$0.101 / image**  |
+| 4K         | 2520 tokens | $60 / 1M tokens | **$0.151 / image**  |
 
 #### Vertex AI Standard
 
-##### 输入图片（作为参考图）
+##### Input Image (as reference)
 
-| 项目     | Token 数    | 单价              | 单张成本           |
+| Item     | Token Count | Unit Price        | Cost per Image     |
 | -------- | ----------- | ----------------- | ------------------ |
-| 输入图片 | 1120 tokens | $0.50 / 1M tokens | **$0.00056 / 张**  |
+| Input image | 1120 tokens | $0.50 / 1M tokens | **$0.00056 / image**  |
 
-##### 输出图片
+##### Output Image
 
-| 输出分辨率 | Token 数    | 单价            | 单张成本         |
+| Output Resolution | Token Count | Unit Price      | Cost per Image   |
 | ---------- | ----------- | --------------- | ---------------- |
-| 512px      | 747 tokens  | $60 / 1M tokens | **$0.045 / 张**  |
-| 1K         | 1120 tokens | $60 / 1M tokens | **$0.067 / 张**  |
-| 2K         | 1680 tokens | $60 / 1M tokens | **$0.101 / 张**  |
-| 4K         | 2520 tokens | $60 / 1M tokens | **$0.151 / 张**  |
+| 512px      | 747 tokens  | $60 / 1M tokens | **$0.045 / image**  |
+| 1K         | 1120 tokens | $60 / 1M tokens | **$0.067 / image**  |
+| 2K         | 1680 tokens | $60 / 1M tokens | **$0.101 / image**  |
+| 4K         | 2520 tokens | $60 / 1M tokens | **$0.151 / image**  |
 
 ------
 
-## 📊 价格对比速览
+## 📊 Price Comparison Overview
 
-### 输出图片单张成本对比
+### Output Image Cost per Image Comparison
 
-| 模型 | 分辨率 | AI Studio | Vertex Standard |
+| Model | Resolution | AI Studio | Vertex Standard |
 | ---- | ------ | --------- | --------------- |
 | gemini-3-pro | 1K/2K | $0.134 | $0.134 |
 | gemini-3-pro | 4K | $0.24 | $0.24 |
@@ -122,4 +122,4 @@
 | gemini-3.1-flash | 2K | $0.101 | $0.101 |
 | gemini-3.1-flash | 4K | $0.151 | $0.151 |
 
-> gemini-3.1-flash 2K 图片成本约为 gemini-3-pro 的 **75%**（$0.101 vs $0.134）
+> The gemini-3.1-flash 2K image cost is approximately **75%** of gemini-3-pro ($0.101 vs $0.134)

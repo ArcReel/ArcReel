@@ -1,28 +1,28 @@
-# JSON 写入验证 Hook 实现计划
+# JSON Write Validation Hook Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 防止 Agent 的 Edit/Write 操作损坏 JSON 文件并级联崩溃项目大厅。
+**Goal:** Prevent the Agent's Edit/Write operations from corrupting JSON files and causing cascade crashes in the project lobby.
 
-**Architecture:** 两层防御：Layer 1 在 Agent 完成写文件后用 `PostToolUse` hook 验证 JSON 合法性，失败时通过 `systemMessage` 通知 Agent 自我修复；Layer 2 在 `StatusCalculator._load_episode_script` 补充捕获 `json.JSONDecodeError`，防止单集文件损坏级联到项目级 API。
+**Architecture:** Two defensive layers: Layer 1 uses a `PostToolUse` hook to validate JSON validity after the Agent finishes writing a file, notifying the Agent via `systemMessage` to self-repair on failure; Layer 2 adds a `json.JSONDecodeError` catch in `StatusCalculator._load_episode_script` to prevent a single episode file corruption from cascading to the project-level API.
 
-**Tech Stack:** Python `json` 标准库、Claude Agent SDK `PostToolUse` hook、pytest + `_FakePM` 测试模式（同 `tests/test_status_calculator.py`）
+**Tech Stack:** Python `json` standard library, Claude Agent SDK `PostToolUse` hook, pytest + `_FakePM` test pattern (same as `tests/test_status_calculator.py`)
 
 ---
 
-## Task 1：`StatusCalculator._load_episode_script` 防御性修复
+## Task 1: `StatusCalculator._load_episode_script` Defensive Fix
 
 **Files:**
 - Modify: `lib/status_calculator.py:93-107`
 - Test: `tests/test_status_calculator.py`
 
-### Step 1：在现有测试文件末尾写失败测试
+### Step 1: Write a Failing Test at the End of the Existing Test File
 
-在 `tests/test_status_calculator.py` 的 `TestStatusCalculator` 类末尾添加：
+Append to the end of the `TestStatusCalculator` class in `tests/test_status_calculator.py`:
 
 ```python
 def test_load_episode_script_corrupted_json(self, tmp_path):
-    """JSON 损坏时应降级返回 ('generated', None)，而不是上抛异常。"""
+    """On JSON corruption, should degrade and return ('generated', None) instead of raising an exception."""
     import json
 
     class _CorruptPM(_FakePM):
@@ -35,21 +35,21 @@ def test_load_episode_script_corrupted_json(self, tmp_path):
     assert script is None
 ```
 
-### Step 2：运行确认测试失败
+### Step 2: Run to Confirm Test Fails
 
 ```bash
 uv run pytest tests/test_status_calculator.py::TestStatusCalculator::test_load_episode_script_corrupted_json -v
 ```
 
-预期：`FAILED` — `json.JSONDecodeError` 未被捕获，上抛报错。
+Expected: `FAILED` — `json.JSONDecodeError` not caught, exception propagates up.
 
-### Step 3：修复 `_load_episode_script`
+### Step 3: Fix `_load_episode_script`
 
-定位 `lib/status_calculator.py:97-107`，在 `except FileNotFoundError:` 块后追加新的 except：
+Locate `lib/status_calculator.py:97-107` and append a new except block after `except FileNotFoundError:`:
 
 ```python
     def _load_episode_script(self, project_name: str, episode_num: int, script_file: str) -> tuple:
-        """加载单集剧本，返回 (script_status, script|None)，避免重复读取文件。
+        """Load a single episode script, returning (script_status, script|None) to avoid repeated file reads.
         script_status: 'generated' | 'segmented' | 'none'
         """
         try:
@@ -65,23 +65,23 @@ uv run pytest tests/test_status_calculator.py::TestStatusCalculator::test_load_e
             return ('segmented' if draft_file.exists() else 'none'), None
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(
-                "剧本 JSON 损坏，跳过状态计算 project=%s file=%s: %s",
+                "Script JSON corrupted, skipping status calculation project=%s file=%s: %s",
                 project_name, script_file, e,
             )
             return 'generated', None
 ```
 
-> **注意**：确认文件顶部已 `import json`（全局搜索 `import json` 确认）。
+> **Note**: Confirm that `import json` is already present at the top of the file (search globally for `import json` to verify).
 
-### Step 4：运行确认测试通过
+### Step 4: Run to Confirm Tests Pass
 
 ```bash
 uv run pytest tests/test_status_calculator.py -v
 ```
 
-预期：所有测试 PASS。
+Expected: all tests PASS.
 
-### Step 5：提交
+### Step 5: Commit
 
 ```bash
 git add lib/status_calculator.py tests/test_status_calculator.py
@@ -90,15 +90,15 @@ git commit -m "fix(status): catch JSONDecodeError in _load_episode_script to pre
 
 ---
 
-## Task 2：`PostToolUse` JSON 验证 Hook
+## Task 2: `PostToolUse` JSON Validation Hook
 
 **Files:**
 - Modify: `server/agent_runtime/session_manager.py`
-- Test: `tests/test_session_manager_more.py`（追加）
+- Test: `tests/test_session_manager_more.py` (append)
 
-### Step 1：写失败测试
+### Step 1: Write Failing Tests
 
-在 `tests/test_session_manager_more.py` 末尾追加（注意该文件已有 `import asyncio`）：
+Append to the end of `tests/test_session_manager_more.py` (note: the file already has `import asyncio`):
 
 ```python
 class TestJsonValidationHook:
@@ -142,7 +142,7 @@ class TestJsonValidationHook:
         result = await self._call_hook(manager, str(json_file))
         assert "systemMessage" in result
         assert str(json_file) in result["systemMessage"]
-        assert "无效 JSON" in result["systemMessage"] or "invalid" in result["systemMessage"].lower()
+        assert "invalid JSON" in result["systemMessage"] or "invalid" in result["systemMessage"].lower()
 
     async def test_non_json_file_returns_empty(self, tmp_path):
         """Hook ignores non-.json files."""
@@ -166,17 +166,17 @@ class TestJsonValidationHook:
         assert result == {}
 ```
 
-### Step 2：运行确认测试失败
+### Step 2: Run to Confirm Test Fails
 
 ```bash
 uv run pytest tests/test_session_manager_more.py::TestJsonValidationHook -v
 ```
 
-预期：`FAILED` — `AttributeError: 'SessionManager' object has no attribute '_build_json_validation_hook'`
+Expected: `FAILED` — `AttributeError: 'SessionManager' object has no attribute '_build_json_validation_hook'`
 
-### Step 3：实现 `_build_json_validation_hook`
+### Step 3: Implement `_build_json_validation_hook`
 
-在 `session_manager.py` 的 `_build_file_access_hook` 方法之后（约 408 行），添加新方法：
+In `session_manager.py`, add the new method after `_build_file_access_hook` (around line 408):
 
 ```python
 def _build_json_validation_hook(self) -> Callable[..., Any]:
@@ -207,26 +207,26 @@ def _build_json_validation_hook(self) -> Callable[..., Any]:
             return {}
         except json.JSONDecodeError as exc:
             logger.warning(
-                "Agent 写入了无效 JSON file=%s error=%s",
+                "Agent wrote invalid JSON file=%s error=%s",
                 file_path, exc,
             )
             return {
                 "systemMessage": (
-                    f"⚠️ 警告：你刚才操作的文件 {file_path} 现在包含无效 JSON。"
-                    f"错误：{exc}。"
-                    "请立即用 Read 工具读取该文件，定位问题（例如多余的逗号 ,, "
-                    "或缺少引号），然后用 Edit 工具修复，确保文件是合法 JSON 后再继续。"
+                    f"⚠️ Warning: the file {file_path} you just operated on now contains invalid JSON. "
+                    f"Error: {exc}. "
+                    "Please immediately use the Read tool to read that file, locate the issue (e.g., extra commas ,, "
+                    "or missing quotes), then use the Edit tool to fix it, and ensure the file is valid JSON before continuing."
                 )
             }
 
     return _json_validation_hook
 ```
 
-确保文件顶部已有 `import json`（搜索确认，若无则在 `import os` 附近添加）。
+Ensure `import json` is already present at the top of the file (search to confirm; if not, add it near `import os`).
 
-### Step 4：在 `_build_options` 中注册 PostToolUse hook
+### Step 4: Register the PostToolUse Hook in `_build_options`
 
-定位 `_build_options` 方法中 `hooks` 字典（约 381 行），修改为：
+Locate the `hooks` dictionary in the `_build_options` method (around line 381) and update to:
 
 ```python
         hooks = None
@@ -246,23 +246,23 @@ def _build_json_validation_hook(self) -> Callable[..., Any]:
             }
 ```
 
-### Step 5：运行确认测试通过
+### Step 5: Run to Confirm Tests Pass
 
 ```bash
 uv run pytest tests/test_session_manager_more.py::TestJsonValidationHook -v
 ```
 
-预期：5 个测试全部 PASS。
+Expected: all 5 tests PASS.
 
-### Step 6：运行全量测试确认无回归
+### Step 6: Run Full Test Suite to Confirm No Regressions
 
 ```bash
 uv run pytest --tb=short -q
 ```
 
-预期：全部 PASS（498 个 + 新增 6 个）。
+Expected: all PASS (498 existing + 6 new).
 
-### Step 7：提交
+### Step 7: Commit
 
 ```bash
 git add server/agent_runtime/session_manager.py tests/test_session_manager_more.py
@@ -271,12 +271,12 @@ git commit -m "feat(agent): add PostToolUse JSON validation hook to self-correct
 
 ---
 
-## Task 3：端到端验证
+## Task 3: End-to-End Verification
 
-### Step 1：手动验证级联失败已修复
+### Step 1: Manually Verify Cascade Failure Is Fixed
 
 ```bash
-# 模拟损坏文件场景：在测试中确认 calculate_project_status 不再上抛
+# Simulate a corrupted file scenario: confirm calculate_project_status no longer raises
 uv run python -c "
 import json, tempfile, pathlib
 from lib.status_calculator import StatusCalculator
@@ -303,21 +303,21 @@ with tempfile.TemporaryDirectory() as d:
 "
 ```
 
-预期：打印 `OK, phase = scripting`（或 `production`），无异常。
+Expected: prints `OK, phase = scripting` (or `production`) with no exception.
 
-### Step 2：确认日志中不再出现误导性"元数据失败"
+### Step 2: Confirm No More Misleading "Metadata Failure" Logs
 
-检查 `calculate_project_status` 调用链（`routers/projects.py:220`）：在 Task 1 修复后，`json.JSONDecodeError` 在 `_load_episode_script` 内部被捕获，不会再上抛到 `list_projects` 的宽泛 `except`，从而消除 "加载项目元数据失败" 的误导日志。
+Check the `calculate_project_status` call chain (`routers/projects.py:220`): after the Task 1 fix, `json.JSONDecodeError` is caught inside `_load_episode_script` and will no longer propagate to the broad `except` in `list_projects`, eliminating the misleading "Failed to load project metadata" log.
 
-### Step 3：最终提交确认
+### Step 3: Final Commit Verification
 
 ```bash
 git log --oneline -5
 ```
 
-预期看到两个 fix commit：
+Expected: two fix commits visible:
 ```
 feat(agent): add PostToolUse JSON validation hook to self-correct invalid edits
 fix(status): catch JSONDecodeError in _load_episode_script to prevent cascade failure
-docs: 新增 JSON 验证 hook 设计文档
+docs: add JSON validation hook design document
 ```

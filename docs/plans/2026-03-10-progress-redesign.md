@@ -1,10 +1,10 @@
-# 进度机制重新设计 Implementation Plan
+# Progress Mechanism Redesign Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 重新设计进度机制，使其准确反映完整工作流（setup → worldbuilding → scripting → production → completed），并按集粒度追踪分镜/视频进度，角色/线索始终展示。
+**Goal:** Redesign the progress mechanism so it accurately reflects the complete workflow (setup → worldbuilding → scripting → production → completed), tracks storyboard/video progress at the episode granularity, and always shows characters/clues.
 
-**Architecture:** 修改 `StatusCalculator` 引入 5 段阶段枚举、集级 `script_status` 字段、以及新的 `calculate_project_status()` 方法；同步更新前端类型和 `ProjectCard` 展示逻辑。读时计算策略不变，不存储冗余状态。
+**Architecture:** Modify `StatusCalculator` to introduce a 5-segment phase enum, episode-level `script_status` field, and a new `calculate_project_status()` method; synchronously update frontend types and `ProjectCard` display logic. The read-time calculation strategy is unchanged, no redundant state is stored.
 
 **Tech Stack:** Python 3.12 / pytest / TypeScript / React 19 / Tailwind CSS 4
 
@@ -12,21 +12,21 @@
 
 ---
 
-## Task 1: 更新 `calculate_episode_stats()` 返回结构
+## Task 1: Update `calculate_episode_stats()` return structure
 
 **Files:**
 - Modify: `lib/status_calculator.py:40-79`
 - Test: `tests/test_status_calculator.py`
 
-**Step 1: 写失败测试（新返回结构）**
+**Step 1: Write failing tests (new return structure)**
 
-在 `tests/test_status_calculator.py` 的 `TestStatusCalculator` 类中，将现有的 `test_calculate_episode_stats_statuses` 替换为：
+In the `TestStatusCalculator` class in `tests/test_status_calculator.py`, replace the existing `test_calculate_episode_stats_statuses` with:
 
 ```python
 def test_calculate_episode_stats_statuses(self, tmp_path):
     calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
 
-    # draft：无任何资源
+    # draft: no assets at all
     draft = calc.calculate_episode_stats(
         "demo",
         {"content_mode": "narration", "segments": [{"duration_seconds": 4}]},
@@ -37,11 +37,11 @@ def test_calculate_episode_stats_statuses(self, tmp_path):
     assert draft["scenes_count"] == 1
     assert draft["duration_seconds"] == 4
 
-    # scripted：有剧本但无任何分镜/视频资源
-    # （script_status 由 enrich_project 设置，calculate_episode_stats 不设置）
-    # draft 状态在加载脚本成功时是 "draft"
+    # scripted: has script but no storyboard/video assets
+    # (script_status is set by enrich_project, not by calculate_episode_stats)
+    # status is "draft" when script loads successfully
 
-    # in_production：有分镜图
+    # in_production: has storyboard image
     in_prod = calc.calculate_episode_stats(
         "demo",
         {
@@ -56,7 +56,7 @@ def test_calculate_episode_stats_statuses(self, tmp_path):
     assert in_prod["storyboards"] == {"total": 2, "completed": 1}
     assert in_prod["videos"] == {"total": 2, "completed": 0}
 
-    # completed：所有场景有视频
+    # completed: all scenes have video
     completed = calc.calculate_episode_stats(
         "demo",
         {
@@ -71,18 +71,18 @@ def test_calculate_episode_stats_statuses(self, tmp_path):
     assert completed["videos"] == {"total": 1, "completed": 1}
 ```
 
-**Step 2: 运行确认失败**
+**Step 2: Run to confirm failure**
 
 ```bash
 cd .worktrees/progress-redesign
 python -m pytest tests/test_status_calculator.py::TestStatusCalculator::test_calculate_episode_stats_statuses -v
 ```
 
-期望：FAILED（`storyboards` key 不存在，返回的是 `storyboards_completed`）
+Expected: FAILED (`storyboards` key does not exist, returns `storyboards_completed`)
 
-**Step 3: 修改 `calculate_episode_stats()` 实现**
+**Step 3: Modify `calculate_episode_stats()` implementation**
 
-将 `lib/status_calculator.py:40-79` 中的返回值从：
+Change the return value in `lib/status_calculator.py:40-79` from:
 ```python
 return {
     'scenes_count': total,
@@ -93,7 +93,7 @@ return {
 }
 ```
 
-改为：
+To:
 ```python
 return {
     'scenes_count': total,
@@ -104,10 +104,10 @@ return {
 }
 ```
 
-同时更新 `status` 判断（新增 `scripted` — 有剧本无资源时由 `enrich_project` 覆盖，此处保留 `draft`）：
+Also update the `status` determination (added `scripted` — when there is a script but no assets, `enrich_project` will override it; keep `draft` here):
 
 ```python
-# 计算状态（不含 scripted，由 enrich_project 覆盖）
+# Compute status (excluding scripted, which is overridden by enrich_project)
 if video_done == total and total > 0:
     status = 'completed'
 elif storyboard_done > 0 or video_done > 0:
@@ -116,21 +116,21 @@ else:
     status = 'draft'
 ```
 
-**Step 4: 运行确认通过**
+**Step 4: Run to confirm passing**
 
 ```bash
 python -m pytest tests/test_status_calculator.py::TestStatusCalculator::test_calculate_episode_stats_statuses -v
 ```
 
-期望：PASSED
+Expected: PASSED
 
-**Step 5: 运行全部测试（可能有其他测试引用旧字段，先记录再继续）**
+**Step 5: Run all tests (some tests may reference old fields — record them and continue)**
 
 ```bash
 python -m pytest tests/test_status_calculator.py -v
 ```
 
-记录失败项，Task 2 统一修复。
+Record failures; fix them uniformly in Task 2.
 
 **Step 6: Commit**
 
@@ -141,36 +141,36 @@ git commit -m "refactor(status): calculate_episode_stats returns storyboards/vid
 
 ---
 
-## Task 2: 新增 `_get_episode_script_status()` + 重写阶段逻辑
+## Task 2: Add `_get_episode_script_status()` + Rewrite phase logic
 
 **Files:**
 - Modify: `lib/status_calculator.py`
 - Test: `tests/test_status_calculator.py`
 
-新增三个方法，替换 `calculate_project_progress()` 和旧的 `calculate_current_phase()`。
+Add three methods, replacing `calculate_project_progress()` and the old `calculate_current_phase()`.
 
-**Step 1: 写失败测试（新阶段枚举 + script_status）**
+**Step 1: Write failing tests (new phase enum + script_status)**
 
-在 `TestStatusCalculator` 中，将 `test_calculate_project_progress_and_phase` 替换为：
+In `TestStatusCalculator`, replace `test_calculate_project_progress_and_phase` with:
 
 ```python
 def test_get_episode_script_status(self, tmp_path):
     project_root = tmp_path / "projects"
     project_path = project_root / "demo"
 
-    # Case 1: 脚本 JSON 存在 → "generated"
+    # Case 1: script JSON exists → "generated"
     scripts = {"episode_1.json": {"content_mode": "narration", "segments": []}}
     calc = StatusCalculator(_FakePM(project_root, {}, scripts))
     assert calc._get_episode_script_status("demo", 1, "scripts/episode_1.json") == "generated"
 
-    # Case 2: 脚本不存在，draft 文件存在 → "segmented"
+    # Case 2: script does not exist, draft file exists → "segmented"
     draft_dir = project_path / "drafts" / "episode_2"
     draft_dir.mkdir(parents=True)
     (draft_dir / "step1_segments.md").write_text("ok")
     calc2 = StatusCalculator(_FakePM(project_root, {}, {}))
     assert calc2._get_episode_script_status("demo", 2, "scripts/episode_2.json") == "segmented"
 
-    # Case 3: 两者都不存在 → "none"
+    # Case 3: neither exists → "none"
     calc3 = StatusCalculator(_FakePM(project_root, {}, {}))
     assert calc3._get_episode_script_status("demo", 3, "scripts/episode_3.json") == "none"
 
@@ -182,16 +182,16 @@ def test_calculate_current_phase_setup(self, tmp_path):
 def test_calculate_current_phase_worldbuilding(self, tmp_path):
     calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
     project = {"overview": {"synopsis": "test"}}
-    # 无任何 generated 脚本 → worldbuilding
+    # No generated scripts at all → worldbuilding
     episodes_stats = [{"script_status": "none"}, {"script_status": "segmented"}]
     assert calc.calculate_current_phase(project, episodes_stats) == "worldbuilding"
-    # 无集 → worldbuilding
+    # No episodes → worldbuilding
     assert calc.calculate_current_phase(project, []) == "worldbuilding"
 
 def test_calculate_current_phase_scripting(self, tmp_path):
     calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
     project = {"overview": {"synopsis": "test"}}
-    # 有至少一集 generated，但未全部 → scripting
+    # At least one generated episode, but not all → scripting
     episodes_stats = [
         {"script_status": "generated", "status": "draft"},
         {"script_status": "none"},
@@ -201,13 +201,13 @@ def test_calculate_current_phase_scripting(self, tmp_path):
 def test_calculate_current_phase_production_and_completed(self, tmp_path):
     calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
     project = {"overview": {"synopsis": "test"}}
-    # 全部 generated，有未完成视频 → production
+    # All generated, some videos incomplete → production
     episodes_stats = [
         {"script_status": "generated", "status": "in_production"},
         {"script_status": "generated", "status": "draft"},
     ]
     assert calc.calculate_current_phase(project, episodes_stats) == "production"
-    # 全部 completed → completed
+    # All completed → completed
     episodes_stats_done = [
         {"script_status": "generated", "status": "completed"},
     ]
@@ -252,21 +252,21 @@ def test_calculate_project_status(self, tmp_path):
     }
 ```
 
-**Step 2: 运行确认失败**
+**Step 2: Run to confirm failure**
 
 ```bash
 python -m pytest tests/test_status_calculator.py -k "test_get_episode_script_status or test_calculate_current_phase or test_calculate_project_status" -v
 ```
 
-期望：全部 FAILED
+Expected: All FAILED
 
-**Step 3: 实现新方法**
+**Step 3: Implement new methods**
 
-在 `lib/status_calculator.py` 中，添加以下方法（替换 `calculate_project_progress` 和 `calculate_current_phase`）：
+In `lib/status_calculator.py`, add the following methods (replacing `calculate_project_progress` and `calculate_current_phase`):
 
 ```python
 def _get_episode_script_status(self, project_name: str, episode_num: int, script_file: str) -> str:
-    """判断单集剧本状态: 'generated' | 'segmented' | 'none'"""
+    """Determine the script status for a single episode: 'generated' | 'segmented' | 'none'"""
     try:
         self.pm.load_script(project_name, script_file)
         return 'generated'
@@ -276,7 +276,7 @@ def _get_episode_script_status(self, project_name: str, episode_num: int, script
         return 'segmented' if draft_file.exists() else 'none'
 
 def calculate_current_phase(self, project: Dict, episodes_stats: List[Dict]) -> str:
-    """根据项目和集状态推断当前阶段"""
+    """Infer the current phase from project and episode status"""
     if not project.get('overview'):
         return 'setup'
     if not episodes_stats:
@@ -291,18 +291,18 @@ def calculate_current_phase(self, project: Dict, episodes_stats: List[Dict]) -> 
     return 'completed' if all_completed else 'production'
 
 def _calculate_phase_progress(self, project: Dict, phase: str, episodes_stats: List[Dict]) -> float:
-    """计算当前阶段完成率 0.0–1.0"""
+    """Calculate the completion rate of the current phase, 0.0–1.0"""
     if phase == 'setup':
-        # 有源文件 → 0.5；否则 0.0（概述完成才切换阶段，不会到 1.0）
-        project_dir = self.pm.get_project_path('_placeholder')  # 不用实际路径
-        return 0.0  # setup 阶段不关注源文件，简化处理
+        # Has source file → 0.5; otherwise 0.0 (phase only switches when overview is complete, never reaches 1.0)
+        project_dir = self.pm.get_project_path('_placeholder')  # Actual path not needed
+        return 0.0  # setup phase does not track source file, simplified
     if phase == 'worldbuilding':
         chars = project.get('characters', {})
         clues_major = [c for c in project.get('clues', {}).values() if c.get('importance') == 'major']
         total = len(chars) + len(clues_major)
         if total == 0:
             return 0.0
-        # 需要文件系统检查，此处通过 episodes_stats 无法得到，返回 0.0 作为保守值
+        # Requires filesystem check; cannot be obtained from episodes_stats here; return 0.0 as conservative value
         return 0.0
     if phase == 'scripting':
         total = len(episodes_stats)
@@ -318,14 +318,14 @@ def _calculate_phase_progress(self, project: Dict, phase: str, episodes_stats: L
 
 def calculate_project_status(self, project_name: str, project: Dict) -> Dict:
     """
-    计算项目整体状态（用于列表 API）。
+    Calculate the overall project status (used for list API).
 
     Returns:
-        ProjectStatus 字典：current_phase, phase_progress, characters, clues, episodes_summary
+        ProjectStatus dict: current_phase, phase_progress, characters, clues, episodes_summary
     """
     project_dir = self.pm.get_project_path(project_name)
 
-    # 角色统计
+    # Character statistics
     chars = project.get('characters', {})
     chars_total = len(chars)
     chars_done = sum(
@@ -333,7 +333,7 @@ def calculate_project_status(self, project_name: str, project: Dict) -> Dict:
         if c.get('character_sheet') and (project_dir / c['character_sheet']).exists()
     )
 
-    # 线索统计（所有线索，不限 major）
+    # Clue statistics (all clues, not limited to major)
     clues = project.get('clues', {})
     clues_total = len(clues)
     clues_done = sum(
@@ -341,7 +341,7 @@ def calculate_project_status(self, project_name: str, project: Dict) -> Dict:
         if c.get('clue_sheet') and (project_dir / c['clue_sheet']).exists()
     )
 
-    # 每集状态
+    # Per-episode status
     episodes_stats = []
     for ep in project.get('episodes', []):
         script_file = ep.get('script_file', '')
@@ -352,8 +352,8 @@ def calculate_project_status(self, project_name: str, project: Dict) -> Dict:
             try:
                 script = self.pm.load_script(project_name, script_file)
                 ep_stats = self.calculate_episode_stats(project_name, script)
-                # script 能加载说明是 generated，状态由 calculate_episode_stats 决定
-                # 但若无任何资源，状态应为 scripted（不是 draft）
+                # If script loads successfully it is "generated"; status is determined by calculate_episode_stats
+                # But if there are no assets at all, status should be "scripted" (not "draft")
                 if ep_stats['status'] == 'draft':
                     ep_stats['status'] = 'scripted'
                 ep_stats['script_status'] = 'generated'
@@ -384,30 +384,30 @@ def calculate_project_status(self, project_name: str, project: Dict) -> Dict:
     }
 ```
 
-**重要**：旧的 `calculate_project_progress()` 方法保留但标记为 deprecated，以防其他地方仍有引用；在 Task 3 后再删除。
+**Important**: Keep the old `calculate_project_progress()` method but mark it as deprecated, in case it is still referenced elsewhere; delete it after Task 3.
 
-**Step 4: 运行确认通过**
+**Step 4: Run to confirm passing**
 
 ```bash
 python -m pytest tests/test_status_calculator.py -k "test_get_episode_script_status or test_calculate_current_phase or test_calculate_project_status" -v
 ```
 
-期望：全部 PASSED
+Expected: All PASSED
 
-**Step 5: 运行全部后端测试**
+**Step 5: Run all backend tests**
 
 ```bash
 python -m pytest tests/test_status_calculator.py -v
 ```
 
-若有旧测试失败（如 `test_calculate_project_progress_and_phase`），按新结构修复。
+If old tests fail (e.g. `test_calculate_project_progress_and_phase`), fix them to match the new structure.
 
-`test_calculate_project_progress_and_phase` 改为验证 `calculate_project_status`：
-- `status["current_phase"] == "completed"`（不是旧的 `"compose"`）
+`test_calculate_project_progress_and_phase` should now verify `calculate_project_status`:
+- `status["current_phase"] == "completed"` (not the old `"compose"`)
 - `status["characters"] == {"total": 2, "completed": 1}`
 - `status["clues"] == {"total": 1, "completed": 1}`
 
-`test_enrich_project_and_enrich_script` 改为验证 `enrich_project` 输出新字段。
+`test_enrich_project_and_enrich_script` should now verify that `enrich_project` outputs new fields.
 
 **Step 6: Commit**
 
@@ -418,23 +418,23 @@ git commit -m "feat(status): add worldbuilding/scripting phases and calculate_pr
 
 ---
 
-## Task 3: 更新 `enrich_project()` + 删除 `calculate_project_progress()`
+## Task 3: Update `enrich_project()` + Delete `calculate_project_progress()`
 
 **Files:**
 - Modify: `lib/status_calculator.py:160-198`
 - Test: `tests/test_status_calculator.py`
 
-**Step 1: 更新 `enrich_project()` 注入新字段**
+**Step 1: Update `enrich_project()` to inject new fields**
 
-将 `lib/status_calculator.py:160-198` 替换为：
+Replace `lib/status_calculator.py:160-198` with:
 
 ```python
 def enrich_project(self, project_name: str, project: Dict) -> Dict:
     """
-    为项目数据注入所有计算字段（用于详情 API）。
-    不修改原始 JSON 文件，仅用于 API 响应。
+    Inject all computed fields into the project data (used for detail API).
+    Does not modify the original JSON file; only used for API responses.
     """
-    # 计算每集明细（注入到 episode 对象）
+    # Calculate per-episode details (inject into episode objects)
     episodes_stats = []
     for ep in project.get('episodes', []):
         script_file = ep.get('script_file', '')
@@ -462,20 +462,20 @@ def enrich_project(self, project_name: str, project: Dict) -> Dict:
         ep.update(ep_stats)
         episodes_stats.append(ep_stats)
 
-    # 计算项目状态
+    # Calculate project status
     project['status'] = self.calculate_project_status(project_name, project)
     return project
 ```
 
-**注意**：`calculate_project_status` 内部也会遍历 episodes，存在重复遍历。这是可接受的（YAGNI），暂不优化。
+**Note**: `calculate_project_status` also iterates through episodes internally, creating duplicate traversal. This is acceptable (YAGNI) and will not be optimized for now.
 
-**Step 2: 删除 `calculate_project_progress()`**
+**Step 2: Delete `calculate_project_progress()`**
 
-删除 `lib/status_calculator.py:81-131`（`calculate_project_progress` 方法）。
+Delete `lib/status_calculator.py:81-131` (the `calculate_project_progress` method).
 
-**Step 3: 更新测试**
+**Step 3: Update tests**
 
-更新 `test_enrich_project_and_enrich_script`：
+Update `test_enrich_project_and_enrich_script`:
 
 ```python
 def test_enrich_project(self, tmp_path):
@@ -521,21 +521,21 @@ def test_enrich_project(self, tmp_path):
     assert ep2["status"] == "draft"
 ```
 
-**Step 4: 运行确认通过**
+**Step 4: Run to confirm passing**
 
 ```bash
 python -m pytest tests/test_status_calculator.py -v
 ```
 
-期望：全部 PASSED
+Expected: All PASSED
 
-**Step 5: 运行全量测试**
+**Step 5: Run all tests**
 
 ```bash
 python -m pytest --tb=short -q
 ```
 
-若有其他文件仍引用 `calculate_project_progress`，下一步修复。
+If other files still reference `calculate_project_progress`, fix them in the next step.
 
 **Step 6: Commit**
 
@@ -546,17 +546,17 @@ git commit -m "refactor(status): rewrite enrich_project and remove calculate_pro
 
 ---
 
-## Task 4: 更新 `server/routers/projects.py` 列表端点
+## Task 4: Update `server/routers/projects.py` list endpoint
 
 **Files:**
 - Modify: `server/routers/projects.py:204-215`
 
-**Step 1: 更新列表端点**
+**Step 1: Update list endpoint**
 
-将 `server/routers/projects.py:204-215` 改为使用 `calculate_project_status()`：
+Change `server/routers/projects.py:204-215` to use `calculate_project_status()`:
 
 ```python
-# 之前
+# Before
 progress = calculator.calculate_project_progress(name)
 current_phase = calculator.calculate_current_phase(progress)
 
@@ -570,7 +570,7 @@ projects.append({
 })
 ```
 
-改为：
+To:
 
 ```python
 status = calculator.calculate_project_status(name, project)
@@ -584,17 +584,17 @@ projects.append({
 })
 ```
 
-同时更新没有 `project.json` 的降级情况（约 line 218-226）：
+Also update the fallback case for missing `project.json` (around line 218-226):
 
 ```python
-# 之前
+# Before
 projects.append({
     ...
     "progress": {},
     "current_phase": status.get("current_stage", "empty")
 })
 
-# 之后
+# After
 projects.append({
     "name": name,
     "title": name,
@@ -604,7 +604,7 @@ projects.append({
 })
 ```
 
-以及 error 情况（约 line 230-238）：
+And the error case (around line 230-238):
 
 ```python
 projects.append({
@@ -617,7 +617,7 @@ projects.append({
 })
 ```
 
-**Step 2: 运行全量测试**
+**Step 2: Run all tests**
 
 ```bash
 python -m pytest --tb=short -q
@@ -632,14 +632,14 @@ git commit -m "feat(api): projects list returns ProjectStatus instead of Project
 
 ---
 
-## Task 5: 更新前端类型定义
+## Task 5: Update frontend type definitions
 
 **Files:**
 - Modify: `frontend/src/types/project.ts`
 
-**Step 1: 更新类型定义**
+**Step 1: Update type definitions**
 
-将 `frontend/src/types/project.ts` 全文替换为：
+Replace the entire `frontend/src/types/project.ts` with:
 
 ```typescript
 /**
@@ -763,13 +763,13 @@ export interface ImportProjectResponse {
 }
 ```
 
-**Step 2: 运行 TypeScript 检查（会有错误，下一步修复）**
+**Step 2: Run TypeScript check (there will be errors, fix them in the next step)**
 
 ```bash
 cd frontend && pnpm typecheck 2>&1 | head -60
 ```
 
-记录所有类型错误，Task 6 修复。
+Record all type errors; fix them in Task 6.
 
 **Step 3: Commit**
 
@@ -780,14 +780,14 @@ git commit -m "feat(types): replace ProjectProgress with ProjectStatus, update E
 
 ---
 
-## Task 6: 更新 `ProjectCard` 组件
+## Task 6: Update `ProjectCard` component
 
 **Files:**
 - Modify: `frontend/src/components/pages/ProjectsPage.tsx:95-157`
 
-**Step 1: 更新 `ProjectCard` 函数**
+**Step 1: Update `ProjectCard` function**
 
-将 `ProjectsPage.tsx:95-157` 中的 `ProjectCard` 函数替换为：
+Replace the `ProjectCard` function in `ProjectsPage.tsx:95-157` with:
 
 ```tsx
 // ---------------------------------------------------------------------------
@@ -795,11 +795,11 @@ git commit -m "feat(types): replace ProjectProgress with ProjectStatus, update E
 // ---------------------------------------------------------------------------
 
 const PHASE_LABELS: Record<string, string> = {
-  setup: "准备中",
-  worldbuilding: "世界观",
-  scripting: "剧本创作",
-  production: "制作中",
-  completed: "已完成",
+  setup: "Setup",
+  worldbuilding: "Worldbuilding",
+  scripting: "Scripting",
+  production: "In Production",
+  completed: "Completed",
 };
 
 // ---------------------------------------------------------------------------
@@ -843,7 +843,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       <div>
         <h3 className="font-semibold text-gray-100 truncate">{project.title}</h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          {project.style || "未设置风格"}
+          {project.style || "No style set"}
           {phaseLabel ? ` · ${phaseLabel}` : ""}
         </p>
       </div>
@@ -851,7 +851,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       {/* Progress bar */}
       <div>
         <div className="flex justify-between text-xs text-gray-500 mb-1">
-          <span>{phaseLabel || "进度"}</span>
+          <span>{phaseLabel || "Progress"}</span>
           <span>{pct}%</span>
         </div>
         <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
@@ -866,10 +866,10 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       {(characters || clues) && (
         <div className="flex gap-3 text-xs text-gray-500">
           {characters && (
-            <span>角色 {characters.completed}/{characters.total}</span>
+            <span>Characters {characters.completed}/{characters.total}</span>
           )}
           {clues && (
-            <span>线索 {clues.completed}/{clues.total}</span>
+            <span>Clues {clues.completed}/{clues.total}</span>
           )}
         </div>
       )}
@@ -877,10 +877,10 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       {/* Episodes summary */}
       {summary && summary.total > 0 && (
         <div className="text-xs text-gray-500">
-          {summary.total} 集
-          {summary.scripted > 0 && ` · ${summary.scripted} 集剧本完成`}
-          {summary.in_production > 0 && ` · ${summary.in_production} 集制作中`}
-          {summary.completed > 0 && ` · ${summary.completed} 集已完成`}
+          {summary.total} ep{summary.total !== 1 ? "s" : ""}
+          {summary.scripted > 0 && ` · ${summary.scripted} scripted`}
+          {summary.in_production > 0 && ` · ${summary.in_production} in production`}
+          {summary.completed > 0 && ` · ${summary.completed} completed`}
         </div>
       )}
     </button>
@@ -888,46 +888,46 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
 }
 ```
 
-同时在文件顶部 import 处加入：
+Also add to the import at the top of the file:
 
 ```typescript
 import type { ProjectSummary, ProjectStatus } from "@/types/project";
 ```
 
-（若已有 import ProjectSummary，追加 ProjectStatus）
+(If ProjectSummary is already imported, append ProjectStatus)
 
-**Step 2: 更新 `GlobalHeader.tsx`**
+**Step 2: Update `GlobalHeader.tsx`**
 
-`frontend/src/components/layout/GlobalHeader.tsx:110` 中：
+In `frontend/src/components/layout/GlobalHeader.tsx:110`:
 
 ```typescript
-// 之前
+// Before
 const currentPhase = currentProjectData?.status?.current_phase;
 
-// 之后（类型不变，路径不变，无需修改）
+// After (type unchanged, path unchanged, no modification needed)
 ```
 
-检查一下：`currentProjectData?.status?.current_phase` — 在新类型中 `status` 是 `ProjectStatus`，`current_phase` 仍存在，无需修改。
+Verify: `currentProjectData?.status?.current_phase` — in the new type, `status` is `ProjectStatus` and `current_phase` still exists, no modification needed.
 
-**Step 3: 更新 `stores.test.ts`**
+**Step 3: Update `stores.test.ts`**
 
-`frontend/src/stores/stores.test.ts:147`，将旧 `progress`/`current_phase` 字段改为 `status`：
+In `frontend/src/stores/stores.test.ts:147`, change the old `progress`/`current_phase` fields to `status`:
 
 ```typescript
-// 之前
+// Before
 { name: "demo", title: "Demo", style: "Anime", thumbnail: null, progress: {}, current_phase: "start" }
 
-// 之后
+// After
 { name: "demo", title: "Demo", style: "Anime", thumbnail: null, status: {} }
 ```
 
-**Step 4: 运行 TypeScript 检查**
+**Step 4: Run TypeScript check**
 
 ```bash
 cd frontend && pnpm typecheck 2>&1 | head -60
 ```
 
-修复所有类型错误（主要是 `project.progress` → `project.status`，`project.current_phase` → `(project.status as ProjectStatus).current_phase`）。
+Fix all type errors (mainly `project.progress` → `project.status`, `project.current_phase` → `(project.status as ProjectStatus).current_phase`).
 
 **Step 5: Commit**
 
@@ -938,16 +938,16 @@ git commit -m "feat(ui): update ProjectCard to use new ProjectStatus structure"
 
 ---
 
-## Task 7: 更新前端测试 + 全量验证
+## Task 7: Update frontend tests + full validation
 
 **Files:**
 - Modify: `frontend/src/components/pages/ProjectsPage.test.tsx`
 
-**Step 1: 更新测试 fixture**
+**Step 1: Update test fixtures**
 
-将 `ProjectsPage.test.tsx` 中所有 `current_phase` / `progress` 字段改为 `status` 对象。
+Change all `current_phase` / `progress` fields to `status` objects in `ProjectsPage.test.tsx`.
 
-Line 54-77 的测试改为：
+Change the test at lines 54-77 to:
 
 ```typescript
 vi.spyOn(API, "listProjects").mockResolvedValue({
@@ -969,29 +969,29 @@ vi.spyOn(API, "listProjects").mockResolvedValue({
 });
 ```
 
-断言 `"50%"` 而不是 `"42%"`（相应修改期望值以匹配 `phase_progress`）。
+Assert `"50%"` instead of `"42%"` (update expected values to match `phase_progress`).
 
-Line 103 和 line 179 的 `current_phase: "storyboard"` 改为 `status: { current_phase: "production", phase_progress: 1.0, characters: {...}, clues: {...}, episodes_summary: {...} }`。
+Change `current_phase: "storyboard"` at lines 103 and 179 to `status: { current_phase: "production", phase_progress: 1.0, characters: {...}, clues: {...}, episodes_summary: {...} }`.
 
-**Step 2: 运行前端测试**
+**Step 2: Run frontend tests**
 
 ```bash
 cd frontend && pnpm test --run 2>&1 | tail -30
 ```
 
-**Step 3: 运行完整检查**
+**Step 3: Run full check**
 
 ```bash
 cd frontend && pnpm check
 ```
 
-**Step 4: 运行全量后端测试**
+**Step 4: Run all backend tests**
 
 ```bash
 cd .worktrees/progress-redesign && python -m pytest --tb=short -q
 ```
 
-期望：438+ passed, 0 failed
+Expected: 438+ passed, 0 failed
 
 **Step 5: Commit**
 
@@ -1002,24 +1002,24 @@ git commit -m "test(ui): update ProjectsPage tests to new ProjectStatus structur
 
 ---
 
-## Task 8: 最终验证
+## Task 8: Final Validation
 
-**Step 1: 后端全量测试**
+**Step 1: Backend full tests**
 
 ```bash
 python -m pytest -v 2>&1 | tail -20
 ```
 
-**Step 2: 前端全量检查**
+**Step 2: Frontend full check**
 
 ```bash
 cd frontend && pnpm check
 ```
 
-**Step 3: 如全部通过，推送分支**
+**Step 3: If all pass, push branch**
 
 ```bash
 git log --oneline -8
 ```
 
-确认提交历史清晰，然后报告完成。
+Confirm the commit history is clean, then report completion.

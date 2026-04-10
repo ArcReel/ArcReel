@@ -1,6 +1,6 @@
-# Grok & Ark 共享后端重构设计
+# Grok & Ark Shared Backend Refactor Design
 
-## 背景
+## Background
 
 当前 AI 后端中，OpenAI 通过 `openai_shared.py` 提供 `create_openai_client()` 工厂函数，
 Gemini 通过 `gemini_shared.py` 提供共享 RateLimiter + 重试机制。
@@ -10,7 +10,7 @@ Gemini 通过 `gemini_shared.py` 提供共享 RateLimiter + 重试机制。
 ## 目标
 
 为 Grok 和 Ark 各创建一个共享模块（`grok_shared.py` / `ark_shared.py`），
-提供统一的客户端工厂函数，消除三处后端中的重复代码。采用与 `openai_shared.py` 相同的模式。
+提供统一的客户端工厂函数，消除三处后端中的重复代码。Uses与 `openai_shared.py` 相同的模式。
 
 ## 设计
 
@@ -108,16 +108,16 @@ def create_ark_client(*, api_key: str | None = None):
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `lib/grok_shared.py` | 新增 | 工厂函数 |
-| `lib/ark_shared.py` | 新增 | 工厂函数 + base_url 常量 |
-| `lib/image_backends/grok.py` | 改动 | 改用 `create_grok_client()` |
-| `lib/video_backends/grok.py` | 改动 | 改用 `create_grok_client()` |
-| `lib/text_backends/grok.py` | 改动 | 改用 `create_grok_client()` + 异步化 |
-| `lib/image_backends/ark.py` | 改动 | 改用 `create_ark_client()` |
-| `lib/video_backends/ark.py` | 改动 | 改用 `create_ark_client()` |
-| `lib/text_backends/ark.py` | 改动 | 主客户端改用 `create_ark_client()` |
+| `lib/grok_shared.py` | Add | 工厂函数 |
+| `lib/ark_shared.py` | Add | 工厂函数 + base_url 常量 |
+| `lib/image_backends/grok.py` | Modify | Use `create_grok_client()` |
+| `lib/video_backends/grok.py` | Modify | Use `create_grok_client()` |
+| `lib/text_backends/grok.py` | Modify | Use `create_grok_client()` + make async |
+| `lib/image_backends/ark.py` | Modify | Use `create_ark_client()` |
+| `lib/video_backends/ark.py` | Modify | Use `create_ark_client()` |
+| `lib/text_backends/ark.py` | Modify | 主客户端改用 `create_ark_client()` |
 
-## 测试策略
+## Testing Strategy
 
 纯重构，行为不变。`ruff check` + `pytest` 全量跑通即可，无需新增测试。
 如有涉及 Grok/Ark 后端的 mock，需适配新的 import 路径。

@@ -1,10 +1,10 @@
-# 媒体缓存与视频缩略图 Implementation Plan
+# Media Cache and Video Thumbnail Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 实现基于文件 mtime 指纹的零网络请求缓存，以及视频首帧缩略图，消除滚动/重进页面时的重复下载。
+**Goal:** Implement zero-network-request caching based on file mtime fingerprints, and video first-frame thumbnails, eliminating repeat downloads on scroll/re-entering the page.
 
-**Architecture:** 后端在项目 API 和 SSE 事件中返回 `asset_fingerprints`（path → mtime 映射），前端用 fingerprint 替代 session 级 revision 作为 URL cache-bust 参数。配合 `Cache-Control: immutable` 头，浏览器 disk cache 实现零网络请求。视频使用 ffmpeg 提取首帧缩略图作为 poster，配合 `preload="none"` 避免视频预加载。
+**Architecture:** The backend returns `asset_fingerprints` (path → mtime mapping) in the project API and SSE events. The frontend uses fingerprints instead of session-level revisions as the URL cache-bust parameter. Combined with `Cache-Control: immutable` headers, the browser disk cache achieves zero network requests. Videos use ffmpeg to extract a first-frame thumbnail as the poster, combined with `preload="none"` to avoid video preloading.
 
 **Tech Stack:** Python/FastAPI, TypeScript/React, Zustand, ffmpeg, @tanstack/react-virtual
 
@@ -12,7 +12,7 @@
 
 ---
 
-### Task 1: 后端 — compute_asset_fingerprints 工具函数
+### Task 1: Backend — compute_asset_fingerprints utility function
 
 **Files:**
 - Create: `lib/asset_fingerprints.py`
@@ -51,7 +51,7 @@ class TestComputeAssetFingerprints:
         for subdir, name in [
             ("thumbnails", "scene_E1S01.jpg"),
             ("characters", "Alice.png"),
-            ("clues", "玉佩.png"),
+            ("clues", "pendant.png"),
         ]:
             (tmp_path / subdir).mkdir()
             (tmp_path / subdir / name).write_bytes(b"x")
@@ -59,7 +59,7 @@ class TestComputeAssetFingerprints:
         result = compute_asset_fingerprints(tmp_path)
         assert "thumbnails/scene_E1S01.jpg" in result
         assert "characters/Alice.png" in result
-        assert "clues/玉佩.png" in result
+        assert "clues/pendant.png" in result
 
     def test_includes_root_level_assets(self, tmp_path):
         (tmp_path / "style_reference.png").write_bytes(b"style")
@@ -94,23 +94,23 @@ Expected: FAIL with "No module named 'lib.asset_fingerprints'"
 
 ```python
 # lib/asset_fingerprints.py
-"""资产文件指纹计算 — 基于 mtime 的内容寻址缓存支持"""
+"""Asset file fingerprint computation — support for mtime-based content-addressable caching"""
 
 from pathlib import Path
 
-# 扫描的媒体子目录
+# Media subdirectories to scan
 _MEDIA_SUBDIRS = ("storyboards", "videos", "thumbnails", "characters", "clues")
 
-# 根目录下的已知媒体文件（如风格参考图）
+# Known media files at root level (e.g., style reference images)
 _ROOT_MEDIA_SUFFIXES = frozenset((".png", ".jpg", ".jpeg", ".webp", ".mp4"))
 
 
 def compute_asset_fingerprints(project_path: Path) -> dict[str, int]:
     """
-    扫描项目目录下所有媒体文件，返回 {相对路径: mtime_int} 映射。
+    Scan all media files under the project directory and return a {relative_path: mtime_int} mapping.
 
-    mtime 为 stat.st_mtime_ns（纳秒整数），精度到纳秒，用作 URL cache-bust 参数。
-    对约 50 个文件，耗时 <1ms（仅读文件系统元数据）。
+    mtime is stat.st_mtime_ns (nanosecond integer), used as a URL cache-bust parameter.
+    For ~50 files, takes <1ms (reads filesystem metadata only).
     """
     fingerprints: dict[str, int] = {}
 
@@ -122,7 +122,7 @@ def compute_asset_fingerprints(project_path: Path) -> dict[str, int]:
             if f.is_file():
                 fingerprints[f"{subdir}/{f.name}"] = int(f.stat().st_mtime)
 
-    # 根目录下的媒体文件（如 style_reference.png）
+    # Media files at root level (e.g., style_reference.png)
     for f in project_path.iterdir():
         if f.is_file() and f.suffix.lower() in _ROOT_MEDIA_SUFFIXES:
             fingerprints[f.name] = int(f.stat().st_mtime)
@@ -144,21 +144,21 @@ git commit -m "feat: add compute_asset_fingerprints utility for content-addressa
 
 ---
 
-### Task 2: 后端 — 项目 API 返回 asset_fingerprints
+### Task 2: Backend — project API returns asset_fingerprints
 
 **Files:**
-- Modify: `server/routers/projects.py:298-306` (get_project 返回值)
-- Test: `tests/test_projects_router.py` (追加测试)
+- Modify: `server/routers/projects.py:298-306` (get_project return value)
+- Test: `tests/test_projects_router.py` (append tests)
 
 **Step 1: Write the failing test**
 
-在 `tests/test_projects_router.py` 中追加测试。先找到现有的 fixture 和测试模式，然后添加：
+In `tests/test_projects_router.py`, append a test. First locate the existing fixtures and test patterns, then add:
 
 ```python
 def test_get_project_includes_asset_fingerprints(self, monkeypatch, tmp_path):
-    """项目 API 应返回 asset_fingerprints 字段"""
+    """Project API should return the asset_fingerprints field"""
     client, pm = _setup_project_client(monkeypatch, tmp_path)
-    # 创建媒体文件
+    # Create media files
     project_path = pm.get_project_path("demo")
     (project_path / "storyboards").mkdir(exist_ok=True)
     (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"img")
@@ -175,19 +175,19 @@ def test_get_project_includes_asset_fingerprints(self, monkeypatch, tmp_path):
 **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_projects_router.py -k "asset_fingerprints" -v`
-Expected: FAIL with AssertionError (asset_fingerprints 不在响应中)
+Expected: FAIL with AssertionError (asset_fingerprints not in response)
 
 **Step 3: Write minimal implementation**
 
-修改 `server/routers/projects.py:298-306`，在 return 之前添加 fingerprint 计算：
+Modify `server/routers/projects.py:298-306`, add fingerprint computation before the return statement:
 
 ```python
-# 在 get_project 函数的 return 语句之前添加
+# Add before the return statement in get_project
 from lib.asset_fingerprints import compute_asset_fingerprints
 
 # ... existing code ...
 
-        # 计算媒体文件指纹（用于前端内容寻址缓存）
+        # Compute media file fingerprints (for frontend content-addressable caching)
         project_path = manager.get_project_path(name)
         fingerprints = compute_asset_fingerprints(project_path)
 
@@ -198,7 +198,7 @@ from lib.asset_fingerprints import compute_asset_fingerprints
         }
 ```
 
-注意：import 放在文件顶部。
+Note: place the import at the top of the file.
 
 **Step 4: Run test to verify it passes**
 
@@ -214,19 +214,19 @@ git commit -m "feat: project API returns asset_fingerprints for content-addressa
 
 ---
 
-### Task 3: 后端 — 文件路由添加 immutable 缓存头
+### Task 3: Backend — add immutable cache headers to file routes
 
 **Files:**
 - Modify: `server/routers/files.py:46-64` (serve_project_file)
-- Test: `tests/test_files_router.py` (追加测试)
+- Test: `tests/test_files_router.py` (append tests)
 
 **Step 1: Write the failing test**
 
-在 `tests/test_files_router.py` 追加：
+In `tests/test_files_router.py`, append:
 
 ```python
 def test_cache_control_immutable_with_version_param(self, tmp_path, monkeypatch):
-    """带 ?v= 参数时应返回 immutable 缓存头"""
+    """Should return immutable cache headers when ?v= parameter is present"""
     client, pm = _client(monkeypatch, tmp_path)
     project_path = pm.get_project_path("demo")
     (project_path / "storyboards").mkdir(exist_ok=True)
@@ -239,7 +239,7 @@ def test_cache_control_immutable_with_version_param(self, tmp_path, monkeypatch)
         assert "max-age=31536000" in resp.headers.get("cache-control", "")
 
 def test_cache_control_immutable_for_version_files(self, tmp_path, monkeypatch):
-    """versions/ 路径下的文件应返回 immutable 缓存头"""
+    """Files under versions/ path should return immutable cache headers"""
     client, pm = _client(monkeypatch, tmp_path)
     project_path = pm.get_project_path("demo")
     (project_path / "versions" / "storyboards").mkdir(parents=True)
@@ -251,7 +251,7 @@ def test_cache_control_immutable_for_version_files(self, tmp_path, monkeypatch):
         assert "immutable" in resp.headers.get("cache-control", "")
 
 def test_no_cache_control_without_version(self, tmp_path, monkeypatch):
-    """无 ?v= 参数且非 versions 路径时不应有 immutable 头"""
+    """Should not have immutable headers when no ?v= parameter and not a versions/ path"""
     client, pm = _client(monkeypatch, tmp_path)
     project_path = pm.get_project_path("demo")
     (project_path / "storyboards").mkdir(exist_ok=True)
@@ -270,7 +270,7 @@ Expected: FAIL
 
 **Step 3: Write minimal implementation**
 
-修改 `server/routers/files.py:46-64`，将 `serve_project_file` 改为：
+Modify `server/routers/files.py:46-64`, change `serve_project_file` to:
 
 ```python
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
@@ -280,28 +280,28 @@ from fastapi.responses import FileResponse, PlainTextResponse
 
 @router.get("/files/{project_name}/{path:path}")
 async def serve_project_file(project_name: str, path: str, request: Request):
-    """服务项目内的静态文件（图片/视频）"""
+    """Serve static files (images/videos) within a project"""
     try:
         project_dir = get_project_manager().get_project_path(project_name)
         file_path = project_dir / path
 
         if not file_path.exists():
-            raise HTTPException(status_code=404, detail=f"文件不存在: {path}")
+            raise HTTPException(status_code=404, detail=f"File not found: {path}")
 
-        # 安全检查：确保路径在项目目录内
+        # Security check: ensure path is within the project directory
         try:
             file_path.resolve().relative_to(project_dir.resolve())
         except ValueError:
-            raise HTTPException(status_code=403, detail="禁止访问项目目录外的文件")
+            raise HTTPException(status_code=403, detail="Access to files outside the project directory is forbidden")
 
-        # 内容寻址缓存：带 ?v= 参数或 versions/ 路径时设 immutable
+        # Content-addressable caching: set immutable when ?v= param or versions/ path
         headers = {}
         if request.query_params.get("v") or "versions/" in path:
             headers["Cache-Control"] = "public, max-age=31536000, immutable"
 
         return FileResponse(file_path, headers=headers)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"项目 '{project_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
 ```
 
 **Step 4: Run test to verify it passes**
@@ -318,26 +318,26 @@ git commit -m "feat: add immutable cache headers for versioned file responses"
 
 ---
 
-### Task 4: 后端 — SSE 事件携带 asset_fingerprints
+### Task 4: Backend — SSE events carry asset_fingerprints
 
 **Files:**
 - Modify: `server/services/generation_tasks.py:198-268` (_emit_generation_success_batch)
-- Test: `tests/test_generation_tasks_service.py` (追加测试)
+- Test: `tests/test_generation_tasks_service.py` (append tests)
 
 **Step 1: Write the failing test**
 
-在 `tests/test_generation_tasks_service.py` 追加。需要先了解 `_emit_generation_success_batch` 如何被测试。该函数调用 `emit_project_change_batch`，可以 monkeypatch 它来捕获参数：
+In `tests/test_generation_tasks_service.py`, append. First understand how `_emit_generation_success_batch` is tested. The function calls `emit_project_change_batch`, which can be monkeypatched to capture arguments:
 
 ```python
 def test_emit_success_batch_includes_fingerprints(self, monkeypatch, tmp_path):
-    """生成成功事件应携带 asset_fingerprints"""
+    """Generation success events should carry asset_fingerprints"""
     captured = []
     monkeypatch.setattr(
         generation_tasks, "emit_project_change_batch",
         lambda project_name, changes, source: captured.append(changes)
     )
 
-    # 创建项目目录和媒体文件
+    # Create project directory and media files
     project_path = tmp_path / "demo"
     project_path.mkdir()
     (project_path / "storyboards").mkdir()
@@ -367,7 +367,7 @@ Expected: FAIL
 
 **Step 3: Write minimal implementation**
 
-修改 `server/services/generation_tasks.py:198-268`，在 `_emit_generation_success_batch` 中计算受影响文件的 fingerprint：
+Modify `server/services/generation_tasks.py:198-268`, compute fingerprints of affected files in `_emit_generation_success_batch`:
 
 ```python
 def _emit_generation_success_batch(
@@ -380,7 +380,7 @@ def _emit_generation_success_batch(
     script_file = str(payload.get("script_file") or "") or None
     episode = _resolve_script_episode(project_name, script_file)
 
-    # 计算受影响文件的 fingerprint
+    # Compute fingerprints of affected files
     asset_fingerprints = _compute_affected_fingerprints(
         project_name, task_type, resource_id
     )
@@ -391,7 +391,7 @@ def _emit_generation_success_batch(
                 "entity_type": "segment",
                 "action": "storyboard_ready",
                 "entity_id": resource_id,
-                "label": f"分镜「{resource_id}」",
+                "label": f"Storyboard {resource_id}",
                 "script_file": script_file,
                 "episode": episode,
                 "focus": None,
@@ -405,7 +405,7 @@ def _emit_generation_success_batch(
                 "entity_type": "segment",
                 "action": "video_ready",
                 "entity_id": resource_id,
-                "label": f"分镜「{resource_id}」",
+                "label": f"Storyboard {resource_id}",
                 "script_file": script_file,
                 "episode": episode,
                 "focus": None,
@@ -419,7 +419,7 @@ def _emit_generation_success_batch(
                 "entity_type": "character",
                 "action": "updated",
                 "entity_id": resource_id,
-                "label": f"角色「{resource_id}」设计图",
+                "label": f"Character {resource_id} design",
                 "focus": None,
                 "important": True,
                 "asset_fingerprints": asset_fingerprints,
@@ -431,7 +431,7 @@ def _emit_generation_success_batch(
                 "entity_type": "clue",
                 "action": "updated",
                 "entity_id": resource_id,
-                "label": f"线索「{resource_id}」设计图",
+                "label": f"Clue {resource_id} design",
                 "focus": None,
                 "important": True,
                 "asset_fingerprints": asset_fingerprints,
@@ -444,7 +444,7 @@ def _emit_generation_success_batch(
         emit_project_change_batch(project_name, changes, source="worker")
     except Exception:
         logger.exception(
-            "发送生成完成项目事件失败 project=%s task_type=%s resource_id=%s",
+            "Failed to emit generation success project event: project=%s task_type=%s resource_id=%s",
             project_name,
             task_type,
             resource_id,
@@ -454,7 +454,7 @@ def _emit_generation_success_batch(
 def _compute_affected_fingerprints(
     project_name: str, task_type: str, resource_id: str
 ) -> Dict[str, int]:
-    """计算受影响文件的 mtime 指纹"""
+    """Compute mtime fingerprints of affected files"""
     try:
         project_path = get_project_manager().get_project_path(project_name)
     except Exception:
@@ -514,24 +514,24 @@ git commit -m "feat: SSE change events carry asset_fingerprints for instant cach
 
 ---
 
-### Task 5: 后端 — 版本还原 API 返回 asset_fingerprints
+### Task 5: Backend — restore version API returns asset_fingerprints
 
 **Files:**
-- Modify: `server/routers/versions.py:154-158` (restore_version 返回值)
-- Test: `tests/test_versions_router.py` (追加测试)
+- Modify: `server/routers/versions.py:154-158` (restore_version return value)
+- Test: `tests/test_versions_router.py` (append tests)
 
 **Step 1: Write the failing test**
 
-在 `tests/test_versions_router.py` 中，`_FakeVM.restore_version` 需要配合。测试只验证返回值中包含 `asset_fingerprints`：
+In `tests/test_versions_router.py`, `_FakeVM.restore_version` needs to cooperate. The test only verifies that the return value contains `asset_fingerprints`:
 
 ```python
 def test_restore_returns_asset_fingerprints(self, monkeypatch, tmp_path):
-    """版本还原应返回受影响文件的 fingerprint"""
+    """Version restore should return fingerprints of affected files"""
     fake_pm = _FakePM()
-    # 覆盖 get_project_path 使其返回 tmp_path
+    # Override get_project_path to return tmp_path
     fake_pm.get_project_path = lambda name: tmp_path
 
-    # 创建目标文件（还原后的当前文件）
+    # Create the target file (the current file after restore)
     (tmp_path / "storyboards").mkdir()
     (tmp_path / "storyboards" / "scene_E1S01.png").write_bytes(b"restored")
 
@@ -560,10 +560,10 @@ Expected: FAIL
 
 **Step 3: Write minimal implementation**
 
-修改 `server/routers/versions.py:154-158`，在 return 之前计算 fingerprint：
+Modify `server/routers/versions.py:154-158`, compute fingerprint before the return statement:
 
 ```python
-        # 计算还原后文件的 fingerprint
+        # Compute fingerprint of the restored file
         asset_fingerprints = {}
         if current_file.exists():
             asset_fingerprints[file_path] = int(current_file.stat().st_mtime)
@@ -590,12 +590,12 @@ git commit -m "feat: restore version API returns asset_fingerprints"
 
 ---
 
-### Task 6: 后端 — 视频首帧缩略图提取
+### Task 6: Backend — video first-frame thumbnail extraction
 
 **Files:**
 - Create: `lib/thumbnail.py`
 - Test: `tests/test_thumbnail.py`
-- Modify: `server/services/generation_tasks.py` (execute_video_task 调用)
+- Modify: `server/services/generation_tasks.py` (execute_video_task invocation)
 
 **Step 1: Write the failing test**
 
@@ -617,7 +617,7 @@ class TestExtractVideoThumbnail:
             pytest.skip("ffmpeg not available")
 
     async def test_extracts_thumbnail_from_video(self, tmp_path):
-        # 用 ffmpeg 生成一个最小测试视频
+        # Generate a minimal test video using ffmpeg
         video_path = tmp_path / "test.mp4"
         proc = await asyncio.create_subprocess_exec(
             "ffmpeg", "-f", "lavfi", "-i", "color=c=red:s=64x64:d=1",
@@ -671,7 +671,7 @@ Expected: FAIL with "No module named 'lib.thumbnail'"
 
 ```python
 # lib/thumbnail.py
-"""视频首帧缩略图提取"""
+"""Video first-frame thumbnail extraction"""
 
 import asyncio
 import logging
@@ -686,14 +686,14 @@ async def extract_video_thumbnail(
     thumbnail_path: Path,
 ) -> Optional[Path]:
     """
-    使用 ffmpeg 提取视频第一帧作为 JPEG 缩略图。
+    Extract the first frame of a video as a JPEG thumbnail using ffmpeg.
 
     Args:
-        video_path: 视频文件路径
-        thumbnail_path: 输出缩略图路径
+        video_path: Path to the video file
+        thumbnail_path: Output thumbnail path
 
     Returns:
-        缩略图路径（成功）或 None（失败）
+        Thumbnail path (success) or None (failure)
     """
     if not video_path.exists():
         return None
@@ -717,14 +717,14 @@ async def extract_video_thumbnail(
 
         return thumbnail_path
     except Exception:
-        logger.warning("提取视频缩略图失败: %s", video_path, exc_info=True)
+        logger.warning("Failed to extract video thumbnail: %s", video_path, exc_info=True)
         return None
 ```
 
 **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_thumbnail.py -v`
-Expected: All PASS (或 skip if no ffmpeg)
+Expected: All PASS (or skip if no ffmpeg)
 
 **Step 5: Commit**
 
@@ -735,18 +735,18 @@ git commit -m "feat: add video thumbnail extraction utility using ffmpeg"
 
 ---
 
-### Task 7: 后端 — 视频生成后自动提取缩略图
+### Task 7: Backend — auto-extract thumbnail after video generation
 
 **Files:**
 - Modify: `server/services/generation_tasks.py` (execute_video_task)
-- Modify: `lib/project_manager.py:528-543` (create_generated_assets 新增 video_thumbnail)
-- Test: 在 `tests/test_generation_tasks_service.py` 追加
+- Modify: `lib/project_manager.py:528-543` (add video_thumbnail to create_generated_assets)
+- Test: append to `tests/test_generation_tasks_service.py`
 
 **Step 1: Write the failing test**
 
 ```python
 async def test_execute_video_task_generates_thumbnail(self, monkeypatch, tmp_path):
-    """视频生成后应自动提取首帧缩略图"""
+    """Should auto-extract first-frame thumbnail after video generation"""
     project_path = tmp_path / "demo"
     project_path.mkdir()
     (project_path / "storyboards").mkdir()
@@ -754,31 +754,31 @@ async def test_execute_video_task_generates_thumbnail(self, monkeypatch, tmp_pat
     (project_path / "videos").mkdir()
 
     # ... setup fake PM, fake generator, monkeypatches ...
-    # 关键：验证 update_scene_asset 被调用时包含 video_thumbnail
-    # 验证 thumbnails/scene_E1S01.jpg 存在
+    # Key: verify update_scene_asset is called with video_thumbnail
+    # Verify thumbnails/scene_E1S01.jpg exists
 
-    # 注意：这个测试可能需要 mock extract_video_thumbnail
-    # 因为 ffmpeg 可能不可用
+    # Note: this test may need to mock extract_video_thumbnail
+    # because ffmpeg may not be available
 ```
 
-实际实现中，monkeypatch `extract_video_thumbnail` 为返回预期路径的 mock，然后验证：
-1. `extract_video_thumbnail` 被调用
-2. `update_scene_asset` 被调用设置 `video_thumbnail`
+In practice, monkeypatch `extract_video_thumbnail` to a mock that returns the expected path, then verify:
+1. `extract_video_thumbnail` is called
+2. `update_scene_asset` is called to set `video_thumbnail`
 
 **Step 2: Write minimal implementation**
 
-修改 `server/services/generation_tasks.py` 的 `execute_video_task`，在视频下载后添加：
+Modify the `execute_video_task` in `server/services/generation_tasks.py`, add after video download:
 
 ```python
-    # 在 video 下载完成后、update_scene_asset 之前添加：
+    # Add after video download completes, before update_scene_asset:
     from lib.thumbnail import extract_video_thumbnail
 
-    # 提取视频首帧作为缩略图
+    # Extract video first frame as thumbnail
     video_file = project_path / f"videos/scene_{resource_id}.mp4"
     thumbnail_file = project_path / f"thumbnails/scene_{resource_id}.jpg"
     await extract_video_thumbnail(video_file, thumbnail_file)
 
-    # 更新 video_thumbnail 资源路径
+    # Update video_thumbnail asset path
     if thumbnail_file.exists():
         get_project_manager().update_scene_asset(
             project_name=project_name,
@@ -789,7 +789,7 @@ async def test_execute_video_task_generates_thumbnail(self, monkeypatch, tmp_pat
         )
 ```
 
-修改 `lib/project_manager.py:528-543`，在 `create_generated_assets` 中添加 `video_thumbnail`：
+Modify `lib/project_manager.py:528-543`, add `video_thumbnail` to `create_generated_assets`:
 
 ```python
     @staticmethod
@@ -797,7 +797,7 @@ async def test_execute_video_task_generates_thumbnail(self, monkeypatch, tmp_pat
         return {
             "storyboard_image": None,
             "video_clip": None,
-            "video_thumbnail": None,   # 新增
+            "video_thumbnail": None,   # new
             "video_uri": None,
             "status": "pending",
         }
@@ -817,16 +817,16 @@ git commit -m "feat: auto-extract video thumbnail after generation, add video_th
 
 ---
 
-### Task 8: 前端 — ProjectChange 类型和 projects-store 扩展
+### Task 8: Frontend — ProjectChange type and projects-store extension
 
 **Files:**
-- Modify: `frontend/src/types/workspace.ts` (ProjectChange 新增 asset_fingerprints)
-- Modify: `frontend/src/stores/projects-store.ts` (新增 fingerprint 状态管理)
-- Test: `frontend/src/stores/stores.test.ts` (追加测试)
+- Modify: `frontend/src/types/workspace.ts` (add asset_fingerprints to ProjectChange)
+- Modify: `frontend/src/stores/projects-store.ts` (add fingerprint state management)
+- Test: `frontend/src/stores/stores.test.ts` (append tests)
 
 **Step 1: Write the failing test**
 
-在 `frontend/src/stores/stores.test.ts` 追加：
+In `frontend/src/stores/stores.test.ts`, append:
 
 ```typescript
 describe("ProjectsStore fingerprints", () => {
@@ -866,7 +866,7 @@ Expected: FAIL
 
 **Step 3: Write minimal implementation**
 
-修改 `frontend/src/types/workspace.ts:10-24`，给 ProjectChange 添加可选字段：
+Modify `frontend/src/types/workspace.ts:10-24`, add optional field to ProjectChange:
 
 ```typescript
 export interface ProjectChange {
@@ -878,11 +878,11 @@ export interface ProjectChange {
   episode?: number;
   focus?: ProjectChangeFocus | null;
   important: boolean;
-  asset_fingerprints?: Record<string, number>;  // 新增
+  asset_fingerprints?: Record<string, number>;  // new
 }
 ```
 
-修改 `frontend/src/stores/projects-store.ts`：
+Modify `frontend/src/stores/projects-store.ts`:
 
 ```typescript
 import { create } from "zustand";
@@ -942,20 +942,20 @@ git commit -m "feat(frontend): add asset fingerprint state to projects-store and
 
 ---
 
-### Task 9: 前端 — SSE 处理器使用 fingerprints
+### Task 9: Frontend — SSE handler uses fingerprints
 
 **Files:**
 - Modify: `frontend/src/hooks/useProjectEventsSSE.ts:212-258` (onChanges)
-- Modify: 所有调用 `setCurrentProject` 的地方（传入 fingerprints）
-- Test: `frontend/src/hooks/useProjectEventsSSE.test.tsx` (追加)
+- Modify: all locations calling `setCurrentProject` (pass fingerprints)
+- Test: `frontend/src/hooks/useProjectEventsSSE.test.tsx` (append)
 
 **Step 1: Write the failing test**
 
-在 `frontend/src/hooks/useProjectEventsSSE.test.tsx` 追加测试，验证 SSE 事件中的 `asset_fingerprints` 被提取并更新到 store。
+In `frontend/src/hooks/useProjectEventsSSE.test.tsx`, append a test verifying that `asset_fingerprints` from SSE events are extracted and updated in the store.
 
 **Step 2: Write minimal implementation**
 
-修改 `frontend/src/hooks/useProjectEventsSSE.ts:212-258` 的 `onChanges` 处理：
+Modify the `onChanges` handler in `frontend/src/hooks/useProjectEventsSSE.ts:212-258`:
 
 ```typescript
 onChanges(payload: ProjectChangeBatchPayload) {
@@ -963,7 +963,7 @@ onChanges(payload: ProjectChangeBatchPayload) {
   lastFingerprintRef.current = payload.fingerprint;
   setAssistantToolActivitySuppressed(true);
 
-  // 提取并更新 asset fingerprints（零延迟）
+  // Extract and update asset fingerprints (zero delay)
   const mergedFingerprints: Record<string, number> = {};
   for (const change of payload.changes) {
     if (change.asset_fingerprints) {
@@ -974,7 +974,7 @@ onChanges(payload: ProjectChangeBatchPayload) {
     useProjectsStore.getState().updateAssetFingerprints(mergedFingerprints);
   }
 
-  // 保留 entityRevisions 用于触发非媒体相关的重渲染
+  // Retain entityRevisions for triggering non-media-related re-renders
   const invalidationKeys = payload.changes.map((change) =>
     buildEntityRevisionKey(change.entity_type, change.entity_id),
   );
@@ -986,15 +986,15 @@ onChanges(payload: ProjectChangeBatchPayload) {
 },
 ```
 
-同时，修改所有调用 `setCurrentProject` 的地方，传入 API 响应中的 fingerprints。搜索所有 `setCurrentProject` 调用点，一般在 `refreshProject` 回调中。需要修改 API 调用处，从响应中提取 `asset_fingerprints` 并传给 `setCurrentProject`。
+Also modify all places that call `setCurrentProject` to pass in fingerprints from the API response. Search all `setCurrentProject` call sites (generally in `refreshProject` callbacks). Modify the API call locations to extract `asset_fingerprints` from the response and pass it to the fourth argument of `setCurrentProject`.
 
-关键调用点（搜索 `setCurrentProject` 的地方）：
-- `useProjectEventsSSE.ts` 中的 `refreshProject`
-- `useProjectAssetSync.ts` 中的 `refreshProject`
-- `StudioCanvasRouter.tsx` 中的 `refreshProject`
-- `OverviewCanvas.tsx` 中的 `refreshProject`
+Key call sites (search for `setCurrentProject`):
+- `refreshProject` in `useProjectEventsSSE.ts`
+- `refreshProject` in `useProjectAssetSync.ts`
+- `refreshProject` in `StudioCanvasRouter.tsx`
+- `refreshProject` in `OverviewCanvas.tsx`
 
-每处都需要把 `res.asset_fingerprints` 传入 `setCurrentProject` 的第四个参数。
+Each location needs to pass `res.asset_fingerprints` as the fourth argument to `setCurrentProject`.
 
 **Step 3: Run tests**
 
@@ -1012,21 +1012,21 @@ git commit -m "feat(frontend): SSE handler extracts asset_fingerprints, propagat
 
 ---
 
-### Task 10: 前端 — 组件 URL 构建切换到 fingerprint
+### Task 10: Frontend — switch component URL construction to fingerprint
 
 **Files:**
 - Modify: `frontend/src/components/canvas/timeline/SegmentCard.tsx:483-491`
 - Modify: `frontend/src/components/canvas/lorebook/CharacterCard.tsx:128-134`
 - Modify: `frontend/src/components/canvas/OverviewCanvas.tsx:141-143`
 - Modify: `frontend/src/components/ui/AvatarStack.tsx:66,125`
-- Test: 各组件的现有测试（确保不 regression）
+- Test: existing tests for each component (ensure no regressions)
 
 **Step 1: Write implementation**
 
-核心模式变更 — 以 SegmentCard 为例：
+Core pattern change — using SegmentCard as an example:
 
 ```typescript
-// 旧代码 (SegmentCard.tsx:483-491)
+// Old code (SegmentCard.tsx:483-491)
 const entityRevisionKey = buildEntityRevisionKey("segment", segmentId);
 const mediaRevision = useAppStore((s) => s.getEntityRevision(entityRevisionKey));
 const storyboardUrl = assets?.storyboard_image
@@ -1036,7 +1036,7 @@ const videoUrl = assets?.video_clip
   ? API.getFileUrl(projectName, assets.video_clip, mediaRevision)
   : null;
 
-// 新代码
+// New code
 const storyboardFp = useProjectsStore(
   (s) => assets?.storyboard_image ? s.getAssetFingerprint(assets.storyboard_image) : null
 );
@@ -1057,13 +1057,13 @@ const thumbnailUrl = assets?.video_thumbnail
   : null;
 ```
 
-对 CharacterCard、OverviewCanvas、AvatarStack 做同样的模式变更：
-- 将 `useAppStore(s => s.getEntityRevision(key))` 替换为 `useProjectsStore(s => s.getAssetFingerprint(path))`
+Apply the same pattern change to CharacterCard, OverviewCanvas, AvatarStack:
+- Replace `useAppStore(s => s.getEntityRevision(key))` with `useProjectsStore(s => s.getAssetFingerprint(path))`
 
 **Step 2: Update VideoPlayer to use poster + preload="none"**
 
 ```typescript
-// SegmentCard.tsx — VideoPlayer 组件改造
+// SegmentCard.tsx — VideoPlayer component refactor
 function VideoPlayer({ src, poster }: { src: string; poster?: string | null }) {
   return (
     <video
@@ -1078,12 +1078,12 @@ function VideoPlayer({ src, poster }: { src: string; poster?: string | null }) {
 }
 ```
 
-调用时传入 poster：`<VideoPlayer src={videoUrl} poster={thumbnailUrl} />`
+Pass poster when calling: `<VideoPlayer src={videoUrl} poster={thumbnailUrl} />`
 
 **Step 3: Run all frontend tests**
 
 Run: `cd frontend && pnpm test`
-Expected: All PASS（可能需要更新一些 mock）
+Expected: All PASS (may need to update some mocks)
 
 **Step 4: Commit**
 
@@ -1097,39 +1097,39 @@ git commit -m "feat(frontend): switch media URL cache-busting from session revis
 
 ---
 
-### Task 11: 前端 — VersionTimeMachine 适配
+### Task 11: Frontend — VersionTimeMachine adaptation
 
 **Files:**
 - Modify: `frontend/src/components/canvas/timeline/VersionTimeMachine.tsx`
-- Modify: `frontend/src/api.ts` (restoreVersion 返回类型)
+- Modify: `frontend/src/api.ts` (restoreVersion return type)
 - Test: `frontend/src/components/canvas/timeline/VersionTimeMachine.test.tsx`
 
 **Step 1: Write implementation**
 
-修改 `handleRestore` 使用返回的 fingerprints：
+Modify `handleRestore` to use the returned fingerprints:
 
 ```typescript
 async function handleRestore(version: number) {
   setRestoringVersion(version);
   try {
     const result = await API.restoreVersion(projectName, resourceType, resourceId, version);
-    // 用返回的 fingerprint 更新 store（替代 invalidateEntities）
+    // Update store with returned fingerprint (replaces invalidateEntities)
     if (result.asset_fingerprints) {
       useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
     }
     await onRestore?.(version);
     await loadVersions();
     setSelectedVersion(version);
-    useAppStore.getState().pushToast(`已切换到 v${version}`, "success");
+    useAppStore.getState().pushToast(`Switched to v${version}`, "success");
   } catch (err) {
-    useAppStore.getState().pushToast(`切换版本失败: ${(err as Error).message}`, "error");
+    useAppStore.getState().pushToast(`Failed to switch version: ${(err as Error).message}`, "error");
   } finally {
     setRestoringVersion(null);
   }
 }
 ```
 
-修改视频预览也使用 `preload="none"`：
+Modify video preview to also use `preload="none"`:
 
 ```tsx
 <video
@@ -1141,7 +1141,7 @@ async function handleRestore(version: number) {
 />
 ```
 
-修改 `frontend/src/api.ts` 中 `restoreVersion` 的返回类型，添加 `asset_fingerprints`：
+Modify the return type of `restoreVersion` in `frontend/src/api.ts`, adding `asset_fingerprints`:
 
 ```typescript
 static async restoreVersion(
@@ -1166,10 +1166,10 @@ git commit -m "feat(frontend): VersionTimeMachine uses fingerprints from restore
 
 ---
 
-### Task 12: 全栈验证和清理
+### Task 12: Full-stack validation and cleanup
 
 **Files:**
-- 全部修改过的文件
+- All modified files
 
 **Step 1: Run all backend tests**
 
@@ -1179,12 +1179,12 @@ Expected: All PASS
 **Step 2: Run all frontend tests**
 
 Run: `cd frontend && pnpm check`
-Expected: typecheck + test 全 PASS
+Expected: typecheck + test all PASS
 
 **Step 3: Build frontend**
 
 Run: `cd frontend && pnpm build`
-Expected: 构建成功
+Expected: Build succeeds
 
 **Step 4: Commit final cleanup if needed**
 

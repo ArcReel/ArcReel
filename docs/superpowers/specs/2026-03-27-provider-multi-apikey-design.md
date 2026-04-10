@@ -1,9 +1,9 @@
-# 供应商多 API Key 支持设计
+# Provider Multi-API Key Support Design
 
 **日期：** 2026-03-27
 **状态：** 已审核
 
-## 概述
+## Overview
 
 为每个供应商支持配置多个 API Key / Vertex 凭证，用户手动切换当前活跃 Key，连接测试可针对任意单个 Key 进行。
 
@@ -16,9 +16,9 @@
 5. 连接测试可针对任意一个凭证单独进行
 6. Bug fix：base_url 尾部 `/` 归一化
 
-## 方案选择
+## Solution Selection
 
-**方案 A（采用）：新建 `provider_credential` 表**
+**方案 A（Uses）：新建 `provider_credential` 表**
 
 凭证是独立的结构化实体（名称、密钥、URL、活跃状态），用专用表建模最自然。与现有 `provider_config`（共享配置 KV）职责分离，不污染现有逻辑。
 

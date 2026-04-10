@@ -1,167 +1,167 @@
-# 设计文档：使用 Gemini 生成 JSON 剧本
+# Design Document: Generating JSON Scripts with Gemini
 
-## 概述
+## Overview
 
-创建一个脚本，使用 `gemini-3-flash-preview` 生成 JSON 剧本，替代现有 Agent 流程的最后一步（Step 3）。
+Creates a script that uses `gemini-3-flash-preview` to generate JSON scripts, replacing the final step (Step 3) of the existing Agent workflow.
 
-### 背景
+### Background
 
-现有的 `novel-to-narration-script` 和 `novel-to-storyboard-script` Agent 使用三步流程：
-1. **Step 1**: 拆分片段/场景（输出 `step1_segments.md`）
-2. **Step 2**: 角色表/线索表（输出 `step2_character_clue_tables.md`）
-3. **Step 3**: 生成 JSON 剧本 ← **本脚本替代此步骤**
+The existing `novel-to-narration-script` and `novel-to-storyboard-script` Agents use a three-step flow:
+1. **Step 1**: Split into segments/scenes (outputs `step1_segments.md`)
+2. **Step 2**: Character and clue tables (outputs `step2_character_clue_tables.md`)
+3. **Step 3**: Generate JSON script ← **this script replaces this step**
 
-### 目标
+### Goals
 
-- 使用 Gemini-3-Flash-Preview 生成 JSON 剧本
-- 借鉴 Storycraft 的 Prompt 工程技巧
-- 使用 Pydantic 确保输出格式符合规范
-- 支持说书模式（narration）和剧集动画模式（drama）
+- Use Gemini-3-Flash-Preview to generate JSON scripts
+- Draw on Storycraft's prompt engineering techniques
+- Use Pydantic to ensure output format compliance
+- Support narration mode and drama mode
 
 ---
 
-## 架构设计
+## Architecture Design
 
-### 文件结构
+### File Structure
 
 ```
 lib/
-├── script_generator.py      # 核心逻辑：Prompt 构建 + Gemini 调用 + Pydantic 模型
-├── gemini_client.py         # 现有：已有 generate_text() 方法
+├── script_generator.py      # Core logic: prompt construction + Gemini call + Pydantic models
+├── gemini_client.py         # Existing: has generate_text() method
 └── ...
 
 .claude/skills/
 └── generate-script/
-    ├── SKILL.md             # Skill 说明文档（使用 skill-creator 创建）
+    ├── SKILL.md             # Skill documentation (created with skill-creator)
     └── scripts/
-        └── generate_script.py  # CLI 入口
+        └── generate_script.py  # CLI entry point
 ```
 
-### 数据流
+### Data Flow
 
 ```
 step1_segments.md + step2_character_clue_tables.md + project.json
                             ↓
                     ScriptGenerator
                             ↓
-                    构建 Prompt
+                    Build Prompt
                             ↓
               Gemini API (gemini-3-flash-preview)
                             ↓
-                    Pydantic 验证
+                    Pydantic validation
                             ↓
                 scripts/episode_N.json
 ```
 
 ---
 
-## Pydantic 模型定义
+## Pydantic Model Definitions
 
-### 共享模型
+### Shared Models
 
 ```python
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 
 class Dialogue(BaseModel):
-    """对话条目"""
-    speaker: str = Field(description="说话人名称")
-    line: str = Field(description="对话内容")
+    """Dialogue entry."""
+    speaker: str = Field(description="Speaker name")
+    line: str = Field(description="Spoken line")
 
 class Composition(BaseModel):
-    """构图信息"""
-    shot_type: str = Field(description="镜头类型，如 Medium Shot, Close-up, Long Shot")
-    lighting: str = Field(description="光线描述，包含光源、方向和氛围")
-    ambiance: str = Field(description="整体氛围，与情绪基调匹配")
+    """Composition information."""
+    shot_type: str = Field(description="Shot type, e.g. Medium Shot, Close-up, Long Shot")
+    lighting: str = Field(description="Lighting description: light source, direction, and mood")
+    ambiance: str = Field(description="Overall atmosphere, matching the emotional tone")
 
 class ImagePrompt(BaseModel):
-    """分镜图生成 Prompt"""
-    scene: str = Field(description="场景描述：角色位置、表情、动作、环境细节")
-    composition: Composition = Field(description="构图信息")
+    """Storyboard image generation prompt."""
+    scene: str = Field(description="Scene description: character positions, expressions, actions, and environmental details")
+    composition: Composition = Field(description="Composition information")
 
 class VideoPrompt(BaseModel):
-    """视频生成 Prompt"""
-    action: str = Field(description="动作描述：角色在该片段内的具体动作")
-    camera_motion: str = Field(description="镜头运动：Static, Pan Left/Right, Zoom In/Out, Tracking Shot 等")
-    ambiance_audio: str = Field(description="环境音效：仅描述场景内的声音，禁止 BGM")
-    dialogue: List[Dialogue] = Field(default_factory=list, description="对话列表，仅当原文有引号对话时填写")
+    """Video generation prompt."""
+    action: str = Field(description="Action description: specific actions of the subject within the clip")
+    camera_motion: str = Field(description="Camera motion: Static, Pan Left/Right, Zoom In/Out, Tracking Shot, etc.")
+    ambiance_audio: str = Field(description="Ambient audio: describe only sounds within the scene; no BGM")
+    dialogue: List[Dialogue] = Field(default_factory=list, description="Dialogue list; only populate when the source text has quoted dialogue")
 
 class GeneratedAssets(BaseModel):
-    """生成资源状态（初始化为空）"""
-    storyboard_image: Optional[str] = Field(default=None, description="分镜图路径")
-    video_clip: Optional[str] = Field(default=None, description="视频片段路径")
-    video_uri: Optional[str] = Field(default=None, description="视频 URI")
-    status: Literal["pending", "storyboard_ready", "completed"] = Field(default="pending", description="生成状态")
+    """Generated asset status (initially empty)."""
+    storyboard_image: Optional[str] = Field(default=None, description="Storyboard image path")
+    video_clip: Optional[str] = Field(default=None, description="Video clip path")
+    video_uri: Optional[str] = Field(default=None, description="Video URI")
+    status: Literal["pending", "storyboard_ready", "completed"] = Field(default="pending", description="Generation status")
 ```
 
-### 说书模式（Narration）
+### Narration Mode
 
 ```python
 class NarrationSegment(BaseModel):
-    """说书模式的片段"""
-    segment_id: str = Field(description="片段 ID，格式 E{集}S{序号}")
-    episode: int = Field(description="所属剧集")
-    duration_seconds: Literal[4, 6, 8] = Field(description="片段时长（秒）")
-    segment_break: bool = Field(default=False, description="是否为场景切换点")
-    novel_text: str = Field(description="小说原文（必须原样保留，用于后期配音）")
-    characters_in_segment: List[str] = Field(description="出场角色名称列表")
-    clues_in_segment: List[str] = Field(default_factory=list, description="出场线索名称列表")
-    image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
-    video_prompt: VideoPrompt = Field(description="视频生成提示词")
-    transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="转场类型")
-    generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
+    """Segment in narration mode."""
+    segment_id: str = Field(description="Segment ID, format E{episode}S{number}")
+    episode: int = Field(description="Episode number")
+    duration_seconds: Literal[4, 6, 8] = Field(description="Segment duration in seconds")
+    segment_break: bool = Field(default=False, description="Whether this is a scene transition point")
+    novel_text: str = Field(description="Original novel text (must be preserved exactly; used for post-production voiceover)")
+    characters_in_segment: List[str] = Field(description="List of characters appearing in this segment")
+    clues_in_segment: List[str] = Field(default_factory=list, description="List of clues appearing in this segment")
+    image_prompt: ImagePrompt = Field(description="Storyboard image generation prompt")
+    video_prompt: VideoPrompt = Field(description="Video generation prompt")
+    transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="Transition type")
+    generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="Generated asset status")
 
 class NarrationEpisodeScript(BaseModel):
-    """说书模式剧集脚本"""
-    episode: int = Field(description="剧集编号")
-    title: str = Field(description="剧集标题")
-    content_mode: Literal["narration"] = Field(default="narration", description="内容模式")
-    duration_seconds: int = Field(default=0, description="总时长（秒）")
-    summary: str = Field(description="剧集摘要")
-    novel: dict = Field(description="小说来源信息")
-    characters_in_episode: List[str] = Field(description="本集出场角色列表")
-    clues_in_episode: List[str] = Field(description="本集出场线索列表")
-    segments: List[NarrationSegment] = Field(description="片段列表")
+    """Episode script in narration mode."""
+    episode: int = Field(description="Episode number")
+    title: str = Field(description="Episode title")
+    content_mode: Literal["narration"] = Field(default="narration", description="Content mode")
+    duration_seconds: int = Field(default=0, description="Total duration in seconds")
+    summary: str = Field(description="Episode summary")
+    novel: dict = Field(description="Novel source information")
+    characters_in_episode: List[str] = Field(description="List of characters appearing in this episode")
+    clues_in_episode: List[str] = Field(description="List of clues appearing in this episode")
+    segments: List[NarrationSegment] = Field(description="List of segments")
 ```
 
-### 剧集动画模式（Drama）
+### Drama Mode
 
 ```python
 class DramaScene(BaseModel):
-    """剧集动画模式的场景"""
-    scene_id: str = Field(description="场景 ID，格式 E{集}S{序号}")
-    duration_seconds: Literal[4, 6, 8] = Field(default=8, description="场景时长（秒）")
-    segment_break: bool = Field(default=False, description="是否为场景切换点")
-    scene_type: str = Field(default="剧情", description="场景类型")
-    characters_in_scene: List[str] = Field(description="出场角色名称列表")
-    clues_in_scene: List[str] = Field(default_factory=list, description="出场线索名称列表")
-    image_prompt: ImagePrompt = Field(description="分镜图生成提示词（16:9 横屏）")
-    video_prompt: VideoPrompt = Field(description="视频生成提示词")
-    transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="转场类型")
-    generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
+    """Scene in drama mode."""
+    scene_id: str = Field(description="Scene ID, format E{episode}S{number}")
+    duration_seconds: Literal[4, 6, 8] = Field(default=8, description="Scene duration in seconds")
+    segment_break: bool = Field(default=False, description="Whether this is a scene transition point")
+    scene_type: str = Field(default="drama", description="Scene type")
+    characters_in_scene: List[str] = Field(description="List of characters appearing in this scene")
+    clues_in_scene: List[str] = Field(default_factory=list, description="List of clues appearing in this scene")
+    image_prompt: ImagePrompt = Field(description="Storyboard image generation prompt (16:9 landscape)")
+    video_prompt: VideoPrompt = Field(description="Video generation prompt")
+    transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="Transition type")
+    generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="Generated asset status")
 
 class DramaEpisodeScript(BaseModel):
-    """剧集动画模式剧集脚本"""
-    episode: int = Field(description="剧集编号")
-    title: str = Field(description="剧集标题")
-    content_mode: Literal["drama"] = Field(default="drama", description="内容模式")
-    summary: str = Field(description="剧集摘要")
-    novel: dict = Field(description="小说来源信息")
-    characters_in_episode: List[str] = Field(description="本集出场角色列表")
-    clues_in_episode: List[str] = Field(description="本集出场线索列表")
-    scenes: List[DramaScene] = Field(description="场景列表")
+    """Episode script in drama mode."""
+    episode: int = Field(description="Episode number")
+    title: str = Field(description="Episode title")
+    content_mode: Literal["drama"] = Field(default="drama", description="Content mode")
+    summary: str = Field(description="Episode summary")
+    novel: dict = Field(description="Novel source information")
+    characters_in_episode: List[str] = Field(description="List of characters appearing in this episode")
+    clues_in_episode: List[str] = Field(description="List of clues appearing in this episode")
+    scenes: List[DramaScene] = Field(description="List of scenes")
 ```
 
 ---
 
-## Prompt 设计
+## Prompt Design
 
-借鉴 Storycraft 的 Prompt 工程技巧：
-1. XML 标签分隔上下文
-2. 明确的字段描述和约束
-3. 可选值列表约束输出
+Draws on Storycraft's prompt engineering techniques:
+1. XML tags to separate context sections
+2. Clear field descriptions and constraints
+3. Enum value lists to constrain output
 
-### 说书模式 Prompt
+### Narration Mode Prompt
 
 ```python
 def build_narration_prompt(
@@ -174,27 +174,27 @@ def build_narration_prompt(
 ) -> str:
     character_names = list(characters.keys())
     clue_names = list(clues.keys())
-    
+
     prompt = f"""
-你的任务是为短视频生成分镜剧本。请仔细遵循以下指示：
+Your task is to generate a storyboard script for a short video. Follow these instructions carefully:
 
-1. 你将获得故事概述、视觉风格、角色列表、线索列表，以及已拆分的小说片段。
+1. You will receive the story overview, visual style, character list, clue list, and pre-split novel segments.
 
-2. 为每个片段生成：
-   - image_prompt：第一帧的图像生成提示词
-   - video_prompt：动作和音效的视频生成提示词
+2. For each segment, generate:
+   - image_prompt: an image generation prompt for the first frame
+   - video_prompt: a video generation prompt for action and audio effects
 
 <overview>
 {project_overview.get('synopsis', '')}
 
-题材类型：{project_overview.get('genre', '')}
-核心主题：{project_overview.get('theme', '')}
-世界观设定：{project_overview.get('world_setting', '')}
+Genre: {project_overview.get('genre', '')}
+Core theme: {project_overview.get('theme', '')}
+World setting: {project_overview.get('world_setting', '')}
 </overview>
 
 <style>
-风格：{style}
-描述：{style_description}
+Style: {style}
+Description: {style_description}
 </style>
 
 <characters>
@@ -209,52 +209,47 @@ def build_narration_prompt(
 {segments_md}
 </segments>
 
-segments 为片段拆分表，每行是一个片段，包含：
-- 片段 ID：格式为 E{{集数}}S{{序号}}
-- 小说原文：必须原样保留到 novel_text 字段
-- 时长：4、6 或 8 秒
-- 是否有对话：用于判断是否需要填写 video_prompt.dialogue
-- 是否为 segment_break：场景切换点，需设置 segment_break 为 true
+The segments table lists each segment with: segment ID (format E{{episode}}S{{number}}), novel text (must be copied exactly into novel_text), duration (4, 6, or 8 seconds), whether dialogue is present, and whether it is a segment_break (scene transition point).
 
-3. 为每个片段生成时，遵循以下规则：
+3. When generating each segment, follow these rules:
 
-a. **novel_text**：原样复制小说原文，不做任何修改。
+a. **novel_text**: Copy the original novel text exactly without any modifications.
 
-b. **characters_in_segment**：列出本片段中出场的角色名称。
-   - 可选值：[{', '.join(character_names)}]
-   - 仅包含明确提及或明显暗示的角色
+b. **characters_in_segment**: List the character names appearing in this segment.
+   - Allowed values: [{', '.join(character_names)}]
+   - Include only characters explicitly mentioned or clearly implied
 
-c. **clues_in_segment**：列出本片段中涉及的线索名称。
-   - 可选值：[{', '.join(clue_names)}]
-   - 仅包含明确提及或明显暗示的线索
+c. **clues_in_segment**: List the clue names involved in this segment.
+   - Allowed values: [{', '.join(clue_names)}]
+   - Include only clues explicitly mentioned or clearly implied
 
-d. **image_prompt**：生成包含以下字段的对象：
-   - scene：描述具体场景——角色位置、表情、动作、环境细节。要具体、可视化。一段话。
-   - composition：
-     - shot_type：镜头类型（Close-up、Medium Shot、Medium Long Shot、Long Shot 等）
-     - lighting：描述光源、方向和氛围
-     - ambiance：整体氛围，与情绪基调匹配
+d. **image_prompt**: Generate an object with these fields:
+   - scene: describe the specific scene — character positions, expressions, actions, environmental details. Be concrete and visual. One paragraph.
+   - composition:
+     - shot_type: shot type (Close-up, Medium Shot, Medium Long Shot, Long Shot, etc.)
+     - lighting: describe light sources, direction, and mood
+     - ambiance: overall atmosphere matching the emotional tone
 
-e. **video_prompt**：生成包含以下字段的对象：
-   - action：精确描述该时长内发生的动作。具体描述运动细节。
-   - camera_motion：Static、Pan Left、Pan Right、Tilt Up、Tilt Down、Zoom In、Zoom Out、Tracking Shot
-   - ambiance_audio：仅描述场景内的声音。禁止出现音乐或 BGM。
-   - dialogue：{{speaker, line}} 数组。仅当原文有引号对话时填写。
+e. **video_prompt**: Generate an object with these fields:
+   - action: precisely describe the action that occurs during this duration. Be specific about movement details.
+   - camera_motion: Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot
+   - ambiance_audio: describe only sounds within the scene. No music or BGM.
+   - dialogue: {{speaker, line}} array. Only populate when the source text has quoted dialogue.
 
-f. **segment_break**：如果在片段表中标记为"是"，则设为 true。
+f. **segment_break**: Set to true if marked as "yes" in the segments table.
 
-g. **duration_seconds**：使用片段表中的时长（4、6 或 8）。
+g. **duration_seconds**: Use the duration from the segments table (4, 6, or 8).
 
-h. **transition_to_next**：默认为 "cut"。
+h. **transition_to_next**: Default to "cut".
 
-4. 输出格式为包含所有片段的 JSON 数组。
+4. Output format is a JSON array containing all segments.
 
-目标：创建生动、视觉一致的分镜提示词，用于指导 AI 图像和视频生成。保持创意、具体，并忠于原文。
+Goal: Create vivid, visually consistent storyboard prompts to guide AI image and video generation. Be creative, specific, and faithful to the source text.
 """
     return prompt
 ```
 
-### 剧集动画模式 Prompt
+### Drama Mode Prompt
 
 ```python
 def build_drama_prompt(
@@ -267,27 +262,27 @@ def build_drama_prompt(
 ) -> str:
     character_names = list(characters.keys())
     clue_names = list(clues.keys())
-    
+
     prompt = f"""
-你的任务是为剧集动画生成分镜剧本。请仔细遵循以下指示：
+Your task is to generate a storyboard script for an animated drama. Follow these instructions carefully:
 
-1. 你将获得故事概述、视觉风格、角色列表、线索列表，以及已拆分的场景列表。
+1. You will receive the story overview, visual style, character list, clue list, and pre-split scene list.
 
-2. 为每个场景生成：
-   - image_prompt：第一帧的图像生成提示词
-   - video_prompt：动作和音效的视频生成提示词
+2. For each scene, generate:
+   - image_prompt: an image generation prompt for the first frame
+   - video_prompt: a video generation prompt for action and audio effects
 
 <overview>
 {project_overview.get('synopsis', '')}
 
-题材类型：{project_overview.get('genre', '')}
-核心主题：{project_overview.get('theme', '')}
-世界观设定：{project_overview.get('world_setting', '')}
+Genre: {project_overview.get('genre', '')}
+Core theme: {project_overview.get('theme', '')}
+World setting: {project_overview.get('world_setting', '')}
 </overview>
 
 <style>
-风格：{style}
-描述：{style_description}
+Style: {style}
+Description: {style_description}
 </style>
 
 <characters>
@@ -302,156 +297,151 @@ def build_drama_prompt(
 {scenes_md}
 </scenes>
 
-scenes 为场景拆分表，每行是一个场景，包含：
-- 场景 ID：格式为 E{{集数}}S{{序号}}
-- 场景描述：剧本改编后的场景内容
-- 时长：4、6 或 8 秒（默认 8 秒）
-- 场景类型：剧情、动作、对话等
-- 是否为 segment_break：场景切换点，需设置 segment_break 为 true
+The scenes table lists each scene with: scene ID (format E{{episode}}S{{number}}), scene description (adapted from the novel), duration (4, 6, or 8 seconds, default 8), scene type (drama/action/dialogue/etc.), and whether it is a segment_break.
 
-3. 为每个场景生成时，遵循以下规则：
+3. When generating each scene, follow these rules:
 
-a. **characters_in_scene**：列出本场景中出场的角色名称。
-   - 可选值：[{', '.join(character_names)}]
-   - 仅包含明确提及或明显暗示的角色
+a. **characters_in_scene**: List the character names appearing in this scene.
+   - Allowed values: [{', '.join(character_names)}]
+   - Include only characters explicitly mentioned or clearly implied
 
-b. **clues_in_scene**：列出本场景中涉及的线索名称。
-   - 可选值：[{', '.join(clue_names)}]
-   - 仅包含明确提及或明显暗示的线索
+b. **clues_in_scene**: List the clue names involved in this scene.
+   - Allowed values: [{', '.join(clue_names)}]
+   - Include only clues explicitly mentioned or clearly implied
 
-c. **image_prompt**：生成包含以下字段的对象：
-   - scene：描述具体场景——角色位置、表情、动作、环境细节。要具体、可视化。一段话。16:9 横屏构图。
-   - composition：
-     - shot_type：镜头类型（Close-up、Medium Shot、Medium Long Shot、Long Shot 等）
-     - lighting：描述光源、方向和氛围
-     - ambiance：整体氛围，与情绪基调匹配
+c. **image_prompt**: Generate an object with these fields:
+   - scene: describe the specific scene — character positions, expressions, actions, environmental details. Be concrete and visual. 16:9 landscape composition.
+   - composition:
+     - shot_type: shot type (Close-up, Medium Shot, Medium Long Shot, Long Shot, etc.)
+     - lighting: describe light sources, direction, and mood
+     - ambiance: overall atmosphere matching the emotional tone
 
-d. **video_prompt**：生成包含以下字段的对象：
-   - action：精确描述该时长内发生的动作。具体描述运动细节。
-   - camera_motion：Static、Pan Left、Pan Right、Tilt Up、Tilt Down、Zoom In、Zoom Out、Tracking Shot
-   - ambiance_audio：仅描述场景内的声音。禁止出现音乐或 BGM。
-   - dialogue：{{speaker, line}} 数组。包含角色对话。
+d. **video_prompt**: Generate an object with these fields:
+   - action: precisely describe the action that occurs during this duration. Be specific about movement details.
+   - camera_motion: Static, Pan Left, Pan Right, Tilt Up, Tilt Down, Zoom In, Zoom Out, Tracking Shot
+   - ambiance_audio: describe only sounds within the scene. No music or BGM.
+   - dialogue: {{speaker, line}} array. Include character dialogue.
 
-e. **segment_break**：如果在场景表中标记为"是"，则设为 true。
+e. **segment_break**: Set to true if marked as "yes" in the scenes table.
 
-f. **duration_seconds**：使用场景表中的时长（4、6 或 8），默认为 8。
+f. **duration_seconds**: Use the duration from the scenes table (4, 6, or 8); default is 8.
 
-g. **scene_type**：使用场景表中的场景类型，默认为"剧情"。
+g. **scene_type**: Use the scene type from the scenes table; default is "drama".
 
-h. **transition_to_next**：默认为 "cut"。
+h. **transition_to_next**: Default to "cut".
 
-4. 输出格式为包含所有场景的 JSON 数组。
+4. Output format is a JSON array containing all scenes.
 
-目标：创建生动、视觉一致的分镜提示词，用于指导 AI 图像和视频生成。保持创意、具体，适合 16:9 横屏动画呈现。
+Goal: Create vivid, visually consistent storyboard prompts to guide AI image and video generation. Be creative, specific, and suited to 16:9 landscape animated presentation.
 """
     return prompt
 ```
 
 ---
 
-## ScriptGenerator 类
+## ScriptGenerator Class
 
 ```python
 class ScriptGenerator:
     """
-    剧本生成器
-    
-    读取 Step 1/2 的 Markdown 中间文件，调用 Gemini 生成最终 JSON 剧本
+    Script generator.
+
+    Reads the Step 1/2 Markdown intermediate files and calls Gemini to generate the final JSON script.
     """
-    
+
     MODEL = "gemini-3-flash-preview"
-    
+
     def __init__(self, project_path: Union[str, Path]):
         """
-        初始化生成器
-        
+        Initialize the generator.
+
         Args:
-            project_path: 项目目录路径，如 projects/test0205
+            project_path: Project directory path, e.g. projects/test0205
         """
         self.project_path = Path(project_path)
         self.client = GeminiClient()
         self.project_json = self._load_project_json()
         self.content_mode = self.project_json.get('content_mode', 'narration')
-    
+
     def generate(self, episode: int, output_path: Optional[Path] = None) -> Path:
         """
-        生成剧集剧本
-        
+        Generate an episode script.
+
         Args:
-            episode: 剧集编号
-            output_path: 输出路径，默认为 scripts/episode_{episode}.json
-            
+            episode: Episode number
+            output_path: Output path; defaults to scripts/episode_{episode}.json
+
         Returns:
-            生成的 JSON 文件路径
+            Path to the generated JSON file
         """
-        # 1. 加载中间文件
+        # 1. Load intermediate files
         step1_md = self._load_step1(episode)
         step2_md = self._load_step2(episode)
-        
-        # 2. 提取角色和线索
+
+        # 2. Extract characters and clues
         characters = self.project_json.get('characters', {})
         clues = self.project_json.get('clues', {})
-        
-        # 3. 构建 Prompt
+
+        # 3. Build prompt
         if self.content_mode == 'narration':
             prompt = build_narration_prompt(...)
             schema = NarrationEpisodeScript.model_json_schema()
         else:
             prompt = build_drama_prompt(...)
             schema = DramaEpisodeScript.model_json_schema()
-        
-        # 4. 调用 Gemini API
+
+        # 4. Call Gemini API
         response_text = self.client.generate_text(
             prompt=prompt,
             model=self.MODEL,
             response_schema=schema,
         )
-        
-        # 5. 解析并验证响应
+
+        # 5. Parse and validate response
         script_data = self._parse_response(response_text, episode)
-        
-        # 6. 补充元数据
+
+        # 6. Add metadata
         script_data = self._add_metadata(script_data, episode)
-        
-        # 7. 保存文件
+
+        # 7. Save file
         # ...
 ```
 
 ---
 
-## CLI 入口
+## CLI Entry Point
 
 ```bash
-# 生成指定剧集的剧本
+# Generate a script for a specified episode
 python .claude/skills/generate-script/scripts/generate_script.py <project> --episode <N>
 
-# 指定输出路径
+# Specify output path
 python .claude/skills/generate-script/scripts/generate_script.py <project> --episode <N> --output <path>
 
-# 预览 Prompt（不实际调用 API）
+# Preview prompt (without calling the API)
 python .claude/skills/generate-script/scripts/generate_script.py <project> --episode <N> --dry-run
 ```
 
 ---
 
-## 两种模式对比
+## Comparison of Two Modes
 
-| 维度 | Narration（说书模式） | Drama（剧集动画模式） |
-|------|----------------------|---------------------|
-| 数据单位 | segment（片段） | scene（场景） |
-| 画面比例 | 9:16 竖屏 | 16:9 横屏 |
-| 默认时长 | 4 秒 | 8 秒 |
-| novel_text | 必须保留原文 | 无此字段 |
-| dialogue | 仅当原文有对话 | 包含改编后的对话 |
+| Dimension | Narration Mode | Drama Mode |
+|-----------|---------------|------------|
+| Data unit | segment | scene |
+| Aspect ratio | 9:16 portrait | 16:9 landscape |
+| Default duration | 4 seconds | 8 seconds |
+| novel_text | Must preserve original text | No such field |
+| dialogue | Only when source has quoted dialogue | Includes adapted dialogue |
 
 ---
 
-## 实现计划
+## Implementation Plan
 
-1. **创建 Skill**：使用 `skill-creator` 创建 `generate-script` skill
-2. **实现核心逻辑**：`lib/script_generator.py`
-   - Pydantic 模型定义
-   - Prompt 构建函数
-   - ScriptGenerator 类
-3. **实现 CLI 入口**：`.claude/skills/generate-script/scripts/generate_script.py`
-4. **测试验证**：使用现有项目 `test0205` 进行测试
+1. **Create Skill**: Use `skill-creator` to create the `generate-script` skill
+2. **Implement core logic**: `lib/script_generator.py`
+   - Pydantic model definitions
+   - Prompt builder functions
+   - ScriptGenerator class
+3. **Implement CLI entry**: `.claude/skills/generate-script/scripts/generate_script.py`
+4. **Test and verify**: Use existing project `test0205` for testing

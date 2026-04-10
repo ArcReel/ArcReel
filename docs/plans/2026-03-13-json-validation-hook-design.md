@@ -1,92 +1,92 @@
-# JSON 文件写入验证：防御 Agent 损坏文件设计文档
+# JSON File Write Validation: Design Document for Defending Against Agent File Corruption
 
-**日期**：2026-03-13
-**状态**：已批准
-**分支**：`fix/json-validation-hook`
+**Date**: 2026-03-13
+**Status**: Approved
+**Branch**: `fix/json-validation-hook`
 
 ---
 
-## 问题背景
+## Problem Background
 
-Agent（Claude Agent SDK 会话）在调用 `Edit` 工具修改剧本 JSON 文件时，生成的 `new_string` 末尾多出了逗号，与文件中原有逗号合并，产生 `},,` 双逗号，导致文件成为无效 JSON。
+When the Agent (Claude Agent SDK session) calls the `Edit` tool to modify a script JSON file, the generated `new_string` has an extra comma at the end that merges with an existing comma in the file, producing `},,` (double comma), making the file invalid JSON.
 
-### 完整级联失败链
+### Complete Cascade Failure Chain
 
 ```
 Agent Edit episode_2.json
-  → new_string 末尾多余逗号 → },, （无效 JSON）
-  → project_events.py: 优雅跳过（WARNING + continue）✓ 无影响
+  → new_string has extra trailing comma → },, (invalid JSON)
+  → project_events.py: gracefully skipped (WARNING + continue) ✓ no impact
   → routers/projects.py list_projects():
       → calculator.calculate_project_status(name, project)
           → _load_episode_script()
               → pm.load_script() → json.JSONDecodeError
-              → 只 catch FileNotFoundError，JSON 错误上抛！
-      → 宽泛 except Exception 捕获 → "加载项目元数据失败"
-  → 项目大厅整个项目显示为损坏/不可用 ✗
+              → only catches FileNotFoundError; JSON error propagates up!
+      → broad except Exception catch → "Failed to load project metadata"
+  → entire project appears broken/unavailable in the project lobby ✗
 ```
 
-### 受影响代码
+### Affected Code
 
-- `server/agent_runtime/session_manager.py` — Agent 的 `Edit`/`Write` 工具无任何 JSON 验证
-- `lib/status_calculator.py` — `_load_episode_script()` 只捕获 `FileNotFoundError`，`json.JSONDecodeError` 上抛导致级联崩溃
+- `server/agent_runtime/session_manager.py` — Agent's `Edit`/`Write` tools have no JSON validation
+- `lib/status_calculator.py` — `_load_episode_script()` only catches `FileNotFoundError`; `json.JSONDecodeError` propagates up and causes cascade crashes
 
 ---
 
-## 解决方案
+## Solution
 
-两层防御，互相独立：
+Two independent defensive layers:
 
-### Layer 1：Agent 侧 — `PostToolUse` JSON 验证 Hook
+### Layer 1: Agent Side — `PostToolUse` JSON Validation Hook
 
-**位置**：`server/agent_runtime/session_manager.py`，`_build_options()` 方法
+**Location**: `server/agent_runtime/session_manager.py`, `_build_options()` method
 
-**原理**：SDK `PostToolUse` hook 在每次 `Edit` 或 `Write` 完成后触发。hook 检查目标文件是否为 `.json`；若是，尝试读取并 `json.loads()`；若解析失败，通过 `systemMessage` 向 Agent 注入警告，告知具体错误位置和修复方法，让 Agent **自我发现并立即修复**。
+**Mechanism**: The SDK `PostToolUse` hook triggers after each `Edit` or `Write` completes. The hook checks whether the target file is a `.json` file; if so, it attempts to read and `json.loads()` the file; if parsing fails, it injects a warning to the Agent via `systemMessage`, reporting the exact error location and repair steps, allowing the Agent to **self-detect and immediately fix** the issue.
 
-**实现要点**：
-- matcher 为 `Write|Edit`（命中两种写文件工具）
-- 检查 `file_path` 是否以 `.json` 结尾
-- 使用 `pathlib.Path(file_path).read_text()` 读取，然后 `json.loads()`
-- 解析失败时返回 `{"systemMessage": "⚠️ 警告：{file_path} 包含无效 JSON，错误：{e}，请立即 Read 该文件，定位问题（如多余逗号 ,,）并 Edit 修复。"}`
-- `FileNotFoundError` / `PermissionError` 静默跳过（不干扰正常流程）
-- 封装为独立方法 `_build_json_validation_hook()` 返回 async callable
-- 追加到现有 `hook_callbacks` 列表末尾（链式 hook，不影响已有文件访问控制 hook）
+**Implementation Details**:
+- matcher is `Write|Edit` (matches both file-writing tools)
+- checks whether `file_path` ends with `.json`
+- reads the file with `pathlib.Path(file_path).read_text()`, then calls `json.loads()`
+- on parse failure, returns `{"systemMessage": "⚠️ Warning: {file_path} contains invalid JSON, error: {e}. Please immediately Read that file, locate the issue (e.g., extra commas ,,), and Edit to fix it."}`
+- `FileNotFoundError` / `PermissionError` are silently skipped (do not interfere with normal flow)
+- encapsulated as a standalone method `_build_json_validation_hook()` returning an async callable
+- appended to the end of the existing `hook_callbacks` list (chained hook, does not affect existing file access control hooks)
 
-**效果**：Agent 完成写操作后，若产生了无效 JSON，模型立即收到上下文警告，可在下一轮自动修复，不需要人工介入。
+**Effect**: After the Agent completes a write operation, if invalid JSON was produced, the model immediately receives a contextual warning and can auto-fix in the next turn without human intervention.
 
-### Layer 2：服务读取侧 — `_load_episode_script` 防御性修复
+### Layer 2: Service Read Side — `_load_episode_script` Defensive Fix
 
-**位置**：`lib/status_calculator.py`，`_load_episode_script()` 方法
+**Location**: `lib/status_calculator.py`, `_load_episode_script()` method
 
-**原理**：补充捕获 `(json.JSONDecodeError, ValueError)`，记录 WARNING 日志，返回 `('generated', None)` 表示文件存在但不可读，状态计算降级而不崩溃。
+**Mechanism**: Additionally catches `(json.JSONDecodeError, ValueError)`, logs a WARNING, and returns `('generated', None)` to indicate that the file exists but is unreadable, allowing status calculation to degrade gracefully without crashing.
 
-**实现要点**：
+**Implementation Details**:
 ```python
 except (json.JSONDecodeError, ValueError) as e:
     logger.warning(
-        "剧本 JSON 损坏，跳过状态计算 project=%s file=%s: %s",
+        "Script JSON corrupted, skipping status calculation project=%s file=%s: %s",
         project_name, script_file, e
     )
     return 'generated', None
 ```
 
-- 返回 `'generated'` 而非 `'none'`：文件存在说明剧本已生成过，只是当前损坏
-- 下游调用者对 `script=None` 的处理需确认兼容（已确认：`enrich_project` 和 `calculate_project_status` 的调用链对 `None` 安全）
+- returns `'generated'` instead of `'none'`: the file's existence indicates the script was generated before, it is simply currently corrupted
+- downstream callers' handling of `script=None` confirmed compatible (confirmed: the call chains of `enrich_project` and `calculate_project_status` are safe with `None`)
 
-**效果**：单个 episode JSON 文件损坏，不再导致整个项目在大厅崩溃，影响范围收缩到该集的状态计算字段。
+**Effect**: A single corrupted episode JSON file no longer causes the entire project to crash in the lobby; the impact is contained to the status calculation fields for that episode.
 
 ---
 
-## 修改文件汇总
+## File Changes Summary
 
-| 文件 | 修改内容 | 行数估计 |
+| File | Changes | Estimated Lines |
 |------|---------|--------|
-| `server/agent_runtime/session_manager.py` | 新增 `_build_json_validation_hook()` 方法；在 `_build_options()` 的 `hook_callbacks` 中追加 | ~25 行 |
-| `lib/status_calculator.py` | `_load_episode_script()` 补充捕获 `json.JSONDecodeError` | ~5 行 |
+| `server/agent_runtime/session_manager.py` | Add `_build_json_validation_hook()` method; append to `hook_callbacks` in `_build_options()` | ~25 lines |
+| `lib/status_calculator.py` | Add `json.JSONDecodeError` catch in `_load_episode_script()` | ~5 lines |
 
 ---
 
-## 不在此方案中的内容
+## Out of Scope
 
-- **专用 JSON 编辑脚本（方案 A）**：`settings.json` 已预留 `edit-script-items` 权限，可作为未来增强，不在本次范围内
-- **日志格式改进**：Layer 2 修复后，`projects.py` 中的"加载项目元数据失败"理论上不再被 JSON 错误触发，不需要额外改动
-- **前端错误处理**：本次聚焦后端，前端已通过 `error` 字段知晓项目加载失败
+- **Dedicated JSON editing script (Option A)**: `settings.json` already has a reserved `edit-script-items` permission that can serve as a future enhancement; not in scope for this change
+- **Log format improvements**: After the Layer 2 fix, the "Failed to load project metadata" error in `projects.py` should no longer be triggered by JSON errors; no additional changes needed
+- **Frontend error handling**: This change focuses on the backend; the frontend already learns of project load failures via the `error` field

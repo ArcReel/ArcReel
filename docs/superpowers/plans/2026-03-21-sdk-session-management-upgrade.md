@@ -1,8 +1,8 @@
-# SDK 会话管理升级实施计划
+# SDK Session Management Upgrade Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 升级 claude-agent-sdk 到 0.1.50，统一用 sdk_session_id 作为业务标识，用 SDK summary 替代手动标题，消除空会话 bug。
+**Goal:** Upgrade claude-agent-sdk to 0.1.50, unify the use of sdk_session_id as the business identifier, replace manual titles with SDK summary, and eliminate the empty session bug.
 
 **Architecture:** DB 保留内部 `id` 主键，`sdk_session_id` 升级为 UNIQUE NOT NULL 业务键。所有 API/前端/内存缓存统一使用 sdk_session_id。创建与发送合并为 `POST /sessions/send`，DB 记录仅在 SDK 成功响应后写入。`list_sessions` 合并 DB 查询与 SDK `list_sessions()` 注入 summary 标题。
 
@@ -12,7 +12,7 @@
 
 ---
 
-## 文件结构
+## File Structure
 
 **修改的后端文件：**
 - `lib/db/models/session.py` — ORM 模型，`sdk_session_id` 改为非空
@@ -95,7 +95,7 @@ sdk_session_id: Mapped[str] = mapped_column(String, unique=True)
 uv run python -m pytest tests/test_session_repo.py -v
 ```
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/db/models/session.py lib/db/repositories/session_repo.py tests/test_session_repo.py
@@ -172,7 +172,7 @@ async def create(self, project_name: str, sdk_session_id: str) -> SessionMeta:
 uv run python -m pytest tests/test_session_meta_store.py tests/test_session_repo.py -v
 ```
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add server/agent_runtime/models.py server/agent_runtime/session_store.py tests/factories.py tests/fakes.py tests/test_session_meta_store.py
@@ -354,7 +354,7 @@ managed.sdk_id_event.set()  # 已有会话不需要等待
 uv run python -m pytest tests/test_session_manager_sdk_session_id.py tests/test_session_manager_more.py tests/test_session_manager_user_input.py -v
 ```
 
-- [ ] **Step 9: 提交**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add server/agent_runtime/session_manager.py tests/test_session_manager_sdk_session_id.py tests/test_session_manager_more.py tests/test_session_manager_user_input.py
@@ -470,7 +470,7 @@ async def list_sessions(
 - `_build_projector()` (line 545) 中传给 `transcript_adapter.read_raw_messages` 的参数：`meta.sdk_session_id` → `meta.id`
 - `stream_events()` 中的 `meta.sdk_session_id` → `meta.id`
 
-注意：`sdk_transcript_adapter.py` 本身不需要改（它接受 `sdk_session_id` 字符串参数），但 **service.py 中调用它的地方**必须改。这是 Task 2 移除 `SessionMeta.sdk_session_id` 后的直接依赖。
+Note: `sdk_transcript_adapter.py` 本身不需要改（它接受 `sdk_session_id` 字符串参数），但 **service.py 中调用它的地方**必须改。这是 Task 2 移除 `SessionMeta.sdk_session_id` 后的直接依赖。
 
 - [ ] **Step 6: 更新相关测试**
 
@@ -482,7 +482,7 @@ async def list_sessions(
 uv run python -m pytest tests/test_assistant_service_more.py tests/test_assistant_service_streaming.py -v
 ```
 
-- [ ] **Step 8: 提交**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add server/agent_runtime/service.py tests/test_assistant_service_more.py tests/test_assistant_service_streaming.py
@@ -583,7 +583,7 @@ except ValueError as exc:
 uv run python -m pytest tests/test_assistant_router_full.py tests/test_agent_chat_router.py -v
 ```
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add server/routers/assistant.py server/routers/agent_chat.py tests/test_assistant_router_full.py tests/test_agent_chat_router.py
@@ -646,7 +646,7 @@ print('unique constraints:', uniqs)
 "
 ```
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add alembic/versions/
@@ -787,7 +787,7 @@ catch (err) {
 cd frontend && pnpm typecheck && pnpm test
 ```
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add frontend/src/types/assistant.ts frontend/src/api.ts frontend/src/hooks/useAssistantSession.ts
@@ -807,7 +807,7 @@ git commit -m "feat(frontend): 统一 send 接口 + 移除 sdk_session_id 字段
 
 - [ ] **Step 1: 修复所有前端测试中的 `sdk_session_id` 引用**
 
-全局搜索替换：移除测试数据中的 `sdk_session_id` 字段。更新使用 `createAssistantSession` 的 mock 为新的 `sendAssistantMessage` 签名。
+Global search for替换：移除测试数据中的 `sdk_session_id` 字段。更新使用 `createAssistantSession` 的 mock 为新的 `sendAssistantMessage` 签名。
 
 - [ ] **Step 2: 运行前端测试**
 

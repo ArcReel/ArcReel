@@ -1,13 +1,13 @@
-# Image Backend 通用图片生成服务层设计
+# Image Backend Generic Image Generation Service Layer Design
 
 > 关联 Issue: #101, #162
 > 日期: 2026-03-26
 
-## 概述
+## Overview
 
 提取通用 `ImageBackend` 抽象接口，使图片供应商可插拔接入。镜像现有 `VideoBackend` 模式，接入四个供应商：Gemini AI Studio、Gemini Vertex AI、Ark（火山方舟 Seedream）、Grok（xAI Aurora）。同时将现有 `seedance` provider 重命名为 `ark`，统一 Seedance 视频 + Seedream 图片。
 
-## 背景
+## Background
 
 当前图片生成直接耦合 `GeminiClient`，无法接入其他供应商。视频侧已有完整的 `VideoBackend` Protocol + Registry + 3 个实现（Gemini/Seedance/Grok）。本次为图片侧复制这一模式，并借机统一 Ark 供应商命名。
 

@@ -12,7 +12,7 @@
 
 ## File Map
 
-| 文件 | 操作 | 职责 |
+| File | Action | Responsibility |
 |---|---|---|
 | `server/agent_runtime/session_manager.py` | Modify | `_WRITABLE_EXTENSIONS` 白名单 + `_is_path_allowed` 返回值改造 + `_build_file_access_hook` deny 消息 + `_PERSONA_PROMPT` 追加 |
 | `agent_runtime_profile/CLAUDE.md` | Modify | 新增"职责边界"小节 |
@@ -105,7 +105,7 @@ async def test_file_access_hook_blocks_write_non_whitelisted_ext(self, tmp_path)
     await engine.dispose()
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_session_manager_more.py::TestFileAccessHook::test_file_access_hook_blocks_write_non_whitelisted_ext -v`
 Expected: FAIL — `.py` 文件的 Write 会返回 `{"continue_": True}` 而非 deny

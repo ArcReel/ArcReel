@@ -1,22 +1,22 @@
-# 供应商管理页设计
+# Provider Management Page Design
 
-> Issue: [#102](https://github.com/ArcReel/ArcReel/issues/102)（属于 [#98](https://github.com/ArcReel/ArcReel/issues/98) 子任务）
-> 日期: 2026-03-18
+> Issue: [#102](https://github.com/ArcReel/ArcReel/issues/102)(sub-task of [#98](https://github.com/ArcReel/ArcReel/issues/98))
+> Date: 2026-03-18
 
-## 概述
+## Overview
 
-随着多供应商（Gemini AI Studio、Gemini Vertex AI、Seedance、Grok）的接入，需要：
+As multiple providers (Gemini AI Studio, Gemini Vertex AI, Seedance, Grok) are integrated, the following are needed:
 
-1. 将系统配置存储从 JSON 文件迁移到数据库
-2. 重构全局设置页为侧边栏布局，新增供应商管理与用量统计
-3. API 按职责分层，新增 `/api/v1/providers` 路由
-4. 修复项目设置页路由，支持项目级模型覆盖
+1. Migrate system configuration storage from JSON files to the database
+2. Refactor the global settings page to a sidebar layout, adding provider management and usage statistics
+3. Layer APIs by responsibility, adding `/api/v1/providers` routes
+4. Fix project settings page routing, supporting project-level model overrides
 
-## 1. 数据模型
+## 1. Data Model
 
-### 1.1 供应商注册表（静态，代码维护）
+### 1.1 Provider Registry (Static, Code-Maintained)
 
-每个供应商的元数据在代码中定义，不存数据库：
+Each provider's metadata is defined in code, not stored in the database:
 
 ```python
 PROVIDER_REGISTRY = {
@@ -51,74 +51,74 @@ PROVIDER_REGISTRY = {
 }
 ```
 
-每个 `ProviderMeta` 还包含 `capabilities` 字段，静态定义该供应商支持的能力列表（如 `text_to_video`, `image_to_video`, `generate_audio` 等）。这些值直接对应 `VideoBackend.capabilities` / `ImageBackend` 的能力枚举，但在 registry 中静态维护，无需实例化后端即可获取。
+Each `ProviderMeta` also contains a `capabilities` field, statically defining the list of capabilities supported by that provider (e.g., `text_to_video`, `image_to_video`, `generate_audio`, etc.). These values correspond directly to the `VideoBackend.capabilities` / `ImageBackend` capability enums, but are maintained statically in the registry without needing to instantiate a backend.
 
 ```python
-# capabilities 示例（包含在 ProviderMeta 中）
+# capabilities examples (included in ProviderMeta)
 # gemini-aistudio: [text_to_video, image_to_video, text_to_image, negative_prompt, video_extend]
 # gemini-vertex:   [text_to_video, image_to_video, text_to_image, generate_audio, negative_prompt, video_extend]
 # seedance:        [text_to_video, image_to_video, generate_audio, seed_control, flex_tier]
 # grok:            [text_to_video, image_to_video]
 ```
 
-### 1.2 数据库表
+### 1.2 Database Tables
 
-**`provider_config` — 供应商配置**
+**`provider_config` — Provider Configuration**
 
-| 列 | 类型 | 说明 |
+| Column | Type | Description |
 |---|---|---|
-| id | INTEGER PK | 自增主键 |
-| provider | VARCHAR(32) NOT NULL | 供应商标识 (gemini-aistudio, gemini-vertex, seedance, grok) |
-| key | VARCHAR(64) NOT NULL | 配置键 (api_key, base_url, credentials_path, gcs_bucket, file_service_base_url) |
-| value | TEXT NOT NULL | 配置值 |
-| is_secret | BOOLEAN NOT NULL DEFAULT false | 是否为敏感字段，控制 GET 响应掩码 |
-| updated_at | DATETIME NOT NULL | 更新时间 |
+| id | INTEGER PK | Auto-increment primary key |
+| provider | VARCHAR(32) NOT NULL | Provider identifier (gemini-aistudio, gemini-vertex, seedance, grok) |
+| key | VARCHAR(64) NOT NULL | Config key (api_key, base_url, credentials_path, gcs_bucket, file_service_base_url) |
+| value | TEXT NOT NULL | Config value |
+| is_secret | BOOLEAN NOT NULL DEFAULT false | Whether the field is sensitive; controls GET response masking |
+| updated_at | DATETIME NOT NULL | Last updated timestamp |
 
-唯一约束: `UNIQUE(provider, key)`
+Unique constraint: `UNIQUE(provider, key)`
 
-**`system_setting` — 全局系统设置**
+**`system_setting` — Global System Settings**
 
-| 列 | 类型 | 说明 |
+| Column | Type | Description |
 |---|---|---|
-| id | INTEGER PK | 自增主键 |
-| key | VARCHAR(64) UNIQUE NOT NULL | 设置键 |
-| value | TEXT NOT NULL | 设置值 |
-| updated_at | DATETIME NOT NULL | 更新时间 |
+| id | INTEGER PK | Auto-increment primary key |
+| key | VARCHAR(64) UNIQUE NOT NULL | Setting key |
+| value | TEXT NOT NULL | Setting value |
+| updated_at | DATETIME NOT NULL | Last updated timestamp |
 
-system_setting 存储的键包括：
-- `default_video_backend` — 格式 `{provider_id}/{model_id}`，如 `gemini-vertex/veo-3.1-fast-generate-001`
-- `default_image_backend` — 格式同上，如 `gemini-aistudio/gemini-3.1-flash-image-preview`
+Keys stored in system_setting include:
+- `default_video_backend` — Format `{provider_id}/{model_id}`, e.g., `gemini-vertex/veo-3.1-fast-generate-001`
+- `default_image_backend` — Same format, e.g., `gemini-aistudio/gemini-3.1-flash-image-preview`
 - `video_generate_audio` — `true` / `false`
-- `anthropic_api_key` — 智能体 API Key
-- `anthropic_base_url` — 智能体代理地址
-- 其他原 AdvancedConfigTab 管理的设置项
+- `anthropic_api_key` — Agent API Key
+- `anthropic_base_url` — Agent proxy address
+- Other settings previously managed by AdvancedConfigTab
 
-### 1.3 模块结构
+### 1.3 Module Structure
 
 ```
 lib/config/
 ├── models.py          # ORM: ProviderConfig, SystemSetting
-├── repository.py      # 异步 CRUD: ProviderConfigRepository, SystemSettingRepository
-├── service.py         # ConfigService 业务逻辑
-├── registry.py        # PROVIDER_REGISTRY 静态元数据
-└── migration.py       # JSON → DB 一次性迁移
+├── repository.py      # Async CRUD: ProviderConfigRepository, SystemSettingRepository
+├── service.py         # ConfigService business logic
+├── registry.py        # PROVIDER_REGISTRY static metadata
+└── migration.py       # JSON → DB one-time migration
 ```
 
-### 1.4 ConfigService 接口
+### 1.4 ConfigService Interface
 
 ```python
 class ConfigService:
-    # 供应商配置
+    # Provider configuration
     async def get_provider_config(self, provider: str) -> dict[str, str]
     async def set_provider_config(self, provider: str, key: str, value: str) -> None
     async def delete_provider_config(self, provider: str, key: str) -> None
     async def get_all_providers_status(self) -> list[ProviderStatus]
 
-    # 全局设置
+    # Global settings
     async def get_setting(self, key: str, default: str = "") -> str
     async def set_setting(self, key: str, value: str) -> None
 
-    # 便捷方法
+    # Convenience methods
     async def get_default_video_backend(self) -> tuple[str, str]  # (provider_id, model_id)
     async def get_default_image_backend(self) -> tuple[str, str]
 ```
@@ -132,31 +132,31 @@ class ProviderStatus:
     media_types: list[str]                 # ["video", "image"]
     capabilities: list[str]                # ["text_to_video", ...]
     required_keys: list[str]               # ["api_key"]
-    configured_keys: list[str]             # 已配置的 key 列表
-    missing_keys: list[str]                # 缺失的必需 key
+    configured_keys: list[str]             # List of configured keys
+    missing_keys: list[str]                # Missing required keys
 ```
 
-## 2. JSON → DB 迁移
+## 2. JSON → DB Migration
 
-### 2.1 触发条件
+### 2.1 Trigger Condition
 
-应用启动时检测 `projects/.system_config.json` 是否存在。
+On application startup, check if `projects/.system_config.json` exists.
 
-### 2.2 迁移映射
+### 2.2 Migration Mapping
 
-| 原 JSON 字段 | 目标表 | provider / key |
+| Original JSON Field | Target Table | provider / key |
 |---|---|---|
 | `gemini_api_key` | provider_config | gemini-aistudio / api_key |
 | `gemini_base_url` | provider_config | gemini-aistudio / base_url |
-| Vertex 凭证文件路径 | provider_config | gemini-vertex / credentials_path |
+| Vertex credentials file path | provider_config | gemini-vertex / credentials_path |
 | `vertex_gcs_bucket` | provider_config | gemini-vertex / gcs_bucket |
 | `ark_api_key` | provider_config | seedance / api_key |
 | `file_service_base_url` | provider_config | seedance / file_service_base_url |
 | `xai_api_key` | provider_config | grok / api_key |
-| `image_backend` ("aistudio"/"vertex") | system_setting | default_image_backend → 转换为 `gemini-{value}/{当前 image_model}` |
-| `video_backend` ("aistudio"/"vertex") | system_setting | default_video_backend → 转换为 `gemini-{value}/{当前 video_model}` |
-| `video_model` | 参与 default_video_backend 组合 | — |
-| `image_model` | 参与 default_image_backend 组合 | — |
+| `image_backend` ("aistudio"/"vertex") | system_setting | default_image_backend → converted to `gemini-{value}/{current image_model}` |
+| `video_backend` ("aistudio"/"vertex") | system_setting | default_video_backend → converted to `gemini-{value}/{current video_model}` |
+| `video_model` | Used in default_video_backend combination | — |
+| `image_model` | Used in default_image_backend combination | — |
 | `video_generate_audio` | system_setting | video_generate_audio |
 | `anthropic_api_key` | system_setting | anthropic_api_key |
 | `anthropic_base_url` | system_setting | anthropic_base_url |
@@ -165,24 +165,24 @@ class ProviderStatus:
 | `anthropic_default_opus_model` | system_setting | anthropic_default_opus_model |
 | `anthropic_default_sonnet_model` | system_setting | anthropic_default_sonnet_model |
 | `claude_code_subagent_model` | system_setting | claude_code_subagent_model |
-| `gemini_image_rpm` | provider_config | gemini-aistudio / image_rpm 及 gemini-vertex / image_rpm（Gemini 专属，其他供应商不写入） |
-| `gemini_video_rpm` | provider_config | gemini-aistudio / video_rpm 及 gemini-vertex / video_rpm（Gemini 专属，其他供应商不写入） |
-| `gemini_request_gap` | provider_config | gemini-aistudio / request_gap 及 gemini-vertex / request_gap（Gemini 专属，其他供应商不写入） |
-| `image_max_workers` | provider_config | 写入所有已配置且支持 image 的供应商的 image_max_workers（迁移旧全局值） |
-| `video_max_workers` | provider_config | 写入所有已配置且支持 video 的供应商的 video_max_workers（迁移旧全局值） |
-| 其他未列出的 override 键 | system_setting | 原键名直接写入 |
+| `gemini_image_rpm` | provider_config | gemini-aistudio / image_rpm and gemini-vertex / image_rpm (Gemini-specific; not written for other providers) |
+| `gemini_video_rpm` | provider_config | gemini-aistudio / video_rpm and gemini-vertex / video_rpm (Gemini-specific; not written for other providers) |
+| `gemini_request_gap` | provider_config | gemini-aistudio / request_gap and gemini-vertex / request_gap (Gemini-specific; not written for other providers) |
+| `image_max_workers` | provider_config | Written to image_max_workers for all configured providers that support image (migrating the old global value) |
+| `video_max_workers` | provider_config | Written to video_max_workers for all configured providers that support video (migrating the old global value) |
+| Other unlisted override keys | system_setting | Written directly using the original key name |
 
-### 2.3 迁移完成
+### 2.3 Migration Completion
 
-迁移成功后将 `.system_config.json` 重命名为 `.system_config.json.bak`，避免重复迁移。
+After successful migration, rename `.system_config.json` to `.system_config.json.bak` to prevent re-migration.
 
-## 3. API 设计
+## 3. API Design
 
-### 3.1 `/api/v1/providers` — 供应商管理
+### 3.1 `/api/v1/providers` — Provider Management
 
 **GET /api/v1/providers**
 
-返回所有供应商及状态。
+Returns all providers and their status.
 
 ```json
 {
@@ -202,7 +202,7 @@ class ProviderStatus:
 
 **GET /api/v1/providers/{id}/config**
 
-返回单个供应商的配置字段详情。
+Returns configuration field details for a single provider.
 
 ```json
 {
@@ -225,7 +225,7 @@ class ProviderStatus:
       "required": false,
       "value": "",
       "is_set": false,
-      "placeholder": "默认官方地址"
+      "placeholder": "Default official address"
     }
   ]
 }
@@ -233,7 +233,7 @@ class ProviderStatus:
 
 **PATCH /api/v1/providers/{id}/config**
 
-更新供应商配置。`null` 值表示清除该字段。
+Updates provider configuration. A `null` value clears that field.
 
 ```json
 { "api_key": "AIza-new-key", "base_url": null }
@@ -241,25 +241,25 @@ class ProviderStatus:
 
 **POST /api/v1/providers/{id}/test**
 
-连接测试，返回可用模型列表。各供应商测试策略不同：
-- **gemini-aistudio / gemini-vertex**: 调用 list models API 验证凭证和连接
-- **seedance / grok**: 若 API 不支持 list models，则发送轻量级验证请求（如获取账户信息或发送最小参数请求），返回成功/失败即可，`available_models` 为该供应商在 registry 中注册的模型列表
+Connection test, returns list of available models. Testing strategy differs per provider:
+- **gemini-aistudio / gemini-vertex**: Calls the list models API to verify credentials and connectivity
+- **seedance / grok**: If the API does not support list models, sends a lightweight validation request (e.g., fetching account info or sending a minimal parameter request); returns success/failure, with `available_models` being the models registered for that provider in the registry
 
 ```json
 {
   "success": true,
   "available_models": ["veo-3.1-generate-001", "veo-3.1-fast-generate-001"],
-  "message": "连接成功，发现 2 个可用模型"
+  "message": "Connection successful, found 2 available models"
 }
 ```
 
 **POST /api/v1/providers/gemini-vertex/credentials**
 
-Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
+Vertex AI credentials file upload (special endpoint); retains existing upload logic.
 
-### 3.2 `/api/v1/system/config` — 全局设置
+### 3.2 `/api/v1/system/config` — Global Settings
 
-瘦身为只管非供应商配置。
+Slimmed down to manage only non-provider configuration.
 
 **GET /api/v1/system/config**
 
@@ -289,7 +289,7 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 }
 ```
 
-`options` 中只列出 status=ready 的供应商下的模型。
+`options` only lists models from providers with status=ready.
 
 **PATCH /api/v1/system/config**
 
@@ -297,9 +297,9 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 { "default_video_backend": "seedance/doubao-seedance-1-5-pro-251215" }
 ```
 
-### 3.3 `/api/v1/usage/stats` — 用量统计
+### 3.3 `/api/v1/usage/stats` — Usage Statistics
 
-扩展现有 usage API，增加筛选和分组。
+Extends the existing usage API with filtering and grouping support.
 
 **GET /api/v1/usage/stats?provider=gemini-vertex&start=2026-03-01&end=2026-03-18&group_by=provider**
 
@@ -319,61 +319,61 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 }
 ```
 
-### 3.4 API 职责总结
+### 3.4 API Responsibility Summary
 
-| 路由 | 职责 | 对应前端栏位 |
+| Route | Responsibility | Corresponding Frontend Section |
 |---|---|---|
-| `/api/v1/providers` | 供应商 CRUD、连接测试 | 供应商 |
-| `/api/v1/system/config` | 全局默认设置 | 智能体 + 图片/视频 |
-| `/api/v1/usage/stats` | 用量统计查询 | 用量统计 |
+| `/api/v1/providers` | Provider CRUD, connection test | Providers |
+| `/api/v1/system/config` | Global default settings | Agent + Image/Video |
+| `/api/v1/usage/stats` | Usage statistics query | Usage Statistics |
 
-## 4. 前端设计
+## 4. Frontend Design
 
-### 4.1 全局设置页 — 侧边栏布局
+### 4.1 Global Settings Page — Sidebar Layout
 
-`SystemConfigPage` 从 Tab 布局改为侧边栏导航布局：
+`SystemConfigPage` changes from a Tab layout to a sidebar navigation layout:
 
 ```
 ┌──────────┬──────────────────────────────────┐
-│  设置     │                                  │
-│          │   (右侧内容区)                     │
-│ 🤖 智能体 │                                  │
-│ 🔌 供应商 │                                  │
-│ 🎬 图片/视频│                                │
-│ 📊 用量统计│                                 │
+│  Settings │                                  │
+│          │   (Right content area)             │
+│ 🤖 Agent  │                                  │
+│ 🔌 Providers│                                │
+│ 🎬 Image/Video│                              │
+│ 📊 Usage Stats│                              │
 │          │                                  │
 └──────────┴──────────────────────────────────┘
 ```
 
-- 侧边栏图标使用 `lucide-react`
-- 路由参数控制活跃栏位：`/settings?section=providers`
+- Sidebar icons use `lucide-react`
+- Route parameter controls the active section: `/settings?section=providers`
 
-### 4.2 供应商栏位 — 列表 + 详情布局
+### 4.2 Providers Section — List + Detail Layout
 
 ```
 ┌──────────┬──────────────┬───────────────────┐
-│  设置     │ 供应商列表    │ 供应商详情          │
+│  Settings │ Provider List │ Provider Details     │
 │          │              │                   │
-│ 🤖 智能体 │ Gemini AS  🟢│ Gemini AI Studio   │
-│ 🔌 供应商 │ Gemini VX  🔴│ 状态: 已就绪        │
-│ 🎬 图片/  │ Seedance   🟢│                   │
-│    视频   │ Grok       🔴│ API Key [*****]    │
-│ 📊 用量   │              │ Base URL [     ]   │
-│          │              │ [测试连接]          │
+│ 🤖 Agent  │ Gemini AS  🟢│ Gemini AI Studio    │
+│ 🔌 Providers│ Gemini VX  🔴│ Status: Ready      │
+│ 🎬 Image/ │ Seedance   🟢│                    │
+│    Video  │ Grok       🔴│ API Key [*****]    │
+│ 📊 Usage  │              │ Base URL [     ]   │
+│          │              │ [Test Connection]  │
 └──────────┴──────────────┴───────────────────┘
 ```
 
-- 供应商 logo 使用 `@lobehub/icons`
-- 状态指示器：🟢 ready / 🔴 unconfigured / 🟡 error
-- 敏感字段掩码显示，支持显示/隐藏切换
-- 连接测试按钮内联在详情底部
-- 高级配置区（折叠）：并发数（image_max_workers, video_max_workers）、限流（rpm, request_gap），按该供应商支持的 media_types 动态展示
+- Provider logos use `@lobehub/icons`
+- Status indicators: 🟢 ready / 🔴 unconfigured / 🟡 error
+- Sensitive fields displayed masked, with show/hide toggle support
+- Connection test button inline at the bottom of the detail panel
+- Advanced configuration section (collapsed): concurrency (image_max_workers, video_max_workers), rate limiting (rpm, request_gap), dynamically displayed based on the provider's supported media_types
 
-### 4.3 图片/视频栏位 — 分组下拉选择
+### 4.3 Image/Video Section — Grouped Dropdown Selection
 
-两个选择器：默认视频模型、默认图片模型。
+Two selectors: default video model, default image model.
 
-下拉列表按供应商分组显示（仅 status=ready 的供应商）：
+Dropdown list grouped by provider (only providers with status=ready):
 
 ```
 ── Gemini AI Studio ──
@@ -386,48 +386,48 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
    doubao-seedance-1-5-pro-251215
 ```
 
-附加选项：
-- `video_generate_audio` 开关（标注"仅部分供应商支持"）
+Additional options:
+- `video_generate_audio` toggle (labeled "Only supported by some providers")
 
-### 4.4 用量统计栏位
+### 4.4 Usage Statistics Section
 
-- 按供应商分组展示用量数据
-- 筛选器：时间范围、供应商、调用类型（video/image）
-- 展示字段：调用次数、成功率、费用、时长
+- Display usage data grouped by provider
+- Filters: time range, provider, call type (video/image)
+- Display fields: call count, success rate, cost, duration
 
-### 4.5 智能体栏位
+### 4.5 Agent Section
 
-保留现有 `AgentConfigTab` 内容（Anthropic API Key、Base URL），适配新的 API 响应结构（从 system_setting 读取）。
+Retains existing `AgentConfigTab` content (Anthropic API Key, Base URL), adapted to the new API response structure (read from system_setting).
 
-### 4.6 通用组件
+### 4.6 Common Components
 
-**`ProviderModelSelect`** — 分组下拉选择组件
+**`ProviderModelSelect`** — Grouped Dropdown Selection Component
 
-- 接收 `options: string[]`（`provider_id/model_id` 格式）和 `providerDisplayNames: Record<string, string>`
-- 按 `/` 拆分，provider 作为分组标题，model 作为选项
-- 复用于全局设置页和项目设置页
+- Accepts `options: string[]` (in `provider_id/model_id` format) and `providerDisplayNames: Record<string, string>`
+- Splits on `/`, with provider as the group heading and model as the option
+- Reused across the global settings page and project settings page
 
-## 5. 项目设置页
+## 5. Project Settings Page
 
-### 5.1 路由与交互
+### 5.1 Routing and Interaction
 
-- 路由：`/projects/:name/settings`
-- 交互：全屏覆盖层（overlay），左上角返回按钮关闭，回到项目工作台
-- 修复当前路由空白的问题
+- Route: `/projects/:name/settings`
+- Interaction: full-screen overlay; close via back button in the top-left, returning to the project workspace
+- Fixes the current routing blank page issue
 
-### 5.2 内容
+### 5.2 Content
 
-支持覆盖全局默认的模型选择：
+Supports overriding the global default model selection:
 
-- **视频模型** — 分组下拉，顶部额外选项「跟随全局默认」（显示当前全局值作为 hint）
-- **图片模型** — 同上
-- **生成音频** — 三态：跟随全局 / 开启 / 关闭
+- **Video Model** — Grouped dropdown with an extra "Follow Global Default" option at the top (shows current global value as a hint)
+- **Image Model** — Same as above
+- **Generate Audio** — Three states: Follow Global / Enable / Disable
 
-选择 `null` 即跟随全局默认。
+Selecting `null` means following the global default.
 
-### 5.3 数据存储
+### 5.3 Data Storage
 
-项目级覆盖存储在 `project.json` 中：
+Project-level overrides are stored in `project.json`:
 
 ```json
 {
@@ -436,43 +436,43 @@ Vertex AI 凭证文件上传（特殊端点），保持现有上传逻辑。
 }
 ```
 
-`null` 或字段不存在 = 跟随全局默认。
+`null` or absent field = follow global default.
 
-## 6. 调用方迁移
+## 6. Caller Migration
 
-### 6.1 后端
+### 6.1 Backend
 
-| 模块 | 改动 |
+| Module | Change |
 |---|---|
-| `lib/system_config.py` (SystemConfigManager) | 废弃，由 `lib/config/service.py` (ConfigService) 替代 |
-| `server/routers/system_config.py` | 瘦身，读写改走 ConfigService |
-| `server/routers/` 新增 `providers.py` | 供应商 CRUD + 连接测试 |
+| `lib/system_config.py` (SystemConfigManager) | Deprecated, replaced by `lib/config/service.py` (ConfigService) |
+| `server/routers/system_config.py` | Slimmed down; reads/writes go through ConfigService |
+| `server/routers/` new `providers.py` | Provider CRUD + connection test |
 | `server/services/generation_tasks.py` | `os.environ.get()` → `config_service.get_provider_config()` |
-| `lib/media_generator.py` | 接收 provider_id/model 参数，不再自行读 env |
-| `lib/video_backends/*.py` | 构造参数不变，由上层从 ConfigService 取出后传入 |
+| `lib/media_generator.py` | Accepts provider_id/model parameters; no longer reads env itself |
+| `lib/video_backends/*.py` | Constructor parameters unchanged; upper layer fetches from ConfigService and passes in |
 | `server/routers/assistant.py` | `os.environ.get("ANTHROPIC_*")` → `config_service.get_setting()` |
-| `server/routers/generate.py` | 生成入队时的配置读取改走 ConfigService |
-| `server/auth.py` | 认证相关配置改走 ConfigService |
-| `server/agent_runtime/session_manager.py` | Agent 相关配置改走 ConfigService |
-| `lib/generation_worker.py` | **架构重构**：从全局 2 通道（image/video 各 N workers）改为按供应商分池调度，每个供应商独立并发数和限流。任务入队时携带 provider_id，Worker 根据 provider 分配到对应池 |
-| `lib/usage_tracker.py` / `server/routers/usage.py` | 扩展筛选参数 |
+| `server/routers/generate.py` | Config reads at enqueue time go through ConfigService |
+| `server/auth.py` | Auth-related config goes through ConfigService |
+| `server/agent_runtime/session_manager.py` | Agent-related config goes through ConfigService |
+| `lib/generation_worker.py` | **Architecture refactor**: Changed from global 2-channel (N workers each for image/video) to per-provider pool scheduling, with independent concurrency and rate limiting per provider. Tasks carry provider_id at enqueue time; Worker routes to the corresponding pool based on provider |
+| `lib/usage_tracker.py` / `server/routers/usage.py` | Extend filter parameters |
 
-### 6.2 前端
+### 6.2 Frontend
 
-| 组件 | 改动 |
+| Component | Change |
 |---|---|
-| `SystemConfigPage.tsx` | Tab → 侧边栏布局 |
-| `MediaConfigTab.tsx` | 废弃，拆分为 `ProviderSection.tsx` + `MediaModelSection.tsx` |
-| `AgentConfigTab.tsx` | 保留，适配新 API |
-| `AdvancedConfigTab.tsx` | 废弃，并发/限流配置移入供应商详情 |
-| `ApiKeysTab.tsx` | 废弃，合并到供应商配置 |
-| `config-status-store.ts` | 改用 `/api/v1/providers` 判断配置状态 |
-| 新增 `UsageStatsSection.tsx` | 用量统计栏位 |
-| 新增 `ProviderModelSelect.tsx` | 分组下拉组件 |
-| 项目设置页 | 修复路由为全屏 overlay + 模型覆盖 UI |
+| `SystemConfigPage.tsx` | Tab → Sidebar layout |
+| `MediaConfigTab.tsx` | Deprecated; split into `ProviderSection.tsx` + `MediaModelSection.tsx` |
+| `AgentConfigTab.tsx` | Retained; adapted to new API |
+| `AdvancedConfigTab.tsx` | Deprecated; concurrency/rate limiting config moved into provider details |
+| `ApiKeysTab.tsx` | Deprecated; merged into provider configuration |
+| `config-status-store.ts` | Changed to use `/api/v1/providers` to determine configuration status |
+| New `UsageStatsSection.tsx` | Usage statistics section |
+| New `ProviderModelSelect.tsx` | Grouped dropdown component |
+| Project settings page | Fix routing to full-screen overlay + model override UI |
 
-## 7. 不在本次范围
+## 7. Out of Scope
 
-- `ImageBackend` 抽象层提取（#101）
-- Seedance 2.0 接入（#42）
-- `.env` 中部署相关配置（`DATABASE_URL` 等）仍从环境变量读取
+- `ImageBackend` abstraction layer extraction (#101)
+- Seedance 2.0 integration (#42)
+- Deployment-related configuration in `.env` (e.g., `DATABASE_URL`) continues to be read from environment variables

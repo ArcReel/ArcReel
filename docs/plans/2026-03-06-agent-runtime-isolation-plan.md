@@ -1,16 +1,16 @@
-# Agent Runtime 双向隔离 Implementation Plan
+# Agent Runtime Bidirectional Isolation Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 将智能体运行环境与开发态 CLI 配置物理分离，实现 Docker 部署零泄漏。
+**Goal:** Physically separate the agent runtime environment from the development-mode CLI configuration to achieve zero leakage in Docker deployment.
 
-**Architecture:** 创建 `agent_runtime_profile/` 目录存放智能体专用的 CLAUDE.md、skills、agents。项目创建时在 `projects/{name}/` 下创建指向 `agent_runtime_profile/.claude` 的符号链接。`SessionManager` 从 `agent_runtime_profile/CLAUDE.md` 加载系统 prompt，工具名对齐 SDK 文档。
+**Architecture:** Create the `agent_runtime_profile/` directory to store the agent-specific CLAUDE.md, skills, and agents. When creating a project, create a symlink under `projects/{name}/` pointing to `agent_runtime_profile/.claude`. `SessionManager` loads the system prompt from `agent_runtime_profile/CLAUDE.md` and tool names are aligned with SDK documentation.
 
 **Tech Stack:** Python 3.12, Claude Agent SDK, FastAPI, pytest
 
 ---
 
-### Task 1: 创建 agent_runtime_profile 目录结构并迁移 skills
+### Task 1: Create agent_runtime_profile directory structure and migrate skills
 
 **Files:**
 - Create: `agent_runtime_profile/.claude/skills/` (directory tree)
@@ -18,31 +18,31 @@
 - Move: `.claude/skills/{business-skills}/` → `agent_runtime_profile/.claude/skills/`
 - Move: `.claude/agents/*.md` → `agent_runtime_profile/.claude/agents/`
 
-**Step 1: 创建目录结构**
+**Step 1: Create directory structure**
 
 ```bash
 mkdir -p agent_runtime_profile/.claude/skills
 mkdir -p agent_runtime_profile/.claude/agents
 ```
 
-**Step 2: 迁移业务 skills**
+**Step 2: Migrate business skills**
 
 ```bash
-# 业务 skills 列表：generate-characters, generate-clues, generate-storyboard,
+# Business skills list: generate-characters, generate-clues, generate-storyboard,
 # generate-video, generate-script, compose-video, manga-workflow, edit-script-items
 for skill in generate-characters generate-clues generate-storyboard generate-video generate-script compose-video manga-workflow edit-script-items; do
     git mv ".claude/skills/$skill" "agent_runtime_profile/.claude/skills/$skill"
 done
 ```
 
-**Step 3: 迁移业务 agents**
+**Step 3: Migrate business agents**
 
 ```bash
 git mv .claude/agents/novel-to-narration-script.md agent_runtime_profile/.claude/agents/
 git mv .claude/agents/novel-to-storyboard-script.md agent_runtime_profile/.claude/agents/
 ```
 
-**Step 4: 验证 .claude/ 只剩开发态内容**
+**Step 4: Verify .claude/ only contains development-mode content**
 
 ```bash
 ls .claude/skills/
@@ -60,59 +60,59 @@ git commit -m "refactor: migrate business skills/agents to agent_runtime_profile
 
 ---
 
-### Task 2: 创建 agent_runtime_profile/CLAUDE.md（智能体系统 Prompt）
+### Task 2: Create agent_runtime_profile/CLAUDE.md (agent system prompt)
 
 **Files:**
 - Create: `agent_runtime_profile/CLAUDE.md`
-- Modify: `CLAUDE.md` (root, 瘦身)
+- Modify: `CLAUDE.md` (root, slim down)
 
-**Step 1: 从当前 CLAUDE.md 拆分内容到 agent_runtime_profile/CLAUDE.md**
+**Step 1: Split content from current CLAUDE.md into agent_runtime_profile/CLAUDE.md**
 
-创建 `agent_runtime_profile/CLAUDE.md`，包含当前 `CLAUDE.md` 中的全部业务内容：
+Create `agent_runtime_profile/CLAUDE.md` containing all business content from the current `CLAUDE.md`:
 
-- 重要总则（语言规范、视频规格、音频规范、脚本调用、虚拟环境）
-- 内容模式表格和详细说明
-- 可用 Skills 列表
-- 快速开始
-- 工作流程（说书+画面模式、剧集动画模式）
-- 视频生成模式（标准、断点续传、单场景、分段标记）
-- 剧本核心字段
-- Veo 3.1 技术参考
-- 关键原则
-- 环境要求
-- API 后端配置
-- API 使用
-- 项目目录结构
-- project.json 结构（含数据分层、写时同步 vs 读时计算、完整示例）
-- 线索数据结构
+- General rules (language standards, video specs, audio specs, script invocation, virtual environment)
+- Content mode table and detailed descriptions
+- Available Skills list
+- Quick start
+- Workflow (narration+visuals mode, drama animation mode)
+- Video generation modes (standard, resume, single-scene, segmented)
+- Script core fields
+- Veo 3.1 technical reference
+- Key principles
+- Environment requirements
+- API backend configuration
+- API usage
+- Project directory structure
+- project.json structure (including data layering, write-time sync vs read-time compute, complete example)
+- Clue data structure
 
-注意：`agent_runtime_profile/CLAUDE.md` 中引用 skill 脚本路径需要更新为 `agent_runtime_profile/.claude/skills/{skill-name}/scripts/`。
+Note: skill script paths referenced in `agent_runtime_profile/CLAUDE.md` need to be updated to `agent_runtime_profile/.claude/skills/{skill-name}/scripts/`.
 
-**Step 2: 瘦身 root CLAUDE.md**
+**Step 2: Slim down root CLAUDE.md**
 
-`CLAUDE.md`（git root）只保留：
+`CLAUDE.md` (git root) retains only:
 
 ```markdown
-# AI 视频生成工作空间
+# AI Video Generation Workspace
 
-你是一个专业的 AI 视频内容创作助手，帮助用户将小说转化为可发布的短视频内容。
+You are a professional AI video content creation assistant, helping users transform novels into publishable short video content.
 
-## 语言规范
-- **回答用户必须使用中文**
+## Language Standards
+- **Responses to users must be in Chinese**
 
-## 项目概述
+## Project Overview
 
-这是 ArcReel 视频生成平台。详细架构和开发指南见 `CLAUDE.local.md`。
+This is the ArcReel video generation platform. See `CLAUDE.local.md` for detailed architecture and development guide.
 
-## 智能体运行环境
+## Agent Runtime Environment
 
-智能体专用配置（skills、agents、系统 prompt）位于 `agent_runtime_profile/` 目录，
-与开发态 `.claude/` 物理分离。详见 `docs/plans/2026-03-06-agent-runtime-isolation-design.md`。
+Agent-specific configuration (skills, agents, system prompt) lives in the `agent_runtime_profile/` directory,
+physically separated from the development-mode `.claude/`. See `docs/plans/2026-03-06-agent-runtime-isolation-design.md`.
 ```
 
-**Step 3: 验证两个 CLAUDE.md 内容不重叠**
+**Step 3: Verify the two CLAUDE.md files have no overlapping content**
 
-手动检查：root CLAUDE.md 不包含视频规格、Skill 触发表、工作流程等业务内容。
+Manually verify: root CLAUDE.md does not contain video specs, Skill trigger tables, workflow, or other business content.
 
 **Step 4: Commit**
 
@@ -123,15 +123,15 @@ git commit -m "refactor: split CLAUDE.md into dev guide + agent system prompt"
 
 ---
 
-### Task 3: ProjectManager 创建项目时自动创建符号链接
+### Task 3: ProjectManager automatically creates symlink on project creation
 
 **Files:**
 - Modify: `lib/project_manager.py:106-126` (`create_project` method)
 - Test: `tests/test_project_manager_symlink.py`
 
-**Step 1: 写失败的测试**
+**Step 1: Write failing tests**
 
-创建 `tests/test_project_manager_symlink.py`：
+Create `tests/test_project_manager_symlink.py`:
 
 ```python
 """Tests for .claude symlink creation on project creation."""
@@ -186,17 +186,17 @@ class TestProjectSymlink:
         assert not symlink.exists()
 ```
 
-**Step 2: 运行测试验证失败**
+**Step 2: Run tests to verify they fail**
 
 ```bash
 python -m pytest tests/test_project_manager_symlink.py -v
 ```
 
-Expected: 3 FAIL（`create_project` 还没有符号链接逻辑）
+Expected: 3 FAIL (`create_project` does not yet have symlink logic)
 
-**Step 3: 实现符号链接创建**
+**Step 3: Implement symlink creation**
 
-修改 `lib/project_manager.py` 的 `create_project` 方法，在创建子目录后添加：
+Modify the `create_project` method in `lib/project_manager.py`, adding the following after creating subdirectories:
 
 ```python
 def create_project(self, name: str) -> Path:
@@ -204,13 +204,13 @@ def create_project(self, name: str) -> Path:
     project_dir = self.projects_root / name
 
     if project_dir.exists():
-        raise FileExistsError(f"项目 '{name}' 已存在")
+        raise FileExistsError(f"Project '{name}' already exists")
 
-    # 创建所有子目录
+    # Create all subdirectories
     for subdir in self.SUBDIRS:
         (project_dir / subdir).mkdir(parents=True, exist_ok=True)
 
-    # 创建 .claude 符号链接指向 agent_runtime_profile
+    # Create .claude symlink pointing to agent_runtime_profile
     self._create_claude_symlink(project_dir)
 
     return project_dir
@@ -235,7 +235,7 @@ def _create_claude_symlink(self, project_dir: Path) -> None:
         pass  # Non-fatal: symlink creation may fail on some platforms
 ```
 
-**Step 4: 运行测试验证通过**
+**Step 4: Run tests to verify they pass**
 
 ```bash
 python -m pytest tests/test_project_manager_symlink.py -v
@@ -243,7 +243,7 @@ python -m pytest tests/test_project_manager_symlink.py -v
 
 Expected: 3 PASS
 
-**Step 5: 运行现有 project_manager 测试确保无回归**
+**Step 5: Run existing project_manager tests to ensure no regressions**
 
 ```bash
 python -m pytest tests/test_project_manager.py -v
@@ -260,15 +260,15 @@ git commit -m "feat: create .claude symlink on project creation for agent isolat
 
 ---
 
-### Task 4: SessionManager 工具名修正和常量更新
+### Task 4: SessionManager tool name corrections and constant updates
 
 **Files:**
 - Modify: `server/agent_runtime/session_manager.py:199-222`
 - Modify: `tests/test_session_manager_project_scope.py`
 
-**Step 1: 写失败的测试**
+**Step 1: Write failing tests**
 
-在 `tests/test_session_manager_project_scope.py` 中添加：
+Add to `tests/test_session_manager_project_scope.py`:
 
 ```python
 class TestAllowedToolsAndConstants:
@@ -312,7 +312,7 @@ class TestAllowedToolsAndConstants:
         await engine.dispose()
 ```
 
-**Step 2: 运行测试验证失败**
+**Step 2: Run tests to verify they fail**
 
 ```bash
 python -m pytest tests/test_session_manager_project_scope.py::TestAllowedToolsAndConstants -v
@@ -320,9 +320,9 @@ python -m pytest tests/test_session_manager_project_scope.py::TestAllowedToolsAn
 
 Expected: FAIL
 
-**Step 3: 更新常量**
+**Step 3: Update constants**
 
-修改 `server/agent_runtime/session_manager.py`：
+Modify `server/agent_runtime/session_manager.py`:
 
 ```python
 DEFAULT_ALLOWED_TOOLS = [
@@ -345,7 +345,7 @@ _READONLY_DIRS = [
 _READONLY_FILES: list[str] = []
 ```
 
-**Step 4: 运行测试验证通过**
+**Step 4: Run tests to verify they pass**
 
 ```bash
 python -m pytest tests/test_session_manager_project_scope.py -v
@@ -362,15 +362,15 @@ git commit -m "fix: align DEFAULT_ALLOWED_TOOLS with SDK docs, update access con
 
 ---
 
-### Task 5: _build_system_prompt 从 agent_runtime_profile/CLAUDE.md 加载
+### Task 5: _build_system_prompt loads from agent_runtime_profile/CLAUDE.md
 
 **Files:**
 - Modify: `server/agent_runtime/session_manager.py:256-307` (`_load_config`, `_build_system_prompt`)
 - Modify: `tests/test_session_manager_project_scope.py`
 
-**Step 1: 写失败的测试**
+**Step 1: Write failing tests**
 
-在 `tests/test_session_manager_project_scope.py` 中添加：
+Add to `tests/test_session_manager_project_scope.py`:
 
 ```python
 class TestAgentProfileSystemPrompt:
@@ -381,7 +381,7 @@ class TestAgentProfileSystemPrompt:
         profile_dir = tmp_path / "agent_runtime_profile"
         profile_dir.mkdir()
         profile_claude = profile_dir / "CLAUDE.md"
-        profile_claude.write_text("你是视频创作助手。使用中文回答。")
+        profile_claude.write_text("You are a video creation assistant. Please respond in Chinese.")
 
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
@@ -392,7 +392,7 @@ class TestAgentProfileSystemPrompt:
         )
 
         prompt = manager._build_system_prompt("demo")
-        assert "你是视频创作助手" in prompt
+        assert "You are a video creation assistant" in prompt
         await engine.dispose()
 
     @pytest.mark.asyncio
@@ -417,12 +417,12 @@ class TestAgentProfileSystemPrompt:
         """Profile prompt + project.json context should both be present."""
         profile_dir = tmp_path / "agent_runtime_profile"
         profile_dir.mkdir()
-        (profile_dir / "CLAUDE.md").write_text("你是视频创作助手。")
+        (profile_dir / "CLAUDE.md").write_text("You are a video creation assistant.")
 
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
         (project_dir / "project.json").write_text(
-            json.dumps({"title": "测试项目"}, ensure_ascii=False),
+            json.dumps({"title": "Test Project"}, ensure_ascii=False),
             encoding="utf-8",
         )
 
@@ -432,26 +432,26 @@ class TestAgentProfileSystemPrompt:
         )
 
         prompt = manager._build_system_prompt("demo")
-        assert "你是视频创作助手" in prompt
-        assert "项目标题：测试项目" in prompt
+        assert "You are a video creation assistant" in prompt
+        assert "Project title: Test Project" in prompt
         await engine.dispose()
 ```
 
-**Step 2: 运行测试验证失败**
+**Step 2: Run tests to verify they fail**
 
 ```bash
 python -m pytest tests/test_session_manager_project_scope.py::TestAgentProfileSystemPrompt -v
 ```
 
-Expected: FAIL（当前从环境变量加载，不从文件加载）
+Expected: FAIL (currently loads from environment variable, not from file)
 
-**Step 3: 实现**
+**Step 3: Implement**
 
-修改 `server/agent_runtime/session_manager.py`：
+Modify `server/agent_runtime/session_manager.py`:
 
 ```python
 FALLBACK_SYSTEM_PROMPT = (
-    "你是视频项目协作助手。优先复用项目中的 Skills 与现有文件结构，避免擅自改写数据格式。"
+    "You are a video project collaboration assistant. Prioritize reusing Skills and existing file structures in the project, and avoid rewriting data formats without authorization."
 )
 
 def _load_config(self) -> None:
@@ -484,13 +484,13 @@ def _build_system_prompt(self, project_name: str) -> str:
     # ... rest of existing logic, but using base_prompt instead of self.system_prompt
 ```
 
-**Step 4: 运行测试验证通过**
+**Step 4: Run tests to verify they pass**
 
 ```bash
 python -m pytest tests/test_session_manager_project_scope.py -v
 ```
 
-Expected: All PASS（包括旧测试——需要为旧测试创建 `agent_runtime_profile/CLAUDE.md`，或更新旧测试的 assert 使用 `FALLBACK_SYSTEM_PROMPT`）
+Expected: All PASS (including old tests — need to create `agent_runtime_profile/CLAUDE.md` for old tests, or update old test assertions to use `FALLBACK_SYSTEM_PROMPT`)
 
 **Step 5: Commit**
 
@@ -501,13 +501,13 @@ git commit -m "feat: load system prompt from agent_runtime_profile/CLAUDE.md"
 
 ---
 
-### Task 6: _load_agent_definitions 编程式加载 agents
+### Task 6: _load_agent_definitions programmatically loads agents
 
 **Files:**
 - Modify: `server/agent_runtime/session_manager.py:325-358` (`_build_options`)
 - Test: `tests/test_session_manager_project_scope.py`
 
-**Step 1: 写失败的测试**
+**Step 1: Write failing tests**
 
 ```python
 class TestAgentDefinitions:
@@ -567,7 +567,7 @@ class TestAgentDefinitions:
         await engine.dispose()
 ```
 
-**Step 2: 运行测试验证失败**
+**Step 2: Run tests to verify they fail**
 
 ```bash
 python -m pytest tests/test_session_manager_project_scope.py::TestAgentDefinitions -v
@@ -575,9 +575,9 @@ python -m pytest tests/test_session_manager_project_scope.py::TestAgentDefinitio
 
 Expected: FAIL
 
-**Step 3: 实现**
+**Step 3: Implement**
 
-在 `session_manager.py` 中添加：
+Add to `session_manager.py`:
 
 ```python
 def _load_agent_definitions(self) -> dict[str, Any]:
@@ -615,9 +615,9 @@ def _load_agent_definitions(self) -> dict[str, Any]:
     return agents
 ```
 
-修改 `_build_options` 添加 `agents=self._load_agent_definitions()`。
+Modify `_build_options` to add `agents=self._load_agent_definitions()`.
 
-**Step 4: 运行测试验证通过**
+**Step 4: Run tests to verify they pass**
 
 ```bash
 python -m pytest tests/test_session_manager_project_scope.py -v
@@ -634,15 +634,15 @@ git commit -m "feat: programmatic agent loading from agent_runtime_profile"
 
 ---
 
-### Task 7: AssistantService.list_available_skills 更新
+### Task 7: AssistantService.list_available_skills update
 
 **Files:**
 - Modify: `server/agent_runtime/service.py:743-787` (`list_available_skills`)
 - Test: `tests/test_assistant_service_skills.py`
 
-**Step 1: 写失败的测试**
+**Step 1: Write failing tests**
 
-创建 `tests/test_assistant_service_skills.py`：
+Create `tests/test_assistant_service_skills.py`:
 
 ```python
 """Tests for AssistantService.list_available_skills with agent_runtime_profile."""
@@ -682,17 +682,17 @@ class TestListAvailableSkills:
         assert "dev-tool" not in names
 ```
 
-**Step 2: 运行测试验证失败**
+**Step 2: Run tests to verify they fail**
 
 ```bash
 python -m pytest tests/test_assistant_service_skills.py -v
 ```
 
-Expected: FAIL（当前扫描 `.claude/skills/`）
+Expected: FAIL (currently scans `.claude/skills/`)
 
-**Step 3: 实现**
+**Step 3: Implement**
 
-修改 `service.py` 的 `list_available_skills`：
+Modify `list_available_skills` in `service.py`:
 
 ```python
 def list_available_skills(self, project_name: Optional[str] = None) -> list[dict[str, str]]:
@@ -733,7 +733,7 @@ def list_available_skills(self, project_name: Optional[str] = None) -> list[dict
     return skills
 ```
 
-**Step 4: 运行测试验证通过**
+**Step 4: Run tests to verify they pass**
 
 ```bash
 python -m pytest tests/test_assistant_service_skills.py -v
@@ -750,25 +750,25 @@ git commit -m "refactor: list_available_skills scans agent_runtime_profile"
 
 ---
 
-### Task 8: Dockerfile 更新
+### Task 8: Dockerfile update
 
 **Files:**
 - Modify: `Dockerfile:45-46`
 
-**Step 1: 更新 COPY 指令**
+**Step 1: Update COPY instructions**
 
-将：
+Replace:
 ```dockerfile
 COPY .claude/skills/ .claude/skills/
 COPY .claude/agents/ .claude/agents/
 ```
 
-替换为：
+With:
 ```dockerfile
 COPY agent_runtime_profile/ agent_runtime_profile/
 ```
 
-**Step 2: 验证构建**
+**Step 2: Verify build**
 
 ```bash
 docker build -t arcreel-test --target production . 2>&1 | tail -5
@@ -785,12 +785,12 @@ git commit -m "build: copy agent_runtime_profile instead of .claude in Dockerfil
 
 ---
 
-### Task 9: 为已有项目补建符号链接的迁移脚本
+### Task 9: Migration script for creating symlinks in existing projects
 
 **Files:**
 - Create: `scripts/migrate_claude_symlinks.py`
 
-**Step 1: 创建迁移脚本**
+**Step 1: Create migration script**
 
 ```python
 #!/usr/bin/env python3
@@ -855,7 +855,7 @@ if __name__ == "__main__":
     main()
 ```
 
-**Step 2: 测试 dry-run**
+**Step 2: Test dry-run**
 
 ```bash
 python scripts/migrate_claude_symlinks.py --dry-run
@@ -863,7 +863,7 @@ python scripts/migrate_claude_symlinks.py --dry-run
 
 Expected: Lists projects that would get symlinks
 
-**Step 3: 运行迁移**
+**Step 3: Run migration**
 
 ```bash
 python scripts/migrate_claude_symlinks.py
@@ -878,18 +878,18 @@ git commit -m "feat: migration script for .claude symlinks in existing projects"
 
 ---
 
-### Task 10: 清理实验脚本和最终验证
+### Task 10: Clean up experiment scripts and final verification
 
 **Files:**
 - Delete: `scripts/test_add_dirs_isolation.py`
 
-**Step 1: 删除实验脚本**
+**Step 1: Delete experiment script**
 
 ```bash
 rm scripts/test_add_dirs_isolation.py
 ```
 
-**Step 2: 运行全部测试**
+**Step 2: Run all tests**
 
 ```bash
 python -m pytest tests/ -v --tb=short
@@ -897,17 +897,17 @@ python -m pytest tests/ -v --tb=short
 
 Expected: All PASS
 
-**Step 3: 验证 .gitignore 或 .dockerignore**
+**Step 3: Verify .gitignore or .dockerignore**
 
-确认 `agent_runtime_profile/.claude/` 不会被 gitignore 忽略（`.claude/` 模式可能匹配子目录）。
+Confirm that `agent_runtime_profile/.claude/` will not be ignored by gitignore (the `.claude/` pattern may match subdirectories).
 
 ```bash
 git status agent_runtime_profile/
 ```
 
-Expected: 新文件可被 git 追踪
+Expected: New files are trackable by git
 
-**Step 4: 最终 commit**
+**Step 4: Final commit**
 
 ```bash
 git add -A

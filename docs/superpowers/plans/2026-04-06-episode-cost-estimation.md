@@ -84,7 +84,7 @@ git commit -m "feat: ApiCall 新增 segment_id 字段"
 - Modify: `lib/usage_tracker.py:24-51`
 - Test: `tests/test_usage_tracker.py`
 
-- [ ] **Step 1: 写失败测试**
+- [ ] **Step 1: Write failing tests**
 
 在 `tests/test_usage_tracker.py` 添加：
 
@@ -117,7 +117,7 @@ git commit -m "feat: ApiCall 新增 segment_id 字段"
         assert item["segment_id"] is None
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_usage_tracker.py::TestUsageTracker::test_start_call_with_segment_id -v`
 Expected: FAIL — `start_call()` 不接受 `segment_id` 参数
@@ -189,10 +189,10 @@ Expected: FAIL — `start_call()` 不接受 `segment_id` 参数
 
 在调用 `repo.start_call()` 时传入 `segment_id=segment_id`。
 
-- [ ] **Step 5: 运行测试确认通过**
+- [ ] **Step 5: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_usage_tracker.py -v`
-Expected: 全部 PASS（含新增的两个测试）
+Expected: all PASS（含新增的两个测试）
 
 - [ ] **Step 6: Commit**
 
@@ -250,7 +250,7 @@ git commit -m "feat: UsageTracker/Repository 支持 segment_id 参数"
 - [ ] **Step 3: 运行现有测试确保无回归**
 
 Run: `uv run python -m pytest tests/test_usage_tracker.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 4: Commit**
 
@@ -267,7 +267,7 @@ git commit -m "feat: MediaGenerator 将 resource_id 作为 segment_id 传入 Usa
 - Modify: `lib/db/repositories/usage_repo.py`
 - Test: `tests/test_usage_tracker.py`
 
-- [ ] **Step 1: 写失败测试**
+- [ ] **Step 1: Write failing tests**
 
 在 `tests/test_usage_tracker.py` 添加新测试类：
 
@@ -309,7 +309,7 @@ class TestActualCostsBySegment:
         assert result.get("__project__", {}).get("image", {}).get("USD") == pytest.approx(0.067)
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_usage_tracker.py::TestActualCostsBySegment -v`
 Expected: FAIL — `get_actual_costs_by_segment` 不存在
@@ -363,10 +363,10 @@ Expected: FAIL — `get_actual_costs_by_segment` 不存在
             return await repo.get_actual_costs_by_segment(project_name)
 ```
 
-- [ ] **Step 5: 运行测试确认通过**
+- [ ] **Step 5: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_usage_tracker.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 6: Commit**
 
@@ -383,7 +383,7 @@ git commit -m "feat: 新增按 segment 汇总实际费用查询"
 - Create: `server/services/cost_estimation.py`
 - Test: `tests/test_cost_estimation_service.py`
 
-- [ ] **Step 1: 写失败测试**
+- [ ] **Step 1: Write failing tests**
 
 创建 `tests/test_cost_estimation_service.py`：
 
@@ -496,7 +496,7 @@ class TestCostEstimationService:
         assert result["project_totals"]["estimate"] == {}
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_cost_estimation_service.py -v`
 Expected: FAIL — `cost_estimation` 模块不存在
@@ -700,10 +700,10 @@ class CostEstimationService:
         }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_cost_estimation_service.py -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 5: Commit**
 
@@ -788,7 +788,7 @@ async def get_cost_estimate(project_name: str, _user: CurrentUser):
 app.include_router(cost_estimation.router, prefix="/api/v1", tags=["费用估算"])
 ```
 
-在文件顶部 import 区域添加：
+At the top of the file import 区域添加：
 
 ```python
 from server.routers import cost_estimation
@@ -912,7 +912,7 @@ export * from "./cost";
   }
 ```
 
-在文件顶部的 import 中添加 `CostEstimateResponse` 类型导入（如果是 from `@/types` 导入）。
+At the top of the file的 import 中添加 `CostEstimateResponse` 类型导入（如果是 from `@/types` 导入）。
 
 - [ ] **Step 4: 构建确认无 TS 错误**
 
@@ -1433,7 +1433,7 @@ git commit -m "refactor: 提取 formatCost/totalBreakdown 到共享工具模块"
 - [ ] **Step 1: 运行全部后端测试**
 
 Run: `uv run python -m pytest -v`
-Expected: 全部 PASS
+Expected: all PASS
 
 - [ ] **Step 2: 运行 lint + format**
 
