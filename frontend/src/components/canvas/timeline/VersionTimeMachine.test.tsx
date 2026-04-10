@@ -74,7 +74,7 @@ describe("VersionTimeMachine", () => {
     expect(API.getVersions).not.toHaveBeenCalled();
 
     // Open the panel
-    fireEvent.click(screen.getByRole("button", { name: /版本管理/ }));
+    fireEvent.click(screen.getByRole("button", { name: /版本/ }));
 
     // Click v1 pill to preview
     expect(await screen.findByRole("button", { name: "v1" })).toBeInTheDocument();
@@ -133,7 +133,7 @@ describe("VersionTimeMachine", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /版本管理/ }));
+    fireEvent.click(screen.getByRole("button", { name: /版本/ }));
     expect(await screen.findByRole("button", { name: "v1" })).toBeInTheDocument();
 
     // Click v1 pill to preview

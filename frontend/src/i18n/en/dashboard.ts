@@ -692,7 +692,7 @@ export default {
   'enter_api_key_required': 'Please enter API Key',
 
   // VersionTimeMachine
-  'version_mgmt': 'Version History',
+  'version_mgmt': 'Versions',
   'switched_to_version': 'Switched to v{{version}}',
   'switch_version_failed': 'Failed to switch version: {{message}}',
   'no_history': 'No history versions yet',

@@ -41,7 +41,7 @@ export default {
   'rebirth_empress_example': '例如：重生之皇后威武',
   'characters': '角色',
   'clues': '线索',
-  'episodes': '集',
+  'episodes': '分集',
   'episodes_scripted': '集剧本完成',
   'episodes_in_production': '集制作中',
   'episodes_completed': '集已完成',
@@ -693,7 +693,7 @@ export default {
   'enter_api_key_required': '请输入 API Key',
 
   // VersionTimeMachine
-  'version_mgmt': '版本管理',
+  'version_mgmt': '版本',
   'switched_to_version': '已切换到 v{{version}}',
   'switch_version_failed': '切换版本失败: {{message}}',
   'no_history': '暂无历史版本',
