@@ -239,10 +239,10 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           type="button"
           onClick={onNavigateBack}
           className="flex items-center gap-1 text-sm text-gray-400 transition-colors hover:text-gray-200"
-          aria-label={t("back_to_projects")}
+          aria-label={t("dashboard:projects")}
         >
           <ChevronLeft className="h-4 w-4" />
-          <span className="hidden sm:inline">{t("projects")}</span>
+          <span className="hidden sm:inline">{t("dashboard:projects")}</span>
         </button>
 
         {/* Divider */}
