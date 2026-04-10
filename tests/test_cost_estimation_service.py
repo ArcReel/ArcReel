@@ -131,9 +131,7 @@ class TestCostEstimationService:
             "generation_mode": "grid",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
-        scripts = {
-            "ep1.json": _make_script(1, seg_ids, [6] * 9, generated_assets_overrides=overrides)
-        }
+        scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 9, generated_assets_overrides=overrides)}
 
         result = await service.compute(project_data, scripts, project_name="proj")
 
@@ -179,9 +177,7 @@ class TestCostEstimationService:
             "generation_mode": "grid",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
-        scripts = {
-            "ep1.json": _make_script(1, seg_ids, [6] * 5, generated_assets_overrides=overrides)
-        }
+        scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 5, generated_assets_overrides=overrides)}
 
         result = await service.compute(project_data, scripts, project_name="proj")
 

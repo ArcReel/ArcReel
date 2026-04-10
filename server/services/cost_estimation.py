@@ -162,9 +162,7 @@ class CostEstimationService:
                     n = len(sids)
                     per_scene: CostBreakdown = {cur: round(amt / n, 6) for cur, amt in grid_cost.items()}
                     for sid in sids:
-                        grid_actual_per_scene[sid] = _merge_breakdowns(
-                            grid_actual_per_scene.get(sid, {}), per_scene
-                        )
+                        grid_actual_per_scene[sid] = _merge_breakdowns(grid_actual_per_scene.get(sid, {}), per_scene)
 
             segments_result = []
             ep_est: dict[str, CostBreakdown] = {}
