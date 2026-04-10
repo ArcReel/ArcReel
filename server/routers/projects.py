@@ -11,13 +11,14 @@ import logging
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 if TYPE_CHECKING:
     from server.services.jianying_draft_service import JianyingDraftService
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 from lib import PROJECT_ROOT
 from lib.asset_fingerprints import compute_asset_fingerprints
-from lib.i18n import get_translator
+from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator
@@ -94,9 +95,9 @@ def _cleanup_temp_dir(dir_path: str) -> None:
 @router.post("/projects/import")
 async def import_project_archive(
     _user: CurrentUser,
+    _t: Translator,
     file: UploadFile = File(...),
     conflict_policy: str = Form("prompt"),
-    _t=Depends(get_translator),
 ):
     """从 ZIP 导入项目。"""
     upload_path: str | None = None
@@ -158,8 +159,8 @@ async def import_project_archive(
 async def create_export_token(
     name: str,
     current_user: CurrentUser,
+    _t: Translator,
     scope: str = Query("full"),
-    _t=Depends(get_translator),
 ):
     """签发短时效下载 token，用于浏览器原生下载认证。"""
     try:
@@ -189,9 +190,9 @@ async def create_export_token(
 @router.get("/projects/{name}/export")
 async def export_project_archive(
     name: str,
+    _t: Translator,
     download_token: str = Query(...),
     scope: str = Query("full"),
-    _t=Depends(get_translator),
 ):
     """将项目导出为 ZIP。需要 download_token 认证（通过 POST /export/token 获取）。"""
     if scope not in ("full", "current"):
@@ -237,25 +238,25 @@ def get_jianying_draft_service() -> JianyingDraftService:
     return JianyingDraftService(get_project_manager())
 
 
-def _validate_draft_path(draft_path: str, _t) -> str:
+def _validate_draft_path(draft_path: str, _t: Callable[..., str]) -> str:
     """校验 draft_path 合法性"""
     if not draft_path or not draft_path.strip():
-        raise HTTPException(status_code=422, detail=_t("draft_path_invalid"))
+        raise HTTPException(status_code=422, detail=_t("jianying_path_invalid"))
     if len(draft_path) > 1024:
-        raise HTTPException(status_code=422, detail=_t("draft_path_too_long"))
+        raise HTTPException(status_code=422, detail=_t("jianying_path_too_long"))
     if any(ord(c) < 32 for c in draft_path):
-        raise HTTPException(status_code=422, detail=_t("draft_path_invalid_chars"))
+        raise HTTPException(status_code=422, detail=_t("jianying_path_illegal"))
     return draft_path.strip()
 
 
 @router.get("/projects/{name}/export/jianying-draft")
 def export_jianying_draft(
     name: str,
+    _t: Translator,
     episode: int = Query(..., description="集数编号"),
     draft_path: str = Query(..., description="用户本地剪映草稿目录"),
     download_token: str = Query(..., description="下载 token"),
     jianying_version: str = Query("6", description="剪映版本：6 或 5"),
-    _t=Depends(get_translator),
 ):
     """导出指定集的剪映草稿 ZIP"""
     import jwt as pyjwt
@@ -361,7 +362,7 @@ async def list_projects(_user: CurrentUser):
 async def create_project(
     req: CreateProjectRequest,
     _user: CurrentUser,
-    _t=Depends(get_translator),
+    _t: Translator,
 ):
     """创建新项目"""
     try:
@@ -403,7 +404,7 @@ async def create_project(
 async def get_project(
     name: str,
     _user: CurrentUser,
-    _t=Depends(get_translator),
+    _t: Translator,
 ):
     """获取项目详情（含实时计算字段）"""
     try:
@@ -457,7 +458,7 @@ async def get_project(
 
 
 @router.patch("/projects/{name}")
-async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUser, _t=Depends(get_translator)):
+async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUser, _t: Translator):
     """更新项目元数据"""
     try:
 
@@ -485,7 +486,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                 if field in req.model_fields_set:
                     value = getattr(req, field)
                     if value:
-                        validate_backend_value(value, field)
+                        validate_backend_value(value, field, _t)
                         project[field] = value
                     else:
                         project.pop(field, None)
@@ -517,7 +518,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
 
 
 @router.delete("/projects/{name}")
-async def delete_project(name: str, _user: CurrentUser, _t=Depends(get_translator)):
+async def delete_project(name: str, _user: CurrentUser, _t: Translator):
     """删除项目"""
     try:
 
@@ -537,7 +538,7 @@ async def delete_project(name: str, _user: CurrentUser, _t=Depends(get_translato
 
 
 @router.get("/projects/{name}/scripts/{script_file}")
-async def get_script(name: str, script_file: str, _user: CurrentUser, _t=Depends(get_translator)):
+async def get_script(name: str, script_file: str, _user: CurrentUser, _t: Translator):
     """获取剧本内容"""
     try:
         script = await asyncio.to_thread(get_project_manager().load_script, name, script_file)
@@ -557,9 +558,7 @@ class UpdateSceneRequest(BaseModel):
 
 
 @router.patch("/projects/{name}/scenes/{scene_id}")
-async def update_scene(
-    name: str, scene_id: str, req: UpdateSceneRequest, _user: CurrentUser, _t=Depends(get_translator)
-):
+async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user: CurrentUser, _t: Translator):
     """更新场景"""
     try:
 
@@ -589,7 +588,7 @@ async def update_scene(
                     break
 
             if not scene_found:
-                raise HTTPException(status_code=404, detail=_t("scene_not_found", scene_id=scene_id))
+                raise HTTPException(status_code=404, detail=_t("scene_not_found", id=scene_id))
 
             with project_change_source("webui"):
                 manager.save_script(name, script, req.script_file)
@@ -623,9 +622,7 @@ class UpdateOverviewRequest(BaseModel):
 
 
 @router.patch("/projects/{name}/segments/{segment_id}")
-async def update_segment(
-    name: str, segment_id: str, req: UpdateSegmentRequest, _user: CurrentUser, _t=Depends(get_translator)
-):
+async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _user: CurrentUser, _t: Translator):
     """更新说书模式片段"""
     try:
 
@@ -635,7 +632,7 @@ async def update_segment(
 
             # 检查是否为说书模式
             if script.get("content_mode") != "narration" and "segments" not in script:
-                raise HTTPException(status_code=400, detail=_t("not_narration_mode"))
+                raise HTTPException(status_code=400, detail=_t("narration_mode_required"))
 
             # 找到并更新片段
             segment_found = False
@@ -657,7 +654,7 @@ async def update_segment(
                     break
 
             if not segment_found:
-                raise HTTPException(status_code=404, detail=_t("segment_not_found", segment_id=segment_id))
+                raise HTTPException(status_code=404, detail=_t("segment_not_found", id=segment_id))
 
             with project_change_source("webui"):
                 manager.save_script(name, script, req.script_file)
@@ -680,10 +677,10 @@ async def update_segment(
 async def set_project_source(
     name: Annotated[str, FastAPIPath(pattern=r"^[a-zA-Z0-9_-]+$")],
     _user: CurrentUser,
+    _t: Translator,
     generate_overview: Annotated[bool, Form()] = True,
     content: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
-    _t=Depends(get_translator),
 ):
     """上传小说源文件或直接提交文本内容，可选触发 AI 概述生成。
 
@@ -697,9 +694,9 @@ async def set_project_source(
     ALLOWED_SUFFIXES = {".txt", ".md"}
 
     if not content and not file:
-        raise HTTPException(status_code=400, detail=_t("source_input_required"))
+        raise HTTPException(status_code=400, detail=_t("content_or_file_required"))
     if content and file:
-        raise HTTPException(status_code=400, detail=_t("source_input_conflict"))
+        raise HTTPException(status_code=400, detail=_t("one_of_content_or_file"))
 
     try:
         manager = get_project_manager()
@@ -710,9 +707,9 @@ async def set_project_source(
             original_name = file.filename or "novel.txt"
             suffix = Path(original_name).suffix.lower()
             if suffix not in ALLOWED_SUFFIXES:
-                raise HTTPException(status_code=400, detail=_t("source_file_unsupported", ext=suffix))
+                raise HTTPException(status_code=400, detail=_t("unsupported_file_type", name=suffix))
             if file.size is not None and file.size > MAX_CHARS * 4:
-                raise HTTPException(status_code=400, detail=_t("source_file_too_large"))
+                raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
             raw = await file.read()
 
         # 同步文件 I/O 在线程中执行
@@ -730,16 +727,12 @@ async def set_project_source(
                 except UnicodeDecodeError:
                     raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
                 if len(text) > MAX_CHARS:
-                    raise HTTPException(
-                        status_code=400, detail=_t("source_content_too_large", max=MAX_CHARS, current=len(text))
-                    )
+                    raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
                 (source_dir / safe_filename).write_text(text, encoding="utf-8")
                 return safe_filename, len(text)
             else:
                 if len(content) > MAX_CHARS:
-                    raise HTTPException(
-                        status_code=400, detail=_t("source_content_too_large", max=MAX_CHARS, current=len(content))
-                    )
+                    raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
                 safe_filename = "novel.txt"
                 (source_dir / safe_filename).write_text(content, encoding="utf-8")
                 return safe_filename, len(content)
@@ -772,7 +765,7 @@ async def set_project_source(
 
 
 @router.post("/projects/{name}/generate-overview")
-async def generate_overview(name: str, _user: CurrentUser, _t=Depends(get_translator)):
+async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
     """使用 AI 生成项目概述"""
     try:
         with project_change_source("webui"):
@@ -790,7 +783,7 @@ async def generate_overview(name: str, _user: CurrentUser, _t=Depends(get_transl
 
 
 @router.patch("/projects/{name}/overview")
-async def update_overview(name: str, req: UpdateOverviewRequest, _user: CurrentUser, _t=Depends(get_translator)):
+async def update_overview(name: str, req: UpdateOverviewRequest, _user: CurrentUser, _t: Translator):
     """更新项目概述（手动编辑）"""
     try:
 

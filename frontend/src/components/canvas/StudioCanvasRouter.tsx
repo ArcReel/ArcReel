@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { Route, Switch, Redirect, useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -22,6 +22,8 @@ import type { Clue, CustomProviderInfo, ProviderInfo } from "@/types";
 
 export function StudioCanvasRouter() {
   const { t } = useTranslation("dashboard");
+  const tRef = useRef(t);
+  tRef.current = t;
   const { currentProjectData, currentProjectName, currentScripts } =
     useProjectsStore();
 
@@ -112,9 +114,9 @@ export function StudioCanvasRouter() {
       }
       await refreshProject();
     } catch (err) {
-      useAppStore.getState().pushToast(t("dashboard:update_prompt_failed", { message: (err as Error).message }), "error");
+      useAppStore.getState().pushToast(tRef.current("update_prompt_failed", { message: (err as Error).message }), "error");
     }
-  }, [currentProjectName, currentProjectData, refreshProject, t]);
+  }, [currentProjectName, currentProjectData, refreshProject]);
 
   const handleGenerateStoryboard = useCallback(async (segmentId: string, scriptFile?: string) => {
     if (!currentProjectName || !currentScripts) return;
@@ -131,11 +133,11 @@ export function StudioCanvasRouter() {
     const prompt = seg?.image_prompt ?? "";
     try {
       await API.generateStoryboard(currentProjectName, segmentId, prompt as string | Record<string, unknown>, resolvedFile);
-      useAppStore.getState().pushToast(t("dashboard:storyboard_task_submitted_toast", { id: segmentId }), "success");
+      useAppStore.getState().pushToast(tRef.current("storyboard_task_submitted_toast", { id: segmentId }), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(t("dashboard:generate_storyboard_failed", { message: (err as Error).message }), "error");
+      useAppStore.getState().pushToast(tRef.current("generate_storyboard_failed", { message: (err as Error).message }), "error");
     }
-  }, [currentProjectName, currentScripts, t]);
+  }, [currentProjectName, currentScripts]);
 
   const handleGenerateVideo = useCallback(async (segmentId: string, scriptFile?: string) => {
     if (!currentProjectName || !currentScripts) return;
@@ -153,11 +155,11 @@ export function StudioCanvasRouter() {
     const duration = seg?.duration_seconds ?? 4;
     try {
       await API.generateVideo(currentProjectName, segmentId, prompt as string | Record<string, unknown>, resolvedFile, duration);
-      useAppStore.getState().pushToast(t("dashboard:video_task_submitted_toast", { id: segmentId }), "success");
+      useAppStore.getState().pushToast(tRef.current("video_task_submitted_toast", { id: segmentId }), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(t("dashboard:generate_video_failed", { message: (err as Error).message }), "error");
+      useAppStore.getState().pushToast(tRef.current("generate_video_failed", { message: (err as Error).message }), "error");
     }
-  }, [currentProjectName, currentScripts, t]);
+  }, [currentProjectName, currentScripts]);
 
   // ---- Character CRUD callbacks ----
   const handleSaveCharacter = useCallback(async (
@@ -189,11 +191,11 @@ export function StudioCanvasRouter() {
           ? [buildEntityRevisionKey("character", name)]
           : [],
       );
-      useAppStore.getState().pushToast(t("dashboard:character_updated_toast", { name }), "success");
+      useAppStore.getState().pushToast(tRef.current("character_updated_toast", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(t("dashboard:update_character_failed", { message: (err as Error).message }), "error");
+      useAppStore.getState().pushToast(tRef.current("update_character_failed", { message: (err as Error).message }), "error");
     }
-  }, [currentProjectName, refreshProject, t]);
+  }, [currentProjectName, refreshProject]);
 
   const handleGenerateCharacter = useCallback(async (name: string) => {
     if (!currentProjectName) return;
@@ -205,11 +207,11 @@ export function StudioCanvasRouter() {
       );
       useAppStore
         .getState()
-        .pushToast(t("dashboard:character_task_submitted_toast", { name }), "success");
+        .pushToast(tRef.current("character_task_submitted_toast", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(t("dashboard:submit_failed", { message: (err as Error).message }), "error");
+      useAppStore.getState().pushToast(tRef.current("submit_failed", { message: (err as Error).message }), "error");
     }
-  }, [currentProjectName, currentProjectData, t]);
+  }, [currentProjectName, currentProjectData]);
 
   const handleAddCharacterSubmit = useCallback(async (
     name: string,
@@ -231,11 +233,11 @@ export function StudioCanvasRouter() {
           : [],
       );
       setAddingCharacter(false);
-      useAppStore.getState().pushToast(t("dashboard:character_added_toast", { name }), "success");
+      useAppStore.getState().pushToast(tRef.current("character_added_toast", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(t("dashboard:add_failed", { message: (err as Error).message }), "error");
+      useAppStore.getState().pushToast(tRef.current("add_failed", { message: (err as Error).message }), "error");
     }
-  }, [currentProjectName, refreshProject, t]);
+  }, [currentProjectName, refreshProject]);
 
   // ---- Clue CRUD callbacks ----
   const handleUpdateClue = useCallback(async (name: string, updates: Partial<Clue>) => {
@@ -244,9 +246,9 @@ export function StudioCanvasRouter() {
       await API.updateClue(currentProjectName, name, updates);
       await refreshProject();
     } catch (err) {
-      useAppStore.getState().pushToast(t("dashboard:update_clue_failed", { message: (err as Error).message }), "error");
+      useAppStore.getState().pushToast(tRef.current("update_clue_failed", { message: (err as Error).message }), "error");
     }
-  }, [currentProjectName, refreshProject, t]);
+  }, [currentProjectName, refreshProject]);
 
   const handleGenerateClue = useCallback(async (name: string) => {
     if (!currentProjectName) return;
@@ -258,11 +260,11 @@ export function StudioCanvasRouter() {
       );
       useAppStore
         .getState()
-        .pushToast(t("dashboard:clue_task_submitted_toast", { name }), "success");
+        .pushToast(tRef.current("clue_task_submitted_toast", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(t("dashboard:submit_failed", { message: (err as Error).message }), "error");
+      useAppStore.getState().pushToast(tRef.current("submit_failed", { message: (err as Error).message }), "error");
     }
-  }, [currentProjectName, currentProjectData, t]);
+  }, [currentProjectName, currentProjectData]);
 
   const handleAddClueSubmit = useCallback(async (name: string, clueType: string, description: string, importance: string) => {
     if (!currentProjectName) return;
@@ -270,11 +272,11 @@ export function StudioCanvasRouter() {
       await API.addClue(currentProjectName, name, clueType, description, importance);
       await refreshProject();
       setAddingClue(false);
-      useAppStore.getState().pushToast(t("dashboard:clue_added_toast", { name }), "success");
+      useAppStore.getState().pushToast(tRef.current("clue_added_toast", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(t("dashboard:add_failed", { message: (err as Error).message }), "error");
+      useAppStore.getState().pushToast(tRef.current("add_failed", { message: (err as Error).message }), "error");
     }
-  }, [currentProjectName, refreshProject, t]);
+  }, [currentProjectName, refreshProject]);
 
   const handleRestoreAsset = useCallback(async () => {
     await refreshProject();
@@ -285,7 +287,7 @@ export function StudioCanvasRouter() {
   if (!currentProjectName) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
-        {t("dashboard:loading_placeholder")}
+        {t("loading_placeholder")}
       </div>
     );
   }

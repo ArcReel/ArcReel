@@ -101,7 +101,7 @@ describe("OverviewCanvas", () => {
     ).not.toBeInTheDocument();
 
     fireEvent.change(
-      screen.getByPlaceholderText("风格描述描述"),
+      screen.getByPlaceholderText("风格描述"),
       {
         target: { value: "new description" },
       },

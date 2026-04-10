@@ -42,7 +42,7 @@ function SessionSelector({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
-  const displayTitle = isDraftSession ? t("dashboard:new_session") : (currentSession?.title || formatTime(currentSession?.created_at, t));
+  const displayTitle = isDraftSession ? t("new_session") : (currentSession?.title || formatTime(currentSession?.created_at, t));
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -50,10 +50,10 @@ function SessionSelector({
         type="button"
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-        title={t("dashboard:switch_session")}
+        title={t("switch_session")}
       >
         <MessageSquare className="h-3 w-3" />
-        <span className="max-w-24 truncate">{displayTitle || t("dashboard:no_session")}</span>
+        <span className="max-w-24 truncate">{displayTitle || t("no_session")}</span>
         <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
@@ -90,9 +90,9 @@ function SessionSelector({
                   </button>
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); if (confirm(t("dashboard:confirm_delete_session"))) onDelete(session.id); }}
+                    onClick={(e) => { e.stopPropagation(); if (confirm(t("confirm_delete_session"))) onDelete(session.id); }}
                     className="shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
-                    title={t("dashboard:delete_session")}
+                    title={t("delete_session")}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -120,12 +120,12 @@ function StatusDot({ status }: { status: string }) {
 }
 
 function formatTime(isoStr: string | undefined, t: any): string {
-  if (!isoStr) return t("dashboard:new_session");
+  if (!isoStr) return t("new_session");
   try {
     const d = new Date(isoStr);
     return `${(d.getMonth() + 1).toString().padStart(2, "0")}/${d.getDate().toString().padStart(2, "0")} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
   } catch {
-    return t("dashboard:new_session");
+    return t("new_session");
   }
 }
 
@@ -161,10 +161,10 @@ export function AgentCopilot() {
   const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
   const attachDisabled = inputDisabled || attachedImages.length >= MAX_IMAGES;
   const inputPlaceholder = pendingQuestion
-    ? t("dashboard:answer_above_hint")
+    ? t("answer_above_hint")
     : isRunning
-      ? t("dashboard:generating_stop_hint")
-      : t("dashboard:input_placeholder");
+      ? t("generating_stop_hint")
+      : t("input_placeholder");
 
   const addImages = useCallback((files: File[]) => {
     setAttachError(null);
@@ -172,7 +172,7 @@ export function AgentCopilot() {
     for (const file of files) {
       if (!file.type.startsWith("image/")) continue;
       if (file.size > MAX_IMAGE_BYTES) {
-        setAttachError(t("dashboard:image_too_large_hint", { name: file.name }));
+        setAttachError(t("image_too_large_hint", { name: file.name }));
         continue;
       }
       const reader = new FileReader();
@@ -330,18 +330,18 @@ export function AgentCopilot() {
             type="button"
             onClick={toggleAssistantPanel}
             className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-            title={t("dashboard:collapse_panel")}
+            title={t("collapse_panel")}
           >
             <PanelRightClose className="h-4 w-4" />
           </button>
           <Bot className="h-4 w-4 text-indigo-400" />
-          <span className="text-sm font-medium text-gray-300">{t("dashboard:arcreel_agent")}</span>
+          <span className="text-sm font-medium text-gray-300">{t("arcreel_agent")}</span>
         </div>
         <div className="flex items-center gap-1">
           {isRunning && (
             <span className="flex items-center gap-1.5 text-xs text-indigo-400 mr-1">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400" />
-              {t("dashboard:thinking")}
+              {t("thinking")}
             </span>
           )}
           <SessionSelector onSwitch={switchSession} onDelete={deleteSession} />
@@ -349,7 +349,7 @@ export function AgentCopilot() {
             type="button"
             onClick={createNewSession}
             className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-            title={t("dashboard:new_session")}
+            title={t("new_session")}
           >
             <Plus className="h-4 w-4" />
           </button>
@@ -364,9 +364,9 @@ export function AgentCopilot() {
         {allTurns.length === 0 && !messagesLoading && (
           <div className="flex h-full flex-col items-center justify-center text-center text-gray-500">
             <Bot className="mb-3 h-8 w-8 text-gray-600" />
-            <p className="text-sm">{t("dashboard:start_chat_hint")}</p>
+            <p className="text-sm">{t("start_chat_hint")}</p>
             <p className="mt-1 text-xs text-gray-600">
-              {t("dashboard:quick_skill_hint")}
+              {t("quick_skill_hint")}
             </p>
           </div>
         )}
@@ -403,11 +403,11 @@ export function AgentCopilot() {
                   type="button"
                   className="h-16 w-16 cursor-pointer border-0 bg-transparent p-0"
                   onClick={() => setLightboxSrc(img.dataUrl)}
-                  aria-label={t("dashboard:enlarge_image")}
+                  aria-label={t("enlarge_image")}
                 >
                   <img
                     src={img.dataUrl}
-                    alt={t("dashboard:assistant_input")}
+                    alt={t("assistant_input")}
                     className="h-16 w-16 rounded-md object-cover border border-gray-600"
                   />
                 </button>
@@ -415,7 +415,7 @@ export function AgentCopilot() {
                   type="button"
                   onClick={() => removeImage(img.id)}
                   className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gray-900 text-gray-300 hover:bg-red-500 hover:text-white"
-                  aria-label={t("dashboard:remove_image")}
+                  aria-label={t("remove_image")}
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>
@@ -448,7 +448,7 @@ export function AgentCopilot() {
             onPaste={handlePaste}
             placeholder={inputPlaceholder}
             rows={1}
-            aria-label={t("dashboard:assistant_input")}
+            aria-label={t("assistant_input")}
             aria-expanded={showSlashMenu}
             aria-controls={showSlashMenu ? "slash-command-menu" : undefined}
             aria-activedescendant={slashMenuRef.current?.activeDescendantId}
@@ -463,8 +463,8 @@ export function AgentCopilot() {
             onClick={() => fileInputRef.current?.click()}
             disabled={attachDisabled}
             className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:opacity-30"
-            title={attachedImages.length >= MAX_IMAGES ? t("dashboard:max_images_hint", { count: MAX_IMAGES }) : t("dashboard:attach_image")}
-            aria-label={t("dashboard:attach_image")}
+            title={attachedImages.length >= MAX_IMAGES ? t("max_images_hint", { count: MAX_IMAGES }) : t("attach_image")}
+            aria-label={t("attach_image")}
           >
             <Paperclip className="h-4 w-4" />
           </button>
@@ -473,8 +473,8 @@ export function AgentCopilot() {
             <button
               onClick={interrupt}
               className="shrink-0 rounded p-1.5 text-red-400 hover:bg-gray-700"
-              title={t("dashboard:stop_session")}
-              aria-label={t("dashboard:stop_session")}
+              title={t("stop_session")}
+              aria-label={t("stop_session")}
             >
               <Square className="h-4 w-4" />
             </button>
@@ -483,8 +483,8 @@ export function AgentCopilot() {
               onClick={handleSend}
               disabled={(!localInput.trim() && attachedImages.length === 0) || inputDisabled}
               className="shrink-0 rounded p-1.5 text-indigo-400 hover:bg-gray-700 disabled:opacity-30"
-              title={t("dashboard:send_message")}
-              aria-label={t("dashboard:send_message")}
+              title={t("send_message")}
+              aria-label={t("send_message")}
             >
               <Send className="h-4 w-4" />
             </button>
@@ -505,7 +505,7 @@ export function AgentCopilot() {
       {lightboxSrc && (
         <ImageLightbox
           src={lightboxSrc}
-          alt={t("dashboard:assistant_input")}
+          alt={t("assistant_input")}
           onClose={() => setLightboxSrc(null)}
         />
       )}

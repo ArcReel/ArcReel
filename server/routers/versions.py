@@ -6,14 +6,15 @@
 
 import asyncio
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 
 logger = logging.getLogger(__name__)
 
 from lib import PROJECT_ROOT
-from lib.i18n import get_translator
+from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
@@ -46,7 +47,7 @@ def _resolve_resource_path(
     resource_type: str,
     resource_id: str,
     project_path: Path,
-    _t,
+    _t: Callable[..., str],
 ) -> tuple[Path, str]:
     """返回 (current_file_absolute, relative_file_path)，资源类型无效时抛出 HTTPException。"""
     pattern = _RESOURCE_FILE_PATTERNS.get(resource_type)
@@ -153,7 +154,7 @@ async def restore_version(
     resource_id: str,
     version: int,
     _user: CurrentUser,
-    _t=Depends(get_translator),
+    _t: Translator,
 ):
     """
     切换到指定版本

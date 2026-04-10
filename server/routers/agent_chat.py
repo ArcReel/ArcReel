@@ -7,10 +7,10 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from lib.i18n import get_locale, get_translator
+from lib.i18n import Translator, get_locale
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_manager import SessionCapacityError
 from server.auth import CurrentUser
@@ -128,7 +128,7 @@ async def agent_chat(
     body: AgentChatRequest,
     request: Request,
     _user: CurrentUser,
-    _t=Depends(get_translator),
+    _t: Translator,
 ) -> AgentChatResponse:
     """同步 Agent 对话端点。
 

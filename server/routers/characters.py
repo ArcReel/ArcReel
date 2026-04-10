@@ -7,11 +7,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from lib import PROJECT_ROOT
-from lib.i18n import get_translator
+from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUser
@@ -40,7 +40,7 @@ class UpdateCharacterRequest(BaseModel):
 
 
 @router.post("/projects/{project_name}/characters")
-async def add_character(project_name: str, req: CreateCharacterRequest, _user: CurrentUser, _t=Depends(get_translator)):
+async def add_character(project_name: str, req: CreateCharacterRequest, _user: CurrentUser, _t: Translator):
     """添加角色"""
     try:
 
@@ -67,7 +67,7 @@ async def update_character(
     char_name: str,
     req: UpdateCharacterRequest,
     _user: CurrentUser,
-    _t=Depends(get_translator),
+    _t: Translator,
 ):
     """更新角色"""
     try:
@@ -107,7 +107,7 @@ async def update_character(
 
 
 @router.delete("/projects/{project_name}/characters/{char_name}")
-async def delete_character(project_name: str, char_name: str, _user: CurrentUser, _t=Depends(get_translator)):
+async def delete_character(project_name: str, char_name: str, _user: CurrentUser, _t: Translator):
     """删除角色"""
     try:
 

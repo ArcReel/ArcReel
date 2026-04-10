@@ -177,6 +177,8 @@ interface AssetSidebarProps {
 
 export function AssetSidebar({ className }: AssetSidebarProps) {
   const { t } = useTranslation(["common", "dashboard"]);
+  const tRef = useRef(t);
+  tRef.current = t;
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
   const [location, setLocation] = useLocation();
@@ -232,7 +234,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   // 删除源文件
   const handleDeleteFile = useCallback(async (filename: string) => {
     if (!projectName) return;
-    if (!confirm(t("dashboard:confirm_delete_file", { name: filename }))) return;
+    if (!confirm(tRef.current("dashboard:confirm_delete_file", { name: filename }))) return;
     try {
       await API.deleteSourceFile(projectName, filename);
       loadSourceFiles();
@@ -244,7 +246,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
     } catch {
       // 静默失败
     }
-  }, [projectName, loadSourceFiles, location, setLocation, t]);
+  }, [projectName, loadSourceFiles, location, setLocation]);
 
   const characterEntries = Object.entries(characters);
   const clueEntries = Object.entries(clues);

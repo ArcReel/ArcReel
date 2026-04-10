@@ -3,7 +3,7 @@ Assistant session APIs.
 """
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
 
 from lib import PROJECT_ROOT
-from lib.i18n import get_locale, get_translator
+from lib.i18n import Translator, get_locale
 from server.agent_runtime.models import SessionMeta
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_manager import SessionCapacityError
@@ -29,7 +29,7 @@ def get_assistant_service() -> AssistantService:
 
 
 async def _validate_session_ownership(
-    service: AssistantService, session_id: str, project_name: str, _t
+    service: AssistantService, session_id: str, project_name: str, _t: Callable[..., str]
 ) -> "SessionMeta":
     """Validate session belongs to the specified project and return it."""
     session = await service.get_session(session_id)
@@ -43,7 +43,7 @@ async def _validate_session_ownership(
 async def _assistant_service_for_stream(
     project_name: str,
     session_id: str,
-    _t=Depends(get_translator),
+    _t: Translator,
 ) -> tuple[AssistantService, SessionMeta]:
     service = get_assistant_service()
     meta = await _validate_session_ownership(service, session_id, project_name, _t)
@@ -71,7 +71,7 @@ async def send_message(
     req: SendRequest,
     request: Request,
     _user: CurrentUser,
-    _t=Depends(get_translator),
+    _t: Translator,
 ):
     try:
         service = get_assistant_service()
@@ -117,7 +117,7 @@ async def list_sessions(
 
 
 @router.get("/sessions/{session_id}")
-async def get_session(project_name: str, session_id: str, _user: CurrentUser, _t=Depends(get_translator)):
+async def get_session(project_name: str, session_id: str, _user: CurrentUser, _t: Translator):
     try:
         service = get_assistant_service()
         session = await _validate_session_ownership(service, session_id, project_name, _t)
@@ -130,7 +130,7 @@ async def get_session(project_name: str, session_id: str, _user: CurrentUser, _t
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(project_name: str, session_id: str, _user: CurrentUser, _t=Depends(get_translator)):
+async def delete_session(project_name: str, session_id: str, _user: CurrentUser, _t: Translator):
     try:
         service = get_assistant_service()
         await _validate_session_ownership(service, session_id, project_name, _t)
@@ -146,7 +146,7 @@ async def delete_session(project_name: str, session_id: str, _user: CurrentUser,
 
 
 @router.get("/sessions/{session_id}/messages")
-async def list_messages(project_name: str, session_id: str, _user: CurrentUser, _t=Depends(get_translator)):
+async def list_messages(project_name: str, session_id: str, _user: CurrentUser, _t: Translator):
     raise HTTPException(
         status_code=410,
         detail=_t("interface_offline"),
@@ -154,7 +154,7 @@ async def list_messages(project_name: str, session_id: str, _user: CurrentUser, 
 
 
 @router.get("/sessions/{session_id}/snapshot")
-async def get_snapshot(project_name: str, session_id: str, _user: CurrentUser, _t=Depends(get_translator)):
+async def get_snapshot(project_name: str, session_id: str, _user: CurrentUser, _t: Translator):
     try:
         service = get_assistant_service()
         meta = await _validate_session_ownership(service, session_id, project_name, _t)
@@ -170,7 +170,7 @@ async def get_snapshot(project_name: str, session_id: str, _user: CurrentUser, _
 
 
 @router.post("/sessions/{session_id}/interrupt")
-async def interrupt_session(project_name: str, session_id: str, _user: CurrentUser, _t=Depends(get_translator)):
+async def interrupt_session(project_name: str, session_id: str, _user: CurrentUser, _t: Translator):
     try:
         service = get_assistant_service()
         meta = await _validate_session_ownership(service, session_id, project_name, _t)
@@ -194,7 +194,7 @@ async def answer_question(
     question_id: str,
     req: AnswerQuestionRequest,
     _user: CurrentUser,
-    _t=Depends(get_translator),
+    _t: Translator,
 ):
     if not req.answers:
         raise HTTPException(status_code=400, detail=_t("answers_required"))
@@ -238,7 +238,7 @@ async def stream_events(
 
 
 @router.get("/skills")
-async def list_skills(project_name: str, _user: CurrentUser, _t=Depends(get_translator)):
+async def list_skills(project_name: str, _user: CurrentUser, _t: Translator):
     try:
         skills = get_assistant_service().list_available_skills(project_name=project_name)
         return {"skills": skills}

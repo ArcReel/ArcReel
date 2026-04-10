@@ -5,15 +5,16 @@ API Key 管理路由
 """
 
 import secrets
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 
 from lib.db import async_session_factory
 from lib.db.repositories.api_key_repository import ApiKeyRepository
-from lib.i18n import get_translator
+from lib.i18n import Translator
 from server.auth import (
     API_KEY_PREFIX,
     CurrentUser,
@@ -25,7 +26,7 @@ from server.auth import (
 router = APIRouter()
 
 
-def _require_jwt_auth(user: CurrentUserInfo, _t) -> None:
+def _require_jwt_auth(user: CurrentUserInfo, _t: Callable[..., str]) -> None:
     """确保请求通过 JWT 认证（非 API Key）。API Key 管理操作不允许由 API Key 本身执行。"""
     if user.sub.startswith("apikey:"):
         raise HTTPException(status_code=403, detail=_t("jwt_auth_required"))
@@ -71,7 +72,7 @@ class ApiKeyInfo(BaseModel):
 async def create_api_key(
     body: CreateApiKeyRequest,
     _user: CurrentUser,
-    _t=Depends(get_translator),
+    _t: Translator,
 ) -> CreateApiKeyResponse:
     """创建新 API Key。完整 key 仅在响应中出现一次，之后无法再查看。"""
     _require_jwt_auth(_user, _t)
@@ -112,7 +113,7 @@ async def create_api_key(
 @router.get("/api-keys")
 async def list_api_keys(
     _user: CurrentUser,
-    _t=Depends(get_translator),
+    _t: Translator,
 ) -> list[ApiKeyInfo]:
     """查询所有 API Key 的元数据（不含完整 key）。"""
     _require_jwt_auth(_user, _t)
@@ -128,7 +129,7 @@ async def list_api_keys(
 async def delete_api_key(
     key_id: int,
     _user: CurrentUser,
-    _t=Depends(get_translator),
+    _t: Translator,
 ) -> None:
     """删除（吊销）指定 API Key，并立即清除内存缓存。"""
     _require_jwt_auth(_user, _t)

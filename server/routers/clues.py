@@ -6,11 +6,11 @@ import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from lib import PROJECT_ROOT
-from lib.i18n import get_translator
+from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUser
@@ -40,7 +40,7 @@ class UpdateClueRequest(BaseModel):
 
 
 @router.post("/projects/{project_name}/clues")
-async def add_clue(project_name: str, req: CreateClueRequest, _user: CurrentUser, _t=Depends(get_translator)):
+async def add_clue(project_name: str, req: CreateClueRequest, _user: CurrentUser, _t: Translator):
     """添加线索"""
     try:
 
@@ -64,9 +64,7 @@ async def add_clue(project_name: str, req: CreateClueRequest, _user: CurrentUser
 
 
 @router.patch("/projects/{project_name}/clues/{clue_name}")
-async def update_clue(
-    project_name: str, clue_name: str, req: UpdateClueRequest, _user: CurrentUser, _t=Depends(get_translator)
-):
+async def update_clue(project_name: str, clue_name: str, req: UpdateClueRequest, _user: CurrentUser, _t: Translator):
     """更新线索"""
     try:
         # 验证输入（纯 CPU，无需下沉到线程）
@@ -110,7 +108,7 @@ async def update_clue(
 
 
 @router.delete("/projects/{project_name}/clues/{clue_name}")
-async def delete_clue(project_name: str, clue_name: str, _user: CurrentUser, _t=Depends(get_translator)):
+async def delete_clue(project_name: str, clue_name: str, _user: CurrentUser, _t: Translator):
     """删除线索"""
     try:
 

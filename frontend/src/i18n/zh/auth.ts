@@ -1,3 +1,4 @@
+import type enAuth from '../en/auth';
 
 export default {
   'login': '登录',
@@ -5,4 +6,4 @@ export default {
   'login_failed': '登录失败',
   'username': '用户名',
   'password': '密码',
-};
+} satisfies Record<keyof typeof enAuth, string>;

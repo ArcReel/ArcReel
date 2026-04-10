@@ -76,7 +76,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
       data-workspace-editing="true"
     >
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-200">{t("dashboard:add_character")}</h3>
+        <h3 className="text-sm font-semibold text-gray-200">{t("add_character")}</h3>
         <button
           type="button"
           onClick={onCancel}
@@ -89,13 +89,13 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-1">
-            {t("dashboard:name_label")} <span className="text-red-400">*</span>
+            {t("name_label")} <span className="text-red-400">*</span>
           </label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder={t("dashboard:name_placeholder")}
+            placeholder={t("name_placeholder")}
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
             autoFocus
           />
@@ -103,12 +103,12 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
 
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-1">
-            {t("dashboard:desc_label")} <span className="text-red-400">*</span>
+            {t("desc_label")} <span className="text-red-400">*</span>
           </label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder={t("dashboard:char_desc_placeholder")}
+            placeholder={t("char_desc_placeholder")}
             rows={3}
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500 resize-none"
           />
@@ -116,13 +116,13 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
 
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-1">
-            {t("dashboard:voice_style_label")}
+            {t("voice_style_label")}
           </label>
           <input
             type="text"
             value={voiceStyle}
             onChange={(e) => setVoiceStyle(e.target.value)}
-            placeholder={t("dashboard:voice_style_example")}
+            placeholder={t("voice_style_example")}
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
           />
         </div>
@@ -130,7 +130,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
         <div>
           <div className="mb-1 flex items-center justify-between">
             <label className="block text-xs font-medium text-gray-400">
-              {t("dashboard:reference_image_optional")}
+              {t("reference_image_optional")}
             </label>
             {referenceFile && (
               <span className="text-[11px] text-gray-500">{referenceFile.name}</span>
@@ -141,13 +141,13 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
             <div className="relative overflow-hidden rounded-lg border border-gray-700 bg-gray-800">
               <img
                 src={referencePreview}
-                alt={t("dashboard:reference_image")}
+                alt={t("reference_image")}
                 className="h-32 w-full object-cover"
               />
               <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
                 <span className="flex items-center gap-1.5 text-xs text-gray-200">
                   <ImagePlus className="h-3.5 w-3.5" />
-                  {t("dashboard:reference_selected")}
+                  {t("reference_selected")}
                 </span>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -155,14 +155,14 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
                     onClick={() => fileInputRef.current?.click()}
                     className="rounded bg-black/40 px-2 py-1 text-xs text-gray-200 transition-colors hover:bg-black/60"
                   >
-                    {t("dashboard:change")}
+                    {t("change")}
                   </button>
                   <button
                     type="button"
                     onClick={clearReference}
                     className="rounded bg-black/40 px-2 py-1 text-xs text-gray-200 transition-colors hover:bg-black/60"
                   >
-                    {t("dashboard:clear")}
+                    {t("clear")}
                   </button>
                 </div>
               </div>
@@ -174,7 +174,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
               className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-gray-700 bg-gray-800/50 px-3 py-4 text-sm text-gray-500 transition-colors hover:border-gray-500 hover:text-gray-300"
             >
               <Upload className="h-4 w-4" />
-              {t("dashboard:upload_ref_image")}
+              {t("upload_ref_image")}
             </button>
           )}
 
@@ -186,7 +186,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
             className="hidden"
           />
           <p className="mt-1 text-xs text-gray-600">
-            {t("dashboard:consistency_hint")}
+            {t("consistency_hint")}
           </p>
         </div>
 
@@ -196,7 +196,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
             onClick={onCancel}
             className="rounded-lg px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors"
           >
-            {t("dashboard:cancel")}
+            {t("cancel")}
           </button>
           <button
             type="submit"
@@ -206,10 +206,10 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
             {submitting ? (
               <span className="inline-flex items-center gap-1.5">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {t("dashboard:adding")}
+                {t("adding")}
               </span>
             ) : (
-              t("dashboard:add")
+              t("add")
             )}
           </button>
         </div>

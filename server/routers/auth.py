@@ -5,14 +5,13 @@
 """
 
 import logging
-from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
-from lib.i18n import get_translator
+from lib.i18n import Translator
 from server.auth import CurrentUser, check_credentials, create_token
 
 logger = logging.getLogger(__name__)
@@ -39,7 +38,7 @@ class VerifyResponse(BaseModel):
 @router.post("/auth/token", response_model=TokenResponse)
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-    _t: Annotated[Callable[..., str], Depends(get_translator)],
+    _t: Translator,
 ):
     """用户登录
 

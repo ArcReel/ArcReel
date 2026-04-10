@@ -1,3 +1,4 @@
+import type enCommon from '../en/common';
 
 export default {
   'language': '语言',
@@ -34,4 +35,4 @@ export default {
   'deleted': '已删除',
   'config_incomplete': '配置不完整',
   'refresh': '刷新',
-};
+} satisfies Record<keyof typeof enCommon, string>;

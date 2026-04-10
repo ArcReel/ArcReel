@@ -141,7 +141,7 @@ describe("ProjectsPage", () => {
     await waitFor(() => {
       expect(location.history?.at(-1)).toBe("/app/projects/imported-demo");
     });
-    expect(useAppStore.getState().toast?.text).toContain("import_auto_fixed");
+    expect(useAppStore.getState().toast?.text).toContain("自动修复");
   });
 
   it("shows a structured toast when import fails", async () => {

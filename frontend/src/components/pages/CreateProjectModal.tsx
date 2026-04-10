@@ -167,7 +167,7 @@ export function CreateProjectModal() {
           {/* Aspect Ratio */}
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">
-              画面比例
+              {t("dashboard:aspect_ratio")}
             </label>
             <div className="flex gap-3">
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
@@ -183,7 +183,7 @@ export function CreateProjectModal() {
                   onChange={() => setAspectRatio("9:16")}
                   className="sr-only"
                 />
-                竖屏 9:16
+                {t("dashboard:portrait_9_16")}
               </label>
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
                 aspectRatio === "16:9"
@@ -198,7 +198,7 @@ export function CreateProjectModal() {
                   onChange={() => setAspectRatio("16:9")}
                   className="sr-only"
                 />
-                横屏 16:9
+                {t("dashboard:landscape_16_9")}
               </label>
             </div>
           </div>
@@ -206,12 +206,12 @@ export function CreateProjectModal() {
           {/* Default Duration */}
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-0.5">
-              默认时长
+              {t("dashboard:default_duration")}
             </label>
             <p className="text-xs text-gray-600 mb-1.5">
-              由 AI 根据内容自动决定时长，或指定固定时长
+              {t("dashboard:default_duration_desc")}
             </p>
-            <div className="flex gap-2" role="radiogroup" aria-label="默认时长">
+            <div className="flex gap-2" role="radiogroup" aria-label={t("dashboard:default_duration")}>
               <button
                 type="button"
                 role="radio"
@@ -223,7 +223,7 @@ export function CreateProjectModal() {
                     : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
                 }`}
               >
-                自动
+                {t("dashboard:auto")}
               </button>
               {DEFAULT_DURATIONS.map((d) => (
                 <button
