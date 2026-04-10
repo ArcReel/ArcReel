@@ -4,8 +4,10 @@ from fastapi import FastAPI
 from fastapi.sse import ServerSentEvent
 from fastapi.testclient import TestClient
 
+from lib.i18n import get_translator
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.routers import assistant
+from tests.conftest import make_translator
 from tests.factories import make_session_meta
 
 PROJECT = "demo"
@@ -19,7 +21,7 @@ class _FakeService:
             "bad": make_session_meta(id="bad", project_name=PROJECT),
         }
 
-    async def send_or_create(self, project_name, content, session_id=None, images=None):
+    async def send_or_create(self, project_name, content, session_id=None, images=None, locale=None):
         if project_name == "missing":
             raise FileNotFoundError(project_name)
         if not content.strip() and not images:
@@ -76,6 +78,7 @@ def _client(monkeypatch):
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
     app.dependency_overrides[get_current_user_flexible] = lambda: _FAKE_USER
+    app.dependency_overrides[get_translator] = lambda: make_translator()
     app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant")
     return TestClient(app)
 
@@ -183,13 +186,14 @@ class TestAssistantRouterFull:
         """TimeoutError 应返回 504。"""
         fake = _FakeService()
 
-        async def _timeout_send_or_create(project_name, content, session_id=None, images=None):
+        async def _timeout_send_or_create(project_name, content, session_id=None, images=None, locale=None):
             raise TimeoutError("timeout")
 
         fake.send_or_create = _timeout_send_or_create
         monkeypatch.setattr(assistant, "get_assistant_service", lambda: fake)
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
+        app.dependency_overrides[get_translator] = lambda: make_translator()
         app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant")
         with TestClient(app) as client:
             resp = client.post(f"{PREFIX}/sessions/send", json={"content": "hello"})

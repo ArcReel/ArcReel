@@ -5,8 +5,10 @@ from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.i18n import get_translator
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.routers import assistant
+from tests.conftest import make_translator
 from tests.factories import make_session_meta
 
 PROJECT = "demo"
@@ -19,6 +21,7 @@ def _build_client() -> TestClient:
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
     app.dependency_overrides[get_current_user_flexible] = lambda: _FAKE_USER
+    app.dependency_overrides[get_translator] = lambda: make_translator()
     app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant")
     return TestClient(app)
 
@@ -30,7 +33,7 @@ class TestAssistantRoutes:
 
         assert response.status_code == 410
         payload = response.json()
-        assert "snapshot" in payload.get("detail", "")
+        assert "下线" in payload.get("detail", "")
 
     def test_snapshot_endpoint_returns_v2_snapshot(self):
         snapshot_payload = {

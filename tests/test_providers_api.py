@@ -15,8 +15,10 @@ from fastapi.testclient import TestClient
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
 from lib.db.repositories.credential_repository import CredentialRepository
+from lib.i18n import get_translator
 from server.dependencies import get_config_service
 from server.routers import providers
+from tests.conftest import make_translator
 
 # ---------------------------------------------------------------------------
 # 测试应用工厂
@@ -123,6 +125,7 @@ def _make_session_app() -> tuple[FastAPI, AsyncMock]:
         yield mock_session
 
     app.dependency_overrides[get_async_session] = _override_session
+    app.dependency_overrides[get_translator] = lambda: make_translator()
     app.include_router(providers.router, prefix="/api/v1")
     return app, mock_session
 
@@ -378,7 +381,7 @@ class TestTestProviderConnection:
         svc.get_provider_config = AsyncMock(return_value={})
         return svc
 
-    def _fake_test_fn(self, config: dict) -> providers.ConnectionTestResponse:
+    def _fake_test_fn(self, config: dict, _t=None) -> providers.ConnectionTestResponse:
         return providers.ConnectionTestResponse(
             success=True,
             available_models=["model-a"],
@@ -447,7 +450,7 @@ class TestTestProviderConnection:
         assert "message" in body
 
     def test_connection_failure_returns_error(self):
-        def _failing_fn(config: dict) -> providers.ConnectionTestResponse:
+        def _failing_fn(config: dict, _t=None) -> providers.ConnectionTestResponse:
             raise RuntimeError("API key invalid")
 
         app, _ = _make_session_app()

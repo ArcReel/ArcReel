@@ -5,6 +5,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from server.routers.providers import _test_openai
+from tests.conftest import make_translator
+
+_t = make_translator()
 
 
 def _make_model(model_id: str) -> MagicMock:
@@ -31,7 +34,7 @@ class TestTestOpenAI:
         mock_client.models.list.return_value = mock_models
 
         with patch("openai.OpenAI", return_value=mock_client):
-            result = _test_openai({"api_key": "sk-test"})
+            result = _test_openai({"api_key": "sk-test"}, _t)
 
         assert result.success is True
         assert result.message == "连接成功"
@@ -53,7 +56,7 @@ class TestTestOpenAI:
         mock_client.models.list.return_value = mock_models
 
         with patch("openai.OpenAI", return_value=mock_client):
-            result = _test_openai({"api_key": "sk-test"})
+            result = _test_openai({"api_key": "sk-test"}, _t)
 
         assert result.success is True
         assert result.available_models == []
@@ -71,7 +74,7 @@ class TestTestOpenAI:
         mock_client.models.list.return_value = mock_models
 
         with patch("openai.OpenAI", return_value=mock_client):
-            result = _test_openai({"api_key": "sk-test"})
+            result = _test_openai({"api_key": "sk-test"}, _t)
 
         assert result.available_models == ["dall-e-3", "gpt-5.4", "sora-2"]
 
@@ -85,7 +88,7 @@ class TestTestOpenAI:
         mock_openai_cls = MagicMock(return_value=mock_client)
 
         with patch("openai.OpenAI", mock_openai_cls):
-            _test_openai({"api_key": "sk-test", "base_url": "https://custom.api.com/v1"})
+            _test_openai({"api_key": "sk-test", "base_url": "https://custom.api.com/v1"}, _t)
 
         mock_openai_cls.assert_called_once_with(
             api_key="sk-test",
@@ -105,7 +108,7 @@ class TestTestOpenAI:
 
         with patch("openai.OpenAI", return_value=mock_client):
             try:
-                _test_openai({"api_key": "sk-invalid"})
+                _test_openai({"api_key": "sk-invalid"}, _t)
                 assert False, "应抛出异常"
             except AuthenticationError:
                 pass  # 预期行为
