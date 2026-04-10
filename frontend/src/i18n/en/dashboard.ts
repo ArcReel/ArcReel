@@ -691,6 +691,21 @@ export default {
   'select_credential_file': 'Please select a credential file',
   'enter_api_key_required': 'Please enter API Key',
 
+  // VersionTimeMachine
+  'version_mgmt': 'Version History',
+  'switched_to_version': 'Switched to v{{version}}',
+  'switch_version_failed': 'Failed to switch version: {{message}}',
+  'no_history': 'No history versions yet',
+  'history_hint': 'After generating or restoring, history versions will appear here.',
+  'history_versions': 'History Versions',
+  'current_version': 'Current v{{version}}',
+  'version_click_hint': 'Click a version number to preview; non-current versions can be switched to.',
+  'current_version_badge': 'Current',
+  'switching_version': 'Switching...',
+  'switch_to_version': 'Switch to this version',
+  'version_preview_alt': 'Version v{{version}} preview',
+  'version_no_notes': 'No additional notes recorded for this version.',
+
   // SystemConfigPage - language
   'language_setting': 'Language',
 };

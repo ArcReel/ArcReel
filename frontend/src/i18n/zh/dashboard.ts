@@ -692,6 +692,21 @@ export default {
   'select_credential_file': '请选择凭证文件',
   'enter_api_key_required': '请输入 API Key',
 
+  // VersionTimeMachine
+  'version_mgmt': '版本管理',
+  'switched_to_version': '已切换到 v{{version}}',
+  'switch_version_failed': '切换版本失败: {{message}}',
+  'no_history': '暂无历史版本',
+  'history_hint': '生成或还原后，历史版本会出现在这里。',
+  'history_versions': '历史版本',
+  'current_version': '当前 v{{version}}',
+  'version_click_hint': '点击版本号预览，非当前版本可切换。',
+  'current_version_badge': '当前',
+  'switching_version': '切换中...',
+  'switch_to_version': '切换到此版本',
+  'version_preview_alt': '版本 v{{version}} 预览',
+  'version_no_notes': '该版本没有记录额外说明。',
+
   // SystemConfigPage - language
   'language_setting': '语言',
 } satisfies Record<keyof typeof enDashboard, string>;
