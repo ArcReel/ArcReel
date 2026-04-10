@@ -22,7 +22,6 @@ import type { GridGeneration, FrameCell } from "@/types/grid";
 export interface GridPreviewPanelProps {
   projectName: string;
   gridId: string | null;
-  sceneIds: string[];
   /** Called after a regeneration is submitted (for parent to refresh grids list). */
   onRegenerated?: () => void;
   /** Changed when grids list is refreshed, triggers re-fetch of panel data. */
@@ -203,7 +202,6 @@ function FrameChainList({ frames }: { frames: FrameCell[] }) {
 export function GridPreviewPanel({
   projectName,
   gridId,
-  sceneIds,
   onRegenerated,
   refreshKey = 0,
 }: GridPreviewPanelProps) {
@@ -266,24 +264,8 @@ export function GridPreviewPanel({
 
         <span className="text-xs font-medium text-amber-400/70">宫格预览</span>
 
-        {gridId && grid ? (
-          <span className="ml-1">
-            <StatusBadge status={grid.status} />
-          </span>
-        ) : gridId ? (
-          <span className="ml-1 text-[10px] text-gray-600">
-            {sceneIds.length} 场景
-          </span>
-        ) : (
+        {!gridId && (
           <span className="ml-1 text-[10px] text-gray-600">尚未生成</span>
-        )}
-
-        {/* Grid info pill */}
-        {grid && (
-          <span className="ml-auto flex items-center gap-1 font-mono text-[10px] text-gray-500">
-            <Grid2x2 className="h-3 w-3" />
-            {grid.rows}×{grid.cols}
-          </span>
         )}
       </button>
 

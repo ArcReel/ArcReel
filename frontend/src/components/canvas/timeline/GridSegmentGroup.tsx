@@ -78,11 +78,6 @@ export function GridSegmentGroup({
   const gridInfo = gridSize ? GRID_LABEL[gridSize] ?? gridSize : null;
   const canGenerate = gridSize !== null;
 
-  // Derive scene IDs for the preview panel
-  const sceneIds = scenes.map((s) =>
-    "scene_id" in s ? (s as DramaScene).scene_id : (s as NarrationSegment).segment_id
-  );
-
   return (
     <div className="mb-6">
       {/* ---- Group header ---- */}
@@ -167,7 +162,6 @@ export function GridSegmentGroup({
               key={gid}
               projectName={projectName}
               gridId={gid}
-              sceneIds={sceneIds}
               onRegenerated={onGridRegenerated}
               refreshKey={gridsVersion}
             />
@@ -176,7 +170,6 @@ export function GridSegmentGroup({
             <GridPreviewPanel
               projectName={projectName}
               gridId={null}
-              sceneIds={sceneIds}
               onRegenerated={onGridRegenerated}
               refreshKey={gridsVersion}
             />
