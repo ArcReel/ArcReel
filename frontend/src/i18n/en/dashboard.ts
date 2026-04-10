@@ -668,6 +668,29 @@ export default {
   // StudioCanvasRouter
   'grid_generation_failed': 'Grid generation failed: {{message}}',
 
+  // CredentialList
+  'credential_mgmt': 'Key Management',
+  'add_credential': 'Add Key',
+  'no_credentials': 'No keys yet',
+  'add_first_credential': 'Add the first key',
+  'active_label': 'In use',
+  'currently_active': 'Currently in use',
+  'activate_credential': 'Activate {{name}}',
+  'test_credential': 'Test {{name}} connection',
+  'edit_credential': 'Edit {{name}}',
+  'delete_credential': 'Delete {{name}}',
+  'available_models': 'Available models: ',
+  'credential_name': 'Name',
+  'credential_name_placeholder': 'e.g., Personal account...',
+  'api_key_keep_hint': 'API Key (leave empty to keep existing)',
+  'keep_existing_placeholder': 'Leave empty to keep existing...',
+  'base_url_optional': 'Base URL (optional)',
+  'default_url_placeholder': 'Defaults to official URL...',
+  'credential_file': 'Credential File',
+  'select_json_file': 'Select JSON file...',
+  'select_credential_file': 'Please select a credential file',
+  'enter_api_key_required': 'Please enter API Key',
+
   // SystemConfigPage - language
   'language_setting': 'Language',
 };

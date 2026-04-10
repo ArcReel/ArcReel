@@ -669,6 +669,29 @@ export default {
   // StudioCanvasRouter
   'grid_generation_failed': '宫格生成失败: {{message}}',
 
+  // CredentialList
+  'credential_mgmt': '密钥管理',
+  'add_credential': '添加密钥',
+  'no_credentials': '暂无密钥',
+  'add_first_credential': '添加第一个密钥',
+  'active_label': '使用中',
+  'currently_active': '当前使用中',
+  'activate_credential': '激活 {{name}}',
+  'test_credential': '测试 {{name}} 连接',
+  'edit_credential': '编辑 {{name}}',
+  'delete_credential': '删除 {{name}}',
+  'available_models': '可用模型: ',
+  'credential_name': '名称',
+  'credential_name_placeholder': '例如：个人账号…',
+  'api_key_keep_hint': 'API Key（留空保留现有值）',
+  'keep_existing_placeholder': '留空保留现有值…',
+  'base_url_optional': 'Base URL（可选）',
+  'default_url_placeholder': '默认使用官方地址…',
+  'credential_file': '凭证文件',
+  'select_json_file': '选择 JSON 文件…',
+  'select_credential_file': '请选择凭证文件',
+  'enter_api_key_required': '请输入 API Key',
+
   // SystemConfigPage - language
   'language_setting': '语言',
 } satisfies Record<keyof typeof enDashboard, string>;
