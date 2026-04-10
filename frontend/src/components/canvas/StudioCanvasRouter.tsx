@@ -278,6 +278,16 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
+  const handleGenerateGrid = useCallback(async (episode: number, scriptFile: string, sceneIds?: string[]) => {
+    if (!currentProjectName) return;
+    try {
+      const result = await API.generateGrid(currentProjectName, episode, scriptFile, sceneIds);
+      useAppStore.getState().pushToast(result.message, "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(`宫格生成失败: ${(err as Error).message}`, "error");
+    }
+  }, [currentProjectName]);
+
   const handleRestoreAsset = useCallback(async () => {
     await refreshProject();
   }, [refreshProject]);
@@ -375,6 +385,7 @@ export function StudioCanvasRouter() {
               onUpdatePrompt={handleUpdatePrompt}
               onGenerateStoryboard={handleGenerateStoryboard}
               onGenerateVideo={handleGenerateVideo}
+              onGenerateGrid={handleGenerateGrid}
               onRestoreStoryboard={handleRestoreAsset}
               onRestoreVideo={handleRestoreAsset}
             />

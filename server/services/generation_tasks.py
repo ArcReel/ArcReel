@@ -32,6 +32,7 @@ from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
     get_storyboard_items,
+    group_scenes_by_segment_break,
     resolve_previous_storyboard_path,
 )
 from lib.thumbnail import extract_video_thumbnail
@@ -413,6 +414,47 @@ def _get_model_default_duration(provider_name: str, model_name: str | None) -> i
     return 4
 
 
+def _collect_sheet_paths(
+    project: dict,
+    project_path: Path,
+    items: list[dict],
+    *,
+    char_field: str,
+    clue_field: str,
+    max_count: int = 0,
+) -> tuple[list[Path], set[str]]:
+    """Collect character_sheet and clue_sheet paths from scene/segment items.
+
+    Returns (list of existing Paths, set of relative sheet strings for dedup).
+    If *max_count* > 0 collection stops after that many images.
+    """
+    seen: set[str] = set()
+    paths: list[Path] = []
+
+    characters = project.get("characters", {})
+    clues = project.get("clues", {})
+
+    for item in items:
+        for char_name in item.get(char_field, []):
+            sheet = characters.get(char_name, {}).get("character_sheet")
+            if sheet and sheet not in seen:
+                path = project_path / sheet
+                if path.exists():
+                    paths.append(path)
+                    seen.add(sheet)
+        for clue_name in item.get(clue_field, []):
+            sheet = clues.get(clue_name, {}).get("clue_sheet")
+            if sheet and sheet not in seen:
+                path = project_path / sheet
+                if path.exists():
+                    paths.append(path)
+                    seen.add(sheet)
+        if max_count and len(paths) >= max_count:
+            break
+
+    return paths, seen
+
+
 def _collect_reference_images(
     project: dict,
     project_path: Path,
@@ -423,23 +465,10 @@ def _collect_reference_images(
     extra_reference_images: list[str] | None = None,
     previous_storyboard_path: Path | None = None,
 ) -> list[object] | None:
-    reference_images: list[object] = []
-
-    for char_name in target_item.get(char_field, []):
-        char_data = project.get("characters", {}).get(char_name, {})
-        sheet = char_data.get("character_sheet")
-        if sheet:
-            path = project_path / sheet
-            if path.exists():
-                reference_images.append(path)
-
-    for clue_name in target_item.get(clue_field, []):
-        clue_data = project.get("clues", {}).get(clue_name, {})
-        sheet = clue_data.get("clue_sheet")
-        if sheet:
-            path = project_path / sheet
-            if path.exists():
-                reference_images.append(path)
+    sheet_paths, _ = _collect_sheet_paths(
+        project, project_path, [target_item], char_field=char_field, clue_field=clue_field
+    )
+    reference_images: list[object] = list(sheet_paths)
 
     for extra in extra_reference_images or []:
         extra_path = Path(extra)
@@ -642,6 +671,18 @@ async def execute_storyboard_task(
     }
 
 
+def _resolve_video_end_image(project_path: Path, item: dict) -> Path | None:
+    """Check if scene has a last frame image for first_last video mode."""
+    assets = item.get("generated_assets", {})
+    if isinstance(assets, str):
+        return None
+    last_img = assets.get("storyboard_last_image")
+    if not last_img:
+        return None
+    path = project_path / last_img
+    return path if path.exists() else None
+
+
 async def execute_video_task(
     project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
 ) -> dict[str, Any]:
@@ -654,14 +695,27 @@ async def execute_video_task(
         raise ValueError("prompt is required for video task")
 
     def _load():
-        return get_project_manager().load_project(project_name), get_project_manager().get_project_path(project_name)
+        _pm = get_project_manager()
+        _project = _pm.load_project(project_name)
+        _project_path = _pm.get_project_path(project_name)
+        _script = _pm.load_script(project_name, script_file)
+        _items, _id_field, _, _ = get_storyboard_items(_script)
+        _resolved = find_storyboard_item(_items, _id_field, resource_id)
+        _item = _resolved[0] if _resolved else {}
+        return _project, _project_path, _item
 
-    project, project_path = await asyncio.to_thread(_load)
+    project, project_path, item = await asyncio.to_thread(_load)
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
 
-    storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
+    # 优先从 generated_assets.storyboard_image 读取（宫格模式写 _first.png），回退到默认路径
+    assets = item.get("generated_assets", {})
+    storyboard_rel = assets.get("storyboard_image") if isinstance(assets, dict) else None
+    if storyboard_rel:
+        storyboard_file = project_path / storyboard_rel
+    else:
+        storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
     if not storyboard_file.exists():
-        raise ValueError(f"storyboard not found: scene_{resource_id}.png")
+        raise ValueError(f"storyboard not found: {storyboard_file.name}")
 
     prompt_text = _normalize_video_prompt(prompt)
     aspect_ratio = get_aspect_ratio(project, "videos")
@@ -702,11 +756,14 @@ async def execute_video_task(
     if not duration_seconds:
         duration_seconds = _get_model_default_duration(registry_provider_id, model_name)
 
+    end_image = _resolve_video_end_image(project_path, item)
+
     _, version, _, video_uri = await generator.generate_video_async(
         prompt=prompt_text,
         resource_type="videos",
         resource_id=resource_id,
         start_image=storyboard_file,
+        end_image=end_image,
         aspect_ratio=aspect_ratio,
         duration_seconds=duration_seconds,
         resolution=resolution,
@@ -871,11 +928,212 @@ async def execute_clue_task(
     }
 
 
+def _group_scenes_by_segment_break(items: list[dict], id_field: str) -> list[list[dict]]:
+    """Groups consecutive scene dicts, breaking at segment_break=True.
+
+    Delegates to :func:`lib.storyboard_sequence.group_scenes_by_segment_break`.
+    """
+    return group_scenes_by_segment_break(items, id_field)
+
+
+def _collect_grid_reference_images(
+    project_path: Path,
+    payload: dict[str, Any],
+    scene_ids: list[str],
+) -> list[object] | None:
+    """Collect character_sheet and clue_sheet images referenced by grid scenes.
+
+    Reads project.json, iterates the scenes matching ``scene_ids`` in the
+    script, and returns up to 6 unique reference image paths.
+    """
+    project_json = project_path / "project.json"
+    if not project_json.exists():
+        return None
+
+    import json
+
+    project = json.loads(project_json.read_text(encoding="utf-8"))
+
+    script_file = payload.get("script_file")
+    if not script_file:
+        return None
+
+    script_path = project_path / "scripts" / script_file
+    if not script_path.exists():
+        return None
+
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+
+    items, id_field, char_field, clue_field = get_storyboard_items(script)
+
+    scene_id_set = set(scene_ids)
+    matched_items = [item for item in items if str(item.get(id_field, "")) in scene_id_set]
+
+    paths, _ = _collect_sheet_paths(
+        project,
+        project_path,
+        matched_items,
+        char_field=char_field,
+        clue_field=clue_field,
+        max_count=6,
+    )
+
+    return list(paths[:6]) or None
+
+
+async def execute_grid_task(
+    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+) -> dict[str, Any]:
+    """Execute a grid image generation task.
+
+    resource_id is the grid_id. Steps:
+    1. Load GridGeneration, set status to generating
+    2. Generate image via MediaGenerator
+    3. Split grid image into cells
+    4. Assign cell images to scenes in the script
+    5. Mark completed
+    """
+    from PIL import Image
+
+    from lib.grid.splitter import split_grid_image
+    from lib.grid_manager import GridManager
+
+    project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
+    grid_manager = GridManager(project_path)
+
+    # a) Load grid
+    grid = grid_manager.get(resource_id)
+    if grid is None:
+        raise ValueError(f"grid not found: {resource_id}")
+
+    script_file = grid.script_file
+
+    try:
+        # b) Set status to generating
+        grid.status = "generating"
+        grid.error_message = None
+        grid_manager.save(grid)
+
+        # c) Build reference images
+        reference_images = await asyncio.to_thread(
+            _collect_grid_reference_images, project_path, payload, grid.scene_ids
+        )
+
+        # d) Generate grid image
+        prompt_text = payload.get("prompt") or grid.prompt
+        if not prompt_text:
+            raise ValueError("prompt is required for grid task")
+
+        generator = await get_media_generator(
+            project_name,
+            payload=payload,
+            user_id=user_id,
+        )
+
+        project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+        aspect_ratio = payload.get("grid_aspect_ratio") or get_aspect_ratio(project, "storyboards")
+
+        image_path, version = await generator.generate_image_async(
+            prompt=prompt_text,
+            resource_type="grids",
+            resource_id=resource_id,
+            reference_images=reference_images,
+            aspect_ratio=aspect_ratio,
+            image_size="2K",
+        )
+
+        # e) Set grid_image_path, status to splitting
+        grid.grid_image_path = f"grids/{resource_id}.png"
+        grid.status = "splitting"
+        grid_manager.save(grid)
+
+        # f) Split the grid image
+        grid_image = Image.open(image_path)
+        video_aspect_ratio = get_aspect_ratio(project, "videos")
+        cells = split_grid_image(grid_image, grid.rows, grid.cols, video_aspect_ratio)
+
+        # g) Assign cells to scenes
+        storyboards_dir = project_path / "storyboards"
+        storyboards_dir.mkdir(parents=True, exist_ok=True)
+
+        def _assign_cells():
+            import shutil
+
+            asset_updates: list[tuple[str, str, str]] = []
+
+            for cell, frame in zip(cells, grid.frame_chain):
+                if frame.frame_type == "placeholder":
+                    continue
+
+                if frame.frame_type == "first" and frame.next_scene_id:
+                    # Save as first frame (storyboard_image) for next_scene_id
+                    cell_path = storyboards_dir / f"scene_{frame.next_scene_id}_first.png"
+                    cell.save(cell_path, format="PNG")
+                    frame.image_path = f"storyboards/scene_{frame.next_scene_id}_first.png"
+                    asset_updates.append((frame.next_scene_id, "storyboard_image", frame.image_path))
+                    # Write grid provenance
+                    asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
+                    asset_updates.append((frame.next_scene_id, "grid_cell_index", frame.index))
+
+                elif frame.frame_type == "transition":
+                    # Save as last frame of prev scene
+                    if frame.prev_scene_id:
+                        last_path = storyboards_dir / f"scene_{frame.prev_scene_id}_last.png"
+                        cell.save(last_path, format="PNG")
+                        last_rel = f"storyboards/scene_{frame.prev_scene_id}_last.png"
+                        asset_updates.append((frame.prev_scene_id, "storyboard_last_image", last_rel))
+                    # Copy as first frame of next scene (same image, avoid re-encoding)
+                    if frame.next_scene_id:
+                        first_path = storyboards_dir / f"scene_{frame.next_scene_id}_first.png"
+                        if frame.prev_scene_id:
+                            shutil.copy2(last_path, first_path)
+                        else:
+                            cell.save(first_path, format="PNG")
+                        frame.image_path = f"storyboards/scene_{frame.next_scene_id}_first.png"
+                        asset_updates.append((frame.next_scene_id, "storyboard_image", frame.image_path))
+                        # Write grid provenance
+                        asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
+                        asset_updates.append((frame.next_scene_id, "grid_cell_index", frame.index))
+
+            # Batch-write all asset updates in one script read+write pass
+            if asset_updates:
+                get_project_manager().batch_update_scene_assets(
+                    project_name=project_name,
+                    script_filename=script_file,
+                    updates=asset_updates,
+                )
+
+        await asyncio.to_thread(_assign_cells)
+
+        # h) Set status to completed
+        grid.status = "completed"
+        grid_manager.save(grid)
+
+    except Exception:
+        grid.status = "failed"
+        import traceback
+
+        grid.error_message = traceback.format_exc()
+        grid_manager.save(grid)
+        raise
+
+    created_at = grid.created_at
+
+    return {
+        "version": version,
+        "file_path": f"grids/{resource_id}.png",
+        "created_at": created_at,
+        "resource_type": "grids",
+        "resource_id": resource_id,
+    }
+
+
 _TASK_EXECUTORS = {
     "storyboard": execute_storyboard_task,
     "video": execute_video_task,
     "character": execute_character_task,
     "clue": execute_clue_task,
+    "grid": execute_grid_task,
 }
 
 

@@ -475,6 +475,8 @@ class ProjectArchiveService:
                     continue
                 if is_root and filename in self._AGENT_RUNTIME_EXCLUDES:
                     continue
+                if is_root and filename not in self._ROOT_VISIBLE_ENTRIES:
+                    continue
                 destination_path = destination_dir / filename
                 destination_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_path, destination_path)
@@ -712,12 +714,15 @@ class ProjectArchiveService:
                     for key in missing_keys:
                         assets[key] = template[key]
                     script_changed = True
-                    diagnostics.add(
-                        "auto_fixed",
-                        "generated_assets_defaults",
-                        (f"{items_key}[{index}].generated_assets: 补全默认字段 {', '.join(sorted(missing_keys))}"),
-                        location=f"{location_prefix}.generated_assets",
-                    )
+                    # 补全值非 None 的才报诊断，避免 no-op 补全产生噪音
+                    non_null_keys = sorted(k for k in missing_keys if template[k] is not None)
+                    if non_null_keys:
+                        diagnostics.add(
+                            "auto_fixed",
+                            "generated_assets_defaults",
+                            (f"{items_key}[{index}].generated_assets: 补全默认字段 {', '.join(non_null_keys)}"),
+                            location=f"{location_prefix}.generated_assets",
+                        )
 
             characters = item.get(chars_field)
             if isinstance(characters, list):

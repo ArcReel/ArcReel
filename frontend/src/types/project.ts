@@ -91,6 +91,7 @@ export interface ProjectData {
   status?: ProjectStatus;
   video_backend?: string | null;
   image_backend?: string | null;
+  generation_mode?: "single" | "grid";
   video_generate_audio?: boolean | null;
   text_backend_script?: string | null;
   text_backend_overview?: string | null;

@@ -71,6 +71,9 @@ class GeneratedAssets(BaseModel):
     """生成资源状态（初始化为空）"""
 
     storyboard_image: str | None = Field(default=None, description="分镜图路径")
+    storyboard_last_image: str | None = Field(default=None, description="分镜图最后一帧路径")
+    grid_id: str | None = Field(default=None, description="关联的网格图生成 ID")
+    grid_cell_index: int | None = Field(default=None, description="在网格图中的单元格索引")
     video_clip: str | None = Field(default=None, description="视频片段路径")
     video_uri: str | None = Field(default=None, description="视频 URI")
     status: Literal["pending", "storyboard_ready", "completed"] = Field(default="pending", description="生成状态")

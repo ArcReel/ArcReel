@@ -61,6 +61,9 @@ export interface VideoPrompt {
 
 export interface GeneratedAssets {
   storyboard_image: string | null;
+  storyboard_last_image: string | null;  // grid mode last frame
+  grid_id: string | null;                // source grid ID
+  grid_cell_index: number | null;        // cell index in source grid
   video_clip: string | null;
   video_thumbnail: string | null;
   video_uri: string | null;

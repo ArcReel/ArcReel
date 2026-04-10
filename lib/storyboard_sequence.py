@@ -85,6 +85,28 @@ def build_previous_storyboard_reference(path: Path) -> dict:
     }
 
 
+def group_scenes_by_segment_break(items: list[dict], id_field: str) -> list[list[dict]]:
+    """Groups consecutive scene dicts, breaking at segment_break=True.
+
+    Args:
+        items: List of scene/segment dicts.
+        id_field: Key in each dict for the item ID (unused but kept for API consistency).
+
+    Returns:
+        List of groups, each a list of consecutive scene dicts.
+    """
+    groups: list[list[dict]] = []
+    current: list[dict] = []
+    for item in items:
+        if item.get("segment_break", False) and current:
+            groups.append(current)
+            current = []
+        current.append(item)
+    if current:
+        groups.append(current)
+    return groups
+
+
 def build_storyboard_dependency_plan(
     items: Sequence[dict],
     id_field: str,

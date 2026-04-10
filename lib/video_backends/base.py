@@ -94,6 +94,16 @@ async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> 
                     f.write(chunk)
 
 
+@dataclass
+class VideoCapabilities:
+    """Declares what a video backend supports."""
+
+    first_frame: bool = True
+    last_frame: bool = False
+    reference_images: bool = False
+    max_reference_images: int = 0
+
+
 class VideoCapability(StrEnum):
     """视频后端支持的能力枚举。"""
 
@@ -116,6 +126,8 @@ class VideoGenerationRequest:
     duration_seconds: int = 5
     resolution: str = "1080p"
     start_image: Path | None = None
+    end_image: Path | None = None  # For first_last mode
+    reference_images: list[Path] | None = None  # For multi-reference mode
     generate_audio: bool = True
 
     # Veo 特有
@@ -156,5 +168,8 @@ class VideoBackend(Protocol):
 
     @property
     def capabilities(self) -> set[VideoCapability]: ...
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities: ...
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult: ...

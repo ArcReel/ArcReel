@@ -43,6 +43,7 @@ class MediaGenerator:
         "videos": "videos/scene_{resource_id}.mp4",
         "characters": "characters/{resource_id}.png",
         "clues": "clues/{resource_id}.png",
+        "grids": "grids/{resource_id}.png",
     }
 
     def __init__(
@@ -211,7 +212,7 @@ class MediaGenerator:
             aspect_ratio=aspect_ratio,
             provider=self._image_backend.name,
             user_id=self._user_id,
-            segment_id=resource_id if resource_type in ("storyboards", "videos") else None,
+            segment_id=resource_id if resource_type in ("storyboards", "videos", "grids") else None,
         )
 
         try:
@@ -276,6 +277,8 @@ class MediaGenerator:
         resource_type: str,
         resource_id: str,
         start_image: str | Path | Image.Image | None = None,
+        end_image: Path | None = None,
+        reference_images: list[Path] | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str = "8",
         resolution: str = "1080p",
@@ -290,6 +293,8 @@ class MediaGenerator:
             resource_type: 资源类型 (videos)
             resource_id: 资源 ID (E1S01)
             start_image: 起始帧图片（image-to-video 模式）
+            end_image: 结束帧图片（first_last 模式）
+            reference_images: 参考图片列表（multi-reference 模式）
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认 "1080p"
@@ -305,6 +310,8 @@ class MediaGenerator:
                 resource_type=resource_type,
                 resource_id=resource_id,
                 start_image=start_image,
+                end_image=end_image,
+                reference_images=reference_images,
                 aspect_ratio=aspect_ratio,
                 duration_seconds=duration_seconds,
                 resolution=resolution,
@@ -319,6 +326,8 @@ class MediaGenerator:
         resource_type: str,
         resource_id: str,
         start_image: str | Path | Image.Image | None = None,
+        end_image: Path | None = None,
+        reference_images: list[Path] | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str = "8",
         resolution: str = "1080p",
@@ -333,6 +342,8 @@ class MediaGenerator:
             resource_type: 资源类型 (videos)
             resource_id: 资源 ID (E1S01)
             start_image: 起始帧图片（image-to-video 模式）
+            end_image: 结束帧图片（first_last 模式）
+            reference_images: 参考图片列表（multi-reference 模式）
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认 "1080p"
@@ -389,6 +400,27 @@ class MediaGenerator:
         try:
             from lib.video_backends.base import VideoGenerationRequest
 
+            # Three-level fallback based on backend video capabilities
+            actual_end_image = None
+            actual_reference_images = reference_images
+
+            if end_image and self._video_backend:
+                caps = self._video_backend.video_capabilities
+                if caps.last_frame:
+                    actual_end_image = end_image  # first_last mode
+                elif caps.reference_images:
+                    # Fallback: pass end_image as reference image
+                    actual_reference_images = (actual_reference_images or []) + [end_image]
+                    logger.info(
+                        "Video backend %s does not support last_frame, falling back to reference_images",
+                        self._video_backend.name,
+                    )
+                else:
+                    logger.warning(
+                        "Video backend %s supports neither last_frame nor reference_images, end_image will be ignored",
+                        self._video_backend.name,
+                    )
+
             request = VideoGenerationRequest(
                 prompt=prompt,
                 output_path=output_path,
@@ -396,6 +428,8 @@ class MediaGenerator:
                 duration_seconds=duration_int,
                 resolution=resolution,
                 start_image=Path(start_image) if isinstance(start_image, (str, Path)) else None,
+                end_image=actual_end_image,
+                reference_images=actual_reference_images,
                 generate_audio=effective_generate_audio,
                 negative_prompt=negative_prompt,
                 project_name=self.project_name,
