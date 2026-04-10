@@ -20,9 +20,9 @@ export interface GridSegmentGroupProps {
   onGenerateGrid: () => void;
   generatingGrid: boolean;
   children: React.ReactNode;
-  /** Optional grid ID for showing the preview panel */
-  gridId?: string | null;
-  /** Project name — required when gridId is provided */
+  /** Grid IDs for showing preview panels (one per batch) */
+  gridIds?: string[];
+  /** Project name — required when gridIds is provided */
   projectName?: string;
 }
 
@@ -64,7 +64,7 @@ export function GridSegmentGroup({
   onGenerateGrid,
   generatingGrid,
   children,
-  gridId = null,
+  gridIds = [],
   projectName = "",
 }: GridSegmentGroupProps) {
   const { t } = useTranslation("dashboard");
@@ -154,15 +154,25 @@ export function GridSegmentGroup({
         </motion.button>
       </div>
 
-      {/* ---- Grid Preview Panel (above cards, collapsible) ---- */}
-      {projectName && (
-        <GridPreviewPanel
-          projectName={projectName}
-          gridId={gridId}
-          sceneIds={sceneIds}
-          onRegenerate={onGenerateGrid}
-        />
-      )}
+      {/* ---- Grid Preview Panels (one per batch, above cards) ---- */}
+      {projectName && gridIds.length > 0
+        ? gridIds.map((gid) => (
+            <GridPreviewPanel
+              key={gid}
+              projectName={projectName}
+              gridId={gid}
+              sceneIds={sceneIds}
+              onRegenerate={onGenerateGrid}
+            />
+          ))
+        : projectName && (
+            <GridPreviewPanel
+              projectName={projectName}
+              gridId={null}
+              sceneIds={sceneIds}
+              onRegenerate={onGenerateGrid}
+            />
+          )}
 
       {/* ---- Children (SegmentCards) ---- */}
       <div className="flex flex-col gap-4">{children}</div>

@@ -203,21 +203,14 @@ export function TimelineCanvas({
   }, [refreshGrids, episodeScript]);
 
   /**
-   * Build a map from sorted-scene-key → gridId for matching groups.
-   * Uses the grid's scene_ids set intersection with a group's scene IDs.
+   * Find all grid IDs whose scene_ids are a subset of the given group.
+   * Handles batched grids: a group with 32 scenes may have 4 grids of ~9 each.
    */
-  const gridIdByGroupScenes = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const grid of grids) {
-      const key = [...grid.scene_ids].sort().join(",");
-      map.set(key, grid.id);
-    }
-    return map;
-  }, [grids]);
-
-  function getGridIdForGroup(groupScenes: Segment[]): string | null {
-    const key = groupScenes.map((s) => getSegmentId(s, contentMode)).sort().join(",");
-    return gridIdByGroupScenes.get(key) ?? null;
+  function getGridIdsForGroup(groupScenes: Segment[]): string[] {
+    const groupIdSet = new Set(groupScenes.map((s) => getSegmentId(s, contentMode)));
+    return grids
+      .filter((g) => g.scene_ids.length > 0 && g.scene_ids.every((id) => groupIdSet.has(id)))
+      .map((g) => g.id);
   }
 
   const handleGenerateGroupGrid = useCallback(
@@ -425,7 +418,7 @@ export function TimelineCanvas({
                     batchCount={gridResult.batchCount}
                     onGenerateGrid={() => handleGenerateGroupGrid(groupIdx, group)}
                     generatingGrid={generatingGridGroups.has(groupIdx)}
-                    gridId={getGridIdForGroup(group)}
+                    gridIds={getGridIdsForGroup(group)}
                     projectName={projectName}
                   >
                     {group.map((segment) => {
