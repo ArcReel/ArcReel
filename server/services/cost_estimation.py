@@ -142,6 +142,30 @@ class CostEstimationService:
                     for seg in group:
                         grid_cost_per_segment[seg.get(id_key, "")] = (per_scene_cost, grid_image_unit_cost[1])
 
+            # --- Grid actual cost apportionment ---
+            # Map grid_id → [scene_ids] from each segment's generated_assets
+            grid_to_scenes: dict[str, list[str]] = {}
+            for seg in raw_segments:
+                assets = seg.get("generated_assets")
+                if not isinstance(assets, dict):
+                    continue
+                gid = assets.get("grid_id")
+                sid = seg.get(id_key, "")
+                if gid and sid:
+                    grid_to_scenes.setdefault(gid, []).append(sid)
+
+            # Compute per-scene share of each grid's actual cost
+            grid_actual_per_scene: dict[str, CostBreakdown] = {}
+            for gid, sids in grid_to_scenes.items():
+                grid_cost = actual_by_segment.get(gid, {}).get("image", {})
+                if grid_cost:
+                    n = len(sids)
+                    per_scene: CostBreakdown = {cur: round(amt / n, 6) for cur, amt in grid_cost.items()}
+                    for sid in sids:
+                        grid_actual_per_scene[sid] = _merge_breakdowns(
+                            grid_actual_per_scene.get(sid, {}), per_scene
+                        )
+
             segments_result = []
             ep_est: dict[str, CostBreakdown] = {}
             ep_act: dict[str, CostBreakdown] = {}
@@ -174,6 +198,8 @@ class CostEstimationService:
 
                 seg_actual = actual_by_segment.get(seg_id, {})
                 act_image: CostBreakdown = seg_actual.get("image", {})
+                if seg_id in grid_actual_per_scene:
+                    act_image = _merge_breakdowns(act_image, grid_actual_per_scene[seg_id])
                 act_video: CostBreakdown = seg_actual.get("video", {})
 
                 segments_result.append(
@@ -218,14 +244,6 @@ class CostEstimationService:
         project_level = actual_by_segment.get("__project__", {})
         if "image" in project_level:
             proj_act["character_and_clue"] = project_level["image"]
-
-        # Grid actual costs — segment_id is grid_id (starts with "grid_")
-        grid_actual_image: CostBreakdown = {}
-        for seg_key, seg_costs in actual_by_segment.items():
-            if isinstance(seg_key, str) and seg_key.startswith("grid_") and "image" in seg_costs:
-                grid_actual_image = _merge_breakdowns(grid_actual_image, seg_costs["image"])
-        if grid_actual_image:
-            proj_act["grid"] = grid_actual_image
 
         return {
             "project_name": project_name,
