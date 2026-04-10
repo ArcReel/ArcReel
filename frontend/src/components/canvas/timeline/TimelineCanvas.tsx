@@ -191,10 +191,14 @@ export function TimelineCanvas({
   const [generatingGridGroups, setGeneratingGridGroups] = useState<Set<number>>(new Set());
   const [generatingAllGrids, setGeneratingAllGrids] = useState(false);
   const [grids, setGrids] = useState<GridGeneration[]>([]);
+  const [gridsVersion, setGridsVersion] = useState(0);
 
   const refreshGrids = useCallback(() => {
     if (!isGridMode || !projectName) return;
-    API.listGrids(projectName).then(setGrids).catch(() => {/* silently ignore */});
+    API.listGrids(projectName).then((data) => {
+      setGrids(data);
+      setGridsVersion((v) => v + 1);
+    }).catch(() => {/* silently ignore */});
   }, [isGridMode, projectName]);
 
   // Fetch grids list for the current episode when in grid mode
@@ -421,6 +425,7 @@ export function TimelineCanvas({
                     gridIds={getGridIdsForGroup(group)}
                     projectName={projectName}
                     onGridRegenerated={refreshGrids}
+                    gridsVersion={gridsVersion}
                   >
                     {group.map((segment) => {
                       const segId = getSegmentId(segment, contentMode);

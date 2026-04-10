@@ -26,6 +26,8 @@ export interface GridSegmentGroupProps {
   projectName?: string;
   /** Called after a single grid is regenerated (to refresh the grids list). */
   onGridRegenerated?: () => void;
+  /** Incremented when the grids list is refreshed, to trigger panel re-fetch. */
+  gridsVersion?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,6 +71,7 @@ export function GridSegmentGroup({
   gridIds = [],
   projectName = "",
   onGridRegenerated,
+  gridsVersion = 0,
 }: GridSegmentGroupProps) {
   const { t } = useTranslation("dashboard");
   const label = groupLabel(groupIndex);
@@ -166,6 +169,7 @@ export function GridSegmentGroup({
               gridId={gid}
               sceneIds={sceneIds}
               onRegenerated={onGridRegenerated}
+              refreshKey={gridsVersion}
             />
           ))
         : projectName && (
@@ -174,6 +178,7 @@ export function GridSegmentGroup({
               gridId={null}
               sceneIds={sceneIds}
               onRegenerated={onGridRegenerated}
+              refreshKey={gridsVersion}
             />
           )}
 

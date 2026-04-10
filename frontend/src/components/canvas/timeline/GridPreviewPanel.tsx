@@ -25,6 +25,8 @@ export interface GridPreviewPanelProps {
   sceneIds: string[];
   /** Called after a regeneration is submitted (for parent to refresh grids list). */
   onRegenerated?: () => void;
+  /** Changed when grids list is refreshed, triggers re-fetch of panel data. */
+  refreshKey?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +205,7 @@ export function GridPreviewPanel({
   gridId,
   sceneIds,
   onRegenerated,
+  refreshKey = 0,
 }: GridPreviewPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [grid, setGrid] = useState<GridGeneration | null>(null);
@@ -235,7 +238,7 @@ export function GridPreviewPanel({
     return () => {
       cancelled = true;
     };
-  }, [expanded, gridId, projectName]);
+  }, [expanded, gridId, projectName, refreshKey]);
 
   const imageUrl =
     grid?.grid_image_path
