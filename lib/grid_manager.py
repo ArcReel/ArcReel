@@ -31,6 +31,18 @@ class GridManager:
             return None
         return GridGeneration.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
+    def delete(self, grid_id: str) -> bool:
+        """Delete a grid record and its image file. Returns True if found and deleted."""
+        path = self._path(grid_id)
+        if not path.exists():
+            return False
+        # Also remove the grid image if it exists
+        image_path = self._dir / f"{grid_id}.png"
+        if image_path.exists():
+            image_path.unlink()
+        path.unlink()
+        return True
+
     def list_all(self) -> list[GridGeneration]:
         """Return all grids sorted by created_at ascending."""
         grids = []

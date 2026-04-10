@@ -420,6 +420,7 @@ export function TimelineCanvas({
                     generatingGrid={generatingGridGroups.has(groupIdx)}
                     gridIds={getGridIdsForGroup(group)}
                     projectName={projectName}
+                    onGridRegenerated={refreshGrids}
                   >
                     {group.map((segment) => {
                       const segId = getSegmentId(segment, contentMode);

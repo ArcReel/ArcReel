@@ -23,7 +23,8 @@ export interface GridPreviewPanelProps {
   projectName: string;
   gridId: string | null;
   sceneIds: string[];
-  onRegenerate: () => void;
+  /** Called after a regeneration is submitted (for parent to refresh grids list). */
+  onRegenerated?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,12 +202,13 @@ export function GridPreviewPanel({
   projectName,
   gridId,
   sceneIds,
-  onRegenerate,
+  onRegenerated,
 }: GridPreviewPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [grid, setGrid] = useState<GridGeneration | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
 
   // Fetch grid data when expanded and gridId is available
   useEffect(() => {
@@ -335,12 +337,25 @@ export function GridPreviewPanel({
                     <div className="ml-auto">
                       <motion.button
                         type="button"
-                        onClick={onRegenerate}
-                        className="inline-flex items-center gap-1 rounded border border-amber-800/30 bg-amber-950/30 px-2 py-1 text-[10px] font-medium text-amber-400/80 transition-colors hover:bg-amber-900/40 hover:text-amber-300"
-                        whileTap={{ scale: 0.95 }}
+                        disabled={regenerating}
+                        onClick={() => {
+                          if (!gridId || regenerating) return;
+                          setRegenerating(true);
+                          API.regenerateGrid(projectName, gridId)
+                            .then(() => {
+                              setGrid((prev) => prev ? { ...prev, status: "pending" } : prev);
+                              onRegenerated?.();
+                            })
+                            .catch(() => {})
+                            .finally(() => setRegenerating(false));
+                        }}
+                        className={`inline-flex items-center gap-1 rounded border border-amber-800/30 bg-amber-950/30 px-2 py-1 text-[10px] font-medium text-amber-400/80 transition-colors ${
+                          regenerating ? "opacity-50 cursor-not-allowed" : "hover:bg-amber-900/40 hover:text-amber-300"
+                        }`}
+                        whileTap={regenerating ? {} : { scale: 0.95 }}
                       >
-                        <RefreshCw className="h-3 w-3" />
-                        重新生成
+                        <RefreshCw className={`h-3 w-3 ${regenerating ? "animate-spin" : ""}`} />
+                        {regenerating ? "提交中..." : "重新生成"}
                       </motion.button>
                     </div>
                   </div>

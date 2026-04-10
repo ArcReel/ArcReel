@@ -24,6 +24,8 @@ export interface GridSegmentGroupProps {
   gridIds?: string[];
   /** Project name — required when gridIds is provided */
   projectName?: string;
+  /** Called after a single grid is regenerated (to refresh the grids list). */
+  onGridRegenerated?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +68,7 @@ export function GridSegmentGroup({
   children,
   gridIds = [],
   projectName = "",
+  onGridRegenerated,
 }: GridSegmentGroupProps) {
   const { t } = useTranslation("dashboard");
   const label = groupLabel(groupIndex);
@@ -162,7 +165,7 @@ export function GridSegmentGroup({
               projectName={projectName}
               gridId={gid}
               sceneIds={sceneIds}
-              onRegenerate={onGenerateGrid}
+              onRegenerated={onGridRegenerated}
             />
           ))
         : projectName && (
@@ -170,7 +173,7 @@ export function GridSegmentGroup({
               projectName={projectName}
               gridId={null}
               sceneIds={sceneIds}
-              onRegenerate={onGenerateGrid}
+              onRegenerated={onGridRegenerated}
             />
           )}
 
