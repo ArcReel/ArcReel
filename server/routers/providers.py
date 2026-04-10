@@ -229,6 +229,7 @@ def _build_field(
 
 @router.get("", response_model=ProvidersListResponse)
 async def list_providers(
+    _t: Translator,
     svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> ProvidersListResponse:
     """返回所有供应商及其状态。"""
@@ -236,8 +237,8 @@ async def list_providers(
     providers = [
         ProviderSummary(
             id=s.name,
-            display_name=s.display_name,
-            description=s.description,
+            display_name=_t(f"provider_name_{s.name}"),
+            description=_t(f"provider_desc_{s.name}"),
             status=s.status,
             media_types=s.media_types,
             capabilities=s.capabilities,
@@ -279,8 +280,8 @@ async def get_provider_config(
 
     return ProviderConfigResponse(
         id=provider_id,
-        display_name=meta.display_name,
-        description=meta.description,
+        display_name=_t(f"provider_name_{provider_id}"),
+        description=_t(f"provider_desc_{provider_id}"),
         status=status,
         media_types=list(meta.media_types),
         fields=fields,
