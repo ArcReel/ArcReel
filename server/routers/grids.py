@@ -123,10 +123,15 @@ async def generate_grid(
             if layout is None:
                 continue
 
-            # 清理该组旧的 grid 记录（scene_ids 是当前组子集的旧 grid）
+            # 清理该组旧的 grid 记录（限定同脚本同集，scene_ids 是当前组子集的旧 grid）
             group_id_set = set(all_scene_ids)
             for old_grid in existing_grids:
-                if old_grid.scene_ids and set(old_grid.scene_ids) <= group_id_set:
+                if (
+                    old_grid.script_file == req.script_file
+                    and old_grid.episode == episode
+                    and old_grid.scene_ids
+                    and set(old_grid.scene_ids) <= group_id_set
+                ):
                     gm.delete(old_grid.id)
 
             # 将大分组拆分为多个宫格批次（余下不足4个的场景也用 grid_4 + 占位符）

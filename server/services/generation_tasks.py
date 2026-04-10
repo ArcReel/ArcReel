@@ -671,18 +671,6 @@ async def execute_storyboard_task(
     }
 
 
-def _resolve_video_end_image(project_path: Path, item: dict) -> Path | None:
-    """Check if scene has a last frame image for first_last video mode."""
-    assets = item.get("generated_assets", {})
-    if isinstance(assets, str):
-        return None
-    last_img = assets.get("storyboard_last_image")
-    if not last_img:
-        return None
-    path = project_path / last_img
-    return path if path.exists() else None
-
-
 async def execute_video_task(
     project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
 ) -> dict[str, Any]:

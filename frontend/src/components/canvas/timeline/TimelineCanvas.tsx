@@ -234,7 +234,7 @@ export function TimelineCanvas({
         refreshGrids();
       }, 3000);
     },
-    [onGenerateGrid, scriptFile, contentMode, episode],
+    [onGenerateGrid, scriptFile, contentMode, episode, refreshGrids],
   );
 
   const handleGenerateAllGrids = useCallback(() => {

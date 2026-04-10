@@ -331,7 +331,9 @@ export function GridPreviewPanel({
                               setGrid((prev) => prev ? { ...prev, status: "pending" } : prev);
                               onRegenerated?.();
                             })
-                            .catch(() => {})
+                            .catch((err: unknown) => {
+                              setError(err instanceof Error ? err.message : "重新生成失败");
+                            })
                             .finally(() => setRegenerating(false));
                         }}
                         className={`inline-flex items-center gap-1 rounded border border-amber-800/30 bg-amber-950/30 px-2 py-1 text-[10px] font-medium text-amber-400/80 transition-colors ${
