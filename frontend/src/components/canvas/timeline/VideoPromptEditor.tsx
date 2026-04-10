@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown } from "lucide-react";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { CompactInput } from "@/components/ui/CompactInput";
@@ -17,6 +18,7 @@ export function VideoPromptEditor({
   prompt,
   onUpdate,
 }: VideoPromptEditorProps) {
+  const { t } = useTranslation("dashboard");
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -24,7 +26,7 @@ export function VideoPromptEditor({
       <AutoTextarea
         value={prompt.action}
         onChange={(v) => onUpdate({ action: v })}
-        placeholder="视频动作描述..."
+        placeholder={t("video_prompt_placeholder")}
       />
 
       {/* Collapsible metadata fields */}
@@ -36,22 +38,22 @@ export function VideoPromptEditor({
         <ChevronDown
           className={`h-3 w-3 transition-transform ${collapsed ? "-rotate-90" : ""}`}
         />
-        运镜 / 音效 / 对话
+        {t("camera_motion_section")}
       </button>
 
       {!collapsed && (
         <div className="flex flex-col gap-2 pl-1">
           <DropdownPill
-            label="镜头运动"
+            label={t("camera_motion_label")}
             value={prompt.camera_motion}
             options={CAMERA_MOTIONS}
             onChange={(v: CameraMotion) => onUpdate({ camera_motion: v })}
           />
           <CompactInput
-            label="环境音效"
+            label={t("ambiance_audio_label")}
             value={prompt.ambiance_audio}
             onChange={(v) => onUpdate({ ambiance_audio: v })}
-            placeholder="环境音效描述..."
+            placeholder={t("ambiance_audio_placeholder")}
           />
           <DialogueListEditor
             dialogue={prompt.dialogue ?? []}

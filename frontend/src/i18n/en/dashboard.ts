@@ -691,6 +691,24 @@ export default {
   'select_credential_file': 'Please select a credential file',
   'enter_api_key_required': 'Please enter API Key',
 
+  // ImagePromptEditor / VideoPromptEditor / DialogueListEditor
+  'composition_params': 'Composition',
+  'shot_label': 'Shot',
+  'lighting_label': 'Lighting',
+  'lighting_placeholder': 'Lighting description...',
+  'ambiance_label': 'Ambiance',
+  'ambiance_placeholder': 'Ambiance description...',
+  'camera_motion_section': 'Camera / Audio / Dialogue',
+  'camera_motion_label': 'Camera Motion',
+  'ambiance_audio_label': 'Ambiance Audio',
+  'ambiance_audio_placeholder': 'Ambiance audio description...',
+  'dialogue_label': 'Dialogue',
+  'speaker_placeholder': 'Speaker',
+  'line_placeholder': 'Line',
+  'add_dialogue': 'Add Dialogue',
+  'image_prompt_placeholder': 'Storyboard description...',
+  'video_prompt_placeholder': 'Video action description...',
+
   // VersionTimeMachine
   'version_mgmt': 'Versions',
   'switched_to_version': 'Switched to v{{version}}',

@@ -692,6 +692,24 @@ export default {
   'select_credential_file': '请选择凭证文件',
   'enter_api_key_required': '请输入 API Key',
 
+  // ImagePromptEditor / VideoPromptEditor / DialogueListEditor
+  'composition_params': '构图参数',
+  'shot_label': '镜头',
+  'lighting_label': '光线',
+  'lighting_placeholder': '光线描述...',
+  'ambiance_label': '氛围',
+  'ambiance_placeholder': '氛围描述...',
+  'camera_motion_section': '运镜 / 音效 / 对话',
+  'camera_motion_label': '镜头运动',
+  'ambiance_audio_label': '环境音效',
+  'ambiance_audio_placeholder': '环境音效描述...',
+  'dialogue_label': '对话',
+  'speaker_placeholder': '角色',
+  'line_placeholder': '台词',
+  'add_dialogue': '添加对话',
+  'image_prompt_placeholder': '分镜图描述...',
+  'video_prompt_placeholder': '视频动作描述...',
+
   // VersionTimeMachine
   'version_mgmt': '版本',
   'switched_to_version': '已切换到 v{{version}}',
