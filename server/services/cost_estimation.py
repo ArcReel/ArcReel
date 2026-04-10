@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
-
 import math
+from typing import Any
 
 from lib.config.resolver import ConfigResolver
 from lib.cost_calculator import cost_calculator
@@ -84,7 +83,14 @@ class CostEstimationService:
         actual_by_segment = await self._tracker.get_actual_costs_by_segment(project_name)
 
         generation_mode = project_data.get("generation_mode", "single")
-        aspect_ratio = project_data.get("aspect_ratio", "9:16")
+        # 规范化 aspect_ratio：可能是 str 或 dict，复用生成任务的解析逻辑
+        raw_ar = project_data.get("aspect_ratio")
+        if isinstance(raw_ar, str):
+            aspect_ratio = raw_ar
+        elif isinstance(raw_ar, dict):
+            aspect_ratio = raw_ar.get("storyboards", "9:16")
+        else:
+            aspect_ratio = "9:16" if project_data.get("content_mode", "narration") == "narration" else "16:9"
 
         # 预计算图片单价
         image_unit_cost: tuple[float, str] | None = None
