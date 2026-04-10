@@ -28,7 +28,7 @@ from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.gemini_shared import VERTEX_SCOPES
-from lib.i18n import get_translator
+from lib.i18n import Translator
 from server.dependencies import get_config_service
 
 if TYPE_CHECKING:
@@ -147,7 +147,7 @@ class UpdateCredentialRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _validate_provider(provider_id: str, _t) -> None:
+def _validate_provider(provider_id: str, _t: Callable[..., str]) -> None:
     """验证供应商 ID 是否存在，不存在则抛 404。"""
     if provider_id not in PROVIDER_REGISTRY:
         raise HTTPException(status_code=404, detail=_t("unknown_provider", provider_id=provider_id))
@@ -157,7 +157,7 @@ async def _get_credential_or_404(
     repo: CredentialRepository,
     provider_id: str,
     cred_id: int,
-    _t,
+    _t: Callable[..., str],
 ) -> ProviderCredential:
     """获取凭证并校验归属，不存在则抛 404。"""
     cred = await repo.get_by_id(cred_id)
@@ -253,8 +253,8 @@ async def list_providers(
 @router.get("/{provider_id}/config", response_model=ProviderConfigResponse)
 async def get_provider_config(
     provider_id: str,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ) -> ProviderConfigResponse:
     """返回单个供应商的配置字段（registry 元数据与 DB 值合并）。"""
     _validate_provider(provider_id, _t)
@@ -292,8 +292,8 @@ async def patch_provider_config(
     provider_id: str,
     body: dict[str, str | None],
     request: Request,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ) -> Response:
     """更新供应商配置。值为 null 表示删除该键。"""
     _validate_provider(provider_id, _t)
@@ -321,8 +321,8 @@ async def patch_provider_config(
 @router.get("/{provider_id}/credentials", response_model=CredentialListResponse)
 async def list_credentials(
     provider_id: str,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ) -> CredentialListResponse:
     _validate_provider(provider_id, _t)
     repo = CredentialRepository(session)
@@ -335,8 +335,8 @@ async def create_credential(
     provider_id: str,
     body: CreateCredentialRequest,
     request: Request,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ) -> CredentialResponse:
     _validate_provider(provider_id, _t)
     repo = CredentialRepository(session)
@@ -357,8 +357,8 @@ async def update_credential(
     cred_id: int,
     body: UpdateCredentialRequest,
     request: Request,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ) -> Response:
     _validate_provider(provider_id, _t)
     repo = CredentialRepository(session)
@@ -383,8 +383,8 @@ async def delete_credential(
     provider_id: str,
     cred_id: int,
     request: Request,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ) -> Response:
     _validate_provider(provider_id, _t)
     repo = CredentialRepository(session)
@@ -410,8 +410,8 @@ async def activate_credential(
     provider_id: str,
     cred_id: int,
     request: Request,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ) -> Response:
     _validate_provider(provider_id, _t)
     repo = CredentialRepository(session)
@@ -425,10 +425,10 @@ async def activate_credential(
 @router.post("/gemini-vertex/credentials/upload", status_code=201, response_model=CredentialResponse)
 async def upload_vertex_credential(
     request: Request,
+    _t: Translator,
     name: str = "Vertex Credentials",
     session: AsyncSession = Depends(get_async_session),
     file: UploadFile = File(...),
-    _t=Depends(get_translator),
 ) -> CredentialResponse:
     """上传 Vertex AI 服务账号 JSON 凭证文件，同时创建凭证记录。"""
     try:
@@ -479,7 +479,7 @@ async def upload_vertex_credential(
 _CONNECTION_TEST_TIMEOUT = 15  # 秒
 
 
-def _test_gemini_aistudio(config: dict[str, str], _t) -> ConnectionTestResponse:
+def _test_gemini_aistudio(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
     """通过 models.list() 验证 Gemini AI Studio API Key。"""
     from google import genai
 
@@ -497,7 +497,7 @@ def _test_gemini_aistudio(config: dict[str, str], _t) -> ConnectionTestResponse:
     )
 
 
-def _test_gemini_vertex(config: dict[str, str], _t) -> ConnectionTestResponse:
+def _test_gemini_vertex(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
     """通过 Vertex AI 凭证验证连通性。"""
     from google import genai
     from google.oauth2 import service_account
@@ -555,7 +555,7 @@ def _extract_gemini_models(pager) -> list[str]:
     return sorted(models)
 
 
-def _test_ark(config: dict[str, str], _t) -> ConnectionTestResponse:
+def _test_ark(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
     """通过 tasks.list 验证 Ark API Key。"""
     from lib.ark_shared import create_ark_client
 
@@ -569,7 +569,7 @@ def _test_ark(config: dict[str, str], _t) -> ConnectionTestResponse:
     )
 
 
-def _test_grok(config: dict[str, str], _t) -> ConnectionTestResponse:
+def _test_grok(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
     """通过 models.list_language_models() 验证 xAI API Key。"""
     import xai_sdk
 
@@ -586,7 +586,7 @@ def _test_grok(config: dict[str, str], _t) -> ConnectionTestResponse:
 _OPENAI_MODEL_KEYWORDS = ("gpt", "sora", "dall", "o1", "o3", "o4")
 
 
-def _test_openai(config: dict[str, str], _t) -> ConnectionTestResponse:
+def _test_openai(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
     """通过 models.list() 验证 OpenAI API Key。"""
     from openai import OpenAI
 
@@ -616,9 +616,9 @@ _TEST_DISPATCH: dict[str, Callable[[dict[str, str], Any], ConnectionTestResponse
 @router.post("/{provider_id}/test", response_model=ConnectionTestResponse)
 async def test_provider_connection(
     provider_id: str,
+    _t: Translator,
     credential_id: int | None = None,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ) -> ConnectionTestResponse:
     """调用供应商 API 验证连通性。可指定 credential_id 测试特定凭证。"""
     _validate_provider(provider_id, _t)

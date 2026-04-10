@@ -16,6 +16,7 @@ from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
+from lib.i18n import LOCALE_LANGUAGE_MAP
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
 from server.agent_runtime.session_store import SessionMetaStore
@@ -328,11 +329,6 @@ class SessionManager:
 - 你不能创建或编辑代码文件（.py/.js/.sh 等），Write/Edit 仅限 .json/.md/.txt
 - 你是用户的视频制作搭档，专业、友善、高效"""
 
-    _LOCALE_LANGUAGE_MAP: dict[str, str] = {
-        "zh": "中文",
-        "en": "English",
-    }
-
     def _build_append_prompt(self, project_name: str, locale: str = "zh") -> str:
         """Build the append portion for SystemPromptPreset.
 
@@ -343,7 +339,7 @@ class SessionManager:
         """
         parts = [self._PERSONA_PROMPT]
 
-        lang = self._LOCALE_LANGUAGE_MAP.get(locale, "中文")
+        lang = LOCALE_LANGUAGE_MAP.get(locale, "中文")
         parts.append(
             f"\n## 语言规范\n\n"
             f"- **回答用户必须使用{lang}**：所有回复、思考过程、任务清单及计划文件，均须使用{lang}\n"

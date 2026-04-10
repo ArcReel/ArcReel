@@ -154,10 +154,10 @@ describe("SystemConfigPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("以下必填配置尚未完成：")).toBeInTheDocument();
+      expect(screen.getByText("当前配置存在以下问题，可能会影响部分功能：")).toBeInTheDocument();
     });
     expect(
-      screen.getByRole("button", { name: /ArcReel 智能体 API Key/ }),
+      screen.getByText(/ArcReel 智能体 API Key/),
     ).toBeInTheDocument();
   });
 
@@ -169,12 +169,12 @@ describe("SystemConfigPage", () => {
       expect(API.getProviders).toHaveBeenCalled();
     });
 
-    expect(screen.queryByText("以下必填配置尚未完成：")).not.toBeInTheDocument();
+    expect(screen.queryByText("当前配置存在以下问题，可能会影响部分功能：")).not.toBeInTheDocument();
   });
 
   it("renders the back link that navigates to projects", () => {
     renderPage();
-    const link = screen.getByRole("link", { name: "返回项目大厅" });
+    const link = screen.getByRole("link", { name: "返回" });
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute("href", "/app/projects");
   });

@@ -7,7 +7,7 @@ import type { UsageStat } from "@/types";
 const currencyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
 export function UsageStatsSection() {
-  const { t, i18n } = useTranslation();
+  const { t, i18n } = useTranslation("dashboard");
   const [stats, setStats] = useState<UsageStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState(7);
@@ -20,9 +20,9 @@ export function UsageStatsSection() {
 
   const TIME_RANGES = useMemo(
     () => [
-      { label: t("最近 7 天"), days: 7 },
-      { label: t("最近 30 天"), days: 30 },
-      { label: t("全部"), days: 0 },
+      { label: t("last_7_days"), days: 7 },
+      { label: t("last_30_days"), days: 30 },
+      { label: t("all"), days: 0 },
     ],
     [t],
   );
@@ -58,8 +58,8 @@ export function UsageStatsSection() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h3 className="text-lg font-semibold text-gray-100">{t("用量统计")}</h3>
-        <p className="mt-1 text-sm text-gray-500">{t("查看各供应商的 API 调用统计")}</p>
+        <h3 className="text-lg font-semibold text-gray-100">{t("usage_stats")}</h3>
+        <p className="mt-1 text-sm text-gray-500">{t("usage_stats_by_provider")}</p>
       </div>
 
       {/* Filters */}
@@ -82,10 +82,10 @@ export function UsageStatsSection() {
           <select
             value={providerFilter}
             onChange={(e) => setProviderFilter(e.target.value)}
-            aria-label={t("按供应商筛选")}
+            aria-label={t("filter_by_provider")}
             className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-sm text-gray-300 focus:border-indigo-500/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
           >
-            <option value="">{t("全部供应商")}</option>
+            <option value="">{t("all_providers")}</option>
             {providers.map((p) => (
               <option key={p} value={p}>
                 {p}
@@ -97,9 +97,9 @@ export function UsageStatsSection() {
 
       {/* Stats */}
       {loading ? (
-        <div className="text-sm text-gray-500">{t("加载中…")}</div>
+        <div className="text-sm text-gray-500">{t("common:loading")}</div>
       ) : stats.length === 0 ? (
-        <div className="text-sm text-gray-500">{t("暂无数据")}</div>
+        <div className="text-sm text-gray-500">{t("no_data")}</div>
       ) : (
         <div className="space-y-3">
           {stats.map((s) => (
@@ -114,18 +114,18 @@ export function UsageStatsSection() {
                 </span>
               </div>
               <div className="mt-2 flex flex-wrap gap-6 text-xs tabular-nums text-gray-400">
-                <span>{t("调用")}: {s.total_calls}</span>
-                <span>{t("成功")}: {s.success_calls}</span>
+                <span>{t("calls")}: {s.total_calls}</span>
+                <span>{t("success_count")}: {s.success_calls}</span>
                 <span>
-                  {t("成功率")}:{" "}
+                  {t("success_rate")}:{" "}
                   {s.total_calls > 0
                     ? percentFmt.format(s.success_calls / s.total_calls)
                     : "0%"}
                 </span>
                 {s.call_type === "text" ? (
-                  s.total_calls > 0 && <span>{t("类型")}: {t("文本生成")}</span>
+                  s.total_calls > 0 && <span>{t("type")}: {t("text_generation")}</span>
                 ) : s.total_duration_seconds !== undefined && (
-                  <span>{t("时长")}: {s.total_duration_seconds}s</span>
+                  <span>{t("duration")}: {s.total_duration_seconds}s</span>
                 )}
               </div>
             </div>

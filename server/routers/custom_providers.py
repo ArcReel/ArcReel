@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, model_validator
@@ -19,7 +20,7 @@ from lib.custom_provider import make_provider_id
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.i18n import get_translator
+from lib.i18n import Translator
 from server.auth import CurrentUser
 
 logger = logging.getLogger(__name__)
@@ -189,7 +190,7 @@ def _cleanup_project_refs(prefix: str, setting_keys: tuple[str, ...]) -> None:
             pass  # 读取失败或项目不可写，跳过（非致命）
 
 
-def _check_duplicate_model_ids(models: list[ModelInput], _t) -> None:
+def _check_duplicate_model_ids(models: list[ModelInput], _t: Callable[..., str]) -> None:
     """校验模型列表中无重复 model_id 且启用模型有合法 model_id。"""
     seen: set[str] = set()
     for m in models:
@@ -201,7 +202,7 @@ def _check_duplicate_model_ids(models: list[ModelInput], _t) -> None:
             seen.add(m.model_id)
 
 
-def _check_unique_defaults(models: list[ModelInput], _t) -> None:
+def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> None:
     """校验每个 media_type 最多只有一个 is_default=True 的模型。"""
     defaults_by_type: dict[str, list[str]] = {}
     for m in models:
@@ -247,8 +248,8 @@ async def create_provider(
     body: CreateProviderRequest,
     request: Request,
     _user: CurrentUser,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ):
     """创建自定义供应商，可同时创建模型列表。"""
     if body.models:
@@ -274,8 +275,8 @@ async def create_provider(
 async def get_provider(
     provider_id: int,
     _user: CurrentUser,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ):
     """获取单个自定义供应商详情。"""
     repo = CustomProviderRepository(session)
@@ -292,8 +293,8 @@ async def update_provider(
     body: UpdateProviderRequest,
     request: Request,
     _user: CurrentUser,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ):
     """更新自定义供应商配置。"""
     repo = CustomProviderRepository(session)
@@ -325,8 +326,8 @@ async def full_update_provider(
     body: FullUpdateProviderRequest,
     request: Request,
     _user: CurrentUser,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ):
     """原子更新供应商元数据 + 模型列表（单一事务）。"""
     _check_duplicate_model_ids(body.models, _t)
@@ -352,8 +353,8 @@ async def delete_provider(
     provider_id: int,
     request: Request,
     _user: CurrentUser,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ):
     """删除自定义供应商（级联删除模型，清理悬空默认配置）。"""
     repo = CustomProviderRepository(session)
@@ -387,8 +388,8 @@ async def replace_models(
     body: ReplaceModelsRequest,
     request: Request,
     _user: CurrentUser,
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
 ):
     """替换供应商的整个模型列表。"""
     _check_duplicate_model_ids(body.models, _t)
@@ -433,7 +434,7 @@ async def replace_models(
 async def discover_models_endpoint(
     body: ProviderConnectionRequest,
     _user: CurrentUser,
-    _t=Depends(get_translator),
+    _t: Translator,
 ):
     """模型发现：根据 api_format + base_url + api_key 查询可用模型。"""
     from lib.custom_provider.discovery import discover_models
@@ -459,7 +460,7 @@ async def discover_models_endpoint(
 async def test_connection(
     body: ProviderConnectionRequest,
     _user: CurrentUser,
-    _t=Depends(get_translator),
+    _t: Translator,
 ):
     """连接测试：验证 api_format + base_url + api_key 的连通性。"""
     return await _run_connection_test(body.api_format, body.base_url, body.api_key, _t)
@@ -467,10 +468,7 @@ async def test_connection(
 
 @router.post("/{provider_id}/test")
 async def test_connection_by_id(
-    provider_id: int,
-    _user: CurrentUser,
-    session: AsyncSession = Depends(get_async_session),
-    _t=Depends(get_translator),
+    provider_id: int, _user: CurrentUser, _t: Translator, session: AsyncSession = Depends(get_async_session)
 ):
     """使用已存储凭证测试指定供应商的连通性。"""
     repo = CustomProviderRepository(session)
@@ -480,7 +478,9 @@ async def test_connection_by_id(
     return await _run_connection_test(provider.api_format, provider.base_url, provider.api_key, _t)
 
 
-async def _run_connection_test(api_format: str, base_url: str, api_key: str, _t) -> ConnectionTestResponse:
+async def _run_connection_test(
+    api_format: str, base_url: str, api_key: str, _t: Callable[..., str]
+) -> ConnectionTestResponse:
     """共用的连接测试逻辑。"""
     try:
         if api_format == "openai":
@@ -515,7 +515,7 @@ async def _run_connection_test(api_format: str, base_url: str, api_key: str, _t)
         )
 
 
-def _test_openai(base_url: str, api_key: str, _t) -> ConnectionTestResponse:
+def _test_openai(base_url: str, api_key: str, _t: Callable[..., str]) -> ConnectionTestResponse:
     """通过 models.list() 验证 OpenAI 兼容 API。"""
     from openai import OpenAI
 
@@ -531,7 +531,7 @@ def _test_openai(base_url: str, api_key: str, _t) -> ConnectionTestResponse:
     )
 
 
-def _test_google(base_url: str, api_key: str, _t) -> ConnectionTestResponse:
+def _test_google(base_url: str, api_key: str, _t: Callable[..., str]) -> ConnectionTestResponse:
     """通过 models.list() 验证 Google genai API。"""
     from google import genai
 

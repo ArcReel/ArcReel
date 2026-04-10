@@ -32,7 +32,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
       data-workspace-editing="true"
     >
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-200">{t("dashboard:add_clue")}</h3>
+        <h3 className="text-sm font-semibold text-gray-200">{t("add_clue")}</h3>
         <button
           type="button"
           onClick={onCancel}
@@ -45,13 +45,13 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-1">
-            {t("dashboard:name_label")} <span className="text-red-400">*</span>
+            {t("name_label")} <span className="text-red-400">*</span>
           </label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder={t("dashboard:clue_name_placeholder")}
+            placeholder={t("clue_name_placeholder")}
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
             autoFocus
           />
@@ -59,7 +59,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
 
         <div className="flex gap-3">
           <div className="flex-1">
-            <label className="block text-xs font-medium text-gray-400 mb-1">{t("dashboard:type_label")}</label>
+            <label className="block text-xs font-medium text-gray-400 mb-1">{t("type_label")}</label>
             <div className="flex gap-2">
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-1.5 text-center text-xs transition-colors ${
                 clueType === "prop"
@@ -67,7 +67,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
                   : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
               }`}>
                 <input type="radio" name="clueType" value="prop" checked={clueType === "prop"} onChange={() => setClueType("prop")} className="sr-only" />
-                {t("dashboard:prop_option")}
+                {t("prop_option")}
               </label>
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-1.5 text-center text-xs transition-colors ${
                 clueType === "location"
@@ -75,13 +75,13 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
                   : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
               }`}>
                 <input type="radio" name="clueType" value="location" checked={clueType === "location"} onChange={() => setClueType("location")} className="sr-only" />
-                {t("dashboard:location_option")}
+                {t("location_option")}
               </label>
             </div>
           </div>
 
           <div className="flex-1">
-            <label className="block text-xs font-medium text-gray-400 mb-1">{t("dashboard:importance_label")}</label>
+            <label className="block text-xs font-medium text-gray-400 mb-1">{t("importance_label")}</label>
             <div className="flex gap-2">
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-1.5 text-center text-xs transition-colors ${
                 importance === "major"
@@ -89,7 +89,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
                   : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
               }`}>
                 <input type="radio" name="importance" value="major" checked={importance === "major"} onChange={() => setImportance("major")} className="sr-only" />
-                {t("dashboard:major_option")}
+                {t("major_option")}
               </label>
               <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-1.5 text-center text-xs transition-colors ${
                 importance === "minor"
@@ -97,7 +97,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
                   : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
               }`}>
                 <input type="radio" name="importance" value="minor" checked={importance === "minor"} onChange={() => setImportance("minor")} className="sr-only" />
-                {t("dashboard:minor_option")}
+                {t("minor_option")}
               </label>
             </div>
           </div>
@@ -105,12 +105,12 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
 
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-1">
-            {t("dashboard:desc_label")} <span className="text-red-400">*</span>
+            {t("desc_label")} <span className="text-red-400">*</span>
           </label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder={t("dashboard:clue_desc_placeholder_form")}
+            placeholder={t("clue_desc_placeholder_form")}
             rows={3}
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500 resize-none"
           />
@@ -122,7 +122,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
             onClick={onCancel}
             className="rounded-lg px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors"
           >
-            {t("dashboard:cancel")}
+            {t("cancel")}
           </button>
           <button
             type="submit"
@@ -132,10 +132,10 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
             {submitting ? (
               <span className="inline-flex items-center gap-1.5">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {t("dashboard:adding")}
+                {t("adding")}
               </span>
             ) : (
-              t("dashboard:add")
+              t("add")
             )}
           </button>
         </div>

@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Loader2, Plus, FolderOpen, Upload, AlertTriangle, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -16,14 +16,18 @@ import type { ProjectStatus, ProjectSummary, ImportConflictPolicy, ImportFailure
 // ---------------------------------------------------------------------------
 
 function usePhaseLabels() {
-  const { t } = useTranslation();
-  return {
-    setup: t("setup"),
-    worldbuilding: t("worldbuilding"),
-    scripting: t("scripting"),
-    production: t("production"),
-    completed: t("completed"),
-  } as Record<string, string>;
+  const { t, i18n } = useTranslation();
+  return useMemo(
+    () => ({
+      setup: t("setup"),
+      worldbuilding: t("worldbuilding"),
+      scripting: t("scripting"),
+      production: t("production"),
+      completed: t("completed"),
+    }) as Record<string, string>,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [i18n.language],
+  );
 }
 
 // ---------------------------------------------------------------------------

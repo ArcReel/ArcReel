@@ -3,7 +3,7 @@
  * API Keys 管理 Tab
  * 列表展示、创建（弹窗显示完整 key）、删除（确认弹窗）
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -50,7 +50,7 @@ interface CreateModalProps {
 }
 
 function CreateModal({ onClose, onCreated }: CreateModalProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation("dashboard");
   const [name, setName] = useState("");
   const [expiresDays, setExpiresDays] = useState<number | "">(30);
   const [creating, setCreating] = useState(false);
@@ -77,7 +77,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
         last_used_at: null,
       });
     } catch (err) {
-      useAppStore.getState().pushToast(`${t("创建失败: ")}${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`${t("create_failed")}${(err as Error).message}`, "error");
     } finally {
       setCreating(false);
     }
@@ -106,7 +106,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
       <div className="w-full max-w-md overflow-hidden rounded-2xl border border-gray-800 bg-gray-950 p-6 shadow-2xl">
         <div className="mb-6 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-100">
-            {created ? t("密钥已创建") : t("新建 API 密钥")}
+            {created ? t("key_created") : t("new_api_key")}
           </h3>
           {!creating && (
             <button
@@ -123,27 +123,27 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
           <div className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-gray-300">
-                {t("名称")}
+                {t("name")}
               </label>
               <p className="mt-1 text-xs text-gray-500">
-                {t("给密钥起个名字，方便识别（如：OpenClaw）")}
+                {t("key_name_hint")}
               </p>
               <input
                 autoFocus
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder={t("请输入密钥名称...")}
+                placeholder={t("enter_key_name")}
                 className="mt-2 w-full rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-100 outline-none transition-colors focus:border-indigo-500/50"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-300">
-                {t("有效期（天）")}
+                {t("expiration_days")}
               </label>
               <p className="mt-1 text-xs text-gray-500">
-                {t("0 表示永久有效")}
+                {t("zero_permanent_hint")}
               </p>
               <input
                 type="number"
@@ -162,7 +162,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
                 onClick={onClose}
                 className="rounded-lg px-4 py-2 text-sm font-medium text-gray-400 hover:bg-gray-800 hover:text-gray-200"
               >
-                {t("cancel")}
+                {t("common:cancel")}
               </button>
               <button
                 type="button"
@@ -171,7 +171,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
                 className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
               >
                 {creating && <Loader2 className="h-4 w-4 animate-spin" />}
-                {t("confirm")}
+                {t("common:confirm")}
               </button>
             </div>
           </div>
@@ -180,9 +180,9 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs text-amber-200/80">
               <div className="mb-2 flex items-center gap-2 font-medium text-amber-400">
                 <AlertTriangle className="h-4 w-4" />
-                {t("请务必立即复制并安全保存此密钥")}
+                {t("save_key_warning")}
               </div>
-              {t("出于安全考虑，你将无法再次查看它。")}
+              {t("key_not_viewable_again")}
             </div>
 
             <div className="relative group">
@@ -196,7 +196,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
                 type="button"
                 onClick={() => void handleCopy()}
                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-2 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-                title={t("复制")}
+                title={t("common:copy")}
               >
                 {copied ? (
                   <Check className="h-4 w-4 text-emerald-500" />
@@ -212,7 +212,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
                 onClick={onClose}
                 className="rounded-lg bg-gray-800 px-6 py-2 text-sm font-medium text-gray-200 transition-colors hover:bg-gray-700"
               >
-                {t("已完成")}
+                {t("common:done")}
               </button>
             </div>
           </div>
@@ -227,7 +227,9 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
 // ---------------------------------------------------------------------------
 
 export function ApiKeysTab() {
-  const { t, i18n } = useTranslation();
+  const { t, i18n } = useTranslation("dashboard");
+  const tRef = useRef(t);
+  tRef.current = t;
   const [keys, setApiKeys] = useState<ApiKeyInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -238,11 +240,11 @@ export function ApiKeysTab() {
       const res = await API.listApiKeys();
       setApiKeys(res);
     } catch (err) {
-      useAppStore.getState().pushToast(`${t("加载失败: ")}${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`${tRef.current("load_failed")}${(err as Error).message}`, "error");
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     void fetchKeys();
@@ -250,21 +252,21 @@ export function ApiKeysTab() {
 
   const handleDelete = useCallback(
     async (key: ApiKeyInfo) => {
-      if (!confirm(t("确定要删除密钥 \"{name}\" 吗？此操作不可撤销，且所有使用该密钥的集成都将失效。", { name: key.name }))) {
+      if (!confirm(tRef.current("confirm_delete_key", { name: key.name }))) {
         return;
       }
       setDeletingId(key.id);
       try {
         await API.deleteApiKey(key.id);
         setApiKeys((prev) => prev.filter((k) => k.id !== key.id));
-        useAppStore.getState().pushToast(t("已删除"), "success");
+        useAppStore.getState().pushToast(tRef.current("key_deleted_success"), "success");
       } catch (err) {
-        useAppStore.getState().pushToast(`${t("删除失败: ")}${(err as Error).message}`, "error");
+        useAppStore.getState().pushToast(`${tRef.current("delete_failed")}${(err as Error).message}`, "error");
       } finally {
         setDeletingId(null);
       }
     },
-    [t],
+    [],
   );
 
   return (
@@ -276,9 +278,9 @@ export function ApiKeysTab() {
             <KeyRound className="h-6 w-6 text-indigo-400" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-gray-100">{t("API 密钥管理")}</h2>
+            <h2 className="text-lg font-semibold text-gray-100">{t("api_key_mgmt")}</h2>
             <p className="text-sm text-gray-500">
-              {t("用于从外部工具（如 OpenClaw 🦞）访问 ArcReel 项目。")}
+              {t("api_key_usage_desc")}
             </p>
           </div>
         </div>
@@ -288,7 +290,7 @@ export function ApiKeysTab() {
           className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 shadow-lg shadow-indigo-500/20"
         >
           <Plus className="h-4 w-4" />
-          {t("创建 API 密钥")}
+          {t("create_api_key")}
         </button>
       </div>
 
@@ -297,13 +299,13 @@ export function ApiKeysTab() {
         <table className="w-full border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-gray-800 bg-gray-900/50">
-              <th className="px-4 py-3 font-medium text-gray-400">{t("名称")}</th>
-              <th className="px-4 py-3 font-medium text-gray-400">{t("密钥前缀")}</th>
-              <th className="px-4 py-3 font-medium text-gray-400">{t("创建时间")}</th>
-              <th className="px-4 py-3 font-medium text-gray-400">{t("有效期至")}</th>
-              <th className="px-4 py-3 font-medium text-gray-400">{t("最后使用")}</th>
+              <th className="px-4 py-3 font-medium text-gray-400">{t("name")}</th>
+              <th className="px-4 py-3 font-medium text-gray-400">{t("key_prefix")}</th>
+              <th className="px-4 py-3 font-medium text-gray-400">{t("created_at")}</th>
+              <th className="px-4 py-3 font-medium text-gray-400">{t("expires_at")}</th>
+              <th className="px-4 py-3 font-medium text-gray-400">{t("last_used")}</th>
               <th className="px-4 py-3 text-right font-medium text-gray-400">
-                {t("操作")}
+                {t("actions")}
               </th>
             </tr>
           </thead>
@@ -313,7 +315,7 @@ export function ApiKeysTab() {
                 <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
                   <div className="flex items-center justify-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
-                    {t("加载中…")}
+                    {t("common:loading")}
                   </div>
                 </td>
               </tr>
@@ -325,12 +327,12 @@ export function ApiKeysTab() {
                       <KeyRound className="h-6 w-6 text-gray-700" />
                     </div>
                     <div className="space-y-1">
-                      <p className="text-sm font-medium text-gray-400">{t("暂无 API 密钥")}</p>
+                      <p className="text-sm font-medium text-gray-400">{t("no_api_keys")}</p>
                       <button
                         onClick={() => setShowCreate(true)}
                         className="text-xs text-indigo-400 hover:text-indigo-300"
                       >
-                        {t("立即创建一个")}
+                        {t("create_one_now")}
                       </button>
                     </div>
                   </div>
@@ -352,10 +354,10 @@ export function ApiKeysTab() {
                     </td>
                     <td className="px-4 py-4">
                       {!key.expires_at ? (
-                        <span className="text-gray-500">{t("永久有效")}</span>
+                        <span className="text-gray-500">{t("permanent")}</span>
                       ) : expired ? (
                         <span className="inline-flex rounded-full bg-rose-500/10 px-2 py-0.5 text-xs font-medium text-rose-400">
-                          {t("已过期")}
+                          {t("expired")}
                         </span>
                       ) : (
                         <span className="text-gray-400">
@@ -372,7 +374,7 @@ export function ApiKeysTab() {
                         onClick={() => void handleDelete(key)}
                         disabled={deletingId === key.id}
                         className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-rose-500/10 hover:text-rose-400"
-                        title={t("delete")}
+                        title={t("common:delete")}
                       >
                         {deletingId === key.id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />

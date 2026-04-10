@@ -22,6 +22,7 @@ from lib.config.service import (
     sync_anthropic_env,
 )
 from lib.db import get_async_session
+from lib.i18n import Translator
 from server.auth import CurrentUser
 from server.dependencies import get_config_service
 from server.routers._validators import validate_backend_value
@@ -176,6 +177,7 @@ async def patch_system_config(
     req: SystemConfigPatchRequest,
     _user: CurrentUser,
     svc: Annotated[ConfigService, Depends(get_config_service)],
+    _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     patch: dict[str, Any] = {}
@@ -187,7 +189,7 @@ async def patch_system_config(
         if backend_key in patch:
             value = str(patch[backend_key] or "").strip()
             if value:
-                validate_backend_value(value, backend_key)
+                validate_backend_value(value, backend_key, _t)
             await svc.set_setting(backend_key, value)
 
     # Boolean settings

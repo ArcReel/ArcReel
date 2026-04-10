@@ -88,7 +88,7 @@ class TestJianyingDraftExport:
         from urllib.parse import unquote
 
         disposition = unquote(response.headers.get("content-disposition", ""))
-        assert "剪映草稿" in disposition
+        assert "jianying_draft" in disposition
 
         zf = zipfile.ZipFile(BytesIO(response.content))
         names = zf.namelist()

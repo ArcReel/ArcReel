@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import Request
+from fastapi import Depends, Request
 
 from .en import emails as en_emails
 from .en import errors as en_errors
@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 # Default locale
 DEFAULT_LOCALE = "zh"
 SUPPORTED_LOCALES = ["zh", "en"]
+
+# Mapping from locale code to human-readable language name
+LOCALE_LANGUAGE_MAP: dict[str, str] = {
+    "zh": "中文",
+    "en": "English",
+}
 
 # Merged message dictionary
 MESSAGES: dict[str, dict[str, str]] = {
@@ -58,6 +64,9 @@ def get_translator(request: Request) -> Callable[..., str]:
         return _(key, locale=locale, **kwargs)
 
     return translate
+
+
+Translator = Annotated[Callable[..., str], Depends(get_translator)]
 
 
 def _(key: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:

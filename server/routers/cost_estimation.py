@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 
 from lib import PROJECT_ROOT
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
-from lib.i18n import get_translator
+from lib.i18n import Translator
 from lib.project_manager import ProjectManager
 from lib.usage_tracker import UsageTracker
 from server.auth import CurrentUser
@@ -22,7 +22,7 @@ pm = ProjectManager(PROJECT_ROOT / "projects")
 
 
 @router.get("/projects/{project_name}/cost-estimate")
-async def get_cost_estimate(project_name: str, _user: CurrentUser, _t=Depends(get_translator)):
+async def get_cost_estimate(project_name: str, _user: CurrentUser, _t: Translator):
     """获取项目费用估算（预估 + 实际）。"""
 
     def _sync():

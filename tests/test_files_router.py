@@ -341,13 +341,16 @@ class TestFilesRouter:
             assert "immutable" not in resp.headers.get("cache-control", "")
 
     def test_files_helper_functions(self, tmp_path):
+        from tests.conftest import make_translator
+
+        _t = make_translator()
         assert files._extract_step_number("step12_x.md") == 12
         assert files._extract_step_number("not-match.md") == 0
         assert files._get_step_files("narration") == {1: "step1_segments.md"}
         assert files._get_step_files("drama") == {1: "step1_normalized_script.md"}
-        assert files._get_step_title("step1_segments.md") == "片段拆分"
-        assert files._get_step_title("step1_normalized_script.md") == "规范化剧本"
-        assert files._get_step_title("unknown.md") == "unknown.md"
+        assert files._get_step_title("step1_segments.md", _t) == "片段拆分"
+        assert files._get_step_title("step1_normalized_script.md", _t) == "规范化剧本"
+        assert files._get_step_title("unknown.md", _t) == "unknown.md"
 
         assert files._get_content_mode(tmp_path) == "drama"
         project_json = tmp_path / "project.json"

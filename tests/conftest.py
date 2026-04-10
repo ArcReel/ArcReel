@@ -2,6 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
+
+def make_translator(locale: str = "zh") -> Callable[..., str]:
+    """Create a translator function bound to a fixed locale for testing."""
+    from lib.i18n import _ as i18n_translate
+
+    def translate(key: str, **kwargs) -> str:
+        return i18n_translate(key, locale=locale, **kwargs)
+
+    return translate
+
+
 import os
 import subprocess
 from pathlib import Path

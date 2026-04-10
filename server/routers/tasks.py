@@ -5,18 +5,17 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from lib.generation_queue import (
     get_generation_queue,
     read_queue_poll_interval,
 )
-from lib.i18n import get_translator
+from lib.i18n import Translator
 from server.auth import CurrentUser, CurrentUserFlexible
 
 router = APIRouter()
@@ -195,7 +194,7 @@ async def cancel_all_queued(project_name: str, _user: CurrentUser):
 async def get_task(
     task_id: str,
     _user: CurrentUser,
-    _t: Annotated[Callable[..., str], Depends(get_translator)],
+    _t: Translator,
 ):
     queue = get_task_queue()
     task = await queue.get_task(task_id)

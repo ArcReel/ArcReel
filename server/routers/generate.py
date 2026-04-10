@@ -10,15 +10,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from collections.abc import Callable
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from lib import PROJECT_ROOT
 from lib.generation_queue import get_generation_queue
-from lib.i18n import get_translator
+from lib.i18n import Translator
 from lib.project_manager import ProjectManager
 from lib.prompt_utils import (
     is_structured_image_prompt,
@@ -104,7 +101,7 @@ async def generate_storyboard(
     segment_id: str,
     req: GenerateStoryboardRequest,
     _user: CurrentUser,
-    _t: Annotated[Callable[..., str], Depends(get_translator)],
+    _t: Translator,
 ):
     """
     提交分镜图生成任务到队列，立即返回 task_id。
@@ -178,7 +175,7 @@ async def generate_video(
     segment_id: str,
     req: GenerateVideoRequest,
     _user: CurrentUser,
-    _t: Annotated[Callable[..., str], Depends(get_translator)],
+    _t: Translator,
 ):
     """
     提交视频生成任务到队列，立即返回 task_id。
@@ -254,7 +251,7 @@ async def generate_character(
     char_name: str,
     req: GenerateCharacterRequest,
     _user: CurrentUser,
-    _t: Annotated[Callable[..., str], Depends(get_translator)],
+    _t: Translator,
 ):
     """
     提交角色设计图生成任务到队列，立即返回 task_id。
@@ -308,7 +305,7 @@ async def generate_clue(
     clue_name: str,
     req: GenerateClueRequest,
     _user: CurrentUser,
-    _t: Annotated[Callable[..., str], Depends(get_translator)],
+    _t: Translator,
 ):
     """
     提交线索设计图生成任务到队列，立即返回 task_id。

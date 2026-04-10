@@ -30,7 +30,7 @@ describe("AddCharacterForm", () => {
         target: { value: "hero desc" },
       },
     );
-    fireEvent.change(screen.getByPlaceholderText("可选，例如：温柔但有威严"), {
+    fireEvent.change(screen.getByPlaceholderText("例如：温柔但有威严"), {
       target: { value: "warm" },
     });
 

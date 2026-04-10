@@ -31,11 +31,11 @@ function triggerBrowserDownload(url: string) {
 // ---------------------------------------------------------------------------
 
 const PHASES = [
-  { key: "setup", label: "准备中" },
-  { key: "worldbuilding", label: "世界观" },
-  { key: "scripting", label: "剧本创作" },
-  { key: "production", label: "制作中" },
-  { key: "completed", label: "已完成" },
+  { key: "setup" },
+  { key: "worldbuilding" },
+  { key: "scripting" },
+  { key: "production" },
+  { key: "completed" },
 ] as const;
 
 type PhaseKey = (typeof PHASES)[number]["key"];
@@ -53,7 +53,7 @@ function PhaseStepper({
   const currentIdx = PHASES.findIndex((p) => p.key === currentPhase);
 
   return (
-    <nav className="flex items-center gap-1" aria-label={t("工作流阶段")}>
+    <nav className="flex items-center gap-1" aria-label={t("dashboard:workflow_phases")}>
       {PHASES.map((phase, idx) => {
         const isCompleted = currentIdx > idx;
         const isCurrent = currentIdx === idx;
@@ -156,7 +156,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
   // Format content mode badge text
   const modeBadgeText =
-    contentMode === "drama" ? "剧集动画 16:9" : "说书模式 9:16";
+    contentMode === "drama" ? t("dashboard:mode_badge_drama") : t("dashboard:mode_badge_narration");
 
   // Format cost display – show multi-currency summary
   const costByCurrency = usageStats?.cost_by_currency ?? {};
@@ -194,9 +194,9 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       );
       triggerBrowserDownload(url);
       setExportDialogOpen(false);
-      useAppStore.getState().pushToast("剪映草稿导出已开始，请将下载的 ZIP 解压到剪映草稿目录中", "success");
+      useAppStore.getState().pushToast(t("dashboard:jianying_export_started"), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`剪映草稿导出失败: ${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(t("dashboard:jianying_export_failed", { message: (err as Error).message }), "error");
     } finally {
       setJianyingExporting(false);
     }
@@ -216,16 +216,16 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       if (diagnosticCount > 0) {
         setExportDiagnostics(diagnostics);
         useAppStore.getState().pushToast(
-          `项目 ZIP 已开始下载，导出包包含 ${diagnosticCount} 条诊断`,
+          t("dashboard:project_zip_download_started_with_diagnostics", { count: diagnosticCount }),
           "warning",
         );
       } else {
-        useAppStore.getState().pushToast("项目 ZIP 已开始下载", "success");
+        useAppStore.getState().pushToast(t("dashboard:project_zip_download_started"), "success");
       }
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(`导出失败: ${(err as Error).message}`, "error");
+        .pushToast(t("dashboard:export_failed", { message: (err as Error).message }), "error");
     } finally {
       setExportingProject(false);
     }
@@ -281,8 +281,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
                 ? "bg-amber-500/20 text-amber-200"
                 : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"
             }`}
-            title={`会话通知: ${workspaceNotifications.length} 条`}
-            aria-label="打开通知中心"
+            title={t("dashboard:notification_tooltip", { count: workspaceNotifications.length })}
+            aria-label={t("dashboard:open_notification_center")}
           >
             <Bell className="h-3.5 w-3.5" />
             {unreadNotificationCount > 0 && (
@@ -309,7 +309,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
                 ? "bg-indigo-500/20 text-indigo-400"
                 : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"
             }`}
-            title={`项目总花费: ${costText}`}
+            title={t("dashboard:cost_tooltip", { cost: costText })}
           >
             <span className="font-mono">{costText}</span>
           </button>
@@ -331,8 +331,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
                 ? "bg-indigo-500/20 text-indigo-400"
                 : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"
             }`}
-            title={`任务状态: ${stats.running} 运行中, ${stats.queued} 排队中`}
-            aria-label="切换任务面板"
+            title={t("dashboard:task_status_tooltip", { running: stats.running, queued: stats.queued })}
+            aria-label={t("dashboard:toggle_task_panel")}
           >
             <Activity
               className={`h-4 w-4 ${runningCount > 0 ? "animate-pulse" : ""}`}
@@ -354,8 +354,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             onClick={() => setExportDialogOpen(!exportDialogOpen)}
             disabled={!currentProjectName || exportingProject}
             className="inline-flex items-center gap-1 rounded-md border border-gray-700 px-2 py-1 text-xs text-gray-300 transition-colors hover:border-gray-500 hover:bg-gray-800 hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
-            title="导出当前项目 ZIP"
-            aria-label="导出当前项目 ZIP"
+            title={t("dashboard:export_project_zip")}
+            aria-label={t("dashboard:export_project_zip")}
           >
             {exportingProject ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -363,7 +363,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               <Download className="h-3.5 w-3.5" />
             )}
             <span className="hidden lg:inline">
-              {exportingProject ? "导出中..." : "导出 ZIP"}
+              {exportingProject ? t("dashboard:exporting_zip") : t("dashboard:export_zip")}
             </span>
           </button>
           <ExportScopeDialog
@@ -391,7 +391,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
         >
           <Settings className="h-4 w-4" />
           {!isConfigComplete && !currentProjectName && (
-            <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500" aria-label="配置不完整" />
+            <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500" aria-label={t("dashboard:config_incomplete")} />
           )}
         </button>
 
@@ -411,12 +411,12 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
       {exportDiagnostics !== null && (
         <ArchiveDiagnosticsDialog
-          title="导出诊断"
-          description="导出已完成预检查并生成 ZIP。以下问题在导出包中被检测到。"
+          title={t("dashboard:export_diagnostics_title")}
+          description={t("dashboard:export_diagnostics_description")}
           sections={[
-            { key: "blocking", title: "阻断问题", tone: "border-red-400/25 bg-red-500/10 text-red-100", items: exportDiagnostics.blocking },
-            { key: "auto_fixed", title: "已自动修复", tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100", items: exportDiagnostics.auto_fixed },
-            { key: "warnings", title: "警告", tone: "border-amber-400/25 bg-amber-500/10 text-amber-100", items: exportDiagnostics.warnings },
+            { key: "blocking", title: t("dashboard:diagnostics_blocking"), tone: "border-red-400/25 bg-red-500/10 text-red-100", items: exportDiagnostics.blocking },
+            { key: "auto_fixed", title: t("dashboard:diagnostics_auto_fixed"), tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100", items: exportDiagnostics.auto_fixed },
+            { key: "warnings", title: t("dashboard:diagnostics_warnings"), tone: "border-amber-400/25 bg-amber-500/10 text-amber-100", items: exportDiagnostics.warnings },
           ]}
           onClose={() => setExportDiagnostics(null)}
         />

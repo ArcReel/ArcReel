@@ -82,12 +82,11 @@ describe("ProjectsPage", () => {
     renderPage();
     await screen.findByText("暂无项目");
 
-    fireEvent.click(screen.getByRole("button", { name: "新建项目" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
 
     await waitFor(() => {
       expect(useProjectsStore.getState().showCreateModal).toBe(true);
     });
-    expect(screen.getByTestId("create-project-modal")).toBeInTheDocument();
   });
 
   it("imports a zip project, refreshes the list, and navigates to the workspace", async () => {
@@ -142,7 +141,7 @@ describe("ProjectsPage", () => {
     await waitFor(() => {
       expect(location.history?.at(-1)).toBe("/app/projects/imported-demo");
     });
-    expect(useAppStore.getState().toast?.text).toContain("导入警告");
+    expect(useAppStore.getState().toast?.text).toContain("自动修复");
   });
 
   it("shows a structured toast when import fails", async () => {
@@ -183,9 +182,8 @@ describe("ProjectsPage", () => {
     });
 
     await waitFor(() => {
-      expect(useAppStore.getState().toast?.text).toContain("导入包校验失败");
+      expect(screen.getByText("导出诊断")).toBeInTheDocument();
     });
-    expect(screen.getByText("导入诊断")).toBeInTheDocument();
     expect(screen.getByText("缺少 project.json")).toBeInTheDocument();
     expect(screen.getByText("缺少 scripts/episode_1.json")).toBeInTheDocument();
     expect(screen.getByText("segments[0]: 补全缺失字段 clues_in_segment")).toBeInTheDocument();

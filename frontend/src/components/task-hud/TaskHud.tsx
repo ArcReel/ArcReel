@@ -89,11 +89,11 @@ function TaskRow({
 }) {
   const { t } = useTranslation("dashboard");
   const statusLabel: Record<TaskItem["status"], string> = {
-    running: t("dashboard:generating_status"),
-    queued: t("dashboard:queued_status"),
-    succeeded: t("dashboard:completed_status"),
-    failed: t("dashboard:failed_status"),
-    cancelled: t("dashboard:cancelled_status"),
+    running: t("generating_status"),
+    queued: t("queued_status"),
+    succeeded: t("completed_status"),
+    failed: t("failed_status"),
+    cancelled: t("cancelled_status"),
   };
 
   const statusColor: Record<TaskItem["status"], string> = {
@@ -149,14 +149,14 @@ function TaskRow({
               onCancel(task.task_id);
             }}
             className="ml-1 rounded px-1 py-0.5 text-xs text-gray-500 hover:bg-gray-700 hover:text-gray-300"
-            title={t("dashboard:cancel_task")}
-            aria-label={t("dashboard:cancel_this_task")}
+            title={t("cancel_task")}
+            aria-label={t("cancel_this_task")}
           >
-            {t("dashboard:cancel_btn")}
+            {t("cancel_btn")}
           </button>
         )}
         {task.status === "cancelled" && task.cancelled_by === "cascade" && (
-          <span className="ml-1 text-xs text-gray-500">{t("dashboard:cascade_label")}</span>
+          <span className="ml-1 text-xs text-gray-500">{t("cascade_label")}</span>
         )}
         {hasError && (
           <ChevronDown
@@ -276,7 +276,7 @@ function ChannelSection({
         {title}
         {running.length > 0 && (
           <span className="ml-auto text-indigo-400">
-            {t("dashboard:running_count", { count: running.length })}
+            {t("running_count", { count: running.length })}
           </span>
         )}
       </div>
@@ -293,7 +293,7 @@ function ChannelSection({
         ))}
       </AnimatePresence>
       {visible.length === 0 && (
-        <div className="px-3 py-2 text-xs text-gray-600">{t("dashboard:no_tasks")}</div>
+        <div className="px-3 py-2 text-xs text-gray-600">{t("no_tasks")}</div>
       )}
     </div>
   );
@@ -394,24 +394,24 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
           {/* 统计栏 */}
           <div className="flex gap-3 border-b border-gray-800 px-3 py-2 text-xs text-gray-400">
             <span>
-              {t("dashboard:queued_label")}{" "}
+              {t("queued_label")}{" "}
               <strong className="text-gray-200">{stats.queued}</strong>
             </span>
             <span>
-              {t("dashboard:running_label")}{" "}
+              {t("running_label")}{" "}
               <strong className="text-indigo-400">{stats.running}</strong>
             </span>
             <span>
-              {t("dashboard:completed_label")}{" "}
+              {t("completed_label")}{" "}
               <strong className="text-emerald-400">{stats.succeeded}</strong>
             </span>
             <span>
-              {t("dashboard:failed_label")}{" "}
+              {t("failed_label")}{" "}
               <strong className="text-red-400">{stats.failed}</strong>
             </span>
             {stats.cancelled > 0 && (
               <span>
-                {t("dashboard:cancelled_label")}{" "}
+                {t("cancelled_label")}{" "}
                 <strong className="text-gray-400">{stats.cancelled}</strong>
               </span>
             )}
@@ -419,28 +419,28 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
               <button
                 onClick={handleCancelAll}
                 className="ml-auto text-xs text-gray-500 hover:text-red-400"
-                aria-label={t("dashboard:cancel_all_queued_aria")}
+                aria-label={t("cancel_all_queued_aria")}
               >
-                {t("dashboard:cancel_all")}
+                {t("cancel_all")}
               </button>
             )}
           </div>
 
           {/* 双通道 */}
           <div className="max-h-80 divide-y divide-gray-800/50 overflow-y-auto">
-            <ChannelSection title={t("dashboard:image_channel")} icon={Image} tasks={imageTasks} onCancel={handleCancelSingle} />
-            <ChannelSection title={t("dashboard:video_channel")} icon={Video} tasks={videoTasks} onCancel={handleCancelSingle} />
+            <ChannelSection title={t("image_channel")} icon={Image} tasks={imageTasks} onCancel={handleCancelSingle} />
+            <ChannelSection title={t("video_channel")} icon={Video} tasks={videoTasks} onCancel={handleCancelSingle} />
           </div>
 
           {/* 取消确认面板 */}
           {cancelConfirm && (
-            <div className="border-t border-gray-800 px-3 py-2" role="alertdialog" aria-label={t("dashboard:cancel_confirm_aria")}>
+            <div className="border-t border-gray-800 px-3 py-2" role="alertdialog" aria-label={t("cancel_confirm_aria")}>
               <p className="text-xs text-gray-300">
                 {cancelConfirm.preview
                   ? cancelConfirm.preview.cascaded.length > 0
-                    ? t("dashboard:cancel_cascade_msg", { count: cancelConfirm.preview.cascaded.length })
-                    : t("dashboard:cancel_single_confirm")
-                  : t("dashboard:cancel_all_confirm", { count: cancelConfirm.allCount })}
+                    ? t("cancel_cascade_msg", { count: cancelConfirm.preview.cascaded.length })
+                    : t("cancel_single_confirm")
+                  : t("cancel_all_confirm", { count: cancelConfirm.allCount })}
               </p>
               {cancelConfirm.preview && cancelConfirm.preview.cascaded.length > 0 && (
                 <ul className="mt-1 max-h-20 overflow-y-auto text-xs text-gray-500">
@@ -457,13 +457,13 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
                   disabled={cancelling}
                   className="rounded bg-red-600/80 px-2 py-0.5 text-xs text-white hover:bg-red-600 disabled:opacity-50"
                 >
-                  {cancelling ? t("dashboard:cancelling") : t("dashboard:confirm_cancel")}
+                  {cancelling ? t("cancelling") : t("confirm_cancel")}
                 </button>
                 <button
                   onClick={() => setCancelConfirm(null)}
                   className="rounded px-2 py-0.5 text-xs text-gray-400 hover:bg-gray-700"
                 >
-                  {t("dashboard:go_back")}
+                  {t("go_back")}
                 </button>
               </div>
             </div>

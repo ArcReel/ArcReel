@@ -44,7 +44,7 @@ class TestUploadRestorePng:
 
         # Switch back to v1 without creating a synthetic new version.
         result = await versions_router.restore_version(
-            project_name, "characters", char_name, 1, _user={"sub": "testuser"}
+            project_name, "characters", char_name, 1, _user={"sub": "testuser"}, _t=lambda key, **kw: key
         )
 
         assert result["success"]

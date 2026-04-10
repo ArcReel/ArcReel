@@ -1,3 +1,4 @@
+import type enDashboard from '../en/dashboard';
 
 export default {
   'app_title': 'ArcReel',
@@ -218,6 +219,38 @@ export default {
   'total_api_calls': 'API 累计调用次数',
   'no_usage_data': '暂无用量数据',
 
+  // GlobalHeader
+  'mode_badge_drama': '剧集动画 16:9',
+  'mode_badge_narration': '说书模式 9:16',
+  'jianying_export_started': '剪映草稿导出已开始，请将下载的 ZIP 解压到剪映草稿目录中',
+  'jianying_export_failed': '剪映草稿导出失败: {{message}}',
+  'project_zip_download_started_with_diagnostics': '项目 ZIP 已开始下载，导出包包含 {{count}} 条诊断',
+  'project_zip_download_started': '项目 ZIP 已开始下载',
+  'export_failed': '导出失败: {{message}}',
+  'open_notification_center': '打开通知中心',
+  'notification_tooltip': '会话通知: {{count}} 条',
+  'cost_tooltip': '项目总花费: {{cost}}',
+  'task_status_tooltip': '任务状态: {{running}} 运行中, {{queued}} 排队中',
+  'toggle_task_panel': '切换任务面板',
+  'export_project_zip': '导出当前项目 ZIP',
+  'exporting_zip': '导出中...',
+  'export_zip': '导出 ZIP',
+  'config_incomplete': '配置不完整',
+  'export_diagnostics_title': '导出诊断',
+  'export_diagnostics_description': '导出已完成预检查并生成 ZIP。以下问题在导出包中被检测到。',
+  'diagnostics_blocking': '阻断问题',
+  'diagnostics_auto_fixed': '已自动修复',
+  'diagnostics_warnings': '警告',
+  'workflow_phases': '工作流阶段',
+
+  // CreateProjectModal
+  'aspect_ratio': '画面比例',
+  'portrait_9_16': '竖屏 9:16',
+  'landscape_16_9': '横屏 16:9',
+  'default_duration': '默认时长',
+  'default_duration_desc': '由 AI 根据内容自动决定时长，或指定固定时长',
+  'auto': '自动',
+
   // ExportScopeDialog
   'export_scope_title': '选择导出范围',
   'current_version_only': '仅当前版本',
@@ -328,9 +361,88 @@ export default {
   'major_option': '重要',
   'minor_option': '次要',
 
+  // OverviewCanvas cost & style section
+  'project_total_cost': '项目总费用',
+  'estimate': '预估',
+  'storyboard': '分镜',
+  'video': '视频',
+  'actual': '实际',
+  'character_and_clue': '角色/线索',
+  'upload_style_image': '上传风格图',
+  'delete_style_image': '删除风格图',
+  'visual_style_reference': '视觉风格参考',
+  'regenerate_failed': '重新生成失败: ',
+  'upload_failed': '上传失败: ',
+  'delete_failed': '删除失败: ',
+  'update_failed': '更新失败: ',
+
+  // ApiKeysTab
+  'create_failed': '创建失败: ',
+  'save_key_warning': '请务必立即复制并安全保存此密钥',
+  'key_not_viewable_again': '出于安全考虑，你将无法再次查看它。',
+  'load_failed': '加载失败: ',
+
+  // AgentConfigTab
+  'api_credentials': 'API 凭证',
+  'anthropic_key_required_desc': 'Anthropic API 密钥是智能体运行的必要条件',
+  'env_anthropic_api_key': '对应环境变量 ANTHROPIC_API_KEY',
+  'clear_saved_anthropic_key': '清除已保存的 Anthropic API Key',
+  'clear_saved': '清除已保存',
+  'env_anthropic_base_url': '对应 ANTHROPIC_BASE_URL，留空使用官方默认地址',
+  'clear_saved_base_url': '清除已保存的 Anthropic Base URL',
+  'model_config': '模型配置',
+  'model_config_desc': '指定智能体使用的 Claude 模型。留空则使用 Claude Agent SDK 默认值。',
+  'default_model': '默认模型',
+  'env_anthropic_model': '对应 ANTHROPIC_MODEL，覆盖默认模型',
+  'clear_saved_model': '清除已保存的模型配置',
+  'advanced_model_routing': '高级模型路由',
+  'model_routing_hint': 'Claude Agent SDK 支持按能力等级路由到不同模型。留空则统一使用上方的默认模型。',
+  'clear_saved_field': '清除已保存的 {{label}}',
+  'clear_field_input': '清除 {{label}} 输入',
+  'advanced_settings': '高级设置',
+  'session_cleanup_delay_label': '会话清理延迟（秒）',
+  'session_cleanup_delay_desc': '会话结束后等待此时间再释放资源，再次对话时会自动恢复',
+  'max_concurrent_sessions_label': '最大并发会话数',
+  'max_concurrent_sessions_desc': '同时保持活跃的智能体会话上限，超出时自动释放最久未使用的会话（清理的会话会持久化，下次对话时恢复）',
+  'clear_failed': '清除失败: ',
+  'clear_input': '清除输入',
+  'hide_key': '隐藏密钥',
+  'show_key': '显示密钥',
+  'clear_base_url_input': '清除 Base URL 输入',
+  'clear_model_input': '清除模型配置输入',
+
+  // WelcomeCanvas
+  'analysis_failed': '分析失败: ',
+  'uploaded_source_files': '已上传的源文件',
+  'add_more_files': '添加更多文件',
+  'drop_more_files_here': '或拖拽更多文件到此处',
+  'uploading': '上传中...',
+
+  // MediaModelSection
+  'save_failed': '保存失败: ',
+
+  // UsageStatsSection
+  'last_7_days': '最近 7 天',
+  'last_30_days': '最近 30 天',
+  'all': '全部',
+  'usage_stats_by_provider': '查看各供应商的 API 调用统计',
+  'filter_by_provider': '按供应商筛选',
+  'all_providers': '全部供应商',
+  'no_data': '暂无数据',
+  'calls': '调用',
+  'success_count': '成功',
+  'success_rate': '成功率',
+  'type': '类型',
+  'duration': '时长',
+
+  // import diagnostics
+  'import_auto_fixed': '项目「{{title}}」已导入（自动修复 {{count}} 个问题）',
+  'import_success_with_diagnostics': '导入已完成预检查，请查看下方详情',
+  'blocking_issues': '阻塞性问题',
+  'auto_fixed_issues': '已自动修复的问题',
   // config-status-store
   'agent_api_key_not_configured': 'ArcReel 智能体 API Key（Anthropic）未配置',
   'video_provider_not_configured': '未配置支持视频生成的供应商',
   'image_provider_not_configured': '未配置支持图片生成的供应商',
   'text_provider_not_configured': '未配置支持文本生成的供应商',
-};
+} satisfies Record<keyof typeof enDashboard, string>;

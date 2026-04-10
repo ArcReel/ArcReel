@@ -98,9 +98,11 @@ describe("API", () => {
       const result = await API.request("/projects");
 
       expect(result).toEqual({ ok: true });
-      expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects", {
-        headers: { "Content-Type": "application/json" },
-      });
+      expect(fetchMock).toHaveBeenCalledWith("/api/v1/projects", expect.objectContaining({
+        headers: expect.any(Headers),
+      }));
+      const headers = fetchMock.mock.calls[0][1].headers as Headers;
+      expect(headers.get("Content-Type")).toBe("application/json");
     });
 
     it("throws backend detail for failed request", async () => {
@@ -433,16 +435,16 @@ describe("API", () => {
       expect(fetchMock).toHaveBeenNthCalledWith(
         2,
         "/api/v1/projects/demo/source/source.txt",
-        {
+        expect.objectContaining({
           method: "PUT",
-          headers: { "Content-Type": "text/plain" },
           body: "hello",
-        },
+          headers: expect.any(Headers),
+        }),
       );
       expect(fetchMock).toHaveBeenNthCalledWith(
         3,
         "/api/v1/projects/demo/source/source.txt",
-        { method: "DELETE" },
+        expect.objectContaining({ method: "DELETE" }),
       );
     });
 
