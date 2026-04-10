@@ -8,9 +8,11 @@ from fastapi import Depends, Request
 
 from .en import emails as en_emails
 from .en import errors as en_errors
+from .en import providers as en_providers
 from .en import system as en_system
 from .zh import emails as zh_emails
 from .zh import errors as zh_errors
+from .zh import providers as zh_providers
 from .zh import system as zh_system
 
 logger = logging.getLogger(__name__)
@@ -31,11 +33,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         **zh_errors.MESSAGES,
         **zh_system.MESSAGES,
         **zh_emails.MESSAGES,
+        **zh_providers.MESSAGES,
     },
     "en": {
         **en_errors.MESSAGES,
         **en_system.MESSAGES,
         **en_emails.MESSAGES,
+        **en_providers.MESSAGES,
     },
 }
 

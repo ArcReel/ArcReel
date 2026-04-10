@@ -61,6 +61,7 @@ class DataValidator:
         "thumbnails",
         "output",
         "versions",
+        "grids",
     }
 
     def __init__(self, projects_root: str | None = None):
@@ -267,6 +268,13 @@ class DataValidator:
             assets.get("storyboard_image"),
             errors,
             f"{prefix}.generated_assets.storyboard_image",
+            default_dir="storyboards",
+        )
+        self._validate_local_reference(
+            project_dir,
+            assets.get("storyboard_last_image"),
+            errors,
+            f"{prefix}.generated_assets.storyboard_last_image",
             default_dir="storyboards",
         )
         self._validate_local_reference(

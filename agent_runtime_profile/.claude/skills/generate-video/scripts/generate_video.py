@@ -285,6 +285,13 @@ def _build_video_specs(
             print(f"⚠️  {item_type} {item_id} 的 video_prompt 无效，跳过: {e}")
             continue
 
+        # 打印视频生成模式
+        assets = item.get("generated_assets", {})
+        if isinstance(assets, dict) and assets.get("storyboard_last_image"):
+            print(f"  🎬 {item_id}: first_last 模式（有尾帧）")
+        else:
+            print(f"  🎬 {item_id}: single 模式")
+
         duration = item.get("duration_seconds", default_duration)
         duration_str = validate_duration(duration, supported)
 

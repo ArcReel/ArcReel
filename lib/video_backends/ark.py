@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 import httpx
 
@@ -11,6 +12,7 @@ from lib.ark_shared import create_ark_client
 from lib.providers import PROVIDER_ARK
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
+    VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -71,6 +73,13 @@ class ArkVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        model_lower = self._model.lower()
+        if "seedance-2" in model_lower or "seedance2" in model_lower:
+            return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=9)
+        return VideoCapabilities()
+
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
         task_id = await self._create_task(request)
@@ -92,6 +101,31 @@ class ArkVideoBackend:
                     "image_url": {"url": data_uri},
                 }
             )
+
+        if request.end_image and Path(request.end_image).exists():
+            from lib.image_backends.base import image_to_base64_data_uri
+
+            data_uri = image_to_base64_data_uri(request.end_image)
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": data_uri, "position": "end"},
+                }
+            )
+
+        if request.reference_images:
+            from lib.image_backends.base import image_to_base64_data_uri
+
+            for ref_path in request.reference_images:
+                p = Path(ref_path) if not isinstance(ref_path, Path) else ref_path
+                if p.exists():
+                    data_uri = image_to_base64_data_uri(p)
+                    content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": data_uri},
+                        }
+                    )
 
         # 2. Build API params
         create_params = {

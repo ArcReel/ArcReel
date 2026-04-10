@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle, Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { uid } from "@/utils/id";
@@ -22,9 +23,9 @@ const API_FORMAT_OPTIONS: { value: ApiFormat; label: string }[] = [
 ];
 
 const MEDIA_TYPE_OPTIONS: { value: MediaType; label: string }[] = [
-  { value: "text", label: "文本" },
-  { value: "image", label: "图片" },
-  { value: "video", label: "视频" },
+  { value: "text", label: "media_type_text" },
+  { value: "image", label: "media_type_image" },
+  { value: "video", label: "media_type_video" },
 ];
 
 interface ModelRow {
@@ -98,10 +99,10 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
 // Price label helper
 // ---------------------------------------------------------------------------
 
-function priceLabel(mediaType: MediaType): { input: string; output: string } {
-  if (mediaType === "video") return { input: "/秒", output: "" };
-  if (mediaType === "image") return { input: "/张", output: "" };
-  return { input: "/M输入", output: "/M输出" };
+function priceLabel(mediaType: MediaType, t: (key: string) => string): { input: string; output: string } {
+  if (mediaType === "video") return { input: t("price_per_second"), output: "" };
+  if (mediaType === "image") return { input: t("price_per_image"), output: "" };
+  return { input: t("price_per_m_input"), output: t("price_per_m_output") };
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +116,7 @@ interface CustomProviderFormProps {
 }
 
 export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProviderFormProps) {
+  const { t } = useTranslation("dashboard");
   const isEdit = !!existing;
 
   // --- Form state ---
@@ -144,11 +146,11 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   // --- Discover models ---
   const handleDiscover = useCallback(async () => {
     if (!baseUrl) {
-      showError("请先填写 Base URL");
+      showError(t("fill_base_url_first"));
       return;
     }
     if (!apiKey) {
-      showError("请先填写 API Key");
+      showError(t("fill_api_key_first"));
       return;
     }
     setDiscovering(true);
@@ -175,7 +177,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       });
       setModelFilter("");
     } catch (e) {
-      showError(e instanceof Error ? e.message : "获取模型列表失败");
+      showError(e instanceof Error ? e.message : t("fetch_models_failed"));
     } finally {
       setDiscovering(false);
     }
@@ -184,7 +186,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   // --- Test connection ---
   const handleTest = useCallback(async () => {
     if (!baseUrl) {
-      showError("请先填写 Base URL");
+      showError(t("fill_base_url_first"));
       return;
     }
     setTesting(true);
@@ -193,7 +195,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       const res = await API.testCustomConnection({ api_format: apiFormat, base_url: baseUrl, api_key: apiKey });
       setTestResult(res);
     } catch (e) {
-      setTestResult({ success: false, message: e instanceof Error ? e.message : "连接测试失败" });
+      setTestResult({ success: false, message: e instanceof Error ? e.message : t("connection_test_failed") });
     } finally {
       setTesting(false);
     }
@@ -203,25 +205,25 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   const handleSave = useCallback(async () => {
     // Validation
     if (!displayName.trim()) {
-      showError("请填写供应商名称");
+      showError(t("fill_provider_name"));
       return;
     }
     if (!baseUrl.trim()) {
-      showError("请填写 Base URL");
+      showError(t("fill_base_url"));
       return;
     }
     if (!isEdit && !apiKey.trim()) {
-      showError("请填写 API Key");
+      showError(t("fill_api_key"));
       return;
     }
     const enabledModels = models.filter((m) => m.is_enabled);
     if (enabledModels.length === 0) {
-      showError("至少启用一个模型");
+      showError(t("enable_one_model"));
       return;
     }
     const emptyId = enabledModels.find((m) => !m.model_id.trim());
     if (emptyId) {
-      showError("已启用的模型必须填写 model_id");
+      showError(t("enabled_model_needs_id"));
       return;
     }
     setSaving(true);
@@ -245,7 +247,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       }
       onSaved();
     } catch (e) {
-      showError(e instanceof Error ? e.message : "保存失败");
+      showError(e instanceof Error ? e.message : t("save_failed"));
     } finally {
       setSaving(false);
     }
@@ -305,21 +307,21 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-2xl">
       <h3 className="mb-6 text-lg font-semibold text-gray-100">
-        {isEdit ? "编辑自定义供应商" : "添加自定义供应商"}
+        {isEdit ? t("edit_custom_provider") : t("add_custom_provider_title")}
       </h3>
 
       <div className="space-y-4">
         {/* Display name */}
         <div>
           <label htmlFor="cp-name" className="mb-1.5 block text-sm text-gray-400">
-            名称 <span className="text-red-400">*</span>
+            {t("cp_name_label")} <span className="text-red-400">*</span>
           </label>
           <input
             id="cp-name"
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="例如：我的 NewAPI…"
+            placeholder={t("cp_name_placeholder")}
             className={inputCls}
           />
         </div>
@@ -327,7 +329,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         {/* API Format */}
         <div>
           <label htmlFor="cp-format" className="mb-1.5 block text-sm text-gray-400">
-            API 格式
+            {t("api_format_label")}
           </label>
           <select
             id="cp-format"
@@ -347,7 +349,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         {/* Base URL */}
         <div>
           <label htmlFor="cp-url" className="mb-1.5 block text-sm text-gray-400">
-            Base URL <span className="text-red-400">*</span>
+            {t("base_url")} <span className="text-red-400">*</span>
           </label>
           <input
             id="cp-url"
@@ -359,7 +361,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           />
           {urlPreview && (
             <div className="mt-1 truncate text-xs text-gray-500">
-              预览：{urlPreview}
+              {t("preview_url")}{urlPreview}
             </div>
           )}
         </div>
@@ -367,7 +369,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         {/* API Key */}
         <div>
           <label htmlFor="cp-key" className="mb-1.5 block text-sm text-gray-400">
-            API Key {!isEdit && <span className="text-red-400">*</span>}
+            {t("api_key_label")} {!isEdit && <span className="text-red-400">*</span>}
           </label>
           <div className="relative">
             <input
@@ -376,14 +378,14 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
               autoComplete="off"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder={isEdit ? existing?.api_key_masked ?? "留空则保留现有密钥" : "输入 API Key"}
+              placeholder={isEdit ? existing?.api_key_masked ?? t("keep_existing_key_hint") : t("enter_api_key_placeholder")}
               className={`${inputCls} pr-9`}
             />
             <button
               type="button"
               onClick={() => setShowApiKey((v) => !v)}
               className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-gray-500 hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
-              aria-label={showApiKey ? "隐藏" : "显示"}
+              aria-label={showApiKey ? t("common:hide") : t("common:show")}
             >
               {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
@@ -401,10 +403,10 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             {discovering ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                获取中…
+                {t("discovering_models")}
               </>
             ) : (
-              "获取模型列表"
+              t("discover_models")
             )}
           </button>
         </div>
@@ -413,7 +415,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         {models.length > 0 && (
           <div>
             <div className="mb-2 flex items-center gap-3 text-sm text-gray-400">
-              <span>模型列表</span>
+              <span>{t("model_list")}</span>
               {models.length > 1 && (
                 <button
                   type="button"
@@ -426,7 +428,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                   }}
                   className="text-xs text-indigo-400 hover:text-indigo-300"
                 >
-                  {filteredModels.every((m) => m.is_enabled) ? "取消全选" : "全选"}
+                  {filteredModels.every((m) => m.is_enabled) ? t("deselect_all") : t("select_all")}
                 </button>
               )}
             </div>
@@ -437,14 +439,14 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                   type="text"
                   value={modelFilter}
                   onChange={(e) => setModelFilter(e.target.value)}
-                  placeholder="搜索模型…"
+                  placeholder={t("search_models")}
                   className="w-full rounded-lg border border-gray-700 bg-gray-900 py-1.5 pl-8 pr-3 text-xs text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
             )}
             <div className="space-y-2">
               {filteredModels.map((m) => {
-                const pl = priceLabel(m.media_type);
+                const pl = priceLabel(m.media_type, t);
                 return (
                   <div
                     key={m.key}
@@ -458,7 +460,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                           checked={m.is_enabled}
                           onChange={(e) => updateModel(m.key, { is_enabled: e.target.checked })}
                           className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-800 text-indigo-500 focus:ring-indigo-500"
-                          aria-label="启用模型"
+                          aria-label={t("enable_model")}
                         />
                       </label>
 
@@ -468,7 +470,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         value={m.model_id}
                         onChange={(e) => updateModel(m.key, { model_id: e.target.value })}
                         placeholder="model-id…"
-                        aria-label="模型 ID"
+                        aria-label={t("model_id_label")}
                         className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-100 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
                       />
 
@@ -476,12 +478,12 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       <select
                         value={m.media_type}
                         onChange={(e) => updateModel(m.key, { media_type: e.target.value as MediaType })}
-                        aria-label="媒体类型"
+                        aria-label={t("media_type_label")}
                         className={selectCls}
                       >
                         {MEDIA_TYPE_OPTIONS.map((o) => (
                           <option key={o.value} value={o.value}>
-                            {o.label}
+                            {t(o.label)}
                           </option>
                         ))}
                       </select>
@@ -496,7 +498,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                             : "border border-gray-700 text-gray-500 hover:border-gray-600 hover:text-gray-300"
                         }`}
                       >
-                        默认
+                        {t("default_label")}
                       </button>
 
                       {/* Remove */}
@@ -504,7 +506,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         type="button"
                         onClick={() => removeModel(m.key)}
                         className="rounded p-1 text-gray-500 hover:text-red-400"
-                        aria-label="删除模型"
+                        aria-label={t("delete_model")}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -515,7 +517,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       <select
                         value={m.currency}
                         onChange={(e) => updateModel(m.key, { currency: e.target.value })}
-                        aria-label="币种"
+                        aria-label={t("currency_label")}
                         className="rounded border border-gray-700 bg-gray-900 px-1 py-0.5 text-xs text-gray-300 focus-visible:border-indigo-500 focus-visible:outline-none"
                       >
                         <option value="USD">$</option>
@@ -527,7 +529,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         value={m.price_input}
                         onChange={(e) => updateModel(m.key, { price_input: e.target.value })}
                         placeholder="0.00"
-                        aria-label="输入价格"
+                        aria-label={t("input_price")}
                         className="w-16 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-xs text-gray-300 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
                       />
                       <span>{pl.input}</span>
@@ -540,7 +542,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                             value={m.price_output}
                             onChange={(e) => updateModel(m.key, { price_output: e.target.value })}
                             placeholder="0.00"
-                            aria-label="输出价格"
+                            aria-label={t("output_price")}
                             className="w-16 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-xs text-gray-300 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
                           />
                           <span>{pl.output}</span>
@@ -559,7 +561,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
               className="mt-2 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-300"
             >
               <Plus className="h-3.5 w-3.5" />
-              手动添加模型
+              {t("add_model_manually")}
             </button>
           </div>
         )}
@@ -567,13 +569,13 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
         {/* Empty model hint */}
         {models.length === 0 && (
           <div className="rounded-xl border border-dashed border-gray-700 p-4 text-center text-sm text-gray-500">
-            点击「获取模型列表」自动发现，或
+            {t("discover_or_add_hint")}
             <button
               type="button"
               onClick={addManualModel}
               className="ml-1 text-indigo-400 hover:text-indigo-300"
             >
-              手动添加模型
+              {t("add_model_manually")}
             </button>
           </div>
         )}
@@ -613,10 +615,10 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             {saving ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                保存中…
+                {t("common:saving")}
               </>
             ) : (
-              "保存"
+              t("common:save")
             )}
           </button>
 
@@ -629,10 +631,10 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             {testing ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                测试中…
+                {t("testing_connection")}
               </>
             ) : (
-              "测试连接"
+              t("test_connection")
             )}
           </button>
 
@@ -641,7 +643,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             onClick={onCancel}
             className="rounded-lg px-3 py-1.5 text-sm text-gray-400 transition-colors hover:text-gray-200"
           >
-            取消
+            {t("common:cancel")}
           </button>
         </div>
       </div>

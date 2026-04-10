@@ -42,6 +42,9 @@ function makeSegment(overrides: Partial<NarrationSegment> = {}): NarrationSegmen
     transition_to_next: "cut",
     generated_assets: {
       storyboard_image: "storyboards/SEG-1.png",
+      storyboard_last_image: null,
+      grid_id: null,
+      grid_cell_index: null,
       video_clip: "videos/SEG-1.mp4",
       video_thumbnail: null,
       video_uri: null,

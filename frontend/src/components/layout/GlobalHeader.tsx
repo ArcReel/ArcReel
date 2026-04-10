@@ -1,6 +1,6 @@
 import { startTransition, useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { ChevronLeft, Activity, Settings, Bell, Download, Loader2, Languages } from "lucide-react";
+import { ChevronLeft, Activity, Settings, Bell, Download, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -106,7 +106,7 @@ interface GlobalHeaderProps {
 }
 
 export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [, setLocation] = useLocation();
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const { stats } = useTasksStore();
@@ -133,11 +133,6 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const displayProjectTitle =
     currentProjectData?.title?.trim() || currentProjectName || t("no_project_selected");
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
-
-  const toggleLanguage = () => {
-    const nextLang = i18n.language.startsWith("zh") ? "en" : "zh";
-    void i18n.changeLanguage(nextLang);
-  };
 
   // 加载费用统计数据（任务完成时自动刷新）
   const completedTaskCount = stats.succeeded + stats.failed;
@@ -232,6 +227,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   };
 
   return (
+    <>
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-gray-800 bg-gray-900/80 px-4 backdrop-blur-sm">
       {/* ---- Left section ---- */}
       <div className="flex items-center gap-3">
@@ -395,32 +391,22 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           )}
         </button>
 
-        {/* Language Toggle */}
-        <button
-          type="button"
-          onClick={toggleLanguage}
-          className="flex items-center gap-1 rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-          title={t("language")}
-          aria-label={t("language")}
-        >
-          <Languages className="h-4 w-4" />
-          <span className="text-[10px] font-bold uppercase">{i18n.language.split("-")[0]}</span>
-        </button>
 
       </div>
-
-      {exportDiagnostics !== null && (
-        <ArchiveDiagnosticsDialog
-          title={t("dashboard:export_diagnostics_title")}
-          description={t("dashboard:export_diagnostics_description")}
-          sections={[
-            { key: "blocking", title: t("dashboard:diagnostics_blocking"), tone: "border-red-400/25 bg-red-500/10 text-red-100", items: exportDiagnostics.blocking },
-            { key: "auto_fixed", title: t("dashboard:diagnostics_auto_fixed"), tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100", items: exportDiagnostics.auto_fixed },
-            { key: "warnings", title: t("dashboard:diagnostics_warnings"), tone: "border-amber-400/25 bg-amber-500/10 text-amber-100", items: exportDiagnostics.warnings },
-          ]}
-          onClose={() => setExportDiagnostics(null)}
-        />
-      )}
     </header>
+
+    {exportDiagnostics !== null && (
+      <ArchiveDiagnosticsDialog
+        title={t("dashboard:export_diagnostics_title")}
+        description={t("dashboard:export_diagnostics_description")}
+        sections={[
+          { key: "blocking", title: t("dashboard:diagnostics_blocking"), tone: "border-red-400/25 bg-red-500/10 text-red-100", items: exportDiagnostics.blocking },
+          { key: "auto_fixed", title: t("dashboard:diagnostics_auto_fixed"), tone: "border-indigo-400/25 bg-indigo-500/10 text-indigo-100", items: exportDiagnostics.auto_fixed },
+          { key: "warnings", title: t("dashboard:diagnostics_warnings"), tone: "border-amber-400/25 bg-amber-500/10 text-amber-100", items: exportDiagnostics.warnings },
+        ]}
+        onClose={() => setExportDiagnostics(null)}
+      />
+    )}
+    </>
   );
 }

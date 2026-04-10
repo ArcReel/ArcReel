@@ -17,6 +17,7 @@ from lib.providers import PROVIDER_GEMINI
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
 from lib.video_backends.base import (
+    VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -105,6 +106,10 @@ class GeminiVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=3)
+
     @staticmethod
     def _normalize_duration(duration_seconds: int) -> str:
         """标准化为 Veo 支持的离散时长值: '4', '6', '8'。"""
@@ -138,6 +143,21 @@ class GeminiVideoBackend:
         }
         if self._backend_type == "vertex":
             config_params["generate_audio"] = request.generate_audio
+
+        # end_image → last_frame（帧插值）
+        if request.end_image is not None:
+            config_params["last_frame"] = self._prepare_image_param(request.end_image)
+
+        # reference_images → reference_images（参考图列表，type=ASSET）
+        if request.reference_images:
+            config_params["reference_images"] = [
+                self._types.VideoGenerationReferenceImage(
+                    image=self._prepare_image_param(img),
+                    reference_type=self._types.VideoGenerationReferenceType.ASSET,
+                )
+                for img in request.reference_images
+            ]
+
         config = self._types.GenerateVideosConfig(**config_params)
 
         # 4. 准备 source（prompt + 可选起始帧）

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, type RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import { X, Image, Video, FileText, AlertCircle, DollarSign, ChevronLeft, ChevronRight } from "lucide-react";
 import { useUsageStore, type UsageStats, type UsageCall } from "@/stores/usage-store";
 import { API } from "@/api";
@@ -17,13 +18,14 @@ interface UsageDrawerProps {
 }
 
 const CALL_TYPE_CONFIG: Record<CallType, { icon: typeof Image; color: string; label: string }> = {
-  video: { icon: Video, color: "text-purple-400", label: "视频" },
-  text: { icon: FileText, color: "text-green-400", label: "文本" },
-  image: { icon: Image, color: "text-blue-400", label: "图片" },
+  video: { icon: Video, color: "text-purple-400", label: "video_type_label" },
+  text: { icon: FileText, color: "text-green-400", label: "text_type_label" },
+  image: { icon: Image, color: "text-blue-400", label: "image_type_label" },
 };
 
 
 export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDrawerProps) {
+  const { t } = useTranslation("dashboard");
   const { stats, calls, total, page, pageSize, setStats, setCalls, setPage, setLoading } = useUsageStore();
   const [callsLoading, setCallsLoading] = useState(false);
 
@@ -78,7 +80,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
       <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
         <div className="flex items-center gap-2">
           <DollarSign className="h-4 w-4 text-indigo-400" />
-          <h3 className="text-sm font-medium text-gray-200">费用明细</h3>
+          <h3 className="text-sm font-medium text-gray-200">{t("cost_details")}</h3>
         </div>
         <button
           type="button"
@@ -92,7 +94,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
       {/* Stats summary */}
       <div className="grid grid-cols-5 gap-2 border-b border-gray-800 px-4 py-3">
         <StatBlock
-          label="总费用"
+          label={t("total_cost")}
           value={
             costSummary.length === 1
               ? costSummary[0]
@@ -100,18 +102,18 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
           }
           accent
         />
-        <StatBlock label="图片" value={String(stats?.image_count ?? 0)} icon={<Image className="h-3 w-3 text-blue-400" />} />
-        <StatBlock label="视频" value={String(stats?.video_count ?? 0)} icon={<Video className="h-3 w-3 text-purple-400" />} />
-        <StatBlock label="文本" value={String(stats?.text_count ?? 0)} icon={<FileText className="h-3 w-3 text-green-400" />} />
-        <StatBlock label="失败" value={String(stats?.failed_count ?? 0)} icon={<AlertCircle className="h-3 w-3 text-red-400" />} />
+        <StatBlock label={t("image_type_label")} value={String(stats?.image_count ?? 0)} icon={<Image className="h-3 w-3 text-blue-400" />} />
+        <StatBlock label={t("video_type_label")} value={String(stats?.video_count ?? 0)} icon={<Video className="h-3 w-3 text-purple-400" />} />
+        <StatBlock label={t("text_type_label")} value={String(stats?.text_count ?? 0)} icon={<FileText className="h-3 w-3 text-green-400" />} />
+        <StatBlock label={t("failed_type_label")} value={String(stats?.failed_count ?? 0)} icon={<AlertCircle className="h-3 w-3 text-red-400" />} />
       </div>
 
       {/* Call records */}
       <div className="max-h-72 overflow-y-auto">
         {callsLoading ? (
-          <div className="flex items-center justify-center py-8 text-xs text-gray-500">加载中...</div>
+          <div className="flex items-center justify-center py-8 text-xs text-gray-500">{t("common:loading")}</div>
         ) : calls.length === 0 ? (
-          <div className="flex items-center justify-center py-8 text-xs text-gray-500">暂无调用记录</div>
+          <div className="flex items-center justify-center py-8 text-xs text-gray-500">{t("no_call_records")}</div>
         ) : (
           <ul className="divide-y divide-gray-800">
             {calls.map((call) => {
@@ -130,7 +132,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
                       <TypeIcon className={`h-3.5 w-3.5 ${cfg.color}`} />
                     </span>
                     <span className="flex-1 truncate text-xs text-gray-200" title={call.output_path ?? undefined}>
-                      {filename || cfg.label}
+                      {filename || t(cfg.label)}
                     </span>
                     <StatusBadge status={call.status} />
                     <span className={`shrink-0 text-xs font-mono ${call.cost_amount > 0 ? "text-gray-200" : "text-gray-500"}`}>
@@ -142,8 +144,8 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
                     <span className="truncate">{call.model}</span>
                     {call.call_type === "text" ? (
                       <>
-                        {call.input_tokens != null && <span>输入 {call.input_tokens.toLocaleString()}</span>}
-                        {call.output_tokens != null && <span>输出 {call.output_tokens.toLocaleString()} tokens</span>}
+                        {call.input_tokens != null && <span>{t("input_token_label")} {call.input_tokens.toLocaleString()}</span>}
+                        {call.output_tokens != null && <span>{t("output_token_label")} {call.output_tokens.toLocaleString()} tokens</span>}
                       </>
                     ) : (
                       <>
@@ -169,7 +171,7 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between border-t border-gray-800 px-4 py-2">
-          <span className="text-[10px] text-gray-500">{total} 条记录</span>
+          <span className="text-[10px] text-gray-500">{t("records_count", { count: total })}</span>
           <div className="flex items-center gap-1">
             <button
               type="button"

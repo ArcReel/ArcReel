@@ -1,7 +1,7 @@
 
 import { useEffect, useMemo } from "react";
 import { Link, useLocation, useSearch } from "wouter";
-import { AlertTriangle, BarChart3, Bot, ChevronLeft, Film, KeyRound, Plug } from "lucide-react";
+import { AlertTriangle, BarChart3, Bot, ChevronLeft, Film, KeyRound, Languages, Plug } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { AgentConfigTab } from "./AgentConfigTab";
@@ -33,7 +33,7 @@ const SECTION_LIST: { id: SettingsSection; labelKey: string; Icon: React.Compone
 // ---------------------------------------------------------------------------
 
 export function SystemConfigPage() {
-  const { t } = useTranslation(["common", "dashboard"]);
+  const { t, i18n } = useTranslation(["common", "dashboard"]);
   const [location, navigate] = useLocation();
   const search = useSearch();
 
@@ -108,6 +108,23 @@ export function SystemConfigPage() {
               </button>
             );
           })}
+
+          {/* Language toggle */}
+          <div className="my-3 mx-4 border-t border-gray-800" />
+          <button
+            type="button"
+            onClick={() => {
+              const nextLang = i18n.language.startsWith("zh") ? "en" : "zh";
+              void i18n.changeLanguage(nextLang);
+            }}
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-sm border-l-2 border-transparent text-gray-400 hover:bg-gray-800/30 hover:text-gray-200 transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/60 focus-visible:outline-none"
+          >
+            <Languages className="h-4 w-4" />
+            <span className="flex-1 text-left">{t("dashboard:language_setting")}</span>
+            <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] font-bold uppercase text-gray-400">
+              {i18n.language.split("-")[0]}
+            </span>
+          </button>
         </nav>
 
         {/* Content area */}

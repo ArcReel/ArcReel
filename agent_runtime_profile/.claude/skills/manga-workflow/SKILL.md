@@ -172,6 +172,16 @@ dispatch `generate-assets` subagent：
 
 **触发**：有场景缺少分镜图
 
+检查 `project.json` 的 `generation_mode`：
+
+- `"single"` 或未设置 → dispatch `generate-storyboard` subagent（现有逻辑）
+- `"grid"` → dispatch `generate-grid` subagent（新增）
+  - generate-grid 自动按 segment_break 分组
+  - 每组 ≥ 4 场景 → 生成宫格图
+  - 每组 < 4 场景 → 退化为逐张生成
+
+### single 模式（默认）
+
 **dispatch `generate-assets` subagent**：
 
 ```
@@ -181,6 +191,20 @@ dispatch `generate-assets` subagent：
   项目路径：projects/{project_name}/
   脚本命令：
     python .claude/skills/generate-storyboard/scripts/generate_storyboard.py episode_{N}.json
+  验证方式：重新读取 scripts/episode_{N}.json，检查各场景的 storyboard_image 字段
+```
+
+### grid 模式
+
+**dispatch `generate-assets` subagent**：
+
+```
+dispatch `generate-assets` subagent：
+  任务类型：storyboard
+  项目名称：{project_name}
+  项目路径：projects/{project_name}/
+  脚本命令：
+    python .claude/skills/generate-grid/scripts/generate_grid.py episode_{N}.json
   验证方式：重新读取 scripts/episode_{N}.json，检查各场景的 storyboard_image 字段
 ```
 

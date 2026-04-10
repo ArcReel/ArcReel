@@ -10,6 +10,7 @@ from lib.providers import PROVIDER_OPENAI
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
+    VideoCapabilities,
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -57,6 +58,10 @@ class OpenAIVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return VideoCapabilities(reference_images=True, max_reference_images=3)
+
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         kwargs: dict = {
             "prompt": request.prompt,
@@ -65,8 +70,18 @@ class OpenAIVideoBackend:
             "size": _resolve_size(request.resolution, request.aspect_ratio),
         }
 
+        # 收集所有参考图：start_image + reference_images
+        refs = []
         if request.start_image and Path(request.start_image).exists():
-            kwargs["input_reference"] = _encode_start_image(request.start_image)
+            refs.append(_encode_start_image(Path(request.start_image)))
+        if request.reference_images:
+            for ref_path in request.reference_images:
+                p = Path(ref_path) if not isinstance(ref_path, Path) else ref_path
+                if p.exists():
+                    refs.append(_encode_start_image(p))
+        if refs:
+            # 单张图时保持 tuple 格式（API 兼容），多张时用 list
+            kwargs["input_reference"] = refs[0] if len(refs) == 1 else refs
 
         logger.info("OpenAI 视频生成开始: model=%s, seconds=%s", self._model, kwargs["seconds"])
 

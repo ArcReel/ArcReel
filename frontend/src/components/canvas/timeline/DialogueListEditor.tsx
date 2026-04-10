@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Plus, X } from "lucide-react";
 import type { Dialogue } from "@/types";
 
@@ -11,6 +12,8 @@ export function DialogueListEditor({
   dialogue,
   onChange,
 }: DialogueListEditorProps) {
+  const { t } = useTranslation("dashboard");
+
   const update = (index: number, patch: Partial<Dialogue>) => {
     const next = dialogue.map((d, i) =>
       i === index ? { ...d, ...patch } : d
@@ -28,7 +31,7 @@ export function DialogueListEditor({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] text-gray-500">对话</span>
+      <span className="text-[11px] text-gray-500">{t("dialogue_label")}</span>
 
       {dialogue.map((d, i) => (
         <div key={i} className="flex items-start gap-1.5">
@@ -36,14 +39,14 @@ export function DialogueListEditor({
             type="text"
             value={d.speaker}
             onChange={(e) => update(i, { speaker: e.target.value })}
-            placeholder="角色"
+            placeholder={t("speaker_placeholder")}
             className="w-16 shrink-0 rounded bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-indigo-400 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
           />
           <input
             type="text"
             value={d.line}
             onChange={(e) => update(i, { line: e.target.value })}
-            placeholder="台词"
+            placeholder={t("line_placeholder")}
             className="min-w-0 flex-1 rounded bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-gray-200 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
           />
           <button
@@ -62,7 +65,7 @@ export function DialogueListEditor({
         className="inline-flex items-center gap-1 self-start rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-800 hover:text-gray-300"
       >
         <Plus className="h-3 w-3" />
-        添加对话
+        {t("add_dialogue")}
       </button>
     </div>
   );

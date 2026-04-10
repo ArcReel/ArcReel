@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 from lib.config.resolver import ConfigResolver
 from lib.cost_calculator import cost_calculator
-from lib.storyboard_sequence import get_storyboard_items
+from lib.grid.layout import calculate_grid_layout
+from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.usage_tracker import UsageTracker
 
 logger = logging.getLogger(__name__)
@@ -80,8 +82,19 @@ class CostEstimationService:
         # Get actual costs
         actual_by_segment = await self._tracker.get_actual_costs_by_segment(project_name)
 
-        # 预计算图片单价（所有 segment 相同）
+        generation_mode = project_data.get("generation_mode", "single")
+        # 规范化 aspect_ratio：可能是 str 或 dict，复用生成任务的解析逻辑
+        raw_ar = project_data.get("aspect_ratio")
+        if isinstance(raw_ar, str):
+            aspect_ratio = raw_ar
+        elif isinstance(raw_ar, dict):
+            aspect_ratio = raw_ar.get("storyboards", "9:16")
+        else:
+            aspect_ratio = "9:16" if project_data.get("content_mode", "narration") == "narration" else "16:9"
+
+        # 预计算图片单价
         image_unit_cost: tuple[float, str] | None = None
+        grid_image_unit_cost: tuple[float, str] | None = None
         try:
             image_unit_cost = cost_calculator.calculate_cost(
                 provider=image_provider,
@@ -91,6 +104,17 @@ class CostEstimationService:
             )
         except Exception:
             logger.debug("无法计算 image 预估单价", exc_info=True)
+
+        if generation_mode == "grid":
+            try:
+                grid_image_unit_cost = cost_calculator.calculate_cost(
+                    provider=image_provider,
+                    call_type="image",
+                    model=image_model,
+                    resolution="2K",
+                )
+            except Exception:
+                grid_image_unit_cost = image_unit_cost
 
         episodes_result = []
         proj_est: dict[str, CostBreakdown] = {}
@@ -104,6 +128,42 @@ class CostEstimationService:
 
             raw_segments, id_key, _, _ = get_storyboard_items(script)
 
+            # Grid 模式：预计算每个 segment 的图片分摊费用
+            grid_cost_per_segment: dict[str, tuple[float, str]] = {}
+            if generation_mode == "grid" and grid_image_unit_cost:
+                groups = group_scenes_by_segment_break(raw_segments, id_key)
+                for group in groups:
+                    n = len(group)
+                    layout = calculate_grid_layout(n, aspect_ratio)
+                    if layout is None:
+                        continue
+                    grid_count = math.ceil(n / layout.cell_count) if n > layout.cell_count else 1
+                    per_scene_cost = round(grid_image_unit_cost[0] * grid_count / n, 6)
+                    for seg in group:
+                        grid_cost_per_segment[seg.get(id_key, "")] = (per_scene_cost, grid_image_unit_cost[1])
+
+            # --- Grid actual cost apportionment ---
+            # Map grid_id → [scene_ids] from each segment's generated_assets
+            grid_to_scenes: dict[str, list[str]] = {}
+            for seg in raw_segments:
+                assets = seg.get("generated_assets")
+                if not isinstance(assets, dict):
+                    continue
+                gid = assets.get("grid_id")
+                sid = seg.get(id_key, "")
+                if gid and sid:
+                    grid_to_scenes.setdefault(gid, []).append(sid)
+
+            # Compute per-scene share of each grid's actual cost
+            grid_actual_per_scene: dict[str, CostBreakdown] = {}
+            for gid, sids in grid_to_scenes.items():
+                grid_cost = actual_by_segment.get(gid, {}).get("image", {})
+                if grid_cost:
+                    n = len(sids)
+                    per_scene: CostBreakdown = {cur: round(amt / n, 6) for cur, amt in grid_cost.items()}
+                    for sid in sids:
+                        grid_actual_per_scene[sid] = _merge_breakdowns(grid_actual_per_scene.get(sid, {}), per_scene)
+
             segments_result = []
             ep_est: dict[str, CostBreakdown] = {}
             ep_act: dict[str, CostBreakdown] = {}
@@ -115,7 +175,10 @@ class CostEstimationService:
                 est_image: CostBreakdown = {}
                 est_video: CostBreakdown = {}
 
-                if image_unit_cost:
+                if generation_mode == "grid" and seg_id in grid_cost_per_segment:
+                    cost_amount, cost_currency = grid_cost_per_segment[seg_id]
+                    _add_cost(est_image, cost_amount, cost_currency)
+                elif image_unit_cost:
                     _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
 
                 try:
@@ -133,6 +196,8 @@ class CostEstimationService:
 
                 seg_actual = actual_by_segment.get(seg_id, {})
                 act_image: CostBreakdown = seg_actual.get("image", {})
+                if seg_id in grid_actual_per_scene:
+                    act_image = _merge_breakdowns(act_image, grid_actual_per_scene[seg_id])
                 act_video: CostBreakdown = seg_actual.get("video", {})
 
                 segments_result.append(
