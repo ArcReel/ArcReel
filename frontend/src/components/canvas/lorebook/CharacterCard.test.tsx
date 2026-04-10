@@ -36,7 +36,7 @@ describe("CharacterCard", () => {
       />,
     );
 
-    expect(screen.getByAltText("Hero 参考图")).toHaveAttribute(
+    expect(screen.getByAltText(/Hero.*参考图/)).toHaveAttribute(
       "src",
       "/api/v1/files/demo/characters/refs/Hero.png",
     );
@@ -60,9 +60,9 @@ describe("CharacterCard", () => {
     const file = new File(["ref"], "hero.png", { type: "image/png" });
     fireEvent.change(fileInput as HTMLInputElement, { target: { files: [file] } });
 
-    expect(screen.getByText("待保存参考图")).toBeInTheDocument();
+    expect(screen.getByText(/待保存参考图/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    fireEvent.click(screen.getByRole("button", { name: /保存/ }));
 
     await waitFor(() => {
       expect(onSave).toHaveBeenCalledWith("Hero", {
@@ -84,7 +84,7 @@ describe("CharacterCard", () => {
       />,
     );
 
-    const textarea = screen.getByPlaceholderText("输入角色描述...");
+    const textarea = screen.getByPlaceholderText(/角色描述/);
     Object.defineProperty(textarea, "scrollHeight", {
       configurable: true,
       value: 128,

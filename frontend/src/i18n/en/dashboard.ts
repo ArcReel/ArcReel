@@ -694,6 +694,10 @@ export default {
   'select_credential_file': 'Please select a credential file',
   'enter_api_key_required': 'Please enter API Key',
 
+  // ProviderModelSelect
+  'select_model_placeholder': 'Select model...',
+  'select_model_aria': 'Select model',
+
   // ImagePromptEditor / VideoPromptEditor / DialogueListEditor
   'composition_params': 'Composition',
   'shot_label': 'Shot',

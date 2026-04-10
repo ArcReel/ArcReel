@@ -695,6 +695,10 @@ export default {
   'select_credential_file': '请选择凭证文件',
   'enter_api_key_required': '请输入 API Key',
 
+  // ProviderModelSelect
+  'select_model_placeholder': '选择模型…',
+  'select_model_aria': '选择模型',
+
   // ImagePromptEditor / VideoPromptEditor / DialogueListEditor
   'composition_params': '构图参数',
   'shot_label': '镜头',
