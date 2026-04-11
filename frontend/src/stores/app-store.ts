@@ -58,6 +58,10 @@ interface AppState {
   sourceFilesVersion: number;
   invalidateSourceFiles: () => void;
 
+  // Grid list invalidation signal (incremented on grid_ready SSE events)
+  gridsRevision: number;
+  invalidateGrids: () => void;
+
   // Entity-scoped invalidation signal for cache-busted asset URLs
   entityRevisions: Record<string, number>;
   invalidateEntities: (keys: string[]) => void;
@@ -157,6 +161,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   sourceFilesVersion: 0,
   invalidateSourceFiles: () => set((s) => ({ sourceFilesVersion: s.sourceFilesVersion + 1 })),
+
+  gridsRevision: 0,
+  invalidateGrids: () => set((s) => ({ gridsRevision: s.gridsRevision + 1 })),
 
   entityRevisions: {},
   invalidateEntities: (keys) =>

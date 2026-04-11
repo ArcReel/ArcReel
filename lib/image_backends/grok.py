@@ -7,7 +7,7 @@ from pathlib import Path
 
 import httpx
 
-from lib.grok_shared import create_grok_client
+from lib.grok_shared import create_grok_client, grok_should_retry
 from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
@@ -74,7 +74,7 @@ class GrokImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return self._capabilities
 
-    @with_retry_async()
+    @with_retry_async(retry_if=grok_should_retry)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         """生成图片（T2I 或 I2I）。"""
         generate_kwargs: dict = {

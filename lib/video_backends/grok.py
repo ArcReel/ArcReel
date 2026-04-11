@@ -7,7 +7,7 @@ import logging
 from datetime import timedelta
 from pathlib import Path
 
-from lib.grok_shared import create_grok_client
+from lib.grok_shared import create_grok_client, grok_should_retry
 from lib.providers import PROVIDER_GROK
 from lib.retry import with_retry_async
 from lib.video_backends.base import (
@@ -75,7 +75,7 @@ class GrokVideoBackend:
             generate_audio=True,
         )
 
-    @with_retry_async()
+    @with_retry_async(retry_if=grok_should_retry)
     async def _create_video(self, request: VideoGenerationRequest):
         """创建视频生成任务（带独立重试）。"""
         generate_kwargs = {

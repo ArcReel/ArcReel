@@ -6,7 +6,7 @@ import logging
 
 from xai_sdk import chat as xai_chat
 
-from lib.grok_shared import create_grok_client
+from lib.grok_shared import create_grok_client, grok_should_retry
 from lib.providers import PROVIDER_GROK
 from lib.retry import with_retry_async
 from lib.text_backends.base import (
@@ -44,7 +44,7 @@ class GrokTextBackend:
     def capabilities(self) -> set[TextCapability]:
         return self._capabilities
 
-    @with_retry_async()
+    @with_retry_async(retry_if=grok_should_retry)
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
         chat = self._client.chat.create(model=self._model)
 

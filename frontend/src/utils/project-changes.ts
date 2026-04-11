@@ -10,6 +10,7 @@ const ENTITY_LABELS: Record<ProjectChange["entity_type"], string> = {
   episode: "剧集",
   overview: "项目概览",
   draft: "预处理",
+  grid: "宫格",
 };
 
 export interface GroupedProjectChange {
@@ -69,6 +70,9 @@ function getEntityLabel(group: GroupedProjectChange): string {
   if (group.action === "video_ready") {
     return "视频";
   }
+  if (group.action === "grid_ready") {
+    return "宫格";
+  }
   return ENTITY_LABELS[group.entityType] ?? "内容";
 }
 
@@ -96,6 +100,9 @@ function formatSingleNotificationText(change: ProjectChange): string {
   if (change.action === "video_ready") {
     return `${change.label}的视频已生成`;
   }
+  if (change.action === "grid_ready") {
+    return `${change.label}已生成`;
+  }
   if (change.action === "created") {
     return `${change.label}已创建`;
   }
@@ -111,6 +118,9 @@ function formatSingleDeferredText(change: ProjectChange): string {
   }
   if (change.action === "video_ready") {
     return `AI 刚生成了 ${change.label} 的视频，点击查看`;
+  }
+  if (change.action === "grid_ready") {
+    return `${change.label} 已生成`;
   }
   if (change.action === "created") {
     return `AI 刚新增了 ${change.label}，点击查看`;
@@ -132,7 +142,7 @@ export function formatGroupedNotificationText(
   const entityLabel = getEntityLabel(group);
   const summary = summarizeGroupNames(group);
 
-  if (group.action === "storyboard_ready" || group.action === "video_ready") {
+  if (group.action === "storyboard_ready" || group.action === "video_ready" || group.action === "grid_ready") {
     return `已生成 ${count} 个${entityLabel}：${summary}`;
   }
   if (group.action === "created") {
@@ -155,7 +165,7 @@ export function formatGroupedDeferredText(
   const entityLabel = getEntityLabel(group);
   const summary = summarizeGroupNames(group);
 
-  if (group.action === "storyboard_ready" || group.action === "video_ready") {
+  if (group.action === "storyboard_ready" || group.action === "video_ready" || group.action === "grid_ready") {
     return `AI 刚生成了 ${count} 个${entityLabel}：${summary}，点击查看`;
   }
   if (group.action === "created") {

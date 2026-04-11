@@ -28,17 +28,18 @@ const CHANGE_PRIORITY: Record<string, number> = {
   "draft:created": 6.5,
   storyboard_ready: 7,
   video_ready: 8,
+  grid_ready: 9,
 };
 
 function getChangePriority(change: ProjectChange): number {
-  if (change.action === "storyboard_ready" || change.action === "video_ready") {
+  if (change.action === "storyboard_ready" || change.action === "video_ready" || change.action === "grid_ready") {
     return CHANGE_PRIORITY[change.action] ?? Number.MAX_SAFE_INTEGER;
   }
   return CHANGE_PRIORITY[`${change.entity_type}:${change.action}`] ?? Number.MAX_SAFE_INTEGER;
 }
 
 function isNavigableChange(change: ProjectChange): boolean {
-  if (change.action === "storyboard_ready" || change.action === "video_ready") {
+  if (change.action === "storyboard_ready" || change.action === "video_ready" || change.action === "grid_ready") {
     return false;
   }
   return Boolean(change.focus?.anchor_type && change.focus?.anchor_id);
@@ -291,6 +292,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           );
           if (hasGenerationEvent && projectName) {
             useCostStore.getState().debouncedFetch(projectName);
+          }
+
+          // Refresh grid list when a grid completes
+          if (payload.changes.some((c) => c.action === "grid_ready")) {
+            useAppStore.getState().invalidateGrids();
           }
         },
         onError() {

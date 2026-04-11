@@ -216,7 +216,8 @@ export function GridPreviewPanel({
     if (!expanded || !gridId) return;
 
     let cancelled = false;
-    setLoading(true);
+    // Only show loading spinner on initial load, not on refresh
+    if (!grid) setLoading(true);
     setError(null);
 
     API.getGrid(projectName, gridId)
@@ -238,9 +239,12 @@ export function GridPreviewPanel({
     };
   }, [expanded, gridId, projectName, refreshKey]);
 
+  const isInProgress =
+    grid?.status === "pending" || grid?.status === "generating" || grid?.status === "splitting";
+
   const imageUrl =
     grid?.grid_image_path
-      ? API.getFileUrl(projectName, grid.grid_image_path)
+      ? API.getFileUrl(projectName, grid.grid_image_path, refreshKey)
       : null;
 
   return (
@@ -319,32 +323,30 @@ export function GridPreviewPanel({
                         {grid.error_message}
                       </span>
                     )}
-                    <div className="ml-auto">
-                      <motion.button
-                        type="button"
-                        disabled={regenerating}
-                        onClick={() => {
-                          if (!gridId || regenerating) return;
-                          setRegenerating(true);
-                          API.regenerateGrid(projectName, gridId)
-                            .then(() => {
-                              setGrid((prev) => prev ? { ...prev, status: "pending" } : prev);
-                              onRegenerated?.();
-                            })
-                            .catch((err: unknown) => {
-                              setError(err instanceof Error ? err.message : "重新生成失败");
-                            })
-                            .finally(() => setRegenerating(false));
-                        }}
-                        className={`inline-flex items-center gap-1 rounded border border-amber-800/30 bg-amber-950/30 px-2 py-1 text-[10px] font-medium text-amber-400/80 transition-colors ${
-                          regenerating ? "opacity-50 cursor-not-allowed" : "hover:bg-amber-900/40 hover:text-amber-300"
-                        }`}
-                        whileTap={regenerating ? {} : { scale: 0.95 }}
-                      >
-                        <RefreshCw className={`h-3 w-3 ${regenerating ? "animate-spin" : ""}`} />
-                        {regenerating ? "提交中..." : "重新生成"}
-                      </motion.button>
-                    </div>
+                    <motion.button
+                      type="button"
+                      disabled={regenerating || isInProgress}
+                      onClick={() => {
+                        if (!gridId || regenerating || isInProgress) return;
+                        setRegenerating(true);
+                        API.regenerateGrid(projectName, gridId)
+                          .then(() => {
+                            setGrid((prev) => prev ? { ...prev, status: "pending" } : prev);
+                            onRegenerated?.();
+                          })
+                          .catch((err: unknown) => {
+                            setError(err instanceof Error ? err.message : "重新生成失败");
+                          })
+                          .finally(() => setRegenerating(false));
+                      }}
+                      className={`ml-auto shrink-0 whitespace-nowrap inline-flex items-center gap-1 rounded border border-amber-800/30 bg-amber-950/30 px-2 py-1 text-[10px] font-medium text-amber-400/80 transition-colors ${
+                        regenerating || isInProgress ? "opacity-50 cursor-not-allowed" : "hover:bg-amber-900/40 hover:text-amber-300"
+                      }`}
+                      whileTap={regenerating || isInProgress ? {} : { scale: 0.95 }}
+                    >
+                      <RefreshCw className={`h-3 w-3 ${regenerating || isInProgress ? "animate-spin" : ""}`} />
+                      {regenerating ? "提交中..." : isInProgress ? "生成中..." : "重新生成"}
+                    </motion.button>
                   </div>
 
                   {/* Main content: image + frame chain */}

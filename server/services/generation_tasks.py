@@ -540,6 +540,13 @@ def _compute_affected_fingerprints(project_name: str, task_type: str, resource_i
                 project_path / "clues" / f"{resource_id}.png",
             )
         )
+    elif task_type == "grid":
+        paths.append(
+            (
+                f"grids/{resource_id}.png",
+                project_path / "grids" / f"{resource_id}.png",
+            )
+        )
 
     result: dict[str, int] = {}
     for rel, abs_path in paths:
@@ -555,6 +562,7 @@ _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "video": ("segment", "video_ready", "分镜「{}」", True),
     "character": ("character", "updated", "角色「{}」设计图", False),
     "clue": ("clue", "updated", "线索「{}」设计图", False),
+    "grid": ("grid", "grid_ready", "宫格「{}」", True),
 }
 
 

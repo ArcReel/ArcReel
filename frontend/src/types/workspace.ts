@@ -9,13 +9,14 @@ export interface ProjectChangeFocus {
 }
 
 export interface ProjectChange {
-  entity_type: "project" | "character" | "clue" | "segment" | "episode" | "overview" | "draft";
+  entity_type: "project" | "character" | "clue" | "segment" | "episode" | "overview" | "draft" | "grid";
   action:
     | "created"
     | "updated"
     | "deleted"
     | "storyboard_ready"
-    | "video_ready";
+    | "video_ready"
+    | "grid_ready";
   entity_id: string;
   label: string;
   script_file?: string;

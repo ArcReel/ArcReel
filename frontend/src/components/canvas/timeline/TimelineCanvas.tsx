@@ -7,6 +7,7 @@ import { SegmentCard } from "./SegmentCard";
 import { GridSegmentGroup } from "./GridSegmentGroup";
 import { PreprocessingView } from "./PreprocessingView";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
+import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { formatCost, totalBreakdown } from "@/utils/cost-format";
 import { API } from "@/api";
@@ -183,6 +184,7 @@ export function TimelineCanvas({
   );
 
   // Grid mode state
+  const gridsRevision = useAppStore((s) => s.gridsRevision);
   const isGridMode = projectData?.generation_mode === "grid";
   const segmentGroups = useMemo(
     () => (isGridMode ? groupBySegmentBreak(segments) : []),
@@ -202,9 +204,10 @@ export function TimelineCanvas({
   }, [isGridMode, projectName]);
 
   // Fetch grids list for the current episode when in grid mode
+  // Also re-fetch when gridsRevision changes (triggered by grid_ready SSE events)
   useEffect(() => {
     refreshGrids();
-  }, [refreshGrids, episodeScript]);
+  }, [refreshGrids, episodeScript, gridsRevision]);
 
   /**
    * Find all grid IDs whose scene_ids are a subset of the given group.
