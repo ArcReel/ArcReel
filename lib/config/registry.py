@@ -321,4 +321,25 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
         },
     ),
+    "minimax": ProviderMeta(
+        display_name="MiniMax",
+        description="MiniMax 开放平台，支持 MiniMax-M2.7 文本生成。",
+        required_keys=["api_key"],
+        optional_keys=["base_url"],
+        secret_keys=["api_key"],
+        models={
+            # --- text ---
+            "MiniMax-M2.7": ModelInfo(
+                display_name="MiniMax-M2.7",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+                default=True,
+            ),
+            "MiniMax-M2.7-highspeed": ModelInfo(
+                display_name="MiniMax-M2.7 High Speed",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+            ),
+        },
+    ),
 }
