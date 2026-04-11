@@ -266,6 +266,8 @@ export default {
   'jianying_v5_x': 'Jianying 5.x',
   'draft_path': 'Draft Directory Path',
   'draft_path_placeholder': 'Jianying draft directory path',
+  'draft_path_default_mac': '/Users/<YourUsername>/Movies/JianyingPro/User Data/Projects/com.lveditor.draft',
+  'draft_path_default_windows': String.raw`C:\Users\<YourUsername>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`,
   'draft_path_hint': 'Please enter the full path to the Jianying draft directory. Go to Jianying -> Settings -> Draft Location to find it.',
   'exporting': 'Exporting...',
   'export_draft': 'Export Draft',

@@ -267,6 +267,8 @@ export default {
   'jianying_v5_x': '剪映 5.x',
   'draft_path': '草稿目录路径',
   'draft_path_placeholder': '剪映草稿目录路径',
+  'draft_path_default_mac': '/Users/<你的用户名>/Movies/JianyingPro/User Data/Projects/com.lveditor.draft',
+  'draft_path_default_windows': String.raw`C:\Users\<你的用户名>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`,
   'draft_path_hint': '请填入剪映草稿目录的完整路径。打开剪映 → 设置 → 草稿位置 可查看。',
   'exporting': '导出中...',
   'export_draft': '导出草稿',

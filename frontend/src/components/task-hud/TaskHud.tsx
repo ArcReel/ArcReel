@@ -51,26 +51,6 @@ function RunningProgressBar() {
 }
 
 // ---------------------------------------------------------------------------
-// Static lookup tables (hoisted out of TaskRow — they never change)
-// ---------------------------------------------------------------------------
-
-const statusLabel: Record<TaskItem["status"], string> = {
-  running: "生成中...",
-  queued: "排队中",
-  succeeded: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
-};
-
-const statusColor: Record<TaskItem["status"], string> = {
-  running: "text-indigo-400",
-  queued: "text-gray-500",
-  succeeded: "text-emerald-400",
-  failed: "text-red-400",
-  cancelled: "text-gray-400",
-};
-
-// ---------------------------------------------------------------------------
 // TaskRow — 单个任务条目（含完成高亮、失败展开、运行进度条）
 // ---------------------------------------------------------------------------
 

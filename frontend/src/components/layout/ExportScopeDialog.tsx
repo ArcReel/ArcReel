@@ -9,15 +9,6 @@ export type ExportScope = "current" | "full" | "jianying-draft";
 
 const DRAFT_PATH_STORAGE_KEY = "arcreel_jianying_draft_path";
 
-function getDefaultDraftPath(): string {
-  const isWindows =
-    typeof navigator !== "undefined" &&
-    navigator.userAgent.includes("Windows");
-  return isWindows
-    ? String.raw`C:\Users\你的用户名\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`
-    : "/Users/你的用户名/Movies/JianyingPro/User Data/Projects/com.lveditor.draft";
-}
-
 interface ExportScopeDialogProps {
   open: boolean;
   onClose: () => void;
@@ -42,8 +33,13 @@ export function ExportScopeDialog({
   const [selectedEpisode, setSelectedEpisode] = useState<number>(
     episodes.length > 0 ? episodes[0].episode : 1,
   );
+  const isWindows =
+    typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
+  const defaultDraftPath = isWindows
+    ? t("dashboard:draft_path_default_windows")
+    : t("dashboard:draft_path_default_mac");
   const [draftPath, setDraftPath] = useState<string>(
-    () => localStorage.getItem(DRAFT_PATH_STORAGE_KEY) || getDefaultDraftPath(),
+    () => localStorage.getItem(DRAFT_PATH_STORAGE_KEY) || defaultDraftPath,
   );
   const [jianyingVersion, setJianyingVersion] = useState("6");
 
