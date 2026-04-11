@@ -139,7 +139,6 @@ class GeminiVideoBackend:
             "aspect_ratio": request.aspect_ratio,
             "resolution": request.resolution,
             "duration_seconds": duration_str,
-            "negative_prompt": request.negative_prompt or "music, BGM, background music, subtitles, low quality",
         }
         if self._backend_type == "vertex":
             config_params["generate_audio"] = request.generate_audio
@@ -160,9 +159,11 @@ class GeminiVideoBackend:
 
         config = self._types.GenerateVideosConfig(**config_params)
 
-        # 4. 准备 source（prompt + 可选起始帧）
+        # 4. 准备 source（prompt + 可选起始帧 + negative prompt 拼接）
+        negative = request.negative_prompt or "music, BGM, background music, subtitles, low quality"
+        full_prompt = f"{request.prompt}\n\nNegative prompt: {negative}"
         image_param = self._prepare_image_param(request.start_image) if request.start_image else None
-        source = self._types.GenerateVideosSource(prompt=request.prompt, image=image_param)
+        source = self._types.GenerateVideosSource(prompt=full_prompt, image=image_param)
 
         # 5. 调用 API
         operation = await self._client.aio.models.generate_videos(model=self._video_model, source=source, config=config)
