@@ -1,13 +1,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Plus, FolderOpen, Upload, AlertTriangle, Settings } from "lucide-react";
+import { Loader2, Plus, FolderOpen, Upload, AlertTriangle, Settings, EllipsisVertical, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
+import { Popover } from "@/components/ui/Popover";
 import { OpenClawModal } from "./OpenClawModal";
 import type { ProjectStatus, ProjectSummary, ImportConflictPolicy, ImportFailureDiagnostics } from "@/types";
 
@@ -34,12 +35,14 @@ function usePhaseLabels() {
 // ProjectCard — clickable project entry
 // ---------------------------------------------------------------------------
 
-function ProjectCard({ project }: { project: ProjectSummary }) {
+function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete: () => void }) {
   const { t } = useTranslation(["common", "dashboard"]);
   const [, navigate] = useLocation();
   const status = project.status;
   const hasStatus = status && "current_phase" in status;
   const PHASE_LABELS = usePhaseLabels();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
 
   const pct = hasStatus ? Math.round((status as ProjectStatus).phase_progress * 100) : 0;
   const phase = hasStatus ? (status as ProjectStatus).current_phase : "";
@@ -49,10 +52,12 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
   const summary = hasStatus ? (status as ProjectStatus).episodes_summary : null;
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => navigate(`/app/projects/${project.name}`)}
-      className="flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-900 p-5 text-left transition-colors hover:border-indigo-500/50 hover:bg-gray-800/50 cursor-pointer"
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") navigate(`/app/projects/${project.name}`); }}
+      className="relative flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-900 p-5 text-left transition-colors hover:border-indigo-500/50 hover:bg-gray-800/50 cursor-pointer"
     >
       {/* Thumbnail or placeholder */}
       <div className="aspect-video w-full overflow-hidden rounded-lg bg-gray-800">
@@ -104,16 +109,48 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
         </div>
       )}
 
-      {/* Episodes summary */}
-      {summary && summary.total > 0 && (
+      {/* Episodes summary + More actions */}
+      <div className="flex items-end justify-between">
         <div className="text-xs text-gray-500">
-          {summary.total} {t("dashboard:episodes")}
-          {summary.scripted > 0 && ` · ${summary.scripted} ${t("dashboard:episodes_scripted")}`}
-          {summary.in_production > 0 && ` · ${summary.in_production} ${t("dashboard:episodes_in_production")}`}
-          {summary.completed > 0 && ` · ${summary.completed} ${t("dashboard:episodes_completed")}`}
+          {summary && summary.total > 0 && (
+            <>
+              {summary.total} {t("dashboard:episodes")}
+              {summary.scripted > 0 && ` · ${summary.scripted} ${t("dashboard:episodes_scripted")}`}
+              {summary.in_production > 0 && ` · ${summary.in_production} ${t("dashboard:episodes_in_production")}`}
+              {summary.completed > 0 && ` · ${summary.completed} ${t("dashboard:episodes_completed")}`}
+            </>
+          )}
         </div>
-      )}
-    </button>
+        <button
+          ref={menuAnchorRef}
+          type="button"
+          aria-label={t("dashboard:more_actions")}
+          onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+          className="rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200"
+        >
+          <EllipsisVertical className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* More actions popover */}
+      <Popover
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        anchorRef={menuAnchorRef}
+        width="w-40"
+        align="end"
+        className="rounded-lg border border-gray-700 shadow-xl py-1"
+      >
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDelete(); }}
+          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 transition-colors hover:bg-gray-800"
+        >
+          <Trash2 className="h-4 w-4" />
+          {t("dashboard:delete_project")}
+        </button>
+      </Popover>
+    </div>
   );
 }
 
@@ -132,6 +169,8 @@ export function ProjectsPage() {
   const [conflictFile, setConflictFile] = useState<File | null>(null);
   const [importDiagnostics, setImportDiagnostics] = useState<ImportFailureDiagnostics | null>(null);
   const [showOpenClaw, setShowOpenClaw] = useState(false);
+  const [deletingProject, setDeletingProject] = useState<ProjectSummary | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
 
@@ -196,6 +235,21 @@ export function ProjectsPage() {
       }
     } finally {
       setImportingProject(false);
+    }
+  };
+
+  const handleDeleteProject = async () => {
+    if (!deletingProject) return;
+    setDeleteLoading(true);
+    try {
+      await API.deleteProject(deletingProject.name);
+      await fetchProjects();
+      useAppStore.getState().pushToast(t("common:deleted"), "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(`${t("dashboard:delete_failed")}${(err as Error).message}`, "warning");
+    } finally {
+      setDeleteLoading(false);
+      setDeletingProject(null);
     }
   };
 
@@ -283,7 +337,7 @@ export function ProjectsPage() {
         ) : (
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((project) => (
-              <ProjectCard key={project.name} project={project} />
+              <ProjectCard key={project.name} project={project} onDelete={() => setDeletingProject(project)} />
             ))}
           </div>
         )}
@@ -316,6 +370,44 @@ export function ProjectsPage() {
         />
       )}
       {showOpenClaw && <OpenClawModal onClose={() => setShowOpenClaw(false)} />}
+
+      {/* Delete project confirmation dialog */}
+      {deletingProject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-gray-800 bg-gray-900 p-6 shadow-2xl">
+            <div className="flex items-start gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-red-500">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-lg font-semibold text-gray-100">{t("dashboard:delete_project")}</h2>
+                <p className="text-sm leading-6 text-gray-400">
+                  {t("dashboard:confirm_delete_project", { title: deletingProject.title })}
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeletingProject(null)}
+                disabled={deleteLoading}
+                className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {t("cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteProject}
+                disabled={deleteLoading}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deleteLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                {deleteLoading ? t("dashboard:deleting_project") : t("dashboard:delete_project")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

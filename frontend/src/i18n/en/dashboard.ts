@@ -733,6 +733,12 @@ export default {
   'version_preview_alt': 'Version v{{version}} preview',
   'version_no_notes': 'No additional notes recorded for this version.',
 
+  // ProjectCard - more actions
+  'more_actions': 'More Actions',
+  'delete_project': 'Delete Project',
+  'confirm_delete_project': 'Are you sure you want to delete project "{{title}}"? This action cannot be undone.',
+  'deleting_project': 'Deleting...',
+
   // SystemConfigPage - language
   'language_setting': 'Language',
 };

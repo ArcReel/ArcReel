@@ -734,6 +734,12 @@ export default {
   'version_preview_alt': '版本 v{{version}} 预览',
   'version_no_notes': '该版本没有记录额外说明。',
 
+  // ProjectCard - more actions
+  'more_actions': '更多操作',
+  'delete_project': '删除项目',
+  'confirm_delete_project': '确定要删除项目「{{title}}」吗？此操作不可撤销。',
+  'deleting_project': '删除中...',
+
   // SystemConfigPage - language
   'language_setting': '语言',
 } satisfies Record<keyof typeof enDashboard, string>;
