@@ -56,7 +56,7 @@ function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete:
       role="button"
       tabIndex={0}
       onClick={() => navigate(`/app/projects/${project.name}`)}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") navigate(`/app/projects/${project.name}`); }}
+      onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); navigate(`/app/projects/${project.name}`); } }}
       className="relative flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-900 p-5 text-left transition-colors hover:border-indigo-500/50 hover:bg-gray-800/50 cursor-pointer"
     >
       {/* Thumbnail or placeholder */}
@@ -141,14 +141,17 @@ function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete:
         align="end"
         className="rounded-lg border border-gray-700 shadow-xl py-1"
       >
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDelete(); }}
-          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 transition-colors hover:bg-gray-800"
-        >
-          <Trash2 className="h-4 w-4" />
-          {t("dashboard:delete_project")}
-        </button>
+        {/* stopPropagation prevents portal React event bubbling to card */}
+        <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => { setMenuOpen(false); onDelete(); }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 transition-colors hover:bg-gray-800"
+          >
+            <Trash2 className="h-4 w-4" />
+            {t("dashboard:delete_project")}
+          </button>
+        </div>
       </Popover>
     </div>
   );
@@ -246,7 +249,7 @@ export function ProjectsPage() {
       await fetchProjects();
       useAppStore.getState().pushToast(t("common:deleted"), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`${t("dashboard:delete_failed")}${(err as Error).message}`, "warning");
+      useAppStore.getState().pushToast(`${t("dashboard:delete_failed")}[${deletingProject.title}] ${(err as Error).message}`, "warning");
     } finally {
       setDeleteLoading(false);
       setDeletingProject(null);
