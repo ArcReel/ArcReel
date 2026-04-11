@@ -73,14 +73,16 @@ Web UI for project management, asset preview, version rollback, real-time SSE ta
 
 ```mermaid
 graph TD
-    A["📖 Upload Novel"] --> B["📝 AI Agent Generates Screenplay"]
-    B --> C["👤 Generate Character Designs"]
-    B --> D["🔑 Generate Clue Designs"]
-    C --> E["🖼️ Generate Storyboard Images"]
-    D --> E
-    E --> F["🎬 Generate Video Clips"]
-    F --> G["🎞️ FFmpeg Final Composition"]
-    F --> H["📦 Export CapCut Draft"]
+    A["📖 Upload Novel"] --> B["🔍 Global Character/Clue Extraction"]
+    B --> C["✂️ Episode Planning & Splitting"]
+    C --> D["📝 Script Preprocessing & JSON Generation"]
+    D --> E["👤 Generate Character Designs"]
+    D --> F["🔑 Generate Clue Designs"]
+    E --> G["🖼️ Generate Storyboard / Grid Images"]
+    F --> G
+    G --> H["🎬 Generate Video Clips"]
+    H --> I["🎞️ FFmpeg Final Composition"]
+    H --> J["📦 Export CapCut Draft"]
 ```
 
 ## Quick Start
@@ -123,7 +125,11 @@ After first launch, log in with the default account (username `admin`, password 
 - **Clue Tracking** — Key props and scene elements marked as "clues" maintain visual continuity across shots
 - **Version History** — Every regeneration auto-saves a version; one-click rollback supported
 - **Multi-Provider Cost Tracking** — Image/Video/Text costs all tracked, with per-provider billing strategies and separate currency accounting
+- **Cost Estimation** — Pre-generation cost estimates at project/episode/shot level, with three-level drill-down comparing estimated vs. actual costs
 - **CapCut Draft Export** — Export CapCut-compatible draft ZIP per episode, supporting CapCut 5.x / 6+ ([Guide](docs/jianying-export-guide.md))
+- **Grid Mode** — Compose multiple storyboards into grid images (grid_4/grid_6/grid_9) with auto grid-size selection; split cells serve as first/last frames for video generation
+- **Multi API Key Management** — Configure multiple API Keys per provider with active key switching; supports Google Vertex AI credential upload
+- **Bilingual UI (i18n)** — Full internationalization for frontend and backend, supporting Chinese/English interface switching
 - **Project Import/Export** — Archive entire projects for backup and migration
 
 ## Provider Support
