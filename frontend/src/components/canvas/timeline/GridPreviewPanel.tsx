@@ -173,8 +173,11 @@ export function GridPreviewPanel({
     if (!expanded || !selectedGridId) return;
 
     let cancelled = false;
-    // Only show loading spinner when we have no data for this grid
-    if (!grid || grid.id !== selectedGridId) setLoading(true);
+    // Clear stale data and show spinner when switching batches
+    if (!grid || grid.id !== selectedGridId) {
+      setLoading(true);
+      setGrid(null);
+    }
     setError(null);
 
     API.getGrid(projectName, selectedGridId)

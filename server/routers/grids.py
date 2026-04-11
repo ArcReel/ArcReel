@@ -124,11 +124,13 @@ async def generate_grid(
                 continue
 
             # 清理该组旧的 grid 记录（限定同脚本同集，scene_ids 是当前组子集的旧 grid）
+            # 跳过 pending/generating 状态的记录，避免 worker 执行时找不到资源
             group_id_set = set(all_scene_ids)
             for old_grid in existing_grids:
                 if (
                     old_grid.script_file == req.script_file
                     and old_grid.episode == episode
+                    and old_grid.status not in ("pending", "generating")
                     and old_grid.scene_ids
                     and set(old_grid.scene_ids) <= group_id_set
                 ):

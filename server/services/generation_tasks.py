@@ -1037,9 +1037,8 @@ async def execute_grid_task(
         reference_images, ref_metadata = await asyncio.to_thread(
             _collect_grid_reference_images, project_path, payload, grid.scene_ids
         )
-        if ref_metadata:
-            grid.reference_images = [ReferenceImage.from_dict(m) for m in ref_metadata]
-            grid_manager.save(grid)
+        grid.reference_images = [ReferenceImage.from_dict(m) for m in ref_metadata] if ref_metadata else []
+        grid_manager.save(grid)
 
         # d) Generate grid image
         prompt_text = payload.get("prompt") or grid.prompt

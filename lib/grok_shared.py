@@ -25,7 +25,7 @@ try:
         grpc.StatusCode.ABORTED,  # 冲突重试
     }
 except ImportError:
-    pass
+    pass  # grpc is optional; fall back to pattern-based retry below
 
 
 def grok_should_retry(exc: Exception) -> bool:
@@ -37,7 +37,7 @@ def grok_should_retry(exc: Exception) -> bool:
             if isinstance(exc, AioRpcError):
                 return exc.code() in _GRPC_RETRYABLE_CODES
         except ImportError:
-            pass
+            pass  # grpc available at module level but aio submodule missing; fall through
     return _should_retry(exc, BASE_RETRYABLE_ERRORS)
 
 
