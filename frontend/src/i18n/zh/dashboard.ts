@@ -671,6 +671,27 @@ export default {
   'generate_grid_btn': '生成宫格',
   'insufficient_scenes_for_grid': '场景不足，无法生成宫格',
 
+  // GridPreviewPanel
+  'grid_status_pending': '待处理',
+  'grid_status_generating': '生成中',
+  'grid_status_splitting': '切分中',
+  'grid_status_completed': '已完成',
+  'grid_status_failed': '失败',
+  'grid_preview_title': '宫格预览',
+  'grid_not_generated': '尚未生成',
+  'grid_batch_unit': '{{count}} 批',
+  'grid_no_grids_yet': '尚未生成宫格',
+  'grid_generate_instruction': '点击上方「生成宫格」按钮开始',
+  'grid_loading_data': '加载宫格数据...',
+  'grid_load_failed': '加载失败',
+  'grid_regenerate_failed': '重新生成失败',
+  'grid_regenerating': '提交中...',
+  'grid_regenerate_btn': '重新生成',
+  'grid_composite_image_alt': '宫格合成图',
+  'grid_cell_info': '{{count}} 格 · {{size}}',
+  'grid_no_image': '无图像',
+  'grid_reference_images': '参考图',
+
   // StudioCanvasRouter
   'grid_generation_failed': '宫格生成失败: {{message}}',
 

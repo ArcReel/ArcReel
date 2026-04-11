@@ -670,6 +670,27 @@ export default {
   'generate_grid_btn': 'Generate Grid',
   'insufficient_scenes_for_grid': 'Not enough scenes for grid generation',
 
+  // GridPreviewPanel
+  'grid_status_pending': 'Pending',
+  'grid_status_generating': 'Generating',
+  'grid_status_splitting': 'Splitting',
+  'grid_status_completed': 'Completed',
+  'grid_status_failed': 'Failed',
+  'grid_preview_title': 'Grid Preview',
+  'grid_not_generated': 'Not generated',
+  'grid_batch_unit': '{{count}} batches',
+  'grid_no_grids_yet': 'No grids generated yet',
+  'grid_generate_instruction': 'Click the "Generate Grid" button above to start',
+  'grid_loading_data': 'Loading grid data...',
+  'grid_load_failed': 'Load failed',
+  'grid_regenerate_failed': 'Regeneration failed',
+  'grid_regenerating': 'Submitting...',
+  'grid_regenerate_btn': 'Regenerate',
+  'grid_composite_image_alt': 'Grid composite image',
+  'grid_cell_info': '{{count}} cells · {{size}}',
+  'grid_no_image': 'No image',
+  'grid_reference_images': 'Reference Images',
+
   // StudioCanvasRouter
   'grid_generation_failed': 'Grid generation failed: {{message}}',
 

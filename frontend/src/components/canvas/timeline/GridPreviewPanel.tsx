@@ -13,6 +13,7 @@ import {
   Search,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import type { GridGeneration, ReferenceImage } from "@/types/grid";
 
@@ -35,39 +36,43 @@ export interface GridPreviewPanelProps {
 
 type GridStatus = GridGeneration["status"];
 
-function StatusBadge({ status }: { status: GridStatus }) {
+function StatusBadge({ status, t }: { status: GridStatus; t: (key: string) => string }) {
+  const STATUS_KEY: Record<GridStatus, string> = {
+    pending: "grid_status_pending",
+    generating: "grid_status_generating",
+    splitting: "grid_status_splitting",
+    completed: "grid_status_completed",
+    failed: "grid_status_failed",
+  };
+
   const configs: Record<
     GridStatus,
-    { label: string; icon: React.ReactNode; cls: string }
+    { icon: React.ReactNode; cls: string }
   > = {
     pending: {
-      label: "待处理",
       icon: <Clock className="h-3 w-3" />,
       cls: "bg-gray-800/80 text-gray-400 border-gray-700/50",
     },
     generating: {
-      label: "生成中",
       icon: <Loader2 className="h-3 w-3 animate-spin" />,
       cls: "bg-blue-950/60 text-blue-300 border-blue-700/40",
     },
     splitting: {
-      label: "切分中",
       icon: <Scissors className="h-3 w-3" />,
       cls: "bg-violet-950/60 text-violet-300 border-violet-700/40",
     },
     completed: {
-      label: "已完成",
       icon: <CheckCircle2 className="h-3 w-3" />,
       cls: "bg-emerald-950/60 text-emerald-400 border-emerald-700/40",
     },
     failed: {
-      label: "失败",
       icon: <AlertCircle className="h-3 w-3" />,
       cls: "bg-red-950/60 text-red-400 border-red-700/40",
     },
   };
 
-  const { label, icon, cls } = configs[status];
+  const { icon, cls } = configs[status];
+  const label = t(STATUS_KEY[status]);
 
   return (
     <span
@@ -155,6 +160,7 @@ export function GridPreviewPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  const { t } = useTranslation("dashboard");
 
   const hasGrids = gridIds.length > 0;
   const multipleGrids = gridIds.length > 1;
@@ -189,7 +195,7 @@ export function GridPreviewPanel({
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "加载失败");
+          setError(err instanceof Error ? err.message : t("grid_load_failed"));
           setLoading(false);
         }
       });
@@ -228,15 +234,15 @@ export function GridPreviewPanel({
 
         <Film className="h-3.5 w-3.5 text-amber-500/60" />
 
-        <span className="text-xs font-medium text-amber-400/70">宫格预览</span>
+        <span className="text-xs font-medium text-amber-400/70">{t("grid_preview_title")}</span>
 
         {!hasGrids && (
-          <span className="ml-1 text-[10px] text-gray-600">尚未生成</span>
+          <span className="ml-1 text-[10px] text-gray-600">{t("grid_not_generated")}</span>
         )}
 
         {multipleGrids && !expanded && (
           <span className="ml-1 text-[10px] text-gray-600">
-            {gridIds.length} 批
+            {t("grid_batch_unit", { count: gridIds.length })}
           </span>
         )}
       </button>
@@ -257,16 +263,16 @@ export function GridPreviewPanel({
               {!hasGrids ? (
                 <div className="flex flex-col items-center gap-2 py-6 text-center">
                   <Grid2x2 className="h-8 w-8 text-gray-700" />
-                  <p className="text-xs text-gray-600">尚未生成宫格</p>
+                  <p className="text-xs text-gray-600">{t("grid_no_grids_yet")}</p>
                   <p className="text-[10px] text-gray-700">
-                    点击上方「生成宫格」按钮开始
+                    {t("grid_generate_instruction")}
                   </p>
                 </div>
               ) : loading && !grid ? (
                 /* Loading state (initial) */
                 <div className="flex items-center justify-center gap-2 py-8">
                   <Loader2 className="h-4 w-4 animate-spin text-amber-500/50" />
-                  <span className="text-xs text-gray-600">加载宫格数据...</span>
+                  <span className="text-xs text-gray-600">{t("grid_loading_data")}</span>
                 </div>
               ) : error ? (
                 /* Error state */
@@ -298,7 +304,7 @@ export function GridPreviewPanel({
                       </div>
                     )}
 
-                    <StatusBadge status={grid.status} />
+                    <StatusBadge status={grid.status} t={t} />
 
                     <span className="text-[10px] text-gray-600">
                       {grid.model}
@@ -325,7 +331,7 @@ export function GridPreviewPanel({
                             onRegenerated?.();
                           })
                           .catch((err: unknown) => {
-                            setError(err instanceof Error ? err.message : "重新生成失败");
+                            setError(err instanceof Error ? err.message : t("grid_regenerate_failed"));
                           })
                           .finally(() => setRegenerating(false));
                       }}
@@ -335,7 +341,7 @@ export function GridPreviewPanel({
                       whileTap={regenerating || isInProgress ? {} : { scale: 0.95 }}
                     >
                       <RefreshCw className={`h-3 w-3 ${regenerating || isInProgress ? "animate-spin" : ""}`} />
-                      {regenerating ? "提交中..." : isInProgress ? "生成中..." : "重新生成"}
+                      {regenerating ? t("grid_regenerating") : isInProgress ? t("generating_grid") : t("grid_regenerate_btn")}
                     </motion.button>
                   </div>
 
@@ -344,12 +350,12 @@ export function GridPreviewPanel({
                     <div className="overflow-hidden rounded-md border border-gray-800/50 bg-gray-900/40">
                       <img
                         src={imageUrl}
-                        alt="宫格合成图"
+                        alt={t("grid_composite_image_alt")}
                         className="block max-h-64 w-full object-contain bg-black/20"
                       />
                       <div className="flex items-center gap-2 border-t border-gray-800/50 px-2.5 py-1.5">
                         <span className="font-mono text-[10px] text-gray-500">
-                          {grid.cell_count} 格 · {grid.grid_size}
+                          {t("grid_cell_info", { count: grid.cell_count, size: grid.grid_size })}
                         </span>
                         <span className="text-[10px] text-gray-700">
                           {grid.rows}×{grid.cols}
@@ -360,8 +366,8 @@ export function GridPreviewPanel({
                     <div className="flex h-24 items-center justify-center rounded-md border border-gray-800/40 bg-gray-900/30">
                       <span className="text-[10px] text-gray-700">
                         {grid.status === "generating" || grid.status === "pending"
-                          ? "生成中..."
-                          : "无图像"}
+                          ? t("generating_grid")
+                          : t("grid_no_image")}
                       </span>
                     </div>
                   )}
@@ -370,7 +376,7 @@ export function GridPreviewPanel({
                   {refs.length > 0 && (
                     <div className="flex flex-col gap-1.5">
                       <span className="text-[9px] font-medium uppercase tracking-widest text-gray-600">
-                        参考图
+                        {t("grid_reference_images")}
                       </span>
                       <ReferenceImageStrip
                         references={refs}
