@@ -936,15 +936,17 @@ def _collect_grid_reference_images(
     project_path: Path,
     payload: dict[str, Any],
     scene_ids: list[str],
-) -> list[object] | None:
-    """Collect character_sheet and clue_sheet images referenced by grid scenes.
+) -> tuple[list[object] | None, list[dict]]:
+    """Collect character/clue sheet images referenced by grid scenes.
 
-    Reads project.json, iterates the scenes matching ``scene_ids`` in the
-    script, and returns up to 6 unique reference image paths.
+    Returns a tuple of ``(image_paths, metadata)``:
+    - *image_paths*: up to 6 :class:`~pathlib.Path` objects for the generation API.
+    - *metadata*: list of dicts ``{path, name, ref_type}`` for persisting in
+      :class:`~lib.grid.models.GridGeneration`.
     """
     project_json = project_path / "project.json"
     if not project_json.exists():
-        return None
+        return None, []
 
     import json
 
@@ -952,11 +954,11 @@ def _collect_grid_reference_images(
 
     script_file = payload.get("script_file")
     if not script_file:
-        return None
+        return None, []
 
     script_path = project_path / "scripts" / script_file
     if not script_path.exists():
-        return None
+        return None, []
 
     script = json.loads(script_path.read_text(encoding="utf-8"))
 
@@ -965,16 +967,35 @@ def _collect_grid_reference_images(
     scene_id_set = set(scene_ids)
     matched_items = [item for item in items if str(item.get(id_field, "")) in scene_id_set]
 
-    paths, _ = _collect_sheet_paths(
-        project,
-        project_path,
-        matched_items,
-        char_field=char_field,
-        clue_field=clue_field,
-        max_count=6,
-    )
+    characters = project.get("characters", {})
+    clues = project.get("clues", {})
 
-    return list(paths[:6]) or None
+    seen: set[str] = set()
+    paths: list[Path] = []
+    metadata: list[dict] = []
+    max_count = 6
+
+    for item in matched_items:
+        for char_name in item.get(char_field, []):
+            sheet = characters.get(char_name, {}).get("character_sheet")
+            if sheet and sheet not in seen:
+                p = project_path / sheet
+                if p.exists():
+                    paths.append(p)
+                    seen.add(sheet)
+                    metadata.append({"path": sheet, "name": char_name, "ref_type": "character"})
+        for clue_name in item.get(clue_field, []):
+            sheet = clues.get(clue_name, {}).get("clue_sheet")
+            if sheet and sheet not in seen:
+                p = project_path / sheet
+                if p.exists():
+                    paths.append(p)
+                    seen.add(sheet)
+                    metadata.append({"path": sheet, "name": clue_name, "ref_type": "clue"})
+        if len(paths) >= max_count:
+            break
+
+    return list(paths[:max_count]) or None, metadata[:max_count]
 
 
 async def execute_grid_task(
@@ -1010,10 +1031,15 @@ async def execute_grid_task(
         grid.error_message = None
         grid_manager.save(grid)
 
-        # c) Build reference images
-        reference_images = await asyncio.to_thread(
+        # c) Build reference images + metadata
+        from lib.grid.models import ReferenceImage
+
+        reference_images, ref_metadata = await asyncio.to_thread(
             _collect_grid_reference_images, project_path, payload, grid.scene_ids
         )
+        if ref_metadata:
+            grid.reference_images = [ReferenceImage.from_dict(m) for m in ref_metadata]
+            grid_manager.save(grid)
 
         # d) Generate grid image
         prompt_text = payload.get("prompt") or grid.prompt

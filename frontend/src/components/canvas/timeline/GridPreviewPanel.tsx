@@ -9,11 +9,12 @@ import {
   CheckCircle2,
   Clock,
   Scissors,
-  ArrowRight,
+  User,
+  Search,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { API } from "@/api";
-import type { GridGeneration, FrameCell } from "@/types/grid";
+import type { GridGeneration, ReferenceImage } from "@/types/grid";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,7 +22,7 @@ import type { GridGeneration, FrameCell } from "@/types/grid";
 
 export interface GridPreviewPanelProps {
   projectName: string;
-  gridId: string | null;
+  gridIds: string[];
   /** Called after a regeneration is submitted (for parent to refresh grids list). */
   onRegenerated?: () => void;
   /** Changed when grids list is refreshed, triggers re-fetch of panel data. */
@@ -29,7 +30,7 @@ export interface GridPreviewPanelProps {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// StatusBadge
 // ---------------------------------------------------------------------------
 
 type GridStatus = GridGeneration["status"];
@@ -78,119 +79,62 @@ function StatusBadge({ status }: { status: GridStatus }) {
   );
 }
 
-const FRAME_TYPE_CONFIGS = {
-  first: {
-    label: "首帧",
-    cls: "bg-amber-900/50 text-amber-300 border-amber-700/40",
-  },
-  transition: {
-    label: "过渡",
-    cls: "bg-sky-900/50 text-sky-300 border-sky-700/40",
-  },
-  placeholder: {
-    label: "占位",
-    cls: "bg-gray-800/80 text-gray-500 border-gray-700/40",
-  },
-} as const;
-
-function FrameTypeBadge({ type }: { type: FrameCell["frame_type"] }) {
-  const { label, cls } = FRAME_TYPE_CONFIGS[type];
-  return (
-    <span
-      className={`inline-flex items-center rounded border px-1 py-px text-[9px] font-semibold uppercase tracking-wider ${cls}`}
-    >
-      {label}
-    </span>
-  );
-}
-
-/** Derive a display name from scene id by truncating for readability. */
-function sceneShortId(id: string): string {
-  if (!id) return "—";
-  const parts = id.split("_");
-  if (parts.length >= 2) return `${parts[parts.length - 2]}_${parts[parts.length - 1]}`;
-  return id.length > 10 ? `…${id.slice(-8)}` : id;
-}
-
 // ---------------------------------------------------------------------------
-// FrameChainList
+// ReferenceImageStrip
 // ---------------------------------------------------------------------------
 
-function FrameChainList({ frames }: { frames: FrameCell[] }) {
-  if (frames.length === 0) {
-    return (
-      <div className="py-4 text-center text-xs text-gray-600">暂无帧链数据</div>
-    );
-  }
-
+function ReferenceImageStrip({
+  references,
+  projectName,
+  refreshKey,
+}: {
+  references: ReferenceImage[];
+  projectName: string;
+  refreshKey: number;
+}) {
   return (
-    <div className="flex flex-col gap-px overflow-hidden rounded-md border border-gray-800/60">
-      {/* Header row */}
-      <div className="grid grid-cols-[2rem_1fr_auto_auto] items-center gap-2 border-b border-gray-800/60 bg-gray-900/50 px-3 py-1.5">
-        <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-600">
-          #
-        </span>
-        <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-600">
-          场景映射
-        </span>
-        <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-600">
-          类型
-        </span>
-        <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-600">
-          位置
-        </span>
-      </div>
-
-      {frames.map((frame, idx) => (
-        <motion.div
-          key={frame.index}
-          initial={{ opacity: 0, x: -4 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: idx * 0.02, duration: 0.2 }}
-          className={`grid grid-cols-[2rem_1fr_auto_auto] items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-gray-800/30 ${
-            idx % 2 === 0 ? "bg-gray-900/20" : "bg-transparent"
-          }`}
-        >
-          {/* Index */}
-          <span className="font-mono text-[11px] font-semibold tabular-nums text-gray-500">
-            {String(frame.index + 1).padStart(2, "0")}
-          </span>
-
-          {/* Scene mapping */}
-          <div className="flex min-w-0 items-center gap-1.5">
-            {frame.prev_scene_id ? (
+    <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-thin">
+      {references.map((ref, idx) => {
+        const isChar = ref.ref_type === "character";
+        return (
+          <motion.div
+            key={ref.path}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: idx * 0.05, duration: 0.2 }}
+            className="group flex w-14 shrink-0 flex-col items-center gap-1"
+          >
+            <div
+              className={`w-full overflow-hidden rounded border bg-gray-900/50 transition-all duration-200 ${
+                isChar
+                  ? "border-amber-800/30 group-hover:border-amber-500/50"
+                  : "border-sky-800/30 group-hover:border-sky-500/50"
+              }`}
+            >
+              <img
+                src={API.getFileUrl(projectName, ref.path, refreshKey)}
+                alt={ref.name}
+                className="block aspect-square w-full object-cover transition-transform duration-200 group-hover:scale-105"
+              />
+            </div>
+            <div className="flex max-w-full items-center gap-0.5">
+              {isChar ? (
+                <User className="h-2 w-2 shrink-0 text-amber-500/50" />
+              ) : (
+                <Search className="h-2 w-2 shrink-0 text-sky-500/50" />
+              )}
               <span
-                className="truncate font-mono text-[10px] text-gray-400"
-                title={frame.prev_scene_id}
+                className={`truncate text-[8px] leading-tight ${
+                  isChar ? "text-amber-400/50" : "text-sky-400/50"
+                }`}
+                title={ref.name}
               >
-                {sceneShortId(frame.prev_scene_id)}
+                {ref.name}
               </span>
-            ) : null}
-            {frame.prev_scene_id && frame.next_scene_id ? (
-              <ArrowRight className="h-2.5 w-2.5 shrink-0 text-gray-600" />
-            ) : null}
-            {frame.next_scene_id ? (
-              <span
-                className="truncate font-mono text-[10px] text-amber-400/80"
-                title={frame.next_scene_id}
-              >
-                {sceneShortId(frame.next_scene_id)}
-              </span>
-            ) : null}
-            {!frame.prev_scene_id && !frame.next_scene_id ? (
-              <span className="text-[10px] text-gray-600">—</span>
-            ) : null}
-          </div>
-
-          {/* Frame type badge */}
-          <FrameTypeBadge type={frame.frame_type} />
-
-          {/* Grid position */}
-          <span className="font-mono text-[10px] tabular-nums text-gray-600">
-            R{frame.row + 1}C{frame.col + 1}
-          </span>
-        </motion.div>
-      ))}
+            </div>
+          </motion.div>
+        );
+      })}
     </div>
   );
 }
@@ -201,26 +145,39 @@ function FrameChainList({ frames }: { frames: FrameCell[] }) {
 
 export function GridPreviewPanel({
   projectName,
-  gridId,
+  gridIds,
   onRegenerated,
   refreshKey = 0,
 }: GridPreviewPanelProps) {
   const [expanded, setExpanded] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState(0);
   const [grid, setGrid] = useState<GridGeneration | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
 
-  // Fetch grid data when expanded and gridId is available
+  const hasGrids = gridIds.length > 0;
+  const multipleGrids = gridIds.length > 1;
+  const safeIdx = Math.min(selectedIdx, Math.max(0, gridIds.length - 1));
+  const selectedGridId = gridIds[safeIdx] ?? null;
+
+  // Clamp selection when grid list changes
   useEffect(() => {
-    if (!expanded || !gridId) return;
+    if (selectedIdx >= gridIds.length && gridIds.length > 0) {
+      setSelectedIdx(0);
+    }
+  }, [gridIds.length, selectedIdx]);
+
+  // Fetch grid data when expanded and selectedGridId is available
+  useEffect(() => {
+    if (!expanded || !selectedGridId) return;
 
     let cancelled = false;
-    // Only show loading spinner on initial load, not on refresh
-    if (!grid) setLoading(true);
+    // Only show loading spinner when we have no data for this grid
+    if (!grid || grid.id !== selectedGridId) setLoading(true);
     setError(null);
 
-    API.getGrid(projectName, gridId)
+    API.getGrid(projectName, selectedGridId)
       .then((data) => {
         if (!cancelled) {
           setGrid(data);
@@ -237,7 +194,7 @@ export function GridPreviewPanel({
     return () => {
       cancelled = true;
     };
-  }, [expanded, gridId, projectName, refreshKey]);
+  }, [expanded, selectedGridId, projectName, refreshKey]);
 
   const isInProgress =
     grid?.status === "pending" || grid?.status === "generating" || grid?.status === "splitting";
@@ -247,14 +204,16 @@ export function GridPreviewPanel({
       ? API.getFileUrl(projectName, grid.grid_image_path, refreshKey)
       : null;
 
+  const refs = grid?.reference_images ?? [];
+
   return (
-    <div className="my-3 overflow-hidden rounded-lg border border-amber-900/20 bg-amber-950/10">
+    <div>
       {/* Toggle header */}
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-amber-900/10 focus:outline-none"
+        className="flex w-full items-center gap-2 border-t border-amber-800/20 px-4 py-1.5 text-left transition-colors hover:bg-amber-900/10 focus:outline-none"
       >
         <motion.span
           animate={{ rotate: expanded ? 90 : 0 }}
@@ -268,8 +227,14 @@ export function GridPreviewPanel({
 
         <span className="text-xs font-medium text-amber-400/70">宫格预览</span>
 
-        {!gridId && (
+        {!hasGrids && (
           <span className="ml-1 text-[10px] text-gray-600">尚未生成</span>
+        )}
+
+        {multipleGrids && !expanded && (
+          <span className="ml-1 text-[10px] text-gray-600">
+            {gridIds.length} 批
+          </span>
         )}
       </button>
 
@@ -284,9 +249,9 @@ export function GridPreviewPanel({
             transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
             className="overflow-hidden"
           >
-            <div className="border-t border-amber-900/20 px-3 py-3">
+            <div className="px-4 pb-3 pt-2">
               {/* No grid yet */}
-              {!gridId ? (
+              {!hasGrids ? (
                 <div className="flex flex-col items-center gap-2 py-6 text-center">
                   <Grid2x2 className="h-8 w-8 text-gray-700" />
                   <p className="text-xs text-gray-600">尚未生成宫格</p>
@@ -294,8 +259,8 @@ export function GridPreviewPanel({
                     点击上方「生成宫格」按钮开始
                   </p>
                 </div>
-              ) : loading ? (
-                /* Loading state */
+              ) : loading && !grid ? (
+                /* Loading state (initial) */
                 <div className="flex items-center justify-center gap-2 py-8">
                   <Loader2 className="h-4 w-4 animate-spin text-amber-500/50" />
                   <span className="text-xs text-gray-600">加载宫格数据...</span>
@@ -308,13 +273,34 @@ export function GridPreviewPanel({
                 </div>
               ) : grid ? (
                 /* Grid loaded */
-                <div className="flex flex-col gap-4">
-                  {/* Top bar: status + meta + regen button */}
+                <div className="flex flex-col gap-3">
+                  {/* Top bar: batch pills + status + regen */}
                   <div className="flex items-center gap-2">
+                    {multipleGrids && (
+                      <div className="flex items-center gap-0.5 rounded-md bg-gray-900/50 p-0.5">
+                        {gridIds.map((_, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setSelectedIdx(idx)}
+                            className={`inline-flex h-5 min-w-[1.375rem] items-center justify-center rounded px-1 text-[10px] font-medium tabular-nums transition-all duration-150 ${
+                              idx === safeIdx
+                                ? "bg-amber-700/50 text-amber-200 shadow-sm"
+                                : "text-gray-500 hover:text-gray-300 hover:bg-gray-800/60"
+                            }`}
+                          >
+                            {idx + 1}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
                     <StatusBadge status={grid.status} />
+
                     <span className="text-[10px] text-gray-600">
                       {grid.model}
                     </span>
+
                     {grid.error_message && (
                       <span
                         className="truncate text-[10px] text-red-400/70"
@@ -323,13 +309,14 @@ export function GridPreviewPanel({
                         {grid.error_message}
                       </span>
                     )}
+
                     <motion.button
                       type="button"
                       disabled={regenerating || isInProgress}
                       onClick={() => {
-                        if (!gridId || regenerating || isInProgress) return;
+                        if (!selectedGridId || regenerating || isInProgress) return;
                         setRegenerating(true);
-                        API.regenerateGrid(projectName, gridId)
+                        API.regenerateGrid(projectName, selectedGridId)
                           .then(() => {
                             setGrid((prev) => prev ? { ...prev, status: "pending" } : prev);
                             onRegenerated?.();
@@ -349,49 +336,46 @@ export function GridPreviewPanel({
                     </motion.button>
                   </div>
 
-                  {/* Main content: image + frame chain */}
-                  <div className="grid grid-cols-[auto_1fr] gap-3">
-                    {/* Composite grid image */}
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-600">
-                        合成图
-                      </span>
-                      {imageUrl ? (
-                        <div className="overflow-hidden rounded-md border border-gray-800/50 bg-gray-900/50">
-                          <img
-                            src={imageUrl}
-                            alt="宫格合成图"
-                            className="block w-40 object-cover"
-                            style={{ imageRendering: "pixelated" }}
-                          />
-                          {/* Grid overlay indicator */}
-                          <div className="border-t border-gray-800/60 px-2 py-1">
-                            <span className="font-mono text-[9px] text-gray-600">
-                              {grid.cell_count} 格 · {grid.grid_size}
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex h-24 w-40 items-center justify-center rounded-md border border-gray-800/40 bg-gray-900/30">
-                          <span className="text-[10px] text-gray-700">
-                            {grid.status === "generating" || grid.status === "pending"
-                              ? "生成中..."
-                              : "无图像"}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Frame chain */}
-                    <div className="flex min-w-0 flex-col gap-1.5">
-                      <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-600">
-                        帧链映射 ({grid.frame_chain.length} 帧)
-                      </span>
-                      <div className="max-h-52 overflow-y-auto rounded-md scrollbar-thin">
-                        <FrameChainList frames={grid.frame_chain} />
+                  {/* Composite image + metadata */}
+                  {imageUrl ? (
+                    <div className="overflow-hidden rounded-md border border-gray-800/50 bg-gray-900/40">
+                      <img
+                        src={imageUrl}
+                        alt="宫格合成图"
+                        className="block max-h-64 w-full object-contain bg-black/20"
+                      />
+                      <div className="flex items-center gap-2 border-t border-gray-800/50 px-2.5 py-1.5">
+                        <span className="font-mono text-[10px] text-gray-500">
+                          {grid.cell_count} 格 · {grid.grid_size}
+                        </span>
+                        <span className="text-[10px] text-gray-700">
+                          {grid.rows}×{grid.cols}
+                        </span>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex h-24 items-center justify-center rounded-md border border-gray-800/40 bg-gray-900/30">
+                      <span className="text-[10px] text-gray-700">
+                        {grid.status === "generating" || grid.status === "pending"
+                          ? "生成中..."
+                          : "无图像"}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Reference images strip */}
+                  {refs.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-gray-600">
+                        参考图
+                      </span>
+                      <ReferenceImageStrip
+                        references={refs}
+                        projectName={projectName}
+                        refreshKey={refreshKey}
+                      />
+                    </div>
+                  )}
                 </div>
               ) : null}
             </div>

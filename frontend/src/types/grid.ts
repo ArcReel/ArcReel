@@ -4,6 +4,12 @@
  * Maps to backend models in lib/grid_manager.py and server/routers/grids.py.
  */
 
+export interface ReferenceImage {
+  path: string;
+  name: string;
+  ref_type: "character" | "clue";
+}
+
 export interface FrameCell {
   index: number;
   row: number;
@@ -31,4 +37,5 @@ export interface GridGeneration {
   grid_size: string;
   created_at: string;
   error_message: string | null;
+  reference_images?: ReferenceImage[] | null;
 }

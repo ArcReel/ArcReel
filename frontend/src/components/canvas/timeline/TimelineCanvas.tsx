@@ -212,11 +212,26 @@ export function TimelineCanvas({
   /**
    * Find all grid IDs whose scene_ids are a subset of the given group.
    * Handles batched grids: a group with 32 scenes may have 4 grids of ~9 each.
+   * Deduplicates by scene_ids key — keeps only the newest grid per unique batch.
    */
   function getGridIdsForGroup(groupScenes: Segment[]): string[] {
     const groupIdSet = new Set(groupScenes.map((s) => getSegmentId(s, contentMode)));
-    return grids
-      .filter((g) => g.scene_ids.length > 0 && g.scene_ids.every((id) => groupIdSet.has(id)))
+    const matched = grids.filter((g) =>
+      g.episode === episode &&
+      g.scene_ids.length > 0 &&
+      g.scene_ids.every((id) => groupIdSet.has(id)),
+    );
+    // Deduplicate: for grids with identical scene_ids, keep the newest one
+    const byKey = new Map<string, typeof matched[number]>();
+    for (const g of matched) {
+      const key = [...g.scene_ids].sort().join(",");
+      const existing = byKey.get(key);
+      if (!existing || g.created_at > existing.created_at) {
+        byKey.set(key, g);
+      }
+    }
+    return Array.from(byKey.values())
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
       .map((g) => g.id);
   }
 

@@ -9,6 +9,26 @@ from typing import Literal
 
 
 @dataclass
+class ReferenceImage:
+    """Metadata for a reference image used during grid generation."""
+
+    path: str  # Relative path from project root (e.g. "characters/hero/sheet.png")
+    name: str  # Display name (character or clue name)
+    ref_type: str  # "character" or "clue"
+
+    def to_dict(self) -> dict:
+        return {"path": self.path, "name": self.name, "ref_type": self.ref_type}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> ReferenceImage:
+        return cls(
+            path=data["path"],
+            name=data["name"],
+            ref_type=data.get("ref_type", "character"),
+        )
+
+
+@dataclass
 class FrameCell:
     """Represents a single cell in a grid frame chain."""
 
@@ -113,6 +133,7 @@ class GridGeneration:
     grid_size: str
     created_at: str
     error_message: str | None = None
+    reference_images: list[ReferenceImage] | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -132,6 +153,7 @@ class GridGeneration:
             "grid_size": self.grid_size,
             "created_at": self.created_at,
             "error_message": self.error_message,
+            "reference_images": [r.to_dict() for r in self.reference_images] if self.reference_images else None,
         }
 
     @classmethod
@@ -153,6 +175,9 @@ class GridGeneration:
             grid_size=data["grid_size"],
             created_at=data["created_at"],
             error_message=data.get("error_message"),
+            reference_images=[ReferenceImage.from_dict(r) for r in data["reference_images"]]
+            if data.get("reference_images")
+            else None,
         )
 
     @classmethod
