@@ -4,7 +4,7 @@
 
 **Goal:** Include text generation (script, overview, style analysis) API calls in the cost calculation and usage tracking system.
 
-**Architecture:** 创建 `TextGenerator` 包装层（类似 `MediaGenerator`），组合 `TextBackend` + `UsageTracker`。数据库新增 `input_tokens` / `output_tokens` 列，`UsageRepository` 增加 text 成本计算分支。前端增加 text 类型展示。
+**Architecture:** Create a `TextGenerator` wrapper layer (similar to `MediaGenerator`), combining `TextBackend` + `UsageTracker`. Add `input_tokens` / `output_tokens` columns to the database, add a text cost calculation branch to `UsageRepository`. Add text type display on the frontend.
 
 **Tech Stack:** Python / SQLAlchemy / Alembic / FastAPI / React / TypeScript / Zustand
 
