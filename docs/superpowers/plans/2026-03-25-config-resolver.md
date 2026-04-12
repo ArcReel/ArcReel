@@ -4,7 +4,7 @@
 
 **Goal:** Introduce a unified ConfigResolver to replace the cascading parameter passing, and fix the bug where inconsistent `video_generate_audio` default values cause disabling audio to have no effect.
 
-**Architecture:** 新增 `lib/config/resolver.py` 作为 ConfigService 上层封装，提供类型化、带优先级解析的配置读取。MediaGenerator 改为持有 ConfigResolver 引用，在 generate_video 时按需读取配置，而非构造时接收参数。同时移除 generation_tasks.py 中的 `_BulkConfig` / `_load_all_config()`。
+**Architecture:** Add `lib/config/resolver.py` as a thin wrapper above ConfigService, providing typed, priority-aware configuration reads. MediaGenerator is refactored to hold a ConfigResolver reference, reading config on demand in generate_video instead of receiving parameters at construction time. Also removes `_BulkConfig` / `_load_all_config()` from generation_tasks.py.
 
 **Tech Stack:** Python 3.12, SQLAlchemy async, pytest, asyncio
 
@@ -12,14 +12,14 @@
 
 ---
 
-### Task 1: 创建 ConfigResolver 类及单元测试
+### Task 1: Create ConfigResolver class and unit tests
 
 **Files:**
 - Create: `lib/config/resolver.py`
 - Modify: `lib/config/__init__.py`
 - Create: `tests/test_config_resolver.py`
 
-- [ ] **Step 1: 编写 ConfigResolver 失败测试**
+- [ ] **Step 1: Write failing tests for ConfigResolver**
 
 ```python
 # tests/test_config_resolver.py
@@ -30,7 +30,7 @@ from lib.config.resolver import ConfigResolver
 
 
 class _FakeConfigService:
-    """最小化的 ConfigService fake，只实现 resolver 需要的方法。"""
+    """Minimal ConfigService fake, only implementing the methods required by the resolver."""
 
     def __init__(self, settings: dict[str, str] | None = None):
         self._settings = settings or {}
@@ -52,31 +52,31 @@ class _FakeConfigService:
 
 
 class TestVideoGenerateAudio:
-    """验证 video_generate_audio 的默认值、全局配置、项目级覆盖优先级。"""
+    """Verify video_generate_audio default value, global config, and project-level override priority."""
 
     async def test_default_is_false_when_db_empty(self, tmp_path):
-        """DB 无值时应返回 False（不是 True）。"""
+        """Should return False (not True) when DB has no value."""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         result = await resolver._resolve_video_generate_audio(fake_svc, project_name=None)
         assert result is False
 
     async def test_global_true(self, tmp_path):
-        """DB 中值为 "true" 时返回 True。"""
+        """Returns True when DB value is "true"."""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"video_generate_audio": "true"})
         result = await resolver._resolve_video_generate_audio(fake_svc, project_name=None)
         assert result is True
 
     async def test_global_false(self, tmp_path):
-        """DB 中值为 "false" 时返回 False。"""
+        """Returns False when DB value is "false"."""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"video_generate_audio": "false"})
         result = await resolver._resolve_video_generate_audio(fake_svc, project_name=None)
         assert result is False
 
     async def test_bool_parsing_variants(self, tmp_path):
-        """验证各种布尔字符串的解析。"""
+        """Verify parsing of various boolean string values."""
         resolver = ConfigResolver.__new__(ConfigResolver)
         for val, expected in [("TRUE", True), ("1", True), ("yes", True), ("0", False), ("no", False), ("", False)]:
             fake_svc = _FakeConfigService(settings={"video_generate_audio": val} if val else {})
@@ -84,7 +84,7 @@ class TestVideoGenerateAudio:
             assert result is expected, f"Failed for {val!r}: got {result}"
 
     async def test_project_override_true_over_global_false(self, tmp_path):
-        """项目级覆盖 True 优先于全局 False。"""
+        """Project-level override True takes priority over global False."""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"video_generate_audio": "false"})
         with patch("lib.config.resolver.get_project_manager") as mock_pm:
@@ -93,7 +93,7 @@ class TestVideoGenerateAudio:
         assert result is True
 
     async def test_project_override_false_over_global_true(self, tmp_path):
-        """项目级覆盖 False 优先于全局 True。"""
+        """Project-level override False takes priority over global True."""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"video_generate_audio": "true"})
         with patch("lib.config.resolver.get_project_manager") as mock_pm:
@@ -102,14 +102,14 @@ class TestVideoGenerateAudio:
         assert result is False
 
     async def test_project_none_skips_override(self, tmp_path):
-        """project_name=None 时不读取项目配置。"""
+        """Does not read project config when project_name=None."""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"video_generate_audio": "true"})
         result = await resolver._resolve_video_generate_audio(fake_svc, project_name=None)
         assert result is True
 
     async def test_project_override_string_value(self, tmp_path):
-        """项目级覆盖值为字符串时也能正确解析。"""
+        """Correctly parses project-level override when value is a string."""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"video_generate_audio": "true"})
         with patch("lib.config.resolver.get_project_manager") as mock_pm:
@@ -119,7 +119,7 @@ class TestVideoGenerateAudio:
 
 
 class TestDefaultBackends:
-    """验证后端配置方法委托给 ConfigService。"""
+    """Verify that backend config methods delegate to ConfigService."""
 
     async def test_default_video_backend(self):
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -135,7 +135,7 @@ class TestDefaultBackends:
 
 
 class TestProviderConfig:
-    """验证供应商配置方法委托给 ConfigService。"""
+    """Verify that provider config methods delegate to ConfigService."""
 
     async def test_provider_config(self):
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -150,19 +150,19 @@ class TestProviderConfig:
         assert "gemini-aistudio" in result
 ```
 
-- [ ] **Step 2: 运行测试，确认全部失败**
+- [ ] **Step 2: Run tests, confirm all fail**
 
 Run: `uv run python -m pytest tests/test_config_resolver.py -v`
-Expected: ImportError 或 AttributeError（ConfigResolver 还不存在）
+Expected: ImportError or AttributeError (ConfigResolver does not exist yet)
 
-- [ ] **Step 3: 实现 ConfigResolver**
+- [ ] **Step 3: Implement ConfigResolver**
 
 ```python
 # lib/config/resolver.py
-"""统一运行时配置解析器。
+"""Unified runtime configuration resolver.
 
-将散落在多个文件中的配置读取和默认值定义集中到一处。
-每次调用从 DB 读取，不缓存（本地 SQLite 开销可忽略）。
+Centralizes configuration reads and default value definitions scattered across multiple files.
+Each call reads from DB without caching (local SQLite overhead is negligible).
 """
 
 from __future__ import annotations
@@ -177,66 +177,66 @@ from lib.config.service import ConfigService
 
 logger = logging.getLogger(__name__)
 
-# 布尔字符串解析的 truthy 值集合
+# Set of truthy values for boolean string parsing
 _TRUTHY = frozenset({"true", "1", "yes"})
 
 
 def _parse_bool(raw: str) -> bool:
-    """将配置字符串解析为布尔值。"""
+    """Parse a configuration string into a boolean value."""
     return raw.strip().lower() in _TRUTHY
 
 
 class ConfigResolver:
-    """运行时配置解析器。
+    """Runtime configuration resolver.
 
-    作为 ConfigService 的上层薄封装，提供：
-    - 唯一的默认值定义点
-    - 类型化输出（bool / tuple / dict）
-    - 内置优先级解析（全局配置 → 项目级覆盖）
+    A thin wrapper above ConfigService providing:
+    - Single point for default value definitions
+    - Typed outputs (bool / tuple / dict)
+    - Built-in priority resolution (global config → project-level override)
     """
 
-    # ── 唯一的默认值定义点 ──
+    # ── Single point for default value definitions ──
     _DEFAULT_VIDEO_GENERATE_AUDIO = False
 
     def __init__(self, session_factory: async_sessionmaker) -> None:
         self._session_factory = session_factory
 
-    # ── 公开 API：每次调用打开新 session ──
+    # ── Public API: opens a new session on each call ──
 
     async def video_generate_audio(self, project_name: str | None = None) -> bool:
-        """解析 video_generate_audio。
+        """Resolve video_generate_audio.
 
-        优先级：项目级覆盖 > 全局配置 > 默认值(False)。
+        Priority: project-level override > global config > default value (False).
         """
         async with self._session_factory() as session:
             svc = ConfigService(session)
             return await self._resolve_video_generate_audio(svc, project_name)
 
     async def default_video_backend(self) -> tuple[str, str]:
-        """返回 (provider_id, model_id)。"""
+        """Returns (provider_id, model_id)."""
         async with self._session_factory() as session:
             svc = ConfigService(session)
             return await self._resolve_default_video_backend(svc)
 
     async def default_image_backend(self) -> tuple[str, str]:
-        """返回 (provider_id, model_id)。"""
+        """Returns (provider_id, model_id)."""
         async with self._session_factory() as session:
             svc = ConfigService(session)
             return await self._resolve_default_image_backend(svc)
 
     async def provider_config(self, provider_id: str) -> dict[str, str]:
-        """获取单个供应商配置。"""
+        """Get configuration for a single provider."""
         async with self._session_factory() as session:
             svc = ConfigService(session)
             return await self._resolve_provider_config(svc, provider_id)
 
     async def all_provider_configs(self) -> dict[str, dict[str, str]]:
-        """批量获取所有供应商配置。"""
+        """Fetch all provider configurations in bulk."""
         async with self._session_factory() as session:
             svc = ConfigService(session)
             return await self._resolve_all_provider_configs(svc)
 
-    # ── 内部解析方法（可独立测试，接收已创建的 svc） ──
+    # ── Internal resolution methods (independently testable, receive a pre-created svc) ──
 
     async def _resolve_video_generate_audio(
         self, svc: ConfigService, project_name: str | None,
@@ -269,7 +269,7 @@ class ConfigResolver:
         return await svc.get_all_provider_configs()
 ```
 
-- [ ] **Step 4: 更新 `lib/config/__init__.py` 导出**
+- [ ] **Step 4: Update `lib/config/__init__.py` exports**
 
 ```python
 # lib/config/__init__.py
@@ -280,7 +280,7 @@ from lib.config.resolver import ConfigResolver
 __all__ = ["ConfigResolver"]
 ```
 
-- [ ] **Step 5: 运行测试，确认全部通过**
+- [ ] **Step 5: Run tests, confirm all pass**
 
 Run: `uv run python -m pytest tests/test_config_resolver.py -v`
 Expected: all PASS
@@ -294,23 +294,23 @@ git commit -m "feat: add ConfigResolver with unified defaults and priority resol
 
 ---
 
-### Task 2: 改造 MediaGenerator 使用 ConfigResolver
+### Task 2: Refactor MediaGenerator to use ConfigResolver
 
 **Files:**
-- Modify: `lib/media_generator.py:43-97` (构造函数)
-- Modify: `lib/media_generator.py:136-143` (删除 `_resolve_video_generate_audio`)
-- Modify: `lib/media_generator.py:406-418` (同步 `generate_video`)
-- Modify: `lib/media_generator.py:554-566` (异步 `generate_video_async`)
+- Modify: `lib/media_generator.py:43-97` (constructor)
+- Modify: `lib/media_generator.py:136-143` (remove `_resolve_video_generate_audio`)
+- Modify: `lib/media_generator.py:406-418` (sync `generate_video`)
+- Modify: `lib/media_generator.py:554-566` (async `generate_video_async`)
 - Modify: `tests/test_media_generator_module.py:63-83` (`_build_generator` helper)
 
-- [ ] **Step 1: 更新 `_build_generator` 测试 helper，注入 FakeConfigResolver**
+- [ ] **Step 1: Update `_build_generator` test helper to inject FakeConfigResolver**
 
-在 `tests/test_media_generator_module.py` 中添加 fake resolver 并更新 `_build_generator`：
+Add fake resolver and update `_build_generator` in `tests/test_media_generator_module.py`:
 
 ```python
-# At the top of the file import 之后添加
+# Add after imports at the top of the file
 class _FakeConfigResolver:
-    """Fake ConfigResolver，返回可控的配置值。"""
+    """Fake ConfigResolver that returns controllable config values."""
     def __init__(self, video_generate_audio: bool = False):
         self._video_generate_audio = video_generate_audio
 
@@ -318,35 +318,35 @@ class _FakeConfigResolver:
         return self._video_generate_audio
 ```
 
-在 `_build_generator` 函数中：
-- 移除 `gen._video_generate_audio = None`
-- 添加 `gen._config = _FakeConfigResolver()`
+In the `_build_generator` function:
+- Remove `gen._video_generate_audio = None`
+- Add `gen._config = _FakeConfigResolver()`
 
-- [ ] **Step 2: 运行现有测试确认仍通过**
+- [ ] **Step 2: Run existing tests to confirm they still pass**
 
 Run: `uv run python -m pytest tests/test_media_generator_module.py -v`
-Expected: PASS（因为 `_build_generator` 用 `object.__new__` 手动设置属性，改属性名后需要对应修改）
+Expected: PASS (since `_build_generator` uses `object.__new__` to set attributes manually, the attribute name change must be reflected accordingly)
 
-- [ ] **Step 3: 改造 MediaGenerator 构造函数**
+- [ ] **Step 3: Refactor MediaGenerator constructor**
 
-在 `lib/media_generator.py` 中：
+In `lib/media_generator.py`:
 
-1. 添加 import：
+1. Add import:
 ```python
 from lib.config.resolver import ConfigResolver
 ```
 
-2. 构造函数签名：将 `video_generate_audio: Optional[bool] = None` 替换为 `config_resolver: Optional[ConfigResolver] = None`
+2. Constructor signature: replace `video_generate_audio: Optional[bool] = None` with `config_resolver: Optional[ConfigResolver] = None`
 
-3. 构造函数体：将 `self._video_generate_audio = video_generate_audio` 替换为 `self._config = config_resolver`
+3. Constructor body: replace `self._video_generate_audio = video_generate_audio` with `self._config = config_resolver`
 
-4. 删除 `_resolve_video_generate_audio()` 方法（第 136-143 行）
+4. Remove the `_resolve_video_generate_audio()` method (lines 136-143)
 
-- [ ] **Step 4: 改造同步 `generate_video()` 中的 audio 解析逻辑**
+- [ ] **Step 4: Refactor audio resolution logic in sync `generate_video()`**
 
-> **注意**：此处通过 `_sync()` 调用 async 的 ConfigResolver，复用了 `usage_tracker.start_call()` 等已有的跨线程 async 调用模式。
+> **Note**: Here the async ConfigResolver is called via `_sync()`, reusing the existing cross-thread async call pattern used by `usage_tracker.start_call()` etc.
 
-在 `lib/media_generator.py` 第 406-418 行，将：
+In `lib/media_generator.py` lines 406-418, replace:
 
 ```python
 if self._video_backend:
@@ -361,7 +361,7 @@ else:
     )
 ```
 
-替换为：
+with:
 
 ```python
 if self._video_backend:
@@ -380,9 +380,9 @@ else:
     )
 ```
 
-- [ ] **Step 5: 改造异步 `generate_video_async()` 中的 audio 解析逻辑**
+- [ ] **Step 5: Refactor audio resolution logic in async `generate_video_async()`**
 
-在 `lib/media_generator.py` 第 554-566 行，同样的模式：
+In `lib/media_generator.py` lines 554-566, same pattern:
 
 ```python
 if self._video_backend:
@@ -397,7 +397,7 @@ else:
     )
 ```
 
-- [ ] **Step 6: 运行测试确认通过**
+- [ ] **Step 6: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_media_generator_module.py -v`
 Expected: all PASS
@@ -411,20 +411,20 @@ git commit -m "refactor: replace video_generate_audio param with ConfigResolver 
 
 ---
 
-### Task 3: 改造 generation_tasks.py 移除 _BulkConfig
+### Task 3: Refactor generation_tasks.py to remove _BulkConfig
 
 **Files:**
-- Modify: `server/services/generation_tasks.py:68-248` (移除 `_BulkConfig`/`_load_all_config()`，改造辅助函数)
-- Modify: `tests/test_generation_tasks_service.py` (适配新接口)
+- Modify: `server/services/generation_tasks.py:68-248` (remove `_BulkConfig`/`_load_all_config()`, refactor helper functions)
+- Modify: `tests/test_generation_tasks_service.py` (adapt to new interface)
 
-- [ ] **Step 1: 运行现有测试确认基线**
+- [ ] **Step 1: Run existing tests to confirm baseline**
 
 Run: `uv run python -m pytest tests/test_generation_tasks_service.py -v`
 Expected: all PASS
 
-- [ ] **Step 2: 改造 `_get_or_create_video_backend` 为 async，接收 ConfigResolver**
+- [ ] **Step 2: Refactor `_get_or_create_video_backend` to async, accepting ConfigResolver**
 
-将 `server/services/generation_tasks.py` 第 110-160 行从：
+In `server/services/generation_tasks.py` lines 110-160, change from:
 
 ```python
 def _get_or_create_video_backend(
@@ -436,7 +436,7 @@ def _get_or_create_video_backend(
 ):
 ```
 
-改为：
+to:
 
 ```python
 async def _get_or_create_video_backend(
@@ -448,11 +448,11 @@ async def _get_or_create_video_backend(
 ):
 ```
 
-内部将 `bulk.get_provider_config(config_provider_id)` 替换为 `await resolver.provider_config(config_provider_id)`。同样替换 seedance 和 grok 的配置获取。
+Internally replace `bulk.get_provider_config(config_provider_id)` with `await resolver.provider_config(config_provider_id)`. Do the same for seedance and grok config fetching.
 
-- [ ] **Step 3: 改造 `_resolve_image_backend` 为 async，接收 ConfigResolver**
+- [ ] **Step 3: Refactor `_resolve_image_backend` to async, accepting ConfigResolver**
 
-将第 163-176 行从：
+Change lines 163-176 from:
 
 ```python
 def _resolve_image_backend(
@@ -461,7 +461,7 @@ def _resolve_image_backend(
     image_provider_id, image_model = bulk.default_image_backend
 ```
 
-改为：
+to:
 
 ```python
 async def _resolve_image_backend(
@@ -470,11 +470,11 @@ async def _resolve_image_backend(
     image_provider_id, image_model = await resolver.default_image_backend()
 ```
 
-其余逻辑不变。
+The remaining logic stays the same.
 
-- [ ] **Step 4: 改造 `_resolve_video_backend` 为 async，接收 ConfigResolver**
+- [ ] **Step 4: Refactor `_resolve_video_backend` to async, accepting ConfigResolver**
 
-将第 179-211 行从：
+Change lines 179-211 from:
 
 ```python
 def _resolve_video_backend(
@@ -483,7 +483,7 @@ def _resolve_video_backend(
     default_video_provider_id, video_model = bulk.default_video_backend
 ```
 
-改为：
+to:
 
 ```python
 async def _resolve_video_backend(
@@ -492,15 +492,15 @@ async def _resolve_video_backend(
     default_video_provider_id, video_model = await resolver.default_video_backend()
 ```
 
-内部的 `_get_or_create_video_backend(provider_name, provider_settings, bulk, ...)` 调用改为 `await _get_or_create_video_backend(provider_name, provider_settings, resolver, ...)`。
+Change the internal `_get_or_create_video_backend(provider_name, provider_settings, bulk, ...)` call to `await _get_or_create_video_backend(provider_name, provider_settings, resolver, ...)`.
 
-- [ ] **Step 5: 改造 `get_media_generator` 使用 ConfigResolver**
+- [ ] **Step 5: Refactor `get_media_generator` to use ConfigResolver**
 
-将第 214-248 行改为：
+Change lines 214-248 to:
 
 ```python
 async def get_media_generator(project_name: str, payload: dict | None = None, *, user_id: str = DEFAULT_USER_ID) -> MediaGenerator:
-    """创建 MediaGenerator。仅当 payload 包含视频配置时才初始化视频后端。"""
+    """Create a MediaGenerator. Video backend is only initialized when payload contains video config."""
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
 
@@ -526,16 +526,16 @@ async def get_media_generator(project_name: str, payload: dict | None = None, *,
     )
 ```
 
-- [ ] **Step 6: 改造 `execute_video_task` 中的 `_load_all_config` 调用**
+- [ ] **Step 6: Refactor `_load_all_config` call in `execute_video_task`**
 
-在 `execute_video_task()` 第 574-577 行，将：
+In `execute_video_task()` lines 574-577, replace:
 
 ```python
 bulk = await _load_all_config()
 default_provider_id, _ = bulk.default_video_backend
 ```
 
-替换为：
+with:
 
 ```python
 from lib.config.resolver import ConfigResolver
@@ -544,10 +544,10 @@ resolver = ConfigResolver(async_session_factory)
 default_provider_id, _ = await resolver.default_video_backend()
 ```
 
-- [ ] **Step 7: 运行测试确认通过**
+- [ ] **Step 7: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_generation_tasks_service.py -v`
-Expected: all PASS（测试用 monkeypatch 替换了 `get_media_generator`，不依赖内部实现细节）
+Expected: all PASS (tests use monkeypatch to replace `get_media_generator`, not depending on internal implementation details)
 
 - [ ] **Step 8: Commit**
 
@@ -558,17 +558,17 @@ git commit -m "refactor: replace _BulkConfig with ConfigResolver in generation_t
 
 ---
 
-### Task 4: 改造 generate.py 路由并删除 _BulkConfig
+### Task 4: Refactor generate.py route and delete _BulkConfig
 
-> **重要**：必须先替换 `generate.py` 中对 `_load_all_config` 的引用，然后再删除 `_BulkConfig` / `_load_all_config()`，否则会导致中间状态代码 broken。
+> **Important**: Must replace all `_load_all_config` references in `generate.py` before deleting `_BulkConfig` / `_load_all_config()`, otherwise the intermediate state will break the code.
 
 **Files:**
 - Modify: `server/routers/generate.py:213-216`
-- Modify: `server/services/generation_tasks.py:68-108` (删除 `_BulkConfig` / `_load_all_config()`)
+- Modify: `server/services/generation_tasks.py:68-108` (delete `_BulkConfig` / `_load_all_config()`)
 
-- [ ] **Step 1: 替换 `generate.py` 中的 `_load_all_config()` 调用**
+- [ ] **Step 1: Replace `_load_all_config()` calls in `generate.py`**
 
-在 `server/routers/generate.py` 第 213-216 行的 `else` 分支中，将：
+In the `else` branch at `server/routers/generate.py` lines 213-216, replace:
 
 ```python
 else:
@@ -577,7 +577,7 @@ else:
     video_provider, video_model = bulk.default_video_backend
 ```
 
-替换为：
+with:
 
 ```python
 else:
@@ -587,16 +587,16 @@ else:
     video_provider, video_model = await resolver.default_video_backend()
 ```
 
-- [ ] **Step 2: 删除 `_BulkConfig` 和 `_load_all_config()`**
+- [ ] **Step 2: Delete `_BulkConfig` and `_load_all_config()`**
 
-移除 `server/services/generation_tasks.py` 第 68-108 行的 `_BulkConfig` 数据类和 `_load_all_config()` 函数。
+Remove the `_BulkConfig` dataclass and `_load_all_config()` function from `server/services/generation_tasks.py` lines 68-108.
 
-- [ ] **Step 3: 运行全量测试confirm no regressions**
+- [ ] **Step 3: Run full test suite to confirm no regressions**
 
 Run: `uv run python -m pytest -v`
 Expected: all PASS
 
-- [ ] **Step 4: 提交**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add server/routers/generate.py server/services/generation_tasks.py
@@ -605,31 +605,31 @@ git commit -m "refactor: use ConfigResolver in generate.py route, remove _BulkCo
 
 ---
 
-### Task 5: 补充集成测试
+### Task 5: Add integration tests
 
 **Files:**
 - Modify: `tests/test_media_generator_module.py`
 
-- [ ] **Step 1: 添加 audio 配置集成测试**
+- [ ] **Step 1: Add audio config integration tests**
 
-在 `tests/test_media_generator_module.py` 的 `TestMediaGenerator` 类中添加：
+Add to the `TestMediaGenerator` class in `tests/test_media_generator_module.py`:
 
 ```python
 @pytest.mark.asyncio
 async def test_video_generate_audio_from_config_resolver(self, tmp_path):
-    """验证 generate_video_async 通过 ConfigResolver 获取 audio 设置。"""
+    """Verify that generate_video_async fetches audio setting via ConfigResolver."""
     gen = _build_generator(tmp_path)
     gen._config = _FakeConfigResolver(video_generate_audio=False)
 
     await gen.generate_video_async(
         prompt="p", resource_type="videos", resource_id="E1S03",
     )
-    # aistudio 后端强制 audio=True，即使 config 返回 False
+    # aistudio backend forces audio=True even when config returns False
     assert gen.usage_tracker.started[-1]["generate_audio"] is True
 
 @pytest.mark.asyncio
 async def test_video_generate_audio_vertex_respects_config(self, tmp_path):
-    """验证 vertex 后端尊重 ConfigResolver 返回的 False。"""
+    """Verify that vertex backend respects False returned by ConfigResolver."""
     gen = _build_generator(tmp_path)
     gen._gemini_video_backend_type = "vertex"
     gen._config = _FakeConfigResolver(video_generate_audio=False)
@@ -640,12 +640,12 @@ async def test_video_generate_audio_vertex_respects_config(self, tmp_path):
     assert gen.usage_tracker.started[-1]["generate_audio"] is False
 ```
 
-- [ ] **Step 2: 运行测试确认通过**
+- [ ] **Step 2: Run tests to confirm they pass**
 
 Run: `uv run python -m pytest tests/test_media_generator_module.py -v`
 Expected: all PASS
 
-- [ ] **Step 3: 提交**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add tests/test_media_generator_module.py
@@ -654,31 +654,31 @@ git commit -m "test: add ConfigResolver integration tests for MediaGenerator"
 
 ---
 
-### Task 6: 全量回归测试与清理
+### Task 6: Full regression tests and cleanup
 
 **Files:**
-- 全部已修改文件
+- All modified files
 
-- [ ] **Step 1: 运行全量测试套件**
+- [ ] **Step 1: Run the full test suite**
 
 Run: `uv run python -m pytest -v`
 Expected: all PASS
 
-- [ ] **Step 2: 验证 `_load_all_config` 无残留引用**
+- [ ] **Step 2: Verify no remaining references to `_load_all_config`**
 
 Run: `grep -r "_load_all_config\|_BulkConfig" lib/ server/ tests/ --include="*.py"`
-Expected: 无匹配（已全部移除）
+Expected: no matches (all removed)
 
-- [ ] **Step 3: 验证 `_resolve_video_generate_audio` 无残留引用**
+- [ ] **Step 3: Verify no remaining references to `_resolve_video_generate_audio`**
 
 Run: `grep -r "_resolve_video_generate_audio\|_video_generate_audio" lib/ server/ tests/ --include="*.py"`
-Expected: 无匹配（已全部移除）
+Expected: no matches (all removed)
 
-- [ ] **Step 4: 提交（如有清理）**
+- [ ] **Step 4: Commit (if any cleanup needed)**
 
 ```bash
 git add -A
 git commit -m "chore: remove stale references to _BulkConfig and _video_generate_audio"
 ```
 
-> **行为变更说明**：ConfigResolver 不像旧 `_load_all_config()` 那样在 DB 异常时静默回退到 `True`。DB 异常现在会抛出，这是设计规格中的有意决策——避免配置读取失败时静默启用音频生成。
+> **Behavior change note**: ConfigResolver does not silently fall back to `True` on DB exceptions like the old `_load_all_config()` did. DB exceptions now propagate — this is an intentional decision in the design spec — to avoid silently enabling audio generation when config reads fail.
