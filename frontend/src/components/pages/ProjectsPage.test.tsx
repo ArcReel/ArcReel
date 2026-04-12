@@ -81,11 +81,12 @@ describe("ProjectsPage", () => {
 
     renderPage();
     await screen.findByText("暂无项目");
+    expect(screen.queryByTestId("create-project-modal")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
 
     await waitFor(() => {
-      expect(useProjectsStore.getState().showCreateModal).toBe(true);
+      expect(screen.getByTestId("create-project-modal")).toBeInTheDocument();
     });
   });
 

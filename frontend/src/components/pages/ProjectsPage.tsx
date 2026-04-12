@@ -9,6 +9,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import { Popover } from "@/components/ui/Popover";
+import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
 import type { ProjectStatus, ProjectSummary, ImportConflictPolicy, ImportFailureDiagnostics } from "@/types";
 
@@ -373,6 +374,7 @@ export function ProjectsPage() {
         />
       )}
       {showOpenClaw && <OpenClawModal onClose={() => setShowOpenClaw(false)} />}
+      {showCreateModal && <CreateProjectModal />}
 
       {/* Delete project confirmation dialog */}
       {deletingProject && (
