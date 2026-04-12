@@ -1,31 +1,31 @@
-# OpenAI Preset Provider Design文档
+# OpenAI Preset Provider Design Document
 
-> 日期：2026-03-31 | 状态：已确认 | 分支：feature/openai-provider
+> Date: 2026-03-31 | Status: Confirmed | Branch: feature/openai-provider
 
 ## Overview
 
-在 ArcReel 中新增 OpenAI 为第五个预置供应商，支持文本（GPT-5.4）、图片（GPT Image 1.5）、视频（Sora 2）三种媒体类型。Uses"共享模块 + 三个独立 Backend"的架构，参照现有 `gemini_shared.py` 模式新增 `openai_shared.py`。
+Add OpenAI as the fifth preset provider in ArcReel, supporting three media types: text (GPT-5.4), image (GPT Image 1.5), and video (Sora 2). Uses a "shared module + three independent backends" architecture, adding `openai_shared.py` following the existing `gemini_shared.py` pattern.
 
 ### Scope
 
-- OpenAI 预置供应商（文本 + 图片 + 视频）
-- **不包含**自定义供应商（下一个迭代）
+- OpenAI preset provider (text + image + video)
+- **Excludes** custom providers (next iteration)
 
-### 关键决策
+### Key Decisions
 
-| 决策点 | 结论 | 理由 |
-|--------|------|------|
-| 架构模式 | 共享 `openai_shared.py` + 三个独立 Backend | 有 `gemini_shared.py` 先例，DRY 且为自定义供应商铺路 |
-| SDK | 统一使用 `openai` SDK 2.30.0 | 已在依赖中，三种媒体类型 API 均完整支持 |
-| 结构化输出 | 原生 `response_format` 优先，Instructor fallback | 与 Gemini 后端策略一致 |
-| 图片 API | Images API（`generate` + `edit`） | 与 `ImageBackend` Protocol 天然对齐 |
-| 图片 I2I | `client.images.edit()` 传入参考图 | 支持多张参考图输入 |
-| 视频 API | SDK 原生 `client.videos.create_and_poll()` | SDK 2.30.0 完整支持，内置轮询 |
-| 视频 Seed | 不支持 | SDK `VideoCreateParams` 无 seed 参数 |
+| Decision Point | Conclusion | Rationale |
+|---------------|------------|-----------|
+| Architecture pattern | Shared `openai_shared.py` + three independent backends | Follows `gemini_shared.py` precedent; DRY and paves the way for custom providers |
+| SDK | Unified use of `openai` SDK 2.30.0 | Already in dependencies; full API support for all three media types |
+| Structured output | Native `response_format` first, Instructor fallback | Consistent with Gemini backend strategy |
+| Image API | Images API (`generate` + `edit`) | Naturally aligned with the `ImageBackend` Protocol |
+| Image I2I | `client.images.edit()` with reference images | Supports multiple reference image inputs |
+| Video API | Native SDK `client.videos.create_and_poll()` | SDK 2.30.0 fully supports it with built-in polling |
+| Video Seed | Not supported | SDK `VideoCreateParams` has no seed parameter |
 
 ---
 
-## 1. 供应商注册与常量
+## 1. Provider Registration and Constants
 
 ### `lib/providers.py`
 
@@ -38,7 +38,7 @@ PROVIDER_OPENAI = "openai"
 ```python
 "openai": ProviderMeta(
     display_name="OpenAI",
-    description="OpenAI 官方平台，支持 GPT-5.4 文本、GPT Image 图片和 Sora 视频生成。",
+    description="OpenAI official platform, supporting GPT-5.4 text, GPT Image image, and Sora video generation.",
     required_keys=["api_key"],
     optional_keys=["base_url", "image_rpm", "video_rpm", "request_gap",
                    "image_max_workers", "video_max_workers"],
@@ -58,15 +58,15 @@ PROVIDER_OPENAI = "openai"
 )
 ```
 
-**设计要点：**
-- `optional_keys` 包含 `base_url`，为下期自定义供应商铺路
-- GPT-5.4 Mini 为默认文本模型（高性价比）
-- 图片支持 `text_to_image` + `image_to_image`（T2I 走 `images.generate()`，I2I 走 `images.edit()`）
-- 视频支持 `text_to_video` + `image_to_video`（Sora 支持 `input_reference`）
+**Design notes:**
+- `optional_keys` includes `base_url`, paving the way for custom providers in the next iteration
+- GPT-5.4 Mini is the default text model (high cost-performance ratio)
+- Image supports `text_to_image` + `image_to_image` (T2I uses `images.generate()`, I2I uses `images.edit()`)
+- Video supports `text_to_video` + `image_to_video` (Sora supports `input_reference`)
 
 ---
 
-## 2. `openai_shared.py` 共享模块
+## 2. `openai_shared.py` Shared Module
 
 ```python
 # lib/openai_shared.py
@@ -97,7 +97,7 @@ def create_openai_client(
     api_key: str | None = None,
     base_url: str | None = None,
 ) -> AsyncOpenAI:
-    """创建 AsyncOpenAI 客户端，统一处理 api_key 和 base_url。"""
+    """Create AsyncOpenAI client with unified api_key and base_url handling."""
     kwargs: dict = {}
     if api_key:
         kwargs["api_key"] = api_key
@@ -106,11 +106,11 @@ def create_openai_client(
     return AsyncOpenAI(**kwargs)
 ```
 
-**与 `gemini_shared.py` 的区别：**
-- 不需要 `RateLimiter` — OpenAI SDK 内置重试和退避
-- 不需要 `with_retry_async` — SDK `max_retries` 默认 2
-- 只做客户端工厂 + 可重试错误类型导出
-- 下期自定义供应商只需传入不同 `base_url` 即可复用
+**Differences from `gemini_shared.py`:**
+- No `RateLimiter` needed — OpenAI SDK has built-in retry and backoff
+- No `with_retry_async` needed — SDK `max_retries` defaults to 2
+- Only provides client factory + retryable error type exports
+- Custom providers in the next iteration only need to pass a different `base_url` for reuse
 
 ---
 
@@ -146,17 +146,17 @@ class OpenAITextBackend:
         )
 ```
 
-**关键实现细节：**
+**Key implementation details:**
 
-1. **消息构建** — `_build_messages()` 将 `request.prompt` / `system_prompt` / `images` 转为 OpenAI messages 格式，图片用 `{"type": "image_url", "image_url": {"url": data_uri}}`
-2. **结构化输出** — `_build_response_format()` 将 Pydantic model / JSON schema 转为 `{"type": "json_schema", "json_schema": {...}}`，配合现有 `resolve_schema()` 工具
-3. **Instructor fallback（后续迭代）** — 本期仅实现原生 `response_format` 结构化输出。Instructor fallback 路径作为后续优化，待确认 GPT-5.4 系列的 schema 兼容性边界后再添加
-4. **Usage 容错** — `response.usage` 可能为 None（兼容服务），记为 None 不阻塞
+1. **Message construction** — `_build_messages()` converts `request.prompt` / `system_prompt` / `images` to OpenAI messages format, images use `{"type": "image_url", "image_url": {"url": data_uri}}`
+2. **Structured output** — `_build_response_format()` converts Pydantic model / JSON schema to `{"type": "json_schema", "json_schema": {...}}`, using the existing `resolve_schema()` utility
+3. **Instructor fallback (future iteration)** — this iteration only implements native `response_format` structured output. The Instructor fallback path is a future optimization, to be added after confirming GPT-5.4 schema compatibility boundaries
+4. **Usage fault tolerance** — `response.usage` may be None (compatible services); recorded as None without blocking
 
-### 注册与工厂
+### Registration and Factory
 
 - `text_backends/__init__.py`: `register_backend(PROVIDER_OPENAI, OpenAITextBackend)`
-- `text_backends/factory.py`: `"openai": "openai"` 映射，传入 `api_key` + `base_url` + `model`
+- `text_backends/factory.py`: `"openai": "openai"` mapping, passing `api_key` + `base_url` + `model`
 
 ---
 
@@ -192,7 +192,7 @@ async def _generate_create(self, request):
         response_format="b64_json",
         n=1,
     )
-    # base64 解码 → 写入 output_path
+    # base64 decode → write to output_path
 ```
 
 **I2I** — `client.images.edit()`:
@@ -210,10 +210,10 @@ async def _generate_edit(self, request):
     finally:
         for f in image_files:
             f.close()
-    # base64 解码 → 写入 output_path
+    # base64 decode → write to output_path
 ```
 
-**尺寸映射**（`aspect_ratio` → OpenAI `size`）:
+**Size mapping** (`aspect_ratio` → OpenAI `size`):
 
 | aspect_ratio | OpenAI size |
 |--------------|-------------|
@@ -221,7 +221,7 @@ async def _generate_edit(self, request):
 | `16:9` | `1792x1024` |
 | `1:1` | `1024x1024` |
 
-**质量映射**（`image_size` → OpenAI `quality`）:
+**Quality mapping** (`image_size` → OpenAI `quality`):
 
 | image_size | quality |
 |------------|---------|
@@ -230,7 +230,7 @@ async def _generate_edit(self, request):
 | `2K` | `high` |
 | `4K` | `high` |
 
-### 注册
+### Registration
 
 - `image_backends/__init__.py`: `register_backend(PROVIDER_OPENAI, OpenAIImageBackend)`
 
@@ -267,7 +267,7 @@ class OpenAIVideoBackend:
         video = await self._client.videos.create_and_poll(**kwargs)
 
         if video.status == "failed":
-            raise RuntimeError(f"Sora 视频生成失败: {video.error}")
+            raise RuntimeError(f"Sora video generation failed: {video.error}")
 
         content = await self._client.videos.download_content(video.id)
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -282,7 +282,7 @@ class OpenAIVideoBackend:
         )
 ```
 
-**时长映射**（`duration_seconds: int` → SDK `VideoSeconds`）:
+**Duration mapping** (`duration_seconds: int` → SDK `VideoSeconds`):
 
 | duration_seconds | VideoSeconds |
 |-----------------|--------------|
@@ -290,70 +290,70 @@ class OpenAIVideoBackend:
 | 5-8 | `"8"` |
 | ≥ 9 | `"12"` |
 
-**尺寸映射**（`aspect_ratio` → SDK `VideoSize`）:
+**Size mapping** (`aspect_ratio` → SDK `VideoSize`):
 
 | aspect_ratio | VideoSize |
 |--------------|-----------|
 | `9:16` | `720x1280` |
 | `16:9` | `1280x720` |
 
-**不支持的能力（不标记）：**
-- `GENERATE_AUDIO` — Sora 不独立控制音频
-- `NEGATIVE_PROMPT` — Sora 不支持
-- `SEED_CONTROL` — SDK VideoCreateParams 无 seed 参数
-- `FLEX_TIER` — Sora 不支持
+**Unsupported capabilities (not declared):**
+- `GENERATE_AUDIO` — Sora does not independently control audio
+- `NEGATIVE_PROMPT` — Sora does not support
+- `SEED_CONTROL` — SDK VideoCreateParams has no seed parameter
+- `FLEX_TIER` — Sora does not support
 
-### 注册
+### Registration
 
 - `video_backends/__init__.py`: `register_backend(PROVIDER_OPENAI, OpenAIVideoBackend)`
 
 ---
 
-## 6. Cost Calculator 扩展
+## 6. Cost Calculator Extension
 
-### 新增定价表
+### New Pricing Tables
 
 ```python
-# OpenAI 文本费率（USD/百万 token）
+# OpenAI text rates (USD per million tokens)
 OPENAI_TEXT_COST = {
     "gpt-5.4":      {"input": 2.50, "output": 15.00},
     "gpt-5.4-mini": {"input": 0.75, "output": 4.50},
     "gpt-5.4-nano": {"input": 0.20, "output": 1.25},
 }
 
-# OpenAI 图片费率（USD/张），按 quality 区分
+# OpenAI image rates (USD per image), by quality
 OPENAI_IMAGE_COST = {
     "gpt-image-1.5":    {"low": 0.009, "medium": 0.034, "high": 0.133},
     "gpt-image-1-mini": {"low": 0.005, "medium": 0.011, "high": 0.036},
 }
 
-# OpenAI 视频费率（USD/秒），按分辨率区分
+# OpenAI video rates (USD per second), by resolution
 OPENAI_VIDEO_COST = {
     "sora-2":     {"720p": 0.10},
     "sora-2-pro": {"720p": 0.30, "1024p": 0.50, "1080p": 0.70},
 }
 ```
 
-### 统一入口扩展
+### Unified Entry Point Extension
 
-`calculate_cost()` 新增 `PROVIDER_OPENAI` 分支：
-- 文本：`_TEXT_COST_TABLES` 新增 `"openai": ("OPENAI_TEXT_COST", "gpt-5.4-mini", "USD")`
-- 图片：新增 `calculate_openai_image_cost(model, quality)` 方法
-- 视频：新增 `calculate_openai_video_cost(duration_seconds, model, resolution)` 方法
+`calculate_cost()` adds `PROVIDER_OPENAI` branch:
+- Text: `_TEXT_COST_TABLES` adds `"openai": ("OPENAI_TEXT_COST", "gpt-5.4-mini", "USD")`
+- Image: add `calculate_openai_image_cost(model, quality)` method
+- Video: add `calculate_openai_video_cost(duration_seconds, model, resolution)` method
 
-`calculate_cost()` 签名新增可选 `quality` 参数，仅 OpenAI 图片使用。
+`calculate_cost()` signature adds optional `quality` parameter, used only for OpenAI images.
 
-> **`quality` 上游传递：** 本期 `UsageTracker` / `usage_repo` 暂不传递 `quality`，OpenAI 图片费用将使用默认值 `"medium"` 计算。完善 `quality` 从 Backend → UsageTracker → CostCalculator 的传递链作为后续优化。
+> **`quality` upstream passing:** In this iteration, `UsageTracker` / `usage_repo` temporarily do not pass `quality`; OpenAI image costs will be calculated using the default value `"medium"`. Completing the `quality` pass-through chain from Backend → UsageTracker → CostCalculator is a future optimization.
 
 ---
 
-## 7. 连接测试
+## 7. Connection Test
 
 ### `server/routers/providers.py`
 
 ```python
 def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
-    """通过 models.list() 验证 OpenAI API Key。同步函数，由框架通过 asyncio.to_thread 调用。"""
+    """Verify OpenAI API Key via models.list(). Synchronous function called via asyncio.to_thread by the framework."""
     from openai import OpenAI
 
     kwargs: dict = {"api_key": config["api_key"]}
@@ -366,55 +366,55 @@ def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
     return ConnectionTestResponse(
         success=True,
         available_models=available,
-        message="连接成功",
+        message="Connection successful",
     )
 ```
 
-注册到 `_TEST_DISPATCH["openai"] = _test_openai`。
+Registered in `_TEST_DISPATCH["openai"] = _test_openai`.
 
-> **Note: ** 使用同步 `OpenAI` 客户端而非 `AsyncOpenAI`，因为现有框架通过 `asyncio.to_thread(test_fn, config)` 在线程池中运行所有连接测试函数（与 `_test_grok`、`_test_ark` 等一致）。
-
----
-
-## 8. 前端变更
-
-### 不需要改的
-
-前端已是数据驱动的，后端注册新供应商后自动展示：
-- Provider 列表页 — 动态渲染
-- 配置表单 — 动态生成
-- Credential 管理 — 已通用化
-- 连接测试按钮 — 已通用化
-- 后端选择下拉框 — 动态获取
-
-### 需要改的
-
-- **供应商图标** — 使用 lobe-icons 的 OpenAI 图标，同时更新 `PROVIDER_NAMES` 映射
-- **`config-status-store.ts`** — 已确认完全动态判断，无需修改
+> **Note:** Using the synchronous `OpenAI` client rather than `AsyncOpenAI`, because the existing framework runs all connection test functions in a thread pool via `asyncio.to_thread(test_fn, config)` (consistent with `_test_grok`, `_test_ark`, etc.).
 
 ---
 
-## 9. 测试策略
+## 8. Frontend Changes
 
-### 单元测试
+### No Changes Needed
 
-| 文件 | 覆盖范围 |
+The frontend is already data-driven; registering a new provider on the backend automatically displays it:
+- Provider list page — dynamically rendered
+- Configuration form — dynamically generated
+- Credential management — already generalized
+- Connection test button — already generalized
+- Backend selection dropdown — dynamically fetched
+
+### Changes Needed
+
+- **Provider icon** — use lobe-icons' OpenAI icon, also update `PROVIDER_NAMES` mapping
+- **`config-status-store.ts`** — confirmed to be completely dynamic; no changes needed
+
+---
+
+## 9. Testing Strategy
+
+### Unit Tests
+
+| File | Coverage |
 |------|----------|
-| `test_openai_text_backend.py` | 消息构建、structured output、Instructor fallback、vision、usage 容错 |
-| `test_openai_image_backend.py` | T2I/I2I 路径分派、b64 解码写入、尺寸映射、质量映射 |
-| `test_openai_video_backend.py` | T2V/I2V、时长/尺寸映射、failed 状态异常、download_content |
-| `test_cost_calculator.py`（扩展） | OpenAI 三种媒体类型定价计算 |
+| `test_openai_text_backend.py` | Message construction, structured output, Instructor fallback, vision, usage fault tolerance |
+| `test_openai_image_backend.py` | T2I/I2I path dispatch, b64 decode write, size mapping, quality mapping |
+| `test_openai_video_backend.py` | T2V/I2V, duration/size mapping, failed status exception, download_content |
+| `test_cost_calculator.py` (extended) | OpenAI three media type pricing calculation |
 
-### 集成点测试
+### Integration Point Tests
 
-- Registry: 验证 `PROVIDER_REGISTRY["openai"]` 存在且 media_types 覆盖 text/image/video
-- Factory: 验证 OpenAI 配置就绪时返回 `OpenAITextBackend`
-- Connection test: mock `client.models.list()` 验证连接测试路径
+- Registry: verify `PROVIDER_REGISTRY["openai"]` exists and media_types covers text/image/video
+- Factory: verify OpenAI configuration returns `OpenAITextBackend` when ready
+- Connection test: mock `client.models.list()` to verify connection test path
 
-### 不包含
+### Excluded
 
-- 端到端 API 调用测试（需要真实 API Key）
-- 前端测试（前端几乎无改动）
+- End-to-end API call tests (require real API Key)
+- Frontend tests (almost no frontend changes)
 
 ---
 
@@ -423,28 +423,28 @@ def _test_openai(config: dict[str, str]) -> ConnectionTestResponse:
 ### New Files
 
 | File | Description |
-|------|------|
-| `lib/openai_shared.py` | 共享客户端工厂 + 可重试错误类型 |
-| `lib/text_backends/openai.py` | OpenAI 文本后端 |
-| `lib/image_backends/openai.py` | OpenAI 图片后端 |
-| `lib/video_backends/openai.py` | OpenAI 视频后端 |
-| `tests/test_openai_text_backend.py` | 文本后端测试 |
-| `tests/test_openai_image_backend.py` | 图片后端测试 |
-| `tests/test_openai_video_backend.py` | 视频后端测试 |
+|------|-------------|
+| `lib/openai_shared.py` | Shared client factory + retryable error types |
+| `lib/text_backends/openai.py` | OpenAI text backend |
+| `lib/image_backends/openai.py` | OpenAI image backend |
+| `lib/video_backends/openai.py` | OpenAI video backend |
+| `tests/test_openai_text_backend.py` | Text backend tests |
+| `tests/test_openai_image_backend.py` | Image backend tests |
+| `tests/test_openai_video_backend.py` | Video backend tests |
 
 ### Modified Files
 
-| 文件 | 变更 |
-|------|------|
+| File | Change |
+|------|--------|
 | `pyproject.toml` | `openai>=2.30.0` |
-| `lib/providers.py` | 新增 `PROVIDER_OPENAI` 常量 |
-| `lib/config/registry.py` | 新增 OpenAI ProviderMeta |
-| `lib/cost_calculator.py` | 新增 OpenAI 定价表 + 计算方法，`calculate_cost()` 新增 quality 参数 |
-| `lib/text_backends/__init__.py` | 注册 OpenAITextBackend |
-| `lib/text_backends/factory.py` | 新增 `"openai": "openai"` 映射 + 参数传递 |
-| `lib/image_backends/__init__.py` | 注册 OpenAIImageBackend |
-| `lib/video_backends/__init__.py` | 注册 OpenAIVideoBackend |
-| `server/routers/providers.py` | 新增 `_test_openai` 连接测试 |
-| `server/services/generation_tasks.py` | 新增 `PROVIDER_OPENAI` 到映射表、`_DEFAULT_VIDEO_RESOLUTION`、工厂分支 |
-| `tests/test_cost_calculator.py` | 扩展 OpenAI 定价用例 |
-| 前端：`ProviderIcon.tsx` | 添加 OpenAI lobe-icons 图标 + `PROVIDER_NAMES` 映射 |
+| `lib/providers.py` | Add `PROVIDER_OPENAI` constant |
+| `lib/config/registry.py` | Add OpenAI ProviderMeta |
+| `lib/cost_calculator.py` | Add OpenAI pricing tables + calculation methods, add quality parameter to `calculate_cost()` |
+| `lib/text_backends/__init__.py` | Register OpenAITextBackend |
+| `lib/text_backends/factory.py` | Add `"openai": "openai"` mapping + parameter passing |
+| `lib/image_backends/__init__.py` | Register OpenAIImageBackend |
+| `lib/video_backends/__init__.py` | Register OpenAIVideoBackend |
+| `server/routers/providers.py` | Add `_test_openai` connection test |
+| `server/services/generation_tasks.py` | Add `PROVIDER_OPENAI` to mapping tables, `_DEFAULT_VIDEO_RESOLUTION`, factory branch |
+| `tests/test_cost_calculator.py` | Extend OpenAI pricing test cases |
+| Frontend: `ProviderIcon.tsx` | Add OpenAI lobe-icons icon + `PROVIDER_NAMES` mapping |

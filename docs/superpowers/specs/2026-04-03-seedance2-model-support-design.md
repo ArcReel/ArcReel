@@ -1,20 +1,20 @@
-# Seedance 2.0 模型支持设计
+# Seedance 2.0 Model Support Design
 
-> 关联 Issue: [ArcReel/ArcReel#42](https://github.com/ArcReel/ArcReel/issues/42)
-> 日期: 2026-04-03
-> 范围: 最小可用（模型注册 + 定价 + 能力声明）
+> Related Issue: [ArcReel/ArcReel#42](https://github.com/ArcReel/ArcReel/issues/42)
+> Date: 2026-04-03
+> Scope: Minimum viable (model registration + pricing + capability declaration)
 
 ## Background
 
-Seedance 2.0 已对企业公测开放。当前 Ark 视频后端仅注册了 Seedance 1.5 Pro (`doubao-seedance-1-5-pro-251215`)。需要添加 Seedance 2.0 和 2.0 Fast 两个模型，使用户可以在配置中选用。
+Seedance 2.0 is now available for enterprise beta testing. The current Ark video backend only registers Seedance 1.5 Pro (`doubao-seedance-1-5-pro-251215`). Two models need to be added — Seedance 2.0 and 2.0 Fast — so users can select them in configuration.
 
-本次不涉及 Seedance 2.0 的新增能力扩展（多模态参考图、视频编辑/延长、联网搜索等），仅让现有 t2v 和 i2v（首帧）流程在 2.0 模型上跑通。
+This change does not cover Seedance 2.0's new capability extensions (multimodal reference images, video editing/extension, web search, etc.); it only enables existing t2v and i2v (first frame) pipelines to run correctly on 2.0 models.
 
-## 改动清单
+## Change List
 
-### 1. 模型注册 — `lib/config/registry.py`
+### 1. Model Registration — `lib/config/registry.py`
 
-在 ark 供应商的 `models` 字典中，紧跟 `doubao-seedance-1-5-pro-251215` 之后添加：
+In the ark provider's `models` dict, add immediately after `doubao-seedance-1-5-pro-251215`:
 
 ```python
 "doubao-seedance-2-0-260128": ModelInfo(
@@ -29,12 +29,12 @@ Seedance 2.0 已对企业公测开放。当前 Ark 视频后端仅注册了 Seed
 ),
 ```
 
-- `default=True` 保留在 1.5 Pro，不变更默认模型
-- 2.0 系列声明 `video_extend`，不声明 `flex_tier`
+- `default=True` is retained on 1.5 Pro; the default model is not changed
+- 2.0 series declares `video_extend`, does not declare `flex_tier`
 
-### 2. 能力映射 — `lib/video_backends/ark.py`
+### 2. Capability Mapping — `lib/video_backends/ark.py`
 
-添加模型→能力映射表，替代 `__init__` 中写死的 capabilities：
+Add a model → capability mapping table to replace the hardcoded capabilities in `__init__`:
 
 ```python
 _MODEL_CAPABILITIES: dict[str, set[VideoCapability]] = {
@@ -63,16 +63,16 @@ _DEFAULT_CAPABILITIES = {
 }
 ```
 
-`__init__` 中：
+In `__init__`:
 ```python
 self._capabilities = self._MODEL_CAPABILITIES.get(self._model, self._DEFAULT_CAPABILITIES)
 ```
 
-`generate` 方法无需改动，2.0 的 Ark SDK 调用参数与 1.5 兼容。
+The `generate` method requires no changes; the Ark SDK call parameters for 2.0 are compatible with 1.5.
 
-### 3. 定价 — `lib/cost_calculator.py`
+### 3. Pricing — `lib/cost_calculator.py`
 
-在 `ARK_VIDEO_COST` 中添加：
+Add to `ARK_VIDEO_COST`:
 
 ```python
 "doubao-seedance-2-0-260128": {
@@ -85,23 +85,23 @@ self._capabilities = self._MODEL_CAPABILITIES.get(self._model, self._DEFAULT_CAP
 },
 ```
 
-- 2.0 实际按「输入是否含视频」定价，本次范围无视频输入，统一用 46.00/37.00
-- `generate_audio` 维度设为相同值（2.0 音频不影响价格）
-- 无 flex 条目（2.0 不支持离线推理）
-- `calculate_ark_video_cost` 方法无需改动
+- 2.0 is actually priced based on "whether input contains video"; current scope has no video input, so 46.00/37.00 is used uniformly
+- `generate_audio` dimension is set to the same value (2.0 audio does not affect pricing)
+- No flex entries (2.0 does not support offline inference)
+- `calculate_ark_video_cost` method requires no changes
 
-### 4. 测试
+### 4. Testing
 
-在现有测试文件中扩展，不新增文件：
+Extend existing test files; no new files added:
 
-- **`test_config_registry.py`**: 更新 ark 视频模型数量预期（如有断言）
-- **`test_video_backend_ark.py`**: 参数化测试验证 2.0 模型获得正确 capabilities（有 `video_extend`，无 `flex_tier`）
-- **`test_cost_calculator.py`**（如存在）: 添加 2.0 模型费用计算断言
+- **`test_config_registry.py`**: update expected ark video model count (if assertions exist)
+- **`test_video_backend_ark.py`**: parameterized test verifying 2.0 models get correct capabilities (has `video_extend`, no `flex_tier`)
+- **`test_cost_calculator.py`** (if it exists): add 2.0 model cost calculation assertions
 
 ## Out of Scope
 
-- Prompt 适配器（Issue #42 剩余项，单独处理）
-- Seedance 2.0 新增能力：首尾帧、多模态参考图、视频编辑/延长、联网搜索
-- `VideoGenerationRequest` 扩展（参考图/视频字段）
-- 默认模型变更
-- 分辨率校验（2.0 不支持 1080p，但 Ark 默认已是 720p，暂不加额外校验）
+- Prompt adapters (remaining items from Issue #42, handled separately)
+- Seedance 2.0 new capabilities: first/last frame, multimodal reference images, video editing/extension, web search
+- `VideoGenerationRequest` extension (reference image/video fields)
+- Default model change
+- Resolution validation (2.0 does not support 1080p, but Ark default is already 720p; no additional validation for now)

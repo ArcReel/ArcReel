@@ -1,27 +1,27 @@
-# 文本生成费用计算与使用记录
+# Text Generation Cost Calculation and Usage Tracking
 
 > GitHub Issue: ArcReel/ArcReel#169
-> 日期: 2026-03-28
+> Date: 2026-03-28
 
 ## Background
 
-#168 完成通用文本生成服务层提取后，文本生成（小说总结、剧本生成、风格分析）支持多供应商调用，但这些调用未纳入费用计算和使用记录。本设计将文本生成的用量追踪集成到现有体系中。
+After #168 completes the generic text generation service layer extraction, text generation (novel summarization, script generation, style analysis) supports multi-provider calls, but these calls are not included in cost calculation or usage tracking. This design integrates text generation usage tracking into the existing system.
 
-## 设计决策
+## Design Decisions
 
-| 决策点 | 选择 | 理由 |
-|--------|------|------|
-| token 字段 | 新增 `input_tokens` + `output_tokens`，保留 `usage_tokens` | 文本生成 input/output 定价不同；`usage_tokens` 仅 Ark 视频在用，不破坏现有数据 |
-| 集成层 | 创建 `TextGenerator` 包装层 | 与 `MediaGenerator` 模式一致，集中管理，调用方无需关心 tracking |
-| project_name | 可选参数 | 未来可能有非项目级别的工具箱功能 |
-| call_type | 统一 `"text"` | 与 image/video 平级，不按任务细分；未来需要可加 `task_type` 正交字段 |
-| 前端展示 | 绿色 FileText 图标，token 信息替代分辨率/时长 | 与现有 image（蓝色）/ video（紫色）视觉体系一致 |
+| Decision Point | Choice | Rationale |
+|---------------|--------|-----------|
+| Token fields | Add `input_tokens` + `output_tokens`, retain `usage_tokens` | Text generation input/output have different pricing; `usage_tokens` is only used by Ark video — won't break existing data |
+| Integration layer | Create `TextGenerator` wrapper layer | Consistent with `MediaGenerator` pattern, centralized management, callers don't need to care about tracking |
+| project_name | Optional parameter | Future toolbox functionality may not be project-level |
+| call_type | Unified `"text"` | Same level as image/video, not subdivided by task type; `task_type` orthogonal field can be added later if needed |
+| Frontend display | Green FileText icon, token info replaces resolution/duration | Consistent with existing image (blue) / video (purple) visual system |
 
 ## Change Scope
 
-### 1. 数据库层
+### 1. Database Layer
 
-#### ApiCall 模型新增字段
+#### ApiCall Model New Fields
 
 ```python
 # lib/db/models/api_call.py
@@ -29,15 +29,15 @@ input_tokens: Mapped[int | None] = mapped_column(default=None)
 output_tokens: Mapped[int | None] = mapped_column(default=None)
 ```
 
-- `usage_tokens` 保留不动（Ark 视频继续使用）
-- `call_type` 新增 `"text"` 值（与 `"image"` / `"video"` 并列）
-- Alembic 迁移：`ALTER TABLE api_calls ADD COLUMN input_tokens INTEGER, ADD COLUMN output_tokens INTEGER`
+- `usage_tokens` retained unchanged (Ark video continues to use it)
+- `call_type` adds `"text"` value (alongside `"image"` / `"video"`)
+- Alembic migration: `ALTER TABLE api_calls ADD COLUMN input_tokens INTEGER, ADD COLUMN output_tokens INTEGER`
 
-#### UsageRepository 改动
+#### UsageRepository Changes
 
-**`start_call()`**：`call_type` 接受 `"text"`（token 数在生成前未知，不在此处传入）。
+**`start_call()`**: `call_type` accepts `"text"` (token count is unknown before generation, not passed here).
 
-**`finish_call()`**：新增 `input_tokens` / `output_tokens` 可选参数，增加 text 成本计算分支：
+**`finish_call()`**: Add optional `input_tokens` / `output_tokens` parameters, add text cost calculation branch:
 
 ```python
 if call.call_type == "text" and call.input_tokens is not None:
@@ -51,15 +51,15 @@ if call.call_type == "text" and call.input_tokens is not None:
     call.currency = currency
 ```
 
-**`get_stats()`**：返回值增加 `text_count` 字段。
+**`get_stats()`**: Return value adds `text_count` field.
 
-### 2. TextGenerator 包装层
+### 2. TextGenerator Wrapper Layer
 
-新增 `lib/text_generator.py`：
+New `lib/text_generator.py`:
 
 ```python
 class TextGenerator:
-    """组合 TextBackend + UsageTracker，统一封装文本生成 + 用量追踪。"""
+    """Combines TextBackend + UsageTracker, unified encapsulation of text generation + usage tracking."""
 
     def __init__(self, backend: TextBackend, usage_tracker: UsageTracker):
         self.backend = backend
@@ -103,28 +103,28 @@ class TextGenerator:
             raise
 ```
 
-设计要点：
-- `backend.model` / `backend.provider`：三个 TextBackend 实现都已有这两个属性
-- `project_name` 在 `generate()` 时传入（可选），而非构造时绑定
-- 不引入 VersionManager——文本生成没有文件产出
+Design notes:
+- `backend.model` / `backend.provider`: all three TextBackend implementations already have these two attributes
+- `project_name` is passed in at `generate()` time (optional), not bound at construction time
+- VersionManager is not introduced — text generation produces no file output
 
-### 3. 调用点改造（3 处）
+### 3. Call Site Changes (3 locations)
 
-| 调用点 | 文件 | 改前 | 改后 |
-|--------|------|------|------|
+| Call Site | File | Before | After |
+|-----------|------|--------|-------|
 | ScriptGenerator | `lib/script_generator.py` | `create_text_backend_for_task()` → `backend.generate_async()` | `TextGenerator.create()` → `generator.generate(request, project_name)` |
-| ProjectManager.generate_overview | `lib/project_manager.py:1579` | 同上 | 同上 |
-| 风格分析 | `server/routers/files.py:524` | 同上 | 同上 |
+| ProjectManager.generate_overview | `lib/project_manager.py:1579` | Same as above | Same as above |
+| Style analysis | `server/routers/files.py:524` | Same as above | Same as above |
 
-### 4. 前端改动
+### 4. Frontend Changes
 
-#### 类型扩展
+#### Type Extensions
 
 ```typescript
-// UsageStats 增加
+// UsageStats addition
 text_count: number;
 
-// UsageCall 扩展
+// UsageCall extension
 call_type: "image" | "video" | "text";
 input_tokens: number | null;
 output_tokens: number | null;
@@ -132,22 +132,22 @@ output_tokens: number | null;
 
 #### UsageDrawer
 
-- 文本类型图标：绿色 `<FileText className="h-3.5 w-3.5 text-green-400" />`
-- 列表行第二行：文本显示 token 信息（如 `输入 1,234 · 输出 5,678 tokens`），替代图片/视频的分辨率+时长
-- 统计摘要增加文本调用数
+- Text type icon: green `<FileText className="h-3.5 w-3.5 text-green-400" />`
+- Second line of list row: text shows token information (e.g., `Input 1,234 · Output 5,678 tokens`), replacing the resolution+duration shown for image/video
+- Statistics summary adds text call count
 
 #### UsageStatsSection
 
-- `call_type="text"` 的统计卡片随分组数据自然出现（无需额外逻辑改动）
-- 卡片中对文本类型显示 token 总数代替时长
+- Statistics cards for `call_type="text"` appear naturally with grouped data (no additional logic changes needed)
+- Cards for text type display total token count instead of duration
 
-#### GlobalHeader 成本徽章
+#### GlobalHeader Cost Badge
 
-- 无需改动——已基于 `cost_by_currency` 聚合，text 类型的费用自动纳入
+- No changes needed — already aggregated based on `cost_by_currency`, text type costs are automatically included
 
-## 不做的事
+## Out of Scope
 
-- 不纳入 GenerationQueue 任务队列——文本生成频次低，保持直接调用
-- 不细分 `call_type`（如 `text_script` / `text_overview`）——统一 `"text"` 即可
-- 不迁移现有 `usage_tokens` 数据——Ark 视频继续使用该字段
-- 不新增 `task_type` 字段——当前无需求，未来按需添加
+- Not entering GenerationQueue task queue — text generation has low frequency, keep direct calls
+- Not subdividing `call_type` (e.g., `text_script` / `text_overview`) — unified `"text"` is sufficient
+- Not migrating existing `usage_tokens` data — Ark video continues to use this field
+- Not adding a `task_type` field — no current requirement, add as needed later

@@ -1,28 +1,28 @@
-# 视频时长与横竖屏可配置化设计
+# Video Duration and Orientation Configurable Design
 
 ## Background
 
-当前视频时长硬编码为 `[4, 6, 8]` 秒三个选项，横竖屏与 `content_mode` 强绑定（说书=竖屏，剧集=横屏）。随着多供应商视频模型接入，不同模型支持的时长各不相同，需要将这两项配置从硬编码改为动态可配置。
+Currently video duration is hardcoded to three options `[4, 6, 8]` seconds, and portrait/landscape orientation is tightly coupled to `content_mode` (narration=portrait, drama=landscape). As multiple provider video models are integrated, different models support different durations; these two configurations need to change from hardcoded to dynamically configurable.
 
-## 设计目标
+## Design Goals
 
-1. 视频时长由视频模型的能力决定，精确到模型级别
-2. 横竖屏（aspect_ratio）与 content_mode 完全解耦，项目创建时独立选择
-3. 用户可设置项目默认时长偏好，也可选择"自动"让 AI 根据内容决定
-4. 分镜级别仍可在模型支持范围内逐个选择时长
-5. 向后兼容已有项目数据
+1. Video duration is determined by the video model's capabilities, at the model level
+2. Portrait/landscape (aspect_ratio) is completely decoupled from content_mode; chosen independently when creating a project
+3. Users can set a project default duration preference, or choose "Auto" to let AI decide based on content
+4. Segment level can still individually select duration within the model's supported range
+5. Backward compatible with existing project data
 
-## 方案：扩展 ModelInfo + 运行时解析
+## Approach: Extend ModelInfo + Runtime Resolution
 
-在现有 `ModelInfo` 和 `CustomProviderModel` 上扩展 `supported_durations` 字段，复用现有 Registry/ConfigService 体系。
+Extend the existing `ModelInfo` and `CustomProviderModel` with a `supported_durations` field, reusing the existing Registry/ConfigService system.
 
 ---
 
-## 1. 模型级别时长能力声明
+## 1. Model-Level Duration Capability Declaration
 
-### 1.1 预置供应商 — ModelInfo 扩展
+### 1.1 Preset Providers — ModelInfo Extension
 
-`lib/config/registry.py` 中 `ModelInfo` 新增字段：
+Add new fields to `ModelInfo` in `lib/config/registry.py`:
 
 ```python
 @dataclass(frozen=True)
@@ -31,47 +31,47 @@ class ModelInfo:
     media_type: str
     capabilities: list[str]
     default: bool = False
-    supported_durations: list[int] = field(default_factory=list)  # 新增
-    # 分辨率对时长的约束，仅在有限制时声明
-    # e.g. {"1080p": [8]} 表示 1080p 下只能选 8s，未列出的分辨率用 supported_durations 全集
-    duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)  # 新增
+    supported_durations: list[int] = field(default_factory=list)  # new
+    # Resolution constraints on duration, declared only when there are restrictions
+    # e.g. {"1080p": [8]} means only 8s can be selected at 1080p; resolutions not listed use the full supported_durations set
+    duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)  # new
 ```
 
-各供应商视频模型时长声明：
+Duration declarations for each provider's video models:
 
-| 供应商 | 模型 | supported_durations | duration_resolution_constraints |
-|--------|------|---------------------|---------------------------------|
+| Provider | Model | supported_durations | duration_resolution_constraints |
+|----------|-------|---------------------|---------------------------------|
 | AI Studio | veo-3.1-generate-preview | [4, 6, 8] | {"1080p": [8]} |
 | AI Studio | veo-3.1-fast-generate-preview | [4, 6, 8] | {"1080p": [8]} |
 | AI Studio | veo-3.1-lite-generate-preview | [4, 6, 8] | {"1080p": [8]} |
 | Vertex AI | veo-3.1-generate-001 | [4, 6, 8] | — |
 | Vertex AI | veo-3.1-fast-generate-001 | [4, 6, 8] | — |
-| 火山方舟 | doubao-seedance-1-5-pro-251215 | [4, 5, 6, 7, 8, 9, 10, 11, 12] | — |
-| 火山方舟 | doubao-seedance-2-0-260128 | [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] | — |
-| 火山方舟 | doubao-seedance-2-0-fast-260128 | [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] | — |
+| Volcano Engine | doubao-seedance-1-5-pro-251215 | [4, 5, 6, 7, 8, 9, 10, 11, 12] | — |
+| Volcano Engine | doubao-seedance-2-0-260128 | [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] | — |
+| Volcano Engine | doubao-seedance-2-0-fast-260128 | [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] | — |
 | Grok | grok-imagine-video | [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] | — |
 | OpenAI | sora-2 | [4, 8, 12] | — |
 | OpenAI | sora-2-pro | [4, 8, 12] | — |
 
-非视频模型保持空列表 `[]`。
+Non-video models retain an empty list `[]`.
 
-前端获取时长选项时，根据当前分辨率过滤：若模型声明了 `duration_resolution_constraints` 且当前分辨率命中，则使用约束列表；否则使用 `supported_durations` 全集。
+When the frontend fetches duration options, filter based on the current resolution: if the model declares `duration_resolution_constraints` and the current resolution matches, use the constraint list; otherwise use the full `supported_durations` set.
 
-### 1.2 自定义供应商 — CustomProviderModel 扩展
+### 1.2 Custom Providers — CustomProviderModel Extension
 
-`lib/db/models/custom_provider.py` 中 `CustomProviderModel` 新增列：
+Add a new column to `CustomProviderModel` in `lib/db/models/custom_provider.py`:
 
 ```python
 supported_durations: Mapped[str | None] = mapped_column(Text, nullable=True)
-# JSON 序列化的 list[int]，如 "[4, 8, 12]"
-# null 表示使用按 api_format 的保守预设
+# JSON-serialized list[int], e.g. "[4, 8, 12]"
+# null means use conservative presets based on api_format
 ```
 
-需一个 Alembic 迁移。
+One Alembic migration is required.
 
-### 1.3 保守预设
+### 1.3 Conservative Fallback
 
-仅在自定义供应商且模型未声明 `supported_durations` 时回退：
+Used only for custom providers when the model has no declared `supported_durations`:
 
 ```python
 DEFAULT_DURATIONS_FALLBACK = [4, 8]
@@ -79,11 +79,11 @@ DEFAULT_DURATIONS_FALLBACK = [4, 8]
 
 ---
 
-## 2. Aspect Ratio 与 Content Mode 解耦
+## 2. Aspect Ratio Decoupling from Content Mode
 
-### 2.1 项目创建
+### 2.1 Project Creation
 
-`CreateProjectRequest` 新增参数：
+Add parameter to `CreateProjectRequest`:
 
 ```python
 class CreateProjectRequest(BaseModel):
@@ -91,10 +91,10 @@ class CreateProjectRequest(BaseModel):
     title: str | None = None
     style: str | None = ""
     content_mode: str | None = "narration"
-    aspect_ratio: str = "9:16"             # 新增，独立于 content_mode
+    aspect_ratio: str = "9:16"             # new, independent of content_mode
 ```
 
-`project_manager.create_project_metadata()` 新增 `aspect_ratio` 参数，写入 `project.json` 顶层：
+Add `aspect_ratio` parameter to `project_manager.create_project_metadata()`, written to the top level of `project.json`:
 
 ```json
 {
@@ -104,13 +104,13 @@ class CreateProjectRequest(BaseModel):
 }
 ```
 
-### 2.2 项目修改
+### 2.2 Project Modification
 
-移除 `aspect_ratio` 不可修改的限制。用户修改时前端弹出提示：已生成的分镜图/视频仍为原比例，建议重新生成。
+Remove the restriction preventing `aspect_ratio` from being modified. When the user modifies it, the frontend shows a prompt: already-generated storyboard images/videos remain in the original ratio; regeneration is recommended.
 
-`content_mode` 仍然创建后不可修改。
+`content_mode` still cannot be modified after creation.
 
-### 2.3 get_aspect_ratio() 简化
+### 2.3 get_aspect_ratio() Simplification
 
 ```python
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
@@ -118,21 +118,21 @@ def get_aspect_ratio(project: dict, resource_type: str) -> str:
         return "3:4"
     if resource_type == "clues":
         return "16:9"
-    # 优先读顶层字段；缺失时按 content_mode 推导（向后兼容）
+    # Prefer top-level field; fall back to content_mode derivation when missing (backward compatibility)
     if "aspect_ratio" in project:
         return project["aspect_ratio"]
     return "9:16" if project.get("content_mode", "narration") == "narration" else "16:9"
 ```
 
-### 2.4 已有项目兼容
+### 2.4 Compatibility with Existing Projects
 
-`project.json` 缺少 `aspect_ratio` 字段时，按原逻辑从 `content_mode` 推导（narration→`"9:16"`, drama→`"16:9"`），不做强制迁移。新项目必有此字段。
+When `project.json` lacks the `aspect_ratio` field, derive it from `content_mode` using the original logic (narration→`"9:16"`, drama→`"16:9"`); no forced migration. New projects will always have this field.
 
 ---
 
-## 3. 项目级默认时长
+## 3. Project-Level Default Duration
 
-### 3.1 project.json 新增字段
+### 3.1 New Fields in project.json
 
 ```json
 {
@@ -141,53 +141,53 @@ def get_aspect_ratio(project: dict, resource_type: str) -> str:
 }
 ```
 
-- `default_duration: int` — 用户选择的偏好时长
-- `default_duration: null`（或缺失） — "自动"，由 AI 根据内容决定
+- `default_duration: int` — user's preferred duration
+- `default_duration: null` (or missing) — "Auto," AI decides based on content
 
-### 3.2 对剧本生成 Prompt 的影响
+### 3.2 Impact on Script Generation Prompt
 
-- 有默认值：Prompt 注入 `"时长：从 [4, 6, 8] 秒中选择，默认使用 4 秒"`
-- 自动模式：Prompt 注入 `"时长：从 [4, 6, 8] 秒中选择，根据内容节奏自行决定"`
+- With default value: Prompt injects `"Duration: choose from [4, 6, 8] seconds, default is 4 seconds"`
+- Auto mode: Prompt injects `"Duration: choose from [4, 6, 8] seconds, decide based on content rhythm"`
 
-### 3.3 已有项目兼容
+### 3.3 Compatibility with Existing Projects
 
-缺失 `default_duration` 视为 `null`（自动）。
+Missing `default_duration` is treated as `null` (auto).
 
 ---
 
-## 4. DurationSeconds 类型重构
+## 4. DurationSeconds Type Refactoring
 
-### 4.1 后端
+### 4.1 Backend
 
-移除 `lib/script_models.py` 中的 `DurationSeconds` 自定义类型，改为：
+Remove the `DurationSeconds` custom type from `lib/script_models.py`, replace with:
 
 ```python
 # NarrationSegment
-duration_seconds: int = Field(ge=1, le=60, description="片段时长（秒）")
+duration_seconds: int = Field(ge=1, le=60, description="Segment duration in seconds")
 
 # DramaScene
-duration_seconds: int = Field(ge=1, le=60, description="场景时长（秒）")
+duration_seconds: int = Field(ge=1, le=60, description="Scene duration in seconds")
 ```
 
-不再在 Pydantic 层硬编码有效值，严格校验移到业务层（根据当前视频模型的 `supported_durations`）。
+No longer hardcoding valid values in the Pydantic layer; strict validation moves to the business layer (based on the current video model's `supported_durations`).
 
-### 4.2 前端
+### 4.2 Frontend
 
 ```typescript
-// 移除
+// Remove
 export type DurationSeconds = 4 | 6 | 8;
 
-// 改为
-// duration_seconds 直接用 number 类型
+// Replace with
+// duration_seconds uses number type directly
 ```
 
 ---
 
-## 5. Prompt 构建器动态化
+## 5. Prompt Builder Dynamization
 
-### 5.1 函数签名变更
+### 5.1 Function Signature Changes
 
-`lib/prompt_builders_script.py`：
+`lib/prompt_builders_script.py`:
 
 ```python
 def build_narration_prompt(
@@ -205,105 +205,105 @@ def build_drama_prompt(
 ) -> str:
 ```
 
-### 5.2 动态文本替换
+### 5.2 Dynamic Text Substitution
 
-**时长部分：**
-- 移除硬编码 `"时长：4、6 或 8 秒"`
-- 替换为根据参数动态生成的描述
+**Duration section:**
+- Remove hardcoded `"Duration: 4, 6, or 8 seconds"`
+- Replace with dynamically generated description based on parameters
 
-**横竖屏部分：**
-- `build_storyboard_suffix()` 改为接收 `aspect_ratio` 参数，根据值输出对应构图描述（`"竖屏构图。"` / `"横屏构图。"`）
-- `build_drama_prompt` 中移除硬编码的 `"16:9 横屏构图"`，改为动态注入
+**Orientation section:**
+- `build_storyboard_suffix()` changed to accept `aspect_ratio` parameter, outputting corresponding composition description based on value (`"Portrait composition."` / `"Landscape composition."`)
+- Remove hardcoded `"16:9 landscape composition"` from `build_drama_prompt`, change to dynamic injection
 
-### 5.3 调用方适配
+### 5.3 Caller Adaptation
 
-`lib/script_generator.py`：从 `project.json` 读取 `supported_durations`（通过视频模型解析）、`default_duration`、`aspect_ratio` 后传入 Prompt 构建器。
+`lib/script_generator.py`: reads `supported_durations` (via video model resolution), `default_duration`, and `aspect_ratio` from `project.json`, then passes them to the Prompt builders.
 
 ---
 
-## 6. Agent 脚本与视频生成适配
+## 6. Agent Script and Video Generation Adaptation
 
 ### 6.1 generate_video.py
 
-`agent_runtime_profile/.claude/skills/generate-video/scripts/generate_video.py`：
+`agent_runtime_profile/.claude/skills/generate-video/scripts/generate_video.py`:
 
-- `validate_duration()` 移除硬编码 `[4, 6, 8]`，改为接收 `supported_durations` 参数
-- `default_duration` 从项目配置读取，不再按 `content_mode` 硬编码 4/8
-- SKILL.md 同步更新时长相关描述
+- `validate_duration()` removes hardcoded `[4, 6, 8]`, changes to accept `supported_durations` parameter
+- `default_duration` is read from project configuration, no longer hardcoded 4/8 based on `content_mode`
+- SKILL.md is updated synchronously with duration-related descriptions
 
-### 6.2 服务层
+### 6.2 Service Layer
 
-`server/services/generation_tasks.py`：
+`server/services/generation_tasks.py`:
 
-- `execute_video_task()` 中 `duration_seconds` 回退逻辑：`payload > project.default_duration > supported_durations[0]`
-- `get_aspect_ratio()` 简化为直接读 `project["aspect_ratio"]`
+- Duration fallback logic in `execute_video_task()`: `payload > project.default_duration > supported_durations[0]`
+- `get_aspect_ratio()` simplified to directly read `project["aspect_ratio"]`
 
-`server/routers/generate.py`：
+`server/routers/generate.py`:
 
-- `GenerateVideoRequest.duration_seconds` 默认值从 `4` 改为 `None`，由服务层解析
-
----
-
-## 7. 前端改动
-
-### 7.1 项目创建表单
-
-- 新增横竖屏选择器（竖屏 9:16 / 横屏 16:9），独立于 content_mode
-- 新增默认时长选择器：选项从当前视频模型的 `supported_durations` 获取，额外提供"自动"选项
-
-### 7.2 项目设置页面
-
-- 允许修改 `aspect_ratio` 和 `default_duration`
-- 修改 `aspect_ratio` 时弹出提示：已生成的分镜图/视频仍为原比例，建议重新生成
-- 切换视频模型时，`default_duration` 选项联动更新；若当前值不在新模型支持列表中，重置为 `null`（自动）
-
-### 7.3 SegmentCard 时长选择器
-
-- `DURATION_OPTIONS` 从硬编码 `[4, 6, 8]` 改为从项目当前视频模型的 `supported_durations` 动态获取
-- 数据来源：可在项目数据中通过 `StatusCalculator` 注入，或前端从 providers API 自行解析
-
-### 7.4 TypeScript 类型
-
-- `DurationSeconds = 4 | 6 | 8` 改为 `number`
-- `ProjectData` 新增 `default_duration?: number | null`
-- 顶层 `aspect_ratio: string`
+- `GenerateVideoRequest.duration_seconds` default value changes from `4` to `None`, resolved by the service layer
 
 ---
 
-## 8. 数据迁移与向后兼容
+## 7. Frontend Changes
 
-| 场景 | 处理方式 |
-|------|---------|
-| 已有项目无 `aspect_ratio` | 读取时按 `content_mode` 推导（narration→9:16, drama→16:9） |
-| 已有项目无 `default_duration` | 视为 `null`（自动模式） |
-| 已有剧本中 4/6/8 值 | 仍合法，无需迁移 |
-| CustomProviderModel 新列 | Alembic 迁移，nullable，null 回退到按 api_format 预设 |
-| API 响应 | 只新增字段，不删/改已有字段 |
+### 7.1 Project Creation Form
+
+- Add orientation selector (portrait 9:16 / landscape 16:9), independent of content_mode
+- Add default duration selector: options sourced from current video model's `supported_durations`, with additional "Auto" option
+
+### 7.2 Project Settings Page
+
+- Allow modifying `aspect_ratio` and `default_duration`
+- When modifying `aspect_ratio`, show a prompt: already-generated storyboard images/videos remain in the original ratio; regeneration is recommended
+- When switching video models, `default_duration` options update in sync; if the current value is not in the new model's supported list, reset to `null` (Auto)
+
+### 7.3 SegmentCard Duration Selector
+
+- Change `DURATION_OPTIONS` from hardcoded `[4, 6, 8]` to dynamically fetched from the project's current video model's `supported_durations`
+- Data source: can be injected by `StatusCalculator` in project data, or frontend independently parses from providers API
+
+### 7.4 TypeScript Types
+
+- `DurationSeconds = 4 | 6 | 8` changed to `number`
+- `ProjectData` adds `default_duration?: number | null`
+- Top-level `aspect_ratio: string`
 
 ---
 
-## 涉及文件清单
+## 8. Data Migration and Backward Compatibility
 
-### 后端
-- `lib/config/registry.py` — ModelInfo 扩展 + 各供应商时长声明
-- `lib/db/models/custom_provider.py` — CustomProviderModel 新增列
-- `lib/script_models.py` — 移除 DurationSeconds 类型
-- `lib/prompt_builders.py` — build_storyboard_suffix 参数化
-- `lib/prompt_builders_script.py` — Prompt 动态注入时长和横竖屏
-- `lib/script_generator.py` — 读取项目配置传入 Prompt 构建器
-- `lib/project_manager.py` — create_project_metadata 新增 aspect_ratio
-- `server/routers/projects.py` — CreateProjectRequest 新增字段、移除修改限制
-- `server/routers/generate.py` — 时长默认值改为 None
-- `server/services/generation_tasks.py` — get_aspect_ratio 简化、时长回退逻辑
-- `agent_runtime_profile/.claude/skills/generate-video/` — 脚本 + SKILL.md
+| Scenario | Handling |
+|----------|----------|
+| Existing project without `aspect_ratio` | Derived from `content_mode` on read (narration→9:16, drama→16:9) |
+| Existing project without `default_duration` | Treated as `null` (auto mode) |
+| Existing scripts with 4/6/8 values | Still valid, no migration needed |
+| CustomProviderModel new column | Alembic migration, nullable, null falls back to api_format presets |
+| API responses | Only add fields, do not delete or modify existing fields |
 
-### 前端
-- `frontend/src/types/script.ts` — DurationSeconds 类型
-- `frontend/src/types/project.ts` — ProjectData 新增字段
-- `frontend/src/components/canvas/timeline/SegmentCard.tsx` — 动态时长选项
-- `frontend/src/components/canvas/timeline/TimelineCanvas.tsx` — 移除 content_mode 推导
-- `frontend/src/api.ts` — 移除修改限制
-- 项目创建/设置相关组件 — 新增选择器
+---
 
-### 数据库
-- 1 个 Alembic 迁移（CustomProviderModel.supported_durations）
+## Affected Files List
+
+### Backend
+- `lib/config/registry.py` — ModelInfo extension + per-provider duration declarations
+- `lib/db/models/custom_provider.py` — CustomProviderModel new column
+- `lib/script_models.py` — remove DurationSeconds type
+- `lib/prompt_builders.py` — parameterize build_storyboard_suffix
+- `lib/prompt_builders_script.py` — dynamic duration and orientation injection into Prompts
+- `lib/script_generator.py` — read project configuration, pass to Prompt builders
+- `lib/project_manager.py` — create_project_metadata adds aspect_ratio
+- `server/routers/projects.py` — CreateProjectRequest adds field, remove modification restriction
+- `server/routers/generate.py` — duration default changed to None
+- `server/services/generation_tasks.py` — simplify get_aspect_ratio, duration fallback logic
+- `agent_runtime_profile/.claude/skills/generate-video/` — scripts + SKILL.md
+
+### Frontend
+- `frontend/src/types/script.ts` — DurationSeconds type
+- `frontend/src/types/project.ts` — ProjectData new fields
+- `frontend/src/components/canvas/timeline/SegmentCard.tsx` — dynamic duration options
+- `frontend/src/components/canvas/timeline/TimelineCanvas.tsx` — remove content_mode derivation
+- `frontend/src/api.ts` — remove modification restriction
+- Project creation/settings-related components — add selectors
+
+### Database
+- 1 Alembic migration (CustomProviderModel.supported_durations)

@@ -2,24 +2,24 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 4 个供应商新增 12 个模型条目，修正 Seed 2.0 Lite 的 capabilities 声明错误，并重排所有 models dict 为 media_type 分组 + 梯度排列。
+**Goal:** Add 12 model entries for 4 providers, fix the Seed 2.0 Lite capabilities declaration error, and reorder all models dicts by media_type grouping + tier arrangement.
 
-**Architecture:** 纯 registry 数据变更，仅修改 `lib/config/registry.py` 中 `PROVIDER_REGISTRY` 的 `models` 字段。所有新模型已被现有 Backend 支持，无需任何代码逻辑改动。
+**Architecture:** Pure registry data change; only modify the `models` field in `PROVIDER_REGISTRY` in `lib/config/registry.py`. All new models are supported by existing backends; no code logic changes are needed.
 
-**Tech Stack:** Python dataclass（ModelInfo, ProviderMeta）
+**Tech Stack:** Python dataclass (ModelInfo, ProviderMeta)
 
 **Spec:** `docs/superpowers/specs/2026-03-30-model-expansion-design.md`
 
 ---
 
-### Task 1: gemini-aistudio 供应商 — 新增 3 个模型 + 重排
+### Task 1: gemini-aistudio Provider — Add 3 Models + Reorder
 
 **Files:**
-- Modify: `lib/config/registry.py:33-65`（gemini-aistudio 的 models dict）
+- Modify: `lib/config/registry.py:33-65` (gemini-aistudio's models dict)
 
-- [ ] **Step 1: 替换 gemini-aistudio 的 models dict**
+- [ ] **Step 1: Replace gemini-aistudio's models dict**
 
-将 `gemini-aistudio` 的 `models` 字段整体替换为以下内容（text → image → video，组内旗舰 → default → 轻量）：
+Replace the entire `models` field of `gemini-aistudio` with the following content (text → image → video, within each group: flagship → default → lightweight):
 
 ```python
 models={
@@ -67,21 +67,21 @@ models={
 },
 ```
 
-- [ ] **Step 2: 运行测试验证**
+- [ ] **Step 2: Run tests to verify**
 
 Run: `uv run python -m pytest tests/test_config_registry_models.py -v`
-Expected: all PASS（7 个模型，text/image/video 各有 1 个 default）
+Expected: all PASS (7 models, 1 default each for text/image/video)
 
 ---
 
-### Task 2: gemini-vertex 供应商 — 新增 3 个模型 + 重排
+### Task 2: gemini-vertex Provider — Add 3 Models + Reorder
 
 **Files:**
-- Modify: `lib/config/registry.py:66-98`（gemini-vertex 的 models dict）
+- Modify: `lib/config/registry.py:66-98` (gemini-vertex's models dict)
 
-- [ ] **Step 1: 替换 gemini-vertex 的 models dict**
+- [ ] **Step 1: Replace gemini-vertex's models dict**
 
-与 gemini-aistudio 完全镜像，唯一区别是 Veo 模型 ID 使用 `-001` 后缀：
+Fully mirrors gemini-aistudio; the only difference is that Veo model IDs use the `-001` suffix:
 
 ```python
 models={
@@ -129,45 +129,45 @@ models={
 },
 ```
 
-- [ ] **Step 2: 运行测试验证**
+- [ ] **Step 2: Run tests to verify**
 
 Run: `uv run python -m pytest tests/test_config_registry_models.py -v`
 Expected: all PASS
 
 ---
 
-### Task 3: ark 供应商 — 新增 3 个模型 + bugfix + 重排
+### Task 3: ark Provider — Add 3 Models + Bugfix + Reorder
 
 **Files:**
-- Modify: `lib/config/registry.py:99-143`（ark 的 models dict）
+- Modify: `lib/config/registry.py:99-143` (ark's models dict)
 
-- [ ] **Step 1: 替换 ark 的 models dict**
+- [ ] **Step 1: Replace ark's models dict**
 
-注意两个关键变更：
-1. `doubao-seed-2-0-lite-260215` 的 capabilities 移除 `structured_output`（bugfix）
-2. 新增 Pro、Mini、Seed 1.8 三个文本模型
+Note two key changes:
+1. Remove `structured_output` from `doubao-seed-2-0-lite-260215` capabilities (bugfix)
+2. Add three new text models: Pro, Mini, and Seed 1.8
 
 ```python
 models={
     # --- text ---
     "doubao-seed-2-0-pro-260215": ModelInfo(
-        display_name="豆包 Seed 2.0 Pro",
+        display_name="Doubao Seed 2.0 Pro",
         media_type="text",
         capabilities=["text_generation", "vision"],
     ),
     "doubao-seed-2-0-lite-260215": ModelInfo(
-        display_name="豆包 Seed 2.0 Lite",
+        display_name="Doubao Seed 2.0 Lite",
         media_type="text",
         capabilities=["text_generation", "vision"],
         default=True,
     ),
     "doubao-seed-2-0-mini-260215": ModelInfo(
-        display_name="豆包 Seed 2.0 Mini",
+        display_name="Doubao Seed 2.0 Mini",
         media_type="text",
         capabilities=["text_generation", "vision"],
     ),
     "doubao-seed-1-8-251228": ModelInfo(
-        display_name="豆包 Seed 1.8",
+        display_name="Doubao Seed 1.8",
         media_type="text",
         capabilities=["text_generation", "structured_output", "vision"],
     ),
@@ -203,19 +203,19 @@ models={
 },
 ```
 
-- [ ] **Step 2: 运行测试验证**
+- [ ] **Step 2: Run tests to verify**
 
 Run: `uv run python -m pytest tests/test_config_registry_models.py -v`
 Expected: all PASS
 
 ---
 
-### Task 4: grok 供应商 — 新增 3 个模型 + 重排
+### Task 4: grok Provider — Add 3 Models + Reorder
 
 **Files:**
-- Modify: `lib/config/registry.py:144-177`（grok 的 models dict）
+- Modify: `lib/config/registry.py:144-177` (grok's models dict)
 
-- [ ] **Step 1: 替换 grok 的 models dict**
+- [ ] **Step 1: Replace grok's models dict**
 
 ```python
 models={
@@ -263,37 +263,37 @@ models={
 },
 ```
 
-- [ ] **Step 2: 运行测试验证**
+- [ ] **Step 2: Run tests to verify**
 
 Run: `uv run python -m pytest tests/test_config_registry_models.py -v`
 Expected: all PASS
 
 ---
 
-### Task 5: 全量测试 + 提交
+### Task 5: Full Test + Commit
 
 **Files:**
-- 无新增文件
+- No new files
 
-- [ ] **Step 1: 运行全量 registry 测试**
+- [ ] **Step 1: Run full registry tests**
 
 Run: `uv run python -m pytest tests/test_config_registry.py tests/test_config_registry_models.py -v`
 Expected: all PASS
 
-- [ ] **Step 2: 验证模型总数**
+- [ ] **Step 2: Verify total model count**
 
 Run: `uv run python -c "from lib.config.registry import PROVIDER_REGISTRY; total = sum(len(m.models) for m in PROVIDER_REGISTRY.values()); print(f'Total models: {total}'); assert total == 30, f'Expected 30, got {total}'"`
 Expected: `Total models: 30`
 
-- [ ] **Step 3: 提交**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add lib/config/registry.py
-git commit -m "feat: 扩充预置模型覆盖（+12 模型）并修正 Seed 2.0 Lite capabilities
+git commit -m "feat: expand preset model coverage (+12 models) and fix Seed 2.0 Lite capabilities
 
 - gemini-aistudio/vertex: +Gemini 3.1 Pro, +Gemini 3.1 Flash Lite, +Gemini 3 Pro Image
 - grok: +Grok 4.20 Reasoning/Non-Reasoning, +Grok 4.1 Fast Non-Reasoning
-- ark: +Seed 2.0 Pro/Mini, +Seed 1.8（结构化输出补充）
-- bugfix: Seed 2.0 Lite 移除错误声明的 structured_output capability
-- 所有供应商 models dict 按 text→image→video + 梯度排列重整"
+- ark: +Seed 2.0 Pro/Mini, +Seed 1.8 (structured output supplement)
+- bugfix: Seed 2.0 Lite - remove incorrectly declared structured_output capability
+- All provider models dicts reordered by text→image→video + tier arrangement"
 ```

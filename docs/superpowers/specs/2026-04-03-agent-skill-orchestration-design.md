@@ -2,270 +2,270 @@
 
 ## Background
 
-对 `agent_runtime_profile/` 的全面Review found 11 个需要修复的问题，涉及准确性错误、架构缺陷、信息冗余和路径不一致。本设计为方案 B（引入 Asset Generation Agent + 信息去重）。
+A comprehensive review of `agent_runtime_profile/` found 11 issues requiring fixes, involving accuracy errors, architectural defects, information redundancy, and path inconsistencies. This design follows Option B (introduce Asset Generation Agent + information deduplication).
 
-## 问题清单
+## Issue List
 
-| # | 严重度 | 问题 | 位置 |
-|---|--------|------|------|
-| 1 | P0 | Agent 名称引用错误：`novel-to-narration-script` / `novel-to-storyboard-script` 应为 `split-narration-segments` / `normalize-drama-script` | `CLAUDE.md:51` |
-| 2 | P0 | 幽灵 skill 权限：`edit-script-items` 在 settings.json 中有 allow 规则但 skill 不存在 | `settings.json:29` |
-| 3 | P0 | `add_characters_clues.py` 调用方式不一致：agent 定义中多了一个不存在的 `{项目名}` 位置参数 | `analyze-characters-clues.md:60` |
-| 4 | P1 | 阶段 5-8 说 "dispatch general-purpose subagent" 但没有对应的 agent 定义 | `manga-workflow/SKILL.md:134` |
-| 6 | P1 | Persona Prompt 与 CLAUDE.md 信息重叠（语言规范、编排模式两处定义） | `session_manager.py:316` vs `CLAUDE.md` |
-| 7 | P1 | 阶段 5（角色设计）和阶段 6（线索设计）互相独立，可并行 dispatch 但当前串行 | `manga-workflow/SKILL.md` |
-| 8 | P2 | 内容模式表在 CLAUDE.md、references/content-modes.md、session_manager.py 三处重复 | 多处 |
-| 9 | P2 | 脚本调用路径假设不一致：部分用 `cd projects/{name} && python ../../.claude/skills/...`，部分用 `python .claude/skills/...` | 多个 SKILL.md |
-| 10 | P2 | `--segment-ids` 和 `--scene-ids` 在 generate-storyboard SKILL.md 中同时出现，未说明是别名关系 | `generate-storyboard/SKILL.md:23-24` |
-| 11 | P2 | reference 路径引用有误：写 `references/content-modes.md` 但实际位于 `.claude/references/content-modes.md` | 多个 SKILL.md |
+| # | Severity | Issue | Location |
+|---|----------|-------|----------|
+| 1 | P0 | Agent name reference error: `novel-to-narration-script` / `novel-to-storyboard-script` should be `split-narration-segments` / `normalize-drama-script` | `CLAUDE.md:51` |
+| 2 | P0 | Ghost skill permission: `edit-script-items` has allow rules in settings.json but the skill does not exist | `settings.json:29` |
+| 3 | P0 | `add_characters_clues.py` call inconsistency: agent definition has an extra non-existent `{project_name}` positional argument | `analyze-characters-clues.md:60` |
+| 4 | P1 | Stages 5-8 say "dispatch general-purpose subagent" but there is no corresponding agent definition | `manga-workflow/SKILL.md:134` |
+| 6 | P1 | Persona Prompt overlaps with CLAUDE.md information (language specification, orchestration mode defined in two places) | `session_manager.py:316` vs `CLAUDE.md` |
+| 7 | P1 | Stage 5 (character design) and Stage 6 (clue design) are mutually independent and can be dispatched in parallel but currently run serially | `manga-workflow/SKILL.md` |
+| 8 | P2 | Content mode table is duplicated in three places: CLAUDE.md, references/content-modes.md, session_manager.py | Multiple locations |
+| 9 | P2 | Script call path assumptions are inconsistent: some use `cd projects/{name} && python ../../.claude/skills/...`, others use `python .claude/skills/...` | Multiple SKILL.md files |
+| 10 | P2 | `--segment-ids` and `--scene-ids` both appear in generate-storyboard SKILL.md without explaining they are aliases | `generate-storyboard/SKILL.md:23-24` |
+| 11 | P2 | Reference path is wrong: written as `references/content-modes.md` but actually located at `.claude/references/content-modes.md` | Multiple SKILL.md files |
 
-## 设计方案
+## Design
 
-### 1. 新建 `agents/generate-assets.md`
+### 1. Create `agents/generate-assets.md`
 
-创建统一资产生成 subagent，替代模糊的 "general-purpose subagent"。
+Create a unified asset generation subagent to replace the vague "general-purpose subagent."
 
-**设计理念**：controller 精确构造任务清单，subagent 聚焦执行并返回结构化状态（借鉴 subagent-driven-development 模式）。
+**Design philosophy**: controller constructs precise task lists; subagent focuses on execution and returns structured status (following the subagent-driven-development pattern).
 
-**Agent 定义结构**：
+**Agent definition structure**:
 
 ```yaml
 name: generate-assets
-description: "统一资产生成 subagent。接收任务清单（包含资产类型、脚本命令、验证方式），按序执行生成脚本，返回结构化摘要。用于角色设计、线索设计、分镜图、视频生成。"
+description: "Unified asset generation subagent. Receives a task list (containing asset type, script commands, verification method), executes generation scripts sequentially, and returns a structured summary. Used for character design, clue design, storyboard images, and video generation."
 ```
 
-**工作流程**：
-1. 读取 `{项目路径}/project.json` 了解项目状态
-2. 按主 agent 提供的脚本命令逐条执行
-3. 单条失败记录错误继续后续，不阻断整体
-4. 按主 agent 指定的验证方式检查结果
-5. 返回结构化状态
+**Workflow:**
+1. Read `{project_path}/project.json` to understand project status
+2. Execute each script command provided by the main agent in sequence
+3. On single item failure, record error and continue with subsequent items without blocking the whole
+4. Check results using the verification method specified by the main agent
+5. Return structured status
 
-**返回状态协议**：
-- **DONE**：全部成功
-- **DONE_WITH_CONCERNS**：全部完成但有异常
-- **PARTIAL**：部分成功，部分失败
-- **BLOCKED**：无法执行（前置条件不满足）
+**Return Status Protocol:**
+- **DONE**: all succeeded
+- **DONE_WITH_CONCERNS**: all completed but with anomalies
+- **PARTIAL**: some succeeded, some failed
+- **BLOCKED**: unable to execute (preconditions not met)
 
-**返回摘要格式**：
+**Return summary format:**
 
 ```markdown
-## 资产生成完成
+## Asset Generation Complete
 
-**状态**: DONE / PARTIAL / BLOCKED
-**任务类型**: {类型}
+**Status**: DONE / PARTIAL / BLOCKED
+**Task Type**: {type}
 
-| 项目 | 状态 | 备注 |
-|------|------|------|
-| {项1} | ✅ 成功 | |
-| {项2} | ❌ 失败 | {错误原因} |
+| Item | Status | Notes |
+|------|--------|-------|
+| {item1} | ✅ Success | |
+| {item2} | ❌ Failed | {error reason} |
 ```
 
-**核心约束**：
-- 不做主 agent 未要求的额外操作
-- 不等待用户确认，完成即返回
-- 任务类型仅限：`characters` / `clues` / `storyboard` / `video`
+**Core constraints:**
+- Do not perform additional operations not requested by the main agent
+- Do not wait for user confirmation; return immediately upon completion
+- Task types limited to: `characters` / `clues` / `storyboard` / `video`
 
-### 2. 重写 manga-workflow 阶段 5-8
+### 2. Rewrite manga-workflow Stages 5-8
 
-#### 工作流阶段总览（修正后）
+#### Workflow Stage Overview (Corrected)
 
-1. 项目设置
-2. 全局角色/线索设计 → dispatch `analyze-characters-clues`
-3. 分集规划 → 主 agent 直接执行
-4. 单集预处理 → dispatch `split-narration-segments`（narration）或 `normalize-drama-script`（drama）
-5. JSON 剧本生成 → dispatch `create-episode-script`
-6. 角色设计 + 线索设计 → **并行** dispatch 两个 `generate-assets`（互不依赖时）
-7. 分镜图生成 → dispatch `generate-assets`
-8. 视频生成 → dispatch `generate-assets`
+1. Project setup
+2. Global character/clue design → dispatch `analyze-characters-clues`
+3. Episode planning → main agent executes directly
+4. Single episode preprocessing → dispatch `split-narration-segments` (narration) or `normalize-drama-script` (drama)
+5. JSON script generation → dispatch `create-episode-script`
+6. Character design + Clue design → **parallel** dispatch two `generate-assets` (when mutually independent)
+7. Storyboard image generation → dispatch `generate-assets`
+8. Video generation → dispatch `generate-assets`
 
-> 原阶段 9（合成）已移除。视频生成完成后用户在 Web 端导出为剪映草稿。
+> Original Stage 9 (compositing) has been removed. After video generation, users export to CapCut draft from the web interface.
 
-#### 阶段 6：角色设计 + 线索设计（可并行）
+#### Stage 6: Character Design + Clue Design (Parallelizable)
 
-两个任务互不依赖，**同时 dispatch 两个 `generate-assets` subagent**。
+The two tasks are mutually independent; **dispatch two `generate-assets` subagents simultaneously**.
 
-**subagent A — 角色设计**（触发：有角色缺少 character_sheet）：
+**Subagent A — Character Design** (triggered when: characters are missing character_sheet):
 
 ```
-dispatch `generate-assets` subagent：
-  任务类型：characters
-  项目名称：{project_name}
-  项目路径：projects/{project_name}/
-  待生成项：{缺失角色名列表}
-  脚本命令：
+dispatch `generate-assets` subagent:
+  Task type: characters
+  Project name: {project_name}
+  Project path: projects/{project_name}/
+  Items to generate: {list of missing character names}
+  Script commands:
     python .claude/skills/generate-characters/scripts/generate_character.py --all
-  验证方式：重新读取 project.json，检查对应角色的 character_sheet 字段
+  Verification method: re-read project.json, check character_sheet field for corresponding characters
 ```
 
-**subagent B — 线索设计**（触发：有 importance=major 线索缺少 clue_sheet）：
+**Subagent B — Clue Design** (triggered when: importance=major clues are missing clue_sheet):
 
 ```
-dispatch `generate-assets` subagent：
-  任务类型：clues
-  项目名称：{project_name}
-  项目路径：projects/{project_name}/
-  待生成项：{缺失线索名列表}
-  脚本命令：
+dispatch `generate-assets` subagent:
+  Task type: clues
+  Project name: {project_name}
+  Project path: projects/{project_name}/
+  Items to generate: {list of missing clue names}
+  Script commands:
     python .claude/skills/generate-clues/scripts/generate_clue.py --all
-  验证方式：重新读取 project.json，检查对应线索的 clue_sheet 字段
+  Verification method: re-read project.json, check clue_sheet field for corresponding clues
 ```
 
-如果只有其中一个需要执行，只 dispatch 对应的一个。
-两个 subagent 全部返回后，合并摘要展示给用户，进入阶段间确认。
+If only one needs to be executed, dispatch only the corresponding one.
+After both subagents return, combine summaries to display to the user, then proceed to inter-stage confirmation.
 
-#### 阶段 7：分镜图生成
+#### Stage 7: Storyboard Image Generation
 
 ```
-dispatch `generate-assets` subagent：
-  任务类型：storyboard
-  项目名称：{project_name}
-  项目路径：projects/{project_name}/
-  脚本命令：
+dispatch `generate-assets` subagent:
+  Task type: storyboard
+  Project name: {project_name}
+  Project path: projects/{project_name}/
+  Script commands:
     python .claude/skills/generate-storyboard/scripts/generate_storyboard.py episode_{N}.json
-  验证方式：重新读取 scripts/episode_{N}.json，检查各场景的 storyboard_image 字段
+  Verification method: re-read scripts/episode_{N}.json, check storyboard_image field for each scene
 ```
 
-#### 阶段 8：视频生成
+#### Stage 8: Video Generation
 
 ```
-dispatch `generate-assets` subagent：
-  任务类型：video
-  项目名称：{project_name}
-  项目路径：projects/{project_name}/
-  脚本命令：
+dispatch `generate-assets` subagent:
+  Task type: video
+  Project name: {project_name}
+  Project path: projects/{project_name}/
+  Script commands:
     python .claude/skills/generate-video/scripts/generate_video.py episode_{N}.json --episode {N}
-  验证方式：重新读取 scripts/episode_{N}.json，检查各场景的 video_clip 字段
+  Verification method: re-read scripts/episode_{N}.json, check video_clip field for each scene
 ```
 
-#### 状态检测更新
+#### Status Detection Update
 
-修正后的状态检测清单（阶段重新编号）：
+Corrected status detection checklist (stages renumbered):
 
-1. characters/clues 为空？ → **阶段 1**（角色/线索提取）
-2. 目标集 `source/episode_{N}.txt` 不存在？ → **阶段 2**（分集规划）
-3. 目标集 drafts/ 中间文件不存在？ → **阶段 3**（预处理）
-4. `scripts/episode_{N}.json` 不存在？ → **阶段 4**（JSON 剧本）
-5. 有角色缺少 character_sheet？ → **阶段 5**（角色设计）—— 与阶段 6 可并行
-6. 有 importance=major 线索缺少 clue_sheet？ → **阶段 6**（线索设计）—— 与阶段 5 可并行
-7. 有场景缺少分镜图？ → **阶段 7**（分镜图）
-8. 有场景缺少视频？ → **阶段 8**（视频）
-9. 全部完成 → 工作流结束，引导用户在 Web 端导出剪映草稿
+1. characters/clues are empty? → **Stage 1** (character/clue extraction)
+2. Target episode `source/episode_{N}.txt` does not exist? → **Stage 2** (episode planning)
+3. Target episode drafts/ intermediate files do not exist? → **Stage 3** (preprocessing)
+4. `scripts/episode_{N}.json` does not exist? → **Stage 4** (JSON script)
+5. Characters missing character_sheet? → **Stage 5** (character design) — can run in parallel with Stage 6
+6. importance=major clues missing clue_sheet? → **Stage 6** (clue design) — can run in parallel with Stage 5
+7. Scenes missing storyboard images? → **Stage 7** (storyboard)
+8. Scenes missing videos? → **Stage 8** (video)
+9. All complete → workflow ends, guide user to export CapCut draft from the web interface
 
-### 3. 信息去重
+### 3. Information Deduplication
 
-#### CLAUDE.md 改动
+#### CLAUDE.md Changes
 
-**删除**第 40-51 行的内容模式对比表（含错误 agent 名称），替换为一行引用：
+**Delete** the content mode comparison table at lines 40-51 (including wrong agent names), replace with a one-line reference:
 
 ```markdown
-> 内容模式详细规格见 `.claude/references/content-modes.md`。
+> Content mode detailed specifications can be found in `.claude/references/content-modes.md`.
 ```
 
-**修正**架构图（约第 77-87 行）：
-- 删除 `general-purpose subagent` 行
-- 新增 `generate-assets` 行
-- 删除旧的错误 agent 名称引用
+**Correct** the architecture diagram (approximately lines 77-87):
+- Delete the `general-purpose subagent` line
+- Add the `generate-assets` line
+- Delete old incorrect agent name references
 
-修正后：
+Corrected:
 
 ```
-主 Agent（编排层 — 极轻量）
-  │  只持有：项目状态摘要 + 用户对话历史
-  │  职责：状态检测、流程决策、用户确认、dispatch subagent
+Main Agent (orchestration layer — extremely lightweight)
+  │  Only holds: project status summary + user conversation history
+  │  Responsibilities: status detection, process decisions, user confirmation, dispatch subagent
   │
-  ├─ dispatch → analyze-characters-clues     全局角色/线索提取
-  ├─ dispatch → split-narration-segments     说书模式片段拆分
-  ├─ dispatch → normalize-drama-script       剧集模式规范化剧本
-  ├─ dispatch → create-episode-script        JSON 剧本生成（预加载 generate-script skill）
-  └─ dispatch → generate-assets              资产生成（角色/线索/分镜/视频）
+  ├─ dispatch → analyze-characters-clues     Global character/clue extraction
+  ├─ dispatch → split-narration-segments     Narration mode segment splitting
+  ├─ dispatch → normalize-drama-script       Drama mode script normalization
+  ├─ dispatch → create-episode-script        JSON script generation (pre-loads generate-script skill)
+  └─ dispatch → generate-assets              Asset generation (characters/clues/storyboard/video)
 ```
 
-**修正**可用 Skills 表：删除 compose-video 行。
+**Correct** the available Skills table: delete the compose-video row.
 
-**修正**工作流程概览：
-- 删除原阶段 9（合成）和阶段 10
-- 阶段 5+6 标注"可并行"
-- 末尾说明视频生成后在 Web 端导出剪映草稿
+**Correct** the workflow overview:
+- Delete original Stage 9 (compositing) and Stage 10
+- Mark Stages 5+6 as "parallelizable"
+- Add note at the end: after video generation, export CapCut draft from the web interface
 
-#### Persona Prompt（session_manager.py）精简
+#### Persona Prompt (session_manager.py) Streamlining
 
-删除与 CLAUDE.md 重复的内容，保留仅 Persona Prompt 独有的职责：
+Remove content duplicated from CLAUDE.md, keeping only what is unique to the Persona Prompt:
 
 ```python
 _PERSONA_PROMPT = """\
-## 身份
+## Identity
 
-你是 ArcReel 智能体，一个专业的 AI 视频内容创作助手。你的职责是将小说转化为可发布的短视频内容。
+You are the ArcReel Agent, a professional AI video content creation assistant. Your responsibility is to transform novels into publishable short video content.
 
-## 行为准则
+## Behavioral Guidelines
 
-- 主动引导用户完成视频创作工作流，而不仅仅被动回答问题
-- 遇到不确定的创作决策时，向用户提出选项并给出建议，而不是自行决定
-- 涉及多步骤任务时，使用 TodoWrite 跟踪进度并向用户汇报
-- 你是用户的视频制作搭档，专业、友善、高效"""
+- Proactively guide users through the video creation workflow, rather than just passively answering questions
+- When facing uncertain creative decisions, present options to the user with recommendations, rather than deciding unilaterally
+- For multi-step tasks, use TodoWrite to track progress and report to the user
+- You are the user's video production partner: professional, friendly, and efficient"""
 ```
 
-删除的内容：
-- "回答用户必须使用中文"（CLAUDE.md 重要总则已有）
-- "编排模式"整段（CLAUDE.md 架构章节已有）
-- "使用 /manga-workflow skill 中的决策树"（CLAUDE.md 已有）
+Removed content:
+- "Must respond to users in Chinese" (already covered in CLAUDE.md key principles)
+- The entire "Orchestration Mode" section (already covered in CLAUDE.md architecture section)
+- "Use the decision tree in /manga-workflow skill" (already in CLAUDE.md)
 
-### 4. 路径与命名一致性
+### 4. Path and Naming Consistency
 
-#### 统一脚本调用路径
+#### Unified Script Call Paths
 
-**原则**：所有脚本调用必须使用 settings.json allow 规则允许的相对路径格式：
+**Principle**: all script calls must use relative path format allowed by settings.json allow rules:
 
 ```bash
 python .claude/skills/{skill}/scripts/{script}.py {args}
 ```
 
-不使用 `cd projects/{name} && python ../../.claude/skills/...` 模式（不匹配 allow 规则）。
+Do not use the `cd projects/{name} && python ../../.claude/skills/...` pattern (does not match allow rules).
 
-**需修改的文件**：
+**Files to modify:**
 
-| 文件 | Modify |
-|------|------|
-| `manga-workflow/SKILL.md` | 阶段 2 的 peek/split 命令去掉 `cd` 前缀 |
-| `analyze-characters-clues.md` | 删除错误的 `{项目名}` 位置参数，使用 `python .claude/skills/manage-project/scripts/add_characters_clues.py --characters ...` |
-| `normalize-drama-script.md` | 脚本调用去掉 `cd` 前缀 |
-| `create-episode-script.md` | 脚本调用去掉 `cd` 前缀 |
-| `generate-assets.md`（新建） | dispatch prompt 模板直接使用相对路径 |
+| File | Modification |
+|------|-------------|
+| `manga-workflow/SKILL.md` | Remove `cd` prefix from Stage 2 peek/split commands |
+| `analyze-characters-clues.md` | Remove incorrect `{project_name}` positional argument, use `python .claude/skills/manage-project/scripts/add_characters_clues.py --characters ...` |
+| `normalize-drama-script.md` | Remove `cd` prefix from script calls |
+| `create-episode-script.md` | Remove `cd` prefix from script calls |
+| `generate-assets.md` (new) | dispatch prompt templates use relative paths directly |
 
-#### 修正 `--segment-ids` / `--scene-ids` 歧义
+#### Fix `--segment-ids` / `--scene-ids` Ambiguity
 
-在 `generate-storyboard/SKILL.md` 中添加说明：
+Add clarification in `generate-storyboard/SKILL.md`:
 
 ```markdown
-> `--scene-ids` 和 `--segment-ids` 是同义别名（后者为 narration 模式的习惯称呼），效果相同。以下统一使用 `--scene-ids`。
+> `--scene-ids` and `--segment-ids` are synonymous aliases (the latter is the conventional name in narration mode); they have the same effect. The following uniformly uses `--scene-ids`.
 ```
 
-示例部分统一使用 `--scene-ids`。
+Unify all examples to use `--scene-ids`.
 
-#### 修正 reference 路径
+#### Fix Reference Paths
 
-各 SKILL.md 中引用 `references/content-modes.md` 改为完整的相对路径 `.claude/references/content-modes.md`。
+Change `references/content-modes.md` references in each SKILL.md to the full relative path `.claude/references/content-modes.md`.
 
-涉及文件：
+Affected files:
 - `manga-workflow/SKILL.md:17`
-- `generate-characters/SKILL.md`（引用了 prompt 语言章节）
+- `generate-characters/SKILL.md` (references the prompt language section)
 - `generate-clues/SKILL.md`
 - `generate-storyboard/SKILL.md`
 - `generate-video/SKILL.md`
 
-### 5. 清理 settings.json
+### 5. Clean Up settings.json
 
-删除 `settings.json:29` 的幽灵 skill 行：
+Delete the ghost skill line at `settings.json:29`:
 
 ```diff
 - "Bash(python .claude/skills/edit-script-items/scripts/edit_script_items.py:*)",
 ```
 
-## 变更文件汇总
+## Change File Summary
 
-| 操作 | 文件 | 对应问题 |
-|------|------|---------|
+| Operation | File | Corresponding Issue |
+|-----------|------|---------------------|
 | **Create** | `.claude/agents/generate-assets.md` | #4, #7 |
 | **Modify** | `CLAUDE.md` | #1, #8 |
 | **Modify** | `.claude/skills/manga-workflow/SKILL.md` | #4, #7, #8, #9, #11 |
@@ -279,8 +279,8 @@ python .claude/skills/{skill}/scripts/{script}.py {args}
 | **Modify** | `.claude/settings.json` | #2 |
 | **Modify** | `server/agent_runtime/session_manager.py` | #6 |
 
-## 不在范围内
+## Out of Scope
 
-- 错误恢复协议（#5）——用户明确排除
-- Eval 覆盖度扩展（#12-15）——后续迭代
-- compose-video skill 本身的删除——保留为独立 skill，仅从工作流中移除
+- Error recovery protocol (#5) — explicitly excluded by user
+- Eval coverage extension (#12-15) — future iteration
+- Deleting the compose-video skill itself — retained as an independent skill, only removed from the workflow

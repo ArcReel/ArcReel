@@ -2,84 +2,84 @@
 
 ## Background
 
-Grok 供应商在实际使用中暴露出四个问题，影响图片/视频生成质量和体验：
+The Grok provider has exposed four issues during actual usage, affecting image/video generation quality and experience:
 
-1. 用户上传的角色参考图/角色图过大，base64 编码后超过 gRPC 4MB 限制，导致生图/生视频直接报错
-2. Grok 图片生成并发实际只有 1（默认应为 5），需排查根因
-3. Grok 生成分镜图时参考图只有第一张有效，其他供应商均支持多张
-4. Drama 模式下分镜图生成为竖屏比例，应为 16:9 横屏
+1. User-uploaded character reference images/character images are too large; base64 encoding exceeds the gRPC 4MB limit, causing immediate errors during image/video generation
+2. Grok image generation concurrency is actually only 1 (default should be 5); root cause needs investigation
+3. When generating scene images, Grok only uses the first reference image; all other providers support multiple images
+4. In drama mode, scene image generation uses portrait aspect ratio; it should be 16:9 landscape
 
-## 问题 1：上传图片压缩
+## Issue 1: Upload Image Compression
 
-### 现状
+### Current State
 
-- `image_utils.py` 的 `convert_image_bytes_to_png()` 仅做格式转换（→ PNG），无压缩/缩放
-- `image_to_base64_data_uri()` 直接读原始文件字节 base64 编码，无大小检查
-- 用户上传的高分辨率 PNG 可轻松超过 4MB（base64 后更大，约 1.33 倍）
-- Grok 图片和视频后端均通过 base64 data URI 传递参考图/起始帧
+- `convert_image_bytes_to_png()` in `image_utils.py` only does format conversion (→ PNG), no compression/resizing
+- `image_to_base64_data_uri()` directly reads raw file bytes for base64 encoding, no size check
+- High-resolution PNGs uploaded by users can easily exceed 4MB (even larger after base64, approximately 1.33x)
+- Both Grok image and video backends pass reference images/start frames via base64 data URIs
 
-### 方案
+### Solution
 
-在 `image_utils.py` 新增压缩函数，上传入口在图片大于 2MB 时调用：
+Add a compression function in `image_utils.py`, called at the upload entry point when the image exceeds 2MB:
 
-- **触发条件**：上传图片原始大小 > 2MB
-- **格式**：转 JPEG（quality=85）
-- **分辨率**：长边不超过 2048px，等比缩放
-- **≤ 2MB 时**：直接保存原始内容，不做任何转换
-- **适用范围**：所有用户上传的图片（角色参考图、角色图、线索图、风格参考图），AI 生成的图片暂不处理
+- **Trigger condition**: uploaded image raw size > 2MB
+- **Format**: convert to JPEG (quality=85)
+- **Resolution**: long edge no more than 2048px, proportionally scaled
+- **≤ 2MB**: save original content directly, no conversion
+- **Scope**: all user-uploaded images (character reference images, character images, clue images, style reference images); AI-generated images are not processed for now
 
-### 改动文件
+### Modified Files
 
-| 文件 | Modify |
-|------|------|
-| `lib/image_utils.py` | 新增 `compress_image_bytes()` 函数：JPEG 转换 + 分辨率限制 |
-| `server/routers/files.py` | 上传入口改调 `compress_image_bytes()` 替换 `convert_image_bytes_to_png()` |
+| File | Modification |
+|------|-------------|
+| `lib/image_utils.py` | Add `compress_image_bytes()` function: JPEG conversion + resolution limiting |
+| `server/routers/files.py` | Upload entry changed to call `compress_image_bytes()` instead of `convert_image_bytes_to_png()` |
 
 ### Notes
 
-- 仅大于 2MB 的图片触发压缩（JPEG + 缩放），后缀改为 `.jpg`
-- ≤ 2MB 的图片直接保存原始内容，保留原格式后缀（`.png`/`.jpg`/`.webp`）
-- `project.json` 中的引用路径会自然反映实际后缀
-- 下游代码（`image_to_base64_data_uri`、`_collect_reference_images` 等）通过路径读取文件，不依赖特定后缀，无需改动
-- 已存储的旧文件无需迁移，仍可正常使用
-- 风格参考图（`style_reference`）同样适用此规则，因为 Grok 文本后端的 vision 调用也通过 `image_to_base64_data_uri()` 传图，同受 gRPC 4MB 限制
+- Only images larger than 2MB trigger compression (JPEG + resizing), extension changed to `.jpg`
+- Images ≤ 2MB are saved with original content, retaining original format extension (`.png`/`.jpg`/`.webp`)
+- Reference paths in `project.json` will naturally reflect the actual extension
+- Downstream code (`image_to_base64_data_uri`, `_collect_reference_images`, etc.) reads files by path and does not depend on specific extensions; no changes needed
+- Existing stored old files need no migration and can still be used normally
+- Style reference images (`style_reference`) also apply this rule, because Grok text backend's vision calls also pass images via `image_to_base64_data_uri()`, also subject to the gRPC 4MB limit
 
-## 问题 2：Grok 图片并发异常
+## Issue 2: Grok Image Concurrency Anomaly
 
-### 现状
+### Current State
 
-- `generation_worker.py` 中 `_load_pools_from_db()` 默认 image_max=5, video_max=3
-- 用户未手动修改配置，但观察到 Grok 图片任务串行执行
-- 视频并发正常（3）
+- `_load_pools_from_db()` in `generation_worker.py` defaults to image_max=5, video_max=3
+- User has not manually modified configuration, but Grok image tasks are observed to execute serially
+- Video concurrency is normal (3)
 
-### 排查方向
+### Investigation Directions
 
-1. **DB 配置残留**：检查 `provider_configs` 表中 Grok 的 `image_max_workers` 是否被设为 1
-2. **Pool 加载逻辑**：`_load_pools_from_db()` 在解析 config 时是否有类型转换或默认值问题
-3. **Fallback pool**：如果 DB 加载失败，`_build_default_pools()` 是否被使用且行为正确
+1. **DB config residue**: check whether Grok's `image_max_workers` in the `provider_configs` table has been set to 1
+2. **Pool loading logic**: does `_load_pools_from_db()` have type conversion or default value issues when parsing config
+3. **Fallback pool**: if DB loading fails, is `_build_default_pools()` being used and behaving correctly
 
-### 方案
+### Solution
 
-- 在 worker 启动和 `reload_limits()` 时，增加 INFO 级别日志，打印每个 provider 的实际 pool 配置（image_max, video_max）
-- 如果确认是 DB 残留值（如 `"1"` 或空字符串），修复 `_load_pools_from_db()` 的默认值回退逻辑
+- During worker startup and `reload_limits()`, add INFO-level logging to print the actual pool configuration (image_max, video_max) for each provider
+- If DB residue values are confirmed (e.g., `"1"` or empty string), fix the default value fallback logic in `_load_pools_from_db()`
 
-### 改动文件
+### Modified Files
 
-| 文件 | Modify |
-|------|------|
-| `lib/generation_worker.py` | `_load_pools_from_db()` 和 `reload_limits()` 增加 pool 配置日志 |
+| File | Modification |
+|------|-------------|
+| `lib/generation_worker.py` | Add pool configuration logging in `_load_pools_from_db()` and `reload_limits()` |
 
-## 问题 3：Grok 参考图只用第一张
+## Issue 3: Grok Reference Images Only Uses First Image
 
-### 现状
+### Current State
 
-- `grok.py` 图片后端仅取 `request.reference_images[0]`，通过 `image_url`（单数）传给 API
-- Grok API 实际支持 `image_urls`（复数列表），可传多张参考图
-- 其他供应商均已支持多张参考图：Gemini（无限制 + label）、Ark（列表）、OpenAI（最多 16 张）
+- `grok.py` image backend only takes `request.reference_images[0]`, passing it via `image_url` (singular) to the API
+- Grok API actually supports `image_urls` (plural list), allowing multiple reference images
+- All other providers already support multiple reference images: Gemini (unlimited + labels), Ark (list), OpenAI (up to 16)
 
-### 方案
+### Solution
 
-将 `grok.py` 的 I2I 逻辑从单张改为多张：
+Change the I2I logic in `grok.py` from single image to multiple images:
 
 ```python
 # Before
@@ -99,41 +99,41 @@ if request.reference_images:
         generate_kwargs["image_urls"] = data_uris
 ```
 
-### 改动文件
+### Modified Files
 
-| 文件 | Modify |
-|------|------|
-| `lib/image_backends/grok.py` | `generate()` 方法：改用 `image_urls` 传所有参考图 |
+| File | Modification |
+|------|-------------|
+| `lib/image_backends/grok.py` | `generate()` method: switch to `image_urls` to pass all reference images |
 
-## 问题 4：Drama 模式分镜比例不对
+## Issue 4: Drama Mode Scene Aspect Ratio Is Wrong
 
-### 排查结论
+### Investigation Conclusion
 
-**ArcReel 代码传参链路完全正确**，`aspect_ratio="16:9"` 一路传递到 xAI SDK。
+**ArcReel's code parameter-passing chain is completely correct** — `aspect_ratio="16:9"` is passed through to the xAI SDK.
 
-**根因确认**：Grok API 在单图编辑模式（`image_url` 单数参数）下会忽略 `aspect_ratio` 参数，使用参考图的原始比例。而多图编辑模式（`image_urls` 列表参数）下 `aspect_ratio` 正常生效。
+**Root cause confirmed**: Grok API ignores the `aspect_ratio` parameter in single-image edit mode (singular `image_url` parameter), using the reference image's original aspect ratio. In multi-image edit mode (`image_urls` list parameter), `aspect_ratio` takes effect correctly.
 
-### 方案
+### Solution
 
-**与问题 3 合并为同一修复**：始终使用 `image_urls`（列表），即使只有一张参考图也走多图编辑路径。这样 `aspect_ratio` 参数就能被正确识别。
+**Merged with Issue 3 as the same fix**: always use `image_urls` (list), even with only one reference image, always going through the multi-image edit path. This allows the `aspect_ratio` parameter to be correctly recognized.
 
-额外增加 aspect_ratio 支持列表校验作为兜底。Grok 支持的比例远多于最初Expected: `1:1`, `16:9`/`9:16`, `4:3`/`3:4`, `3:2`/`2:3`, `2:1`/`1:2`, `19.5:9`/`9:19.5`, `20:9`/`9:20`, `auto`。不在列表中的比例 warning 后透传给 API（不做映射）。
+Additionally add aspect_ratio support list validation as a fallback. Grok supports far more ratios than initially expected: `1:1`, `16:9`/`9:16`, `4:3`/`3:4`, `3:2`/`2:3`, `2:1`/`1:2`, `19.5:9`/`9:19.5`, `20:9`/`9:20`, `auto`. Ratios not in the list are passed through to the API with a warning (no mapping).
 
-### 改动文件
+### Modified Files
 
-| 文件 | Modify |
-|------|------|
-| `lib/image_backends/grok.py` | 已在问题 3 中改用 `image_urls`；额外增加 aspect_ratio 校验 |
+| File | Modification |
+|------|-------------|
+| `lib/image_backends/grok.py` | Already changed to use `image_urls` in Issue 3; additionally add aspect_ratio validation |
 
-## 跨问题影响
+## Cross-Issue Impact
 
-- 问题 1（图片压缩）会减小参考图体积，间接缓解问题 3（多张参考图时总体积更大）的负担
-- 问题 3（切换 `image_urls`）直接修复了问题 4：多图编辑模式下 `aspect_ratio` 参数正常生效
-- 所有改动仅影响 Grok 供应商（压缩除外，但压缩是通用的上传逻辑）
+- Issue 1 (image compression) reduces reference image size, indirectly alleviating the burden of Issue 3 (larger total size with multiple reference images)
+- Issue 3 (switching to `image_urls`) directly fixes Issue 4: `aspect_ratio` parameter works correctly in multi-image edit mode
+- All changes only affect the Grok provider (compression is an exception, but compression is universal upload logic)
 
 ## Testing Strategy
 
-- 问题 1：单元测试 `compress_image_bytes()` 对大图/小图/各种格式的处理
-- 问题 2：检查日志输出确认 pool 配置正确
-- 问题 3：集成测试传多张参考图到 Grok API
-- 问题 4：集成测试 drama 模式生成的图片尺寸是否为横屏
+- Issue 1: unit test `compress_image_bytes()` handling of large/small images and various formats
+- Issue 2: check log output to confirm pool configuration is correct
+- Issue 3: integration test passing multiple reference images to Grok API
+- Issue 4: integration test to verify drama mode generates landscape images with correct dimensions

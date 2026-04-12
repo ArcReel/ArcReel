@@ -1,80 +1,80 @@
-# 剪映草稿导出功能设计
+# CapCut Draft Export Feature Design
 
-**日期**：2026-03-23
-**状态**：已确认
+**Date**: 2026-03-23
+**Status**: Confirmed
 
 ---
 
 ## Overview
 
-将 ArcReel 单集已生成的视频片段导出为剪映（JianYing）草稿文件，用户解压到本地剪映草稿目录后，在剪映中直接打开进行二次编辑（字幕、转场、特效等）。
+Export the generated video clips for a single episode of ArcReel as a CapCut (JianYing) draft file. After decompressing to the local CapCut draft directory, users can open it in CapCut for secondary editing (subtitles, transitions, effects, etc.).
 
-### 设计目标
+### Design Goals
 
-- 按集导出，视频素材在时间线上顺序排列
-- 说书模式附带字幕轨（`novel_text`）
-- 素材自包含：ZIP 内含草稿 JSON + 视频文件
-- 复用现有下载 token + 浏览器原生下载机制
-- 用户通过弹窗填写剪映草稿目录，后端生成路径正确的 `draft_content.json`
+- Export by episode, with video assets arranged sequentially on the timeline
+- Narration mode includes subtitle track (`novel_text`)
+- Self-contained assets: ZIP contains draft JSON + video files
+- Reuse existing download token + browser native download mechanism
+- Users fill in the CapCut draft directory via a dialog, backend generates `draft_content.json` with correct paths
 
-### 非目标
+### Non-Goals
 
-- 不支持剪映模板模式（读取/修改已有草稿）
-- 不支持远程 URL 素材引用
-- 不导出音频轨（BGM、配音）
-- 不支持 CapCut 国际版
-- drama 模式不导出字幕（多角色对话结构复杂，非 MVP）
-
----
-
-## 技术选型
-
-**pyJianYingDraft**（`pyjianyingdraft>=0.2.6`）：2800+ Star 的成熟社区库，API 简洁，pip 可安装，与 ArcReel Python 后端一致。系统依赖 `mediainfo`（Docker 中需 `apt-get install`）。
+- No support for CapCut template mode (reading/modifying existing drafts)
+- No support for remote URL asset references
+- No export of audio tracks (BGM, voice-over)
+- No support for CapCut international edition
+- Drama mode does not export subtitles (multi-character dialogue structure is complex, non-MVP)
 
 ---
 
-## 后端 API 设计
+## Technology Selection
 
-### 端点
+**pyJianYingDraft** (`pyjianyingdraft>=0.2.6`): A mature community library with 2800+ stars, clean API, pip-installable, consistent with ArcReel's Python backend. System dependency: `mediainfo` (requires `apt-get install` in Docker).
 
-#### 1. 签发 token — 复用现有端点
+---
+
+## Backend API Design
+
+### Endpoints
+
+#### 1. Issue token — reuse existing endpoint
 
 ```
 POST /api/v1/projects/{name}/export/token
 ```
 
-直接复用现有导出 token 端点（`create_download_token`，`purpose="download"`）。前端获取 token 后构造剪映草稿专用的下载 URL 即可，无需新增 token 端点。
+Directly reuse the existing export token endpoint (`create_download_token`, `purpose="download"`). Frontend gets the token and constructs the CapCut draft-specific download URL, no need to add a new token endpoint.
 
-#### 2. 导出草稿 ZIP（新增端点）
+#### 2. Export draft ZIP (new endpoint)
 
 ```
 GET /api/v1/projects/{name}/export/jianying-draft
     ?episode={N}
-    &draft_path={用户本地剪映草稿根目录}
+    &draft_path={user local CapCut draft root directory}
     &download_token={token}
 ```
 
-- `episode`（必填）：集数编号
-- `draft_path`（必填）：用户本地剪映草稿根目录的绝对路径
-- `download_token`（必填）：下载 token
-- 响应：`application/zip` 流式下载
+- `episode` (required): episode number
+- `draft_path` (required): absolute path to user's local CapCut draft root directory
+- `download_token` (required): download token
+- Response: `application/zip` streaming download
 
-错误码：
+Error codes:
 
-| 状态码 | 场景 |
-|--------|------|
-| 404 | 项目或集数不存在 |
-| 422 | 该集无已完成视频 / draft_path 为空或含控制字符 |
-| 401 | token 过期或无效 |
-| 403 | token 与项目不匹配 |
+| Status Code | Scenario |
+|-------------|---------|
+| 404 | Project or episode does not exist |
+| 422 | No completed videos for this episode / draft_path is empty or contains control characters |
+| 401 | Token expired or invalid |
+| 403 | Token does not match project |
 
-认证方式：GET 端点**不加** `Depends(get_current_user)`，在函数体内手动验证 `download_token` 参数（与现有 `export_project_archive` 相同模式）。
+Authentication: GET endpoint does **not** add `Depends(get_current_user)`, manually validates `download_token` parameter in the function body (same pattern as existing `export_project_archive`).
 
 ---
 
-## 服务层设计
+## Service Layer Design
 
-新增 `server/services/jianying_draft_service.py`：
+New `server/services/jianying_draft_service.py`:
 
 ```python
 class JianyingDraftService:
@@ -83,32 +83,32 @@ class JianyingDraftService:
     ) -> Path:
 ```
 
-### 核心流程
+### Core Flow
 
-1. **加载剧本**：区分 `content_mode`（narration → segments，drama → scenes）
-2. **收集已完成视频**：遍历 `generated_assets.video_clip`，仅保留文件存在的片段；narration 模式额外提取 `novel_text`
-3. **确定画布尺寸**：`aspect_ratio.video` → 16:9 = 1920×1080，9:16 = 1080×1920
-4. **创建临时目录**，复制视频到 `assets/`（优先硬链接，跨文件系统时 fallback 到 `shutil.copy2`）
-5. **调用 pyjianyingdraft 生成草稿**：
+1. **Load script**: distinguish `content_mode` (narration → segments, drama → scenes)
+2. **Collect completed videos**: traverse `generated_assets.video_clip`, keep only segments with existing files; narration mode additionally extracts `novel_text`
+3. **Determine canvas size**: `aspect_ratio.video` → 16:9 = 1920×1080, 9:16 = 1080×1920
+4. **Create temp directory**, copy videos to `assets/` (prefer hard links, fall back to `shutil.copy2` for cross-filesystem)
+5. **Call pyjianyingdraft to generate draft**:
    - `DraftFolder(tmp_dir)` → `create_draft(draft_name, width, height)`
-   - `add_track(TrackType.video)` — 视频轨
-   - 逐片段用 `VideoMaterial(path).duration` 预读实际时长，构造 `VideoSegment`
-   - narration 模式：`add_track(TrackType.text, "字幕")` + 逐段 `TextSegment`
-6. **路径后处理**：`save()` 后读取 `draft_content.json`，将临时目录路径全文替换为 `{draft_path}/{draft_name}/assets/...`
-7. **打包 ZIP**，`BackgroundTask` 清理临时文件
+   - `add_track(TrackType.video)` — video track
+   - For each segment, pre-read actual duration with `VideoMaterial(path).duration`, construct `VideoSegment`
+   - Narration mode: `add_track(TrackType.text, "Subtitle")` + per-segment `TextSegment`
+6. **Path post-processing**: after `save()`, read `draft_content.json` and replace temp directory paths with `{draft_path}/{draft_name}/assets/...`
+7. **Package ZIP**, `BackgroundTask` cleans up temp files
 
-### 视频时长策略
+### Video Duration Strategy
 
-忽略剧本中的 `duration_seconds`，使用 pyjianyingdraft 从视频文件自动提取的实际时长。避免时长不匹配导致的 `ValueError`。
+Ignore `duration_seconds` in the script, use actual duration automatically extracted by pyjianyingdraft from the video file. Avoids `ValueError` from duration mismatches.
 
-### 字幕轨（仅 narration 模式）
+### Subtitle Track (narration mode only)
 
 ```python
 if content_mode == "narration":
-    script.add_track(draft.TrackType.text, "字幕")
+    script.add_track(draft.TrackType.text, "Subtitle")
     text_style = draft.TextStyle(
         size=8.0, color=(1.0, 1.0, 1.0), align=1,
-        bold=True, auto_wrapping=True,  # 导出为 subtitle 类型
+        bold=True, auto_wrapping=True,  # exported as subtitle type
     )
     for clip in clips:
         if clip.get("novel_text"):
@@ -120,84 +120,84 @@ if content_mode == "narration":
             script.add_segment(seg)
 ```
 
-字幕时长与对应视频片段实际时长一致。无 `novel_text` 的片段跳过字幕。
+Subtitle duration matches the actual duration of the corresponding video segment. Segments without `novel_text` skip subtitles.
 
 ---
 
-## 前端交互设计
+## Frontend Interaction Design
 
-### 入口
+### Entry Point
 
-在现有 `ExportScopeDialog` 弹窗中新增第三个选项：**"导出为剪映草稿"**。
+Add a third option in the existing `ExportScopeDialog`: **"Export as CapCut Draft"**.
 
-选择后展开额外表单：
+After selection, expand additional form:
 
-#### 1. 集数选择（下拉框）
+#### 1. Episode Selection (dropdown)
 
-- 数据源：`project.episodes[]`
-- 仅列出有已完成视频的集
-- 仅一集时自动选中，不显示下拉
+- Data source: `project.episodes[]`
+- Only list episodes with completed videos
+- Auto-select if only one episode, don't show dropdown
 
-#### 2. 剪映草稿目录（文本输入框）
+#### 2. CapCut Draft Directory (text input)
 
-- 输入框 placeholder 根据 OS 检测显示示例路径（浏览器无法获取系统用户名，仅作提示）：
-  - Windows: `C:\Users\你的用户名\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`
-  - macOS: `/Users/你的用户名/Movies/JianyingPro/User Data/Projects/com.lveditor.draft`
-- 输入框下方提示：*"请填入剪映草稿目录的完整路径。打开剪映 → 设置 → 草稿位置 可查看。"*
-- `localStorage` key `arcreel_jianying_draft_path` 缓存，有缓存时优先回填（优先级高于 placeholder）
+- Input placeholder shows example paths based on OS detection (browser cannot get system username, serves as prompt only):
+  - Windows: `C:\Users\YourUsername\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`
+  - macOS: `/Users/YourUsername/Movies/JianyingPro/User Data/Projects/com.lveditor.draft`
+- Prompt below input: *"Please enter the full path to the CapCut draft directory. Open CapCut → Settings → Draft Location to find it."*
+- `localStorage` key `arcreel_jianying_draft_path` caches the value, auto-fills from cache when available (higher priority than placeholder)
 
-#### 3. 导出按钮
+#### 3. Export Button
 
-- 点击：签发 token → `window.open(GET url)` 触发浏览器下载
-- 下载期间按钮禁用，显示"导出中..."
+- Click: issue token → `window.open(GET url)` triggers browser download
+- Button disabled during download, shows "Exporting..."
 
-### ExportScopeDialog 改造
+### ExportScopeDialog Redesign
 
-现有组件是简单的两按钮选择器（"仅当前版本"/"全部数据"），选择即触发 `onSelect(scope)`。改造为：
+The existing component is a simple two-button selector ("Current version only"/"All data"), selection triggers `onSelect(scope)`. Redesign to:
 
-1. 扩展 `ExportScope` 类型：新增 `"jianying-draft"` 值
-2. 选择"导出为剪映草稿"后，弹窗从"选择模式"切换到"表单模式"，展开集数下拉 + 草稿目录输入框
-3. 剪映导出走独立回调 `onJianyingExport(episode, draftPath)`，不复用 `onSelect`
-4. 组件内部需要接收 `episodes` prop（或从 store 读取）来填充集数下拉
-5. 状态机：选择模式 → 表单模式 → 导出中（按钮禁用）→ 完成（关闭弹窗）
+1. Extend `ExportScope` type: add `"jianying-draft"` value
+2. After selecting "Export as CapCut Draft", dialog switches from "selection mode" to "form mode", expanding episode dropdown + draft directory input
+3. CapCut export uses independent callback `onJianyingExport(episode, draftPath)`, doesn't reuse `onSelect`
+4. Component needs to receive `episodes` prop (or read from store) to populate episode dropdown
+5. State machine: selection mode → form mode → exporting (button disabled) → done (close dialog)
 
-### API 层
+### API Layer
 
-在 `frontend/src/api.ts` 新增：
+Add to `frontend/src/api.ts`:
 
 ```typescript
-// 复用现有 requestExportToken，无需新方法
+// Reuse existing requestExportToken, no new method needed
 getJianyingDraftDownloadUrl(projectName: string, episode: number, draftPath: string, token: string): string
 ```
 
 ---
 
-## 导出 ZIP 包结构
+## Export ZIP Structure
 
 ```
-{项目名}_第{N}集_剪映草稿.zip
-└── {项目名}_第{N}集/
-    ├── draft_content.json      # 路径已替换为用户本地路径
-    ├── draft_meta_info.json    # 由 pyjianyingdraft save() 自动生成
+{project_name}_episode_{N}_capcut_draft.zip
+└── {project_name}_episode_{N}/
+    ├── draft_content.json      # paths replaced with user's local paths
+    ├── draft_meta_info.json    # auto-generated by pyjianyingdraft save()
     └── assets/
         ├── scene_E1S01.mp4
         ├── scene_E1S02.mp4
         └── ...
 ```
 
-### 用户使用流程
+### User Flow
 
-1. 工作台 → "导出 ZIP" → 选 "导出为剪映草稿"
-2. 选集数 + 填写剪映草稿目录（localStorage 自动回填）
-3. 点击导出，浏览器下载 ZIP
-4. 将 ZIP 解压到填写的剪映草稿目录中
-5. 打开剪映，草稿列表出现该项目，时间线已排好视频 + 字幕
+1. Workspace → "Export ZIP" → Select "Export as CapCut Draft"
+2. Select episode + enter CapCut draft directory (localStorage auto-fills)
+3. Click export, browser downloads ZIP
+4. Unzip ZIP to the entered CapCut draft directory
+5. Open CapCut, the project appears in draft list with videos + subtitles already arranged on timeline
 
 ---
 
-## 路径后处理
+## Path Post-Processing
 
-`save()` 后，通过 JSON 解析方式替换 `draft_content.json` 中的临时目录路径（而非文本层 `str.replace`，避免路径中的引号或特殊字符破坏 JSON 结构）：
+After `save()`, replace the temp directory paths in `draft_content.json` via JSON parsing (not text-level `str.replace`, to avoid path quotes or special characters corrupting the JSON structure):
 
 ```python
 import json
@@ -207,7 +207,7 @@ tmp_prefix = str(tmp_assets_dir)
 target_prefix = f"{draft_path}/{draft_name}/assets"
 
 def replace_paths(obj):
-    """递归遍历 JSON，替换所有包含临时路径的字符串值"""
+    """Recursively traverse JSON, replace all string values containing temp path"""
     if isinstance(obj, str) and tmp_prefix in obj:
         return obj.replace(tmp_prefix, target_prefix)
     if isinstance(obj, dict):
@@ -220,23 +220,23 @@ data = replace_paths(data)
 json_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 ```
 
-所有素材路径前缀统一在 `assets/` 下，递归替换确保 JSON 结构完整。
+All asset path prefixes are under `assets/`, recursive replacement ensures complete JSON structure.
 
 ---
 
-## 错误处理
+## Error Handling
 
-| 场景 | 处理 |
-|------|------|
-| 集数不存在 | 404 + "第 N 集不存在" |
-| 该集无已完成视频 | 422 + "请先生成视频" |
-| 视频文件缺失（script 有记录但文件不在） | 跳过该片段，仅导出存在的视频 |
-| pyjianyingdraft 生成失败 | 500 + 日志记录，返回友好错误 |
-| draft_path 为空、含控制字符、或超过 1024 字符 | 422 + "请提供有效的剪映草稿目录路径" |
+| Scenario | Handling |
+|----------|---------|
+| Episode does not exist | 404 + "Episode N does not exist" |
+| No completed videos for this episode | 422 + "Please generate videos first" |
+| Video file missing (recorded in script but file not present) | Skip that segment, export only existing videos |
+| pyjianyingdraft generation failure | 500 + log record, return friendly error |
+| draft_path is empty, contains control characters, or exceeds 1024 characters | 422 + "Please provide a valid CapCut draft directory path" |
 
 ---
 
-## Dependencies变更
+## Dependencies Changes
 
 ### Python
 
@@ -245,7 +245,7 @@ json_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 "pyjianyingdraft>=0.2.6",
 ```
 
-### 系统
+### System
 
 ```dockerfile
 RUN apt-get update && apt-get install -y mediainfo && rm -rf /var/lib/apt/lists/*
@@ -255,27 +255,27 @@ RUN apt-get update && apt-get install -y mediainfo && rm -rf /var/lib/apt/lists/
 
 ## Testing Strategy
 
-- **单元测试**：mock 视频文件（用 `imageio` 生成短视频），验证 `draft_content.json` 结构正确、路径替换正确、字幕轨存在（narration 模式）
-- **路由集成测试**：复用现有 `test_projects_archive_routes.py` 模式，测试 token 签发 + ZIP 下载 + 错误码
+- **Unit tests**: mock video files (generate short videos with `imageio`), verify `draft_content.json` structure is correct, paths are replaced correctly, subtitle track exists (narration mode)
+- **Route integration tests**: reuse existing `test_projects_archive_routes.py` pattern, test token issuance + ZIP download + error codes
 
 ---
 
 ## Risks and Mitigation
 
-| 风险 | 缓解 |
-|------|------|
-| 剪映格式无官方文档，更新可能不兼容 | pyJianYingDraft 社区活跃，通常数周内跟进；锁定版本号 |
-| 剪映 6+ 草稿加密 | 仅影响读取已有草稿，创建新草稿不受影响 |
-| ZIP 体积大（数十个视频片段） | 浏览器原生下载支持进度显示；硬链接避免实际复制 |
-| 临时目录堆积 | `BackgroundTask` 响应完成后立即清理 |
-| pymediainfo 需系统 mediainfo | Docker 中一行 apt-get 即可 |
+| Risk | Mitigation |
+|------|-----------|
+| CapCut format has no official documentation, updates may break compatibility | pyJianYingDraft community is active, usually catches up within weeks; lock version number |
+| CapCut 6+ draft encryption | Only affects reading existing drafts, creating new drafts is not affected |
+| Large ZIP size (dozens of video segments) | Browser native download supports progress display; hard links avoid actual copying |
+| Temp directory accumulation | `BackgroundTask` immediately cleans up after response completes |
+| pymediainfo requires system mediainfo | One apt-get line in Docker |
 
 ---
 
-## 后续扩展（非 MVP）
+## Future Extensions (non-MVP)
 
-- 导出音频轨（BGM、配音）
-- drama 模式字幕（多角色对话）
-- 转场效果映射（`transition_to_next` → 剪映转场）
-- CapCut 国际版支持
-- 桌面 Helper 工具（一键导入）
+- Export audio tracks (BGM, voice-over)
+- Drama mode subtitles (multi-character dialogue)
+- Transition effect mapping (`transition_to_next` → CapCut transitions)
+- CapCut international edition support
+- Desktop Helper tool (one-click import)
