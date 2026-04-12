@@ -86,11 +86,11 @@ Copy from `lib/gemini_client.py` lines 1-259 (everything before the `GeminiClien
 
 ```python
 """
-Gemini 共享工具模块
+Gemini Shared Utilities Module
 
-从 gemini_client.py 提取的可复用工具：
-- RateLimiter: 多模型滑动窗口限流器
-- with_retry / with_retry_async: 带指数退避的重试装饰器
+Reusable utilities extracted from gemini_client.py:
+- RateLimiter: Multi-model sliding window rate limiter
+- with_retry / with_retry_async: Retry decorators with exponential backoff
 - VERTEX_SCOPES: Vertex AI OAuth scopes
 """
 
@@ -108,13 +108,13 @@ from .cost_calculator import cost_calculator
 
 logger = logging.getLogger(__name__)
 
-# Vertex AI 服务账号所需 OAuth scopes
+# OAuth scopes required for Vertex AI service accounts
 VERTEX_SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",
     "https://www.googleapis.com/auth/generative-language",
 ]
 
-# 可重试的错误类型
+# Retryable error types
 RETRYABLE_ERRORS: Tuple[Type[Exception], ...] = (
     ConnectionError,
     TimeoutError,
@@ -345,7 +345,7 @@ class TextCapability(str, Enum):
 
 
 class TextTaskType(str, Enum):
-    """文本生成任务类型。"""
+    """Text generation task type."""
     SCRIPT = "script"
     OVERVIEW = "overview"
     STYLE_ANALYSIS = "style"
@@ -353,7 +353,7 @@ class TextTaskType(str, Enum):
 
 @dataclass
 class ImageInput:
-    """图片输入（用于 vision）。"""
+    """Image input (for vision)."""
     path: Path | None = None
     url: str | None = None
 
@@ -394,7 +394,7 @@ class TextBackend(Protocol):
 
 Also create an empty `lib/text_backends/__init__.py` for now (will be filled in Task 8):
 ```python
-"""文本生成服务层公共 API。"""
+"""Public API for the text generation service layer."""
 ```
 
 - [ ] **Step 5: Run test to verify it passes**
@@ -504,19 +504,19 @@ _BACKEND_FACTORIES: dict[str, Callable[..., TextBackend]] = {}
 
 
 def register_backend(name: str, factory: Callable[..., TextBackend]) -> None:
-    """注册一个文本后端工厂函数。"""
+    """Register a text backend factory function."""
     _BACKEND_FACTORIES[name] = factory
 
 
 def create_backend(name: str, **kwargs: Any) -> TextBackend:
-    """根据名称创建文本后端实例。"""
+    """Create a text backend instance by name."""
     if name not in _BACKEND_FACTORIES:
         raise ValueError(f"Unknown text backend: {name}")
     return _BACKEND_FACTORIES[name](**kwargs)
 
 
 def get_registered_backends() -> list[str]:
-    """返回所有已注册的后端名称。"""
+    """Return all registered backend names."""
     return list(_BACKEND_FACTORIES.keys())
 ```
 
@@ -689,7 +689,7 @@ class ProviderMeta:
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     "gemini-aistudio": ProviderMeta(
         display_name="AI Studio",
-        description="Google AI Studio 提供 Gemini 系列模型，支持图片和视频生成，适合快速原型和个人项目。",
+        description="Google AI Studio provides the Gemini model series, supporting image and video generation, ideal for rapid prototyping and personal projects.",
         required_keys=["api_key"],
         optional_keys=["base_url", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
         secret_keys=["api_key"],
@@ -717,7 +717,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "gemini-vertex": ProviderMeta(
         display_name="Vertex AI",
-        description="Google Cloud Vertex AI 企业级平台，支持 Gemini 和 Imagen 模型，提供更高配额和音频生成能力。",
+        description="Google Cloud Vertex AI enterprise platform, supporting Gemini and Imagen models, offering higher quotas and audio generation capability.",
         required_keys=["credentials_path"],
         optional_keys=["gcs_bucket", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
         secret_keys=[],
@@ -744,14 +744,14 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         },
     ),
     "ark": ProviderMeta(
-        display_name="火山方舟",
-        description="字节跳动火山方舟 AI 平台，支持 Seedance 视频生成和 Seedream 图片生成，具备音频生成和种子控制能力。",
+        display_name="Volcano Ark",
+        description="ByteDance Volcano Ark AI platform, supporting Seedance video generation and Seedream image generation, with audio generation and seed control capability.",
         required_keys=["api_key"],
         optional_keys=["video_rpm", "image_rpm", "request_gap", "video_max_workers", "image_max_workers"],
         secret_keys=["api_key"],
         models={
             "doubao-seed-2-0-lite-260215": ModelInfo(
-                "豆包 Seed 2.0 Lite", "text",
+                "Doubao Seed 2.0 Lite", "text",
                 ["text_generation", "structured_output", "vision"],
                 default=True,
             ),
@@ -781,7 +781,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "grok": ProviderMeta(
         display_name="Grok",
-        description="xAI Grok 模型，支持视频和图片生成。",
+        description="xAI Grok models, supporting video and image generation.",
         required_keys=["api_key"],
         optional_keys=["video_rpm", "image_rpm", "request_gap", "video_max_workers", "image_max_workers"],
         secret_keys=["api_key"],
@@ -839,7 +839,7 @@ git commit -m "refactor: restructure ProviderMeta with per-model ModelInfo"
 
 `lib/text_backends/prompts.py`:
 ```python
-"""文本生成 prompt 常量。"""
+"""Text generation prompt constants."""
 
 STYLE_ANALYSIS_PROMPT = (
     "Analyze the visual style of this image. Describe the lighting, "
@@ -951,7 +951,7 @@ Expected: FAIL with `ModuleNotFoundError`
 
 `lib/text_backends/gemini.py`:
 ```python
-"""GeminiTextBackend — Google Gemini 文本生成后端。"""
+"""GeminiTextBackend — Google Gemini text generation backend."""
 from __future__ import annotations
 
 import logging
@@ -975,7 +975,7 @@ DEFAULT_MODEL = "gemini-3-flash-preview"
 
 
 class GeminiTextBackend:
-    """Google Gemini 文本生成后端，支持 AI Studio 和 Vertex AI。"""
+    """Google Gemini text generation backend, supporting AI Studio and Vertex AI."""
 
     def __init__(
         self,
@@ -1002,13 +1002,13 @@ class GeminiTextBackend:
 
             credentials_file = resolve_vertex_credentials_path(Path(__file__).parent.parent.parent)
             if credentials_file is None:
-                raise ValueError("未找到 Vertex AI 凭证文件")
+                raise ValueError("Vertex AI credentials file not found")
 
             with open(credentials_file) as f:
                 creds_data = json_module.load(f)
             project_id = creds_data.get("project_id")
             if not project_id:
-                raise ValueError(f"凭证文件 {credentials_file} 中未找到 project_id")
+                raise ValueError(f"project_id not found in credentials file {credentials_file}")
 
             credentials = service_account.Credentials.from_service_account_file(
                 str(credentials_file), scopes=VERTEX_SCOPES,
@@ -1016,10 +1016,10 @@ class GeminiTextBackend:
             self._client = genai.Client(
                 vertexai=True, project=project_id, location="global", credentials=credentials,
             )
-            logger.info("GeminiTextBackend: Vertex AI (凭证: %s)", credentials_file.name)
+            logger.info("GeminiTextBackend: Vertex AI (credentials: %s)", credentials_file.name)
         else:
             if not api_key:
-                raise ValueError("Gemini API Key 未提供")
+                raise ValueError("Gemini API Key not provided")
             http_options = {"base_url": base_url} if base_url else None
             self._client = genai.Client(api_key=api_key, http_options=http_options)
             logger.info("GeminiTextBackend: AI Studio")
@@ -1038,7 +1038,7 @@ class GeminiTextBackend:
 
     @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8))
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """生成文本（纯文本/结构化输出/Vision）。"""
+        """Generate text (plain text / structured output / Vision)."""
         # Build config
         config = None
         if request.response_schema:
@@ -1202,7 +1202,7 @@ Expected: FAIL
 
 `lib/text_backends/ark.py`:
 ```python
-"""ArkTextBackend — 火山方舟文本生成后端。"""
+"""ArkTextBackend — Volcano Ark text generation backend."""
 from __future__ import annotations
 
 import asyncio
@@ -1224,14 +1224,14 @@ DEFAULT_MODEL = "doubao-seed-2-0-lite-260215"
 
 
 class ArkTextBackend:
-    """Ark (火山方舟) 文本生成后端。"""
+    """Ark (Volcano Ark) text generation backend."""
 
     def __init__(self, *, api_key: Optional[str] = None, model: Optional[str] = None):
         from volcenginesdkarkruntime import Ark
 
         self._api_key = api_key or os.environ.get("ARK_API_KEY")
         if not self._api_key:
-            raise ValueError("Ark API Key 未提供")
+            raise ValueError("Ark API Key not provided")
 
         self._client = Ark(
             base_url="https://ark.cn-beijing.volces.com/api/v3",
@@ -1257,7 +1257,7 @@ class ArkTextBackend:
         return self._capabilities
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """生成文本（纯文本/结构化输出/Vision）。"""
+        """Generate text (plain text / structured output / Vision)."""
         if request.images:
             return await self._generate_vision(request)
         if request.response_schema:
@@ -1429,7 +1429,7 @@ Expected: FAIL
 
 `lib/text_backends/grok.py`:
 ```python
-"""GrokTextBackend — xAI Grok 文本生成后端。"""
+"""GrokTextBackend — xAI Grok text generation backend."""
 from __future__ import annotations
 
 import asyncio
@@ -1452,11 +1452,11 @@ DEFAULT_MODEL = "grok-4-1-fast-reasoning"
 
 
 class GrokTextBackend:
-    """xAI Grok 文本生成后端。"""
+    """xAI Grok text generation backend."""
 
     def __init__(self, *, api_key: Optional[str] = None, model: Optional[str] = None):
         if not api_key:
-            raise ValueError("XAI_API_KEY 未设置")
+            raise ValueError("XAI_API_KEY not set")
 
         self._client = xai_sdk.Client(api_key=api_key)
         self._model = model or DEFAULT_MODEL
@@ -1479,7 +1479,7 @@ class GrokTextBackend:
         return self._capabilities
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """生成文本（纯文本/结构化输出/Vision）。"""
+        """Generate text (plain text / structured output / Vision)."""
         chat = self._client.chat.create(model=self._model)
 
         # System prompt
@@ -1558,7 +1558,7 @@ git commit -m "feat: implement GrokTextBackend"
 
 `lib/text_backends/__init__.py`:
 ```python
-"""文本生成服务层公共 API。"""
+"""Public API for the text generation service layer."""
 
 from lib.text_backends.base import (
     ImageInput,
@@ -1669,7 +1669,7 @@ Add to `ConfigResolver`:
 async def text_backend_for_task(
     self, task_type: TextTaskType, project_name: str | None = None,
 ) -> tuple[str, str]:
-    """解析文本 backend。优先级：项目级任务配置 → 全局任务配置 → 全局默认 → 自动推断"""
+    """Resolve text backend. Priority: project task config → global task config → global default → auto-detect"""
     async with self._session_factory() as session:
         svc = ConfigService(session)
         return await self._resolve_text_backend(svc, task_type, project_name)
@@ -1707,7 +1707,7 @@ async def _resolve_text_backend(
 async def _auto_resolve_backend(
     self, svc: ConfigService, media_type: str,
 ) -> tuple[str, str]:
-    """遍历 PROVIDER_REGISTRY，找到第一个 ready 且支持该 media_type 的供应商。"""
+    """Iterate PROVIDER_REGISTRY to find the first ready provider that supports the given media_type."""
     statuses = await svc.get_all_providers_status()
     ready = {s.name for s in statuses if s.status == "ready"}
 
@@ -1719,8 +1719,8 @@ async def _auto_resolve_backend(
                 return provider_id, model_id
 
     raise ValueError(
-        f"未找到可用的 {media_type} 供应商。"
-        "请在「全局设置 → 供应商」页面配置至少一个供应商。"
+        f"No available {media_type} provider found."
+        "Please configure at least one provider on the Global Settings → Providers page."
     )
 ```
 
@@ -1784,7 +1784,7 @@ Expected: FAIL
 
 `lib/text_backends/factory.py`:
 ```python
-"""文本 backend 工厂。"""
+"""Text backend factory."""
 from __future__ import annotations
 
 from lib.config.resolver import ConfigResolver
@@ -1804,7 +1804,7 @@ async def create_text_backend_for_task(
     task_type: TextTaskType,
     project_name: str | None = None,
 ) -> TextBackend:
-    """从 DB 配置创建文本 backend。"""
+    """Create a text backend from DB configuration."""
     resolver = ConfigResolver(async_session_factory)
     provider_id, model_id = await resolver.text_backend_for_task(task_type, project_name)
     provider_config = await resolver.provider_config(provider_id)
@@ -1883,7 +1883,7 @@ class ScriptGenerator:
 
     async def generate(self, episode, output_path=None):
         if self.backend is None:
-            raise RuntimeError("TextBackend 未初始化，请使用 ScriptGenerator.create() 工厂方法")
+            raise RuntimeError("TextBackend not initialized, please use ScriptGenerator.create() factory method")
         result = await self.backend.generate(
             TextGenerationRequest(prompt=prompt, response_schema=schema)
         )
@@ -2041,17 +2041,17 @@ git commit -m "refactor: delete GeminiClient and text_client.py, update CLI scri
 Add to `CostCalculator` class:
 
 ```python
-# Gemini 文本 token 费率（美元/百万 token）
+# Gemini text token rate (USD/million tokens)
 GEMINI_TEXT_COST = {
     "gemini-3-flash-preview": {"input": 0.10, "output": 0.40},
 }
 
-# Ark 文本 token 费率（元/百万 token）
+# Ark text token rate (CNY/million tokens)
 ARK_TEXT_COST = {
     "doubao-seed-2-0-lite-260215": {"input": 0.30, "output": 0.60},
 }
 
-# Grok 文本 token 费率（美元/百万 token）
+# Grok text token rate (USD/million tokens)
 GROK_TEXT_COST = {
     "grok-4-1-fast-reasoning": {"input": 2.00, "output": 10.00},
 }
@@ -2063,7 +2063,7 @@ def calculate_text_cost(
     provider: str,
     model: str | None = None,
 ) -> tuple[float, str]:
-    """计算文本生成费用。返回 (amount, currency)。"""
+    """Calculate text generation cost. Returns (amount, currency)."""
     if provider == "ark":
         model = model or "doubao-seed-2-0-lite-260215"
         rates = self.ARK_TEXT_COST.get(model, {"input": 0.30, "output": 0.60})
@@ -2257,7 +2257,7 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
     issues.push({
       key: "anthropic",
       tab: "agent",
-      label: "ArcReel 智能体 API Key（Anthropic）未配置",
+      label: "ArcReel Agent API Key (Anthropic) not configured",
     });
   }
 
@@ -2271,21 +2271,21 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
     issues.push({
       key: "no-video-provider",
       tab: "providers",
-      label: "未配置支持视频生成的供应商",
+      label: "No provider supporting video generation configured",
     });
   }
   if (!hasMediaType("image")) {
     issues.push({
       key: "no-image-provider",
       tab: "providers",
-      label: "未配置支持图片生成的供应商",
+      label: "No provider supporting image generation configured",
     });
   }
   if (!hasMediaType("text")) {
     issues.push({
       key: "no-text-provider",
       tab: "providers",
-      label: "未配置支持文本生成的供应商",
+      label: "No provider supporting text generation configured",
     });
   }
 
@@ -2316,10 +2316,10 @@ git commit -m "feat: frontend types and config-status for text backends"
 
 ```typescript
 // Before:
-{ id: "media", label: "图片/视频", Icon: Film },
+{ id: "media", label: "Image/Video", Icon: Film },
 
 // After:
-{ id: "media", label: "模型选择", Icon: Film },
+{ id: "media", label: "Model Selection", Icon: Film },
 ```
 
 - [ ] **Step 2: Expand MediaModelSection with text model selectors**
@@ -2329,15 +2329,15 @@ Add text model section after the image backend selector:
 ```tsx
 {/* Text backend selectors */}
 <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
-  <div className="mb-3 text-sm font-medium text-gray-100">文本模型</div>
-  <p className="mb-3 text-xs text-gray-500">按任务类型配置文本模型，留空表示自动选择</p>
+  <div className="mb-3 text-sm font-medium text-gray-100">Text Models</div>
+  <p className="mb-3 text-xs text-gray-500">Configure text models by task type; leave empty for auto-selection</p>
 
   {textBackends.length > 0 ? (
     <div className="space-y-3">
       {([
-        ["text_backend_script", "剧本生成"],
-        ["text_backend_overview", "概述生成"],
-        ["text_backend_style", "风格分析"],
+        ["text_backend_script", "Script Generation"],
+        ["text_backend_overview", "Overview Generation"],
+        ["text_backend_style", "Style Analysis"],
       ] as const).map(([key, label]) => (
         <div key={key}>
           <div className="mb-1 text-xs text-gray-400">{label}</div>
@@ -2347,14 +2347,14 @@ Add text model section after the image backend selector:
             providerNames={PROVIDER_NAMES}
             onChange={(v) => setDraft((prev) => ({ ...prev, [key]: v }))}
             allowDefault
-            defaultHint="自动"
+            defaultHint="Auto"
           />
         </div>
       ))}
     </div>
   ) : (
     <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-3 py-2 text-sm text-gray-500">
-      暂无可用文本供应商，请先在「供应商」页面配置 API 密钥
+      No text providers available, please configure API keys on the Providers page first
     </div>
   )}
 </div>
@@ -2363,11 +2363,11 @@ Add text model section after the image backend selector:
 Update the section heading:
 ```tsx
 // Before:
-<h3 className="text-lg font-semibold text-gray-100">图片 / 视频模型</h3>
+<h3 className="text-lg font-semibold text-gray-100">Image / Video Models</h3>
 
 // After:
-<h3 className="text-lg font-semibold text-gray-100">模型选择</h3>
-<p className="mt-1 text-sm text-gray-500">设置全局默认的生成模型，项目内可单独覆盖</p>
+<h3 className="text-lg font-semibold text-gray-100">Model Selection</h3>
+<p className="mt-1 text-sm text-gray-500">Set the global default generation model; can be overridden per project</p>
 ```
 
 Add `textBackends` from options:
@@ -2385,7 +2385,7 @@ Expected: All pass
 ```bash
 git add frontend/src/components/pages/settings/MediaModelSection.tsx \
   frontend/src/components/pages/SystemConfigPage.tsx
-git commit -m "feat: rename tab to 模型选择, add text model selectors"
+git commit -m "feat: rename tab to Model Selection, add text model selectors"
 ```
 
 ---
@@ -2425,12 +2425,12 @@ Add text model override section in the JSX (after the audio override section):
 ```tsx
 {/* Text model overrides */}
 <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
-  <div className="mb-3 text-sm font-medium text-gray-100">文本模型</div>
+  <div className="mb-3 text-sm font-medium text-gray-100">Text Models</div>
   <div className="space-y-3">
     {([
-      [textScript, setTextScript, "剧本生成"],
-      [textOverview, setTextOverview, "概述生成"],
-      [textStyle, setTextStyle, "风格分析"],
+      [textScript, setTextScript, "Script Generation"],
+      [textOverview, setTextOverview, "Overview Generation"],
+      [textStyle, setTextStyle, "Style Analysis"],
     ] as const).map(([value, setter, label], i) => (
       <div key={i}>
         <div className="mb-1 text-xs text-gray-400">{label}</div>
@@ -2440,7 +2440,7 @@ Add text model override section in the JSX (after the audio override section):
           providerNames={PROVIDER_NAMES}
           onChange={setter}
           allowDefault
-          defaultHint="跟随全局默认"
+          defaultHint="Follow global default"
         />
       </div>
     ))}
