@@ -4,7 +4,7 @@
 
 **Goal:** Fix four Grok provider issues: oversized upload images causing gRPC 4MB errors, image concurrency issues, only using the first reference image, and incorrect aspect ratio in drama mode.
 
-**Architecture:** 在上传入口压缩用户图片（JPEG + 限分辨率），Grok 图片后端改用多图编辑 API（`image_urls`）以同时支持多参考图和 aspect_ratio 生效，并在 worker 中增加 pool 配置日志以排查并发问题。
+**Architecture:** Compress user images at the upload entry point (JPEG + resolution limit), switch the Grok image backend to the multi-image editing API (`image_urls`) to simultaneously support multiple reference images and enable `aspect_ratio`, and add pool configuration logging in the worker to diagnose concurrency issues.
 
 **Tech Stack:** Python, Pillow, xai_sdk, pytest
 
@@ -17,25 +17,25 @@
 | `lib/image_utils.py` | Modify | Add `compress_image_bytes()` |
 | `tests/test_image_utils.py` | Create | `compress_image_bytes()` unit tests |
 | `server/routers/files.py` | Modify | Upload entry uses compression + `.jpg` extension |
-| `lib/data_validator.py` | Modify | `ALLOWED_ROOT_ENTRIES` 加 `style_reference.jpg` |
+| `lib/data_validator.py` | Modify | Add `style_reference.jpg` to `ALLOWED_ROOT_ENTRIES` |
 | `server/services/project_archive.py` | Modify | `style_reference.png` → `.jpg` |
-| `lib/image_backends/grok.py` | Modify | `image_url` → `image_urls` + aspect_ratio 校验 |
-| `tests/test_image_backends/test_grok.py` | Modify | 适配 `image_urls` |
-| `lib/generation_worker.py` | Modify | 增加 pool 配置日志 |
+| `lib/image_backends/grok.py` | Modify | `image_url` → `image_urls` + aspect_ratio validation |
+| `tests/test_image_backends/test_grok.py` | Modify | Adapt to `image_urls` |
+| `lib/generation_worker.py` | Modify | Add pool configuration logging |
 
 ---
 
-### Task 1: 图片压缩函数 — TDD
+### Task 1: Image Compression Function — TDD
 
 **Files:**
 - Modify: `lib/image_utils.py`
 - Create: `tests/test_image_utils.py`
 
-- [ ] **Step 1: 编写 `compress_image_bytes` 失败测试**
+- [ ] **Step 1: Write failing tests for `compress_image_bytes`**
 
 ```python
 # tests/test_image_utils.py
-"""image_utils 单元测试。"""
+"""Unit tests for image_utils."""
 
 from __future__ import annotations
 
@@ -48,17 +48,17 @@ from lib.image_utils import compress_image_bytes
 
 
 class TestCompressImageBytes:
-    """compress_image_bytes 测试。"""
+    """Tests for compress_image_bytes."""
 
     def _make_png(self, width: int, height: int) -> bytes:
-        """生成指定尺寸的 PNG 字节。"""
+        """Generate PNG bytes of the specified size."""
         img = Image.new("RGB", (width, height), color="red")
         buf = BytesIO()
         img.save(buf, format="PNG")
         return buf.getvalue()
 
     def test_small_image_unchanged_dimensions(self):
-        """小图（长边 < 2048）不缩放，但仍转为 JPEG。"""
+        """Small images (long edge < 2048) are not resized, but still converted to JPEG."""
         raw = self._make_png(800, 600)
         result = compress_image_bytes(raw)
         img = Image.open(BytesIO(result))
@@ -66,17 +66,17 @@ class TestCompressImageBytes:
         assert img.size == (800, 600)
 
     def test_large_image_resized(self):
-        """大图（长边 > 2048）缩放到长边 2048。"""
+        """Large images (long edge > 2048) are scaled to long edge 2048."""
         raw = self._make_png(4096, 3072)
         result = compress_image_bytes(raw)
         img = Image.open(BytesIO(result))
         assert img.format == "JPEG"
         assert max(img.size) == 2048
-        # 等比缩放
+        # Proportional scaling
         assert img.size == (2048, 1536)
 
     def test_portrait_large_image(self):
-        """竖图大图也正确缩放。"""
+        """Portrait large images are also scaled correctly."""
         raw = self._make_png(2000, 4000)
         result = compress_image_bytes(raw)
         img = Image.open(BytesIO(result))
@@ -84,7 +84,7 @@ class TestCompressImageBytes:
         assert img.size == (1024, 2048)
 
     def test_rgba_converted_to_rgb(self):
-        """RGBA 图片转为 RGB（JPEG 不支持 alpha）。"""
+        """RGBA images are converted to RGB (JPEG does not support alpha)."""
         img = Image.new("RGBA", (100, 100), color=(255, 0, 0, 128))
         buf = BytesIO()
         img.save(buf, format="PNG")
@@ -93,7 +93,7 @@ class TestCompressImageBytes:
         assert out.mode == "RGB"
 
     def test_jpeg_input(self):
-        """JPEG 输入也能正常处理。"""
+        """JPEG input can also be processed normally."""
         img = Image.new("RGB", (500, 500), color="blue")
         buf = BytesIO()
         img.save(buf, format="JPEG", quality=95)
@@ -102,7 +102,7 @@ class TestCompressImageBytes:
         assert out.format == "JPEG"
 
     def test_webp_input(self):
-        """WebP 输入也能正常处理。"""
+        """WebP input can also be processed normally."""
         img = Image.new("RGB", (500, 500), color="green")
         buf = BytesIO()
         img.save(buf, format="WEBP")
@@ -111,12 +111,12 @@ class TestCompressImageBytes:
         assert out.format == "JPEG"
 
     def test_invalid_input_raises(self):
-        """非图片字节抛出 ValueError。"""
+        """Non-image bytes raise ValueError."""
         with pytest.raises(ValueError, match="Invalid image"):
             compress_image_bytes(b"not an image")
 
     def test_output_smaller_than_input(self):
-        """压缩后体积应显著减小。"""
+        """Compressed output should be significantly smaller."""
         raw = self._make_png(3000, 2000)
         result = compress_image_bytes(raw)
         assert len(result) < len(raw)
@@ -127,9 +127,9 @@ class TestCompressImageBytes:
 Run: `uv run python -m pytest tests/test_image_utils.py -v`
 Expected: FAIL — `ImportError: cannot import name 'compress_image_bytes'`
 
-- [ ] **Step 3: 实现 `compress_image_bytes`**
+- [ ] **Step 3: Implement `compress_image_bytes`**
 
-在 `lib/image_utils.py` 的 `convert_image_bytes_to_png` 函数下方添加：
+Add the following below the `convert_image_bytes_to_png` function in `lib/image_utils.py`:
 
 ```python
 _MAX_LONG_EDGE = 2048
@@ -143,8 +143,8 @@ def compress_image_bytes(
     quality: int = _JPEG_QUALITY,
 ) -> bytes:
     """
-    将任意图片字节压缩为 JPEG：等比缩放到长边不超过 max_long_edge，
-    quality 控制 JPEG 压缩质量。
+    Compress arbitrary image bytes to JPEG: proportionally scale so the long edge
+    does not exceed max_long_edge; quality controls the JPEG compression quality.
 
     Raises:
         ValueError: if the input bytes are not a valid image.
@@ -172,7 +172,7 @@ def compress_image_bytes(
         raise ValueError("Invalid image") from e
 ```
 
-同时At the top of the file确认 `from io import BytesIO` 已导入（已有）。
+Also confirm that `from io import BytesIO` is imported at the top of the file (already present).
 
 - [ ] **Step 4: Run tests to confirm they pass**
 
@@ -183,38 +183,38 @@ Expected: all PASS
 
 ```bash
 git add lib/image_utils.py tests/test_image_utils.py
-git commit -m "feat: 新增 compress_image_bytes 函数，支持 JPEG 压缩 + 分辨率限制"
+git commit -m "feat: add compress_image_bytes function with JPEG compression + resolution limit"
 ```
 
 ---
 
-### Task 2: 上传入口 — 大于 2MB 时压缩
+### Task 2: Upload Entry — Compress When Larger Than 2MB
 
 **Files:**
-- Modify: `server/routers/files.py:92-138` — 通用上传逻辑
-- Modify: `server/routers/files.py:486-541` — 风格参考图上传
+- Modify: `server/routers/files.py:92-138` — general upload logic
+- Modify: `server/routers/files.py:486-541` — style reference image upload
 - Modify: `lib/data_validator.py:50` — ALLOWED_ROOT_ENTRIES
-- Modify: `server/services/project_archive.py:492` — 归档路径
+- Modify: `server/services/project_archive.py:492` — archive path
 
-**策略**：上传图片 > 2MB 时压缩为 JPEG（`.jpg`），≤ 2MB 直接保存原始内容（保留原格式后缀）。
+**Strategy**: When an uploaded image is > 2MB, compress to JPEG (`.jpg`); if ≤ 2MB, save original content directly (preserve original format extension).
 
-- [ ] **Step 1: 修改通用上传逻辑**
+- [ ] **Step 1: Modify the general upload logic**
 
-在 `server/routers/files.py` 中：
+In `server/routers/files.py`:
 
-1. 导入 `compress_image_bytes`：
+1. Import `compress_image_bytes`:
 
 ```python
 from lib.image_utils import compress_image_bytes
 ```
 
-2. 增加阈值常量（文件顶部常量区）：
+2. Add threshold constant (in the constants section at the top of the file):
 
 ```python
 _COMPRESS_THRESHOLD = 2 * 1024 * 1024  # 2MB
 ```
 
-3. 替换图片处理部分（原 lines 132-138）。移除 `convert_image_bytes_to_png` 调用，改为仅在大于 2MB 时压缩：
+3. Replace the image processing section (original lines 132-138). Remove the `convert_image_bytes_to_png` call, and instead only compress when larger than 2MB:
 
 ```python
         content = await file.read()
@@ -223,16 +223,16 @@ _COMPRESS_THRESHOLD = 2 * 1024 * 1024  # 2MB
                 try:
                     content = compress_image_bytes(content)
                 except ValueError:
-                    raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
-                # 压缩后替换文件名后缀为 .jpg
+                    raise HTTPException(status_code=400, detail="Invalid image file, unable to parse")
+                # Replace file extension with .jpg after compression
                 filename = Path(filename).with_suffix(".jpg").name
 ```
 
-≤ 2MB 的图片直接保存原始内容，文件名后缀保留上方分支中已有的 `.png`（即原有逻辑不变）。
+Images ≤ 2MB are saved directly with original content; the filename extension retains the `.png` already in the branch above (i.e., existing logic unchanged).
 
-- [ ] **Step 2: 修改风格参考图上传**
+- [ ] **Step 2: Modify the style reference image upload**
 
-在 `server/routers/files.py` 的 `upload_style_image` 函数中，同样按 2MB 阈值处理：
+In the `upload_style_image` function in `server/routers/files.py`, apply the same 2MB threshold:
 
 ```python
         content = await file.read()
@@ -240,7 +240,7 @@ _COMPRESS_THRESHOLD = 2 * 1024 * 1024  # 2MB
             try:
                 content = compress_image_bytes(content)
             except ValueError:
-                raise HTTPException(status_code=400, detail="无效的图片文件，无法解析")
+                raise HTTPException(status_code=400, detail="Invalid image file, unable to parse")
             style_filename = "style_reference.jpg"
         else:
             style_filename = f"style_reference{Path(file.filename).suffix.lower() or '.png'}"
@@ -250,9 +250,9 @@ _COMPRESS_THRESHOLD = 2 * 1024 * 1024  # 2MB
             f.write(content)
 ```
 
-后续 `project_data["style_image"]` 和返回值使用 `style_filename` 变量。
+Subsequent `project_data["style_image"]` and return values use the `style_filename` variable.
 
-同样更新 `delete_style_image` 函数，改为尝试删除两种后缀：
+Also update the `delete_style_image` function to try deleting both suffixes:
 
 ```python
         for suffix in (".jpg", ".png"):
@@ -262,9 +262,9 @@ _COMPRESS_THRESHOLD = 2 * 1024 * 1024  # 2MB
                 break
 ```
 
-- [ ] **Step 3: 更新 data_validator 和 project_archive**
+- [ ] **Step 3: Update data_validator and project_archive**
 
-`lib/data_validator.py` line 50 — 在 `ALLOWED_ROOT_ENTRIES` 中添加 `.jpg` 变体（保留 `.png` 兼容旧项目）：
+`lib/data_validator.py` line 50 — add the `.jpg` variant to `ALLOWED_ROOT_ENTRIES` (keep `.png` for backward compatibility with old projects):
 
 ```python
     ALLOWED_ROOT_ENTRIES = {
@@ -276,36 +276,36 @@ _COMPRESS_THRESHOLD = 2 * 1024 * 1024  # 2MB
     }
 ```
 
-`server/services/project_archive.py` line 492 — 归档修复逻辑需同时处理两种后缀。将 `canonical_rel` 改为检查实际存在的文件：先查 `.jpg`，不存在则查 `.png`。如果修改 `_repair_path_to_canonical` 逻辑过于侵入，可保持现状不改此文件（旧项目仍为 `.png`，新项目的 `style_image` 字段已正确指向实际文件）。
+`server/services/project_archive.py` line 492 — the archive repair logic needs to handle both suffixes. Change `canonical_rel` to check for the actually existing file: check `.jpg` first, then `.png` if not found. If modifying `_repair_path_to_canonical` logic is too invasive, leave this file unchanged (old projects still use `.png`, and the `style_image` field in new projects already points to the actual file correctly).
 
-- [ ] **Step 4: 运行现有测试confirm no regressions**
+- [ ] **Step 4: Run existing tests to confirm no regressions**
 
 Run: `uv run python -m pytest tests/ -v -k "upload or style or archive or validator or fingerprint" --no-header`
-Expected: all PASS（部分测试可能需要适配后缀变化）
+Expected: all PASS (some tests may need to adapt to the extension changes)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add server/routers/files.py lib/data_validator.py
-git commit -m "feat: 上传图片大于 2MB 时压缩为 JPEG + 限制长边 2048px"
+git commit -m "feat: compress images larger than 2MB to JPEG + limit long edge to 2048px on upload"
 ```
 
 ---
 
-### Task 3: Grok 图片后端 — 多参考图 + 比例校验
+### Task 3: Grok Image Backend — Multiple Reference Images + Ratio Validation
 
 **Files:**
 - Modify: `lib/image_backends/grok.py:52-86`
 - Modify: `tests/test_image_backends/test_grok.py`
 
-- [ ] **Step 1: 更新测试 — I2I 改用 `image_urls`**
+- [ ] **Step 1: Update tests — I2I switches to `image_urls`**
 
-修改 `tests/test_image_backends/test_grok.py` 的 `TestGenerateI2I` 类：
+Modify the `TestGenerateI2I` class in `tests/test_image_backends/test_grok.py`:
 
 ```python
 class TestGenerateI2I:
     async def test_i2i_sends_image_urls(self, backend, tmp_path):
-        """I2I 将参考图转为 data URI 列表传给 image_urls。"""
+        """I2I converts reference images to data URI list and passes to image_urls."""
         ref_image = tmp_path / "ref.png"
         ref_image.write_bytes(b"\x89PNG\r\n\x1a\nfake_png_data")
 
@@ -341,7 +341,7 @@ class TestGenerateI2I:
         assert result.provider == "grok"
 
     async def test_i2i_multiple_refs(self, backend, tmp_path):
-        """多张参考图全部通过 image_urls 传递。"""
+        """Multiple reference images are all passed via image_urls."""
         ref1 = tmp_path / "ref1.png"
         ref1.write_bytes(b"\x89PNG\r\n\x1a\nfake1")
         ref2 = tmp_path / "ref2.jpg"
@@ -378,7 +378,7 @@ class TestGenerateI2I:
         assert len(call_kwargs["image_urls"]) == 2
 
     async def test_i2i_skips_missing_ref(self, backend, tmp_path):
-        """参考图不存在时退化为 T2I。"""
+        """Falls back to T2I when reference image does not exist."""
         output = tmp_path / "output.png"
         mock_response = MagicMock()
         mock_response.respect_moderation = True
@@ -408,7 +408,7 @@ class TestGenerateI2I:
         assert "image_url" not in call_kwargs
 ```
 
-新增 aspect_ratio 校验测试：
+Add aspect_ratio validation tests:
 
 ```python
 class TestAspectRatioValidation:
@@ -421,20 +421,20 @@ class TestAspectRatioValidation:
     def test_unsupported_ratio_passed_through_with_warning(self):
         from lib.image_backends.grok import _validate_aspect_ratio
 
-        # 不支持的比例透传给 API，不做映射
+        # Unsupported ratios are passed through to the API without mapping
         assert _validate_aspect_ratio("5:4") == "5:4"
 ```
 
 - [ ] **Step 2: Run tests to confirm they fail**
 
 Run: `uv run python -m pytest tests/test_image_backends/test_grok.py -v`
-Expected: FAIL — 旧测试断言 `image_url`（单数），新测试断言 `image_urls`（复数）
+Expected: FAIL — old tests assert `image_url` (singular), new tests assert `image_urls` (plural)
 
-- [ ] **Step 3: 实现 Grok 图片后端改动**
+- [ ] **Step 3: Implement Grok image backend changes**
 
-替换 `lib/image_backends/grok.py` 的 `generate` 方法中 I2I 逻辑和新增校验函数：
+Replace the I2I logic in the `generate` method of `lib/image_backends/grok.py` and add the new validation function:
 
-At the top of the file常量区（`DEFAULT_MODEL` 下方）添加：
+Add to the constants section at the top of the file (below `DEFAULT_MODEL`):
 
 ```python
 _SUPPORTED_ASPECT_RATIOS = {
@@ -449,21 +449,21 @@ _SUPPORTED_ASPECT_RATIOS = {
 }
 ```
 
-新增校验函数（在 `_map_image_size_to_resolution` 前）：
+Add validation function (before `_map_image_size_to_resolution`):
 
 ```python
 def _validate_aspect_ratio(aspect_ratio: str) -> str:
-    """校验 aspect_ratio 是否在 Grok 支持列表中，不支持则 warning 并透传。"""
+    """Validates whether aspect_ratio is in the Grok supported list; warns and passes through if not."""
     if aspect_ratio not in _SUPPORTED_ASPECT_RATIOS:
-        logger.warning("Grok 可能不支持 aspect_ratio=%s，将透传给 API", aspect_ratio)
+        logger.warning("Grok may not support aspect_ratio=%s, passing through to API", aspect_ratio)
     return aspect_ratio
 ```
 
-替换 `generate` 方法中的 I2I 部分（lines 52-86）：
+Replace the I2I section in the `generate` method (lines 52-86):
 
 ```python
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        """生成图片（T2I 或 I2I）。"""
+        """Generate image (T2I or I2I)."""
         generate_kwargs: dict = {
             "prompt": request.prompt,
             "model": self._model,
@@ -471,7 +471,7 @@ def _validate_aspect_ratio(aspect_ratio: str) -> str:
             "resolution": _map_image_size_to_resolution(request.image_size),
         }
 
-        # I2I：将所有参考图转为 base64 data URI 列表
+        # I2I: convert all reference images to base64 data URI list
         if request.reference_images:
             data_uris = []
             for ref in request.reference_images:
@@ -480,19 +480,19 @@ def _validate_aspect_ratio(aspect_ratio: str) -> str:
                     data_uris.append(image_to_base64_data_uri(ref_path))
             if data_uris:
                 generate_kwargs["image_urls"] = data_uris
-                logger.info("Grok I2I 模式: %d 张参考图", len(data_uris))
+                logger.info("Grok I2I mode: %d reference images", len(data_uris))
 
-        logger.info("Grok 图片生成开始: model=%s", self._model)
+        logger.info("Grok image generation started: model=%s", self._model)
         response = await self._client.image.sample(**generate_kwargs)
 
-        # 审核检查
+        # Moderation check
         if not response.respect_moderation:
-            raise RuntimeError("Grok 图片生成被内容审核拒绝")
+            raise RuntimeError("Grok image generation rejected by content moderation")
 
-        # 下载图片到本地
+        # Download image locally
         await _download_image(response.url, request.output_path)
 
-        logger.info("Grok 图片下载完成: %s", request.output_path)
+        logger.info("Grok image download complete: %s", request.output_path)
 
         return ImageGenerationResult(
             image_path=request.output_path,
@@ -511,44 +511,44 @@ Expected: all PASS
 
 ```bash
 git add lib/image_backends/grok.py tests/test_image_backends/test_grok.py
-git commit -m "fix: Grok 图片后端改用 image_urls 支持多参考图，修复 I2I 比例被忽略"
+git commit -m "fix: Grok image backend uses image_urls for multiple reference images, fix I2I ratio being ignored"
 ```
 
 ---
 
-### Task 4: Generation Worker — 增加 pool 配置日志
+### Task 4: Generation Worker — Add Pool Configuration Logging
 
 **Files:**
 - Modify: `lib/generation_worker.py:128-149`
 
-- [ ] **Step 1: 在 `_load_pools_from_db` 增加日志**
+- [ ] **Step 1: Add logging to `_load_pools_from_db`**
 
-在 `_load_pools_from_db` 函数末尾（return 前）添加：
+Add the following at the end of the `_load_pools_from_db` function (before return):
 
 ```python
     logger.info(
-        "从 DB 加载供应商池配置: %s",
+        "Loaded provider pool configuration from DB: %s",
         {pid: (p.image_max, p.video_max) for pid, p in pools.items()},
     )
     return pools
 ```
 
-- [ ] **Step 2: 在 `__init__` 增加初始 pool 日志**
+- [ ] **Step 2: Add initial pool logging in `__init__`**
 
-在 `GenerationWorker.__init__` 的 `self._pools` 赋值后（line 186 之后）添加：
+Add the following after the `self._pools` assignment in `GenerationWorker.__init__` (after line 186):
 
 ```python
         logger.info(
-            "Worker 初始池配置: %s",
+            "Worker initial pool configuration: %s",
             {pid: (p.image_max, p.video_max) for pid, p in self._pools.items()},
         )
 ```
 
-- [ ] **Step 3: 在 `_get_or_create_pool` 的 fallback 路径增强日志**
+- [ ] **Step 3: Enhance logging in the fallback path of `_get_or_create_pool`**
 
-当前 line 241 已有 warning 日志。确认 `_get_or_create_pool` 的 warning 日志包含足够信息（已满足，无需改动）。
+The current warning log at line 241 already exists. Confirm that the warning log in `_get_or_create_pool` contains sufficient information (already satisfied, no changes needed).
 
-- [ ] **Step 4: 运行 worker 测试confirm no regressions**
+- [ ] **Step 4: Run worker tests to confirm no regressions**
 
 Run: `uv run python -m pytest tests/test_generation_worker_module.py -v`
 Expected: all PASS
@@ -557,30 +557,30 @@ Expected: all PASS
 
 ```bash
 git add lib/generation_worker.py
-git commit -m "fix: Generation Worker 增加 pool 配置日志，便于排查并发问题"
+git commit -m "fix: add pool configuration logging to Generation Worker to help diagnose concurrency issues"
 ```
 
 ---
 
-### Task 5: Lint + 全量测试
+### Task 5: Lint + Full Test Suite
 
-**Files:** 无新改动
+**Files:** No new changes
 
 - [ ] **Step 1: Ruff lint + format**
 
 Run: `uv run ruff check lib/image_utils.py lib/image_backends/grok.py lib/generation_worker.py server/routers/files.py lib/data_validator.py server/services/project_archive.py && uv run ruff format --check lib/image_utils.py lib/image_backends/grok.py lib/generation_worker.py server/routers/files.py lib/data_validator.py server/services/project_archive.py`
 
-Expected: 无错误。如有，修复后重新运行。
+Expected: No errors. If any, fix and re-run.
 
-- [ ] **Step 2: 运行全量测试**
+- [ ] **Step 2: Run full test suite**
 
 Run: `uv run python -m pytest tests/ -v --no-header`
 
-Expected: all PASS。如有失败，修复后重新运行。
+Expected: all PASS. If any failures, fix and re-run.
 
-- [ ] **Step 3: 如有修复则提交**
+- [ ] **Step 3: Commit if fixes were made**
 
 ```bash
 git add -A
-git commit -m "chore: lint 修复"
+git commit -m "chore: lint fixes"
 ```
