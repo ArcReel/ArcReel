@@ -212,3 +212,106 @@ async def test_all_sdk_calls_recorded_on_same_task():
     tasks_by_method = {m: set(ts) for m, ts in client.method_tasks.items()}
     all_tasks = set().union(*tasks_by_method.values())
     assert len(all_tasks) == 1, f"SDK methods ran on multiple tasks: {tasks_by_method}"
+
+
+@pytest.mark.asyncio
+async def test_interrupt_during_long_query_is_immediate():
+    """query 进行中，100ms 后送 interrupt；interrupt 应在 <300ms 内被 actor 调用。"""
+    client = FakeSDKClient(
+        block_forever=True,
+        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+    )
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    await actor.start()
+
+    q = SessionCommand(type="query", prompt="long task")
+    await actor.enqueue(q)
+    await asyncio.sleep(0.1)
+    assert not q.done.is_set()  # query 仍在进行
+
+    t_before = asyncio.get_event_loop().time()
+    i = SessionCommand(type="interrupt")
+    await actor.enqueue(i)
+    await i.done.wait()
+    elapsed = asyncio.get_event_loop().time() - t_before
+    assert elapsed < 0.3, f"interrupt took too long: {elapsed}s"
+    assert client.interrupted
+
+    # query 也应随之结束（drain 完 error_during_execution）
+    await asyncio.wait_for(q.done.wait(), timeout=1.0)
+
+    d = SessionCommand(type="disconnect")
+    await actor.enqueue(d)
+    await d.done.wait()
+    if actor._task is not None:
+        await actor._task
+
+
+@pytest.mark.asyncio
+async def test_drain_after_interrupt_reaches_error_during_execution():
+    """interrupt 后，receive_response 自然 drain 到 ResultMessage(error_during_execution)。"""
+    collected: list[dict] = []
+    client = FakeSDKClient(
+        block_forever=True,
+        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+    )
+    actor = SessionActor(
+        client_factory=lambda: client,
+        on_message=lambda m: collected.append(m),
+    )
+    await actor.start()
+
+    q = SessionCommand(type="query", prompt="run")
+    await actor.enqueue(q)
+    await asyncio.sleep(0.05)
+    i = SessionCommand(type="interrupt")
+    await actor.enqueue(i)
+    await q.done.wait()
+
+    # 最后一条消息应为 error_during_execution 的 ResultMessage
+    assert collected[-1] == {"type": "result", "subtype": "error_during_execution"}
+
+    d = SessionCommand(type="disconnect")
+    await actor.enqueue(d)
+    await d.done.wait()
+    if actor._task is not None:
+        await actor._task
+
+
+@pytest.mark.asyncio
+async def test_two_queries_queued_during_interrupt_drain():
+    """interrupt drain 期间新 query 排队，drain 完成后按序执行。"""
+    client = FakeSDKClient(
+        block_forever=True,
+        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+    )
+    collected: list[dict] = []
+    actor = SessionActor(
+        client_factory=lambda: client,
+        on_message=lambda m: collected.append(m),
+    )
+    await actor.start()
+
+    q1 = SessionCommand(type="query", prompt="first")
+    await actor.enqueue(q1)
+    await asyncio.sleep(0.05)
+    i = SessionCommand(type="interrupt")
+    await actor.enqueue(i)
+    q2 = SessionCommand(type="query", prompt="second")
+    await actor.enqueue(q2)
+
+    # q1 先完成（drain 到 error_during_execution）
+    await q1.done.wait()
+
+    # q2 要能被消费：向 client 推第二个 query 的响应
+    client.push_message({"type": "result", "subtype": "success"})
+    # interrupt 让 receive_response 卡住的协程已结束；第二次 receive_response 会从队列拿
+    await asyncio.wait_for(q2.done.wait(), timeout=1.0)
+
+    assert client.sent_queries == ["first", "second"]
+
+    d = SessionCommand(type="disconnect")
+    await actor.enqueue(d)
+    await d.done.wait()
+    if actor._task is not None:
+        await actor._task

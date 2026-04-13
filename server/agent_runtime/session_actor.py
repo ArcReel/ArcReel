@@ -94,11 +94,47 @@ class SessionActor:
                 cmd.done.set()
 
     async def _drive_query(self, client: Any, query_cmd: SessionCommand) -> SessionCommand | None:
-        """消费 receive_response 直到 StopAsyncIteration。初版不处理中途命令。"""
-        async for msg in client.receive_response():
-            self._on_message(msg)
-        query_cmd.done.set()
-        return None
+        """在同一 task 内交织消费 receive_response 与新命令。
+        返回：从队列取出但本轮未消化的命令（交给 _command_loop 下一轮）。
+        """
+        msg_iter = client.receive_response().__aiter__()
+        msg_task = asyncio.create_task(msg_iter.__anext__(), name="actor-recv")
+        cmd_task = asyncio.create_task(self._cmd_queue.get(), name="actor-cmd")
+        try:
+            while True:
+                done, _ = await asyncio.wait({msg_task, cmd_task}, return_when=asyncio.FIRST_COMPLETED)
+
+                if msg_task in done:
+                    try:
+                        self._on_message(msg_task.result())
+                        msg_task = asyncio.create_task(msg_iter.__anext__())
+                    except StopAsyncIteration:
+                        query_cmd.done.set()
+                        if cmd_task.done():
+                            return cmd_task.result()
+                        cmd_task.cancel()
+                        return None
+
+                if cmd_task in done:
+                    next_cmd = cmd_task.result()
+                    if next_cmd.type == "interrupt":
+                        await client.interrupt()
+                        next_cmd.done.set()
+                        cmd_task = asyncio.create_task(self._cmd_queue.get())
+                    elif next_cmd.type == "disconnect":
+                        # drive_query 内部遇到 disconnect：先 interrupt 让消息流收尾，
+                        # 然后把 disconnect 命令携带回 _command_loop 处理
+                        await client.interrupt()
+                        return next_cmd
+                    elif next_cmd.type == "query":
+                        # 违反 "drain before new query"；携带给下一轮，
+                        # 由 ManagedSession 层保证不会在 running 状态重复 query
+                        return next_cmd
+        finally:
+            if not msg_task.done():
+                msg_task.cancel()
+            if not cmd_task.done():
+                cmd_task.cancel()
 
     async def enqueue(self, cmd: SessionCommand) -> None:
         if self._fatal is not None or (self._task is not None and self._task.done()):
