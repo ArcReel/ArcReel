@@ -107,12 +107,17 @@ async def import_project_archive(
         fd, upload_path = tempfile.mkstemp(prefix="arcreel-upload-", suffix=".zip")
         os.close(fd)
 
-        with open(upload_path, "wb") as target:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                target.write(chunk)
+        raw_file = file.file
+
+        def _write_upload() -> None:
+            with open(upload_path, "wb") as target:
+                while True:
+                    chunk = raw_file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    target.write(chunk)
+
+        await asyncio.to_thread(_write_upload)
 
         def _sync():
             return get_archive_service().import_project_archive(
