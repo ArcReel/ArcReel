@@ -271,10 +271,26 @@ class ManagedSession:
     message_buffer: deque[dict]                    # maxsize=100，critical 优先
     subscribers: set[asyncio.Queue[dict]]
     pending_questions: dict[str, PendingQuestion]
+    _inbox: asyncio.Queue[dict | None] = field(default_factory=asyncio.Queue)  # actor 回调 → 异步业务
+    _process_task: asyncio.Task | None = None      # 读 _inbox，跑异步业务（替换原 consumer_task）
     _cleanup_task: asyncio.Task | None = None
     _interrupting: bool = False
     # 移除字段：client、consumer_task
 ```
+
+**为什么保留独立 processor task**：SessionActor 的 `on_message` 回调必须同步（它就跑在 actor 主 task 里，任何 `await` 都会把消息循环挂住）。但现有业务代码 `_handle_special_message` / `_finalize_turn` / `_mark_session_terminal` 包含 `await meta_store.update_*` 等异步操作。解决方案是把消息分两层消费：
+
+1. **同步层**（`_on_actor_message`，由 actor 回调直接调）：状态机 + `add_message`（buffer + 订阅者 broadcast），全部 O(1) 内存操作。
+2. **异步层**（SessionManager 的 `_process_inbox` task，每会话一个）：从 `managed._inbox` 读消息，执行 `_handle_special_message` 等 `await` 业务。
+
+回调原型：
+```python
+def _on_message(msg: dict) -> None:
+    managed._on_actor_message(msg)      # 同步：状态机 + add_message
+    managed._inbox.put_nowait(msg)      # 异步业务排队，由 _process_inbox 消费
+```
+
+关停路径：`_evict_one` / `send_disconnect` 完成后，push `None` 作为 sentinel 唤醒 `_process_inbox` 退出，然后 `await managed._process_task`。
 
 ### 6.2 消息回调：Actor → ManagedSession
 
