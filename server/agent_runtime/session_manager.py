@@ -974,15 +974,37 @@ class SessionManager:
             self.sessions.pop(temp_id, None)
             raise
 
+        # Register done callback BEFORE spawning processor to avoid a race where
+        # actor._task completes between create_task and add_done_callback,
+        # leaving the None sentinel un-pushed and _process_inbox hanging.
+        if actor._task is not None:
+            actor._task.add_done_callback(_on_actor_done)
+
         # Spawn inbox processor BEFORE sending query so we don't miss messages.
         managed._process_task = asyncio.create_task(
             self._process_inbox(managed),
             name=f"inbox-{temp_id}",
         )
 
-        # Register done callback after start succeeded and processor exists.
-        if actor._task is not None:
-            actor._task.add_done_callback(_on_actor_done)
+        async def _cleanup_on_error() -> None:
+            """Unified cleanup for failure paths after _process_task spawn.
+
+            Runs send_disconnect first (which causes actor to exit and
+            _on_actor_done to push the None sentinel, letting _process_inbox
+            finish naturally), then belt-and-suspenders cancels the processor
+            in case it is stuck elsewhere.
+            """
+            self.sessions.pop(temp_id, None)
+            try:
+                await managed.send_disconnect()
+            except Exception:
+                logger.exception(
+                    "send_disconnect on error path failed session_id=%s",
+                    temp_id,
+                )
+            if managed._process_task is not None and not managed._process_task.done():
+                managed._process_task.cancel()
+                await asyncio.gather(managed._process_task, return_exceptions=True)
 
         # Echo user message
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
@@ -995,11 +1017,7 @@ class SessionManager:
             await managed.send_query(prompt)
         except Exception:
             logger.exception("新会话消息发送失败")
-            self.sessions.pop(temp_id, None)
-            try:
-                await managed.send_disconnect()
-            except Exception as disconnect_err:
-                logger.warning("新会话断开连接失败: %s", disconnect_err)
+            await _cleanup_on_error()
             raise
 
         # Wait for sdk_session_id with timeout; also monitor actor task so we
@@ -1024,11 +1042,7 @@ class SessionManager:
             else:
                 logger.error("等待 sdk_session_id 超时 temp_id=%s", temp_id)
             managed.cancel_pending_questions("session creation timed out")
-            self.sessions.pop(temp_id, None)
-            try:
-                await managed.send_disconnect()
-            except Exception as disconnect_err:
-                logger.warning("清理断开连接失败: %s", disconnect_err)
+            await _cleanup_on_error()
             raise TimeoutError("SDK 会话创建超时")
 
         sdk_id = managed.resolved_sdk_id
@@ -1070,13 +1084,17 @@ class SessionManager:
                             managed.session_id,
                         )
         except asyncio.CancelledError:
-            try:
-                await self._mark_session_terminal(managed, "interrupted", "session interrupted")
-            except Exception:
-                logger.exception(
-                    "_mark_session_terminal 失败 session_id=%s",
-                    managed.session_id,
-                )
+            # Only mark interrupted if session was actually running. Cancel can
+            # also happen during failed send_new_session cleanup or normal
+            # shutdown, where the status is already terminal / error.
+            if managed.status == "running":
+                try:
+                    await self._mark_session_terminal(managed, "interrupted", "session interrupted")
+                except Exception:
+                    logger.exception(
+                        "_mark_session_terminal 在 cancel 路径失败 session_id=%s",
+                        managed.session_id,
+                    )
             raise
         except Exception:
             logger.exception("_process_inbox 异常 session_id=%s", managed.session_id)
