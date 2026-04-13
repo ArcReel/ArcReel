@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+from contextlib import ExitStack
 from pathlib import Path
 
 from lib.image_backends.base import (
@@ -83,17 +84,24 @@ class OpenAIImageBackend:
             logger.warning("参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
             refs = refs[:_MAX_REFERENCE_IMAGES]
 
-        def _open_refs() -> list:
-            files = []
-            for ref in refs:
-                ref_path = Path(ref.path)
-                try:
-                    files.append(open(ref_path, "rb"))  # noqa: SIM115
-                except FileNotFoundError:
-                    logger.warning("参考图不存在，跳过: %s", ref_path)
-            return files
+        def _open_refs() -> tuple[ExitStack, list]:
+            """在 ExitStack 内打开所有参考图，保证部分 open 失败时已打开句柄被释放。"""
+            stack = ExitStack()
+            try:
+                files = []
+                for ref in refs:
+                    ref_path = Path(ref.path)
+                    try:
+                        files.append(stack.enter_context(open(ref_path, "rb")))
+                    except FileNotFoundError:
+                        logger.warning("参考图不存在，跳过: %s", ref_path)
+                # 把已打开的句柄所有权移交给调用者
+                return stack.pop_all(), files
+            except BaseException:
+                stack.close()
+                raise
 
-        image_files = await asyncio.to_thread(_open_refs)
+        stack, image_files = await asyncio.to_thread(_open_refs)
         try:
             if not image_files:
                 logger.warning("所有参考图均无效，回退到 T2I")
@@ -105,8 +113,7 @@ class OpenAIImageBackend:
                 response_format="b64_json",
             )
         finally:
-            for f in image_files:
-                f.close()
+            stack.close()
         return await asyncio.to_thread(self._save_and_return, response, request)
 
     def _save_and_return(self, response, request: ImageGenerationRequest) -> ImageGenerationResult:

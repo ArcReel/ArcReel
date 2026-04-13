@@ -150,9 +150,9 @@ class GeminiVideoBackend:
 
         # reference_images → reference_images（参考图列表，type=ASSET）
         if request.reference_images:
-            prepared_refs = [
-                await asyncio.to_thread(self._prepare_image_param, img) for img in request.reference_images
-            ]
+            prepared_refs = await asyncio.gather(
+                *[asyncio.to_thread(self._prepare_image_param, img) for img in request.reference_images]
+            )
             config_params["reference_images"] = [
                 self._types.VideoGenerationReferenceImage(
                     image=prepared,

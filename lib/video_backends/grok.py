@@ -103,8 +103,8 @@ class GrokVideoBackend:
             ref_paths = [Path(p) if not isinstance(p, Path) else p for p in request.reference_images]
             existing_paths = [p for p in ref_paths if p.exists()]
             if existing_paths:
-                ref_urls = [await asyncio.to_thread(_encode_to_data_uri, p) for p in existing_paths]
-                generate_kwargs["reference_image_urls"] = ref_urls
+                ref_urls = await asyncio.gather(*[asyncio.to_thread(_encode_to_data_uri, p) for p in existing_paths])
+                generate_kwargs["reference_image_urls"] = list(ref_urls)
 
         logger.info("Grok 视频生成开始: model=%s, duration=%ds", self._model, request.duration_seconds)
         return await self._client.video.generate(**generate_kwargs)
