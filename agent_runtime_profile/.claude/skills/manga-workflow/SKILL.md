@@ -222,7 +222,7 @@ dispatch `generate-assets` subagent：
   项目名称：{project_name}
   项目路径：projects/{project_name}/
   脚本命令：
-    python .claude/skills/generate-video/scripts/generate_video.py episode_{N}.json --episode {N}
+    python .claude/skills/generate-video/scripts/generate_video.py episode_{N}.json
   验证方式：重新读取 scripts/episode_{N}.json，检查各场景的 video_clip 字段
 ```
 

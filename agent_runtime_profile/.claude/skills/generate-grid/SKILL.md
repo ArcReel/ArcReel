@@ -16,8 +16,8 @@ description: 生成宫格分镜图。当用户说"生成宫格"、"宫格生图"
 ## 命令行用法
 
 ```bash
-# 整集生成（推荐）
-python .claude/skills/generate-grid/scripts/generate_grid.py episode_1.json --episode 1
+# 整集生成（默认；集号从 script 顶层 episode 或文件名推导）
+python .claude/skills/generate-grid/scripts/generate_grid.py episode_1.json
 
 # 指定场景所在的组
 python .claude/skills/generate-grid/scripts/generate_grid.py episode_1.json --scene-ids E1S01 E1S02 E1S03

@@ -394,6 +394,23 @@ class ProjectManager:
 
         return output_path
 
+    @staticmethod
+    def resolve_episode_from_script(script: dict, script_filename: str) -> int:
+        """从剧本解析集号。
+
+        优先使用 script 顶层 `episode` 字段（真相源），fallback 到文件名正则
+        `episode[_\\s]*(\\d+)`；两者都无则抛 ValueError。
+
+        用于替代调用方重复传入 `--episode` CLI 参数造成的错配风险。
+        """
+        ep = script.get("episode")
+        if isinstance(ep, int):
+            return ep
+        match = re.search(r"episode[_\s]*(\d+)", script_filename, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        raise ValueError(f"无法确定集号：剧本缺少 episode 字段且文件名 {script_filename} 不含 episodeN 模式")
+
     def sync_episode_from_script(self, project_name: str, script_filename: str) -> dict:
         """
         从剧本文件同步集数信息到 project.json

@@ -3,11 +3,11 @@
 Video Generator - 使用 Veo 3.1 API 生成视频分镜
 
 Usage:
-    # 按 episode 生成（推荐）
-    python generate_video.py episode_N.json --episode N
+    # 整集生成（默认；集号从 script 顶层 episode 或文件名推导）
+    python generate_video.py episode_N.json
 
     # 断点续传
-    python generate_video.py episode_N.json --episode N --resume
+    python generate_video.py episode_N.json --resume
 
     # 单场景模式
     python generate_video.py episode_N.json --scene SCENE_ID
@@ -385,18 +385,19 @@ def _submit_and_wait_with_checkpoint(
 
 def generate_episode_video(
     script_filename: str,
-    episode: int,
     resume: bool = False,
 ) -> list[Path]:
     """
-    为指定 episode 生成所有场景的视频片段。
+    为剧本对应的 episode 生成所有场景的视频片段。
 
+    集号从 script 顶层 `episode` 字段或文件名推导，不再接受独立参数。
     每个场景独立生成视频，使用分镜图作为起始帧。
     """
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
     project = pm.load_project(project_name)
     script = pm.load_script(project_name, script_filename)
+    episode = ProjectManager.resolve_episode_from_script(script, script_filename)
     content_mode = script.get("content_mode", "narration")
     all_items, id_field, _, _ = get_items_from_script(script)
 
@@ -566,7 +567,7 @@ def generate_all_videos(script_filename: str) -> list:
     item_type = "片段" if content_mode == "narration" else "场景"
     print(f"📋 共 {len(pending_items)} 个{item_type}待生成视频")
     print("⚠️  每个视频可能需要 1-6 分钟，请耐心等待")
-    print("💡 推荐使用 --episode N 模式生成并自动拼接")
+    print("💡 推荐使用默认模式（不带 --scene/--scenes/--all）生成并自动拼接")
 
     specs, _ = _build_video_specs(
         items=pending_items,
@@ -738,11 +739,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 按 episode 生成（推荐）
-  python generate_video.py episode_1.json --episode 1
+  # 整集生成（默认；集号从 script 顶层或文件名推导）
+  python generate_video.py episode_1.json
 
   # 断点续传
-  python generate_video.py episode_1.json --episode 1 --resume
+  python generate_video.py episode_1.json --resume
 
   # 单场景模式
   python generate_video.py episode_1.json --scene E1S1
@@ -756,12 +757,11 @@ def main():
     )
     parser.add_argument("script", help="剧本文件名")
 
-    # 模式选择
+    # 模式选择（未指定时默认走整集模式）
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--scene", help="指定场景 ID（单场景模式）")
     mode_group.add_argument("--scenes", help="指定多个场景 ID（逗号分隔），如: E1S01,E1S05,E1S10")
     mode_group.add_argument("--all", action="store_true", help="生成所有待处理场景（独立模式）")
-    mode_group.add_argument("--episode", type=int, help="按 episode 生成并拼接（推荐）")
 
     # 其他选项
     parser.add_argument("--resume", action="store_true", help="从上次中断处继续")
@@ -780,16 +780,11 @@ def main():
             )
         elif args.all:
             generate_all_videos(args.script)
-        elif args.episode:
+        else:
             generate_episode_video(
                 args.script,
-                args.episode,
                 resume=args.resume,
             )
-        else:
-            print("请指定模式: --scene, --scenes, --all, 或 --episode")
-            print("使用 --help 查看帮助")
-            sys.exit(1)
 
     except Exception as e:
         print(f"❌ 错误: {e}")

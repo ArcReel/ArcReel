@@ -31,11 +31,12 @@ def _print_groups(groups: list[list[dict]], id_field: str, aspect_ratio: str) ->
 
 def generate_grid(
     script_filename: str,
-    episode: int,
     scene_ids: list[str] | None = None,
 ) -> tuple[list[str], list[tuple[str, str]]]:
     """
     为 grid 模式项目生成宫格分镜图。
+
+    集号从 script 顶层 `episode` 字段或文件名推导。
 
     Returns:
         (成功的 grid_id 列表, 失败列表[(grid_id, error)])
@@ -48,6 +49,7 @@ def generate_grid(
         sys.exit(1)
 
     script = pm.load_script(project_name, script_filename)
+    episode = ProjectManager.resolve_episode_from_script(script, script_filename)
     project_path = pm.get_project_path(project_name)
     items, id_field, _, _ = get_storyboard_items(script)
     aspect_ratio = project.get("aspect_ratio", "9:16")
@@ -152,7 +154,6 @@ def generate_grid(
 def main():
     parser = argparse.ArgumentParser(description="宫格分镜图生成")
     parser.add_argument("script_file", help="剧本文件名（例如 episode_1.json）")
-    parser.add_argument("--episode", type=int, default=1, help="集数（默认 1）")
     parser.add_argument("--scene-ids", nargs="+", help="指定场景 ID（只生成包含这些场景的分组）")
     parser.add_argument("--list", action="store_true", help="列出分组信息，不执行生成")
     args = parser.parse_args()
@@ -171,7 +172,6 @@ def main():
     try:
         successes, failures = generate_grid(
             script_filename=args.script_file,
-            episode=args.episode,
             scene_ids=args.scene_ids,
         )
         print(f"\n📊 完成：{len(successes)} 成功，{len(failures)} 失败")

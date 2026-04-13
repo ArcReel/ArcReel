@@ -396,3 +396,25 @@ class TestPathTraversalProtection:
         # 正常文件名不应被拦截
         real = pm._safe_subpath(scripts_dir, "episode_1.json")
         assert real.endswith("episode_1.json")
+
+
+class TestResolveEpisodeFromScript:
+    def test_prefers_script_top_level_episode(self):
+        ep = ProjectManager.resolve_episode_from_script({"episode": 7, "scenes": []}, "whatever.json")
+        assert ep == 7
+
+    def test_falls_back_to_filename_regex(self):
+        ep = ProjectManager.resolve_episode_from_script({"scenes": []}, "episode_3.json")
+        assert ep == 3
+
+    def test_filename_regex_case_insensitive_and_spaced(self):
+        assert ProjectManager.resolve_episode_from_script({}, "Episode 12.json") == 12
+
+    def test_ignores_non_int_episode_field(self):
+        """非整数的 episode 字段（如 '1'）应回退到文件名。"""
+        ep = ProjectManager.resolve_episode_from_script({"episode": "1"}, "episode_9.json")
+        assert ep == 9
+
+    def test_raises_when_unresolvable(self):
+        with pytest.raises(ValueError, match="无法确定集号"):
+            ProjectManager.resolve_episode_from_script({}, "random_name.json")
