@@ -25,7 +25,7 @@
     "@lobehub/icons": "^5.2.0",
     "@tanstack/react-virtual": "^3.13.23",
     "framer-motion": "^12.38.0",
-    "i18next": "^26.0.3",
+    "i18next": "^26.0.4",
     "i18next-browser-languagedetector": "^8.2.1",
     "lucide-react": "^1.7.0",
     "pnpm": "^10.33.0",
