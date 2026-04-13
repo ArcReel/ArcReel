@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -128,8 +129,8 @@ def _map_image_size_to_resolution(image_size: str) -> str:
 
 async def _download_image(url: str, output_path: Path, *, timeout: int = 60) -> None:
     """从 URL 下载图片到本地文件。"""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
     async with httpx.AsyncClient() as http_client:
         resp = await http_client.get(url, timeout=timeout)
         resp.raise_for_status()
-        output_path.write_bytes(resp.content)
+        await asyncio.to_thread(output_path.write_bytes, resp.content)

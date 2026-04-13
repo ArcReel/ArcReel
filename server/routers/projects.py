@@ -107,12 +107,19 @@ async def import_project_archive(
         fd, upload_path = tempfile.mkstemp(prefix="arcreel-upload-", suffix=".zip")
         os.close(fd)
 
-        with open(upload_path, "wb") as target:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                target.write(chunk)
+        # 使用底层 SpooledTemporaryFile 的同步句柄，整循环 offload 到线程，
+        # 避免 async 读取 + 同步写入的混合模式阻塞事件循环 (#230)
+        raw_file = file.file
+
+        def _write_upload():
+            with open(upload_path, "wb") as target:
+                while True:
+                    chunk = raw_file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    target.write(chunk)
+
+        await asyncio.to_thread(_write_upload)
 
         def _sync():
             return get_archive_service().import_project_archive(

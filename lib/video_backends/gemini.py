@@ -146,22 +146,27 @@ class GeminiVideoBackend:
 
         # end_image → last_frame（帧插值）
         if request.end_image is not None:
-            config_params["last_frame"] = self._prepare_image_param(request.end_image)
+            config_params["last_frame"] = await asyncio.to_thread(self._prepare_image_param, request.end_image)
 
         # reference_images → reference_images（参考图列表，type=ASSET）
         if request.reference_images:
+            prepared_refs = [
+                await asyncio.to_thread(self._prepare_image_param, img) for img in request.reference_images
+            ]
             config_params["reference_images"] = [
                 self._types.VideoGenerationReferenceImage(
-                    image=self._prepare_image_param(img),
+                    image=prepared,
                     reference_type=self._types.VideoGenerationReferenceType.ASSET,
                 )
-                for img in request.reference_images
+                for prepared in prepared_refs
             ]
 
         config = self._types.GenerateVideosConfig(**config_params)
 
         # 4. 准备 source（prompt + 可选起始帧）
-        image_param = self._prepare_image_param(request.start_image) if request.start_image else None
+        image_param = (
+            await asyncio.to_thread(self._prepare_image_param, request.start_image) if request.start_image else None
+        )
         source = self._types.GenerateVideosSource(prompt=request.prompt, image=image_param)
 
         # 5. 调用 API
@@ -210,7 +215,7 @@ class GeminiVideoBackend:
         video_ref = generated_video.video
         video_uri = video_ref.uri if video_ref else None
 
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(request.output_path.parent.mkdir, parents=True, exist_ok=True)
         await self._download_video_with_retry(video_ref, request.output_path)
 
         return VideoGenerationResult(

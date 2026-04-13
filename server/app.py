@@ -6,6 +6,7 @@
     uv run uvicorn server.app:app --reload --port 1241
 """
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -203,10 +204,15 @@ async def serve_skill_md(request: Request) -> Response:
     from starlette.responses import PlainTextResponse
 
     template_path = PROJECT_ROOT / "public" / "skill.md.template"
-    if not template_path.exists():
-        return PlainTextResponse("skill.md 模板不存在", status_code=404)
 
-    template = template_path.read_text(encoding="utf-8")
+    def _read() -> tuple[bool, str]:
+        if not template_path.exists():
+            return False, ""
+        return True, template_path.read_text(encoding="utf-8")
+
+    exists, template = await asyncio.to_thread(_read)
+    if not exists:
+        return PlainTextResponse("skill.md 模板不存在", status_code=404)
 
     # 从请求推断 base URL；仅信任 x-forwarded-proto（反向代理标准头），
     # host 使用连接实际目标地址，不接受可被用户伪造的 x-forwarded-host。

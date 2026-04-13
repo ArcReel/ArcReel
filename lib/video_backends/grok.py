@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from datetime import timedelta
@@ -88,24 +89,21 @@ class GrokVideoBackend:
             "interval": timedelta(seconds=5),
         }
 
+        def _encode_to_data_uri(path: Path) -> str:
+            suffix = path.suffix.lower()
+            mime_type = IMAGE_MIME_TYPES.get(suffix, "image/png")
+            b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+            return f"data:{mime_type};base64,{b64}"
+
         if request.start_image and Path(request.start_image).exists():
             image_path = Path(request.start_image)
-            suffix = image_path.suffix.lower()
-            mime_type = IMAGE_MIME_TYPES.get(suffix, "image/png")
-            image_data = image_path.read_bytes()
-            b64 = base64.b64encode(image_data).decode("ascii")
-            generate_kwargs["image_url"] = f"data:{mime_type};base64,{b64}"
+            generate_kwargs["image_url"] = await asyncio.to_thread(_encode_to_data_uri, image_path)
 
         if request.reference_images:
-            ref_urls = []
-            for ref_path in request.reference_images:
-                p = Path(ref_path) if not isinstance(ref_path, Path) else ref_path
-                if p.exists():
-                    suffix = p.suffix.lower()
-                    mime_type = IMAGE_MIME_TYPES.get(suffix, "image/png")
-                    b64 = base64.b64encode(p.read_bytes()).decode("ascii")
-                    ref_urls.append(f"data:{mime_type};base64,{b64}")
-            if ref_urls:
+            ref_paths = [Path(p) if not isinstance(p, Path) else p for p in request.reference_images]
+            existing_paths = [p for p in ref_paths if p.exists()]
+            if existing_paths:
+                ref_urls = [await asyncio.to_thread(_encode_to_data_uri, p) for p in existing_paths]
                 generate_kwargs["reference_image_urls"] = ref_urls
 
         logger.info("Grok 视频生成开始: model=%s, duration=%ds", self._model, request.duration_seconds)

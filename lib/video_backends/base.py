@@ -82,7 +82,7 @@ async def poll_with_retry[T](
 @with_retry_async()
 async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> None:
     """从 URL 流式下载视频到本地文件（含瞬态错误重试）。"""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
     async with httpx.AsyncClient() as http_client:
         async with http_client.stream("GET", url, timeout=timeout) as resp:
             if resp.status_code >= 400:
@@ -91,7 +91,7 @@ async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> 
             resp.raise_for_status()
             with open(output_path, "wb") as f:
                 async for chunk in resp.aiter_bytes(chunk_size=65536):
-                    f.write(chunk)
+                    await asyncio.to_thread(f.write, chunk)
 
 
 @dataclass

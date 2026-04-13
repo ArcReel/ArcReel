@@ -75,10 +75,14 @@ class ArkImageBackend:
             **kwargs,
         )
 
-        # 解码并保存
+        # 解码并保存（磁盘写入 offload 到线程）
         image_data = base64.b64decode(response.data[0].b64_json)
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        request.output_path.write_bytes(image_data)
+
+        def _write():
+            request.output_path.parent.mkdir(parents=True, exist_ok=True)
+            request.output_path.write_bytes(image_data)
+
+        await asyncio.to_thread(_write)
 
         return ImageGenerationResult(
             image_path=request.output_path,

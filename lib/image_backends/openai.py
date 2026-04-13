@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from pathlib import Path
@@ -74,21 +75,26 @@ class OpenAIImageBackend:
             response_format="b64_json",
             n=1,
         )
-        return self._save_and_return(response, request)
+        return await asyncio.to_thread(self._save_and_return, response, request)
 
     async def _generate_edit(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         refs = request.reference_images
         if len(refs) > _MAX_REFERENCE_IMAGES:
             logger.warning("参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
             refs = refs[:_MAX_REFERENCE_IMAGES]
-        image_files = []
-        try:
+
+        def _open_refs() -> list:
+            files = []
             for ref in refs:
                 ref_path = Path(ref.path)
                 try:
-                    image_files.append(open(ref_path, "rb"))  # noqa: SIM115
+                    files.append(open(ref_path, "rb"))  # noqa: SIM115
                 except FileNotFoundError:
                     logger.warning("参考图不存在，跳过: %s", ref_path)
+            return files
+
+        image_files = await asyncio.to_thread(_open_refs)
+        try:
             if not image_files:
                 logger.warning("所有参考图均无效，回退到 T2I")
                 return await self._generate_create(request)
@@ -101,7 +107,7 @@ class OpenAIImageBackend:
         finally:
             for f in image_files:
                 f.close()
-        return self._save_and_return(response, request)
+        return await asyncio.to_thread(self._save_and_return, response, request)
 
     def _save_and_return(self, response, request: ImageGenerationRequest) -> ImageGenerationResult:
         image_bytes = base64.b64decode(response.data[0].b64_json)

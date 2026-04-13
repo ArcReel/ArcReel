@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -91,8 +92,12 @@ class OpenAIVideoBackend:
             raise RuntimeError(f"Sora 视频生成失败: {video.error}")
 
         content = await self._download_content_with_retry(video.id)
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        request.output_path.write_bytes(content.content)
+
+        def _write():
+            request.output_path.parent.mkdir(parents=True, exist_ok=True)
+            request.output_path.write_bytes(content.content)
+
+        await asyncio.to_thread(_write)
 
         logger.info("OpenAI 视频下载完成: %s", request.output_path)
 

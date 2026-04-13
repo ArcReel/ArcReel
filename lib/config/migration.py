@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -65,7 +66,8 @@ async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
         return
 
     logger.info("Migrating %s to database...", json_path)
-    data = json.loads(json_path.read_text())
+    text = await asyncio.to_thread(json_path.read_text)
+    data = json.loads(text)
     overrides: dict = data.get("overrides", {})
 
     provider_repo = ProviderConfigRepository(session)
