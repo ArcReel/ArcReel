@@ -76,17 +76,21 @@ function CollapsibleSection({
 }
 
 // ---------------------------------------------------------------------------
-// CharacterThumbnail — round avatar with fallback
+// AssetThumbnail — shared thumbnail for characters (circle) and clues (square)
 // ---------------------------------------------------------------------------
 
-function CharacterThumbnail({
+function AssetThumbnail({
   name,
   sheetPath,
   projectName,
+  shape,
+  FallbackIcon,
 }: {
   name: string;
   sheetPath: string | undefined;
   projectName: string;
+  shape: "circle" | "square";
+  FallbackIcon: React.ComponentType<{ className?: string }>;
 }) {
   const sheetFp = useProjectsStore((s) =>
     sheetPath ? s.getAssetFingerprint(sheetPath) : null,
@@ -97,10 +101,12 @@ function CharacterThumbnail({
     setImgError(false);
   }, [sheetFp, sheetPath]);
 
+  const roundedClass = shape === "circle" ? "rounded-full" : "rounded";
+
   if (!sheetPath || imgError) {
     return (
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-700 text-gray-400">
-        <User className="h-3.5 w-3.5" />
+      <span className={`flex h-6 w-6 shrink-0 items-center justify-center ${roundedClass} bg-gray-700 text-gray-400`}>
+        <FallbackIcon className="h-3.5 w-3.5" />
       </span>
     );
   }
@@ -109,47 +115,7 @@ function CharacterThumbnail({
     <img
       src={API.getFileUrl(projectName, sheetPath, sheetFp)}
       alt={name}
-      className="h-6 w-6 shrink-0 rounded-full object-cover"
-      onError={() => setImgError(true)}
-    />
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ClueThumbnail — square icon with fallback
-// ---------------------------------------------------------------------------
-
-function ClueThumbnail({
-  name,
-  sheetPath,
-  projectName,
-}: {
-  name: string;
-  sheetPath: string | undefined;
-  projectName: string;
-}) {
-  const sheetFp = useProjectsStore((s) =>
-    sheetPath ? s.getAssetFingerprint(sheetPath) : null,
-  );
-  const [imgError, setImgError] = useState(false);
-
-  useEffect(() => {
-    setImgError(false);
-  }, [sheetFp, sheetPath]);
-
-  if (!sheetPath || imgError) {
-    return (
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-gray-700 text-gray-400">
-        <Puzzle className="h-3.5 w-3.5" />
-      </span>
-    );
-  }
-
-  return (
-    <img
-      src={API.getFileUrl(projectName, sheetPath, sheetFp)}
-      alt={name}
-      className="h-6 w-6 shrink-0 rounded object-cover"
+      className={`h-6 w-6 shrink-0 ${roundedClass} object-cover`}
       onError={() => setImgError(true)}
     />
   );
@@ -365,10 +331,12 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                         : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
                     }`}
                   >
-                    <CharacterThumbnail
+                    <AssetThumbnail
                       name={name}
                       sheetPath={char.character_sheet}
                       projectName={projectName}
+                      shape="circle"
+                      FallbackIcon={User}
                     />
                     <span className="truncate">{name}</span>
                   </button>
@@ -399,10 +367,12 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                         : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
                     }`}
                   >
-                    <ClueThumbnail
+                    <AssetThumbnail
                       name={name}
                       sheetPath={clue.clue_sheet}
                       projectName={projectName}
+                      shape="square"
+                      FallbackIcon={Puzzle}
                     />
                     <span className="truncate">{name}</span>
                   </button>
