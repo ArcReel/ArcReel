@@ -348,3 +348,77 @@ async def test_disconnect_during_query_defers_exit():
         await asyncio.wait_for(actor._task, timeout=1.0)
     assert client.interrupted  # 先 interrupt
     assert client.disconnected  # 后 disconnect
+
+
+class _ExplodingClient(FakeSDKClient):
+    async def query(self, prompt, session_id: str = "default") -> None:
+        self._record("query")
+        raise RuntimeError("sdk boom")
+
+
+@pytest.mark.asyncio
+async def test_actor_error_propagates_to_waiter():
+    client = _ExplodingClient()
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    await actor.start()
+
+    q = SessionCommand(type="query", prompt="hi")
+    await actor.enqueue(q)
+    await q.done.wait()
+    assert isinstance(q.error, RuntimeError)
+    assert str(q.error) == "sdk boom"
+    assert actor._fatal is q.error
+
+    # actor 已死亡；后续命令应 fast-fail
+    q2 = SessionCommand(type="query", prompt="another")
+    await actor.enqueue(q2)
+    await q2.done.wait()
+    assert q2.error is not None
+
+    # 消费异常避免 Task exception was never retrieved 警告
+    if actor._task is not None:
+        with pytest.raises(RuntimeError):
+            await actor._task
+
+
+@pytest.mark.asyncio
+async def test_actor_fatal_drains_queued_commands():
+    """actor 异常退出前，队列中的命令也会被 drain，不会挂死。"""
+    client = _ExplodingClient()
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    await actor.start()
+
+    q = SessionCommand(type="query", prompt="hi")
+    # 排在后面的命令：在 _run 捕获异常后被 finally 的 drain 清理
+    q_queued = SessionCommand(type="query", prompt="queued")
+    await actor.enqueue(q)
+    await actor.enqueue(q_queued)
+
+    # 等 actor task 结束
+    if actor._task is not None:
+        with pytest.raises(RuntimeError):
+            await actor._task
+
+    await asyncio.wait_for(q.done.wait(), timeout=1.0)
+    await asyncio.wait_for(q_queued.done.wait(), timeout=1.0)
+    assert q.error is not None
+    assert q_queued.error is not None
+
+
+@pytest.mark.asyncio
+async def test_enqueue_after_actor_closed_fails_fast():
+    """正常 disconnect 后，enqueue 不会挂起。"""
+    client = FakeSDKClient()
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    await actor.start()
+    d = SessionCommand(type="disconnect")
+    await actor.enqueue(d)
+    await d.done.wait()
+    if actor._task is not None:
+        await actor._task
+
+    stale = SessionCommand(type="query", prompt="hi")
+    await actor.enqueue(stale)
+    await stale.done.wait()
+    assert stale.error is not None
+    assert isinstance(stale.error, (_ActorClosed, BaseException))
