@@ -87,7 +87,7 @@ graph TD
 
 ## 快速开始
 
-> ⚠️ **操作系统**：Linux / MacOS / Windows WSL（Claude Agent SDK 及部分依赖仅兼容 POSIX 环境，Windows 原生暂不支持，请使用 Docker Desktop 或 WSL2）
+> ⚠️ **操作系统**：Linux / MacOS / Windows WSL2（Claude Agent SDK 及部分依赖仅兼容 POSIX 环境，Windows 原生暂不支持，请使用 Docker Desktop 或 WSL2）
 
 ### 默认部署（SQLite）
 
