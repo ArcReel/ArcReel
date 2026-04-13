@@ -32,14 +32,10 @@ function resolveSegmentPrompt(
   if (!resolvedFile) return null;
   const script = scripts[resolvedFile];
   if (!script) return null;
-  const segments =
-    ("segments" in script ? script.segments : undefined) ??
-    ("scenes" in script ? script.scenes : undefined) ??
-    [];
-  const seg = segments.find((s) => {
-    const id = "segment_id" in s ? s.segment_id : (s as { scene_id?: string }).scene_id ?? "";
-    return id === segmentId;
-  });
+  const seg =
+    script.content_mode === "narration"
+      ? script.segments.find((s) => s.segment_id === segmentId)
+      : script.scenes.find((s) => s.scene_id === segmentId);
   return {
     resolvedFile,
     prompt: seg?.[field] ?? "",
