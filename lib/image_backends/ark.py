@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import urllib.request
 from pathlib import Path
 
 from lib.ark_shared import create_ark_client
@@ -57,7 +58,6 @@ class ArkImageBackend:
         kwargs: dict = {
             "model": self._model,
             "prompt": request.prompt,
-            "response_format": "b64_json",
         }
 
         # I2I: 读取参考图并转为 base64 data URI
@@ -75,10 +75,14 @@ class ArkImageBackend:
             **kwargs,
         )
 
-        # 解码并保存
-        image_data = base64.b64decode(response.data[0].b64_json)
+        # 解码并保存 — Ark API returns b64_json or url depending on model
+        item = response.data[0]
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        request.output_path.write_bytes(image_data)
+        if getattr(item, "b64_json", None):
+            image_data = base64.b64decode(item.b64_json)
+            request.output_path.write_bytes(image_data)
+        else:
+            urllib.request.urlretrieve(item.url, request.output_path)  # noqa: S310
 
         return ImageGenerationResult(
             image_path=request.output_path,
