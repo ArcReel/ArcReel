@@ -149,3 +149,66 @@ async def test_actor_connect_and_disconnect_same_task():
     if actor._task is not None:
         await actor._task
     assert client.method_tasks["connect"] == client.method_tasks["disconnect"]
+
+
+@pytest.mark.asyncio
+async def test_query_consumes_all_messages_and_sets_done():
+    messages = [
+        {"type": "assistant", "id": 1},
+        {"type": "result", "subtype": "success"},
+    ]
+    client = FakeSDKClient(messages=messages)
+    collected: list[dict] = []
+    actor = SessionActor(
+        client_factory=lambda: client,
+        on_message=lambda msg: collected.append(msg),
+    )
+    await actor.start()
+    # FakeSDKClient 的初始 messages 在 __aenter__ 时入队；query 只是发送动作
+    cmd = SessionCommand(type="query", prompt="hi")
+    await actor.enqueue(cmd)
+    await cmd.done.wait()
+    assert cmd.error is None
+    assert collected == messages
+    assert client.sent_queries == ["hi"]
+
+    # 收尾
+    disc = SessionCommand(type="disconnect")
+    await actor.enqueue(disc)
+    await disc.done.wait()
+    if actor._task is not None:
+        await actor._task
+
+
+@pytest.mark.asyncio
+async def test_all_sdk_calls_recorded_on_same_task():
+    """契约锁定：connect / query / interrupt / disconnect / receive_response
+    都在 actor 主 task 内调用，current_task 完全相同。"""
+    client = FakeSDKClient(
+        block_forever=True,
+        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+    )
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    await actor.start()
+
+    # 发 query
+    q = SessionCommand(type="query", prompt="hi")
+    await actor.enqueue(q)
+    # 短暂等待 query 进入 receive_response
+    await asyncio.sleep(0.05)
+    # 发 interrupt（应当穿插到 receive_response 中）
+    i = SessionCommand(type="interrupt")
+    await actor.enqueue(i)
+    await i.done.wait()
+    await q.done.wait()
+
+    # 收尾
+    d = SessionCommand(type="disconnect")
+    await actor.enqueue(d)
+    await d.done.wait()
+    if actor._task is not None:
+        await actor._task
+
+    tasks_by_method = {m: set(ts) for m, ts in client.method_tasks.items()}
+    all_tasks = set().union(*tasks_by_method.values())
+    assert len(all_tasks) == 1, f"SDK methods ran on multiple tasks: {tasks_by_method}"

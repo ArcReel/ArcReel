@@ -72,15 +72,33 @@ class SessionActor:
             self._drain_pending_commands(self._fatal or _ActorClosed())
 
     async def _command_loop(self, client: Any) -> None:
-        """初版：只处理 disconnect；query / interrupt 在后续任务扩展。"""
+        deferred_cmd: SessionCommand | None = None
         while True:
-            cmd = await self._cmd_queue.get()
+            cmd = deferred_cmd or await self._cmd_queue.get()
+            deferred_cmd = None
+
             if cmd.type == "disconnect":
                 cmd.done.set()
-                return
-            # 其他命令暂未实现
-            cmd.error = NotImplementedError(f"command {cmd.type!r} not yet supported")
-            cmd.done.set()
+                return  # 触发 __aexit__，同 task disconnect
+
+            if cmd.type == "query":
+                try:
+                    await client.query(cmd.prompt, session_id=cmd.session_id)
+                    deferred_cmd = await self._drive_query(client, cmd)
+                except BaseException as exc:
+                    cmd.error = exc
+                    cmd.done.set()
+                    raise
+            elif cmd.type == "interrupt":
+                # 当前无 query 进行中；interrupt 无操作，但仍 ACK
+                cmd.done.set()
+
+    async def _drive_query(self, client: Any, query_cmd: SessionCommand) -> SessionCommand | None:
+        """消费 receive_response 直到 StopAsyncIteration。初版不处理中途命令。"""
+        async for msg in client.receive_response():
+            self._on_message(msg)
+        query_cmd.done.set()
+        return None
 
     async def enqueue(self, cmd: SessionCommand) -> None:
         if self._fatal is not None or (self._task is not None and self._task.done()):
