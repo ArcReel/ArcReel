@@ -93,6 +93,55 @@ class FakeSDKClient:
         self.disconnected = True
 
 
+async def build_managed_with_actor(
+    *,
+    session_id: str = "s1",
+    project_name: str = "demo",
+    status: str = "idle",
+    messages: list[dict] | None = None,
+    block_forever: bool = False,
+    on_message_hook=None,
+):
+    """测试辅助：围绕 FakeSDKClient 创建 SessionActor + ManagedSession，并启动 actor。
+
+    返回 (managed, actor, client)。测试完成后调用 `await managed.send_disconnect()`
+    清理，或由调用方自行管理生命周期。
+    """
+    from contextlib import asynccontextmanager
+
+    from server.agent_runtime.session_actor import SessionActor
+    from server.agent_runtime.session_manager import ManagedSession
+
+    client = FakeSDKClient(messages=messages, block_forever=block_forever)
+
+    @asynccontextmanager
+    async def _factory_cm():
+        async with client as c:
+            yield c
+
+    managed_ref: list = [None]
+
+    def _on_message(msg):
+        m = managed_ref[0]
+        if m is None:
+            return
+        if on_message_hook is not None:
+            on_message_hook(m, msg)
+        else:
+            m._on_actor_message(msg)
+
+    actor = SessionActor(client_factory=_factory_cm, on_message=_on_message)
+    managed = ManagedSession(
+        session_id=session_id,
+        actor=actor,
+        status=status,  # type: ignore[arg-type]
+        project_name=project_name,
+    )
+    managed_ref[0] = managed
+    await actor.start()
+    return managed, actor, client
+
+
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
 
 

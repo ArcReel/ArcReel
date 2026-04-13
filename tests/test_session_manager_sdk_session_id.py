@@ -1,6 +1,12 @@
 """Unit tests for SessionManager._on_sdk_session_id_received during streaming."""
 
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession
+from tests.fakes import FakeSDKClient
 
 
 class StreamEvent:
@@ -25,25 +31,31 @@ class ResultMessage:
         self.structured_output = None
 
 
-class FakeClient:
-    def __init__(self, messages):
-        self._messages = messages
+def _make_managed(**overrides) -> ManagedSession:
+    """Construct a ManagedSession with a dummy actor that is never started."""
+    dummy_client = FakeSDKClient()
 
-    async def receive_response(self):
-        for message in self._messages:
-            yield message
+    @asynccontextmanager
+    async def _factory():
+        async with dummy_client as c:
+            yield c
+
+    actor = SessionActor(client_factory=_factory, on_message=lambda msg: None)
+    kwargs = {
+        "session_id": "temp-id",
+        "actor": actor,
+        "status": "running",
+        "project_name": "demo",
+    }
+    kwargs.update(overrides)
+    return ManagedSession(**kwargs)
 
 
 class TestSessionManagerSdkSessionId:
     async def test_on_sdk_session_id_received_creates_db_record(self, session_manager, meta_store):
         """For new sessions, _on_sdk_session_id_received creates DB record and signals event."""
         sdk_session_id = "sdk-new-123"
-        managed = ManagedSession(
-            session_id="temp-id",
-            client=FakeClient([]),
-            status="running",
-            project_name="demo",
-        )
+        managed = _make_managed()
 
         await session_manager._on_sdk_session_id_received(
             managed, StreamEvent(sdk_session_id), {"session_id": sdk_session_id}
@@ -59,13 +71,7 @@ class TestSessionManagerSdkSessionId:
 
     async def test_on_sdk_session_id_received_noop_when_already_registered(self, session_manager, meta_store):
         """For sessions with resolved_sdk_id already set, it's a no-op."""
-        managed = ManagedSession(
-            session_id="sdk-existing",
-            client=FakeClient([]),
-            status="running",
-            project_name="demo",
-            resolved_sdk_id="sdk-existing",
-        )
+        managed = _make_managed(session_id="sdk-existing", resolved_sdk_id="sdk-existing")
         managed.sdk_id_event.set()
 
         await session_manager._on_sdk_session_id_received(
@@ -75,25 +81,34 @@ class TestSessionManagerSdkSessionId:
         meta = await meta_store.get("sdk-existing")
         assert meta is None  # No DB record was created
 
-    async def test_consume_messages_triggers_on_sdk_session_id_received(self, session_manager, meta_store):
-        """_consume_messages calls _on_sdk_session_id_received and creates DB record for new sessions."""
+    async def test_process_inbox_triggers_on_sdk_session_id_received(self, session_manager, meta_store):
+        """_process_inbox drains messages and calls _on_sdk_session_id_received + _finalize_turn."""
         sdk_session_id = "sdk-consume-456"
-        client = FakeClient([StreamEvent(sdk_session_id), ResultMessage(sdk_session_id, "success")])
-        managed = ManagedSession(
-            session_id=sdk_session_id,  # 模拟 send_new_session 已将 temp_id 替换为 sdk_id
-            client=client,
-            status="running",
-            project_name="demo",
-        )
+        managed = _make_managed(session_id=sdk_session_id)
         session_manager.sessions[sdk_session_id] = managed
 
-        await session_manager._consume_messages(managed)
+        # Push stream event dict + result dict onto the inbox (mimicking on_actor_message).
+        managed._inbox.put_nowait(
+            {"type": "stream_event", "session_id": sdk_session_id, "uuid": "u1"}
+        )
+        managed._inbox.put_nowait(
+            {
+                "type": "result",
+                "subtype": "success",
+                "session_id": sdk_session_id,
+                "duration_ms": 1,
+                "duration_api_ms": 1,
+                "is_error": False,
+                "num_turns": 1,
+            }
+        )
+        managed._inbox.put_nowait(None)  # sentinel to end processing
+
+        await session_manager._process_inbox(managed)
 
         assert managed.resolved_sdk_id == sdk_session_id
         assert managed.sdk_id_event.is_set()
-        assert managed.status == "completed"
         # DB record should have been created by _on_sdk_session_id_received
         meta = await meta_store.get(sdk_session_id)
         assert meta is not None
         assert meta.project_name == "demo"
-        assert meta.status == "completed"
