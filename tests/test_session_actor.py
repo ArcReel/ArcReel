@@ -324,3 +324,27 @@ async def test_two_queries_queued_during_interrupt_drain():
     await d.done.wait()
     if actor._task is not None:
         await actor._task
+
+
+@pytest.mark.asyncio
+async def test_disconnect_during_query_defers_exit():
+    """query 进行中送 disconnect：actor 先 interrupt，drain 完后才退出 async with。"""
+    client = FakeSDKClient(
+        block_forever=True,
+        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+    )
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    await actor.start()
+
+    q = SessionCommand(type="query", prompt="run")
+    await actor.enqueue(q)
+    await asyncio.sleep(0.05)
+
+    d = SessionCommand(type="disconnect")
+    await actor.enqueue(d)
+    await d.done.wait()
+    # 此时 actor task 应已结束（disconnect 触发 __aexit__）
+    if actor._task is not None:
+        await asyncio.wait_for(actor._task, timeout=1.0)
+    assert client.interrupted  # 先 interrupt
+    assert client.disconnected  # 后 disconnect
