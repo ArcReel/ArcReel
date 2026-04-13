@@ -102,3 +102,50 @@ async def test_fake_client_connect_error_raises_in_aenter():
     with pytest.raises(RuntimeError, match="boom"):
         async with client:
             pass
+
+
+@pytest.mark.asyncio
+async def test_actor_start_connects_fake_client():
+    client = FakeSDKClient()
+    actor = SessionActor(
+        client_factory=lambda: client,
+        on_message=lambda msg: None,
+    )
+    await actor.start()
+    assert actor._started.is_set()
+    assert "connect" in client.method_tasks
+    # 立即发 disconnect 把 actor 收尾
+    cmd = SessionCommand(type="disconnect")
+    await actor.enqueue(cmd)
+    await cmd.done.wait()
+    if actor._task is not None:
+        await actor._task
+    assert client.disconnected
+
+
+@pytest.mark.asyncio
+async def test_actor_start_propagates_connect_failure():
+    client = FakeSDKClient(connect_error=RuntimeError("boom"))
+    actor = SessionActor(
+        client_factory=lambda: client,
+        on_message=lambda msg: None,
+    )
+    with pytest.raises(RuntimeError, match="boom"):
+        await actor.start()
+    assert actor._fatal is not None
+
+
+@pytest.mark.asyncio
+async def test_actor_connect_and_disconnect_same_task():
+    client = FakeSDKClient()
+    actor = SessionActor(
+        client_factory=lambda: client,
+        on_message=lambda msg: None,
+    )
+    await actor.start()
+    cmd = SessionCommand(type="disconnect")
+    await actor.enqueue(cmd)
+    await cmd.done.wait()
+    if actor._task is not None:
+        await actor._task
+    assert client.method_tasks["connect"] == client.method_tasks["disconnect"]

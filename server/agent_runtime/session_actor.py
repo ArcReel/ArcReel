@@ -43,3 +43,58 @@ class SessionActor:
         self._task: asyncio.Task | None = None
         self._started: asyncio.Event = asyncio.Event()
         self._fatal: BaseException | None = None
+
+    async def start(self) -> None:
+        """启动 actor task；等到 connect 成功或 fail-fast 才返回。"""
+        self._task = asyncio.create_task(self._run(), name="session-actor")
+        started_task = asyncio.create_task(self._started.wait())
+        try:
+            await asyncio.wait(
+                {started_task, self._task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            if not started_task.done():
+                started_task.cancel()
+        if self._fatal is not None:
+            raise self._fatal
+
+    async def _run(self) -> None:
+        try:
+            async with self._client_factory() as client:
+                self._started.set()
+                await self._command_loop(client)
+        except BaseException as exc:
+            self._fatal = exc
+            raise
+        finally:
+            # 正常 / 异常退出都 drain 残留命令，避免调用方挂死
+            self._drain_pending_commands(self._fatal or _ActorClosed())
+
+    async def _command_loop(self, client: Any) -> None:
+        """初版：只处理 disconnect；query / interrupt 在后续任务扩展。"""
+        while True:
+            cmd = await self._cmd_queue.get()
+            if cmd.type == "disconnect":
+                cmd.done.set()
+                return
+            # 其他命令暂未实现
+            cmd.error = NotImplementedError(f"command {cmd.type!r} not yet supported")
+            cmd.done.set()
+
+    async def enqueue(self, cmd: SessionCommand) -> None:
+        if self._fatal is not None or (self._task is not None and self._task.done()):
+            cmd.error = self._fatal or _ActorClosed()
+            cmd.done.set()
+            return
+        await self._cmd_queue.put(cmd)
+
+    def _drain_pending_commands(self, exc: BaseException) -> None:
+        while not self._cmd_queue.empty():
+            try:
+                cmd = self._cmd_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if not cmd.done.is_set():
+                cmd.error = exc
+                cmd.done.set()
