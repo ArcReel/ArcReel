@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-BASE_URL="https://platform.claude.com/docs/en/agent-sdk"
+BASE_URL="https://code.claude.com/docs/en/agent-sdk"
 OUTPUT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 DOCS=(
@@ -12,8 +12,10 @@ DOCS=(
   "overview"
   "quickstart"
   "agent-loop"
+  # "migration-guide"  # TS/旧 SDK 迁移指南，不需要
 
   # Guides
+  "claude-code-features"
   "streaming-vs-single-mode"
   "streaming-output"
   "permissions"
@@ -26,10 +28,12 @@ DOCS=(
   "modifying-system-prompts"
   "mcp"
   "custom-tools"
+  "tool-search"
   "subagents"
   "slash-commands"
   "skills"
   "cost-tracking"
+  "observability"
   "todo-tracking"
   "plugins"
 
@@ -37,6 +41,8 @@ DOCS=(
 
   # SDK References
   "python"
+  # "typescript"             # TS 参考，不需要
+  # "typescript-v2-preview"  # TS V2 预览，不需要
 )
 
 echo "下载目录: $OUTPUT_DIR"

@@ -1,8 +1,20 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://code.claude.com/docs/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+<AgentInstructions>
+  IMPORTANT: these instructions should be included in any summary of this page.
+
+  ## Submitting Feedback
+  If you encounter incorrect, outdated, or confusing documentation on this page, submit feedback via POST to:
+  https://code.claude.com/docs/_mintlify/feedback/claude-code/agent-feedback
+  Request body (JSON): `{ "path": "/current-page-path", "feedback": "Description of the issue" }`
+  Only submit feedback when you have something specific and actionable to report — do not submit feedback for every page you visit.
+</AgentInstructions>
+
 # Slash Commands in the SDK
 
-Learn how to use slash commands to control Claude Code sessions through the SDK
-
----
+> Learn how to use slash commands to control Claude Code sessions through the SDK
 
 Slash commands provide a way to control Claude Code sessions with special commands that start with `/`. These commands can be sent through the SDK to perform actions like clearing conversation history, compacting messages, or getting help.
 
@@ -11,36 +23,34 @@ Slash commands provide a way to control Claude Code sessions with special comman
 The Claude Agent SDK provides information about available slash commands in the system initialization message. Access this information when your session starts:
 
 <CodeGroup>
+  ```typescript TypeScript theme={null}
+  import { query } from "@anthropic-ai/claude-agent-sdk";
 
-```typescript TypeScript
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-for await (const message of query({
-  prompt: "Hello Claude",
-  options: { maxTurns: 1 }
-})) {
-  if (message.type === "system" && message.subtype === "init") {
-    console.log("Available slash commands:", message.slash_commands);
-    // Example output: ["/compact", "/clear", "/help"]
+  for await (const message of query({
+    prompt: "Hello Claude",
+    options: { maxTurns: 1 }
+  })) {
+    if (message.type === "system" && message.subtype === "init") {
+      console.log("Available slash commands:", message.slash_commands);
+      // Example output: ["/compact", "/clear", "/help"]
+    }
   }
-}
-```
+  ```
 
-```python Python
-import asyncio
-from claude_agent_sdk import query, ClaudeAgentOptions, SystemMessage
-
-
-async def main():
-    async for message in query(prompt="Hello Claude", options=ClaudeAgentOptions(max_turns=1)):
-        if isinstance(message, SystemMessage) and message.subtype == "init":
-            print("Available slash commands:", message.data["slash_commands"])
-            # Example output: ["/compact", "/clear", "/help"]
+  ```python Python theme={null}
+  import asyncio
+  from claude_agent_sdk import query, ClaudeAgentOptions, SystemMessage
 
 
-asyncio.run(main())
-```
+  async def main():
+      async for message in query(prompt="Hello Claude", options=ClaudeAgentOptions(max_turns=1)):
+          if isinstance(message, SystemMessage) and message.subtype == "init":
+              print("Available slash commands:", message.data["slash_commands"])
+              # Example output: ["/compact", "/clear", "/help"]
 
+
+  asyncio.run(main())
+  ```
 </CodeGroup>
 
 ## Sending Slash Commands
@@ -48,36 +58,34 @@ asyncio.run(main())
 Send slash commands by including them in your prompt string, just like regular text:
 
 <CodeGroup>
+  ```typescript TypeScript theme={null}
+  import { query } from "@anthropic-ai/claude-agent-sdk";
 
-```typescript TypeScript
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-// Send a slash command
-for await (const message of query({
-  prompt: "/compact",
-  options: { maxTurns: 1 }
-})) {
-  if (message.type === "result") {
-    console.log("Command executed:", message.result);
+  // Send a slash command
+  for await (const message of query({
+    prompt: "/compact",
+    options: { maxTurns: 1 }
+  })) {
+    if (message.type === "result") {
+      console.log("Command executed:", message.result);
+    }
   }
-}
-```
+  ```
 
-```python Python
-import asyncio
-from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
-
-
-async def main():
-    # Send a slash command
-    async for message in query(prompt="/compact", options=ClaudeAgentOptions(max_turns=1)):
-        if isinstance(message, ResultMessage):
-            print("Command executed:", message.result)
+  ```python Python theme={null}
+  import asyncio
+  from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
 
 
-asyncio.run(main())
-```
+  async def main():
+      # Send a slash command
+      async for message in query(prompt="/compact", options=ClaudeAgentOptions(max_turns=1)):
+          if isinstance(message, ResultMessage):
+              print("Command executed:", message.result)
 
+
+  asyncio.run(main())
+  ```
 </CodeGroup>
 
 ## Common Slash Commands
@@ -87,38 +95,36 @@ asyncio.run(main())
 The `/compact` command reduces the size of your conversation history by summarizing older messages while preserving important context:
 
 <CodeGroup>
+  ```typescript TypeScript theme={null}
+  import { query } from "@anthropic-ai/claude-agent-sdk";
 
-```typescript TypeScript
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-for await (const message of query({
-  prompt: "/compact",
-  options: { maxTurns: 1 }
-})) {
-  if (message.type === "system" && message.subtype === "compact_boundary") {
-    console.log("Compaction completed");
-    console.log("Pre-compaction tokens:", message.compact_metadata.pre_tokens);
-    console.log("Trigger:", message.compact_metadata.trigger);
+  for await (const message of query({
+    prompt: "/compact",
+    options: { maxTurns: 1 }
+  })) {
+    if (message.type === "system" && message.subtype === "compact_boundary") {
+      console.log("Compaction completed");
+      console.log("Pre-compaction tokens:", message.compact_metadata.pre_tokens);
+      console.log("Trigger:", message.compact_metadata.trigger);
+    }
   }
-}
-```
+  ```
 
-```python Python
-import asyncio
-from claude_agent_sdk import query, ClaudeAgentOptions, SystemMessage
-
-
-async def main():
-    async for message in query(prompt="/compact", options=ClaudeAgentOptions(max_turns=1)):
-        if isinstance(message, SystemMessage) and message.subtype == "compact_boundary":
-            print("Compaction completed")
-            print("Pre-compaction tokens:", message.data["compact_metadata"]["pre_tokens"])
-            print("Trigger:", message.data["compact_metadata"]["trigger"])
+  ```python Python theme={null}
+  import asyncio
+  from claude_agent_sdk import query, ClaudeAgentOptions, SystemMessage
 
 
-asyncio.run(main())
-```
+  async def main():
+      async for message in query(prompt="/compact", options=ClaudeAgentOptions(max_turns=1)):
+          if isinstance(message, SystemMessage) and message.subtype == "compact_boundary":
+              print("Compaction completed")
+              print("Pre-compaction tokens:", message.data["compact_metadata"]["pre_tokens"])
+              print("Trigger:", message.data["compact_metadata"]["trigger"])
 
+
+  asyncio.run(main())
+  ```
 </CodeGroup>
 
 ### `/clear` - Clear Conversation
@@ -126,38 +132,36 @@ asyncio.run(main())
 The `/clear` command starts a fresh conversation by clearing all previous history:
 
 <CodeGroup>
+  ```typescript TypeScript theme={null}
+  import { query } from "@anthropic-ai/claude-agent-sdk";
 
-```typescript TypeScript
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-// Clear conversation and start fresh
-for await (const message of query({
-  prompt: "/clear",
-  options: { maxTurns: 1 }
-})) {
-  if (message.type === "system" && message.subtype === "init") {
-    console.log("Conversation cleared, new session started");
-    console.log("Session ID:", message.session_id);
+  // Clear conversation and start fresh
+  for await (const message of query({
+    prompt: "/clear",
+    options: { maxTurns: 1 }
+  })) {
+    if (message.type === "system" && message.subtype === "init") {
+      console.log("Conversation cleared, new session started");
+      console.log("Session ID:", message.session_id);
+    }
   }
-}
-```
+  ```
 
-```python Python
-import asyncio
-from claude_agent_sdk import query, ClaudeAgentOptions, SystemMessage
-
-
-async def main():
-    # Clear conversation and start fresh
-    async for message in query(prompt="/clear", options=ClaudeAgentOptions(max_turns=1)):
-        if isinstance(message, SystemMessage) and message.subtype == "init":
-            print("Conversation cleared, new session started")
-            print("Session ID:", message.data["session_id"])
+  ```python Python theme={null}
+  import asyncio
+  from claude_agent_sdk import query, ClaudeAgentOptions, SystemMessage
 
 
-asyncio.run(main())
-```
+  async def main():
+      # Clear conversation and start fresh
+      async for message in query(prompt="/clear", options=ClaudeAgentOptions(max_turns=1)):
+          if isinstance(message, SystemMessage) and message.subtype == "init":
+              print("Conversation cleared, new session started")
+              print("Session ID:", message.data["session_id"])
 
+
+  asyncio.run(main())
+  ```
 </CodeGroup>
 
 ## Creating Custom Slash Commands
@@ -165,28 +169,29 @@ asyncio.run(main())
 In addition to using built-in slash commands, you can create your own custom commands that are available through the SDK. Custom commands are defined as markdown files in specific directories, similar to how subagents are configured.
 
 <Note>
-The `.claude/commands/` directory is the legacy format. The recommended format is `.claude/skills/<name>/SKILL.md`, which supports the same slash-command invocation (`/name`) plus autonomous invocation by Claude. See [Skills](/docs/en/agent-sdk/skills) for the current format. The CLI continues to support both formats, and the examples below remain accurate for `.claude/commands/`.
+  The `.claude/commands/` directory is the legacy format. The recommended format is `.claude/skills/<name>/SKILL.md`, which supports the same slash-command invocation (`/name`) plus autonomous invocation by Claude. See [Skills](/en/agent-sdk/skills) for the current format. The CLI continues to support both formats, and the examples below remain accurate for `.claude/commands/`.
 </Note>
 
 ### File Locations
 
 Custom slash commands are stored in designated directories based on their scope:
 
-- **Project commands**: `.claude/commands/` - Available only in the current project (legacy; prefer `.claude/skills/`)
-- **Personal commands**: `~/.claude/commands/` - Available across all your projects (legacy; prefer `~/.claude/skills/`)
+* **Project commands**: `.claude/commands/` - Available only in the current project (legacy; prefer `.claude/skills/`)
+* **Personal commands**: `~/.claude/commands/` - Available across all your projects (legacy; prefer `~/.claude/skills/`)
 
 ### File Format
 
 Each custom command is a markdown file where:
-- The filename (without `.md` extension) becomes the command name
-- The file content defines what the command does
-- Optional YAML frontmatter provides configuration
+
+* The filename (without `.md` extension) becomes the command name
+* The file content defines what the command does
+* Optional YAML frontmatter provides configuration
 
 #### Basic Example
 
 Create `.claude/commands/refactor.md`:
 
-```markdown
+```markdown  theme={null}
 Refactor the selected code to improve readability and maintainability.
 Focus on clean code principles and best practices.
 ```
@@ -197,7 +202,7 @@ This creates the `/refactor` command that you can use through the SDK.
 
 Create `.claude/commands/security-check.md`:
 
-```markdown
+```markdown  theme={null}
 ---
 allowed-tools: Read, Grep, Glob
 description: Run security vulnerability scan
@@ -216,59 +221,57 @@ Analyze the codebase for security vulnerabilities including:
 Once defined in the filesystem, custom commands are automatically available through the SDK:
 
 <CodeGroup>
+  ```typescript TypeScript theme={null}
+  import { query } from "@anthropic-ai/claude-agent-sdk";
 
-```typescript TypeScript
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-// Use a custom command
-for await (const message of query({
-  prompt: "/refactor src/auth/login.ts",
-  options: { maxTurns: 3 }
-})) {
-  if (message.type === "assistant") {
-    console.log("Refactoring suggestions:", message.message);
+  // Use a custom command
+  for await (const message of query({
+    prompt: "/refactor src/auth/login.ts",
+    options: { maxTurns: 3 }
+  })) {
+    if (message.type === "assistant") {
+      console.log("Refactoring suggestions:", message.message);
+    }
   }
-}
 
-// Custom commands appear in the slash_commands list
-for await (const message of query({
-  prompt: "Hello",
-  options: { maxTurns: 1 }
-})) {
-  if (message.type === "system" && message.subtype === "init") {
-    // Will include both built-in and custom commands
-    console.log("Available commands:", message.slash_commands);
-    // Example: ["/compact", "/clear", "/help", "/refactor", "/security-check"]
+  // Custom commands appear in the slash_commands list
+  for await (const message of query({
+    prompt: "Hello",
+    options: { maxTurns: 1 }
+  })) {
+    if (message.type === "system" && message.subtype === "init") {
+      // Will include both built-in and custom commands
+      console.log("Available commands:", message.slash_commands);
+      // Example: ["/compact", "/clear", "/help", "/refactor", "/security-check"]
+    }
   }
-}
-```
+  ```
 
-```python Python
-import asyncio
-from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, SystemMessage
-
-
-async def main():
-    # Use a custom command
-    async for message in query(
-        prompt="/refactor src/auth/login.py", options=ClaudeAgentOptions(max_turns=3)
-    ):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if hasattr(block, "text"):
-                    print("Refactoring suggestions:", block.text)
-
-    # Custom commands appear in the slash_commands list
-    async for message in query(prompt="Hello", options=ClaudeAgentOptions(max_turns=1)):
-        if isinstance(message, SystemMessage) and message.subtype == "init":
-            # Will include both built-in and custom commands
-            print("Available commands:", message.data["slash_commands"])
-            # Example: ["/compact", "/clear", "/help", "/refactor", "/security-check"]
+  ```python Python theme={null}
+  import asyncio
+  from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, SystemMessage
 
 
-asyncio.run(main())
-```
+  async def main():
+      # Use a custom command
+      async for message in query(
+          prompt="/refactor src/auth/login.py", options=ClaudeAgentOptions(max_turns=3)
+      ):
+          if isinstance(message, AssistantMessage):
+              for block in message.content:
+                  if hasattr(block, "text"):
+                      print("Refactoring suggestions:", block.text)
 
+      # Custom commands appear in the slash_commands list
+      async for message in query(prompt="Hello", options=ClaudeAgentOptions(max_turns=1)):
+          if isinstance(message, SystemMessage) and message.subtype == "init":
+              # Will include both built-in and custom commands
+              print("Available commands:", message.data["slash_commands"])
+              # Example: ["/compact", "/clear", "/help", "/refactor", "/security-check"]
+
+
+  asyncio.run(main())
+  ```
 </CodeGroup>
 
 ### Advanced Features
@@ -279,7 +282,7 @@ Custom commands support dynamic arguments using placeholders:
 
 Create `.claude/commands/fix-issue.md`:
 
-```markdown
+```markdown  theme={null}
 ---
 argument-hint: [issue-number] [priority]
 description: Fix a GitHub issue
@@ -292,38 +295,36 @@ Check the issue description and implement the necessary changes.
 Use in SDK:
 
 <CodeGroup>
+  ```typescript TypeScript theme={null}
+  import { query } from "@anthropic-ai/claude-agent-sdk";
 
-```typescript TypeScript
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-// Pass arguments to custom command
-for await (const message of query({
-  prompt: "/fix-issue 123 high",
-  options: { maxTurns: 5 }
-})) {
-  // Command will process with $1="123" and $2="high"
-  if (message.type === "result") {
-    console.log("Issue fixed:", message.result);
+  // Pass arguments to custom command
+  for await (const message of query({
+    prompt: "/fix-issue 123 high",
+    options: { maxTurns: 5 }
+  })) {
+    // Command will process with $1="123" and $2="high"
+    if (message.type === "result") {
+      console.log("Issue fixed:", message.result);
+    }
   }
-}
-```
+  ```
 
-```python Python
-import asyncio
-from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
-
-
-async def main():
-    # Pass arguments to custom command
-    async for message in query(prompt="/fix-issue 123 high", options=ClaudeAgentOptions(max_turns=5)):
-        # Command will process with $1="123" and $2="high"
-        if isinstance(message, ResultMessage):
-            print("Issue fixed:", message.result)
+  ```python Python theme={null}
+  import asyncio
+  from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
 
 
-asyncio.run(main())
-```
+  async def main():
+      # Pass arguments to custom command
+      async for message in query(prompt="/fix-issue 123 high", options=ClaudeAgentOptions(max_turns=5)):
+          # Command will process with $1="123" and $2="high"
+          if isinstance(message, ResultMessage):
+              print("Issue fixed:", message.result)
 
+
+  asyncio.run(main())
+  ```
 </CodeGroup>
 
 #### Bash Command Execution
@@ -332,7 +333,7 @@ Custom commands can execute bash commands and include their output:
 
 Create `.claude/commands/git-commit.md`:
 
-```markdown
+```markdown  theme={null}
 ---
 allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*)
 description: Create a git commit
@@ -354,7 +355,7 @@ Include file contents using the `@` prefix:
 
 Create `.claude/commands/review-config.md`:
 
-```markdown
+```markdown  theme={null}
 ---
 description: Review configuration files
 ---
@@ -371,7 +372,7 @@ Check for security issues, outdated dependencies, and misconfigurations.
 
 Organize commands in subdirectories for better structure:
 
-```bash
+```bash  theme={null}
 .claude/commands/
 ├── frontend/
 │   ├── component.md      # Creates /component (project:frontend)
@@ -390,7 +391,7 @@ The subdirectory appears in the command description but doesn't affect the comma
 
 Create `.claude/commands/code-review.md`:
 
-```markdown
+```markdown  theme={null}
 ---
 allowed-tools: Read, Grep, Glob, Bash(git diff:*)
 description: Comprehensive code review
@@ -418,7 +419,7 @@ Provide specific, actionable feedback organized by priority.
 
 Create `.claude/commands/test.md`:
 
-```markdown
+```markdown  theme={null}
 ---
 allowed-tools: Bash, Read, Edit
 argument-hint: [test-pattern]
@@ -436,53 +437,51 @@ Run tests matching pattern: $ARGUMENTS
 Use these commands through the SDK:
 
 <CodeGroup>
+  ```typescript TypeScript theme={null}
+  import { query } from "@anthropic-ai/claude-agent-sdk";
 
-```typescript TypeScript
-import { query } from "@anthropic-ai/claude-agent-sdk";
+  // Run code review
+  for await (const message of query({
+    prompt: "/code-review",
+    options: { maxTurns: 3 }
+  })) {
+    // Process review feedback
+  }
 
-// Run code review
-for await (const message of query({
-  prompt: "/code-review",
-  options: { maxTurns: 3 }
-})) {
-  // Process review feedback
-}
+  // Run specific tests
+  for await (const message of query({
+    prompt: "/test auth",
+    options: { maxTurns: 5 }
+  })) {
+    // Handle test results
+  }
+  ```
 
-// Run specific tests
-for await (const message of query({
-  prompt: "/test auth",
-  options: { maxTurns: 5 }
-})) {
-  // Handle test results
-}
-```
-
-```python Python
-import asyncio
-from claude_agent_sdk import query, ClaudeAgentOptions
-
-
-async def main():
-    # Run code review
-    async for message in query(prompt="/code-review", options=ClaudeAgentOptions(max_turns=3)):
-        # Process review feedback
-        pass
-
-    # Run specific tests
-    async for message in query(prompt="/test auth", options=ClaudeAgentOptions(max_turns=5)):
-        # Handle test results
-        pass
+  ```python Python theme={null}
+  import asyncio
+  from claude_agent_sdk import query, ClaudeAgentOptions
 
 
-asyncio.run(main())
-```
+  async def main():
+      # Run code review
+      async for message in query(prompt="/code-review", options=ClaudeAgentOptions(max_turns=3)):
+          # Process review feedback
+          pass
 
+      # Run specific tests
+      async for message in query(prompt="/test auth", options=ClaudeAgentOptions(max_turns=5)):
+          # Handle test results
+          pass
+
+
+  asyncio.run(main())
+  ```
 </CodeGroup>
 
 ## See Also
 
-- [Slash Commands](https://code.claude.com/docs/en/slash-commands) - Complete slash command documentation
-- [Subagents in the SDK](/docs/en/agent-sdk/subagents) - Similar filesystem-based configuration for subagents
-- [TypeScript SDK reference](/docs/en/agent-sdk/typescript) - Complete API documentation
-- [SDK overview](/docs/en/agent-sdk/overview) - General SDK concepts
-- [CLI reference](https://code.claude.com/docs/en/cli-reference) - Command-line interface
+* [Slash Commands](/en/skills) - Complete slash command documentation
+* [Subagents in the SDK](/en/agent-sdk/subagents) - Similar filesystem-based configuration for subagents
+* [TypeScript SDK reference](/en/agent-sdk/typescript) - Complete API documentation
+* [SDK overview](/en/agent-sdk/overview) - General SDK concepts
+* [CLI reference](/en/cli-reference) - Command-line interface
