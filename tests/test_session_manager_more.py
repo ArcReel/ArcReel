@@ -1060,3 +1060,52 @@ class TestJsonPostValidationHook:
         assert result == {}
         # Backup should be consumed to prevent memory leaks
         assert "test-tool-use-id" not in backups
+
+
+# --- ManagedSession 状态机（Session Actor 重构）-----------------------------
+
+
+def _make_managed_for_state_test():
+    """构造一个 ManagedSession 用于状态机测试，actor 字段用 None 占位。"""
+    from server.agent_runtime.session_manager import ManagedSession
+
+    return ManagedSession(
+        session_id="test",
+        actor=None,  # 状态机测试不触及 actor
+        status="running",
+        project_name="demo",
+    )
+
+
+def test_on_actor_message_result_success_sets_idle():
+    managed = _make_managed_for_state_test()
+    managed._on_actor_message({"type": "result", "subtype": "success"})
+    assert managed.status == "idle"
+
+
+def test_on_actor_message_result_error_during_execution_sets_interrupted():
+    managed = _make_managed_for_state_test()
+    managed._on_actor_message({"type": "result", "subtype": "error_during_execution"})
+    assert managed.status == "interrupted"
+
+
+def test_on_actor_message_result_other_error_sets_error():
+    managed = _make_managed_for_state_test()
+    managed._on_actor_message({"type": "result", "subtype": "error_max_turns"})
+    assert managed.status == "error"
+
+
+def test_on_actor_message_non_result_message_preserves_status():
+    managed = _make_managed_for_state_test()
+    managed.status = "running"
+    managed._on_actor_message({"type": "assistant", "content": "hi"})
+    assert managed.status == "running"
+
+
+def test_on_actor_message_appends_to_buffer():
+    managed = _make_managed_for_state_test()
+    managed._on_actor_message({"type": "assistant", "content": "hi"})
+    # add_message 负责 buffer + broadcast；这里只验 buffer
+    buffered = list(managed.message_buffer)
+    assert len(buffered) == 1
+    assert buffered[0]["type"] == "assistant"

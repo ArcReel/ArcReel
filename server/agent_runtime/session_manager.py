@@ -108,6 +108,29 @@ class ManagedSession:
             self._evict_oldest_buffer_entry()
         self._broadcast_to_subscribers(message)
 
+    def _on_actor_message(self, msg: dict[str, Any]) -> None:
+        """SessionActor 的 on_message 回调。同步，内存操作，不 await。
+
+        职责：
+        - 根据 ResultMessage 的 subtype 推导 status（success→idle、
+          error_during_execution→interrupted、其他 error_*→error）
+        - 调用 add_message 进行 buffer + broadcast
+
+        pending_questions 注册由 SessionManager._handle_special_message 处理。
+        """
+        msg_type = msg.get("type")
+
+        if msg_type == "result":
+            subtype = msg.get("subtype")
+            if subtype == "error_during_execution":
+                self.status = "interrupted"
+            elif subtype == "success":
+                self.status = "idle"
+            elif subtype and subtype.startswith("error"):
+                self.status = "error"
+
+        self.add_message(msg)
+
     def _evict_oldest_buffer_entry(self) -> None:
         """Evict one entry from buffer, preferring transient stream_events."""
         for i, m in enumerate(self.message_buffer[:-1]):
