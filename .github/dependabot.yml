@@ -53,6 +53,9 @@ updates:
         dependency-type: "development"
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
       minor-and-patch:
         patterns:
           - "*"
@@ -96,13 +99,20 @@ updates:
       dnd-kit:
         patterns:
           - "@dnd-kit/*"
-      i18n:
+      i18n-packages:
         patterns:
           - "i18next*"
           - "react-i18next"
       types:
         patterns:
           - "@types/*"
+      dev-dependencies:
+        dependency-type: "development"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
       minor-and-patch:
         patterns:
           - "*"
