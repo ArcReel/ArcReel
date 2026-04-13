@@ -400,9 +400,10 @@ def generate_episode_video(
     content_mode = script.get("content_mode", "narration")
     all_items, id_field, _, _ = get_items_from_script(script)
 
-    episode_items = [s for s in all_items if s.get("episode", 1) == episode]
+    # script 文件（episode_N.json）已按集分开存储，场景/片段天然属于本集，无需按 episode 字段过滤
+    episode_items = all_items
     if not episode_items:
-        raise ValueError(f"未找到第 {episode} 集的场景/片段")
+        raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
 
     item_type = "片段" if content_mode == "narration" else "场景"
     print(f"📋 第 {episode} 集共 {len(episode_items)} 个{item_type}")

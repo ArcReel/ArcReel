@@ -4,6 +4,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPT_PATH = Path(
     Path(__file__).resolve().parents[1]
     / "agent_runtime_profile"
@@ -128,3 +130,57 @@ def test_main_episode_dispatch_uses_script_once(monkeypatch):
         "episode": 2,
         "resume": True,
     }
+
+
+def test_generate_episode_video_keeps_scenes_without_episode_field(monkeypatch, tmp_path):
+    """回归：场景无 episode 字段、且 episode>=2 时，不应被错误过滤为空。
+
+    script 文件（episode_N.json）已按集分开，场景不携带 episode 字段；
+    旧实现 `s.get("episode", 1) == episode` 会在 episode=2 时把全部场景过滤掉。
+    """
+    module = _load_module()
+
+    fake_script = {
+        "content_mode": "drama",
+        "scenes": [
+            {"scene_id": "E2S01", "video_prompt": "p1"},
+            {"scene_id": "E2S02", "video_prompt": "p2"},
+        ],
+    }
+
+    class FakePM:
+        @classmethod
+        def from_cwd(cls):
+            return cls(), "proj"
+
+        def get_project_path(self, name):
+            return tmp_path
+
+        def load_project(self, name):
+            return {}
+
+        def load_script(self, project_name, filename):
+            return fake_script
+
+    monkeypatch.setattr(module, "ProjectManager", FakePM)
+
+    captured: dict = {}
+
+    def fake_scan(items, id_field, item_type, completed_scenes, videos_dir):
+        captured["scanned"] = list(items)
+        return [None] * len(items), []
+
+    monkeypatch.setattr(module, "_scan_completed_items", fake_scan)
+
+    def fake_build(*, items, **kwargs):
+        captured["built"] = list(items)
+        return [], {}
+
+    monkeypatch.setattr(module, "_build_video_specs", fake_build)
+
+    # 不关心后续流程，断言场景列表完整后允许抛 RuntimeError（因 specs 为空）
+    with pytest.raises(RuntimeError):
+        module.generate_episode_video("episode_2.json", episode=2)
+
+    assert [it["scene_id"] for it in captured["scanned"]] == ["E2S01", "E2S02"]
+    assert [it["scene_id"] for it in captured["built"]] == ["E2S01", "E2S02"]
