@@ -14,6 +14,38 @@ import { API } from "@/api";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
 import { getProviderModels, getCustomProviderModels, lookupSupportedDurations } from "@/utils/provider-models";
 import type { Clue, CustomProviderInfo, ProviderInfo } from "@/types";
+import type { EpisodeScript } from "@/types/script";
+
+// ---------------------------------------------------------------------------
+// resolveSegmentPrompt — shared segment lookup for generate storyboard/video
+// ---------------------------------------------------------------------------
+
+type PromptField = "image_prompt" | "video_prompt";
+
+function resolveSegmentPrompt(
+  scripts: Record<string, EpisodeScript>,
+  segmentId: string,
+  field: PromptField,
+  scriptFile?: string,
+): { resolvedFile: string; prompt: unknown; duration: number } | null {
+  const resolvedFile = scriptFile ?? Object.keys(scripts)[0];
+  if (!resolvedFile) return null;
+  const script = scripts[resolvedFile];
+  if (!script) return null;
+  const segments =
+    ("segments" in script ? script.segments : undefined) ??
+    ("scenes" in script ? script.scenes : undefined) ??
+    [];
+  const seg = segments.find((s) => {
+    const id = "segment_id" in s ? s.segment_id : (s as { scene_id?: string }).scene_id ?? "";
+    return id === segmentId;
+  });
+  return {
+    resolvedFile,
+    prompt: seg?.[field] ?? "",
+    duration: seg?.duration_seconds ?? 4,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // StudioCanvasRouter — reads Zustand store data and renders the correct
@@ -120,19 +152,15 @@ export function StudioCanvasRouter() {
 
   const handleGenerateStoryboard = useCallback(async (segmentId: string, scriptFile?: string) => {
     if (!currentProjectName || !currentScripts) return;
-    const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
-    if (!resolvedFile) return;
-    const script = currentScripts[resolvedFile];
-    if (!script) return;
-    const segments = ("segments" in script ? script.segments : undefined) ??
-                     ("scenes" in script ? script.scenes : undefined) ?? [];
-    const seg = segments.find((s) => {
-      const id = "segment_id" in s ? s.segment_id : (s as { scene_id?: string }).scene_id ?? "";
-      return id === segmentId;
-    });
-    const prompt = seg?.image_prompt ?? "";
+    const resolved = resolveSegmentPrompt(currentScripts, segmentId, "image_prompt", scriptFile);
+    if (!resolved) return;
     try {
-      await API.generateStoryboard(currentProjectName, segmentId, prompt as string | Record<string, unknown>, resolvedFile);
+      await API.generateStoryboard(
+        currentProjectName,
+        segmentId,
+        resolved.prompt as string | Record<string, unknown>,
+        resolved.resolvedFile,
+      );
       useAppStore.getState().pushToast(tRef.current("storyboard_task_submitted_toast", { id: segmentId }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("generate_storyboard_failed", { message: (err as Error).message }), "error");
@@ -141,20 +169,16 @@ export function StudioCanvasRouter() {
 
   const handleGenerateVideo = useCallback(async (segmentId: string, scriptFile?: string) => {
     if (!currentProjectName || !currentScripts) return;
-    const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
-    if (!resolvedFile) return;
-    const script = currentScripts[resolvedFile];
-    if (!script) return;
-    const segments = ("segments" in script ? script.segments : undefined) ??
-                     ("scenes" in script ? script.scenes : undefined) ?? [];
-    const seg = segments.find((s) => {
-      const id = "segment_id" in s ? s.segment_id : (s as { scene_id?: string }).scene_id ?? "";
-      return id === segmentId;
-    });
-    const prompt = seg?.video_prompt ?? "";
-    const duration = seg?.duration_seconds ?? 4;
+    const resolved = resolveSegmentPrompt(currentScripts, segmentId, "video_prompt", scriptFile);
+    if (!resolved) return;
     try {
-      await API.generateVideo(currentProjectName, segmentId, prompt as string | Record<string, unknown>, resolvedFile, duration);
+      await API.generateVideo(
+        currentProjectName,
+        segmentId,
+        resolved.prompt as string | Record<string, unknown>,
+        resolved.resolvedFile,
+        resolved.duration,
+      );
       useAppStore.getState().pushToast(tRef.current("video_task_submitted_toast", { id: segmentId }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("generate_video_failed", { message: (err as Error).message }), "error");
