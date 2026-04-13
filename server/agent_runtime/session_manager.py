@@ -3,6 +3,7 @@ Manages ClaudeSDKClient instances with background execution and reconnection sup
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -130,6 +131,35 @@ class ManagedSession:
                 self.status = "error"
 
         self.add_message(msg)
+
+    async def send_query(self, prompt: str | AsyncIterable[dict], sdk_session_id: str = "default") -> None:
+        self.status = "running"
+        cmd = SessionCommand(type="query", prompt=prompt, session_id=sdk_session_id)
+        await self.actor.enqueue(cmd)
+        await cmd.done.wait()
+        if cmd.error is not None:
+            self.status = "error"
+            raise cmd.error
+
+    async def send_interrupt(self) -> None:
+        if self.interrupt_requested:
+            return
+        self.interrupt_requested = True
+        try:
+            cmd = SessionCommand(type="interrupt")
+            await self.actor.enqueue(cmd)
+            await cmd.done.wait()
+        finally:
+            self.interrupt_requested = False
+
+    async def send_disconnect(self) -> None:
+        cmd = SessionCommand(type="disconnect")
+        await self.actor.enqueue(cmd)
+        await cmd.done.wait()
+        if self.actor._task is not None:
+            with contextlib.suppress(BaseException):
+                await self.actor._task
+        self.status = "closed"
 
     def _evict_oldest_buffer_entry(self) -> None:
         """Evict one entry from buffer, preferring transient stream_events."""

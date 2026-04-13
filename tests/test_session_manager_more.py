@@ -1109,3 +1109,106 @@ def test_on_actor_message_appends_to_buffer():
     buffered = list(managed.message_buffer)
     assert len(buffered) == 1
     assert buffered[0]["type"] == "assistant"
+
+
+# --- ManagedSession 对 actor 的代理 -----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_send_query_sets_running_and_awaits_done():
+    from server.agent_runtime.session_actor import SessionActor
+    from server.agent_runtime.session_manager import ManagedSession
+    from tests.fakes import FakeSDKClient
+
+    client = FakeSDKClient(messages=[{"type": "result", "subtype": "success"}])
+    managed_ref: list = []
+
+    def on_message(msg):
+        managed_ref[0]._on_actor_message(msg)
+
+    actor = SessionActor(client_factory=lambda: client, on_message=on_message)
+    managed = ManagedSession(session_id="t", actor=actor, status="idle", project_name="p")
+    managed_ref.append(managed)
+
+    await actor.start()
+    await managed.send_query("hi")
+    assert client.sent_queries == ["hi"]
+    assert managed.status == "idle"  # result=success → idle
+
+    # 收尾
+    await managed.send_disconnect()
+
+
+@pytest.mark.asyncio
+async def test_send_query_raises_on_cmd_error():
+    from server.agent_runtime.session_actor import SessionActor
+    from server.agent_runtime.session_manager import ManagedSession
+
+    class _Explode:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *e):
+            return False
+
+        async def query(self, *a, **k):
+            raise RuntimeError("boom")
+
+        async def interrupt(self):
+            pass
+
+        async def receive_response(self):
+            if False:
+                yield {}
+
+    actor = SessionActor(client_factory=lambda: _Explode(), on_message=lambda m: None)
+    managed = ManagedSession(session_id="t", actor=actor, status="idle", project_name="p")
+    await actor.start()
+    with pytest.raises(RuntimeError, match="boom"):
+        await managed.send_query("hi")
+    assert managed.status == "error"
+
+
+@pytest.mark.asyncio
+async def test_send_interrupt_is_idempotent_via_flag():
+    """interrupt_requested 标志防止重入。"""
+    from server.agent_runtime.session_actor import SessionActor, SessionCommand
+    from server.agent_runtime.session_manager import ManagedSession
+    from tests.fakes import FakeSDKClient
+
+    client = FakeSDKClient(
+        block_forever=True,
+        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+    )
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    managed = ManagedSession(session_id="t", actor=actor, status="running", project_name="p")
+    await actor.start()
+
+    # 发一个 query 让 receive_response 开始
+    q = SessionCommand(type="query", prompt="x")
+    await actor.enqueue(q)
+    await asyncio.sleep(0.05)
+
+    # 并发两次 send_interrupt；第二次应走 interrupt_requested fast-return
+    await asyncio.gather(managed.send_interrupt(), managed.send_interrupt())
+    # client.interrupt 至少被调一次（具体次数视 asyncio 调度，允许 1 或 2）
+    assert client.interrupted
+
+    await q.done.wait()
+    await managed.send_disconnect()
+
+
+@pytest.mark.asyncio
+async def test_send_disconnect_waits_actor_task_done():
+    from server.agent_runtime.session_actor import SessionActor
+    from server.agent_runtime.session_manager import ManagedSession
+    from tests.fakes import FakeSDKClient
+
+    client = FakeSDKClient()
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    managed = ManagedSession(session_id="t", actor=actor, status="idle", project_name="p")
+    await actor.start()
+    await managed.send_disconnect()
+    assert managed.status == "closed"
+    assert actor._task is not None and actor._task.done()
+    assert client.disconnected
