@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 from lib.i18n import LOCALE_LANGUAGE_MAP
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
+from server.agent_runtime.session_actor import (
+    SessionActor,
+    SessionCommand,  # noqa: F401  # used by T10 send_* proxy methods
+    _ActorClosed,  # noqa: F401  # used by T10 send_* proxy methods
+)
 from server.agent_runtime.session_store import SessionMetaStore
 
 try:
@@ -77,14 +82,13 @@ class ManagedSession:
     """A managed ClaudeSDKClient session."""
 
     session_id: str  # sdk_session_id（已有会话）或临时 UUID（新会话等待中）
-    client: Any  # ClaudeSDKClient
+    actor: "SessionActor"  # per-session actor owning the SDK client
     status: SessionStatus = "idle"
     project_name: str = ""  # 用于 _register_new_session
     sdk_id_event: asyncio.Event = field(default_factory=asyncio.Event)
     resolved_sdk_id: str | None = None  # consumer 设置，send_new_session 读取
     message_buffer: list[dict[str, Any]] = field(default_factory=list)
     subscribers: set[asyncio.Queue] = field(default_factory=set)
-    consumer_task: asyncio.Task | None = None
     buffer_max_size: int = 100
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
     pending_user_echoes: list[str] = field(default_factory=list)
