@@ -9,8 +9,10 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=212",
+    "lint:fix": "eslint . --fix",
     "build": "pnpm typecheck && vite build",
-    "check": "pnpm typecheck && vitest run",
+    "check": "pnpm typecheck && pnpm lint && vitest run",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
