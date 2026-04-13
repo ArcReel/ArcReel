@@ -410,6 +410,9 @@ class TestResolveEpisodeFromScript:
     def test_filename_regex_case_insensitive_and_spaced(self):
         assert ProjectManager.resolve_episode_from_script({}, "Episode 12.json") == 12
 
+    def test_filename_regex_supports_hyphen(self):
+        assert ProjectManager.resolve_episode_from_script({}, "episode-5.json") == 5
+
     def test_ignores_non_int_episode_field(self):
         """非整数的 episode 字段（如 '1'）应回退到文件名。"""
         ep = ProjectManager.resolve_episode_from_script({"episode": "1"}, "episode_9.json")
