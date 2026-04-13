@@ -6,6 +6,7 @@
 
 ```bash
 # 前置要求：Python 3.12+, Node.js 20+, uv, pnpm, ffmpeg
+# 操作系统：Linux / MacOS / Windows WSL（Windows 原生不支持）
 
 # 安装依赖
 uv sync
