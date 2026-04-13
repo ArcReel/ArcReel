@@ -5,10 +5,10 @@ description = "AI video generation workspace"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "claude-agent-sdk>=0.1.51",
+    "claude-agent-sdk>=0.1.58",
     "ffmpeg-python>=0.2.0",
     "fastapi>=0.135.1",
-    "google-genai>=1.65.0",
+    "google-genai>=1.72.0",
     "Pillow>=12.1.1",
     "pydantic>=2.12.5",
     "PyYAML>=6.0.3",
@@ -21,11 +21,11 @@ dependencies = [
     "asyncpg>=0.31.0",
     "alembic>=1.18.4",
     "pwdlib[argon2]>=0.3.0",
-    "volcengine-python-sdk[ark]>=5.0.17",
-    "openai>=2.30.0",
-    "xai-sdk>=1.8.2",
+    "volcengine-python-sdk[ark]>=5.0.23",
+    "openai>=2.31.0",
+    "xai-sdk>=1.11.0",
     "pyjianyingdraft>=0.2.6",
-    "instructor>=1.14.5",
+    "instructor>=1.15.1",
 ]
 
 [dependency-groups]
