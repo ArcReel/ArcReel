@@ -312,6 +312,8 @@ async def test_two_queries_queued_during_interrupt_drain():
 
     # q2 要能被消费：向 client 推第二个 query 的响应
     client.push_message({"type": "result", "subtype": "success"})
+    # block_forever=True 下需要显式 None sentinel 结束 q2 的 drain
+    client.push_message(None)
     # interrupt 让 receive_response 卡住的协程已结束；第二次 receive_response 会从队列拿
     await asyncio.wait_for(q2.done.wait(), timeout=1.0)
 
