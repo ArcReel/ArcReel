@@ -23,7 +23,7 @@ dependencies = [
     "pwdlib[argon2]>=0.3.0",
     "volcengine-python-sdk[ark]>=5.0.17",
     "openai>=2.30.0",
-    "xai-sdk>=1.8.2",
+    "xai-sdk>=1.11.0",
     "pyjianyingdraft>=0.2.6",
     "instructor>=1.14.5",
 ]
