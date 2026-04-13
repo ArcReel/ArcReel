@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -6,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from server.agent_runtime import session_manager as sm_mod
+from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import FakeSDKClient
@@ -17,43 +19,49 @@ class _FakeOptions:
 
 
 class _FakeClaudeClient:
+    """Minimal ClaudeSDKClient stand-in used by SessionActor.
+
+    Implements the async-context-manager protocol plus the narrow surface the
+    actor touches: ``query`` / ``interrupt`` / ``receive_response``. ``connect``
+    is kept for the legacy get_or_connect path-check assertion.
+    """
+
     def __init__(self, options):
         self.options = options
         self.connected = False
 
+    async def __aenter__(self):
+        self.connected = True
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
     async def connect(self):
         self.connected = True
 
-
-class _InterruptibleClient:
-    def __init__(self, disconnect_raises=False):
-        self.interrupted = False
-        self.disconnect_raises = disconnect_raises
+    async def query(self, prompt, session_id: str = "default"):
+        pass
 
     async def interrupt(self):
-        self.interrupted = True
-
-    async def disconnect(self):
-        if self.disconnect_raises:
-            raise RuntimeError("disconnect failed")
+        pass
 
     async def receive_response(self):
         if False:
             yield None
 
 
-class _CancelClient:
-    async def receive_response(self):
-        raise asyncio.CancelledError
-        if False:
-            yield None
+def _dummy_actor() -> SessionActor:
+    """Build an un-started actor with a no-op FakeSDKClient — for tests that
+    never touch actor IO but need a non-None ``actor`` field."""
+    dummy_client = FakeSDKClient()
 
+    @asynccontextmanager
+    async def _factory():
+        async with dummy_client as c:
+            yield c
 
-class _ErrorClient:
-    async def receive_response(self):
-        raise RuntimeError("stream failed")
-        if False:
-            yield None
+    return SessionActor(client_factory=_factory, on_message=lambda msg: None)
 
 
 class _FakeAllow:
@@ -69,7 +77,7 @@ class _FakeDeny:
 
 class TestSessionManagerMore:
     def test_managed_session_buffer_and_queue_overflow(self):
-        managed = ManagedSession(session_id="s1", client=object(), buffer_max_size=2)
+        managed = ManagedSession(session_id="s1", actor=None, buffer_max_size=2)
         managed.message_buffer = [
             {"type": "stream_event", "id": "a"},
             {"type": "assistant", "id": "b"},
@@ -94,7 +102,7 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_pending_question_lifecycle(self):
-        managed = ManagedSession(session_id="s1", client=object())
+        managed = ManagedSession(session_id="s1", actor=None)
         pending = managed.add_pending_question({"type": "ask_user_question", "questions": []})
         assert pending.question_id
         assert managed.resolve_pending_question(pending.question_id, {"Q": "A"})
@@ -118,14 +126,25 @@ class TestSessionManagerMore:
         projects_demo.mkdir(parents=True)
         meta = await meta_store.create("demo", "sdk-build-opts")
 
+        created_clients: list[_FakeClaudeClient] = []
+
+        def _track_client(*, options):
+            c = _FakeClaudeClient(options=options)
+            created_clients.append(c)
+            return c
+
         with monkeypatch.context() as m:
             m.setattr(sm_mod, "SDK_AVAILABLE", True)
             m.setattr(sm_mod, "ClaudeAgentOptions", _FakeOptions)
-            m.setattr(sm_mod, "ClaudeSDKClient", _FakeClaudeClient)
+            m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
             m.setattr(sm_mod, "HookMatcher", None)
             managed = await session_manager.get_or_connect(meta.id)
-            assert managed.client.connected
+            # Let the actor enter the async-context (connect).
+            await asyncio.sleep(0)
+            assert created_clients and created_clients[0].connected
             assert managed is await session_manager.get_or_connect(meta.id)
+            # Graceful teardown so the actor task doesn't leak.
+            await session_manager.close_session(meta.id)
 
         assert await session_manager._keep_stream_open_hook({}, None, None) == {"continue_": True}
 
@@ -141,25 +160,46 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_send_message_and_interrupt_branches(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "sdk-send-msg")
-        managed_running = ManagedSession(session_id=meta.id, client=FakeSDKClient(), status="running")
-        session_manager.sessions[meta.id] = managed_running
-        with pytest.raises(ValueError):
-            await session_manager.send_message(meta.id, "blocked")
+        from tests.fakes import build_managed_with_actor
 
-        session_manager.sessions.pop(meta.id)
+        meta = await meta_store.create("demo", "sdk-send-msg")
+        managed_running, actor_running, _ = await build_managed_with_actor(
+            session_id=meta.id,
+            project_name="demo",
+            status="running",
+        )
+        session_manager.sessions[meta.id] = managed_running
+        try:
+            with pytest.raises(ValueError):
+                await session_manager.send_message(meta.id, "blocked")
+        finally:
+            await session_manager.close_session(meta.id)
+
+        # Now build a client whose query explodes — verify send_message flips status to error.
         client = FakeSDKClient()
 
-        async def _boom(_content):
+        async def _boom(prompt, session_id: str = "default"):
             raise RuntimeError("query failed")
 
         client.query = _boom  # type: ignore[method-assign]
-        managed = ManagedSession(session_id=meta.id, client=client, status="idle")
+
+        @asynccontextmanager
+        async def _boom_factory():
+            async with client as c:
+                yield c
+
+        actor = SessionActor(client_factory=_boom_factory, on_message=lambda m: None)
+        managed = ManagedSession(session_id=meta.id, actor=actor, status="idle", project_name="demo")
+        await actor.start()
         session_manager.sessions[meta.id] = managed
-        with pytest.raises(RuntimeError):
-            await session_manager.send_message(meta.id, "hello")
-        assert managed.status == "error"
-        assert (await meta_store.get(meta.id)).status == "error"
+        try:
+            with pytest.raises(RuntimeError):
+                await session_manager.send_message(meta.id, "hello")
+            assert managed.status == "error"
+            assert (await meta_store.get(meta.id)).status == "error"
+        finally:
+            # send_query failure raised inside actor → actor task already done.
+            session_manager.sessions.pop(meta.id, None)
 
         with pytest.raises(FileNotFoundError):
             await session_manager.interrupt_session("missing")
@@ -172,27 +212,37 @@ class TestSessionManagerMore:
         meta3 = await meta_store.create("demo", "sdk-interrupt-2")
         assert await session_manager.interrupt_session(meta3.id) == "idle"
 
-        managed_idle = ManagedSession(session_id=meta3.id, client=FakeSDKClient(), status="completed")
+        managed_idle, _, _ = await build_managed_with_actor(
+            session_id=meta3.id,
+            project_name="demo",
+            status="completed",
+        )
         session_manager.sessions[meta3.id] = managed_idle
-        assert await session_manager.interrupt_session(meta3.id) == "completed"
+        try:
+            assert await session_manager.interrupt_session(meta3.id) == "completed"
+        finally:
+            await session_manager.close_session(meta3.id)
 
     @pytest.mark.asyncio
-    async def test_consume_messages_terminal_paths(self, session_manager, meta_store):
+    async def test_process_inbox_cancel_marks_interrupted_when_running(self, session_manager, meta_store):
+        """Cancel on a running session → _mark_session_terminal("interrupted")."""
         meta = await meta_store.create("demo", "sdk-cancel-1")
-        managed_cancel = ManagedSession(session_id=meta.id, client=_CancelClient(), status="running")
-        session_manager.sessions[meta.id] = managed_cancel
+        managed = ManagedSession(
+            session_id=meta.id,
+            actor=_dummy_actor(),
+            status="running",
+            project_name="demo",
+        )
+        session_manager.sessions[meta.id] = managed
         await meta_store.update_status(meta.id, "running")
-        with pytest.raises(asyncio.CancelledError):
-            await session_manager._consume_messages(managed_cancel)
-        assert managed_cancel.status == "interrupted"
 
-        meta2 = await meta_store.create("demo", "sdk-cancel-2")
-        managed_error = ManagedSession(session_id=meta2.id, client=_ErrorClient(), status="running")
-        session_manager.sessions[meta2.id] = managed_error
-        await meta_store.update_status(meta2.id, "running")
-        with pytest.raises(RuntimeError):
-            await session_manager._consume_messages(managed_error)
-        assert managed_error.status == "error"
+        task = asyncio.create_task(session_manager._process_inbox(managed))
+        await asyncio.sleep(0)  # let the coroutine start and block on inbox
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert managed.status == "interrupted"
+        assert (await meta_store.get(meta.id)).status == "interrupted"
 
     @pytest.mark.asyncio
     async def test_can_use_tool_callback_branches(self, session_manager, monkeypatch):
@@ -208,7 +258,7 @@ class TestSessionManagerMore:
         result2 = await allow_cb("AskUserQuestion", {"questions": []}, None)
         assert result2.updated_input == {"questions": []}
 
-        managed = ManagedSession(session_id="s1", client=FakeSDKClient(), status="running")
+        managed = ManagedSession(session_id="s1", actor=_dummy_actor(), status="running", project_name="demo")
         session_manager.sessions["s1"] = managed
         ask_cb = await session_manager._build_can_use_tool_callback("s1")
 
@@ -241,7 +291,7 @@ class TestSessionManagerMore:
 
         managed = ManagedSession(
             session_id="s1",
-            client=object(),
+            actor=None,
             message_buffer=[{"type": "stream_event"}, {"type": "assistant"}, {"type": "custom"}],
         )
         session_manager._prune_transient_buffer(managed)
@@ -260,6 +310,8 @@ class TestSessionManagerMore:
 
     @pytest.mark.asyncio
     async def test_buffer_snapshots_subscribe_and_shutdown(self, session_manager, meta_store):
+        from tests.fakes import build_managed_with_actor
+
         assert await session_manager.get_message_buffer_snapshot("missing") == []
         assert session_manager.get_buffered_messages("missing") == []
         assert await session_manager.get_pending_questions_snapshot("missing") == []
@@ -267,14 +319,12 @@ class TestSessionManagerMore:
             await session_manager.answer_user_question("missing", "q", {"a": "b"})
 
         meta = await meta_store.create("demo", "sdk-buffer-snap")
-        client = _InterruptibleClient(disconnect_raises=False)
-        managed = ManagedSession(
+        managed, actor, client = await build_managed_with_actor(
             session_id=meta.id,
-            client=client,
+            project_name="demo",
             status="running",
-            message_buffer=[{"type": "assistant", "uuid": "a1"}],
         )
-        managed.consumer_task = asyncio.create_task(asyncio.sleep(3600))
+        managed.message_buffer.append({"type": "assistant", "uuid": "a1"})
         session_manager.sessions[meta.id] = managed
 
         queue = await session_manager.subscribe(meta.id, replay_buffer=True)
@@ -283,7 +333,7 @@ class TestSessionManagerMore:
         assert queue not in managed.subscribers
 
         await session_manager.shutdown_gracefully(timeout=0.01)
-        assert client.interrupted is True
+        assert client.disconnected is True
         assert session_manager.sessions == {}
 
     @pytest.mark.asyncio
