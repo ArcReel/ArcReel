@@ -7,16 +7,59 @@ version: 2
 updates:
   # Python dependencies (pyproject.toml)
   - package-ecosystem: "pip"
-    directory: "/" # Location of package manifests
+    directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    versioning-strategy: increase
     labels:
       - "dependencies"
       - "python"
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "uvicorn"
+          - "pydantic*"
+          - "python-multipart"
+          - "python-dotenv"
+      database:
+        patterns:
+          - "sqlalchemy*"
+          - "aiosqlite"
+          - "asyncpg"
+          - "alembic"
+      ai-sdks:
+        patterns:
+          - "claude-agent-sdk"
+          - "google-genai"
+          - "openai"
+          - "volcengine-python-sdk*"
+          - "xai-sdk"
+          - "instructor"
+      auth:
+        patterns:
+          - "pyjwt"
+          - "pwdlib*"
+      media:
+        patterns:
+          - "Pillow"
+          - "ffmpeg-python"
+          - "pyjianyingdraft"
+      dev-dependencies:
+        dependency-type: "development"
+        patterns:
+          - "*"
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
   # Frontend npm dependencies (pnpm)
   - package-ecosystem: "npm"
     directory: "/frontend"
@@ -30,24 +73,56 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     groups:
-      vite:
-        patterns:
-          - "vite"
-          - "autoprefixer"
-          - "postcss"
-          - "tailwindcss"
       react:
         patterns:
           - "react"
           - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      vite-tailwind:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "tailwindcss"
+          - "@tailwindcss/*"
+          - "autoprefixer"
+          - "postcss"
+      testing:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "@testing-library/*"
+          - "jsdom"
+      dnd-kit:
+        patterns:
+          - "@dnd-kit/*"
+      i18n:
+        patterns:
+          - "i18next*"
+          - "react-i18next"
+      types:
+        patterns:
+          - "@types/*"
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
+    open-pull-requests-limit: 10
     labels:
       - "dependencies"
       - "ci"
     commit-message:
       prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns:
+          - "*"
