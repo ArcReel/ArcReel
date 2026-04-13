@@ -6,11 +6,6 @@
   @apply font-mono text-sm bg-gray-800 rounded-lg p-3 text-gray-200;
 }
 
-/* 统一焦点指示 — 键盘导航可见性 */
-.focus-ring {
-  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40;
-}
-
 /* 强调色 — 低饱和度纯色 */
 .accent-gradient {
   @apply bg-indigo-600;

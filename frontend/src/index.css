@@ -26,3 +26,8 @@
     --font-sans: "Inter", "Noto Sans SC", system-ui, sans-serif;
     --font-mono: "Fira Code", "Noto Sans Mono", monospace;
 }
+
+/* 统一焦点指示（a11y）—— 所有可聚焦元素共用；比旧 .focus-ring（studio.css）的 ring-indigo-500/40 更明显 */
+@utility focus-ring {
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500;
+}
