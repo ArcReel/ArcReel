@@ -50,9 +50,9 @@ updates:
           - "ffmpeg-python"
           - "pyjianyingdraft"
       dev-dependencies:
-        dependency-type: "development"
         patterns:
-          - "*"
+          - "pytest*"
+          - "ruff"
         update-types:
           - "minor"
           - "patch"
