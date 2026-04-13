@@ -1171,7 +1171,7 @@ async def test_send_query_raises_on_cmd_error():
 
 @pytest.mark.asyncio
 async def test_send_interrupt_is_idempotent_via_flag():
-    """interrupt_requested 标志防止重入。"""
+    """_interrupting 标志防止重入。"""
     from server.agent_runtime.session_actor import SessionActor, SessionCommand
     from server.agent_runtime.session_manager import ManagedSession
     from tests.fakes import FakeSDKClient
@@ -1189,7 +1189,7 @@ async def test_send_interrupt_is_idempotent_via_flag():
     await actor.enqueue(q)
     await asyncio.sleep(0.05)
 
-    # 并发两次 send_interrupt；第二次应走 interrupt_requested fast-return
+    # 并发两次 send_interrupt；第二次应走 _interrupting fast-return
     await asyncio.gather(managed.send_interrupt(), managed.send_interrupt())
     # client.interrupt 至少被调一次（具体次数视 asyncio 调度，允许 1 或 2）
     assert client.interrupted

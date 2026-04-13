@@ -98,6 +98,7 @@ class ManagedSession:
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
     _inbox: asyncio.Queue = field(default_factory=asyncio.Queue)  # async post-processing queue
     _process_task: asyncio.Task | None = None  # per-session async inbox processor
+    _interrupting: bool = False  # send_interrupt re-entry guard (distinct from interrupt_requested)
 
     # Message types that must never be silently dropped from subscriber queues.
     _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "user", "assistant"}
@@ -144,15 +145,15 @@ class ManagedSession:
             raise cmd.error
 
     async def send_interrupt(self) -> None:
-        if self.interrupt_requested:
+        if self._interrupting:
             return
-        self.interrupt_requested = True
+        self._interrupting = True
         try:
             cmd = SessionCommand(type="interrupt")
             await self.actor.enqueue(cmd)
             await cmd.done.wait()
         finally:
-            self.interrupt_requested = False
+            self._interrupting = False
 
     async def send_disconnect(self) -> None:
         cmd = SessionCommand(type="disconnect")
