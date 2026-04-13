@@ -1105,7 +1105,7 @@ class SessionManager:
             raise
 
     async def get_or_connect(self, session_id: str, *, meta: Optional["SessionMeta"] = None) -> ManagedSession:
-        """Get existing managed session or create new connection."""
+        """Get existing managed session or spin up an actor for resumed session."""
         if session_id in self.sessions and session_id not in self._disconnecting:
             return self.sessions[session_id]
 
@@ -1116,7 +1116,7 @@ class SessionManager:
 
         async with lock:
             # Re-check after acquiring lock
-            if session_id in self.sessions:
+            if session_id in self.sessions and session_id not in self._disconnecting:
                 return self.sessions[session_id]
 
             if meta is None:
@@ -1128,23 +1128,87 @@ class SessionManager:
                 raise RuntimeError("claude_agent_sdk is not installed")
 
             await self._ensure_capacity()
+            managed_ref: list[ManagedSession | None] = [None]
             options = self._build_options(
                 meta.project_name,
                 meta.id,  # SessionMeta.id 就是 sdk_session_id
-                can_use_tool=await self._build_can_use_tool_callback(session_id),
+                can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
             )
-            client = ClaudeSDKClient(options=options)
-            await client.connect()
 
+            # Sync on_message callback — mirrors send_new_session. Runs inside
+            # the actor task; must NOT await.
+            def _on_actor_message(raw_msg: Any) -> None:
+                managed_local = managed_ref[0]
+                if managed_local is None:
+                    return
+                msg_dict = self._message_to_dict(raw_msg)
+                if not isinstance(msg_dict, dict):
+                    return
+                if self._is_duplicate_user_echo(managed_local, msg_dict):
+                    managed_local._inbox.put_nowait(msg_dict)
+                    return
+                self._handle_special_message(managed_local, msg_dict)
+                managed_local._on_actor_message(msg_dict)
+                managed_local._inbox.put_nowait(msg_dict)
+
+            actor = SessionActor(
+                client_factory=lambda: ClaudeSDKClient(options=options),
+                on_message=_on_actor_message,
+            )
+
+            resumed_status: SessionStatus = (
+                meta.status if meta.status in ("idle", "running", "interrupted", "error", "closed") else "idle"
+            )
             managed = ManagedSession(
                 session_id=meta.id,  # 现在就是 sdk_session_id
-                client=client,
-                status=meta.status if meta.status != "idle" else "idle",
+                actor=actor,
+                status=resumed_status,
                 project_name=meta.project_name,
                 resolved_sdk_id=meta.id,  # 标记为已注册，防止重复创建 DB 记录
             )
-            managed.sdk_id_event.set()  # 已有会话不需要等待
+            managed.sdk_id_event.set()  # 已有会话不需要等待 sdk_id
+            managed_ref[0] = managed
+            managed.last_activity = time.monotonic()
             self.sessions[session_id] = managed
+
+            def _on_actor_done(task: asyncio.Task) -> None:
+                # Signal inbox processor to exit.
+                try:
+                    managed._inbox.put_nowait(None)
+                except Exception:
+                    logger.debug("inbox sentinel push failed", exc_info=True)
+                if task.cancelled():
+                    return
+                exc = task.exception()
+                if exc is None:
+                    return
+                logger.warning(
+                    "session actor 异常退出 session_id=%s: %s",
+                    managed.session_id,
+                    exc,
+                )
+                managed.status = "error"
+                try:
+                    managed.add_message(self._build_runtime_status_message("error", managed.session_id))
+                except Exception:
+                    logger.debug("broadcast runtime_status after actor failure failed", exc_info=True)
+
+            try:
+                await actor.start()
+            except Exception:
+                logger.exception("恢复会话 actor 启动失败 session_id=%s", session_id)
+                self.sessions.pop(session_id, None)
+                raise
+
+            # Register done callback BEFORE spawning processor (T11 lesson:
+            # avoid race where actor completes before add_done_callback).
+            if actor._task is not None:
+                actor._task.add_done_callback(_on_actor_done)
+
+            managed._process_task = asyncio.create_task(
+                self._process_inbox(managed),
+                name=f"inbox-{session_id}",
+            )
             return managed
 
     async def send_message(
@@ -1156,7 +1220,7 @@ class SessionManager:
         echo_content: list[dict[str, Any]] | None = None,
         meta: Optional["SessionMeta"] = None,
     ) -> None:
-        """Send a message and start background consumer."""
+        """Send a message via the session actor."""
         managed = await self.get_or_connect(session_id, meta=meta)
         managed.last_activity = time.monotonic()
         # 取消待执行的 cleanup（会话恢复活跃）
@@ -1175,9 +1239,9 @@ class SessionManager:
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
         dedup_key = display_text or (self._IMAGE_ONLY_SENTINEL if echo_content else "")
 
-        # Update in-memory status and echo user input immediately so live SSE
-        # shows it even when SDK stream doesn't replay user messages in real time.
-        managed.status = "running"
+        # Echo user input immediately so live SSE shows it even when the SDK
+        # stream doesn't replay user messages in real time. Don't set status to
+        # "running" manually — send_query does it inside the actor.
         if dedup_key:
             managed.pending_user_echoes.append(dedup_key)
             if len(managed.pending_user_echoes) > 20:
@@ -1187,20 +1251,18 @@ class SessionManager:
         # Persist status asynchronously — don't block the echo broadcast
         await self.meta_store.update_status(session_id, "running")
 
-        # Send the query — restore status on failure so the session is not
-        # permanently stuck in "running" without an active consumer.
+        # Send the query via the actor. send_query flips status to error on
+        # cmd.error and re-raises; we ensure meta store reflects that too.
         try:
-            await managed.client.query(prompt)
+            await managed.send_query(prompt, sdk_session_id=session_id)
         except Exception:
             logger.exception("会话消息处理失败")
             managed.pending_user_echoes.clear()
-            managed.status = "error"
-            await self.meta_store.update_status(session_id, "error")
+            try:
+                await self.meta_store.update_status(session_id, "error")
+            except Exception:
+                logger.exception("持久化 error 状态失败 session_id=%s", session_id)
             raise
-
-        # Start consumer task if not running
-        if managed.consumer_task is None or managed.consumer_task.done():
-            managed.consumer_task = asyncio.create_task(self._consume_messages(managed))
 
     async def interrupt_session(self, session_id: str) -> SessionStatus:
         """Interrupt a running session."""
