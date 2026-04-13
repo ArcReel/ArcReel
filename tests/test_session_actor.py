@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import pytest
 
 from server.agent_runtime.session_actor import (
     SessionActor,

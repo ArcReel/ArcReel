@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterable, Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from typing import Any, AsyncContextManager, AsyncIterable, Callable, Literal
+from typing import Any, Literal
 
 
 class _ActorClosed(Exception):
@@ -24,7 +26,7 @@ class SessionCommand:
 
 
 OnMessage = Callable[[dict[str, Any]], None]
-ClientFactory = Callable[[], AsyncContextManager[Any]]
+ClientFactory = Callable[[], AbstractAsyncContextManager[Any]]
 
 
 class SessionActor:
