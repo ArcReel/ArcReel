@@ -350,6 +350,7 @@ class SessionManager:
         self.meta_store = meta_store
         self.sessions: dict[str, ManagedSession] = {}
         self._disconnecting: set[str] = set()
+        self._session_actor_shutdown_timeout: float = 15.0  # total budget for send_disconnect + cancel fallback
         self._connect_locks: dict[str, asyncio.Lock] = {}
         self._load_config()
 
@@ -1395,32 +1396,27 @@ class SessionManager:
         self._schedule_cleanup(managed.session_id)
 
     def _schedule_cleanup(self, session_id: str) -> None:
-        """为非 running 会话调度延迟清理，延迟从配置读取。"""
+        """Schedule delayed cleanup for a non-running session."""
         managed = self.sessions.get(session_id)
         if managed is None:
             return
-        # 取消旧的 cleanup task
-        if managed._cleanup_task and not managed._cleanup_task.done():
+        if managed._cleanup_task is not None and not managed._cleanup_task.done():
             managed._cleanup_task.cancel()
+        managed._cleanup_task = asyncio.create_task(self._cleanup_idle(session_id))
 
-        async def _do_cleanup() -> None:
+    async def _cleanup_idle(self, session_id: str) -> None:
+        try:
             delay = await self._get_cleanup_delay()
             await asyncio.sleep(delay)
-            m = self.sessions.get(session_id)
-            if m is None:
-                return
-            # 会话已恢复活跃 → 跳过
-            if m.status == "running":
-                return
-            logger.info("清理会话 session_id=%s status=%s", session_id, m.status)
-            # 清除自身引用，避免 _disconnect_session 尝试 cancel/gather 当前任务
-            m._cleanup_task = None
-            try:
-                await self._disconnect_session(session_id, reason="cleanup timer")
-            except Exception:
-                logger.warning("清理会话失败 session_id=%s", session_id, exc_info=True)
-
-        managed._cleanup_task = asyncio.create_task(_do_cleanup())
+        except asyncio.CancelledError:
+            return
+        managed = self.sessions.get(session_id)
+        if managed is None:
+            return
+        if managed.status in ("idle", "interrupted", "error", "completed"):
+            # Clear our own reference first so _evict_one's cleanup-task cancel doesn't self-cancel
+            managed._cleanup_task = None
+            await self._evict_one(managed)
 
     @staticmethod
     def _get_client_process(client: Any) -> Any:
@@ -1549,12 +1545,67 @@ class SessionManager:
         return False
 
     async def close_session(self, session_id: str, *, reason: str = "session closed") -> None:
-        """Public close entry for explicit session teardown paths."""
-        await self._disconnect_session(
-            session_id,
-            reason=reason,
-            interrupt_running=True,
-        )
+        """Public close entry — gracefully tears down the actor and removes the session."""
+        managed = self.sessions.get(session_id)
+        if managed is None:
+            return
+        managed.cancel_pending_questions(reason)
+        await self._evict_one(managed)
+
+    async def _evict_one(self, managed: ManagedSession) -> None:
+        """Gracefully disconnect an actor, cancel as fallback, and remove from registry."""
+        session_id = managed.session_id
+        if session_id in self._disconnecting:
+            return
+        self._disconnecting.add(session_id)
+        try:
+            # Cancel any pending cleanup timer first
+            if managed._cleanup_task is not None and not managed._cleanup_task.done():
+                managed._cleanup_task.cancel()
+                with contextlib.suppress(BaseException):
+                    await managed._cleanup_task
+
+            try:
+                await asyncio.wait_for(
+                    managed.send_disconnect(),
+                    timeout=self._session_actor_shutdown_timeout,
+                )
+            except TimeoutError:
+                logger.warning(
+                    "actor disconnect 超时，走 cancel 兜底 session_id=%s",
+                    session_id,
+                )
+                task = managed.actor._task if managed.actor is not None else None
+                if task is not None and not task.done():
+                    task.cancel()
+                    with contextlib.suppress(BaseException):
+                        await task
+                managed.status = "closed"
+            except Exception:
+                logger.exception("actor 关停异常 session_id=%s", session_id)
+                managed.status = "error"
+
+            # Drain the inbox processor
+            try:
+                managed._inbox.put_nowait(None)
+            except Exception:
+                pass
+            if managed._process_task is not None and not managed._process_task.done():
+                try:
+                    await asyncio.wait_for(managed._process_task, timeout=5.0)
+                except TimeoutError:
+                    managed._process_task.cancel()
+                    with contextlib.suppress(BaseException):
+                        await managed._process_task
+                except BaseException:
+                    logger.exception(
+                        "_process_inbox 退出异常 session_id=%s",
+                        session_id,
+                    )
+        finally:
+            self.sessions.pop(session_id, None)
+            self._connect_locks.pop(session_id, None)
+            self._disconnecting.discard(session_id)
 
     async def _disconnect_session(
         self,
@@ -1704,7 +1755,7 @@ class SessionManager:
     async def _ensure_capacity(self) -> None:
         """确保有空余并发槽位，必要时淘汰最久未活跃的非 running 会话。"""
         max_concurrent = await self._get_max_concurrent()
-        active = [s for s in self.sessions.values() if s.client is not None and s.session_id not in self._disconnecting]
+        active = [s for s in self.sessions.values() if s.actor is not None and s.session_id not in self._disconnecting]
 
         if len(active) < max_concurrent:
             return
@@ -1723,10 +1774,7 @@ class SessionManager:
                 victim.status,
             )
             try:
-                await self._disconnect_session(
-                    victim.session_id,
-                    reason="capacity eviction",
-                )
+                await self._evict_one(victim)
             except Exception as exc:
                 logger.error(
                     "淘汰会话失败，无法释放并发槽位 session_id=%s",
@@ -1752,7 +1800,9 @@ class SessionManager:
             if activity_age > cleanup_delay * 2:
                 logger.info("巡检兜底清理会话 session_id=%s status=%s", sid, managed.status)
                 try:
-                    await self._disconnect_session(sid, reason="patrol cleanup")
+                    m = self.sessions.get(sid)
+                    if m is not None:
+                        await self._evict_one(m)
                 except Exception:
                     logger.warning(
                         "巡检兜底清理失败 session_id=%s",
@@ -2222,43 +2272,17 @@ class SessionManager:
         return meta.status if meta else None
 
     async def shutdown_gracefully(self, timeout: float = 30.0) -> None:
-        """Gracefully shutdown all sessions."""
-        # 取消巡检任务
+        """Gracefully shutdown all sessions using the actor teardown path."""
         patrol = getattr(self, "_patrol_task", None)
-        if patrol and not patrol.done():
+        if patrol is not None and not patrol.done():
             patrol.cancel()
+            with contextlib.suppress(BaseException):
+                await patrol
 
-        for session_id in list(self.sessions.keys()):
-            managed = self.sessions.get(session_id)
-            if managed is None:
-                continue
-            if managed.status == "running":
-                # Wait for current turn
-                if managed.consumer_task and not managed.consumer_task.done():
-                    try:
-                        await asyncio.wait_for(managed.consumer_task, timeout=timeout)
-                    except TimeoutError:
-                        try:
-                            await managed.client.interrupt()
-                        except Exception:
-                            logger.warning(
-                                "优雅关闭时中断会话失败 session_id=%s",
-                                session_id,
-                                exc_info=True,
-                            )
-                        managed.consumer_task.cancel()
-
-                managed.status = "interrupted"
-                await self.meta_store.update_status(session_id, "interrupted")
-
-            try:
-                await self._disconnect_session(
-                    session_id,
-                    reason="session shutdown",
-                )
-            except Exception:
-                logger.warning(
-                    "优雅关闭会话失败 session_id=%s",
-                    session_id,
-                    exc_info=True,
-                )
+        sessions = list(self.sessions.values())
+        if not sessions:
+            return
+        await asyncio.gather(
+            *[self._evict_one(s) for s in sessions],
+            return_exceptions=True,
+        )
