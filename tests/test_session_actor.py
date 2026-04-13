@@ -209,9 +209,16 @@ async def test_all_sdk_calls_recorded_on_same_task():
     if actor._task is not None:
         await actor._task
 
-    tasks_by_method = {m: set(ts) for m, ts in client.method_tasks.items()}
-    all_tasks = set().union(*tasks_by_method.values())
-    assert len(all_tasks) == 1, f"SDK methods ran on multiple tasks: {tasks_by_method}"
+    # 仅锁定 method 调用（receive_response 是 async generator iteration，
+    # 其 body 在子 task driven 是 asyncio 允许的，不属于 SDK 同 task 契约）
+    sdk_methods = ("connect", "query", "interrupt", "disconnect")
+    sdk_tasks: set = set()
+    for m in sdk_methods:
+        if m in client.method_tasks:
+            sdk_tasks.update(client.method_tasks[m])
+    assert len(sdk_tasks) == 1, (
+        f"SDK methods ran on multiple tasks: { {m: client.method_tasks.get(m) for m in sdk_methods} }"
+    )
 
 
 @pytest.mark.asyncio

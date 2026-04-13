@@ -100,6 +100,7 @@ class SessionActor:
         msg_iter = client.receive_response().__aiter__()
         msg_task = asyncio.create_task(msg_iter.__anext__(), name="actor-recv")
         cmd_task = asyncio.create_task(self._cmd_queue.get(), name="actor-cmd")
+        pending_query: SessionCommand | None = None
         try:
             while True:
                 done, _ = await asyncio.wait({msg_task, cmd_task}, return_when=asyncio.FIRST_COMPLETED)
@@ -110,6 +111,10 @@ class SessionActor:
                         msg_task = asyncio.create_task(msg_iter.__anext__())
                     except StopAsyncIteration:
                         query_cmd.done.set()
+                        if pending_query is not None:
+                            if not cmd_task.done():
+                                cmd_task.cancel()
+                            return pending_query
                         if cmd_task.done():
                             return cmd_task.result()
                         cmd_task.cancel()
@@ -127,9 +132,11 @@ class SessionActor:
                         await client.interrupt()
                         return next_cmd
                     elif next_cmd.type == "query":
-                        # 违反 "drain before new query"；携带给下一轮，
-                        # 由 ManagedSession 层保证不会在 running 状态重复 query
-                        return next_cmd
+                        # 违反 "drain before new query"：暂存，让消息流自然 drain 完成；
+                        # 在 StopAsyncIteration 分支返回 pending_query 由下一轮 _command_loop 处理。
+                        # 由 ManagedSession 层保证不会在 running 状态重复 query。
+                        pending_query = next_cmd
+                        cmd_task = asyncio.create_task(self._cmd_queue.get())
         finally:
             if not msg_task.done():
                 msg_task.cancel()
