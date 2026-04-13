@@ -1265,7 +1265,7 @@ class SessionManager:
             raise
 
     async def interrupt_session(self, session_id: str) -> SessionStatus:
-        """Interrupt a running session."""
+        """Interrupt a running session via the actor."""
         meta = await self.meta_store.get(session_id)
         if meta is None:
             raise FileNotFoundError(f"session not found: {session_id}")
@@ -1284,14 +1284,15 @@ class SessionManager:
         managed.interrupt_requested = True
         managed.cancel_pending_questions("session interrupted by user")
 
-        await managed.client.interrupt()
+        try:
+            await managed.send_interrupt()
+        except Exception:
+            logger.exception("发送 interrupt 命令失败 session_id=%s", session_id)
+            managed.status = "error"
+            return managed.status
 
-        # If the consumer task is still alive, cancel it. This handles cases where
-        # the CLI hangs (e.g. malformed input) and never sends a ResultMessage in
-        # response to the interrupt signal.
-        if managed.consumer_task and not managed.consumer_task.done():
-            managed.consumer_task.cancel()
-
+        managed.last_activity = time.monotonic()
+        # status 由 _on_actor_message 在收到 ResultMessage(error_during_execution) 时推导为 "interrupted"
         return managed.status
 
     async def _consume_messages(self, managed: ManagedSession) -> None:
