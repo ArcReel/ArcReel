@@ -16,7 +16,8 @@ class FakeSDKClient:
     - `async with`：`__aenter__` 记录 connect 的 current_task，`__aexit__` 记录 disconnect
     - `method_tasks`: dict[str, list[asyncio.Task]] 记录每个方法被调用时的 task
     - `messages` 初始化参数：`receive_response` 依次 yield 的初始消息
-    - `block_forever=True`：`receive_response` 在无消息时阻塞，直到 interrupt 注入尾消息
+    - `receive_response` 默认在 yield `type="result"` 后结束；
+    - `block_forever=True` 时，仅在 `interrupt()` 注入 None sentinel 后才结束（用于测试 interrupt 中断 query 的场景）
     - `interrupt_message`：`interrupt()` 被调用时注入给 `receive_response` 的最后一条消息
     - `connect_error`：`__aenter__` 时抛出的异常，用于模拟连接失败
     """
@@ -38,7 +39,6 @@ class FakeSDKClient:
         self.sent_queries: list = []
         self.interrupted = False
         self.disconnected = False
-        self._closed: asyncio.Event = asyncio.Event()
 
     def _record(self, method: str) -> None:
         self.method_tasks.setdefault(method, []).append(asyncio.current_task())
@@ -54,7 +54,6 @@ class FakeSDKClient:
     async def __aexit__(self, exc_type, exc, tb):
         self._record("disconnect")
         self.disconnected = True
-        self._closed.set()
         return False
 
     async def query(self, prompt, session_id: str = "default") -> None:
@@ -76,7 +75,7 @@ class FakeSDKClient:
             if msg is None:
                 return
             yield msg
-            if msg.get("type") == "result":
+            if msg.get("type") == "result" and not self._block_forever:
                 return
 
     def push_message(self, msg: dict) -> None:
@@ -92,7 +91,6 @@ class FakeSDKClient:
     async def disconnect(self) -> None:
         self._record("disconnect")
         self.disconnected = True
-        self._closed.set()
 
 
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
