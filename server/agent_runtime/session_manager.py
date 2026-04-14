@@ -118,24 +118,15 @@ class ManagedSession:
     def _on_actor_message(self, msg: dict[str, Any]) -> None:
         """SessionActor 的 on_message 回调。同步，内存操作，不 await。
 
-        职责：
-        - 根据 ResultMessage 的 subtype 推导 status（success→idle、
-          error_during_execution→interrupted、其他 error_*→error）
-        - 调用 add_message 进行 buffer + broadcast
+        职责：add_message 进行 buffer + broadcast。
+
+        **状态转换不在此处做**——managed.status 由 _finalize_turn 在异步路径中
+        统一设置。若在此提前切换为 idle/completed，`send_message` 的并发保护
+        （拦截 status=="running"）会在 _finalize_turn 跑完前失效，下一轮消息
+        可能进入，随后上一轮 finalize 回写/清理会误伤新一轮。
 
         pending_questions 注册由 SessionManager._handle_special_message 处理。
         """
-        msg_type = msg.get("type")
-
-        if msg_type == "result":
-            subtype = msg.get("subtype")
-            if subtype == "error_during_execution":
-                self.status = "interrupted"
-            elif subtype == "success":
-                self.status = "idle"
-            elif subtype and subtype.startswith("error"):
-                self.status = "error"
-
         self.add_message(msg)
 
     async def send_query(self, prompt: str | AsyncIterable[dict], sdk_session_id: str = "default") -> None:
@@ -160,6 +151,8 @@ class ManagedSession:
             cmd = SessionCommand(type="interrupt")
             await self.actor.enqueue(cmd)
             await cmd.done.wait()
+            if cmd.error is not None:
+                raise cmd.error
         finally:
             self._interrupting = False
 
@@ -1127,10 +1120,15 @@ class SessionManager:
                     try:
                         await self._finalize_turn(managed, msg_dict)
                     except Exception:
+                        # finalize 失败意味着 status/interrupt_requested/cleanup 可能部分未完成；
+                        # 走终态兜底而非继续循环——继续会让下一轮看到不一致的残留状态。
                         logger.exception(
-                            "_finalize_turn 失败 session_id=%s",
+                            "_finalize_turn 失败，走 error 终态兜底 session_id=%s",
                             managed.session_id,
                         )
+                        with contextlib.suppress(Exception):
+                            await self._mark_session_terminal(managed, "error", "finalize failed")
+                        return
         except asyncio.CancelledError:
             # Only mark interrupted if session was actually running. Cancel can
             # also happen during failed send_new_session cleanup or normal

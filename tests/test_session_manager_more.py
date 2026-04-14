@@ -1127,22 +1127,13 @@ def _make_managed_for_state_test():
     )
 
 
-def test_on_actor_message_result_success_sets_idle():
-    managed = _make_managed_for_state_test()
-    managed._on_actor_message({"type": "result", "subtype": "success"})
-    assert managed.status == "idle"
-
-
-def test_on_actor_message_result_error_during_execution_sets_interrupted():
-    managed = _make_managed_for_state_test()
-    managed._on_actor_message({"type": "result", "subtype": "error_during_execution"})
-    assert managed.status == "interrupted"
-
-
-def test_on_actor_message_result_other_error_sets_error():
-    managed = _make_managed_for_state_test()
-    managed._on_actor_message({"type": "result", "subtype": "error_max_turns"})
-    assert managed.status == "error"
+def test_on_actor_message_result_does_not_change_status():
+    """P1 race 防护：sync 回调不再改 status；由 _finalize_turn 统一设置。"""
+    for subtype in ("success", "error_during_execution", "error_max_turns"):
+        managed = _make_managed_for_state_test()
+        managed.status = "running"
+        managed._on_actor_message({"type": "result", "subtype": subtype})
+        assert managed.status == "running", f"subtype={subtype}"
 
 
 def test_on_actor_message_non_result_message_preserves_status():
@@ -1183,13 +1174,10 @@ async def test_send_query_sets_running_and_awaits_done():
     await actor.start()
     await managed.send_query("hi")
     assert client.sent_queries == ["hi"]
-    assert managed.status == "running"  # send_query 在 sent 即返回；整轮 drain 仍在后台
-    # 等后台 drain 完成：result=success → _on_actor_message 把 status 改回 idle
-    for _ in range(100):
-        if managed.status != "running":
-            break
-        await asyncio.sleep(0.01)
-    assert managed.status == "idle"
+    # send_query 在 sent 即返回；status 转 running 但不会自己变（由 _finalize_turn 设置，
+    # 此单元测试没挂 _process_inbox）。完整链路的 status 转换由
+    # test_session_manager_user_input 集成测试覆盖。
+    assert managed.status == "running"
 
     # 收尾
     await managed.send_disconnect()
