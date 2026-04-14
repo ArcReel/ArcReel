@@ -146,7 +146,7 @@ export function MediaModelSection() {
               <div key={key}>
                 <div className="mb-1 text-xs text-gray-400">{label}</div>
                 <ProviderModelSelect
-                  value={(draft[key] ?? settings[key] ?? "") as string}
+                  value={(draft[key] ?? settings[key] ?? "")}
                   options={textBackends}
                   providerNames={allProviderNames}
                   onChange={(v) => setDraft((prev) => ({ ...prev, [key]: v }))}

@@ -46,6 +46,7 @@ export function ExportScopeDialog({
   // Reset mode when popover closes
   useEffect(() => {
     if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 弹窗关闭时重置到初始选择界面，是有意的 UI 状态重置
       setMode("select");
     }
   }, [open]);
@@ -53,6 +54,7 @@ export function ExportScopeDialog({
   // Sync selected episode when episodes change
   useEffect(() => {
     if (episodes.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- episodes prop 变化时同步表单默认值，受控拷贝是有意设计
       setSelectedEpisode(episodes[0].episode);
     }
   }, [episodes]);

@@ -68,6 +68,7 @@ export function LorebookGallery({
 
   // Sync activeTab when mode prop changes (avoids stale tab on route switch)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mode prop 受控驱动 tab 切换，同步拷贝是有意设计
     if (mode) setActiveTab(mode);
   }, [mode]);
 
@@ -80,6 +81,7 @@ export function LorebookGallery({
   useEffect(() => {
     if (!scrollTarget) return;
     if (scrollTarget.type === "character" && activeTab !== "characters") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 智能体滚动目标事件驱动 tab 切换，需在 effect 中响应外部事件
       setActiveTab("characters");
     } else if (scrollTarget.type === "clue" && activeTab !== "clues") {
       setActiveTab("clues");

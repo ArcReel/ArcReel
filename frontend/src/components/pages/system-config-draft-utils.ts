@@ -3,7 +3,7 @@ export function mergeServerDraftPreservingDirty<T extends object>(
   previousSavedDraft: T,
   nextSavedDraft: T,
 ): T {
-  const mergedDraft = { ...nextSavedDraft } as T;
+  const mergedDraft = { ...nextSavedDraft };
 
   for (const key of Object.keys(nextSavedDraft) as (keyof T)[]) {
     if (currentDraft[key] !== previousSavedDraft[key]) {

@@ -280,6 +280,7 @@ function TextColumn({
   const noteId = useId();
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 可编辑备注字段随外部数据更新同步，拷贝模式是有意设计
     setNoteDraft(segment.note ?? "");
     committedRef.current = segment.note ?? "";
   }, [segment.note]);
@@ -401,6 +402,7 @@ function PromptColumn({
     }
 
     prevSegmentIdRef.current = segmentId;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 切换镜头时重置本地草稿，是导航驱动的有意状态重置
     setImgText(promptToStr(image_prompt, "scene"));
     setVidText(promptToStr(video_prompt, "action"));
     setImgDraft(isStructuredImage ? image_prompt : null);
@@ -415,6 +417,7 @@ function PromptColumn({
 
   useEffect(() => {
     if (!isStructuredImage) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- image_prompt 结构切换时同步本地编辑态，拷贝模式是有意设计
       setImgDraft(null);
       setImgText(promptToStr(image_prompt, "scene"));
     }
@@ -422,6 +425,7 @@ function PromptColumn({
 
   useEffect(() => {
     if (!isStructuredVideo) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- video_prompt 结构切换时同步本地编辑态，拷贝模式是有意设计
       setVidDraft(null);
       setVidText(promptToStr(video_prompt, "action"));
     }

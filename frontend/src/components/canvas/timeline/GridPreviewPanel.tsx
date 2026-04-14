@@ -167,12 +167,7 @@ export function GridPreviewPanel({
   const safeIdx = Math.min(selectedIdx, Math.max(0, gridIds.length - 1));
   const selectedGridId = gridIds[safeIdx] ?? null;
 
-  // Clamp selection when grid list changes
-  useEffect(() => {
-    if (selectedIdx >= gridIds.length && gridIds.length > 0) {
-      setSelectedIdx(0);
-    }
-  }, [gridIds.length, selectedIdx]);
+  // safeIdx already clamps selectedIdx to valid range; no effect needed
 
   // Fetch grid data when expanded and selectedGridId is available
   useEffect(() => {
@@ -181,6 +176,7 @@ export function GridPreviewPanel({
     let cancelled = false;
     // Clear stale data and show spinner when switching batches
     if (!grid || grid.id !== selectedGridId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 异步数据加载前需同步清空旧数据和错误态，是有意的加载中状态管理
       setLoading(true);
       setGrid(null);
     }

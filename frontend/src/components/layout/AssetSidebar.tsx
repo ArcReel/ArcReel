@@ -99,6 +99,7 @@ function AssetThumbnail({
   const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 图片源变更时重置错误态，确保新 URL 正常加载
     setImgError(false);
   }, [sheetFp, sheetPath]);
 

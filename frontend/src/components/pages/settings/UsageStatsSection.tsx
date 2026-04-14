@@ -47,6 +47,7 @@ export function UsageStatsSection() {
   }, [timeRange, providerFilter]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 依赖变化时重新获取统计数据，fetchStats 内部有 setState，属于正常异步数据获取模式
     void fetchStats();
   }, [fetchStats]);
 

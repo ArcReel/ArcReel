@@ -51,13 +51,14 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
     })
       .then((res) => {
         const r = res as { items?: UsageCall[]; total?: number };
-        setCalls((r.items ?? []) as UsageCall[], r.total ?? 0);
+        setCalls((r.items ?? []), r.total ?? 0);
       })
       .catch(() => {})
       .finally(() => setCallsLoading(false));
   }, [projectName, page, pageSize, setCalls]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 抽屉打开时触发数据加载，loadCalls 内部有 setState，属于正常异步数据获取模式
     if (open) loadCalls();
   }, [open, loadCalls]);
 

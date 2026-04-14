@@ -39,6 +39,7 @@ export function PendingQuestionWizard({
       initialCustomAnswers[key] = "";
     });
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 新问题到来时重置向导所有状态，是有意的受控重置模式
     setQuestionAnswers(initialAnswers);
     setQuestionCustomAnswers(initialCustomAnswers);
     setCurrentQuestionIndex(0);

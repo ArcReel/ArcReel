@@ -226,7 +226,7 @@ export function useAssistantSession(projectName: string | null) {
 
       source.addEventListener("snapshot", (event) => {
         if (!isActiveStream()) return;
-        const data = parseSsePayload(event as MessageEvent);
+        const data = parseSsePayload(event);
         const isSending = store.getState().sending;
 
         // 正在发送消息时，后端可能尚未将 session 切为 "running"，
@@ -240,7 +240,7 @@ export function useAssistantSession(projectName: string | null) {
 
         if (typeof data.status === "string") {
           store.getState().setSessionStatus(data.status as "idle");
-          statusRef.current = data.status as string;
+          statusRef.current = data.status;
           // 收到任何有效 status 都清除 sending（stale 的已在上方过滤）。
           // 特别是 "running" 表示后端已确认收到消息，必须清除 sending，
           // 否则后续的 "completed" 会被 status handler 的 isSending 守卫过滤掉。
@@ -250,7 +250,7 @@ export function useAssistantSession(projectName: string | null) {
 
       source.addEventListener("patch", (event) => {
         if (!isActiveStream()) return;
-        const payload = parseSsePayload(event as MessageEvent);
+        const payload = parseSsePayload(event);
         const patch = (payload.patch ?? payload) as Record<string, unknown>;
         store.getState().setTurns(applyTurnPatch(store.getState().turns, patch));
         if ("draft_turn" in payload) {
@@ -260,7 +260,7 @@ export function useAssistantSession(projectName: string | null) {
 
       source.addEventListener("delta", (event) => {
         if (!isActiveStream()) return;
-        const payload = parseSsePayload(event as MessageEvent);
+        const payload = parseSsePayload(event);
         if ("draft_turn" in payload) {
           store.getState().setDraftTurn((payload.draft_turn as Turn) ?? null);
         }
@@ -268,7 +268,7 @@ export function useAssistantSession(projectName: string | null) {
 
       source.addEventListener("status", (event) => {
         if (!isActiveStream()) return;
-        const data = parseSsePayload(event as MessageEvent);
+        const data = parseSsePayload(event);
         const status = (data.status as string) ?? statusRef.current;
         const isSending = store.getState().sending;
 
@@ -304,7 +304,7 @@ export function useAssistantSession(projectName: string | null) {
 
       source.addEventListener("question", (event) => {
         if (!isActiveStream()) return;
-        const payload = parseSsePayload(event as MessageEvent);
+        const payload = parseSsePayload(event);
         const pendingQuestion = getPendingQuestionFromEvent(payload);
         if (pendingQuestion) {
           syncPendingQuestion(pendingQuestion);

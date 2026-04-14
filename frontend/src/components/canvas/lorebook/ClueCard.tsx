@@ -56,10 +56,12 @@ export function ClueCard({
   const isDirty = description !== clue.description;
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 可编辑描述字段必须跟随外部 prop 更新，拷贝模式是有意设计
     setDescription(clue.description);
   }, [clue.description]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 图片源变更时重置错误态，确保新 URL 正常加载
     setImgError(false);
   }, [clue.clue_sheet, sheetFp]);
 
