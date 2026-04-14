@@ -25,6 +25,7 @@ dependencies = [
     "openai>=2.30.0",
     "xai-sdk>=1.8.2",
     "pyjianyingdraft>=0.2.6",
+    "httpx[socks]>=0.27.0",
     "instructor>=1.14.5",
 ]
 
