@@ -23,7 +23,7 @@ export interface AttachedImage {
 
 function parseSsePayload(event: MessageEvent): Record<string, unknown> {
   try {
-    return JSON.parse(event.data || "{}");
+    return JSON.parse(String(event.data || "{}")) as Record<string, unknown>;
   } catch {
     return {};
   }
@@ -85,8 +85,9 @@ const LAST_SESSION_KEY = "arcreel:lastSessionByProject";
 
 function getLastSessionId(projectName: string): string | null {
   try {
-    const map = JSON.parse(localStorage.getItem(LAST_SESSION_KEY) || "{}");
-    return map[projectName] ?? null;
+    const map = JSON.parse(localStorage.getItem(LAST_SESSION_KEY) || "{}") as Record<string, unknown>;
+    const value = map[projectName];
+    return typeof value === "string" ? value : null;
   } catch {
     return null;
   }
@@ -94,7 +95,7 @@ function getLastSessionId(projectName: string): string | null {
 
 function saveLastSessionId(projectName: string, sessionId: string): void {
   try {
-    const map = JSON.parse(localStorage.getItem(LAST_SESSION_KEY) || "{}");
+    const map = JSON.parse(localStorage.getItem(LAST_SESSION_KEY) || "{}") as Record<string, unknown>;
     map[projectName] = sessionId;
     localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(map));
   } catch {

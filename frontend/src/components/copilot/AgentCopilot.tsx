@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { voidCall, voidPromise } from "@/utils/async";
 import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRightClose, Paperclip, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { ImageLightbox } from "@/components/ui/ImageLightbox";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -120,7 +121,7 @@ function StatusDot({ status }: { status: string }) {
   );
 }
 
-function formatTime(isoStr: string | undefined, t: any): string {
+function formatTime(isoStr: string | undefined, t: TFunction): string {
   if (!isoStr) return t("new_session");
   try {
     const d = new Date(isoStr);
