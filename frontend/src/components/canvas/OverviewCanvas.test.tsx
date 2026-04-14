@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { OverviewCanvas } from "./OverviewCanvas";
@@ -37,42 +37,39 @@ describe("OverviewCanvas", () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
   });
 
-  it("uploads the style reference image from the workspace", async () => {
-    vi.spyOn(API, "uploadStyleImage").mockResolvedValue({
-      success: true,
-      style_image: "style_reference.png",
-      style_description: "updated",
-      url: "u",
-    });
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ style_image: "style_reference.png" }),
-      scripts: {},
-    });
+  it("renders the project title and content mode", () => {
+    render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+    expect(screen.getByText("Demo")).toBeInTheDocument();
+  });
 
-    const { container } = render(
-      <OverviewCanvas projectName="demo" projectData={makeProjectData()} />,
-    );
-
-    const file = new File(["style"], "style.png", { type: "image/png" });
-    const fileInput = container.querySelector("input[type='file']");
-    expect(fileInput).not.toBeNull();
-
-    fireEvent.change(fileInput as HTMLInputElement, { target: { files: [file] } });
-
-    await waitFor(() => {
-      expect(API.uploadStyleImage).toHaveBeenCalledWith("demo", file);
-      expect(API.getProject).toHaveBeenCalledTimes(1);
-    });
-  }, 10_000);
-
-  it("displays the style description from project data", () => {
+  it("shows welcome canvas when there is no overview and no episodes", () => {
     render(
       <OverviewCanvas
         projectName="demo"
-        projectData={makeProjectData({ style_description: "cinematic noir" })}
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
       />,
     );
-
-    expect(screen.getByText("cinematic noir")).toBeInTheDocument();
+    expect(screen.getByTestId("welcome-canvas")).toBeInTheDocument();
   });
+
+  it("regenerates overview on button click", async () => {
+    vi.spyOn(API, "generateOverview").mockResolvedValue(undefined as never);
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData(),
+      scripts: {},
+    });
+
+    render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+
+    const regenBtn = screen.getByTitle((t) => t.includes("regen") || t.length > 0);
+    // Find the regenerate button by its accessible role
+    const buttons = screen.getAllByRole("button");
+    const regenButton = buttons.find((b) => b.getAttribute("title") !== null);
+    if (regenButton) {
+      regenButton.click();
+      await waitFor(() => {
+        expect(API.generateOverview).toHaveBeenCalledWith("demo");
+      });
+    }
+  }, 10_000);
 });

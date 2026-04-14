@@ -1,15 +1,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { voidPromise } from "@/utils/async";
 import { useTranslation } from "react-i18next";
-import { ImagePlus, RefreshCw, Upload } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import type { ProjectData } from "@/types";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
-import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
-import { ProgressBar } from "@/components/ui/ProgressBar";
 import { formatCost, totalBreakdown } from "@/utils/cost-format";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
@@ -23,9 +20,6 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const { t } = useTranslation("dashboard");
   const tRef = useRef(t);
   tRef.current = t;
-  const styleImageFp = useProjectsStore(
-    (s) => projectData?.style_image ? s.getAssetFingerprint(projectData.style_image) : null,
-  );
   const projectTotals = useCostStore((s) => s.costData?.project_totals);
   const getEpisodeCost = useCostStore((s) => s.getEpisodeCost);
   const costLoading = useCostStore((s) => s.loading);
@@ -38,8 +32,6 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   }, [projectName, projectData?.episodes, debouncedFetch]);
 
   const [regenerating, setRegenerating] = useState(false);
-  const [uploadingStyleImage, setUploadingStyleImage] = useState(false);
-  const styleInputRef = useRef<HTMLInputElement>(null);
 
   const refreshProject = useCallback(
     async () => {
@@ -82,28 +74,6 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     }
   }, [projectName, refreshProject]);
 
-  const handleStyleImageChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = "";
-      if (!file) return;
-
-      setUploadingStyleImage(true);
-      try {
-        await API.uploadStyleImage(projectName, file);
-        await refreshProject();
-        useAppStore.getState().pushToast(tRef.current("style_image_updated"), "success");
-      } catch (err) {
-        useAppStore
-          .getState()
-          .pushToast(`${tRef.current("upload_failed")}${(err as Error).message}`, "error");
-      } finally {
-        setUploadingStyleImage(false);
-      }
-    },
-    [projectName, refreshProject],
-  );
-
   if (!projectData) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
@@ -114,127 +84,8 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
 
   const status = projectData.status;
   const overview = projectData.overview;
-  const styleImageUrl = projectData.style_image
-    ? API.getFileUrl(projectName, projectData.style_image, styleImageFp)
-    : null;
   const showWelcome = !overview && (projectData.episodes?.length ?? 0) === 0;
-  const projectStyleCard = (
-    <section className="rounded-2xl border border-gray-800 bg-gray-900/90 p-4 sm:p-5">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h3 className="text-sm font-semibold text-gray-200">{t("project_style_title")}</h3>
-          <p className="max-w-2xl text-xs leading-5 text-gray-500">
-            {t("style_desc_hint")}
-          </p>
-        </div>
-        <div className="inline-flex items-center rounded-full border border-gray-700 bg-gray-800 px-3 py-1 text-xs text-gray-300">
-          {projectData.style || t("style_tag_unset")}
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <div className="space-y-3">
-          {styleImageUrl ? (
-            <PreviewableImageFrame src={styleImageUrl} alt={t("visual_style_reference")}>
-              <div className="overflow-hidden rounded-xl border border-gray-700 bg-gray-950/70">
-                <img
-                  src={styleImageUrl}
-                  alt={t("visual_style_reference")}
-                  className="aspect-[4/3] w-full object-cover"
-                />
-              </div>
-            </PreviewableImageFrame>
-          ) : (
-            <button
-              type="button"
-              onClick={() => styleInputRef.current?.click()}
-              disabled={uploadingStyleImage}
-              className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-gray-700 bg-gray-950/40 px-4 text-sm text-gray-500 transition-colors hover:border-gray-500 hover:text-gray-300 disabled:cursor-not-allowed disabled:opacity-50 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
-            >
-              <Upload className="h-4 w-4" />
-              <span>{uploadingStyleImage ? t("uploading_style_image") : t("upload_style_reference")}</span>
-              <span className="text-xs text-gray-600">{t("supported_formats")}</span>
-            </button>
-          )}
-
-          <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-3">
-            <p className="text-xs font-medium text-gray-400">{t("usage_guide")}</p>
-            <p className="mt-1 text-sm leading-6 text-gray-300">
-              {styleImageUrl
-                ? t("style_usage_with_image")
-                : t("style_usage_without_image")}
-            </p>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => styleInputRef.current?.click()}
-                disabled={uploadingStyleImage}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
-              >
-                <ImagePlus className="h-4 w-4" />
-                {styleImageUrl ? t("replace_reference") : t("upload_reference")}
-              </button>
-              {styleImageUrl && (
-                <button
-                  type="button"
-                  onClick={() => void handleDeleteStyleImage()}
-                  disabled={deletingStyleImage}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-2 text-sm text-red-300 transition-colors hover:border-red-400/50 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  {deletingStyleImage ? t("deleting_reference") : t("delete_reference")}
-                </button>
-              )}
-            </div>
-          </div>
-
-          <input
-            ref={styleInputRef}
-            type="file"
-            accept=".png,.jpg,.jpeg,.webp"
-            onChange={voidPromise(handleStyleImageChange)}
-            className="hidden"
-            aria-label={t("upload_style_ref_aria")}
-          />
-        </div>
-
-        <div className="rounded-xl border border-gray-800 bg-gray-950/35 p-4">
-          <p className="text-xs font-medium text-gray-400">{t("style_description")}</p>
-          <p className="mt-1 text-xs leading-5 text-gray-500">
-            {projectData.style_description || t("style_desc_auto_hint")}
-          </p>
-
-          <textarea
-            id="style-description-textarea"
-            value={styleDescriptionDraft}
-            onChange={(e) => setStyleDescriptionDraft(e.target.value)}
-            rows={8}
-            className={`mt-3 min-h-44 w-full rounded-xl border border-gray-700 bg-gray-800/80 px-4 py-3 text-sm leading-relaxed text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus-ring`}
-            placeholder={t("style_desc_textarea_placeholder")}
-          />
-
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs leading-5 text-gray-500">
-              {styleImageUrl
-                ? t("style_tip_with_image")
-                : t("style_tip_without_image")}
-            </p>
-            {styleDescriptionDirty && (
-              <button
-                type="button"
-                onClick={() => void handleSaveStyleDescription()}
-                disabled={savingStyleDescription}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
-              >
-                {savingStyleDescription ? t("common:saving") : t("save_style_description")}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
+  const focusRing = "focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900";
 
   return (
     <div className="h-full overflow-y-auto">
@@ -244,8 +95,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
           <p className="mt-1 text-sm text-gray-400">
             {projectData.content_mode === "narration"
               ? t("narration_visuals_mode")
-              : t("drama_animation_mode")}{" "}
-            · {projectData.style || t("style_not_set")}
+              : t("drama_animation_mode")}
           </p>
         </div>
 
@@ -266,7 +116,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                     type="button"
                     onClick={() => void handleRegenerate()}
                     disabled={regenerating}
-                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
+                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
                     title={t("regen_overview_title")}
                   >
                     <RefreshCw
@@ -310,7 +160,18 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                             {cat.completed}/{cat.total}
                           </span>
                         </div>
-                        <ProgressBar value={pct} />
+                        <div
+                          className="h-1.5 overflow-hidden rounded-full bg-gray-800"
+                          role="progressbar"
+                          aria-valuenow={pct}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                        >
+                          <div
+                            className="h-full rounded-full bg-indigo-500"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
                       </div>
                     );
                   },
@@ -411,8 +272,6 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             </div>
           </>
         )}
-
-        {projectStyleCard}
 
         <div className="h-8" />
       </div>
