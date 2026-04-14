@@ -29,9 +29,10 @@ export interface WizardStep3StyleProps {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** First template id for a given category */
-function firstIdForCategory(cat: StyleCategory): string {
-  const t = STYLE_TEMPLATES.find((t) => t.category === cat);
+/** Fallback id when switching categories without a preserved selection */
+function fallbackIdForCategory(cat: StyleCategory): string {
+  if (cat === "live") return DEFAULT_TEMPLATE_ID;
+  const t = STYLE_TEMPLATES.find((x) => x.category === cat);
   return t ? t.id : DEFAULT_TEMPLATE_ID;
 }
 
@@ -136,7 +137,7 @@ export function WizardStep3Style({
   const handleCategoryTab = (cat: StyleCategory) => {
     const keepId = idBelongsToCategory(value.templateId, cat)
       ? value.templateId
-      : firstIdForCategory(cat);
+      : fallbackIdForCategory(cat);
     onChange({
       ...value,
       mode: "template",

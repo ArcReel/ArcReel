@@ -94,4 +94,38 @@ describe("WizardStep3Style", () => {
     fireEvent.click(screen.getByRole("button", { name: /取消|Cancel/ }));
     expect(onCancel).toHaveBeenCalledOnce();
   });
+
+  it("falls back to DEFAULT_TEMPLATE_ID when switching live tab from custom", () => {
+    const onChange = vi.fn();
+    const customValue = { ...baseValue, mode: "custom" as const, templateId: null };
+    render(<WizardStep3Style value={customValue} onChange={onChange} {...commonProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /真人剧|Live/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      mode: "template",
+      activeCategory: "live",
+      templateId: "live_premium_drama",
+    }));
+  });
+
+  it("preserves live templateId when re-clicking live tab", () => {
+    const onChange = vi.fn();
+    const value = { ...baseValue, templateId: "live_zhang_yimou" };
+    render(<WizardStep3Style value={value} onChange={onChange} {...commonProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /真人剧|Live/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      activeCategory: "live",
+      templateId: "live_zhang_yimou",
+    }));
+  });
+
+  it("preserves anim templateId when re-clicking anim tab", () => {
+    const onChange = vi.fn();
+    const animValue = { ...baseValue, activeCategory: "anim" as const, templateId: "anim_ghibli" };
+    render(<WizardStep3Style value={animValue} onChange={onChange} {...commonProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /漫剧|Animation/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      activeCategory: "anim",
+      templateId: "anim_ghibli",
+    }));
+  });
 });
