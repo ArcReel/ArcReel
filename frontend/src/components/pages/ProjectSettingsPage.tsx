@@ -5,9 +5,9 @@ import { useTranslation } from "react-i18next";
 import { ArrowLeft } from "lucide-react";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
-import { getProviderModels, getCustomProviderModels, lookupSupportedDurations, DEFAULT_DURATIONS } from "@/utils/provider-models";
+import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
+import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
 import type { CustomProviderInfo, ProviderInfo } from "@/types";
 
 export function ProjectSettingsPage() {
@@ -25,7 +25,10 @@ export function ProjectSettingsPage() {
   const [globalDefaults, setGlobalDefaults] = useState<{
     video: string;
     image: string;
-  }>({ video: "", image: "" });
+    textScript: string;
+    textOverview: string;
+    textStyle: string;
+  }>({ video: "", image: "", textScript: "", textOverview: "", textStyle: "" });
 
   const allProviderNames = useMemo(
     () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
@@ -73,6 +76,9 @@ export function ProjectSettingsPage() {
       setGlobalDefaults({
         video: configRes.settings?.default_video_backend ?? "",
         image: configRes.settings?.default_image_backend ?? "",
+        textScript: configRes.settings?.text_backend_script ?? "",
+        textOverview: configRes.settings?.text_backend_overview ?? "",
+        textStyle: configRes.settings?.text_backend_style ?? "",
       });
       setProviders(providerList);
       setCustomProviders(customProviderList);
@@ -110,30 +116,6 @@ export function ProjectSettingsPage() {
 
     return () => { disposed = true; };
   }, [projectName]);
-
-  const effectiveVideoBackend = videoBackend || globalDefaults.video;
-  const supportedDurations = useMemo(
-    () => lookupSupportedDurations(providers, effectiveVideoBackend, customProviders),
-    [providers, effectiveVideoBackend, customProviders],
-  );
-
-  // Derive effective default duration during render — if current value
-  // is not in the model's supported list, treat it as "auto" (null).
-  const effectiveDefaultDuration =
-    supportedDurations && defaultDuration !== null && !supportedDurations.includes(defaultDuration)
-      ? null
-      : defaultDuration;
-
-  const handleVideoBackendChange = useCallback((value: string) => {
-    setVideoBackend(value);
-    // When video model changes, reset default duration so the UI
-    // re-evaluates against the new model's supported durations.
-    const effective = value || globalDefaults.video;
-    const durations = lookupSupportedDurations(providers, effective, customProviders);
-    if (durations && defaultDuration !== null && !durations.includes(defaultDuration)) {
-      setDefaultDuration(null);
-    }
-  }, [globalDefaults.video, providers, customProviders, defaultDuration]);
 
   const isDirty =
     videoBackend !== initialRef.current.videoBackend ||
@@ -210,20 +192,40 @@ export function ProjectSettingsPage() {
 
         {options && (
           <>
-            {/* Video model override */}
-            <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
-              <div className="mb-3 text-sm font-medium text-gray-100">{t("video_model")}</div>
-              <ProviderModelSelect
-                value={videoBackend}
-                options={options.video_backends}
-                providerNames={allProviderNames}
-                onChange={handleVideoBackendChange}
-                allowDefault
-                defaultHint={
-                  globalDefaults.video ? t("current_global_hint", { value: globalDefaults.video }) : undefined
-                }
-              />
-            </div>
+            {/* Model config (video + duration + image + text) */}
+            <ModelConfigSection
+              value={{
+                videoBackend,
+                imageBackend,
+                textBackendScript: textScript,
+                textBackendOverview: textOverview,
+                textBackendStyle: textStyle,
+                defaultDuration,
+              }}
+              onChange={(next) => {
+                setVideoBackend(next.videoBackend);
+                setImageBackend(next.imageBackend);
+                setTextScript(next.textBackendScript);
+                setTextOverview(next.textBackendOverview);
+                setTextStyle(next.textBackendStyle);
+                setDefaultDuration(next.defaultDuration);
+              }}
+              providers={providers}
+              customProviders={customProviders}
+              options={{
+                videoBackends: options.video_backends,
+                imageBackends: options.image_backends,
+                textBackends: options.text_backends,
+                providerNames: allProviderNames,
+              }}
+              globalDefaults={{
+                video: globalDefaults.video,
+                image: globalDefaults.image,
+                textScript: globalDefaults.textScript ?? "",
+                textOverview: globalDefaults.textOverview ?? "",
+                textStyle: globalDefaults.textStyle ?? "",
+              }}
+            />
 
             {/* Aspect ratio */}
             <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
@@ -297,60 +299,6 @@ export function ProjectSettingsPage() {
               </fieldset>
             </div>
 
-            {/* Default duration */}
-            <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
-              <div className="mb-3 text-sm font-medium text-gray-100">{t("default_duration_label")}</div>
-              <p className="mb-2 text-xs text-gray-500">
-                {t("default_duration_project_desc")}
-              </p>
-              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t("duration_selection")}>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={effectiveDefaultDuration === null}
-                  onClick={() => setDefaultDuration(null)}
-                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors focus-ring ${
-                    effectiveDefaultDuration === null
-                      ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                      : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-                  }`}
-                >
-                  {t("auto_label")}
-                </button>
-                {(supportedDurations ?? DEFAULT_DURATIONS).map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    role="radio"
-                    aria-checked={effectiveDefaultDuration === d}
-                    onClick={() => setDefaultDuration(d)}
-                    className={`rounded-lg border px-3 py-1.5 text-sm transition-colors focus-ring ${
-                      effectiveDefaultDuration === d
-                        ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                        : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-                    }`}
-                  >
-                    {d}s
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Image model override */}
-            <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
-              <div className="mb-3 text-sm font-medium text-gray-100">{t("image_model")}</div>
-              <ProviderModelSelect
-                value={imageBackend}
-                options={options.image_backends}
-                providerNames={allProviderNames}
-                onChange={setImageBackend}
-                allowDefault
-                defaultHint={
-                  globalDefaults.image ? t("current_global_hint", { value: globalDefaults.image }) : undefined
-                }
-              />
-            </div>
-
             {/* Audio override */}
             <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
               <div className="mb-3 text-sm font-medium text-gray-100">{t("generate_audio_label")}</div>
@@ -372,31 +320,6 @@ export function ProjectSettingsPage() {
                   {t("disabled_label")}
                 </label>
               </fieldset>
-            </div>
-            {/* Text model overrides */}
-            <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
-              <div className="mb-3 text-sm font-medium text-gray-100">{t("text_models")}</div>
-              <p className="mb-2 text-xs text-gray-500">{t("text_model_override_desc")}</p>
-              <div className="space-y-3">
-                {([
-                  { value: textScript, setter: setTextScript, labelKey: "script_generation" },
-                  { value: textOverview, setter: setTextOverview, labelKey: "overview_generation" },
-                  { value: textStyle, setter: setTextStyle, labelKey: "style_analysis" },
-                ] as const).map(({ value, setter, labelKey }) => (
-                  <div key={labelKey}>
-                    <div className="mb-1 text-xs text-gray-400">{t(labelKey)}</div>
-                    <ProviderModelSelect
-                      value={value}
-                      options={options.text_backends}
-                      providerNames={allProviderNames}
-                      onChange={setter}
-                      allowDefault
-                      defaultHint={t("follow_global_default")}
-                      aria-label={t(labelKey)}
-                    />
-                  </div>
-                ))}
-              </div>
             </div>
           </>
         )}
