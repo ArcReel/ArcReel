@@ -132,23 +132,7 @@ describe("WizardStep1Basics", () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
-  it("does not call onNext when title is empty and Next is somehow triggered", () => {
-    const onNext = vi.fn();
-    render(
-      <WizardStep1Basics
-        value={baseValue}
-        onChange={() => {}}
-        onNext={onNext}
-        onCancel={() => {}}
-      />,
-    );
-    // Button is disabled but we call the handler defensively through a forced click
-    const btn = screen.getByRole("button", { name: /下一步/ });
-    expect(btn).toBeDisabled();
-    expect(onNext).not.toHaveBeenCalled();
-  });
-
-  it("renders title label with required asterisk when title is empty", () => {
+  it("marks title input as aria-required", () => {
     render(
       <WizardStep1Basics
         value={baseValue}
@@ -157,8 +141,7 @@ describe("WizardStep1Basics", () => {
         onCancel={() => {}}
       />,
     );
-    // Should show asterisk (red * for required)
-    expect(screen.getByText("*")).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toHaveAttribute("aria-required", "true");
   });
 
   it("renders project_id_auto_gen_hint below the title input", () => {

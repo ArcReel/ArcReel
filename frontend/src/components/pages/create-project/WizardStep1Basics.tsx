@@ -49,14 +49,15 @@ export function WizardStep1Basics({
       {/* Title */}
       <div>
         <label className="block text-sm font-medium text-gray-400 mb-1">
-          {t("dashboard:project_title")}{" "}
-          {!value.title.trim() && <span className="text-red-400">*</span>}
+          {t("dashboard:project_title")}
+          <span className="text-red-400 ml-0.5" aria-label="required">*</span>
         </label>
         <input
           type="text"
           value={value.title}
           onChange={handleTitleChange}
           placeholder={t("dashboard:rebirth_empress_example")}
+          aria-required="true"
           className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
         />
         {titleError && (
@@ -72,7 +73,7 @@ export function WizardStep1Basics({
         <label className="block text-sm font-medium text-gray-400 mb-1">
           {t("dashboard:content_mode")}
         </label>
-        <div className="flex gap-3">
+        <div className="flex gap-3" role="radiogroup" aria-label={t("dashboard:content_mode")}>
           <label className={radioClass(value.contentMode === "narration")}>
             <input
               type="radio"
@@ -103,7 +104,7 @@ export function WizardStep1Basics({
         <label className="block text-sm font-medium text-gray-400 mb-1">
           {t("dashboard:aspect_ratio")}
         </label>
-        <div className="flex gap-3">
+        <div className="flex gap-3" role="radiogroup" aria-label={t("dashboard:aspect_ratio")}>
           <label className={radioClass(value.aspectRatio === "9:16")}>
             <input
               type="radio"
@@ -137,7 +138,7 @@ export function WizardStep1Basics({
         <p className="text-xs text-gray-600 mb-1.5">
           {t("dashboard:generation_mode_desc")}
         </p>
-        <div className="flex gap-3">
+        <div className="flex gap-3" role="radiogroup" aria-label={t("dashboard:generation_mode")}>
           <label className={radioClass(value.generationMode === "single")}>
             <input
               type="radio"
