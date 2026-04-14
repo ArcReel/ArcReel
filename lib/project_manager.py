@@ -21,6 +21,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from lib.project_change_hints import emit_project_change_hint
+from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -952,6 +953,24 @@ class ProjectManager:
         except FileNotFoundError:
             return False
 
+    @staticmethod
+    def _migrate_legacy_style(project: dict) -> bool:
+        """检测旧 style 值并就地迁移。返回是否发生了变更。"""
+        if "style_template_id" in project:
+            return False  # 已迁移
+        legacy_value = project.get("style", "")
+        if legacy_value not in LEGACY_STYLE_MAP:
+            return False
+        if project.get("style_image"):
+            # 参考图优先：清空旧 style、template_id 置 None
+            project["style_template_id"] = None
+            project["style"] = ""
+        else:
+            new_id = LEGACY_STYLE_MAP[legacy_value]
+            project["style_template_id"] = new_id
+            project["style"] = resolve_template_prompt(new_id)
+        return True
+
     def load_project(self, project_name: str) -> dict:
         """
         加载项目元数据
@@ -968,7 +987,12 @@ class ProjectManager:
             raise FileNotFoundError(f"项目元数据文件不存在: {project_file}")
 
         with open(project_file, encoding="utf-8") as f:
-            return json.load(f)
+            project = json.load(f)
+        if self._migrate_legacy_style(project):
+            # 原地持久化迁移后的数据。用 _atomic_write_json 保证一致性，
+            # 不走 save_project 是为了避免触发 _touch_metadata 污染 updated_at。
+            self._atomic_write_json(project_file, project)
+        return project
 
     @contextmanager
     def _project_lock(self, project_name: str):
