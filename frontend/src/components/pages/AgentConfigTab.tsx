@@ -1,5 +1,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { voidCall } from "@/utils/async";
 import { ChevronDown, Eye, EyeOff, Loader2, SlidersHorizontal, Terminal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
@@ -214,7 +215,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       const newDraft = buildDraft(res);
       savedRef.current = newDraft;
       setDraft(newDraft);
-      useConfigStatusStore.getState().refresh();
+      voidCall(useConfigStatusStore.getState().refresh());
       useAppStore.getState().pushToast(t("agent_config_saved"), "success");
     } catch (err) {
       setSaveError((err as Error).message);
@@ -238,7 +239,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         const nextSavedDraft = buildDraft(res);
         savedRef.current = nextSavedDraft;
         setDraft(nextSavedDraft);
-        useConfigStatusStore.getState().refresh();
+        voidCall(useConfigStatusStore.getState().refresh());
         useAppStore.getState().pushToast(`${t(`dashboard:${label}`)} ${t("field_cleared")}`, "success");
       } catch (err) {
         useAppStore.getState().pushToast(`${t("clear_failed")}${(err as Error).message}`, "error");

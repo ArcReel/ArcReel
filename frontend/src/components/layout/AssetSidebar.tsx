@@ -1,5 +1,6 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { voidCall, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import {
@@ -260,7 +261,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
               type="file"
               accept=".txt,.md,.doc,.docx"
               aria-label={t("dashboard:upload_asset_file_aria")}
-              onChange={handleUpload}
+              onChange={voidPromise(handleUpload)}
               className="hidden"
             />
           </>
@@ -292,7 +293,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                     </button>
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); handleDeleteFile(name); }}
+                      onClick={(e) => { e.stopPropagation(); voidCall(handleDeleteFile(name)); }}
                       className="shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100 focus-ring focus-visible:opacity-100"
                       title={t("dashboard:delete_file")}
                     >

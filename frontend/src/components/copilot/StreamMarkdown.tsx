@@ -1,4 +1,5 @@
 import { useEffect, useState, type ComponentType } from "react";
+import { voidCall } from "@/utils/async";
 
 // ---------------------------------------------------------------------------
 // StreamMarkdown – lazy-loads the Streamdown component from the `streamdown`
@@ -39,10 +40,10 @@ export function StreamMarkdown({ content }: StreamMarkdownProps) {
   useEffect(() => {
     let mounted = true;
 
-    loadStreamdownComponent().then((component) => {
+    voidCall(loadStreamdownComponent().then((component) => {
       if (!mounted || !component) return;
       setStreamdownComponent(() => component);
-    });
+    }));
 
     return () => {
       mounted = false;

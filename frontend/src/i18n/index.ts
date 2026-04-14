@@ -2,6 +2,7 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
+import { voidCall } from '@/utils/async';
 
 import enCommon from './en/common';
 import enAuth from './en/auth';
@@ -28,7 +29,7 @@ const resources = {
   },
 };
 
-i18n
+voidCall(i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
@@ -41,6 +42,6 @@ i18n
     // Use 'common' as the default namespace
     defaultNS: 'common',
     ns: ['common', 'auth', 'dashboard', 'errors'],
-  });
+  }));
 
 export default i18n;

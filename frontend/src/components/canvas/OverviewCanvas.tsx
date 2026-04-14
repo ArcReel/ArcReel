@@ -1,5 +1,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { voidPromise } from "@/utils/async";
 import { useTranslation } from "react-i18next";
 import { ImagePlus, RefreshCw, Trash2, Upload } from "lucide-react";
 import type { ProjectData } from "@/types";
@@ -237,7 +238,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             ref={styleInputRef}
             type="file"
             accept=".png,.jpg,.jpeg,.webp"
-            onChange={handleStyleImageChange}
+            onChange={voidPromise(handleStyleImageChange)}
             className="hidden"
             aria-label={t("upload_style_ref_aria")}
           />

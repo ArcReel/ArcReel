@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { voidPromise } from "@/utils/async";
 import { Route, Switch, Redirect, useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -344,9 +345,9 @@ export function StudioCanvasRouter() {
             clues={currentProjectData?.clues ?? {}}
             mode={location === "/clues" ? "clues" : "characters"}
             onSaveCharacter={handleSaveCharacter}
-            onUpdateClue={handleUpdateClue}
-            onGenerateCharacter={handleGenerateCharacter}
-            onGenerateClue={handleGenerateClue}
+            onUpdateClue={voidPromise(handleUpdateClue)}
+            onGenerateCharacter={voidPromise(handleGenerateCharacter)}
+            onGenerateClue={voidPromise(handleGenerateClue)}
             onRestoreCharacterVersion={handleRestoreAsset}
             onRestoreClueVersion={handleRestoreAsset}
             generatingCharacterNames={generatingCharacterNames}
@@ -402,10 +403,10 @@ export function StudioCanvasRouter() {
               scriptFile={scriptFile ?? undefined}
               projectData={currentProjectData}
               durationOptions={durationOptions}
-              onUpdatePrompt={handleUpdatePrompt}
-              onGenerateStoryboard={handleGenerateStoryboard}
-              onGenerateVideo={handleGenerateVideo}
-              onGenerateGrid={handleGenerateGrid}
+              onUpdatePrompt={voidPromise(handleUpdatePrompt)}
+              onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
+              onGenerateVideo={voidPromise(handleGenerateVideo)}
+              onGenerateGrid={voidPromise(handleGenerateGrid)}
               onRestoreStoryboard={handleRestoreAsset}
               onRestoreVideo={handleRestoreAsset}
             />

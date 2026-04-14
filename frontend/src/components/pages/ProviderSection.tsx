@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { voidCall } from "@/utils/async";
 import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -87,7 +88,7 @@ export function ProviderSection() {
 
   useEffect(() => {
     let disposed = false;
-    Promise.all([API.getProviders(), API.listCustomProviders()]).then(([presetRes, customRes]) => {
+    voidCall(Promise.all([API.getProviders(), API.listCustomProviders()]).then(([presetRes, customRes]) => {
       if (disposed) return;
       setProviders(presetRes.providers);
       setCustomProviders(customRes.providers);
@@ -97,7 +98,7 @@ export function ProviderSection() {
         setSelection({ kind: "preset", id: presetRes.providers[0].id });
       }
       setLoading(false);
-    });
+    }));
     return () => {
       disposed = true;
     };

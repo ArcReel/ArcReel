@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { voidPromise } from "@/utils/async";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Image, Video, Check, X, Loader2, ChevronDown } from "lucide-react";
@@ -397,7 +398,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
             )}
             {stats.queued > 0 && (
               <button
-                onClick={handleCancelAll}
+                onClick={voidPromise(handleCancelAll)}
                 className="ml-auto text-xs text-gray-500 hover:text-red-400"
                 aria-label={t("cancel_all_queued_aria")}
               >
@@ -408,8 +409,8 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
 
           {/* 双通道 */}
           <div className="max-h-80 divide-y divide-gray-800/50 overflow-y-auto">
-            <ChannelSection title={t("image_channel")} icon={Image} tasks={imageTasks} onCancel={handleCancelSingle} />
-            <ChannelSection title={t("video_channel")} icon={Video} tasks={videoTasks} onCancel={handleCancelSingle} />
+            <ChannelSection title={t("image_channel")} icon={Image} tasks={imageTasks} onCancel={voidPromise(handleCancelSingle)} />
+            <ChannelSection title={t("video_channel")} icon={Video} tasks={videoTasks} onCancel={voidPromise(handleCancelSingle)} />
           </div>
 
           {/* 取消确认面板 */}
@@ -433,7 +434,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
               )}
               <div className="mt-2 flex gap-2">
                 <button
-                  onClick={confirmCancel}
+                  onClick={voidPromise(confirmCancel)}
                   disabled={cancelling}
                   className="rounded bg-red-600/80 px-2 py-0.5 text-xs text-white hover:bg-red-600 disabled:opacity-50"
                 >

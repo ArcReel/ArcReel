@@ -1,5 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { voidCall, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { Loader2, Plus, FolderOpen, Upload, AlertTriangle, Settings, EllipsisVertical, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -317,7 +318,7 @@ export function ProjectsPage() {
           type="file"
           accept=".zip,application/zip"
           aria-label={t("dashboard:import_project_file_aria")}
-          onChange={handleImport}
+          onChange={voidPromise(handleImport)}
           className="hidden"
         />
       </header>
@@ -349,7 +350,7 @@ export function ProjectsPage() {
         <ConflictDialog
           projectName={conflictProject}
           importing={importingProject}
-          onConfirm={(policy) => doImport(conflictFile, policy)}
+          onConfirm={(policy) => voidCall(doImport(conflictFile, policy))}
           onCancel={() => {
             setConflictProject(null);
             setConflictFile(null);
@@ -399,7 +400,7 @@ export function ProjectsPage() {
               </button>
               <button
                 type="button"
-                onClick={handleDeleteProject}
+                onClick={voidPromise(handleDeleteProject)}
                 disabled={deleteLoading}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
               >

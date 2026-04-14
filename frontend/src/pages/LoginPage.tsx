@@ -1,5 +1,6 @@
 
 import { useState, type FormEvent } from "react";
+import { voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
@@ -57,7 +58,7 @@ export function LoginPage() {
           <span>ArcReel</span>
         </h1>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={voidPromise(handleSubmit)} className="space-y-4">
           <div>
             <label className="mb-1 block text-sm text-gray-400">{t("auth:username")}</label>
             <input

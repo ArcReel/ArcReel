@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { voidCall, voidPromise } from "@/utils/async";
 import { ChevronRight, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
@@ -200,9 +201,9 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     let disposed = false;
     setDraft({});
     setDetail(null);
-    API.getProviderConfig(providerId).then((res) => {
+    voidCall(API.getProviderConfig(providerId).then((res) => {
       if (!disposed) setDetail(res);
-    });
+    }));
     return () => { disposed = true; };
   }, [providerId]);
 
@@ -261,7 +262,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
       )}
 
       {/* Credentials */}
-      <CredentialList providerId={providerId} onChanged={handleCredentialChanged} />
+      <CredentialList providerId={providerId} onChanged={voidPromise(handleCredentialChanged)} />
 
       {/* Shared config (all remaining fields from the API are "advanced") */}
       {detail.fields.length > 0 && (

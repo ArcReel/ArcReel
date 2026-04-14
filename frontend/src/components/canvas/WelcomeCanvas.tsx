@@ -1,5 +1,6 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { voidCall, voidPromise } from "@/utils/async";
 import { useTranslation } from "react-i18next";
 import { Upload, FileText, Sparkles, Loader2, CheckCircle2, Plus } from "lucide-react";
 import { API } from "@/api";
@@ -45,7 +46,7 @@ export function WelcomeCanvas({
   // Check existing source files on mount and when sourceFilesVersion changes
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    voidCall((async () => {
       try {
         const res = await API.listFiles(projectName);
         // Backend returns grouped object: { files: { source: [{name, size, url}, ...], ... } }
@@ -64,7 +65,7 @@ export function WelcomeCanvas({
       } catch {
         if (!cancelled) setPhase((prev) => prev === "loading" ? "idle" : prev);
       }
-    })();
+    })());
     return () => { cancelled = true; };
   }, [projectName, sourceFilesVersion]);
 
@@ -118,7 +119,7 @@ export function WelcomeCanvas({
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
       if (file && (file.name.endsWith(".txt") || file.name.endsWith(".md"))) {
-        processFile(file);
+        voidCall(processFile(file));
       }
     },
     [processFile],
@@ -127,7 +128,7 @@ export function WelcomeCanvas({
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (file) processFile(file);
+      if (file) voidCall(processFile(file));
       e.target.value = "";
     },
     [processFile],
@@ -244,7 +245,7 @@ export function WelcomeCanvas({
             {/* Analyze button */}
             <button
               type="button"
-              onClick={startAnalysis}
+              onClick={voidPromise(startAnalysis)}
               className="w-full rounded-xl bg-indigo-600 px-6 py-3 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
             >
               <Sparkles className="inline-block h-4 w-4 mr-2 -mt-0.5" />

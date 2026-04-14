@@ -1,4 +1,5 @@
 import { useParams, useLocation } from "wouter";
+import { voidCall, voidPromise } from "@/utils/async";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft } from "lucide-react";
@@ -55,7 +56,7 @@ export function ProjectSettingsPage() {
   useEffect(() => {
     let disposed = false;
 
-    Promise.all([
+    voidCall(Promise.all([
       API.getSystemConfig(),
       API.getProject(projectName),
       getProviderModels().catch(() => [] as ProviderInfo[]),
@@ -105,7 +106,7 @@ export function ProjectSettingsPage() {
         textScript: ts, textOverview: to, textStyle: tst,
         aspectRatio: ar, generationMode: gm, defaultDuration: dd,
       };
-    });
+    }));
 
     return () => { disposed = true; };
   }, [projectName]);
@@ -407,7 +408,7 @@ export function ProjectSettingsPage() {
         {/* Actions */}
         <div className="flex gap-3">
           <button
-            onClick={handleSave}
+            onClick={voidPromise(handleSave)}
             disabled={saving}
             className="rounded-lg bg-indigo-600 px-6 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
           >

@@ -1,4 +1,5 @@
 import { startTransition, useState, useEffect, useRef } from "react";
+import { voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { ChevronLeft, Activity, Settings, Bell, Download, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -368,7 +369,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             onSelect={(scope) => { if (scope !== "jianying-draft") void handleExportProject(scope); }}
             anchorRef={exportAnchorRef}
             episodes={currentProjectData?.episodes ?? []}
-            onJianyingExport={handleJianyingExport}
+            onJianyingExport={voidPromise(handleJianyingExport)}
             jianyingExporting={jianyingExporting}
           />
         </div>

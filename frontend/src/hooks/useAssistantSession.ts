@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { voidCall } from "@/utils/async";
 import { API } from "@/api";
 import { uid } from "@/utils/id";
 import { useAssistantStore } from "@/stores/assistant-store";
@@ -382,7 +383,7 @@ export function useAssistantSession(projectName: string | null) {
       })
       .catch(() => {});
 
-    init();
+    voidCall(init());
 
     return () => {
       cancelled = true;
@@ -527,7 +528,7 @@ export function useAssistantSession(projectName: string | null) {
   }, [projectName, store]);
 
   // 创建新会话（懒创建：仅清空状态，实际创建延迟到首次发消息时）
-  const createNewSession = useCallback(async () => {
+  const createNewSession = useCallback(() => {
     if (!projectName) return;
 
     invalidatePendingSend();

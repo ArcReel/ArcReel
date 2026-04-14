@@ -1,5 +1,6 @@
 
 import { useState, useRef } from "react";
+import { voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { X, Loader2, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -102,7 +103,7 @@ export function CreateProjectModal() {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={voidPromise(handleSubmit)} className="space-y-4">
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">

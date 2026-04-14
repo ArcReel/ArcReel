@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { voidCall, voidPromise } from "@/utils/async";
 import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRightClose, Paperclip, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ImageLightbox } from "@/components/ui/ImageLightbox";
@@ -229,7 +230,7 @@ export function AgentCopilot() {
   const handleSend = useCallback(() => {
     if (inputDisabled || (!localInput.trim() && attachedImages.length === 0)) return;
     imageGenRef.current += 1; // invalidate pending FileReader callbacks
-    sendMessage(localInput.trim(), attachedImages.length > 0 ? attachedImages : undefined);
+    voidCall(sendMessage(localInput.trim(), attachedImages.length > 0 ? attachedImages : undefined));
     setLocalInput("");
     setAttachedImages([]);
     setAttachError(null);
@@ -344,7 +345,7 @@ export function AgentCopilot() {
               {t("thinking")}
             </span>
           )}
-          <SessionSelector onSwitch={switchSession} onDelete={deleteSession} />
+          <SessionSelector onSwitch={voidPromise(switchSession)} onDelete={voidPromise(deleteSession)} />
           <button
             type="button"
             onClick={createNewSession}
@@ -380,7 +381,7 @@ export function AgentCopilot() {
           pendingQuestion={pendingQuestion}
           answeringQuestion={answeringQuestion}
           error={error}
-          onSubmitAnswers={answerQuestion}
+          onSubmitAnswers={voidPromise(answerQuestion)}
         />
       )}
 
@@ -471,7 +472,7 @@ export function AgentCopilot() {
 
           {isRunning ? (
             <button
-              onClick={interrupt}
+              onClick={voidPromise(interrupt)}
               className="shrink-0 rounded p-1.5 text-red-400 hover:bg-gray-700"
               title={t("stop_session")}
               aria-label={t("stop_session")}
