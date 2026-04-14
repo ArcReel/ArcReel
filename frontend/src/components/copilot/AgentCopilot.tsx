@@ -14,6 +14,7 @@ import { SlashCommandMenu } from "./SlashCommandMenu";
 import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 import { TodoListPanel } from "./TodoListPanel";
 import { ChatMessage } from "./chat/ChatMessage";
+import { composeAllTurns } from "./chat/utils";
 import { uid } from "@/utils/id";
 
 const MAX_IMAGES = 5;
@@ -156,7 +157,7 @@ export function AgentCopilot() {
   const [attachError, setAttachError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const allTurns = draftTurn ? [...turns, draftTurn] : turns;
+  const allTurns = composeAllTurns(turns, draftTurn);
   const isRunning = sessionStatus === "running";
   const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
   const attachDisabled = inputDisabled || attachedImages.length >= MAX_IMAGES;
