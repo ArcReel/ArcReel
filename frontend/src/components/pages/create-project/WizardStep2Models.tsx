@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { voidCall } from "@/utils/async";
 import { ModelConfigSection, type ModelConfigValue } from "@/components/shared/ModelConfigSection";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import type { ProviderInfo } from "@/types";
@@ -43,7 +44,7 @@ export function WizardStep2Models({
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    voidCall((async () => {
       try {
         const [sysConfig, providersRes, customRes] = await Promise.all([
           API.getSystemConfig(),
@@ -73,7 +74,7 @@ export function WizardStep2Models({
           setLoading(false);
         }
       }
-    })();
+    })());
     return () => {
       cancelled = true;
     };

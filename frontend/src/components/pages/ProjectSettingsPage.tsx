@@ -256,7 +256,7 @@ export function ProjectSettingsPage() {
             <div className="flex items-center gap-3 pt-2 border-t border-gray-800">
               <button
                 type="button"
-                onClick={handleSaveStyle}
+                onClick={voidPromise(handleSaveStyle)}
                 disabled={isStyleSaveDisabled}
                 className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
               >

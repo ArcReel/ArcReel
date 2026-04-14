@@ -61,7 +61,6 @@ describe("OverviewCanvas", () => {
 
     render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
 
-    const regenBtn = screen.getByTitle((t) => t.includes("regen") || t.length > 0);
     // Find the regenerate button by its accessible role
     const buttons = screen.getAllByRole("button");
     const regenButton = buttons.find((b) => b.getAttribute("title") !== null);

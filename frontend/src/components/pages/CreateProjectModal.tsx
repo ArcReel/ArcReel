@@ -1,5 +1,6 @@
 
 import { useState, useEffect } from "react";
+import { voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -110,6 +111,15 @@ export function CreateProjectModal() {
     setShowCreateModal(false);
   };
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleCreate = async () => {
     setCreating(true);
     try {
@@ -157,8 +167,6 @@ export function CreateProjectModal() {
       role="dialog"
       aria-modal="true"
       aria-labelledby="create-project-title"
-      tabIndex={-1}
-      onKeyDown={(e) => { if (e.key === "Escape") handleClose(); }}
     >
       <div className="w-full max-w-3xl rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
         {/* Header: title + close */}
@@ -201,7 +209,7 @@ export function CreateProjectModal() {
               value={style}
               onChange={setStyle}
               onBack={() => setStep(2)}
-              onCreate={handleCreate}
+              onCreate={voidPromise(handleCreate)}
               onCancel={handleClose}
               creating={creating}
             />
