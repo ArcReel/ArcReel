@@ -57,6 +57,7 @@ describe("ProjectsPage", () => {
           name: "demo",
           title: "Demo Project",
           style: "Anime",
+          style_template_id: "anim_kyoto",
           thumbnail: null,
           status: {
             current_phase: "production",
@@ -72,7 +73,7 @@ describe("ProjectsPage", () => {
     renderPage();
 
     expect(await screen.findByText("Demo Project")).toBeInTheDocument();
-    expect(screen.getByText("Anime · 制作中")).toBeInTheDocument();
+    expect(screen.getByText("商业动画 京都 · 制作中")).toBeInTheDocument();
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 

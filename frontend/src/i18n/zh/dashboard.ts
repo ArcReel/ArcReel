@@ -38,6 +38,7 @@ export default {
   'episodes_completed': '集已完成',
   'progress': '进度',
   'style_not_set': '未设置风格',
+  'style_custom': '自定义风格',
   'importing': '导入中...',
   'import_zip': '导入 ZIP',
   'loading_projects': '加载项目列表...',

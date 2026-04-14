@@ -256,7 +256,7 @@ export function WizardStep3Style({
           <p className="mt-1.5 text-xs text-gray-600">{t("templates:supported_formats")}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-4 gap-3 max-h-[420px] overflow-y-auto pr-1">
+        <div className="grid grid-cols-4 gap-3 max-h-[420px] overflow-y-auto p-1 pr-2">
           {templates.map((tpl) => (
             <TemplateCard
               key={tpl.id}

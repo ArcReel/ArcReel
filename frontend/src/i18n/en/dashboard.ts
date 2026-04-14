@@ -37,6 +37,7 @@ export default {
   'episodes_completed': 'episodes completed',
   'progress': 'Progress',
   'style_not_set': 'Style not set',
+  'style_custom': 'Custom style',
   'importing': 'Importing...',
   'import_zip': 'Import ZIP',
   'loading_projects': 'Loading projects list...',

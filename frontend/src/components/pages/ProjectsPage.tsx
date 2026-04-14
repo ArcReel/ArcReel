@@ -39,7 +39,7 @@ function usePhaseLabels() {
 // ---------------------------------------------------------------------------
 
 function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete: () => void }) {
-  const { t } = useTranslation(["common", "dashboard"]);
+  const { t } = useTranslation(["common", "dashboard", "templates"]);
   const [, navigate] = useLocation();
   const status = project.status;
   const hasStatus = status && "current_phase" in status;
@@ -53,6 +53,12 @@ function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete:
   const characters = hasStatus ? (status as ProjectStatus).characters : null;
   const clues = hasStatus ? (status as ProjectStatus).clues : null;
   const summary = hasStatus ? (status as ProjectStatus).episodes_summary : null;
+
+  const styleLabel = project.style_template_id
+    ? t(`templates:name.${project.style_template_id}`)
+    : project.style
+    ? t("dashboard:style_custom")
+    : t("dashboard:style_not_set");
 
   return (
     <div
@@ -81,7 +87,7 @@ function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete:
       <div>
         <h3 className="font-semibold text-gray-100 truncate">{project.title}</h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          {project.style || t("dashboard:style_not_set")}
+          {styleLabel}
           {phaseLabel ? ` · ${phaseLabel}` : ""}
         </p>
       </div>
