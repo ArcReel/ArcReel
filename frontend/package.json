@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --max-warnings=0",
+    "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "build": "pnpm typecheck && vite build",
     "check": "pnpm typecheck && pnpm lint && vitest run",

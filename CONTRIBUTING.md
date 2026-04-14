@@ -58,32 +58,16 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 - typed linting 启用 `projectService: true`，能检查 `no-floating-promises`、`no-misused-promises` 等 async 相关问题
 - CI 中强制检查：`frontend-tests` job 的 `Lint` step
 
-**baseline ratchet（--max-warnings）：**
+### ESLint disable 使用规范
 
-项目处于 a11y 工程化迁移期。`package.json` 的 `"lint"` 脚本里 `--max-warnings=<N>` 锁住历史未修的 warning 总数：
+本项目在 PR 3（#219）后采用零 warning 政策，所有规则均为 error。如必须绕过，遵循：
 
-- N > 0 时，CI 只允许 warning ≤ N（新增 warning 会失败）
-- 修复 warning 后须**同步下调** N 数字；不允许上调
-- 修完一类 rule 后，从 `eslint.config.js` 里对应的 `MIGRATION_WARN_RULES_*` 常量中删除该 rule 条目（rule 自动升回 recommended 预设的 error 级）
-- 目标：N 最终降到 0，移除 `--max-warnings` 参数
-
-**eslint.config.js 里有三个迁移常量**，按 rule 类型分组：
-
-| 常量名 | 作用域 | 包含的 rule 类型 |
-|--------|-------|--------------------|
-| `MIGRATION_WARN_RULES_TYPED` | `src/**/*.{ts,tsx}` 非 test | 需要 TypeScript 类型信息的 rule（`@typescript-eslint/no-floating-promises` / `no-misused-promises` / `no-unsafe-*` 等） |
-| `MIGRATION_WARN_RULES_A11Y` | 非 test 文件 | jsx-a11y rule（`jsx-a11y/click-events-have-key-events` 等） |
-| `MIGRATION_WARN_RULES_ALL` | 全局 | 其他非 typed 非 a11y rule（`react-hooks/*` / `no-unsafe-finally` / `@typescript-eslint/no-explicit-any` 等） |
-
-**PR 2 / PR 3 作者的操作清单：**
-
-1. 本地 `cd frontend && pnpm lint` 看当前 warning 数
-2. 修复 warning 直到数字下降
-3. 更新 `package.json` 里 `--max-warnings=<N>` 为当前数字
-4. 根据 rule 类型，从 `eslint.config.js` 的对应常量（`MIGRATION_WARN_RULES_TYPED` / `_A11Y` / `_ALL`）中删除已清零的 rule 条目
-5. 提交，CI 验证
-
-CR checklist：**`--max-warnings` 数字在 diff 里只允许减不允许加**。
+- **形式**：`// eslint-disable-next-line <rule> -- <中文理由>`，`--` 后的理由**强制**
+- **禁用**：文件级 `/* eslint-disable */`、无理由的 `// eslint-disable-line`、`@ts-ignore` 联用
+- **PR 描述要求**：新增的 disable 必须在 PR body 以表格列出 `rule | file:line | 理由`
+- **文件级关闭**只允许通过 `eslint.config.js` 的 `files` override，且须在 config 注释说明原因
+- **不可接受的理由**：「太麻烦」「暂时这样」「later fix」
+- **可接受的理由示例**：「React setter 引用稳定」「mount-only 初始化」「生成式预览视频无字幕源」
 
 **本地 IDE 建议（不提交 repo）：**
 
