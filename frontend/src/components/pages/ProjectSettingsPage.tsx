@@ -2,13 +2,38 @@ import { useParams, useLocation } from "wouter";
 import { voidCall, voidPromise } from "@/utils/async";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
 import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
+import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
+import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
 import type { CustomProviderInfo, ProviderInfo } from "@/types";
+
+function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
+  const styleImage = project.style_image as string | undefined;
+  const templateId = (project.style_template_id as string | undefined) ?? null;
+  if (styleImage) {
+    return {
+      mode: "custom",
+      templateId: null,
+      activeCategory: "live",
+      uploadedFile: null,
+      uploadedPreview: `/api/v1/files/${encodeURIComponent(projectName)}/${styleImage}`,
+    };
+  }
+  const effectiveId = templateId ?? DEFAULT_TEMPLATE_ID;
+  const tpl = STYLE_TEMPLATES.find((x) => x.id === effectiveId);
+  return {
+    mode: "template",
+    templateId: effectiveId,
+    activeCategory: tpl?.category ?? "live",
+    uploadedFile: null,
+    uploadedPreview: null,
+  };
+}
 
 export function ProjectSettingsPage() {
   const { t } = useTranslation("dashboard");
@@ -49,6 +74,10 @@ export function ProjectSettingsPage() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // ── Style picker state (independent save flow) ─────────────────────────────
+  const [styleValue, setStyleValue] = useState<StylePickerValue | null>(null);
+  const [savingStyle, setSavingStyle] = useState(false);
   const initialRef = useRef({
     videoBackend: "", imageBackend: "", audioOverride: null as boolean | null,
     textScript: "", textOverview: "", textStyle: "",
@@ -107,6 +136,7 @@ export function ProjectSettingsPage() {
       setAspectRatio(ar);
       setGenerationMode(gm);
       setDefaultDuration(dd);
+      setStyleValue(deriveStyleValue(project, projectName));
       initialRef.current = {
         videoBackend: vb, imageBackend: ib, audioOverride: ao,
         textScript: ts, textOverview: to, textStyle: tst,
@@ -139,6 +169,34 @@ export function ProjectSettingsPage() {
     if (isDirty && !window.confirm(t("unsaved_changes_confirm"))) return;
     navigate(path);
   }, [isDirty, navigate, t]);
+
+  const isStyleSaveDisabled = useMemo(() => {
+    if (savingStyle || !styleValue) return true;
+    if (styleValue.mode === "template") return !styleValue.templateId;
+    return !styleValue.uploadedFile && !styleValue.uploadedPreview;
+  }, [savingStyle, styleValue]);
+
+  const handleSaveStyle = useCallback(async () => {
+    if (!styleValue) return;
+    setSavingStyle(true);
+    try {
+      if (styleValue.mode === "template" && styleValue.templateId) {
+        await API.updateProject(projectName, { style_template_id: styleValue.templateId });
+      } else if (styleValue.mode === "custom" && styleValue.uploadedFile) {
+        await API.uploadStyleImage(projectName, styleValue.uploadedFile);
+      } else {
+        return;
+      }
+      // Refetch project to reset styleValue from canonical server state
+      const refreshed = await API.getProject(projectName);
+      setStyleValue(deriveStyleValue(refreshed.project as unknown as Record<string, unknown>, projectName));
+      useAppStore.getState().pushToast(t("saved"), "success");
+    } catch (e: unknown) {
+      useAppStore.getState().pushToast(e instanceof Error ? e.message : t("save_failed"), "error");
+    } finally {
+      setSavingStyle(false);
+    }
+  }, [styleValue, projectName, t]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -189,6 +247,28 @@ export function ProjectSettingsPage() {
             {t("model_config_project_desc")}
           </p>
         </div>
+
+        {/* Style picker (independent save flow, mutually exclusive template / custom) */}
+        {styleValue && (
+          <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4 space-y-3">
+            <div className="text-sm font-medium text-gray-100">{t("project_style_section_title")}</div>
+            <StylePicker value={styleValue} onChange={setStyleValue} />
+            <div className="flex items-center gap-3 pt-2 border-t border-gray-800">
+              <button
+                type="button"
+                onClick={handleSaveStyle}
+                disabled={isStyleSaveDisabled}
+                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
+              >
+                {savingStyle && <Loader2 className="h-4 w-4 animate-spin" />}
+                {savingStyle ? t("style_saving") : t("style_save")}
+              </button>
+              {isStyleSaveDisabled && !savingStyle && (
+                <p className="text-xs text-gray-500">{t("style_save_hint_required")}</p>
+              )}
+            </div>
+          </div>
+        )}
 
         {options && (
           <>

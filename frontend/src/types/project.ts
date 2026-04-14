@@ -79,6 +79,7 @@ export interface ProjectData {
   title: string;
   content_mode: "narration" | "drama";
   style: string;
+  style_template_id?: string | null;
   style_image?: string;
   style_description?: string;
   overview?: ProjectOverview;

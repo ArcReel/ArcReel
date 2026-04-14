@@ -422,3 +422,48 @@ class TestProjectsRouter:
                 },
             )
             assert resp.status_code == 400
+
+    def test_update_project_with_style_template_id_expands_and_clears_image(self, tmp_path, monkeypatch):
+        """PATCH style_template_id：写入 id + 展开 prompt 到 style，并清掉 style_image/description。"""
+        fake_pm = _FakePM(tmp_path)
+        # 预置一个带参考图的项目
+        fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
+        fake_pm.project_data["ready"]["style_description"] = "old desc"
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"style_template_id": "live_zhang_yimou"},
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert data["style_template_id"] == "live_zhang_yimou"
+            assert "张艺谋" in data["style"]
+            assert "style_image" not in data
+            assert "style_description" not in data
+
+    def test_update_project_with_unknown_template_id_returns_400(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"style_template_id": "no_such_template"},
+            )
+            assert resp.status_code == 400
+
+    def test_update_project_clear_style_image_drops_fields(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
+        fake_pm.project_data["ready"]["style_description"] = "to be removed"
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"clear_style_image": True},
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert "style_image" not in data
+            assert "style_description" not in data

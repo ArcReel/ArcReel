@@ -179,6 +179,11 @@ class TestFilesRouter:
     def test_style_image_endpoints(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
 
+        # 预置 style_template_id，验证上传后被强制清掉（互斥）
+        project = pm.load_project("demo")
+        project["style_template_id"] = "live_premium_drama"
+        pm.save_project("demo", project)
+
         with client:
             upload_style = client.post(
                 "/api/v1/projects/demo/style-image",
@@ -186,6 +191,9 @@ class TestFilesRouter:
             )
             assert upload_style.status_code == 200
             assert upload_style.json()["style_description"] == "cinematic, high contrast"
+            after = pm.load_project("demo")
+            assert after.get("style_image", "").startswith("style_reference")
+            assert "style_template_id" not in after
 
             bad_style_ext = client.post(
                 "/api/v1/projects/demo/style-image",

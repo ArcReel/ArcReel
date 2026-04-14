@@ -1608,9 +1608,19 @@ EOF
 
 ---
 
+## Task 20: ProjectSettingsPage 风格修改区块（Spec 漏项补丁）
+
+原 spec 把"事后修改风格"放在 Out of scope，实际是漏项——概览页拿掉后用户失去修改入口。
+本 PR 内补回。改动一并合入。
+
+- **20a**：抽 `frontend/src/components/shared/StylePicker.tsx`（纯展示，3 tab + 网格 + 上传），重构 `WizardStep3Style` 内部用之；切 tab 时清对侧字段保证互斥
+- **20b**：`UpdateProjectRequest` 加 `style_template_id` + `clear_style_image`；`update_project` 处理器展开 prompt + 清 style_image；`upload_style_image` 末尾清 style_template_id
+- **20c**：`api.ts` updateProject 类型加 `clear_style_image`；`ProjectData` 加 `style_template_id`；i18n 加 4 个键
+- **20d**：`ProjectSettingsPage` 在 ModelConfigSection 上方新增"项目风格"卡片；独立 `savingStyle` loading state；保存按钮互斥 + 必选其一逻辑；成功后 refetch
+- **20e**：`tests/test_projects_router.py` 新增 3 条 update 路径测试；`tests/test_files_router.py` 扩 style-image 断言；新增 `ProjectSettingsPage.test.tsx` 4 条；spec L29 修订
+
 ## 非目标（明确不在本 PR）
 
 - 缩略图质量优化（anim_ghibli 等带水印文字）：后续 issue
 - 模版 prompt 升级传导到已创建项目：设计上不做
-- 事后修改模版的独立入口：未来迭代
 - 用户自建模版：未来迭代

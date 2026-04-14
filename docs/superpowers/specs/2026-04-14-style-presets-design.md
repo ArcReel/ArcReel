@@ -26,7 +26,8 @@
 - 模版导入 / 导出
 - 缩略图端侧重生成（目前是静态资源）
 - 概览页重构为新风格展示
-- ProjectSettingsPage 在本 PR 仅做 ModelConfigSection 替换，不新增功能
+- ~~ProjectSettingsPage 在本 PR 仅做 ModelConfigSection 替换，不新增功能~~
+  → **修订**：补充"项目风格"修改区块（Task 20，含 StylePicker 抽离 + update 路径支持 style_template_id/clear_style_image + 强互斥）。
 
 ## 数据模型
 
@@ -47,6 +48,10 @@
 - 选择模版（step 3 "AI 漫剧" 或 "AI 真人剧" tab）：`style_template_id = <id>`, `style = <展开的 prompt 文本>`, `style_image/style_description` 清空（若有）
 - 上传参考图（step 3 "自定义" tab）：`style_template_id = null`, `style = ""`, `style_image/style_description` 由 `POST /style-image` 写入
 - 后端读取时若同时出现两者（历史数据竞态），以 `style_image` 优先（迁移逻辑主动清理 `style_template_id`）
+- **Settings 修改路径（Task 20 新增）**：
+  - `PATCH /projects/{name}` 接 `style_template_id`：校验 → 写入 id + `style` 展开文本 + 清 `style_image/style_description`
+  - `PATCH /projects/{name}` 接 `clear_style_image: true`：清 `style_image/style_description`
+  - `POST /projects/{name}/style-image`：写入 `style_image/style_description` + **同时清 `style_template_id`**
 
 ### 模版注册表（权威源在后端）
 

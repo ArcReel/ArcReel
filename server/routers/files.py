@@ -602,6 +602,8 @@ async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translat
             project_data = get_project_manager().load_project(project_name)
             project_data["style_image"] = style_filename
             project_data["style_description"] = style_description
+            # 强互斥：自定义参考图与模版二选一
+            project_data.pop("style_template_id", None)
             with project_change_source("webui"):
                 get_project_manager().save_project(project_name, project_data)
 
