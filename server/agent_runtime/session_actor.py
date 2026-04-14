@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import AsyncIterable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
@@ -144,7 +145,7 @@ class SessionActor:
                 cmd_task.cancel()
 
     async def enqueue(self, cmd: SessionCommand) -> None:
-        if self._fatal is not None or (self._task is not None and self._task.done()):
+        if self._task is not None and self._task.done():
             cmd.error = self._fatal or _ActorClosed()
             cmd.done.set()
             return
@@ -159,3 +160,30 @@ class SessionActor:
             if not cmd.done.is_set():
                 cmd.error = exc
                 cmd.done.set()
+
+    # --- Public accessors (avoid leaking _task to callers) -----------------
+
+    @property
+    def task(self) -> asyncio.Task | None:
+        """Underlying actor task; None before start()."""
+        return self._task
+
+    def add_done_callback(self, callback: Callable[[asyncio.Task], None]) -> None:
+        """Register a callback on the actor task. No-op if task not started yet."""
+        if self._task is not None:
+            self._task.add_done_callback(callback)
+
+    async def wait(self) -> None:
+        """Await actor task completion, swallowing any raised exception."""
+        if self._task is None:
+            return
+        with contextlib.suppress(BaseException):
+            await self._task
+
+    async def cancel_and_wait(self) -> None:
+        """Cancel the actor task and wait for it to finish."""
+        if self._task is None or self._task.done():
+            return
+        self._task.cancel()
+        with contextlib.suppress(BaseException):
+            await self._task
