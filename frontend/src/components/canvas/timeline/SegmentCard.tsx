@@ -198,7 +198,7 @@ function DurationSelector({
       <button
         ref={ref}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex cursor-pointer items-center gap-0.5 rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-300 hover:bg-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        className="inline-flex cursor-pointer items-center gap-0.5 rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-300 hover:bg-gray-600 focus-ring"
       >
         <Clock aria-hidden="true" className="h-3 w-3" />
         {seconds}s
@@ -222,7 +222,7 @@ function DurationSelector({
                 onUpdatePrompt(segmentId, "duration_seconds", d);
                 setOpen(false);
               }}
-              className={`rounded px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+              className={`rounded px-3 py-1.5 text-xs font-medium transition-colors focus-ring ${
                 d === seconds
                   ? "bg-indigo-600 text-white"
                   : "text-gray-300 hover:bg-gray-700"
@@ -296,7 +296,7 @@ function TextColumn({
         {t("note_section")}
       </span>
       <textarea
-        className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 text-sm text-gray-300 placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 text-sm text-gray-300 placeholder-gray-600 focus:border-indigo-500 focus-ring"
         rows={4}
         placeholder={t("add_note_placeholder")}
         aria-label={t("note_section")}

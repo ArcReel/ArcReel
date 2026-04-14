@@ -260,7 +260,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             value={styleDescriptionDraft}
             onChange={(e) => setStyleDescriptionDraft(e.target.value)}
             rows={8}
-            className={`mt-3 min-h-44 w-full rounded-xl border border-gray-700 bg-gray-800/80 px-4 py-3 text-sm leading-relaxed text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
+            className={`mt-3 min-h-44 w-full rounded-xl border border-gray-700 bg-gray-800/80 px-4 py-3 text-sm leading-relaxed text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus-ring`}
             placeholder={t("style_desc_textarea_placeholder")}
           />
 

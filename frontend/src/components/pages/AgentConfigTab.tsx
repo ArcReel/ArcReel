@@ -400,7 +400,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                       )
                     }
                     disabled={isBusy}
-                    className="inline-flex items-center gap-1 rounded text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
+                    className="inline-flex items-center gap-1 rounded text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-ring"
                     aria-label={t("clear_saved_base_url")}
                   >
                     {clearingField === "anthropic_base_url" ? (
@@ -467,7 +467,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                     )
                   }
                   disabled={isBusy}
-                  className="inline-flex items-center gap-1 rounded text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
+                  className="inline-flex items-center gap-1 rounded text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-ring"
                   aria-label={t("clear_saved_model")}
                 >
                   {clearingField === "anthropic_model" ? (
@@ -549,7 +549,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                               )
                             }
                             disabled={isBusy}
-                            className="inline-flex items-center gap-1 text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none rounded"
+                            className="inline-flex items-center gap-1 text-xs text-gray-600 transition-colors hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-ring rounded"
                             aria-label={t("clear_saved_field", { label: t(`dashboard:${labelKey}`) })}
                           >
                             {clearingField === patchKey ? (

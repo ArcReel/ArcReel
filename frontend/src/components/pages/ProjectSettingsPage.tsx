@@ -190,7 +190,7 @@ export function ProjectSettingsPage() {
       <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-gray-800 bg-gray-950/95 px-6 py-4 backdrop-blur">
         <button
           onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
-          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-800 hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-800 hover:text-gray-200 focus-ring"
           aria-label={t("back_to_project")}
         >
           <ArrowLeft className="h-5 w-5" />
@@ -308,7 +308,7 @@ export function ProjectSettingsPage() {
                   role="radio"
                   aria-checked={effectiveDefaultDuration === null}
                   onClick={() => setDefaultDuration(null)}
-                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors focus-ring ${
                     effectiveDefaultDuration === null
                       ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
                       : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
@@ -323,7 +323,7 @@ export function ProjectSettingsPage() {
                     role="radio"
                     aria-checked={effectiveDefaultDuration === d}
                     onClick={() => setDefaultDuration(d)}
-                    className={`rounded-lg border px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                    className={`rounded-lg border px-3 py-1.5 text-sm transition-colors focus-ring ${
                       effectiveDefaultDuration === d
                         ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
                         : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
@@ -409,13 +409,13 @@ export function ProjectSettingsPage() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="rounded-lg bg-indigo-600 px-6 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
+            className="rounded-lg bg-indigo-600 px-6 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
           >
             {saving ? t("common:saving") : t("common:save")}
           </button>
           <button
             onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
-            className="rounded-lg border border-gray-700 px-6 py-2 text-sm text-gray-300 hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
+            className="rounded-lg border border-gray-700 px-6 py-2 text-sm text-gray-300 hover:bg-gray-800 focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
           >
             {t("common:cancel")}
           </button>

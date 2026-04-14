@@ -70,7 +70,7 @@ export function SystemConfigPage() {
         <div className="flex items-center gap-3">
           <Link
             href="/app/projects"
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-200 hover:border-gray-700 hover:bg-gray-800 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-200 hover:border-gray-700 hover:bg-gray-800 focus-ring"
             aria-label={t("common:back")}
           >
             <ChevronLeft className="h-4 w-4" />
@@ -96,7 +96,7 @@ export function SystemConfigPage() {
                 key={id}
                 type="button"
                 onClick={() => setActiveSection(id)}
-                className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/60 focus-visible:outline-none ${
+                className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors focus-ring focus-visible:ring-inset ${
                   isActive
                     ? "border-l-2 border-indigo-500 bg-gray-800/50 text-white"
                     : "border-l-2 border-transparent text-gray-400 hover:bg-gray-800/30 hover:text-gray-200"
@@ -117,7 +117,7 @@ export function SystemConfigPage() {
               const nextLang = i18n.language.startsWith("zh") ? "en" : "zh";
               void i18n.changeLanguage(nextLang);
             }}
-            className="flex w-full items-center gap-3 px-4 py-2.5 text-sm border-l-2 border-transparent text-gray-400 hover:bg-gray-800/30 hover:text-gray-200 transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/60 focus-visible:outline-none"
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-sm border-l-2 border-transparent text-gray-400 hover:bg-gray-800/30 hover:text-gray-200 transition-colors focus-ring focus-visible:ring-inset"
           >
             <Languages className="h-4 w-4" />
             <span className="flex-1 text-left">{t("dashboard:language_setting")}</span>

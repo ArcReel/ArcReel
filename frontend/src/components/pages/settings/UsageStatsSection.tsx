@@ -69,7 +69,7 @@ export function UsageStatsSection() {
             key={r.days}
             type="button"
             onClick={() => setTimeRange(r.days)}
-            className={`rounded-lg px-3 py-1.5 text-sm focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none ${
+            className={`rounded-lg px-3 py-1.5 text-sm focus-ring ${
               timeRange === r.days
                 ? "bg-indigo-600 text-white"
                 : "border border-gray-700 text-gray-400 hover:text-gray-200"
@@ -83,7 +83,7 @@ export function UsageStatsSection() {
             value={providerFilter}
             onChange={(e) => setProviderFilter(e.target.value)}
             aria-label={t("filter_by_provider")}
-            className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-sm text-gray-300 focus:border-indigo-500/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
+            className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-sm text-gray-300 focus:border-indigo-500/60 focus-ring"
           >
             <option value="">{t("all_providers")}</option>
             {providers.map((p) => (
