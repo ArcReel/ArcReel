@@ -13,6 +13,7 @@ from lib.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
+    warn_if_truncated,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,18 @@ class GrokTextBackend:
             usage = response.usage
             input_tokens = getattr(usage, "input_tokens", None) or getattr(usage, "prompt_tokens", None)
             output_tokens = getattr(usage, "output_tokens", None) or getattr(usage, "completion_tokens", None)
+
+        finish_reason = getattr(response, "finish_reason", None)
+        if finish_reason is None:
+            choices = getattr(response, "choices", None) or []
+            if choices:
+                finish_reason = getattr(choices[0], "finish_reason", None)
+        warn_if_truncated(
+            finish_reason,
+            provider=PROVIDER_GROK,
+            model=self._model,
+            output_tokens=output_tokens,
+        )
 
         return TextGenerationResult(
             text=text.strip() if isinstance(text, str) else str(text),

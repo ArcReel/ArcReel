@@ -199,6 +199,28 @@ class TestCapabilityAwareStructured:
         call_args = backend_no_structured._openai_client.chat.completions.create.call_args
         assert call_args.kwargs["response_format"] == {"type": "json_object"}
 
+    async def test_truncation_warning_logged_on_finish_reason_length(
+        self, backend_no_structured, sync_to_thread, caplog
+    ):
+        """当 Ark 返回 finish_reason=length 时应记录 WARNING。"""
+        import logging
+
+        mock_resp = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content="partial"),
+                    finish_reason="length",
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=8192),
+        )
+        backend_no_structured._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+
+        with caplog.at_level(logging.WARNING, logger="lib.text_backends.base"):
+            await backend_no_structured.generate(TextGenerationRequest(prompt="hi"))
+
+        assert any("被截断" in r.message for r in caplog.records)
+
     async def test_max_output_tokens_plain(self, backend_no_structured, sync_to_thread):
         """plain 路径透传 max_tokens。"""
         mock_resp = SimpleNamespace(

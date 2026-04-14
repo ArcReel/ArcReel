@@ -162,3 +162,36 @@ class TestTextBackendProtocol:
         assert backend.name == "fake"
         assert backend.model == "fake-model"
         assert TextCapability.TEXT_GENERATION in backend.capabilities
+
+
+class TestWarnIfTruncated:
+    def test_none_finish_reason_returns_false(self, caplog):
+        from lib.text_backends.base import warn_if_truncated
+
+        assert warn_if_truncated(None, provider="x", model="m") is False
+        assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+    def test_normal_stop_returns_false(self, caplog):
+        from lib.text_backends.base import warn_if_truncated
+
+        assert warn_if_truncated("stop", provider="x", model="m") is False
+        assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+    def test_length_triggers_warning(self, caplog):
+        import logging
+
+        from lib.text_backends.base import warn_if_truncated
+
+        with caplog.at_level(logging.WARNING, logger="lib.text_backends.base"):
+            result = warn_if_truncated("length", provider="ark", model="doubao", output_tokens=8192)
+
+        assert result is True
+        assert any("被截断" in r.message and "length" in r.message for r in caplog.records)
+
+    def test_max_tokens_variant_triggers_warning(self, caplog):
+        import logging
+
+        from lib.text_backends.base import warn_if_truncated
+
+        with caplog.at_level(logging.WARNING, logger="lib.text_backends.base"):
+            assert warn_if_truncated("MAX_TOKENS", provider="gemini", model="g") is True

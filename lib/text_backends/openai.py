@@ -14,6 +14,7 @@ from lib.text_backends.base import (
     TextGenerationRequest,
     TextGenerationResult,
     resolve_schema,
+    warn_if_truncated,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,12 +92,20 @@ class OpenAITextBackend:
             raise
 
         usage = response.usage
+        choice = response.choices[0]
+        output_tokens = usage.completion_tokens if usage else None
+        warn_if_truncated(
+            getattr(choice, "finish_reason", None),
+            provider=PROVIDER_OPENAI,
+            model=self._model,
+            output_tokens=output_tokens,
+        )
         return TextGenerationResult(
-            text=response.choices[0].message.content or "",
+            text=choice.message.content or "",
             provider=PROVIDER_OPENAI,
             model=self._model,
             input_tokens=usage.prompt_tokens if usage else None,
-            output_tokens=usage.completion_tokens if usage else None,
+            output_tokens=output_tokens,
         )
 
 

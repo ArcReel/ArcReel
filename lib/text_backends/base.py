@@ -2,10 +2,40 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
+
+_logger = logging.getLogger(__name__)
+
+
+def warn_if_truncated(
+    finish_reason: str | None,
+    *,
+    provider: str,
+    model: str,
+    output_tokens: int | None = None,
+    truncation_values: tuple[str, ...] = ("length", "MAX_TOKENS", "max_tokens"),
+) -> bool:
+    """检测模型响应是否因 token 上限被截断，若是则 logger.warning。
+
+    返回 True 表示被截断（供调用方用于进一步处理）。
+    """
+    if finish_reason is None:
+        return False
+    if finish_reason in truncation_values:
+        _logger.warning(
+            "%s/%s 输出被截断（finish_reason=%s, output_tokens=%s）：已达模型输出上限。"
+            "考虑切换到更大输出上限的模型，或减少请求规模。",
+            provider,
+            model,
+            finish_reason,
+            output_tokens,
+        )
+        return True
+    return False
 
 
 class TextCapability(StrEnum):

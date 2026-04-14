@@ -19,6 +19,7 @@ from .base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
+    warn_if_truncated,
 )
 
 logger = logging.getLogger(__name__)
@@ -157,6 +158,17 @@ class GeminiTextBackend:
         if response.usage_metadata is not None:
             input_tokens = getattr(response.usage_metadata, "prompt_token_count", None)
             output_tokens = getattr(response.usage_metadata, "candidates_token_count", None)
+
+        candidates = getattr(response, "candidates", None) or []
+        if candidates:
+            finish_reason = getattr(candidates[0], "finish_reason", None)
+            # Gemini finish_reason 可能是枚举对象，转 str 后再比对
+            warn_if_truncated(
+                str(finish_reason).rsplit(".", 1)[-1] if finish_reason is not None else None,
+                provider=PROVIDER_GEMINI,
+                model=self._model,
+                output_tokens=output_tokens,
+            )
 
         return TextGenerationResult(
             text=text,

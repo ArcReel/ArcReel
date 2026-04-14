@@ -136,9 +136,18 @@ class ArkTextBackend:
         return messages
 
     def _parse_chat_response(self, response) -> TextGenerationResult:
-        text = response.choices[0].message.content
+        from lib.text_backends.base import warn_if_truncated
+
+        choice = response.choices[0]
+        text = choice.message.content
         input_tokens = getattr(getattr(response, "usage", None), "prompt_tokens", None)
         output_tokens = getattr(getattr(response, "usage", None), "completion_tokens", None)
+        warn_if_truncated(
+            getattr(choice, "finish_reason", None),
+            provider=PROVIDER_ARK,
+            model=self._model,
+            output_tokens=output_tokens,
+        )
         return TextGenerationResult(
             text=text.strip() if isinstance(text, str) else str(text),
             provider=PROVIDER_ARK,

@@ -150,13 +150,23 @@ def instructor_fallback_sync(
         create_kwargs["max_tokens"] = max_tokens
     response = client.chat.completions.create(**create_kwargs)
     usage = getattr(response, "usage", None)
-    text = response.choices[0].message.content or ""
+    choice = response.choices[0]
+    text = choice.message.content or ""
+    output_tokens = getattr(usage, "completion_tokens", None) if usage else None
+    from lib.text_backends.base import warn_if_truncated
+
+    warn_if_truncated(
+        getattr(choice, "finish_reason", None),
+        provider=provider,
+        model=model,
+        output_tokens=output_tokens,
+    )
     return TextGenerationResult(
         text=text.strip() if isinstance(text, str) else str(text),
         provider=provider,
         model=model,
         input_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
-        output_tokens=getattr(usage, "completion_tokens", None) if usage else None,
+        output_tokens=output_tokens,
     )
 
 
@@ -205,11 +215,21 @@ async def instructor_fallback_async(
         create_kwargs["max_tokens"] = max_tokens
     response = await client.chat.completions.create(**create_kwargs)
     usage = getattr(response, "usage", None)
-    text = response.choices[0].message.content or ""
+    choice = response.choices[0]
+    text = choice.message.content or ""
+    output_tokens = getattr(usage, "completion_tokens", None) if usage else None
+    from lib.text_backends.base import warn_if_truncated
+
+    warn_if_truncated(
+        getattr(choice, "finish_reason", None),
+        provider=provider,
+        model=model,
+        output_tokens=output_tokens,
+    )
     return TextGenerationResult(
         text=text.strip() if isinstance(text, str) else str(text),
         provider=provider,
         model=model,
         input_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
-        output_tokens=getattr(usage, "completion_tokens", None) if usage else None,
+        output_tokens=output_tokens,
     )
