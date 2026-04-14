@@ -990,17 +990,23 @@ class ProjectManager:
 
     @contextmanager
     def _script_lock(self, project_name: str, script_filename: str):
-        """通过 scripts 目录下的隐藏 lock file 获取剧本文件的排他锁。
+        """通过隐藏 lock file 获取剧本文件的排他锁。
 
-        lock 文件命名为 `.{script_filename}.lock`（以 `.` 开头），被
-        `list_scripts()` 的 `*.json` glob 与 `project_archive` 的
-        `name.startswith(".")` 过滤自动排除。
+        lock 文件命名为 `.{basename}.lock`（以 `.` 开头），位于规范化后剧本的
+        parent 目录下，自动被 `list_scripts()` 的 `*.json` glob 与
+        `project_archive` 的 `name.startswith(".")` 过滤排除。
+
+        **关键**：用 `_safe_subpath` 规范化 filename 再派生 lock key，避免
+        `./episode_1.json` 与 `episode_1.json` 解析到同一个 real path 却拿到
+        不同锁、从而绕过互斥的别名问题。
         """
         scripts_dir = self.get_project_path(project_name) / "scripts"
         scripts_dir.mkdir(parents=True, exist_ok=True)
         if script_filename.startswith("scripts/"):
             script_filename = script_filename[len("scripts/") :]
-        lock_path = scripts_dir / f".{script_filename}.lock"
+        real = Path(self._safe_subpath(scripts_dir, script_filename))
+        lock_path = real.parent / f".{real.name}.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
         lock_path.touch(exist_ok=True)
         fd = open(lock_path)
         try:

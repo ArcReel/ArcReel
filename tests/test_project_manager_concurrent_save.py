@@ -140,6 +140,34 @@ class TestLockFileNaming:
         assert "project.lock" not in names
 
 
+class TestLockPathAliasing:
+    def test_aliased_filenames_share_single_lock(self, tmp_path: Path) -> None:
+        """`./episode_1.json`、`episode_1.json`、`scripts/episode_1.json` 必须解析到同一把锁文件。"""
+        pm = ProjectManager(tmp_path)
+        name = "proj-alias"
+        _seed_project(pm, name)
+        pm.save_script(name, _make_script(1, payload_size=10), "episode_1.json")
+
+        scripts_dir = pm.get_project_path(name) / "scripts"
+
+        # 分别用三种别名进入 _script_lock 并检查拿到的 lock_path 相同
+        lock_paths = set()
+        for alias in ["episode_1.json", "./episode_1.json", "scripts/episode_1.json"]:
+            with pm._script_lock(name, alias):
+                # 锁持有期间断言 scripts 下应存在唯一的隐藏锁文件
+                hidden = [p for p in scripts_dir.iterdir() if p.name.startswith(".") and p.name.endswith(".lock")]
+                assert len(hidden) == 1, f"期望唯一锁文件，实际 {[p.name for p in hidden]}"
+                lock_paths.add(hidden[0].resolve())
+
+        assert len(lock_paths) == 1, f"别名应共享同一锁文件，实际产生 {lock_paths}"
+        # 项目根目录不应出现 script 相关锁的逸出（防止 `./ep.json` 造成 scripts/../.ep.json.lock）
+        project_dir = pm.get_project_path(name)
+        strays = [
+            p.name for p in project_dir.iterdir() if p.is_file() and p.name.endswith(".lock") and "episode" in p.name
+        ]
+        assert strays == [], f"项目根目录不应出现 script 锁文件残留，实际 {strays}"
+
+
 class TestArchiveExcludesLocks:
     def test_is_hidden_member_filters_lock_and_tmp(self) -> None:
         """导出 ZIP 的隐藏成员判定应覆盖 lock 与原子写入的 tmp 残留。"""
