@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { FileText, Edit3, Save, X, Trash2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { API } from "@/api";
+import { voidPromise } from "@/utils/async";
 import { useAppStore } from "@/stores/app-store";
 
 // ---------------------------------------------------------------------------
@@ -102,7 +103,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
             <>
               <button
                 type="button"
-                onClick={handleSave}
+                onClick={voidPromise(handleSave)}
                 disabled={saving}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-green-400 transition-colors hover:bg-gray-800 disabled:opacity-50"
               >
@@ -130,7 +131,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
               </button>
               <button
                 type="button"
-                onClick={handleDelete}
+                onClick={voidPromise(handleDelete)}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-red-400"
               >
                 <Trash2 className="h-3.5 w-3.5" />

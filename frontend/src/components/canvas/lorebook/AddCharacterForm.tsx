@@ -90,7 +90,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-3">
+      <form onSubmit={voidPromise(handleSubmit)} className="space-y-3">
         <div>
           <label className="block text-xs font-medium text-gray-400 mb-1">
             {t("name_label")} <span className="text-red-400">*</span>

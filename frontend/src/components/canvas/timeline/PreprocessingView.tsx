@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Edit3, Save, X } from "lucide-react";
 import { API } from "@/api";
+import { voidPromise } from "@/utils/async";
 import { useAppStore } from "@/stores/app-store";
 import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
 
@@ -98,7 +99,7 @@ export function PreprocessingView({
             <>
               <button
                 type="button"
-                onClick={handleSave}
+                onClick={voidPromise(handleSave)}
                 disabled={saving}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-green-400 transition-colors hover:bg-gray-800 disabled:opacity-50"
               >
