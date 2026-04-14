@@ -45,12 +45,14 @@ function makePendingQuestion() {
 }
 
 describe("AgentCopilot", () => {
-  const sendMessage = vi.fn();
-  const answerQuestion = vi.fn();
-  const interrupt = vi.fn();
+  // Mocks whose callers wrap them with voidPromise must return a Promise
+  // so the .catch(...) chain in voidPromise resolves instead of crashing.
+  const sendMessage = vi.fn().mockResolvedValue(undefined);
+  const answerQuestion = vi.fn().mockResolvedValue(undefined);
+  const interrupt = vi.fn().mockResolvedValue(undefined);
   const createNewSession = vi.fn();
-  const switchSession = vi.fn();
-  const deleteSession = vi.fn();
+  const switchSession = vi.fn().mockResolvedValue(undefined);
+  const deleteSession = vi.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
