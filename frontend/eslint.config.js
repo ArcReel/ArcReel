@@ -124,4 +124,17 @@ export default tseslint.config(
   },
   // 迁移期降级：不依赖 type info 的 rule，全局生效
   { rules: MIGRATION_WARN_RULES_ALL },
+
+  // 测试文件放宽 any 与 unsafe-* —— 测试环境允许 mock 便利
+  {
+    files: ["src/**/*.test.{ts,tsx}", "src/test/**/*.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+    },
+  },
 );
