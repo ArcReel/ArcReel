@@ -6,7 +6,6 @@ from lib.prompt_utils import (
     is_structured_video_prompt,
     validate_camera_motion,
     validate_shot_type,
-    validate_style,
     video_prompt_to_yaml,
 )
 
@@ -56,8 +55,6 @@ class TestPromptUtils:
         assert not is_structured_video_prompt([])
 
     def test_validators(self):
-        assert validate_style("Anime")
-        assert not validate_style("Unknown")
         assert validate_shot_type("Close-up")
         assert not validate_shot_type("Bad Shot")
         assert validate_camera_motion("Zoom In")

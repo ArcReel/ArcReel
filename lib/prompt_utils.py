@@ -7,8 +7,6 @@ Prompt 工具函数
 import yaml
 
 # 预设选项定义
-STYLES = ["Photographic", "Anime", "3D Animation"]
-
 SHOT_TYPES = [
     "Extreme Close-up",
     "Close-up",
@@ -119,11 +117,6 @@ def is_structured_video_prompt(video_prompt) -> bool:
         True 如果是结构化格式（dict），False 如果是旧的字符串格式
     """
     return isinstance(video_prompt, dict) and "action" in video_prompt
-
-
-def validate_style(style: str) -> bool:
-    """验证风格是否为预设选项"""
-    return style in STYLES
 
 
 def validate_shot_type(shot_type: str) -> bool:
