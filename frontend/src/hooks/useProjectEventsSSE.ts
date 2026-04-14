@@ -169,13 +169,13 @@ export function useProjectEventsSSE(projectName?: string | null): void {
       pushToast(`同步项目变更失败: ${(err as Error).message}`, "warning");
     } finally {
       refreshingRef.current = false;
-      if (needsRefreshRef.current) {
-        needsRefreshRef.current = false;
-        void refreshProject();
-        return;
-      }
-      flushQueuedFocus();
     }
+    if (needsRefreshRef.current) {
+      needsRefreshRef.current = false;
+      void refreshProject();
+      return;
+    }
+    flushQueuedFocus();
   }, [flushQueuedFocus, projectName, pushToast, setCurrentProject]);
 
   useEffect(() => {
@@ -335,5 +335,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     refreshProject,
     pushToast,
     setAssistantToolActivitySuppressed,
+    setLocation,
   ]);
 }
