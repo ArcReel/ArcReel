@@ -216,7 +216,7 @@ class SessionActor:
         if self._task is None:
             return
         with contextlib.suppress(BaseException):
-            await self._task
+            _ = await self._task
 
     async def cancel_and_wait(self) -> None:
         """Cancel the actor task and wait for it to finish."""
@@ -224,4 +224,4 @@ class SessionActor:
             return
         self._task.cancel()
         with contextlib.suppress(BaseException):
-            await self._task
+            _ = await self._task
