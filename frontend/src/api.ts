@@ -57,8 +57,8 @@ export interface ErrorResponse {
 /** Error payload from the import project endpoint (extends ErrorResponse with import-specific fields). */
 interface ImportErrorPayload {
   detail?: string | { msg?: string }[];
-  errors?: unknown[];
-  warnings?: unknown[];
+  errors?: string[];
+  warnings?: string[];
   conflict_project_name?: string;
   diagnostics?: unknown;
 }
@@ -410,8 +410,8 @@ class API {
       };
       error.status = response.status;
       error.detail = typeof payload.detail === "string" ? payload.detail : "导入失败";
-      error.errors = Array.isArray(payload.errors) ? payload.errors as string[] : [];
-      error.warnings = Array.isArray(payload.warnings) ? payload.warnings as string[] : [];
+      error.errors = Array.isArray(payload.errors) ? payload.errors : [];
+      error.warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
       if (typeof payload.conflict_project_name === "string") {
         error.conflict_project_name = payload.conflict_project_name;
       }
