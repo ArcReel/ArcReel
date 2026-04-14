@@ -422,3 +422,91 @@ async def test_enqueue_after_actor_closed_fails_fast():
     await stale.done.wait()
     assert stale.error is not None
     assert isinstance(stale.error, (_ActorClosed, BaseException))
+
+
+@pytest.mark.asyncio
+async def test_send_query_returns_on_sent_not_on_drain():
+    """P1 回归锁定：send_query 在 prompt 送入 SDK 即返回，不等整轮 drain。
+
+    block_forever=True 使 receive_response 永不自然结束；若 send_query 等
+    cmd.done.wait() 会挂死，测试超时。等 cmd.sent 则应立即返回。
+    """
+    from contextlib import asynccontextmanager
+
+    from server.agent_runtime.session_manager import ManagedSession
+
+    client = FakeSDKClient(block_forever=True)
+
+    @asynccontextmanager
+    async def _factory():
+        async with client as c:
+            yield c
+
+    actor = SessionActor(client_factory=_factory, on_message=lambda m: None)
+    managed = ManagedSession(session_id="t", actor=actor, status="idle", project_name="p")
+
+    await actor.start()
+    try:
+        # 1 秒内必须返回；旧语义下会挂死到超时
+        await asyncio.wait_for(managed.send_query("hi"), timeout=1.0)
+        assert client.sent_queries == ["hi"]
+        assert managed.status == "running"  # 后台仍在 drain
+    finally:
+        await managed.send_disconnect()
+
+
+@pytest.mark.asyncio
+async def test_drive_query_rejects_second_pending_query():
+    """pending_query 已非空时，第三个 query 应被拒绝而非覆盖。"""
+    from contextlib import asynccontextmanager
+
+    client = FakeSDKClient(block_forever=True)
+
+    @asynccontextmanager
+    async def _factory():
+        async with client as c:
+            yield c
+
+    actor = SessionActor(client_factory=_factory, on_message=lambda m: None)
+    await actor.start()
+    try:
+        q1 = SessionCommand(type="query", prompt="first")
+        await actor.enqueue(q1)
+        await q1.sent.wait()  # q1 已进入 drive_query
+
+        # q2 和 q3 都在 drive_query 内 pending
+        q2 = SessionCommand(type="query", prompt="second")
+        q3 = SessionCommand(type="query", prompt="third")
+        await actor.enqueue(q2)
+        await actor.enqueue(q3)
+
+        # q3 应被 actor 立即拒绝
+        await asyncio.wait_for(q3.done.wait(), timeout=1.0)
+        assert q3.error is not None
+        assert "session busy" in str(q3.error)
+        # q2 仍在 pending，尚未被拒绝
+        assert not q2.done.is_set()
+    finally:
+        # 结束 q1，让 q2 进入执行；再 disconnect
+        client.push_message(None)  # block_forever sentinel
+        await asyncio.sleep(0.05)
+        d = SessionCommand(type="disconnect")
+        await actor.enqueue(d)
+        await d.done.wait()
+        if actor.task is not None:
+            await actor.wait()
+
+
+@pytest.mark.asyncio
+async def test_start_is_not_reentrant():
+    """重复 start() 应立即触发断言，避免孤儿 task。"""
+    client = FakeSDKClient()
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    await actor.start()
+    try:
+        with pytest.raises(AssertionError, match="不可重入"):
+            await actor.start()
+    finally:
+        d = SessionCommand(type="disconnect")
+        await actor.enqueue(d)
+        await d.done.wait()

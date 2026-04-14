@@ -1183,7 +1183,13 @@ async def test_send_query_sets_running_and_awaits_done():
     await actor.start()
     await managed.send_query("hi")
     assert client.sent_queries == ["hi"]
-    assert managed.status == "idle"  # result=success → idle
+    assert managed.status == "running"  # send_query 在 sent 即返回；整轮 drain 仍在后台
+    # 等后台 drain 完成：result=success → _on_actor_message 把 status 改回 idle
+    for _ in range(100):
+        if managed.status != "running":
+            break
+        await asyncio.sleep(0.01)
+    assert managed.status == "idle"
 
     # 收尾
     await managed.send_disconnect()

@@ -158,10 +158,14 @@ class TestSessionManagerUserInput:
         try:
             await session_manager.send_message(meta.id, "hi")
 
-            # Wait for finalize_turn to complete via inbox processor.
-            for _ in range(100):
+            # send_message 在 prompt 送入 SDK 即返回；等 actor 后台 drain 与 inbox 处理完成。
+            for _ in range(200):
                 await asyncio.sleep(0)
-                if managed._inbox.empty() and not any(msg.get("type") == "result" for msg in managed.message_buffer):
+                if (
+                    managed.status != "running"
+                    and managed._inbox.empty()
+                    and not any(msg.get("type") == "result" for msg in managed.message_buffer)
+                ):
                     break
                 await asyncio.sleep(0.01)
 
