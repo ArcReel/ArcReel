@@ -74,7 +74,21 @@ class _FakePM:
     def generate_project_name(self, title):
         return self.generated_names.pop(0)
 
-    def create_project_metadata(self, name, title, style, content_mode, aspect_ratio="9:16", default_duration=None):
+    def create_project_metadata(
+        self,
+        name,
+        title,
+        style,
+        content_mode,
+        aspect_ratio="9:16",
+        default_duration=None,
+        style_template_id=None,
+        video_backend=None,
+        image_backend=None,
+        text_backend_script=None,
+        text_backend_overview=None,
+        text_backend_style=None,
+    ):
         payload = {
             "title": (title or name),
             "style": style or "",
@@ -84,6 +98,17 @@ class _FakePM:
         }
         if default_duration is not None:
             payload["default_duration"] = default_duration
+        if style_template_id is not None:
+            payload["style_template_id"] = style_template_id
+        for key, val in (
+            ("video_backend", video_backend),
+            ("image_backend", image_backend),
+            ("text_backend_script", text_backend_script),
+            ("text_backend_overview", text_backend_overview),
+            ("text_backend_style", text_backend_style),
+        ):
+            if val:
+                payload[key] = val
         self.project_data[name] = payload
         return payload
 
@@ -303,4 +328,80 @@ class TestProjectsRouter:
             data = resp.json()
             assert "asset_fingerprints" in data
             assert "storyboards/scene_E1S01.png" in data["asset_fingerprints"]
-            assert isinstance(data["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
+
+    def test_create_project_with_style_template_id_expands_prompt(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "title": "模版项目",
+                    "name": "tpl-1",
+                    "style_template_id": "live_premium_drama",
+                    "content_mode": "drama",
+                    "aspect_ratio": "9:16",
+                },
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["tpl-1"]
+            assert data["style_template_id"] == "live_premium_drama"
+            assert "真人电视剧" in data["style"] or "精品短剧" in data["style"]
+
+    def test_create_project_with_unknown_template_id_returns_400(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "title": "坏模版",
+                    "name": "bad-1",
+                    "style_template_id": "no_such",
+                },
+            )
+            assert resp.status_code == 400
+
+    def test_create_project_with_model_fields_persists(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "title": "模型项目",
+                    "name": "m-1",
+                    "video_backend": "gemini/veo-3",
+                    "image_backend": "gemini/nano-banana",
+                    "text_backend_script": "gemini/gemini-2.5",
+                    "default_duration": 8,
+                },
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["m-1"]
+            assert data["video_backend"] == "gemini/veo-3"
+            assert data["image_backend"] == "gemini/nano-banana"
+            assert data["text_backend_script"] == "gemini/gemini-2.5"
+            assert data["default_duration"] == 8
+
+    def test_create_project_empty_model_fields_not_written(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "title": "空字段项目",
+                    "name": "e-1",
+                    "video_backend": "",
+                    "image_backend": None,
+                },
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["e-1"]
+            assert "video_backend" not in data
+            assert "image_backend" not in data

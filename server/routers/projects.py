@@ -32,6 +32,7 @@ from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator
+from lib.style_templates import is_known_template, resolve_template_prompt
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.routers._validators import validate_backend_value
 from server.services.project_archive import (
@@ -61,11 +62,18 @@ def get_archive_service() -> ProjectArchiveService:
 class CreateProjectRequest(BaseModel):
     name: str | None = None
     title: str | None = None
-    style: str | None = ""
+    style: str | None = ""  # 保留但不再是用户入口
     content_mode: str | None = "narration"
     aspect_ratio: str | None = "9:16"
     default_duration: int | None = None
     generation_mode: str | None = None
+    # ===== 新增 =====
+    style_template_id: str | None = None
+    video_backend: str | None = None
+    image_backend: str | None = None
+    text_backend_script: str | None = None
+    text_backend_overview: str | None = None
+    text_backend_style: str | None = None
 
 
 class UpdateProjectRequest(BaseModel):
@@ -384,6 +392,15 @@ async def create_project(
                 raise HTTPException(status_code=400, detail=_t("title_required"))
             project_name = manual_name or manager.generate_project_name(title)
 
+            style_prompt = req.style or ""
+            if req.style_template_id:
+                if not is_known_template(req.style_template_id):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=_t("unknown_style_template", template_id=req.style_template_id),
+                    )
+                style_prompt = resolve_template_prompt(req.style_template_id)
+
             try:
                 manager.create_project(project_name)
             except FileExistsError:
@@ -392,10 +409,16 @@ async def create_project(
                 project = manager.create_project_metadata(
                     project_name,
                     title or manual_name,
-                    req.style,
+                    style_prompt,
                     req.content_mode,
                     aspect_ratio=req.aspect_ratio,
                     default_duration=req.default_duration,
+                    style_template_id=req.style_template_id,
+                    video_backend=req.video_backend or None,
+                    image_backend=req.image_backend or None,
+                    text_backend_script=req.text_backend_script or None,
+                    text_backend_overview=req.text_backend_overview or None,
+                    text_backend_style=req.text_backend_style or None,
                 )
                 if req.generation_mode is not None:
                     project["generation_mode"] = req.generation_mode

@@ -74,6 +74,7 @@ MESSAGES = {
     "unsupported_format": "Unsupported api_format: {api_format}",
     "discovery_failed": "Model discovery failed: {err_msg}",
     # Projects
+    "unknown_style_template": "Unknown style template: {template_id}",
     "project_id_not_editable": "content_mode cannot be modified after project creation",
     "project_deleted": "Project '{name}' deleted",
     "scene_updated": "Scene '{scene_id}' updated",

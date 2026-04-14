@@ -74,6 +74,7 @@ MESSAGES = {
     "unsupported_format": "不支持的 api_format: {api_format}",
     "discovery_failed": "模型发现失败: {err_msg}",
     # Projects
+    "unknown_style_template": "未知的风格模版: {template_id}",
     "project_id_not_editable": "项目创建后不支持修改 content_mode",
     "project_deleted": "项目 '{name}' 已删除",
     "scene_updated": "场景 '{scene_id}' 已更新",
