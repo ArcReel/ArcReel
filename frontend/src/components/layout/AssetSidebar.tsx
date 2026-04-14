@@ -146,6 +146,7 @@ interface AssetSidebarProps {
 export function AssetSidebar({ className }: AssetSidebarProps) {
   const { t } = useTranslation(["common", "dashboard"]);
   const tRef = useRef(t);
+  // eslint-disable-next-line react-hooks/refs -- tRef 是稳定 event-handler ref 模式，用于在回调中获取最新 t 而不触发无限 useCallback 重建
   tRef.current = t;
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);

@@ -294,7 +294,9 @@ export function AgentCopilot() {
   }, []);
 
   // Derive slash filter from input (text after "/" up to cursor)
+  // eslint-disable-next-line react-hooks/refs -- slashPosRef 同时被 render 和 handleSlashSelect 使用，转 state 会引入 stale-closure 问题；此处仅用于过滤展示，不影响 UI 一致性
   const slashFilter = showSlashMenu && slashPosRef.current >= 0
+    // eslint-disable-next-line react-hooks/refs -- 同上
     ? localInput.slice(slashPosRef.current + 1).split(/\s/)[0]
     : "";
 
@@ -452,7 +454,10 @@ export function AgentCopilot() {
             aria-label={t("assistant_input")}
             aria-expanded={showSlashMenu}
             aria-controls={showSlashMenu ? "slash-command-menu" : undefined}
-            aria-activedescendant={slashMenuRef.current?.activeDescendantId}
+            aria-activedescendant={
+              // eslint-disable-next-line react-hooks/refs -- aria-activedescendant 需实时读取 slashMenuRef 的派生值，改用回调 prop 需修改 SlashCommandMenu 接口，超出范围
+              slashMenuRef.current?.activeDescendantId
+            }
             className="flex-1 resize-none bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none overflow-hidden"
             style={{ maxHeight: `${MAX_TEXTAREA_HEIGHT_VH}vh` }}
             disabled={inputDisabled}

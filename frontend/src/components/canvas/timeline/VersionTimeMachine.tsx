@@ -74,6 +74,7 @@ export function VersionTimeMachine({
   useEffect(() => {
     if (!open || loadedOnce || !resourceId) return;
     void loadVersions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadVersions 是组件内普通函数，无法稳定化；加入 deps 会导致每次渲染重复触发
   }, [open, loadedOnce, resourceId]);
 
   async function loadVersions() {
@@ -170,7 +171,7 @@ export function VersionTimeMachine({
       for (const sp of scrollParents) sp.removeEventListener("scroll", close);
       document.removeEventListener("mousedown", onMouseDown);
     };
-  }, [open, close]);
+  }, [open, close, computeTop]);
 
   if (!resourceId) return null;
 

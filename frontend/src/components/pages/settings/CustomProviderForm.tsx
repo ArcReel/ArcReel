@@ -181,7 +181,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setDiscovering(false);
     }
-  }, [apiFormat, baseUrl, apiKey, isEdit]);
+  }, [apiFormat, baseUrl, apiKey, showError, t]);
 
   // --- Test connection ---
   const handleTest = useCallback(async () => {
@@ -199,7 +199,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setTesting(false);
     }
-  }, [apiFormat, baseUrl, apiKey]);
+  }, [apiFormat, baseUrl, apiKey, showError, t]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
@@ -251,7 +251,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setSaving(false);
     }
-  }, [displayName, apiFormat, baseUrl, apiKey, models, isEdit, existing, onSaved]);
+  }, [displayName, apiFormat, baseUrl, apiKey, models, isEdit, existing, onSaved, showError, t]);
 
   // --- Model row helpers ---
   const updateModel = (key: string, patch: Partial<ModelRow>) => {

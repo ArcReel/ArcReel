@@ -176,7 +176,6 @@ export function GridPreviewPanel({
     let cancelled = false;
     // Clear stale data and show spinner when switching batches
     if (!grid || grid.id !== selectedGridId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 异步数据加载前需同步清空旧数据和错误态，是有意的加载中状态管理
       setLoading(true);
       setGrid(null);
     }
@@ -199,6 +198,7 @@ export function GridPreviewPanel({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- grid 用于判断是否切换批次，加入 deps 会在每次拉取完成后触发重新拉取，导致无限循环；t 稳定可忽略
   }, [expanded, selectedGridId, projectName, refreshKey]);
 
   const isInProgress =

@@ -265,6 +265,7 @@ export function TimelineCanvas({
     }, 3000);
   }, [onGenerateGrid, scriptFile, episode, refreshGrids]);
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual 的 useVirtualizer 返回非 memoizable 函数，与 React Compiler 不兼容，属已知第三方库限制
   const virtualizer = useVirtualizer({
     count: segments.length,
     getScrollElement: () => scrollRef.current,

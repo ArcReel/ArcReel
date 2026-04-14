@@ -76,7 +76,7 @@ export function ProviderModelSelect({
       }
     }
     return list;
-  }, [options, allowDefault]);
+  }, [allowDefault, grouped]);
 
   // Close on outside click
   useEffect(() => {
@@ -95,7 +95,7 @@ export function ProviderModelSelect({
       const idx = flatOptions.findIndex((o) => o.fullValue === value);
       setActiveIndex(idx >= 0 ? idx : 0);
     }
-  }, [open]);
+  }, [open, flatOptions, value]);
 
   // Scroll active item into view
   useEffect(() => {

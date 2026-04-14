@@ -44,7 +44,7 @@ export function PendingQuestionWizard({
     setQuestionCustomAnswers(initialCustomAnswers);
     setCurrentQuestionIndex(0);
     setVisitedQuestionIndexes(pendingQuestions.length > 0 ? [0] : []);
-  }, [pendingQuestion.question_id, pendingQuestion.questions]);
+  }, [pendingQuestion.question_id, pendingQuestion.questions, pendingQuestions]);
 
   const totalQuestions = pendingQuestions.length;
   const normalizedQuestionIndex = totalQuestions === 0

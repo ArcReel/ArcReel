@@ -65,7 +65,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
       setDeleting(false);
       setConfirmDelete(false);
     }
-  }, [providerId, onDeleted]);
+  }, [providerId, onDeleted, showError, t]);
 
   const handleTest = useCallback(async () => {
     if (!provider) return;
@@ -79,7 +79,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
     } finally {
       setTesting(false);
     }
-  }, [provider]);
+  }, [provider, t]);
 
   const handleFormSaved = useCallback(() => {
     setEditing(false);

@@ -49,6 +49,7 @@ export function PreprocessingView({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content 仅用于决定是否显示加载态，加入 deps 会在内容更新后触发重新拉取，导致循环
   }, [projectName, episode, draftRevision]);
 
   const handleSave = useCallback(async () => {
@@ -63,7 +64,7 @@ export function PreprocessingView({
     } finally {
       setSaving(false);
     }
-  }, [projectName, episode, editContent, pushToast]);
+  }, [projectName, episode, editContent, pushToast, t]);
 
   const statusLabel =
     contentMode === "narration" ? t("dashboard:segment_split_complete") : t("dashboard:script_normalized_complete");

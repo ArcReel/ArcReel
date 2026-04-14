@@ -233,9 +233,10 @@ function ChannelSection({
       timersRef.current.set(task.task_id, fadeTimer);
     }
 
+    const timers = timersRef.current;
     return () => {
       // 组件卸载时清理所有定时器
-      for (const timer of timersRef.current.values()) {
+      for (const timer of timers.values()) {
         clearTimeout(timer);
       }
     };
