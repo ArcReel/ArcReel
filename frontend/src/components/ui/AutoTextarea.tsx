@@ -5,6 +5,8 @@ interface AutoTextareaProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  id?: string;
+  "aria-labelledby"?: string;
 }
 
 /** Auto-resizing textarea that grows with its content. */
@@ -13,6 +15,8 @@ export function AutoTextarea({
   onChange,
   placeholder,
   className,
+  id,
+  "aria-labelledby": ariaLabelledBy,
 }: AutoTextareaProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -31,6 +35,8 @@ export function AutoTextarea({
   return (
     <textarea
       ref={ref}
+      id={id}
+      aria-labelledby={ariaLabelledBy}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onInput={resize}
