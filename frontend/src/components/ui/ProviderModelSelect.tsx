@@ -59,7 +59,11 @@ export function ProviderModelSelect({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
-  const grouped = groupByProvider(options);
+  // Memoize grouped so flatOptions below has a stable reference when options
+  // hasn't changed; otherwise every render creates a new `grouped` object,
+  // invalidates flatOptions, and resets activeIndex on the effect below,
+  // breaking keyboard ArrowUp/ArrowDown navigation.
+  const grouped = useMemo(() => groupByProvider(options), [options]);
 
   // Build a flat list of selectable options for keyboard navigation
   const flatOptions = useMemo(() => {
