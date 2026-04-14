@@ -377,20 +377,21 @@ class ProjectManager:
         total_duration = sum(item.get("duration_seconds", default_duration) for item in items)
         metadata["estimated_duration_seconds"] = total_duration
 
-        # 保存文件（含路径遍历防护）
+        # 保存文件（含路径遍历防护）+ 文件锁 + 原子写，避免并发 PATCH 导致 JSON 损坏
         real = self._safe_subpath(scripts_dir, filename)
-        with open(real, "w", encoding="utf-8") as f:  # noqa: PTH123
-            json.dump(script, f, ensure_ascii=False, indent=2)
         output_path = Path(real)
+
+        with self._script_lock(project_name, filename):
+            self._atomic_write_json(output_path, script)
+
+            # 在同一把锁内同步到 project.json，保证 script 写入与元数据同步是单一事务
+            if self.project_exists(project_name) and isinstance(script.get("episode"), int):
+                self.sync_episode_from_script(project_name, filename)
 
         emit_project_change_hint(
             project_name,
             changed_paths=[f"scripts/{output_path.name}"],
         )
-
-        # 自动同步到 project.json
-        if self.project_exists(project_name) and isinstance(script.get("episode"), int):
-            self.sync_episode_from_script(project_name, filename)
 
         return output_path
 
@@ -976,7 +977,30 @@ class ProjectManager:
         使用独立的 .project.json.lock 而非数据文件本身，避免 os.replace
         更换 inode 后锁失效的问题。
         """
-        lock_path = self._get_project_file_path(project_name).with_suffix(".lock")
+        project_file = self._get_project_file_path(project_name)
+        lock_path = project_file.parent / f".{project_file.name}.lock"
+        lock_path.touch(exist_ok=True)
+        fd = open(lock_path)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            fd.close()
+
+    @contextmanager
+    def _script_lock(self, project_name: str, script_filename: str):
+        """通过 scripts 目录下的隐藏 lock file 获取剧本文件的排他锁。
+
+        lock 文件命名为 `.{script_filename}.lock`（以 `.` 开头），被
+        `list_scripts()` 的 `*.json` glob 与 `project_archive` 的
+        `name.startswith(".")` 过滤自动排除。
+        """
+        scripts_dir = self.get_project_path(project_name) / "scripts"
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        if script_filename.startswith("scripts/"):
+            script_filename = script_filename[len("scripts/") :]
+        lock_path = scripts_dir / f".{script_filename}.lock"
         lock_path.touch(exist_ok=True)
         fd = open(lock_path)
         try:
