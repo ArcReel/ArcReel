@@ -294,3 +294,44 @@ class TestInstructorFallback:
         assert _is_schema_error(_make_bad_request_error()) is True
         assert _is_schema_error(ValueError("other")) is False
         assert _is_schema_error(RuntimeError("test")) is False
+
+
+class TestMaxOutputTokens:
+    async def test_plain_path_passes_max_tokens(self):
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="k")
+            await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=32000))
+
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["max_tokens"] == 32000
+
+    async def test_structured_path_passes_max_tokens(self):
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(json.dumps({"name": "x"})))
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            class MyModel(BaseModel):
+                name: str
+
+            backend = OpenAITextBackend(api_key="k")
+            await backend.generate(TextGenerationRequest(prompt="hi", response_schema=MyModel, max_output_tokens=24000))
+
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["max_tokens"] == 24000
+
+    async def test_no_max_tokens_means_key_absent(self):
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="k")
+            await backend.generate(TextGenerationRequest(prompt="hi"))
+
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert "max_tokens" not in call_kwargs

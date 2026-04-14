@@ -128,3 +128,25 @@ class TestGenerate:
         result = await backend.generate(TextGenerationRequest(prompt="hi"))
         assert result.input_tokens is None
         assert result.output_tokens is None
+
+    async def test_max_output_tokens_in_config(self, backend):
+        """max_output_tokens 注入到 Gemini config 字典。"""
+        mock_resp = SimpleNamespace(text="x", usage_metadata=None)
+        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+
+        await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=32000))
+
+        call_kwargs = backend._test_client.aio.models.generate_content.call_args
+        config = call_kwargs.kwargs.get("config")
+        assert config["max_output_tokens"] == 32000
+
+    async def test_no_max_output_tokens_means_no_config_key(self, backend):
+        """未指定 max_output_tokens 时 config 中不应出现该键。"""
+        mock_resp = SimpleNamespace(text="x", usage_metadata=None)
+        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+
+        await backend.generate(TextGenerationRequest(prompt="hi"))
+
+        call_kwargs = backend._test_client.aio.models.generate_content.call_args
+        config = call_kwargs.kwargs.get("config")
+        assert config is None or "max_output_tokens" not in config

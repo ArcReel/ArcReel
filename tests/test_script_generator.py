@@ -196,6 +196,32 @@ class TestScriptGenerator:
         await generator.generate(1)
         assert fake.backend.last_request.response_schema is DramaEpisodeScript
 
+    async def test_generate_sets_script_max_output_tokens(self, tmp_path):
+        """generate 应在 TextGenerationRequest 上设置 SCRIPT_MAX_OUTPUT_TOKENS。"""
+        from lib.script_generator import SCRIPT_MAX_OUTPUT_TOKENS
+
+        project_path = tmp_path / "demo"
+        _write_json(
+            project_path / "project.json",
+            {
+                "title": "项目",
+                "content_mode": "drama",
+                "overview": {},
+                "characters": {"姜月茴": {}},
+                "clues": {"玉佩": {}},
+                "style": "古风",
+                "style_description": "cinematic",
+            },
+        )
+        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.md", "E1S01 | 场景")
+
+        fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
+        generator = ScriptGenerator(project_path, generator=fake)
+        await generator.generate(1)
+
+        assert fake.backend.last_request.max_output_tokens == SCRIPT_MAX_OUTPUT_TOKENS
+        assert SCRIPT_MAX_OUTPUT_TOKENS >= 16000
+
     async def test_generate_without_backend_raises(self, tmp_path):
         """未注入 backend 时调用 generate() 应抛 RuntimeError。"""
         project_path = tmp_path / "demo"

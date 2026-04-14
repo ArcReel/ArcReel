@@ -46,7 +46,10 @@ class GrokTextBackend:
 
     @with_retry_async(retry_if=grok_should_retry)
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        chat = self._client.chat.create(model=self._model)
+        chat_kwargs: dict = {"model": self._model}
+        if request.max_output_tokens is not None:
+            chat_kwargs["max_tokens"] = request.max_output_tokens
+        chat = self._client.chat.create(**chat_kwargs)
 
         # System prompt
         if request.system_prompt:

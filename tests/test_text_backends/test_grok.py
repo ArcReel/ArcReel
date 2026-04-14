@@ -87,3 +87,15 @@ class TestGenerate:
         result = await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
         assert result.text == '{"name": "test"}'
+
+    async def test_max_output_tokens_passed_to_chat_create(self, backend):
+        """max_output_tokens 透传为 xai_sdk chat.create(max_tokens=)。"""
+        mock_chat = MagicMock()
+        mock_response = SimpleNamespace(content="x")
+        mock_chat.sample = AsyncMock(return_value=mock_response)
+        backend._test_client.chat.create.return_value = mock_chat
+
+        await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=16000))
+
+        call_kwargs = backend._test_client.chat.create.call_args.kwargs
+        assert call_kwargs["max_tokens"] == 16000

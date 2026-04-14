@@ -199,6 +199,47 @@ class TestCapabilityAwareStructured:
         call_args = backend_no_structured._openai_client.chat.completions.create.call_args
         assert call_args.kwargs["response_format"] == {"type": "json_object"}
 
+    async def test_max_output_tokens_plain(self, backend_no_structured, sync_to_thread):
+        """plain 路径透传 max_tokens。"""
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="x"))],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+        )
+        backend_no_structured._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+        await backend_no_structured.generate(TextGenerationRequest(prompt="hi", max_output_tokens=16000))
+        call_kwargs = backend_no_structured._test_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["max_tokens"] == 16000
+
+    async def test_max_output_tokens_structured_native(self, backend_with_structured, sync_to_thread):
+        """原生 structured 路径透传 max_tokens。"""
+        mock_resp = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"a":1}'))],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+        )
+        backend_with_structured._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
+        await backend_with_structured.generate(
+            TextGenerationRequest(prompt="g", response_schema={"type": "object"}, max_output_tokens=20000)
+        )
+        call_kwargs = backend_with_structured._test_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["max_tokens"] == 20000
+
+    async def test_max_output_tokens_instructor_fallback(self, backend_no_structured, sync_to_thread):
+        """Instructor 降级路径透传 max_tokens。"""
+        from pydantic import BaseModel
+
+        class M(BaseModel):
+            k: str
+
+        sample = M(k="v")
+        with patch(
+            "lib.text_backends.instructor_support.generate_structured_via_instructor",
+            return_value=(sample.model_dump_json(), 1, 1),
+        ) as mock_fn:
+            await backend_no_structured.generate(
+                TextGenerationRequest(prompt="g", response_schema=M, max_output_tokens=24000)
+            )
+            assert mock_fn.call_args.kwargs["max_tokens"] == 24000
+
     async def test_native_failure_falls_back(self, backend_with_structured, sync_to_thread):
         """原生 json_schema 运行时失败后降级到 json_object。"""
         backend_with_structured._test_client.chat.completions.create = MagicMock(

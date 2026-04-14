@@ -40,6 +40,7 @@ class TextGenerationRequest:
     response_schema: dict | type | None = None
     images: list[ImageInput] | None = None
     system_prompt: str | None = None
+    max_output_tokens: int | None = None
 
 
 @dataclass

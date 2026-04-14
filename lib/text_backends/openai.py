@@ -65,6 +65,8 @@ class OpenAITextBackend:
         """
         messages = _build_messages(request)
         kwargs: dict = {"model": self._model, "messages": messages}
+        if request.max_output_tokens is not None:
+            kwargs["max_tokens"] = request.max_output_tokens
 
         if request.response_schema:
             schema = resolve_schema(request.response_schema)
@@ -162,4 +164,5 @@ async def _instructor_fallback(
         messages=messages,
         response_schema=request.response_schema,
         provider=PROVIDER_OPENAI,
+        max_tokens=request.max_output_tokens,
     )

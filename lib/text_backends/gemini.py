@@ -102,6 +102,7 @@ class GeminiTextBackend:
         self,
         response_schema: dict | type | None,
         system_prompt: str | None,
+        max_output_tokens: int | None = None,
     ) -> dict:
         """构建 generate_content 的 config 字典。"""
         config: dict = {}
@@ -113,6 +114,8 @@ class GeminiTextBackend:
                 config["response_json_schema"] = response_schema
         if system_prompt:
             config["system_instruction"] = system_prompt
+        if max_output_tokens is not None:
+            config["max_output_tokens"] = max_output_tokens
         return config
 
     def _build_contents(self, request: TextGenerationRequest) -> list:
@@ -134,7 +137,11 @@ class GeminiTextBackend:
     @with_retry_async()
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
         """异步生成文本，支持结构化输出和 vision。"""
-        config = self._build_config(request.response_schema, request.system_prompt)
+        config = self._build_config(
+            request.response_schema,
+            request.system_prompt,
+            request.max_output_tokens,
+        )
         contents = self._build_contents(request)
 
         response = await self._client.aio.models.generate_content(

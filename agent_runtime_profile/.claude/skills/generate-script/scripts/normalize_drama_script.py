@@ -168,7 +168,7 @@ def main():
     async def _run():
         backend = await create_text_backend_for_task(TextTaskType.SCRIPT)
         print(f"正在使用 {backend.model} 生成规范化剧本...")
-        result = await backend.generate(TextGenerationRequest(prompt=prompt))
+        result = await backend.generate(TextGenerationRequest(prompt=prompt, max_output_tokens=16000))
         return result.text
 
     response = asyncio.run(_run())

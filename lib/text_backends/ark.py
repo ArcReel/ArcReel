@@ -65,10 +65,12 @@ class ArkTextBackend:
 
     async def _generate_plain(self, request: TextGenerationRequest) -> TextGenerationResult:
         messages = self._build_messages(request)
+        kwargs: dict = {"model": self._model, "messages": messages}
+        if request.max_output_tokens is not None:
+            kwargs["max_tokens"] = request.max_output_tokens
         response = await asyncio.to_thread(
             self._client.chat.completions.create,
-            model=self._model,
-            messages=messages,
+            **kwargs,
         )
         return self._parse_chat_response(response)
 
@@ -79,19 +81,18 @@ class ArkTextBackend:
             from lib.text_backends.base import resolve_schema
 
             schema = resolve_schema(request.response_schema)
+            kwargs: dict = {
+                "model": self._model,
+                "messages": messages,
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "response", "schema": schema},
+                },
+            }
+            if request.max_output_tokens is not None:
+                kwargs["max_tokens"] = request.max_output_tokens
             try:
-                response = await asyncio.to_thread(
-                    self._client.chat.completions.create,
-                    model=self._model,
-                    messages=messages,
-                    response_format={
-                        "type": "json_schema",
-                        "json_schema": {
-                            "name": "response",
-                            "schema": schema,
-                        },
-                    },
-                )
+                response = await asyncio.to_thread(self._client.chat.completions.create, **kwargs)
                 return self._parse_chat_response(response)
             except Exception as exc:
                 logger.warning("原生 response_format 失败 (%s)，降级到 Instructor/json_object 路径", exc)
@@ -109,6 +110,7 @@ class ArkTextBackend:
             messages=messages,
             response_schema=request.response_schema,
             provider=PROVIDER_ARK,
+            max_tokens=request.max_output_tokens,
         )
 
     def _build_messages(self, request: TextGenerationRequest) -> list[dict]:
