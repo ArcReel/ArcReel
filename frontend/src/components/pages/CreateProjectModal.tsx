@@ -1,80 +1,130 @@
 
-import { useState, useRef } from "react";
-import { voidPromise } from "@/utils/async";
+import { useState } from "react";
 import { useLocation } from "wouter";
-import { X, Loader2, Upload } from "lucide-react";
+import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
-import { DEFAULT_DURATIONS } from "@/utils/provider-models";
+import { DEFAULT_TEMPLATE_ID } from "@/data/style-templates";
+import { WizardStep1Basics, type WizardStep1Value } from "./create-project/WizardStep1Basics";
+import { WizardStep2Models } from "./create-project/WizardStep2Models";
+import { WizardStep3Style, type WizardStep3Value } from "./create-project/WizardStep3Style";
+import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
 
-const STYLE_OPTIONS = [
-  { value: "Photographic", label: "dashboard:photographic" },
-  { value: "Anime", label: "dashboard:anime" },
-  { value: "3D Animation", label: "dashboard:3d_animation" },
+// ─── Step indicator ───────────────────────────────────────────────────────────
+
+const STEPS = [
+  { num: 1, key: "wizard_step_basics" },
+  { num: 2, key: "wizard_step_models" },
+  { num: 3, key: "wizard_step_style" },
 ] as const;
 
+function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
+  const { t } = useTranslation("templates");
+  return (
+    <div className="flex items-center justify-center gap-2">
+      {STEPS.map((s, i) => {
+        const done = current > s.num;
+        const active = current === s.num;
+        return (
+          <div key={s.num} className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
+              <div
+                className={
+                  done
+                    ? "w-6 h-6 rounded-full bg-indigo-500 text-white flex items-center justify-center text-xs font-semibold"
+                    : active
+                      ? "w-6 h-6 rounded-full bg-indigo-500/15 border-[1.5px] border-indigo-500 text-indigo-300 flex items-center justify-center text-xs font-semibold"
+                      : "w-6 h-6 rounded-full bg-gray-900 border-[1.5px] border-gray-700 text-gray-500 flex items-center justify-center text-xs font-semibold"
+                }
+              >
+                {done ? "✓" : s.num}
+              </div>
+              <span
+                className={
+                  done
+                    ? "text-xs text-indigo-300"
+                    : active
+                      ? "text-xs text-gray-100 font-medium"
+                      : "text-xs text-gray-500"
+                }
+              >
+                {t(s.key)}
+              </span>
+            </div>
+            {i < STEPS.length - 1 && (
+              <div className={`w-8 h-px ${current > s.num ? "bg-indigo-500" : "bg-gray-700"}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export function CreateProjectModal() {
-  const { t } = useTranslation(["common", "dashboard"]);
+  const { t } = useTranslation(["dashboard"]);
   const [, navigate] = useLocation();
-  const { setShowCreateModal, setCreatingProject, creatingProject } =
-    useProjectsStore();
+  const { setShowCreateModal } = useProjectsStore();
 
-  const [title, setTitle] = useState("");
-  const [contentMode, setContentMode] = useState<"narration" | "drama">("narration");
-  const [aspectRatio, setAspectRatio] = useState<"9:16" | "16:9">("9:16");
-  const [style, setStyle] = useState("Photographic");
-  const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
-  const [titleError, setTitleError] = useState("");
-  const [generationMode, setGenerationMode] = useState<"single" | "grid">("single");
-  const [styleImageFile, setStyleImageFile] = useState<File | null>(null);
-  const [styleImagePreview, setStyleImagePreview] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
 
-  const handleStyleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setStyleImageFile(file);
-    // 创建预览 URL
-    const url = URL.createObjectURL(file);
-    setStyleImagePreview(url);
+  const [basics, setBasics] = useState<WizardStep1Value>({
+    title: "",
+    contentMode: "narration",
+    aspectRatio: "9:16",
+    generationMode: "single",
+  });
+
+  const [models, setModels] = useState<ModelConfigValue>({
+    videoBackend: "",
+    imageBackend: "",
+    textBackendScript: "",
+    textBackendOverview: "",
+    textBackendStyle: "",
+    defaultDuration: null,
+  });
+
+  const [style, setStyle] = useState<WizardStep3Value>({
+    mode: "template",
+    templateId: DEFAULT_TEMPLATE_ID,
+    activeCategory: "live",
+    uploadedFile: null,
+    uploadedPreview: null,
+  });
+
+  const [creating, setCreating] = useState(false);
+
+  const handleClose = () => {
+    if (style.uploadedPreview) URL.revokeObjectURL(style.uploadedPreview);
+    setShowCreateModal(false);
   };
 
-  const clearStyleImage = () => {
-    setStyleImageFile(null);
-    if (styleImagePreview) {
-      URL.revokeObjectURL(styleImagePreview);
-      setStyleImagePreview(null);
-    }
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!title.trim()) {
-      setTitleError(t("dashboard:project_title_required"));
-      return;
-    }
-
-    setCreatingProject(true);
+  const handleCreate = async () => {
+    setCreating(true);
     try {
-      const response = await API.createProject({
-        title: title.trim(),
-        content_mode: contentMode,
-        aspect_ratio: aspectRatio,
-        default_duration: defaultDuration,
-        generation_mode: generationMode,
+      const resp = await API.createProject({
+        title: basics.title.trim(),
+        content_mode: basics.contentMode,
+        aspect_ratio: basics.aspectRatio,
+        generation_mode: basics.generationMode,
+        default_duration: models.defaultDuration,
+        style_template_id: style.mode === "template" ? style.templateId : null,
+        video_backend: models.videoBackend || null,
+        image_backend: models.imageBackend || null,
+        text_backend_script: models.textBackendScript || null,
+        text_backend_overview: models.textBackendOverview || null,
+        text_backend_style: models.textBackendStyle || null,
       });
-      const projectName = response.name;
 
-      // 如果用户选择了风格参考图，在项目创建后上传
-      if (styleImageFile) {
+      // Upload style image if in custom mode
+      if (style.mode === "custom" && style.uploadedFile) {
         try {
-          await API.uploadStyleImage(projectName, styleImageFile);
+          await API.uploadStyleImage(resp.name, style.uploadedFile);
         } catch {
-          // 风格图上传失败不阻塞项目创建
           useAppStore.getState().pushToast(
             t("dashboard:style_upload_failed_hint"),
             "warning"
@@ -82,306 +132,71 @@ export function CreateProjectModal() {
         }
       }
 
+      // Revoke any object URL before closing
+      if (style.uploadedPreview) {
+        URL.revokeObjectURL(style.uploadedPreview);
+      }
+
       setShowCreateModal(false);
-      navigate(`/app/projects/${projectName}`);
+      navigate(`/app/projects/${resp.name}`);
     } catch (err) {
       useAppStore.getState().pushToast(
         `${t("dashboard:create_project_failed")}${(err as Error).message}`,
         "error"
       );
     } finally {
-      setCreatingProject(false);
+      setCreating(false);
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-5">
+      <div className="w-full max-w-3xl rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+        {/* Header: title + close */}
+        <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-gray-100">{t("dashboard:new_project")}</h2>
           <button
             type="button"
-            onClick={() => setShowCreateModal(false)}
+            onClick={handleClose}
             className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-gray-200"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <form onSubmit={voidPromise(handleSubmit)} className="space-y-4">
-          {/* Title */}
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              {t("dashboard:project_title")} <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => {
-                setTitle(e.target.value);
-                setTitleError("");
-              }}
-              placeholder={t("dashboard:rebirth_empress_example")}
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
+        {/* Step indicator */}
+        <StepIndicator current={step} />
+
+        {/* Current step */}
+        <div className="mt-6">
+          {step === 1 && (
+            <WizardStep1Basics
+              value={basics}
+              onChange={setBasics}
+              onNext={() => setStep(2)}
+              onCancel={handleClose}
             />
-            {titleError && (
-              <p className="mt-1 text-xs text-red-400">{titleError}</p>
-            )}
-            <p className="mt-1 text-xs text-gray-600">
-              {t("dashboard:project_id_auto_gen_hint")}
-            </p>
-          </div>
-
-          {/* Content Mode */}
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              {t("dashboard:content_mode")}
-            </label>
-            <div className="flex gap-3">
-              <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
-                contentMode === "narration"
-                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                  : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-              }`}>
-                <input
-                  type="radio"
-                  name="contentMode"
-                  value="narration"
-                  checked={contentMode === "narration"}
-                  onChange={() => setContentMode("narration")}
-                  className="sr-only"
-                />
-                {t("dashboard:narration_visuals")}
-              </label>
-              <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
-                contentMode === "drama"
-                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                  : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-              }`}>
-                <input
-                  type="radio"
-                  name="contentMode"
-                  value="drama"
-                  checked={contentMode === "drama"}
-                  onChange={() => setContentMode("drama")}
-                  className="sr-only"
-                />
-                {t("dashboard:drama_animation")}
-              </label>
-            </div>
-          </div>
-
-          {/* Aspect Ratio */}
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              {t("dashboard:aspect_ratio")}
-            </label>
-            <div className="flex gap-3">
-              <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
-                aspectRatio === "9:16"
-                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                  : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-              }`}>
-                <input
-                  type="radio"
-                  name="aspectRatio"
-                  value="9:16"
-                  checked={aspectRatio === "9:16"}
-                  onChange={() => setAspectRatio("9:16")}
-                  className="sr-only"
-                />
-                {t("dashboard:portrait_9_16")}
-              </label>
-              <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
-                aspectRatio === "16:9"
-                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                  : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-              }`}>
-                <input
-                  type="radio"
-                  name="aspectRatio"
-                  value="16:9"
-                  checked={aspectRatio === "16:9"}
-                  onChange={() => setAspectRatio("16:9")}
-                  className="sr-only"
-                />
-                {t("dashboard:landscape_16_9")}
-              </label>
-            </div>
-          </div>
-
-          {/* Default Duration */}
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-0.5">
-              {t("dashboard:default_duration")}
-            </label>
-            <p className="text-xs text-gray-600 mb-1.5">
-              {t("dashboard:default_duration_desc")}
-            </p>
-            <div className="flex gap-2" role="radiogroup" aria-label={t("dashboard:default_duration")}>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={defaultDuration === null}
-                onClick={() => setDefaultDuration(null)}
-                className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
-                  defaultDuration === null
-                    ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                    : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-                }`}
-              >
-                {t("dashboard:auto")}
-              </button>
-              {DEFAULT_DURATIONS.map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  role="radio"
-                  aria-checked={defaultDuration === d}
-                  onClick={() => setDefaultDuration(d)}
-                  className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
-                    defaultDuration === d
-                      ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                      : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-                  }`}
-                >
-                  {d}s
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Style — fixed radio options */}
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              {t("dashboard:visual_style")}
-            </label>
-            <div className="flex gap-2">
-              {STYLE_OPTIONS.map((opt) => (
-                <label
-                  key={opt.value}
-                  className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
-                    style === opt.value
-                      ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                      : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="style"
-                    value={opt.value}
-                    checked={style === opt.value}
-                    onChange={() => setStyle(opt.value)}
-                    className="sr-only"
-                  />
-                  {t(opt.label)}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Generation Mode */}
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-0.5">
-              {t("dashboard:generation_mode")}
-            </label>
-            <p className="text-xs text-gray-600 mb-1.5">
-              {t("dashboard:generation_mode_desc")}
-            </p>
-            <div className="flex gap-3">
-              <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
-                generationMode === "single"
-                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                  : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-              }`}>
-                <input
-                  type="radio"
-                  name="generationMode"
-                  value="single"
-                  checked={generationMode === "single"}
-                  onChange={() => setGenerationMode("single")}
-                  className="sr-only"
-                />
-                {t("dashboard:single_generation")}
-              </label>
-              <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
-                generationMode === "grid"
-                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                  : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-              }`}>
-                <input
-                  type="radio"
-                  name="generationMode"
-                  value="grid"
-                  checked={generationMode === "grid"}
-                  onChange={() => setGenerationMode("grid")}
-                  className="sr-only"
-                />
-                {t("dashboard:grid_generation")}
-              </label>
-            </div>
-          </div>
-
-          {/* Style reference image */}
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              {t("dashboard:style_reference_image")} <span className="text-xs text-gray-600 font-normal">（{t("dashboard:optional")}）</span>
-            </label>
-            {styleImagePreview ? (
-              <div className="relative rounded-lg border border-gray-700 overflow-hidden">
-                <img
-                  src={styleImagePreview}
-                  alt={t("dashboard:style_image_preview")}
-                  className="w-full h-32 object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={clearStyleImage}
-                  className="absolute top-1.5 right-1.5 rounded-full bg-gray-900/80 p-1 text-gray-300 hover:bg-gray-900 hover:text-white transition-colors"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-gray-700 bg-gray-800/50 px-3 py-4 text-sm text-gray-500 transition-colors hover:border-gray-500 hover:text-gray-300"
-              >
-                <Upload className="h-4 w-4" />
-                {t("dashboard:upload_reference_image")}
-              </button>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".png,.jpg,.jpeg,.webp"
-              aria-label={t("dashboard:upload_style_ref_aria")}
-              onChange={handleStyleImageChange}
-              className="hidden"
+          )}
+          {step === 2 && (
+            <WizardStep2Models
+              value={models}
+              onChange={setModels}
+              onBack={() => setStep(1)}
+              onNext={() => setStep(3)}
+              onCancel={handleClose}
             />
-            <p className="mt-1 text-xs text-gray-600">
-              {t("dashboard:style_analysis_hint")}
-            </p>
-          </div>
-
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={creatingProject || !title.trim()}
-            className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {creatingProject ? (
-              <span className="inline-flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {t("dashboard:creating")}
-              </span>
-            ) : (
-              t("dashboard:create_project")
-            )}
-          </button>
-        </form>
+          )}
+          {step === 3 && (
+            <WizardStep3Style
+              value={style}
+              onChange={setStyle}
+              onBack={() => setStep(2)}
+              onCreate={handleCreate}
+              onCancel={handleClose}
+              creating={creating}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
