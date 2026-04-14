@@ -13,10 +13,9 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import type { ProviderCredential, ProviderTestResult } from "@/types";
 
-const focusRing = "focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none";
-const inputCls = "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 focus:border-indigo-500/60 focus-ring focus:ring-1 focus:ring-indigo-500/60";
+const inputCls = "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-1.5 text-sm text-gray-200 focus:border-indigo-500/60 focus-ring";
 const inputClsPlaceholder = `${inputCls} placeholder:text-gray-600`;
-const primaryBtnCls = `inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 ${focusRing}`;
+const primaryBtnCls = "inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 focus-ring";
 
 interface RowProps {
   cred: ProviderCredential;
@@ -106,7 +105,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
           onClick={cred.is_active ? undefined : handleActivate}
           disabled={cred.is_active}
           aria-label={cred.is_active ? t("currently_active") : t("activate_credential", { name: cred.name })}
-          className={`h-2.5 w-2.5 flex-shrink-0 rounded-full transition-colors ${focusRing} ${
+          className={`h-2.5 w-2.5 flex-shrink-0 rounded-full transition-colors focus-ring ${
             cred.is_active
               ? "bg-[var(--neon-500)] shadow-[0_0_6px_var(--neon-500)]"
               : "border border-gray-600 hover:border-gray-400 cursor-pointer"
@@ -141,7 +140,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
             onClick={handleTest}
             disabled={testing}
             aria-label={t("test_credential", { name: cred.name })}
-            className={`rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 ${focusRing}`}
+            className={`rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 focus-ring`}
           >
             {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
           </button>
@@ -154,7 +153,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
                 setTestResult(null);
               }}
               aria-label={t("edit_credential", { name: cred.name })}
-              className={`rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 ${focusRing}`}
+              className={`rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 focus-ring`}
             >
               <Edit2 className="h-3.5 w-3.5" />
             </button>
@@ -165,7 +164,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
               onClick={handleDelete}
               disabled={deleting}
               aria-label={t("delete_credential", { name: cred.name })}
-              className={`rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-rose-400 ${focusRing}`}
+              className={`rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-rose-400 focus-ring`}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -175,14 +174,14 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
                 type="button"
                 onClick={handleDelete}
                 disabled={deleting}
-                className={`rounded px-2 py-1 text-xs text-rose-400 transition-colors hover:bg-rose-900/20 ${focusRing}`}
+                className={`rounded px-2 py-1 text-xs text-rose-400 transition-colors hover:bg-rose-900/20 focus-ring`}
               >
                 {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : t("common:confirm")}
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
-                className={`rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 ${focusRing}`}
+                className={`rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 focus-ring`}
               >
                 {t("common:cancel")}
               </button>
@@ -264,7 +263,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
             <button
               type="button"
               onClick={() => setEditing(false)}
-              className={`inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 ${focusRing}`}
+              className={`inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 focus-ring`}
             >
               <X className="h-3 w-3" /> {t("common:cancel")}
             </button>
@@ -349,7 +348,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
             id="cred-add-file"
             type="button"
             onClick={() => fileRef.current?.click()}
-            className={`inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 ${focusRing}`}
+            className={`inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-800 focus-ring`}
           >
             <Upload className="h-3 w-3" />
             {fileRef.current?.files?.[0]?.name ?? t("select_json_file")}
@@ -400,7 +399,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
         <button
           type="button"
           onClick={onCancel}
-          className={`rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 ${focusRing}`}
+          className={`rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 focus-ring`}
         >
           {t("common:cancel")}
         </button>
@@ -465,7 +464,7 @@ export function CredentialList({ providerId, onChanged }: Props) {
           <button
             type="button"
             onClick={() => setShowAdd(true)}
-            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--neon-500)] transition-colors hover:bg-[var(--neon-500)]/10 ${focusRing}`}
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--neon-500)] transition-colors hover:bg-[var(--neon-500)]/10 focus-ring`}
           >
             <Plus className="h-3 w-3" /> {t("add_credential")}
           </button>
@@ -478,7 +477,7 @@ export function CredentialList({ providerId, onChanged }: Props) {
           <button
             type="button"
             onClick={() => setShowAdd(true)}
-            className={`mt-2 inline-flex items-center gap-1 text-xs text-[var(--neon-500)] transition-colors hover:text-[var(--neon-400)] ${focusRing}`}
+            className={`mt-2 inline-flex items-center gap-1 text-xs text-[var(--neon-500)] transition-colors hover:text-[var(--neon-400)] focus-ring`}
           >
             <Plus className="h-3 w-3" /> {t("add_first_credential")}
           </button>

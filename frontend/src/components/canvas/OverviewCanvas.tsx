@@ -162,7 +162,6 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const styleDescriptionDirty =
     styleDescriptionDraft !== (projectData.style_description ?? "");
   const showWelcome = !overview && (projectData.episodes?.length ?? 0) === 0;
-  const focusRing = "focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900";
   const projectStyleCard = (
     <section className="rounded-2xl border border-gray-800 bg-gray-900/90 p-4 sm:p-5">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -194,7 +193,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
               type="button"
               onClick={() => styleInputRef.current?.click()}
               disabled={uploadingStyleImage}
-              className={`flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-gray-700 bg-gray-950/40 px-4 text-sm text-gray-500 transition-colors hover:border-gray-500 hover:text-gray-300 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+              className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-gray-700 bg-gray-950/40 px-4 text-sm text-gray-500 transition-colors hover:border-gray-500 hover:text-gray-300 disabled:cursor-not-allowed disabled:opacity-50 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
             >
               <Upload className="h-4 w-4" />
               <span>{uploadingStyleImage ? t("uploading_style_image") : t("upload_style_reference")}</span>
@@ -215,7 +214,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                 type="button"
                 onClick={() => styleInputRef.current?.click()}
                 disabled={uploadingStyleImage}
-                className={`inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
               >
                 <ImagePlus className="h-4 w-4" />
                 {styleImageUrl ? t("replace_reference") : t("upload_reference")}
@@ -225,7 +224,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                   type="button"
                   onClick={() => void handleDeleteStyleImage()}
                   disabled={deletingStyleImage}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-2 text-sm text-red-300 transition-colors hover:border-red-400/50 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-2 text-sm text-red-300 transition-colors hover:border-red-400/50 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
                 >
                   <Trash2 className="h-4 w-4" />
                   {deletingStyleImage ? t("deleting_reference") : t("delete_reference")}
@@ -275,7 +274,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                 type="button"
                 onClick={() => void handleSaveStyleDescription()}
                 disabled={savingStyleDescription}
-                className={`rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
               >
                 {savingStyleDescription ? t("common:saving") : t("save_style_description")}
               </button>
@@ -316,7 +315,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                     type="button"
                     onClick={() => void handleRegenerate()}
                     disabled={regenerating}
-                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
                     title={t("regen_overview_title")}
                   >
                     <RefreshCw
