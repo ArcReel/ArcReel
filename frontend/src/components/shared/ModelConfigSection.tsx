@@ -6,6 +6,12 @@ import type { ProviderInfo } from "@/types/provider";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 
 // ---------------------------------------------------------------------------
+// Module-level stable defaults
+// ---------------------------------------------------------------------------
+
+const EMPTY_CUSTOM_PROVIDERS: CustomProviderInfo[] = [];
+
+// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
@@ -57,7 +63,7 @@ export function ModelConfigSection({
   onChange,
   options,
   providers,
-  customProviders,
+  customProviders = EMPTY_CUSTOM_PROVIDERS,
   globalDefaults,
   enable,
 }: ModelConfigSectionProps) {
@@ -68,12 +74,12 @@ export function ModelConfigSection({
   const showText = enable?.text !== false;
   const showDuration = enable?.duration !== false;
 
-  // Compute supported durations based on current video backend
+  // Compute supported durations based on current video backend (pre-sorted)
   const supportedDurations = useMemo<readonly number[]>(() => {
-    if (!value.videoBackend) return DEFAULT_DURATIONS;
-    return (
-      lookupSupportedDurations(providers, value.videoBackend, customProviders) ?? DEFAULT_DURATIONS
-    );
+    const raw = !value.videoBackend
+      ? DEFAULT_DURATIONS
+      : (lookupSupportedDurations(providers, value.videoBackend, customProviders) ?? DEFAULT_DURATIONS);
+    return [...raw].sort((a, b) => a - b);
   }, [providers, value.videoBackend, customProviders]);
 
   // Video backend change: may reset duration if not supported by new backend
@@ -122,13 +128,14 @@ export function ModelConfigSection({
           {showDuration && (
             <>
               <div className="mt-3 mb-2 text-xs text-gray-400">{t("duration_label")}</div>
-              <div className="flex flex-wrap gap-2" role="radiogroup">
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t("duration_label")}>
                 {/* Auto button */}
                 <button
                   type="button"
                   role="radio"
                   aria-checked={value.defaultDuration === null}
                   aria-label={t("duration_auto")}
+                  tabIndex={value.defaultDuration === null ? 0 : -1}
                   onClick={() => handleDurationClick(null)}
                   className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                     value.defaultDuration === null
@@ -140,13 +147,14 @@ export function ModelConfigSection({
                 </button>
 
                 {/* Per-duration buttons */}
-                {[...supportedDurations].sort((a, b) => a - b).map((d) => (
+                {supportedDurations.map((d) => (
                   <button
                     key={d}
                     type="button"
                     role="radio"
                     aria-checked={value.defaultDuration === d}
                     aria-label={`${d}s`}
+                    tabIndex={value.defaultDuration === d ? 0 : -1}
                     onClick={() => handleDurationClick(d)}
                     className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                       value.defaultDuration === d
