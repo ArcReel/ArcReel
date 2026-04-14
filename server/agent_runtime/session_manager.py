@@ -15,17 +15,13 @@ from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
-logger = logging.getLogger(__name__)
-
-# inbox 积压告警阈值：正常情况下 async 处理端应能跟上 actor 推送速率，
-# 持续高于此值说明 _process_inbox 被阻塞或下游 I/O 超慢。
-_INBOX_BACKLOG_WARN_THRESHOLD = 100
-
 from lib.i18n import LOCALE_LANGUAGE_MAP
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
 from server.agent_runtime.session_actor import SessionActor, SessionCommand
 from server.agent_runtime.session_store import SessionMetaStore
+
+logger = logging.getLogger(__name__)
 
 try:
     from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
@@ -56,6 +52,12 @@ try:
 except ImportError:
     async_session_factory = None  # type: ignore[assignment]
     ConfigService = None  # type: ignore[assignment]
+
+
+# inbox 积压告警阈值：~1s 内 100 条 stream_event（典型流式频率上限）；
+# 持续高于此值说明 _process_inbox 被阻塞或下游 I/O 超慢。
+_INBOX_BACKLOG_WARN_THRESHOLD = 100
+_INBOX_BACKLOG_RESET_THRESHOLD = 50  # 降至此水位以下才重置告警状态，避免抖动刷屏
 
 
 class SessionCapacityError(Exception):
@@ -97,6 +99,7 @@ class ManagedSession:
     last_activity: float | None = None  # updated on every send/receive
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
     _inbox: asyncio.Queue = field(default_factory=asyncio.Queue)  # async post-processing queue
+    _inbox_warned: bool = False  # edge-triggered backlog warning state
     _process_task: asyncio.Task | None = None  # per-session async inbox processor
     _interrupting: bool = False  # send_interrupt re-entry guard (distinct from interrupt_requested)
 
@@ -1100,12 +1103,15 @@ class SessionManager:
                 if msg_dict is None:
                     return
                 depth = managed._inbox.qsize()
-                if depth >= _INBOX_BACKLOG_WARN_THRESHOLD:
+                if not managed._inbox_warned and depth >= _INBOX_BACKLOG_WARN_THRESHOLD:
+                    managed._inbox_warned = True
                     logger.warning(
                         "inbox backlog 过深 session_id=%s depth=%d (async post-processing 跟不上)",
                         managed.session_id,
                         depth,
                     )
+                elif managed._inbox_warned and depth <= _INBOX_BACKLOG_RESET_THRESHOLD:
+                    managed._inbox_warned = False
                 # Short-circuit once sdk_session_id is captured: stream_event
                 # messages can be very high-frequency and _extract_sdk_session_id
                 # only yields on the init system message.

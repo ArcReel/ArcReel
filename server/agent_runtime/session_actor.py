@@ -141,8 +141,11 @@ class SessionActor:
                         cmd_task = asyncio.create_task(self._cmd_queue.get())
                     elif next_cmd.type == "disconnect":
                         # drive_query 内部遇到 disconnect：先 interrupt 让消息流收尾，
-                        # 然后把 disconnect 命令携带回 _command_loop 处理
+                        # 然后把 disconnect 命令携带回 _command_loop 处理。
+                        # query_cmd.done 在此分支下永远不会有 StopAsyncIteration 触发，
+                        # 显式 set 以兑现 "done 必定转换" 的隐式契约（保护未来调用方）。
                         await client.interrupt()
+                        query_cmd.done.set()
                         return next_cmd
                     elif next_cmd.type == "query":
                         if pending_query is not None:
