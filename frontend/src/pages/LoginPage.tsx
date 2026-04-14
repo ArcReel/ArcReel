@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
+import type { LoginResponse, ErrorResponse } from "@/api";
 
 export function LoginPage() {
   const { t, i18n } = useTranslation(["common", "auth"]);
@@ -33,11 +34,12 @@ export function LoginPage() {
       });
 
       if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.detail || t("auth:login_failed"));
+        const data = await resp.json().catch(() => ({})) as Partial<ErrorResponse>;
+        const detail = data.detail;
+        throw new Error(typeof detail === "string" ? detail : t("auth:login_failed"));
       }
 
-      const data = await resp.json();
+      const data = await resp.json() as LoginResponse;
       login(data.access_token, username);
       setLocation("/app/projects");
     } catch (err) {

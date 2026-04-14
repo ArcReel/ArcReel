@@ -43,6 +43,26 @@ import i18n from "./i18n";
 
 // ==================== Helper types ====================
 
+/** Login response from POST /auth/token (mirrors backend TokenResponse). */
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+}
+
+/** Standard error response body from backend (mirrors FastAPI HTTPException detail). */
+export interface ErrorResponse {
+  detail: string | { msg?: string }[];
+}
+
+/** Error payload from the import project endpoint (extends ErrorResponse with import-specific fields). */
+interface ImportErrorPayload {
+  detail?: string | { msg?: string }[];
+  errors?: unknown[];
+  warnings?: unknown[];
+  conflict_project_name?: string;
+  diagnostics?: unknown;
+}
+
 /** Version metadata returned by the versions API. */
 export interface VersionInfo {
   version: number;
@@ -173,8 +193,9 @@ async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<vo
     handleUnauthorized(response);
     const error = await response
       .json()
-      .catch(() => ({ detail: response.statusText }));
-    throw new Error(error.detail || fallbackMsg);
+      .catch(() => ({ detail: response.statusText })) as ErrorResponse;
+    const detail = error.detail;
+    throw new Error(typeof detail === "string" ? detail || fallbackMsg : fallbackMsg);
   }
 }
 
@@ -227,12 +248,12 @@ class API {
       handleUnauthorized(response);
       const error = await response
         .json()
-        .catch(() => ({ detail: response.statusText }));
+        .catch(() => ({ detail: response.statusText })) as ErrorResponse;
       let message = "请求失败";
       if (typeof error.detail === "string") {
         message = error.detail;
       } else if (Array.isArray(error.detail) && error.detail.length > 0) {
-        message = error.detail.map((e: string | { msg?: string }) => (typeof e === "string" ? e : e?.msg)).filter(Boolean).join("; ") || message;
+        message = error.detail.map((e) => (typeof e === "string" ? e : e?.msg)).filter(Boolean).join("; ") || message;
       }
       throw new Error(message);
     }
@@ -240,7 +261,7 @@ class API {
     if (response.status === 204) {
       return undefined as T;
     }
-    return response.json();
+    return response.json() as Promise<T>;
   }
 
   // ==================== 系统配置 ====================
@@ -376,7 +397,7 @@ class API {
 
       const payload = await response
         .json()
-        .catch(() => ({ detail: response.statusText, errors: [], warnings: [] }));
+        .catch(() => ({ detail: response.statusText, errors: [], warnings: [] })) as ImportErrorPayload;
       const error = new Error(
         typeof payload.detail === "string" ? payload.detail : "导入失败"
       ) as Error & {
@@ -389,8 +410,8 @@ class API {
       };
       error.status = response.status;
       error.detail = typeof payload.detail === "string" ? payload.detail : "导入失败";
-      error.errors = Array.isArray(payload.errors) ? payload.errors : [];
-      error.warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
+      error.errors = Array.isArray(payload.errors) ? payload.errors as string[] : [];
+      error.warnings = Array.isArray(payload.warnings) ? payload.warnings as string[] : [];
       if (typeof payload.conflict_project_name === "string") {
         error.conflict_project_name = payload.conflict_project_name;
       }
@@ -398,7 +419,7 @@ class API {
       throw error;
     }
 
-    const payload = await response.json();
+    const payload = await response.json() as ImportProjectResponse & { diagnostics?: { auto_fixed?: unknown[]; warnings?: unknown[] } };
     return {
       ...payload,
       diagnostics: {
@@ -569,7 +590,7 @@ class API {
 
     await throwIfNotOk(response, "上传失败");
 
-    return response.json();
+    return response.json() as Promise<{ success: boolean; path: string; url: string }>;
   }
 
   static async listFiles(
@@ -627,7 +648,7 @@ class API {
       })
     );
     await throwIfNotOk(response, "保存文件失败");
-    return response.json();
+    return response.json() as Promise<SuccessResponse>;
   }
 
   /**
@@ -644,7 +665,7 @@ class API {
       })
     );
     await throwIfNotOk(response, "删除文件失败");
-    return response.json();
+    return response.json() as Promise<SuccessResponse>;
   }
 
   // ==================== 草稿文件管理 ====================
@@ -694,7 +715,7 @@ class API {
       })
     );
     await throwIfNotOk(response, "保存草稿失败");
-    return response.json();
+    return response.json() as Promise<SuccessResponse>;
   }
 
   /**
@@ -881,7 +902,7 @@ class API {
 
   static async getTaskStats(
     projectName: string | null = null
-  ): Promise<TaskStats> {
+  ): Promise<{ stats: TaskStats }> {
     const params = new URLSearchParams();
     if (projectName) params.append("project_name", projectName);
     const query = params.toString();
@@ -934,9 +955,9 @@ class API {
     const url = withAuthQuery(`${API_BASE}/tasks/stream${query ? "?" + query : ""}`);
     const source = new EventSource(url);
 
-    const parsePayload = (event: MessageEvent): unknown | null => {
+    const parsePayload = (event: MessageEvent): unknown => {
       try {
-        return JSON.parse(event.data || "{}");
+        return JSON.parse((event.data as string) || "{}");
       } catch (err) {
         console.error("解析 SSE 数据失败:", err, event.data);
         return null;
@@ -944,21 +965,21 @@ class API {
     };
 
     source.addEventListener("snapshot", (event) => {
-      const payload = parsePayload(event as MessageEvent);
+      const payload = parsePayload(event);
       if (payload && typeof options.onSnapshot === "function") {
         options.onSnapshot(
           payload as TaskStreamSnapshotPayload,
-          event as MessageEvent
+          event
         );
       }
     });
 
     source.addEventListener("task", (event) => {
-      const payload = parsePayload(event as MessageEvent);
+      const payload = parsePayload(event);
       if (payload && typeof options.onTask === "function") {
         options.onTask(
           payload as TaskStreamTaskPayload,
-          event as MessageEvent
+          event
         );
       }
     });
@@ -978,23 +999,23 @@ class API {
     );
     const source = new EventSource(url);
 
-    const parsePayload = (event: MessageEvent): unknown | null => {
+    const parsePayload = (event: MessageEvent): unknown => {
       try {
-        return JSON.parse(event.data || "{}");
+        return JSON.parse((event.data as string) || "{}");
       } catch (err) {
         console.error("解析项目事件 SSE 数据失败:", err, event.data);
         return null;
       }
     };
 
-    const createHandler = (
-      callback?: (payload: any, event: MessageEvent) => void
+    const createHandler = <T>(
+      callback?: (payload: T, event: MessageEvent) => void
     ) => {
       return (event: Event) => {
         if (typeof callback !== "function") return;
         const payload = parsePayload(event as MessageEvent);
         if (payload) {
-          callback(payload, event as MessageEvent);
+          callback(payload as T, event as MessageEvent);
         }
       };
     };
@@ -1085,7 +1106,7 @@ class API {
 
     await throwIfNotOk(response, "上传失败");
 
-    return response.json();
+    return response.json() as Promise<{ success: boolean; style_image: string; style_description: string; url: string }>;
   }
 
   /**
@@ -1370,7 +1391,7 @@ class API {
       withAuth({ method: "POST", body: formData }),
     );
     await throwIfNotOk(response, "上传凭证失败");
-    return response.json();
+    return response.json() as Promise<ProviderCredential>;
   }
 
   // ==================== 自定义供应商 API ====================

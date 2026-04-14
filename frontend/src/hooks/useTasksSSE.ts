@@ -29,9 +29,7 @@ export function useTasksSSE(projectName?: string | null): void {
         ]);
         if (disposed) return;
         setTasks(tasksRes.items);
-        // REST returns { stats: {...} }
-        const stats = (statsRes as any).stats ?? statsRes;
-        setStats(stats);
+        setStats(statsRes.stats);
         setConnected(true);
       } catch {
         if (disposed) return;
