@@ -328,6 +328,7 @@ class TestProjectsRouter:
             data = resp.json()
             assert "asset_fingerprints" in data
             assert "storyboards/scene_E1S01.png" in data["asset_fingerprints"]
+            assert isinstance(data["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
     def test_create_project_with_style_template_id_expands_prompt(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
@@ -374,17 +375,17 @@ class TestProjectsRouter:
                 json={
                     "title": "模型项目",
                     "name": "m-1",
-                    "video_backend": "gemini/veo-3",
-                    "image_backend": "gemini/nano-banana",
-                    "text_backend_script": "gemini/gemini-2.5",
+                    "video_backend": "gemini-aistudio/veo-3",
+                    "image_backend": "gemini-aistudio/nano-banana",
+                    "text_backend_script": "gemini-aistudio/gemini-2.5",
                     "default_duration": 8,
                 },
             )
             assert resp.status_code == 200
             data = fake_pm.project_data["m-1"]
-            assert data["video_backend"] == "gemini/veo-3"
-            assert data["image_backend"] == "gemini/nano-banana"
-            assert data["text_backend_script"] == "gemini/gemini-2.5"
+            assert data["video_backend"] == "gemini-aistudio/veo-3"
+            assert data["image_backend"] == "gemini-aistudio/nano-banana"
+            assert data["text_backend_script"] == "gemini-aistudio/gemini-2.5"
             assert data["default_duration"] == 8
 
     def test_create_project_empty_model_fields_not_written(self, tmp_path, monkeypatch):
@@ -405,3 +406,19 @@ class TestProjectsRouter:
             data = fake_pm.project_data["e-1"]
             assert "video_backend" not in data
             assert "image_backend" not in data
+
+    def test_create_project_with_invalid_backend_returns_400(self, tmp_path, monkeypatch):
+        """非法 backend 字符串应被校验器拒绝。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "title": "Bad Backend",
+                    "name": "bad-bk",
+                    "video_backend": "garbage",  # 无 "/"，且不在 _LEGACY_PROVIDER_NAMES/PROVIDER_REGISTRY
+                },
+            )
+            assert resp.status_code == 400

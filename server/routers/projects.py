@@ -401,6 +401,18 @@ async def create_project(
                     )
                 style_prompt = resolve_template_prompt(req.style_template_id)
 
+            # 与 update 路径对称：校验所有 backend 字段
+            for field_name in (
+                "video_backend",
+                "image_backend",
+                "text_backend_script",
+                "text_backend_overview",
+                "text_backend_style",
+            ):
+                value = getattr(req, field_name)
+                if value:
+                    validate_backend_value(value, field_name, _t)
+
             try:
                 manager.create_project(project_name)
             except FileExistsError:
