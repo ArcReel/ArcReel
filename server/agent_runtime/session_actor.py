@@ -145,12 +145,13 @@ class SessionActor:
                 if cmd_task in done:
                     next_cmd = cmd_task.result()
                     if next_cmd.type == "interrupt":
-                        # 无论 client.interrupt() 成败都要唤醒等待者——失败时
-                        # 把异常挂到 cmd.error 上透传给 send_interrupt
-                        caught: BaseException | None = None
+                        # 无论 client.interrupt() 成败都要唤醒等待者——常规失败时
+                        # 把异常挂到 cmd.error 透传给 send_interrupt；CancelledError 等
+                        # 控制流异常不拦截，但 finally 仍保证 cmd 被 complete 避免挂死。
+                        caught: Exception | None = None
                         try:
                             await client.interrupt()
-                        except BaseException as exc:
+                        except Exception as exc:
                             caught = exc
                         finally:
                             next_cmd.complete(caught)
