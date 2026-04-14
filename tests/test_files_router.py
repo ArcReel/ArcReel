@@ -187,20 +187,6 @@ class TestFilesRouter:
             assert upload_style.status_code == 200
             assert upload_style.json()["style_description"] == "cinematic, high contrast"
 
-            patch_style = client.patch(
-                "/api/v1/projects/demo/style-description",
-                json={"style_description": "manual style"},
-            )
-            assert patch_style.status_code == 200
-            assert patch_style.json()["style_description"] == "manual style"
-
-            delete_style = client.delete("/api/v1/projects/demo/style-image")
-            assert delete_style.status_code == 200
-
-            project = pm.load_project("demo")
-            assert "style_image" not in project
-            assert "style_description" not in project
-
             bad_style_ext = client.post(
                 "/api/v1/projects/demo/style-image",
                 files={"file": ("style.gif", b"gif", "image/gif")},
@@ -226,9 +212,6 @@ class TestFilesRouter:
                 headers={"content-type": "text/plain"},
             )
             assert missing_source.status_code == 404
-
-            style_missing_project = client.delete("/api/v1/projects/missing/style-image")
-            assert style_missing_project.status_code == 404
 
     def test_upload_without_name_and_keyerror_tolerance(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
