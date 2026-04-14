@@ -316,6 +316,7 @@ export function ProjectsPage() {
           ref={importInputRef}
           type="file"
           accept=".zip,application/zip"
+          aria-label={t("dashboard:import_project_file_aria")}
           onChange={handleImport}
           className="hidden"
         />

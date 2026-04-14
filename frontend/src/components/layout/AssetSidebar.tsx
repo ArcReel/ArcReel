@@ -259,6 +259,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
               ref={fileInputRef}
               type="file"
               accept=".txt,.md,.doc,.docx"
+              aria-label={t("dashboard:upload_asset_file_aria")}
               onChange={handleUpload}
               className="hidden"
             />

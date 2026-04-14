@@ -353,7 +353,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
             <Upload className="h-3 w-3" />
             {fileRef.current?.files?.[0]?.name ?? t("select_json_file")}
           </button>
-          <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={() => setError(null)} />
+          <input ref={fileRef} type="file" accept=".json,application/json" aria-label={t("import_credential_file_aria")} className="hidden" onChange={() => setError(null)} />
         </div>
       ) : (
         <>

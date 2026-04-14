@@ -184,6 +184,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
             ref={fileInputRef}
             type="file"
             accept=".png,.jpg,.jpeg,.webp"
+            aria-label={t("upload_character_ref_aria")}
             onChange={handleReferenceChange}
             className="hidden"
           />

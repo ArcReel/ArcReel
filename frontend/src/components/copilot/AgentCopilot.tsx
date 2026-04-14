@@ -497,6 +497,7 @@ export function AgentCopilot() {
           type="file"
           multiple
           accept="image/*"
+          aria-label={t("upload_attachment_aria")}
           className="hidden"
           onChange={handleFileSelect}
         />

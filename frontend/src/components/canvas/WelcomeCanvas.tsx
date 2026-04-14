@@ -184,6 +184,7 @@ export function WelcomeCanvas({
               ref={fileInputRef}
               type="file"
               accept=".txt,.md"
+              aria-label={t("upload_script_file_aria")}
               className="hidden"
               onChange={handleFileSelect}
             />
@@ -219,6 +220,7 @@ export function WelcomeCanvas({
                 ref={fileInputRef}
                 type="file"
                 accept=".txt,.md"
+                aria-label={t("upload_script_file_aria")}
                 className="hidden"
                 onChange={handleFileSelect}
               />

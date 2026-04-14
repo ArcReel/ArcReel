@@ -350,6 +350,7 @@ export function CreateProjectModal() {
               ref={fileInputRef}
               type="file"
               accept=".png,.jpg,.jpeg,.webp"
+              aria-label={t("dashboard:upload_style_ref_aria")}
               onChange={handleStyleImageChange}
               className="hidden"
             />
