@@ -33,6 +33,7 @@ async def _seed(session_manager, meta_store, *, messages=None, status="idle", bl
     )
     # Ensure inbox sentinel is pushed when actor ends.
     if actor._task is not None:
+
         def _done_cb(_t):
             try:
                 managed._inbox.put_nowait(None)
@@ -121,9 +122,7 @@ class TestSessionManagerUserInput:
             # Wait briefly for inbox processor to drain the result message.
             for _ in range(100):
                 await asyncio.sleep(0)
-                if managed._inbox.empty() and not any(
-                    msg.get("type") == "result" for msg in managed.message_buffer
-                ):
+                if managed._inbox.empty() and not any(msg.get("type") == "result" for msg in managed.message_buffer):
                     break
                 await asyncio.sleep(0.01)
 
@@ -162,9 +161,7 @@ class TestSessionManagerUserInput:
             # Wait for finalize_turn to complete via inbox processor.
             for _ in range(100):
                 await asyncio.sleep(0)
-                if managed._inbox.empty() and not any(
-                    msg.get("type") == "result" for msg in managed.message_buffer
-                ):
+                if managed._inbox.empty() and not any(msg.get("type") == "result" for msg in managed.message_buffer):
                     break
                 await asyncio.sleep(0.01)
 

@@ -17,6 +17,10 @@ from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
+# inbox 积压告警阈值：正常情况下 async 处理端应能跟上 actor 推送速率，
+# 持续高于此值说明 _process_inbox 被阻塞或下游 I/O 超慢。
+_INBOX_BACKLOG_WARN_THRESHOLD = 100
+
 from lib.i18n import LOCALE_LANGUAGE_MAP
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
@@ -1090,6 +1094,13 @@ class SessionManager:
                 msg_dict = await managed._inbox.get()
                 if msg_dict is None:
                     return
+                depth = managed._inbox.qsize()
+                if depth >= _INBOX_BACKLOG_WARN_THRESHOLD:
+                    logger.warning(
+                        "inbox backlog 过深 session_id=%s depth=%d (async post-processing 跟不上)",
+                        managed.session_id,
+                        depth,
+                    )
                 # Short-circuit once sdk_session_id is captured: stream_event
                 # messages can be very high-frequency and _extract_sdk_session_id
                 # only yields on the init system message.
