@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -66,7 +66,7 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function CreateProjectModal() {
-  const { t } = useTranslation(["dashboard"]);
+  const { t } = useTranslation(["dashboard", "common"]);
   const [, navigate] = useLocation();
   const { setShowCreateModal } = useProjectsStore();
 
@@ -98,8 +98,15 @@ export function CreateProjectModal() {
 
   const [creating, setCreating] = useState(false);
 
+  // Unified object URL lifetime: revoke on URL change and on unmount
+  useEffect(() => {
+    const url = style.uploadedPreview;
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [style.uploadedPreview]);
+
   const handleClose = () => {
-    if (style.uploadedPreview) URL.revokeObjectURL(style.uploadedPreview);
     setShowCreateModal(false);
   };
 
@@ -132,11 +139,6 @@ export function CreateProjectModal() {
         }
       }
 
-      // Revoke any object URL before closing
-      if (style.uploadedPreview) {
-        URL.revokeObjectURL(style.uploadedPreview);
-      }
-
       setShowCreateModal(false);
       navigate(`/app/projects/${resp.name}`);
     } catch (err) {
@@ -150,14 +152,22 @@ export function CreateProjectModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="create-project-title"
+      tabIndex={-1}
+      onKeyDown={(e) => { if (e.key === "Escape") handleClose(); }}
+    >
       <div className="w-full max-w-3xl rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
         {/* Header: title + close */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-gray-100">{t("dashboard:new_project")}</h2>
+          <h2 id="create-project-title" className="text-lg font-semibold text-gray-100">{t("dashboard:new_project")}</h2>
           <button
             type="button"
             onClick={handleClose}
+            aria-label={t("common:close")}
             className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-gray-200"
           >
             <X className="h-5 w-5" />

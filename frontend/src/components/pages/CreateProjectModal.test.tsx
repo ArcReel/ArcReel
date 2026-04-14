@@ -1,5 +1,9 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Stub URL object APIs not available in jsdom
+globalThis.URL.createObjectURL ??= vi.fn(() => "blob:mock");
+globalThis.URL.revokeObjectURL ??= vi.fn();
 import "@/i18n";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { API } from "@/api";
@@ -156,5 +160,47 @@ describe("CreateProjectModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /上一步/ }));
     // Back on step 1, title preserved
     expect(screen.getByRole("textbox")).toHaveValue("demo");
+  });
+
+  it("shows error toast and stays on step 3 when createProject fails", async () => {
+    vi.spyOn(API, "createProject").mockRejectedValueOnce(new Error("boom"));
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+    // Not navigated away
+    expect(navigateMock).not.toHaveBeenCalled();
+    // Create button re-enabled after failure (creating=false)
+    await waitFor(() => expect(screen.getByRole("button", { name: /创建项目/ })).toBeEnabled());
+  });
+
+  it("calls uploadStyleImage after createProject when in custom mode with uploaded file", async () => {
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument());
+
+    // Switch to custom tab
+    fireEvent.click(screen.getByRole("button", { name: /自定义|Custom/ }));
+    // Upload a file via the hidden file input
+    const file = new File(["content"], "style.png", { type: "image/png" });
+    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
+    Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+    fireEvent.change(fileInput);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /创建项目/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
+
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+    expect(API.createProject).toHaveBeenCalledWith(expect.objectContaining({
+      style_template_id: null,
+    }));
+    await waitFor(() => expect(API.uploadStyleImage).toHaveBeenCalledWith("demo-proj", file));
   });
 });
