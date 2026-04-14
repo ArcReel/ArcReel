@@ -28,6 +28,17 @@ class SessionCommand:
     done: asyncio.Event = field(default_factory=asyncio.Event)
     error: BaseException | None = None
 
+    def complete(self, error: BaseException | None = None) -> None:
+        """唤醒所有等待者（sent + done）并可选携带 error。
+
+        集中定义避免漏置 sent 或 done 导致调用方挂死——历次 review 发现过
+        多个 "只 set done 忘了 set sent" 的回归，此 helper 作为单一契约点。
+        """
+        if error is not None:
+            self.error = error
+        self.sent.set()
+        self.done.set()
+
 
 OnMessage = Callable[[dict[str, Any]], None]
 ClientFactory = Callable[[], AbstractAsyncContextManager[Any]]
@@ -84,8 +95,7 @@ class SessionActor:
             deferred_cmd = None
 
             if cmd.type == "disconnect":
-                cmd.sent.set()
-                cmd.done.set()
+                cmd.complete()
                 return  # 触发 __aexit__，同 task disconnect
 
             if cmd.type == "query":
@@ -95,14 +105,11 @@ class SessionActor:
                     cmd.sent.set()
                     deferred_cmd = await self._drive_query(client, cmd)
                 except BaseException as exc:
-                    cmd.error = exc
-                    cmd.sent.set()
-                    cmd.done.set()
+                    cmd.complete(exc)
                     raise
             elif cmd.type == "interrupt":
                 # 当前无 query 进行中；interrupt 无操作，但仍 ACK
-                cmd.sent.set()
-                cmd.done.set()
+                cmd.complete()
 
     async def _drive_query(self, client: Any, query_cmd: SessionCommand) -> SessionCommand | None:
         """在同一 task 内交织消费 receive_response 与新命令。
@@ -138,17 +145,17 @@ class SessionActor:
                 if cmd_task in done:
                     next_cmd = cmd_task.result()
                     if next_cmd.type == "interrupt":
+                        # 无论 client.interrupt() 成败都要唤醒等待者——失败时
+                        # 把异常挂到 cmd.error 上透传给 send_interrupt
+                        caught: BaseException | None = None
                         try:
                             await client.interrupt()
                         except BaseException as exc:
-                            # SDK 中断失败也必须唤醒等待者，否则 send_interrupt 挂死
-                            next_cmd.error = exc
-                            next_cmd.sent.set()
-                            next_cmd.done.set()
-                            raise
-                        else:
-                            next_cmd.sent.set()
-                            next_cmd.done.set()
+                            caught = exc
+                        finally:
+                            next_cmd.complete(caught)
+                        if caught is not None:
+                            raise caught
                         cmd_task = asyncio.create_task(self._cmd_queue.get())
                     elif next_cmd.type == "disconnect":
                         # drive_query 内部遇到 disconnect：先 interrupt 让消息流收尾，
@@ -161,9 +168,7 @@ class SessionActor:
                     elif next_cmd.type == "query":
                         if pending_query is not None:
                             # 上层 race 送来第三个 query：拒绝（FIFO 只保留第一个暂存）
-                            next_cmd.error = RuntimeError("session busy: 当前会话已有待执行 query")
-                            next_cmd.sent.set()
-                            next_cmd.done.set()
+                            next_cmd.complete(RuntimeError("session busy: 当前会话已有待执行 query"))
                         else:
                             # 违反 "drain before new query"：暂存，让消息流自然 drain 完成；
                             # 在 StopAsyncIteration 分支返回 pending_query 由下一轮 _command_loop 处理。
@@ -176,15 +181,11 @@ class SessionActor:
                 cmd_task.cancel()
             # 异常退出路径下 pending_query 已脱离队列，必须显式释放等待者
             if pending_query is not None and not pending_query.done.is_set():
-                pending_query.error = pending_query.error or _ActorClosed()
-                pending_query.sent.set()
-                pending_query.done.set()
+                pending_query.complete(pending_query.error or _ActorClosed())
 
     async def enqueue(self, cmd: SessionCommand) -> None:
         if self._task is not None and self._task.done():
-            cmd.error = self._fatal or _ActorClosed()
-            cmd.sent.set()
-            cmd.done.set()
+            cmd.complete(self._fatal or _ActorClosed())
             return
         await self._cmd_queue.put(cmd)
 
@@ -195,9 +196,7 @@ class SessionActor:
             except asyncio.QueueEmpty:
                 break
             if not cmd.done.is_set():
-                cmd.error = exc
-                cmd.sent.set()
-                cmd.done.set()
+                cmd.complete(exc)
 
     # --- Public accessors (avoid leaking _task to callers) -----------------
 
@@ -216,7 +215,7 @@ class SessionActor:
         if self._task is None:
             return
         with contextlib.suppress(BaseException):
-            _ = await self._task
+            _ = await self._task  # result intentionally discarded; await 的等待副作用才是意图
 
     async def cancel_and_wait(self) -> None:
         """Cancel the actor task and wait for it to finish."""
@@ -224,4 +223,4 @@ class SessionActor:
             return
         self._task.cancel()
         with contextlib.suppress(BaseException):
-            _ = await self._task
+            _ = await self._task  # result intentionally discarded

@@ -426,10 +426,10 @@ async def test_enqueue_after_actor_closed_fails_fast():
 
 @pytest.mark.asyncio
 async def test_send_query_returns_on_sent_not_on_drain():
-    """P1 回归锁定：send_query 在 prompt 送入 SDK 即返回，不等整轮 drain。
+    """send_query 在 prompt 送入 SDK 即返回，不等整轮 drain。
 
     block_forever=True 使 receive_response 永不自然结束；若 send_query 等
-    cmd.done.wait() 会挂死，测试超时。等 cmd.sent 则应立即返回。
+    cmd.done.wait() 会挂死触发超时。等 cmd.sent 则应立即返回。
     """
     from contextlib import asynccontextmanager
 
