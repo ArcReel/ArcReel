@@ -123,7 +123,10 @@ class SessionActor:
                     except StopAsyncIteration:
                         query_cmd.done.set()
                         if pending_query is not None:
-                            if not cmd_task.done():
+                            # 若 cmd_task 又 race 到下一条命令，回塞到队列避免丢失
+                            if cmd_task.done():
+                                self._cmd_queue.put_nowait(cmd_task.result())
+                            else:
                                 cmd_task.cancel()
                             handed_off, pending_query = pending_query, None
                             return handed_off
@@ -135,9 +138,17 @@ class SessionActor:
                 if cmd_task in done:
                     next_cmd = cmd_task.result()
                     if next_cmd.type == "interrupt":
-                        await client.interrupt()
-                        next_cmd.sent.set()
-                        next_cmd.done.set()
+                        try:
+                            await client.interrupt()
+                        except BaseException as exc:
+                            # SDK 中断失败也必须唤醒等待者，否则 send_interrupt 挂死
+                            next_cmd.error = exc
+                            next_cmd.sent.set()
+                            next_cmd.done.set()
+                            raise
+                        else:
+                            next_cmd.sent.set()
+                            next_cmd.done.set()
                         cmd_task = asyncio.create_task(self._cmd_queue.get())
                     elif next_cmd.type == "disconnect":
                         # drive_query 内部遇到 disconnect：先 interrupt 让消息流收尾，

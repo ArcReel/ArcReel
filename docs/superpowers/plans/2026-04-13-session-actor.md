@@ -1291,10 +1291,12 @@ Expected: FAIL（方法不存在）
     async def send_query(
         self, prompt: str | AsyncIterable[dict], sdk_session_id: str = "default"
     ) -> None:
+        # 等 prompt 送入 SDK 即返回（整轮 receive_response 由 actor 后台 drain），
+        # 保持 HTTP 路径 "立即 accepted + SSE 异步消费" 语义。
         self.status = "running"
         cmd = SessionCommand(type="query", prompt=prompt, session_id=sdk_session_id)
         await self.actor.enqueue(cmd)
-        await cmd.done.wait()
+        await cmd.sent.wait()
         if cmd.error is not None:
             self.status = "error"
             raise cmd.error

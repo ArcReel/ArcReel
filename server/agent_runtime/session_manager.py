@@ -1430,7 +1430,7 @@ class SessionManager:
                 )
                 if managed.actor is not None:
                     await managed.actor.cancel_and_wait()
-                managed.status = "closed"
+                managed.status = "interrupted"
             except Exception:
                 logger.exception("actor 关停异常 session_id=%s", session_id)
                 managed.status = "error"
@@ -1452,6 +1452,18 @@ class SessionManager:
                         "_process_inbox 退出异常 session_id=%s",
                         session_id,
                     )
+
+            # 若会话关闭时仍被标记为 running，持久化为终态以防进程重启后卡死：
+            # send_message 已把 DB 写成 running；缺少此步 get_or_connect 恢复
+            # 后会拒绝新消息（SessionStatus == "running"）。
+            if managed.resolved_sdk_id is not None and managed.status == "running":
+                managed.status = "interrupted"
+            if managed.resolved_sdk_id is not None and managed.status in (
+                "interrupted",
+                "error",
+            ):
+                with contextlib.suppress(BaseException):
+                    await self.meta_store.update_status(managed.resolved_sdk_id, managed.status)
         finally:
             self.sessions.pop(session_id, None)
             self._connect_locks.pop(session_id, None)

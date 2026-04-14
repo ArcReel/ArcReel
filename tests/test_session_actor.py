@@ -509,3 +509,39 @@ async def test_start_is_not_reentrant():
         d = SessionCommand(type="disconnect")
         await actor.enqueue(d)
         await d.done.wait()
+
+
+@pytest.mark.asyncio
+async def test_interrupt_failure_still_wakes_waiter():
+    """client.interrupt() 抛异常时仍要 set sent/done 并传递 error，
+    避免 ManagedSession.send_interrupt 挂在 cmd.done.wait()。"""
+    from contextlib import asynccontextmanager
+
+    class _BoomClient(FakeSDKClient):
+        async def interrupt(self):
+            self._record("interrupt")
+            raise RuntimeError("interrupt failed")
+
+    client = _BoomClient(block_forever=True)
+
+    @asynccontextmanager
+    async def _factory():
+        async with client as c:
+            yield c
+
+    actor = SessionActor(client_factory=_factory, on_message=lambda m: None)
+    await actor.start()
+    try:
+        q = SessionCommand(type="query", prompt="go")
+        await actor.enqueue(q)
+        await q.sent.wait()
+
+        i = SessionCommand(type="interrupt")
+        await actor.enqueue(i)
+        # interrupt 抛异常，actor crash；cmd 仍应被唤醒（sent+done + error）
+        await asyncio.wait_for(i.done.wait(), timeout=1.0)
+        assert i.error is not None
+        assert i.sent.is_set()
+    finally:
+        # actor 已 crash；cancel 清理
+        await actor.cancel_and_wait()
