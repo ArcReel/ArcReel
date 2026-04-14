@@ -83,7 +83,7 @@ function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
 
 const cardClassName = "rounded-xl border border-gray-800 bg-gray-950/40 p-4";
 const inputClassName =
-  "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60";
+  "w-full rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus-visible:ring-2 focus-visible:ring-indigo-500/60";
 const smallBtnClassName =
   "rounded p-1 text-gray-500 hover:text-gray-300 focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:outline-none";
 
