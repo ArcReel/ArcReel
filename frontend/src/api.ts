@@ -135,6 +135,22 @@ export interface SuccessResponse {
   message?: string;
 }
 
+/** Payload for {@link API.createProject}. */
+export interface CreateProjectPayload {
+  title: string;
+  name?: string;
+  content_mode?: "narration" | "drama";
+  aspect_ratio?: "9:16" | "16:9";
+  generation_mode?: "single" | "grid";
+  default_duration?: number | null;
+  style_template_id?: string | null;
+  video_backend?: string | null;
+  image_backend?: string | null;
+  text_backend_script?: string | null;
+  text_backend_overview?: string | null;
+  text_backend_style?: string | null;
+}
+
 /** Draft metadata returned by listDrafts. */
 export interface DraftInfo {
   episode: number;
@@ -287,23 +303,11 @@ class API {
   }
 
   static async createProject(
-    title: string,
-    style: string = "",
-    contentMode: string = "narration",
-    aspectRatio: string = "9:16",
-    defaultDuration: number | null = null,
-    generationMode: "single" | "grid" = "single",
+    payload: CreateProjectPayload,
   ): Promise<{ success: boolean; name: string; project: ProjectData }> {
     return this.request("/projects", {
       method: "POST",
-      body: JSON.stringify({
-        title,
-        style,
-        content_mode: contentMode,
-        aspect_ratio: aspectRatio,
-        default_duration: defaultDuration,
-        generation_mode: generationMode,
-      }),
+      body: JSON.stringify(payload),
     });
   }
 
@@ -1107,39 +1111,6 @@ class API {
     await throwIfNotOk(response, "上传失败");
 
     return response.json() as Promise<{ success: boolean; style_image: string; style_description: string; url: string }>;
-  }
-
-  /**
-   * 删除风格参考图
-   * @param projectName - 项目名称
-   */
-  static async deleteStyleImage(
-    projectName: string
-  ): Promise<SuccessResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/style-image`,
-      {
-        method: "DELETE",
-      }
-    );
-  }
-
-  /**
-   * 更新风格描述
-   * @param projectName - 项目名称
-   * @param styleDescription - 风格描述
-   */
-  static async updateStyleDescription(
-    projectName: string,
-    styleDescription: string
-  ): Promise<SuccessResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/style-description`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ style_description: styleDescription }),
-      }
-    );
   }
 
   // ==================== 助手会话 API ====================

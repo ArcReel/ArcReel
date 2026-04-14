@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { voidPromise } from "@/utils/async";
 import { useTranslation } from "react-i18next";
-import { ImagePlus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { ImagePlus, RefreshCw, Upload } from "lucide-react";
 import type { ProjectData } from "@/types";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -39,11 +39,6 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
 
   const [regenerating, setRegenerating] = useState(false);
   const [uploadingStyleImage, setUploadingStyleImage] = useState(false);
-  const [deletingStyleImage, setDeletingStyleImage] = useState(false);
-  const [savingStyleDescription, setSavingStyleDescription] = useState(false);
-  const [styleDescriptionDraft, setStyleDescriptionDraft] = useState(
-    projectData?.style_description ?? "",
-  );
   const styleInputRef = useRef<HTMLInputElement>(null);
 
   const refreshProject = useCallback(
@@ -58,10 +53,6 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     },
     [projectName],
   );
-
-  useEffect(() => {
-    setStyleDescriptionDraft(projectData?.style_description ?? "");
-  }, [projectData?.style_description]);
 
   const handleUpload = useCallback(
     async (file: File) => {
@@ -113,40 +104,6 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     [projectName, refreshProject],
   );
 
-  const handleDeleteStyleImage = useCallback(async () => {
-    if (deletingStyleImage || !projectData?.style_image) return;
-    if (!confirm(tRef.current("confirm_delete_style_image"))) return;
-
-    setDeletingStyleImage(true);
-    try {
-      await API.deleteStyleImage(projectName);
-      await refreshProject();
-      useAppStore.getState().pushToast(tRef.current("style_image_deleted"), "success");
-    } catch (err) {
-      useAppStore
-        .getState()
-        .pushToast(`${tRef.current("delete_failed")}${(err as Error).message}`, "error");
-    } finally {
-      setDeletingStyleImage(false);
-    }
-  }, [deletingStyleImage, projectData?.style_image, projectName, refreshProject]);
-
-  const handleSaveStyleDescription = useCallback(async () => {
-    if (savingStyleDescription) return;
-    setSavingStyleDescription(true);
-    try {
-      await API.updateStyleDescription(projectName, styleDescriptionDraft.trim());
-      await refreshProject();
-      useAppStore.getState().pushToast(tRef.current("style_desc_saved"), "success");
-    } catch (err) {
-      useAppStore
-        .getState()
-        .pushToast(`${tRef.current("save_failed")}${(err as Error).message}`, "error");
-    } finally {
-      setSavingStyleDescription(false);
-    }
-  }, [projectName, refreshProject, savingStyleDescription, styleDescriptionDraft]);
-
   if (!projectData) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
@@ -160,8 +117,6 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const styleImageUrl = projectData.style_image
     ? API.getFileUrl(projectName, projectData.style_image, styleImageFp)
     : null;
-  const styleDescriptionDirty =
-    styleDescriptionDraft !== (projectData.style_description ?? "");
   const showWelcome = !overview && (projectData.episodes?.length ?? 0) === 0;
   const projectStyleCard = (
     <section className="rounded-2xl border border-gray-800 bg-gray-900/90 p-4 sm:p-5">
@@ -245,14 +200,9 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
         </div>
 
         <div className="rounded-xl border border-gray-800 bg-gray-950/35 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <label htmlFor="style-description-textarea" className="text-xs font-medium text-gray-400">{t("style_description")}</label>
-            <span className="text-[11px] text-gray-600">
-              {t("style_desc_char_count", { count: styleDescriptionDraft.trim().length })}
-            </span>
-          </div>
+          <p className="text-xs font-medium text-gray-400">{t("style_description")}</p>
           <p className="mt-1 text-xs leading-5 text-gray-500">
-            {t("style_desc_auto_hint")}
+            {projectData.style_description || t("style_desc_auto_hint")}
           </p>
 
           <textarea

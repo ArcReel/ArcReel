@@ -51,7 +51,13 @@ describe("CreateProjectModal", () => {
     fireEvent.click(submitButton);
 
     await waitFor(() => {
-      expect(API.createProject).toHaveBeenCalledWith("演示项目", "Photographic", "narration", "9:16", null, "single");
+      expect(API.createProject).toHaveBeenCalledWith({
+        title: "演示项目",
+        content_mode: "narration",
+        aspect_ratio: "9:16",
+        default_duration: null,
+        generation_mode: "single",
+      });
     });
   });
 

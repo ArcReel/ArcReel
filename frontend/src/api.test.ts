@@ -158,8 +158,8 @@ describe("API", () => {
         .mockResolvedValue({ success: true } as never);
 
       await API.listProjects();
-      await API.createProject("Demo");
-      await API.createProject("Untitled");
+      await API.createProject({ title: "Demo" });
+      await API.createProject({ title: "Untitled" });
       await API.getProject("a b");
       await API.updateProject("demo", { style: "Anime" });
       await API.deleteProject("demo");
@@ -192,25 +192,11 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/projects");
       expect(requestSpy).toHaveBeenCalledWith("/projects", {
         method: "POST",
-        body: JSON.stringify({
-          title: "Demo",
-          style: "",
-          content_mode: "narration",
-          aspect_ratio: "9:16",
-          default_duration: null,
-          generation_mode: "single",
-        }),
+        body: JSON.stringify({ title: "Demo" }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects", {
         method: "POST",
-        body: JSON.stringify({
-          title: "Untitled",
-          style: "",
-          content_mode: "narration",
-          aspect_ratio: "9:16",
-          default_duration: null,
-          generation_mode: "single",
-        }),
+        body: JSON.stringify({ title: "Untitled" }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b");
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo", {
@@ -309,8 +295,6 @@ describe("API", () => {
       await API.getTaskStats("demo");
       await API.getVersions("demo", "storyboards", "seg-1");
       await API.restoreVersion("demo", "storyboards", "seg-1", 3);
-      await API.deleteStyleImage("demo");
-      await API.updateStyleDescription("demo", "moody");
 
       await API.listAssistantSessions("demo", "running");
       await API.getAssistantSession("demo", "session-1");
@@ -368,6 +352,29 @@ describe("API", () => {
       expect(API.getAssistantStreamUrl("demo", "session-1")).toBe(
         "/api/v1/projects/demo/assistant/sessions/session-1/stream",
       );
+    });
+
+    it("createProject sends object body with style_template_id and model fields", async () => {
+      const requestSpy = vi.spyOn(API, "request").mockResolvedValue({ success: true } as never);
+      await API.createProject({
+        title: "P1",
+        style_template_id: "live_premium_drama",
+        content_mode: "drama",
+        aspect_ratio: "9:16",
+        video_backend: "gemini-aistudio/veo-3",
+        default_duration: 8,
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects", {
+        method: "POST",
+        body: JSON.stringify({
+          title: "P1",
+          style_template_id: "live_premium_drama",
+          content_mode: "drama",
+          aspect_ratio: "9:16",
+          video_backend: "gemini-aistudio/veo-3",
+          default_duration: 8,
+        }),
+      });
     });
   });
 

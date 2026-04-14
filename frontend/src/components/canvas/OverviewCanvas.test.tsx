@@ -37,25 +37,19 @@ describe("OverviewCanvas", () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
   });
 
-  it("uploads and deletes the style reference image from the workspace", async () => {
+  it("uploads the style reference image from the workspace", async () => {
     vi.spyOn(API, "uploadStyleImage").mockResolvedValue({
       success: true,
       style_image: "style_reference.png",
       style_description: "updated",
       url: "u",
     });
-    vi.spyOn(API, "deleteStyleImage").mockResolvedValue({ success: true });
-    vi.spyOn(API, "getProject")
-      .mockResolvedValueOnce({
-        project: makeProjectData({ style_image: "style_reference.png" }),
-        scripts: {},
-      })
-      .mockResolvedValueOnce({
-        project: makeProjectData(),
-        scripts: {},
-      });
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData({ style_image: "style_reference.png" }),
+      scripts: {},
+    });
 
-    const { container, rerender } = render(
+    const { container } = render(
       <OverviewCanvas projectName="demo" projectData={makeProjectData()} />,
     );
 
@@ -69,52 +63,16 @@ describe("OverviewCanvas", () => {
       expect(API.uploadStyleImage).toHaveBeenCalledWith("demo", file);
       expect(API.getProject).toHaveBeenCalledTimes(1);
     });
+  }, 10_000);
 
-    rerender(
+  it("displays the style description from project data", () => {
+    render(
       <OverviewCanvas
         projectName="demo"
-        projectData={makeProjectData({ style_image: "style_reference.png" })}
+        projectData={makeProjectData({ style_description: "cinematic noir" })}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /删除参考图/ }));
-
-    await waitFor(() => {
-      expect(API.deleteStyleImage).toHaveBeenCalledWith("demo");
-      expect(API.getProject).toHaveBeenCalledTimes(2);
-    });
-  }, 10_000);
-
-  it("shows a save action only when style description is edited", async () => {
-    vi.spyOn(API, "updateStyleDescription").mockResolvedValue({} as any);
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ style_description: "new description" }),
-      scripts: {},
-    });
-
-    render(
-      <OverviewCanvas projectName="demo" projectData={makeProjectData()} />,
-    );
-
-    expect(
-      screen.queryByRole("button", { name: /保存风格描述/ }),
-    ).not.toBeInTheDocument();
-
-    fireEvent.change(
-      screen.getByPlaceholderText(/上传风格参考图后/),
-      {
-        target: { value: "new description" },
-      },
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /保存风格描述/ }));
-
-    await waitFor(() => {
-      expect(API.updateStyleDescription).toHaveBeenCalledWith(
-        "demo",
-        "new description",
-      );
-      expect(API.getProject).toHaveBeenCalled();
-    });
+    expect(screen.getByText("cinematic noir")).toBeInTheDocument();
   });
 });

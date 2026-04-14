@@ -60,7 +60,13 @@ export function CreateProjectModal() {
 
     setCreatingProject(true);
     try {
-      const response = await API.createProject(title.trim(), style, contentMode, aspectRatio, defaultDuration, generationMode);
+      const response = await API.createProject({
+        title: title.trim(),
+        content_mode: contentMode,
+        aspect_ratio: aspectRatio,
+        default_duration: defaultDuration,
+        generation_mode: generationMode,
+      });
       const projectName = response.name;
 
       // 如果用户选择了风格参考图，在项目创建后上传
