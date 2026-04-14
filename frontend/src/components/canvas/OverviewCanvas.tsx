@@ -8,6 +8,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { formatCost, totalBreakdown } from "@/utils/cost-format";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
@@ -359,18 +360,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                             {cat.completed}/{cat.total}
                           </span>
                         </div>
-                        <div
-                          className="h-1.5 overflow-hidden rounded-full bg-gray-800"
-                          role="progressbar"
-                          aria-valuenow={pct}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                        >
-                          <div
-                            className="h-full rounded-full bg-indigo-500"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
+                        <ProgressBar value={pct} />
                       </div>
                     );
                   },

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Check, Circle } from "lucide-react";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import type { Turn, TodoItem } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -96,12 +97,11 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
 
         {/* Progress bar + count */}
         <div className="flex items-center gap-2 shrink-0">
-          <div className="h-1 w-16 rounded-full bg-white/10 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-emerald-500 transition-all duration-500 ease-out"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
+          <ProgressBar
+            value={progressPercent}
+            className="h-1 w-16 bg-white/10"
+            barClassName="bg-emerald-500 transition-all duration-500 ease-out"
+          />
           <span className="text-[10px] tabular-nums text-slate-500">
             {completedCount}/{total}
           </span>

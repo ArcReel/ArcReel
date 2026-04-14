@@ -9,6 +9,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import { Popover } from "@/components/ui/Popover";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
 import type { ProjectStatus, ProjectSummary, ImportConflictPolicy, ImportFailureDiagnostics } from "@/types";
@@ -90,12 +91,7 @@ function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete:
           <span>{phaseLabel || t("dashboard:progress")}</span>
           <span>{pct}%</span>
         </div>
-        <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
-          <div
-            className="h-full rounded-full bg-indigo-600 transition-all"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
+        <ProgressBar value={pct} barClassName="bg-indigo-600 transition-all" />
       </div>
 
       {/* Characters & Clues — always shown */}
