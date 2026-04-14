@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { API, type TaskStreamOptions } from "@/api";
+import { API } from "@/api";
 import type { TaskItem } from "@/types";
 
 type JsonResponseOptions = {

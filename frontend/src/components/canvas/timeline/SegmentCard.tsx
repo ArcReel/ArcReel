@@ -128,7 +128,7 @@ function mergePromptPatch<T extends Record<string, unknown>>(
       !Array.isArray(v) &&
       !Array.isArray(base[k])
     ) {
-      merged[k] = { ...(base[k] as Record<string, unknown>), ...v };
+      merged[k] = { ...(base[k]), ...v };
     } else {
       merged[k] = v;
     }
@@ -358,7 +358,7 @@ function TextColumn({
 
 function PromptColumn({
   segment,
-  contentMode,
+  contentMode: _contentMode,
   segmentId,
   onUpdatePrompt,
 }: {
@@ -592,7 +592,7 @@ function MediaColumn({
   // Normalize aspect ratio to the union type expected by AspectFrame
   const normalizedRatio = (
     aspectRatio === "9:16" || aspectRatio === "16:9" ? aspectRatio : "16:9"
-  ) as "9:16" | "16:9";
+  );
 
   return (
     <div className="flex flex-col gap-3 p-3">

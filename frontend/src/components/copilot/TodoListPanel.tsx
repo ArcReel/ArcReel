@@ -23,7 +23,7 @@ export function extractLatestTodos(
         continue;
       }
 
-      const input = block.input as Record<string, unknown> | undefined;
+      const input = block.input;
       const todos = input?.todos;
       if (
         Array.isArray(todos) &&
@@ -111,7 +111,7 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
       {/* Expanded task list */}
       {!collapsed && (
         <div className="border-t border-white/5 px-3 py-1.5 space-y-0.5">
-          {todos.map((todo, idx) => (
+          {todos.map((todo) => (
             <TodoRow key={`${todo.content}-${todo.status}`} todo={todo} />
           ))}
         </div>

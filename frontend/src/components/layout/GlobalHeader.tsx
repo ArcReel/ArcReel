@@ -39,8 +39,6 @@ const PHASES = [
   { key: "completed" },
 ] as const;
 
-type PhaseKey = (typeof PHASES)[number]["key"];
-
 // ---------------------------------------------------------------------------
 // PhaseStepper — horizontal workflow indicator
 // ---------------------------------------------------------------------------

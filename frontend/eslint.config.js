@@ -47,7 +47,12 @@ const MIGRATION_WARN_RULES_A11Y = {
 const MIGRATION_WARN_RULES_ALL = {
   // --- Task 3 dry-run 填充（2026-04-13）---
   "@typescript-eslint/no-explicit-any": "warn",
-  "@typescript-eslint/no-unused-vars": "warn",
+  "@typescript-eslint/no-unused-vars": ["warn", {
+    varsIgnorePattern: "^_",
+    argsIgnorePattern: "^_",
+    caughtErrorsIgnorePattern: "^_",
+    destructuredArrayIgnorePattern: "^_",
+  }],
   "no-unsafe-finally": "warn",
   "react-hooks/refs": "warn",
   "react-hooks/set-state-in-effect": "warn",

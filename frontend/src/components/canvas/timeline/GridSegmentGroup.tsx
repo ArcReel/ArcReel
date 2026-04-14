@@ -61,7 +61,7 @@ function groupLabel(index: number): string {
  */
 export function GridSegmentGroup({
   groupIndex,
-  scenes,
+  scenes: _scenes,
   gridSize,
   sceneCount,
   batchCount = 1,
