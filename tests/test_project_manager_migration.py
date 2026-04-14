@@ -85,3 +85,32 @@ def test_migration_persists_to_disk(pm: ProjectManager, tmp_path: Path):
     pm.load_project("p7")
     raw = json.loads((tmp_path / "p7" / "project.json").read_text(encoding="utf-8"))
     assert raw["style_template_id"] == "live_premium_drama"
+
+
+def test_concurrent_migration_does_not_lose_data(pm: ProjectManager):
+    """两线程同时触发迁移应该保持一致，不会产生竞态。"""
+    import threading
+
+    _write_project(pm, "p-concurrent", {"title": "PC", "style": "Photographic"})
+
+    results = []
+    errors = []
+
+    def worker():
+        try:
+            results.append(pm.load_project("p-concurrent"))
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"并发 load 抛异常: {errors}"
+    # 两个结果一致，都完成了迁移
+    assert all(r["style_template_id"] == "live_premium_drama" for r in results)
+    # 磁盘上最终也是迁移后状态
+    final = pm.load_project("p-concurrent")
+    assert final["style_template_id"] == "live_premium_drama"

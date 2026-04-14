@@ -991,7 +991,9 @@ class ProjectManager:
         if self._migrate_legacy_style(project):
             # 原地持久化迁移后的数据。用 _atomic_write_json 保证一致性，
             # 不走 save_project 是为了避免触发 _touch_metadata 污染 updated_at。
-            self._atomic_write_json(project_file, project)
+            # 持锁写回，防止并发 load 互相覆盖。锁只包写操作，迁移判断是纯内存操作无需锁。
+            with self._project_lock(project_name):
+                self._atomic_write_json(project_file, project)
         return project
 
     @contextmanager
