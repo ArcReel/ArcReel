@@ -283,9 +283,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
   // --- Shared input classes ---
   const inputCls =
-    "w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+    "w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus-ring focus:ring-1 focus:ring-indigo-500";
   const selectCls =
-    "rounded-lg border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-gray-100 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+    "rounded-lg border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-gray-100 focus:border-indigo-500 focus-ring focus:ring-1 focus:ring-indigo-500";
 
   // --- Base URL preview (effective models endpoint) ---
   const urlPreview = (() => {
@@ -440,7 +440,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                   value={modelFilter}
                   onChange={(e) => setModelFilter(e.target.value)}
                   placeholder={t("search_models")}
-                  className="w-full rounded-lg border border-gray-700 bg-gray-900 py-1.5 pl-8 pr-3 text-xs text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full rounded-lg border border-gray-700 bg-gray-900 py-1.5 pl-8 pr-3 text-xs text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus-ring focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
             )}

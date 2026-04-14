@@ -160,7 +160,7 @@ export function ClueCard({
         onChange={(e) => setDescription(e.target.value)}
         onInput={autoResize}
         rows={2}
-        className="mb-3 w-full resize-none overflow-hidden bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
+        className="mb-3 w-full resize-none overflow-hidden bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus-ring"
         placeholder={t("clue_desc_placeholder")}
       />
 

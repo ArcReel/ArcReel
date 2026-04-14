@@ -222,7 +222,7 @@ export function GridPreviewPanel({
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
-        className="flex w-full items-center gap-2 border-t border-amber-800/20 px-4 py-1.5 text-left transition-colors hover:bg-amber-900/10 focus:outline-none"
+        className="flex w-full items-center gap-2 border-t border-amber-800/20 px-4 py-1.5 text-left transition-colors hover:bg-amber-900/10 focus-ring"
       >
         <motion.span
           animate={{ rotate: expanded ? 90 : 0 }}

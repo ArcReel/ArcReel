@@ -40,14 +40,14 @@ export function DialogueListEditor({
             value={d.speaker}
             onChange={(e) => update(i, { speaker: e.target.value })}
             placeholder={t("speaker_placeholder")}
-            className="w-16 shrink-0 rounded bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-indigo-400 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
+            className="w-16 shrink-0 rounded bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-indigo-400 placeholder-gray-600 focus:border-indigo-500 focus-ring"
           />
           <input
             type="text"
             value={d.line}
             onChange={(e) => update(i, { line: e.target.value })}
             placeholder={t("line_placeholder")}
-            className="min-w-0 flex-1 rounded bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-gray-200 placeholder-gray-600 focus:border-indigo-500 focus:outline-none"
+            className="min-w-0 flex-1 rounded bg-gray-800 border border-gray-700 px-1.5 py-1 text-xs text-gray-200 placeholder-gray-600 focus:border-indigo-500 focus-ring"
           />
           <button
             type="button"

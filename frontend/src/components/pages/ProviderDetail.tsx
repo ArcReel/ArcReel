@@ -80,7 +80,7 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
               value={displayValue}
               onChange={(e) => handleChange(e.target.value)}
               placeholder={field.is_set ? field.value_masked ?? "••••••••••" : (field.placeholder ?? t("enter_key_placeholder"))}
-              className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 pr-9 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 pr-9 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus-ring focus:ring-1 focus:ring-indigo-500"
             />
             <button
               type="button"
@@ -143,7 +143,7 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
           value={currentValue}
           onChange={(e) => handleChange(e.target.value)}
           placeholder={field.placeholder ?? ""}
-          className="w-32 rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          className="w-32 rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus-ring focus:ring-1 focus:ring-indigo-500"
         />
       </div>
     );
@@ -164,7 +164,7 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
         value={currentValue}
         onChange={(e) => handleChange(e.target.value)}
         placeholder={field.placeholder ?? ""}
-        className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus-ring focus:ring-1 focus:ring-indigo-500"
       />
     </div>
   );

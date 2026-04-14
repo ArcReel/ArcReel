@@ -264,7 +264,7 @@ export function CharacterCard({
         onChange={(e) => setDescription(e.target.value)}
         onInput={autoResize}
         rows={3}
-        className="mt-1 w-full resize-none overflow-hidden rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
+        className="mt-1 w-full resize-none overflow-hidden rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus-ring"
         placeholder={t("character_desc_placeholder")}
       />
 
@@ -273,7 +273,7 @@ export function CharacterCard({
         type="text"
         value={voiceStyle}
         onChange={(e) => setVoiceStyle(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
+        className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus-ring"
         placeholder={t("voice_style_example")}
       />
 
