@@ -32,19 +32,21 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
   }
 
   return createPortal(
-    <div
-      className={`fixed inset-0 bg-slate-950/94 backdrop-blur-sm ${UI_LAYERS.modal}`}
-      onClick={onClose}
-    >
+    <div className={`fixed inset-0 bg-slate-950/94 backdrop-blur-sm ${UI_LAYERS.modal}`}>
+      {/* backdrop: click-to-close */}
+      <button
+        type="button"
+        aria-label="关闭全屏预览"
+        className="absolute inset-0 cursor-default appearance-none border-0 bg-transparent p-0"
+        onClick={onClose}
+      />
+
       <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
         <button
           type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onClose();
-          }}
-          aria-label="关闭全屏预览"
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white shadow-lg shadow-black/30 backdrop-blur transition-colors hover:bg-black/75"
+          onClick={onClose}
+          aria-label="关闭图片预览"
+          className="relative z-10 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white shadow-lg shadow-black/30 backdrop-blur transition-colors hover:bg-black/75"
         >
           <X className="h-5 w-5" />
         </button>
@@ -55,8 +57,7 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
           role="dialog"
           aria-modal="true"
           aria-label={`${alt} 全屏预览`}
-          className="relative max-h-full max-w-full"
-          onClick={(event) => event.stopPropagation()}
+          className="relative z-10 max-h-full max-w-full"
         >
           <img
             src={src}

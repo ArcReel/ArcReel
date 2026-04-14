@@ -1,4 +1,6 @@
 import { useId, useState } from "react";
+import { useAutoFocus } from "@/hooks/useAutoFocus";
+import { voidPromise } from "@/utils/async";
 import { X, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -15,6 +17,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
   const [importance, setImportance] = useState<"major" | "minor">("major");
   const [submitting, setSubmitting] = useState(false);
   const descId = useId();
+  const nameRef = useAutoFocus<HTMLInputElement>();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,7 +57,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
             onChange={(e) => setName(e.target.value)}
             placeholder={t("clue_name_placeholder")}
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-indigo-500"
-            autoFocus
+            ref={nameRef}
           />
         </div>
 

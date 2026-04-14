@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { activateOnEnterSpace } from "@/utils/a11y";
 import { voidPromise } from "@/utils/async";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -113,7 +114,10 @@ function TaskRow({
         className={`flex items-center gap-2 px-3 py-1.5 text-sm ${rowBg} ${
           hasError ? "cursor-pointer hover:bg-red-500/15" : ""
         }`}
+        role={hasError ? "button" : undefined}
+        tabIndex={hasError ? 0 : undefined}
         onClick={hasError ? () => onToggleError(task.task_id) : undefined}
+        onKeyDown={hasError ? activateOnEnterSpace(() => onToggleError(task.task_id)) : undefined}
       >
         <TaskStatusIcon status={task.status} />
         <span className="font-mono text-xs text-gray-400">

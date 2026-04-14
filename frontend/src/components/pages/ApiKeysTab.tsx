@@ -4,6 +4,7 @@
  * 列表展示、创建（弹窗显示完整 key）、删除（确认弹窗）
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAutoFocus } from "@/hooks/useAutoFocus";
 import {
   AlertTriangle,
   Check,
@@ -58,6 +59,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
   const [copied, setCopied] = useState(false);
 
   const canCreate = useMemo(() => name.trim().length > 0, [name]);
+  const nameInputRef = useAutoFocus<HTMLInputElement>();
 
   const handleCreate = useCallback(async () => {
     if (!canCreate || creating) return;
@@ -90,18 +92,20 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
     setTimeout(() => setCopied(false), 2000);
   }, [created?.key]);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Enter" && !created && canCreate) void handleCreate();
       if (e.key === "Escape") onClose();
-    },
-    [canCreate, created, handleCreate, onClose],
-  );
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [canCreate, created, handleCreate, onClose]);
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
-      onKeyDown={handleKeyDown}
     >
       <div className="w-full max-w-md overflow-hidden rounded-2xl border border-gray-800 bg-gray-950 p-6 shadow-2xl">
         <div className="mb-6 flex items-center justify-between">
@@ -129,7 +133,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
                 {t("key_name_hint")}
               </p>
               <input
-                autoFocus
+                ref={nameInputRef}
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}

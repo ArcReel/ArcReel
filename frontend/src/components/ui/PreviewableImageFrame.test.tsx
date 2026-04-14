@@ -17,17 +17,15 @@ describe("PreviewableImageFrame", () => {
       screen.getByRole("dialog", { name: "示例图 全屏预览" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "关闭全屏预览" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭图片预览" }));
     expect(
       screen.queryByRole("dialog", { name: "示例图 全屏预览" }),
     ).not.toBeInTheDocument();
 
     fireEvent.click(trigger);
-    const dialog = screen.getByRole("dialog", { name: "示例图 全屏预览" });
-    const backdrop = dialog.parentElement?.parentElement;
-    expect(backdrop).not.toBeNull();
-
-    fireEvent.click(backdrop as HTMLElement);
+    // backdrop button (click-to-close) is the sibling of the close button
+    const backdropBtn = screen.getByRole("button", { name: "关闭全屏预览" });
+    fireEvent.click(backdropBtn);
 
     expect(
       screen.queryByRole("dialog", { name: "示例图 全屏预览" }),

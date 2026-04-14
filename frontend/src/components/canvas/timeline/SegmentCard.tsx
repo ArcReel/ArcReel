@@ -536,6 +536,7 @@ function PromptColumn({
 /** Simple video player with poster thumbnail and lazy preload. */
 function VideoPlayer({ src, poster }: { src: string; poster?: string | null }) {
   return (
+    // eslint-disable-next-line jsx-a11y/media-has-caption -- 生成式预览视频暂无字幕源，将来如引入字幕生成则移除此 disable
     <video
       src={src}
       poster={poster ?? undefined}

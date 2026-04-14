@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react";
+import { useAutoFocus } from "@/hooks/useAutoFocus";
 import { voidPromise } from "@/utils/async";
 import {
   Check,
@@ -293,6 +294,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const nameRef = useAutoFocus<HTMLInputElement>();
 
   const handleSubmit = async () => {
     if (!name.trim()) return;
@@ -339,7 +341,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
           onChange={(e) => setName(e.target.value)}
           placeholder={t("credential_name_placeholder")}
           className={inputClsPlaceholder}
-          autoFocus
+          ref={nameRef}
         />
       </div>
       {isVertex ? (
