@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ImagePlus, Upload, User } from "lucide-react";
 import { API } from "@/api";
@@ -51,6 +51,7 @@ export function CharacterCard({
   const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const descId = useId();
 
   useEffect(() => {
     setDescription(character.description);
@@ -257,9 +258,10 @@ export function CharacterCard({
         </div>
       </div>
 
-      <label className="text-xs font-medium text-gray-400">{t("description")}</label>
+      <label htmlFor={descId} className="text-xs font-medium text-gray-400">{t("description")}</label>
       <textarea
         ref={textareaRef}
+        id={descId}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         onInput={autoResize}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { X, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -14,6 +14,7 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
   const [description, setDescription] = useState("");
   const [importance, setImportance] = useState<"major" | "minor">("major");
   const [submitting, setSubmitting] = useState(false);
+  const descId = useId();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,10 +105,11 @@ export function AddClueForm({ onSubmit, onCancel }: AddClueFormProps) {
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-400 mb-1">
+          <label htmlFor={descId} className="block text-xs font-medium text-gray-400 mb-1">
             {t("desc_label")} <span className="text-red-400">*</span>
           </label>
           <textarea
+            id={descId}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={t("clue_desc_placeholder_form")}

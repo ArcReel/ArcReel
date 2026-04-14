@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Edit3, Save, X } from "lucide-react";
 import { API } from "@/api";
@@ -25,6 +25,7 @@ export function PreprocessingView({
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [saving, setSaving] = useState(false);
+  const statusLabelId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -89,7 +90,7 @@ export function PreprocessingView({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          <span className="text-xs text-gray-500">{statusLabel}</span>
+          <span id={statusLabelId} className="text-xs text-gray-500">{statusLabel}</span>
         </div>
         <div className="flex items-center gap-1">
           {editing ? (
@@ -131,6 +132,7 @@ export function PreprocessingView({
       {/* Content */}
       {editing ? (
         <textarea
+          aria-labelledby={statusLabelId}
           value={editContent}
           onChange={(e) => setEditContent(e.target.value)}
           className="min-h-[400px] w-full resize-y rounded-lg border border-gray-700 bg-gray-800 p-4 font-mono text-sm leading-relaxed text-gray-200 outline-none focus-ring focus-visible:border-indigo-500"

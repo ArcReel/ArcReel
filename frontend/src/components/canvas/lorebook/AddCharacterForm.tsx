@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ImagePlus, Loader2, Upload, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -21,6 +21,7 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
   const [referencePreview, setReferencePreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const descId = useId();
 
   useEffect(() => {
     return () => {
@@ -102,10 +103,11 @@ export function AddCharacterForm({ onSubmit, onCancel }: AddCharacterFormProps) 
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-400 mb-1">
+          <label htmlFor={descId} className="block text-xs font-medium text-gray-400 mb-1">
             {t("desc_label")} <span className="text-red-400">*</span>
           </label>
           <textarea
+            id={descId}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={t("char_desc_placeholder")}

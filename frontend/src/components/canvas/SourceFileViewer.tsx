@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { FileText, Edit3, Save, X, Trash2 } from "lucide-react";
 import { useLocation } from "wouter";
@@ -22,6 +22,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [saving, setSaving] = useState(false);
+  const filenameHeadingId = useId();
 
   // 加载文件内容
   useEffect(() => {
@@ -94,7 +95,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
       <div className="flex items-center justify-between border-b border-gray-800 px-4 py-2">
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-gray-400" />
-          <h2 className="text-sm font-medium text-gray-200">{filename}</h2>
+          <h2 id={filenameHeadingId} className="text-sm font-medium text-gray-200">{filename}</h2>
         </div>
         <div className="flex items-center gap-1">
           {editing ? (
@@ -144,6 +145,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
       <div className="flex-1 overflow-auto p-4">
         {editing ? (
           <textarea
+            aria-labelledby={filenameHeadingId}
             value={editContent}
             onChange={(e) => setEditContent(e.target.value)}
             className="h-full w-full resize-none rounded-lg border border-gray-700 bg-gray-800 p-4 font-mono text-sm leading-relaxed text-gray-200 outline-none focus:border-indigo-500"
