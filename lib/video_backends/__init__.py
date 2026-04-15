@@ -1,6 +1,6 @@
 """视频生成服务层公共 API。"""
 
-from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK
+from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_NEWAPI, PROVIDER_OPENAI
 from lib.video_backends.base import (
     VideoBackend,
     VideoCapability,
@@ -13,6 +13,7 @@ __all__ = [
     "PROVIDER_ARK",
     "PROVIDER_GEMINI",
     "PROVIDER_GROK",
+    "PROVIDER_NEWAPI",
     "PROVIDER_OPENAI",
     "VideoBackend",
     "VideoCapability",
@@ -40,7 +41,11 @@ from lib.video_backends.grok import GrokVideoBackend
 register_backend(PROVIDER_GROK, GrokVideoBackend)
 
 # OpenAI Sora
-from lib.providers import PROVIDER_OPENAI
 from lib.video_backends.openai import OpenAIVideoBackend
 
 register_backend(PROVIDER_OPENAI, OpenAIVideoBackend)
+
+# NewAPI 统一视频端点
+from lib.video_backends.newapi import NewAPIVideoBackend
+
+register_backend(PROVIDER_NEWAPI, NewAPIVideoBackend)
