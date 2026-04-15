@@ -32,11 +32,16 @@ class _FakePM:
                     "description": "hero",
                 }
             },
-            "clues": {
+            "scenes": {
+                "祠堂": {
+                    "scene_sheet": "scenes/祠堂.png",
+                    "description": "scene",
+                }
+            },
+            "props": {
                 "玉佩": {
-                    "type": "prop",
-                    "clue_sheet": "clues/玉佩.png",
-                    "description": "clue",
+                    "prop_sheet": "props/玉佩.png",
+                    "description": "prop",
                 }
             },
         }
@@ -48,7 +53,8 @@ class _FakePM:
                     "duration_seconds": 4,
                     "segment_break": False,
                     "characters_in_segment": [],
-                    "clues_in_segment": [],
+                    "scenes": [],
+                    "props": [],
                     "generated_assets": {},
                 },
                 {
@@ -56,7 +62,8 @@ class _FakePM:
                     "duration_seconds": 4,
                     "segment_break": False,
                     "characters_in_segment": ["Alice"],
-                    "clues_in_segment": ["玉佩"],
+                    "scenes": ["祠堂"],
+                    "props": ["玉佩"],
                     "generated_assets": {},
                 },
                 {
@@ -64,7 +71,8 @@ class _FakePM:
                     "duration_seconds": 4,
                     "segment_break": True,
                     "characters_in_segment": ["Alice"],
-                    "clues_in_segment": ["玉佩"],
+                    "scenes": ["祠堂"],
+                    "props": ["玉佩"],
                     "generated_assets": {},
                 },
             ],
@@ -84,11 +92,13 @@ def _prepare_files(tmp_path: Path) -> Path:
     project_path = tmp_path / "projects" / "demo"
     (project_path / "storyboards").mkdir(parents=True, exist_ok=True)
     (project_path / "characters").mkdir(parents=True, exist_ok=True)
-    (project_path / "clues").mkdir(parents=True, exist_ok=True)
+    (project_path / "scenes").mkdir(parents=True, exist_ok=True)
+    (project_path / "props").mkdir(parents=True, exist_ok=True)
 
     (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
     (project_path / "characters" / "Alice.png").write_bytes(b"png")
-    (project_path / "clues" / "玉佩.png").write_bytes(b"png")
+    (project_path / "scenes" / "祠堂.png").write_bytes(b"png")
+    (project_path / "props" / "玉佩.png").write_bytes(b"png")
     return project_path
 
 
@@ -186,24 +196,45 @@ class TestGenerateRouter:
             assert call["media_type"] == "image"
             assert call["resource_id"] == "Alice"
 
-    def test_clue_enqueue_success(self, tmp_path, monkeypatch):
+    def test_scene_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
 
         with client:
-            clue = client.post(
-                "/api/v1/projects/demo/generate/clue/玉佩",
-                json={"prompt": "古朴玉佩"},
+            scene = client.post(
+                "/api/v1/projects/demo/generate/scene/祠堂",
+                json={"prompt": "阴森古朴"},
             )
-            assert clue.status_code == 200
-            body = clue.json()
+            assert scene.status_code == 200
+            body = scene.json()
             assert body["success"] is True
             assert body["task_id"] == "task-1"
 
             call = fake_queue.calls[0]
-            assert call["task_type"] == "clue"
+            assert call["task_type"] == "scene"
+            assert call["media_type"] == "image"
+            assert call["resource_id"] == "祠堂"
+
+    def test_prop_enqueue_success(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            prop = client.post(
+                "/api/v1/projects/demo/generate/prop/玉佩",
+                json={"prompt": "古朴玉佩"},
+            )
+            assert prop.status_code == 200
+            body = prop.json()
+            assert body["success"] is True
+            assert body["task_id"] == "task-1"
+
+            call = fake_queue.calls[0]
+            assert call["task_type"] == "prop"
             assert call["media_type"] == "image"
             assert call["resource_id"] == "玉佩"
 
@@ -251,10 +282,18 @@ class TestGenerateRouter:
             )
             assert missing_char.status_code == 404
 
-            # Missing clue
-            fake_pm.project["clues"] = {}
-            missing_clue = client.post(
-                "/api/v1/projects/demo/generate/clue/玉佩",
+            # Missing scene
+            fake_pm.project["scenes"] = {}
+            missing_scene = client.post(
+                "/api/v1/projects/demo/generate/scene/祠堂",
                 json={"prompt": "x"},
             )
-            assert missing_clue.status_code == 404
+            assert missing_scene.status_code == 404
+
+            # Missing prop
+            fake_pm.project["props"] = {}
+            missing_prop = client.post(
+                "/api/v1/projects/demo/generate/prop/玉佩",
+                json={"prompt": "x"},
+            )
+            assert missing_prop.status_code == 404

@@ -33,8 +33,8 @@ MESSAGES = {
     "video_task_submitted": "Video generation task for '{segment_id}' submitted",
     "character_not_found": "Character '{char_name}' does not exist",
     "character_task_submitted": "Character design generation task for '{char_name}' submitted",
-    "clue_not_found": "Clue '{clue_name}' does not exist",
-    "clue_task_submitted": "Clue design generation task for '{clue_name}' submitted",
+    "scene_task_submitted": "Scene design generation task for '{name}' submitted",
+    "prop_task_submitted": "Prop design generation task for '{name}' submitted",
     # Files
     "file_not_found": "File does not exist: {path}",
     "forbidden_access": "Access to files outside the project directory is forbidden",

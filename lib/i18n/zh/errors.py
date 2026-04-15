@@ -33,8 +33,8 @@ MESSAGES = {
     "video_task_submitted": "视频「{segment_id}」生成任务已提交",
     "character_not_found": "角色 '{char_name}' 不存在",
     "character_task_submitted": "角色「{char_name}」设计图生成任务已提交",
-    "clue_not_found": "线索 '{clue_name}' 不存在",
-    "clue_task_submitted": "线索「{clue_name}」设计图生成任务已提交",
+    "scene_task_submitted": "场景「{name}」设计图生成任务已提交",
+    "prop_task_submitted": "道具「{name}」设计图生成任务已提交",
     # Files
     "file_not_found": "文件不存在: {path}",
     "forbidden_access": "禁止访问项目目录外的文件",

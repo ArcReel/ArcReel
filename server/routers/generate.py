@@ -56,7 +56,11 @@ class GenerateCharacterRequest(BaseModel):
     prompt: str
 
 
-class GenerateClueRequest(BaseModel):
+class GenerateSceneRequest(BaseModel):
+    prompt: str
+
+
+class GeneratePropRequest(BaseModel):
     prompt: str
 
 
@@ -296,41 +300,35 @@ async def generate_character(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ==================== 线索设计图生成 ====================
+# ==================== 场景设计图生成 ====================
 
 
-@router.post("/projects/{project_name}/generate/clue/{clue_name}")
-async def generate_clue(
+@router.post("/projects/{project_name}/generate/scene/{scene_name}")
+async def generate_scene(
     project_name: str,
-    clue_name: str,
-    req: GenerateClueRequest,
+    scene_name: str,
+    req: GenerateSceneRequest,
     _user: CurrentUser,
     _t: Translator,
 ):
-    """
-    提交线索设计图生成任务到队列，立即返回 task_id。
-    """
+    """提交场景设计图生成任务到队列，立即返回 task_id。"""
     try:
 
         def _sync():
             project = get_project_manager().load_project(project_name)
-            if clue_name not in project.get("clues", {}):
-                raise HTTPException(status_code=404, detail=_t("clue_not_found", clue_name=clue_name))
+            if scene_name not in project.get("scenes", {}):
+                raise HTTPException(status_code=404, detail=_t("project_scene_not_found", name=scene_name))
             return _snapshot_image_backend(project_name)
 
         image_snapshot = await asyncio.to_thread(_sync)
 
-        # 入队
         queue = get_generation_queue()
         result = await queue.enqueue_task(
             project_name=project_name,
-            task_type="clue",
+            task_type="scene",
             media_type="image",
-            resource_id=clue_name,
-            payload={
-                "prompt": req.prompt,
-                **image_snapshot,
-            },
+            resource_id=scene_name,
+            payload={"prompt": req.prompt, **image_snapshot},
             source="webui",
             user_id=_user.id,
         )
@@ -338,7 +336,55 @@ async def generate_clue(
         return {
             "success": True,
             "task_id": result["task_id"],
-            "message": _t("clue_task_submitted", clue_name=clue_name),
+            "message": _t("scene_task_submitted", name=scene_name),
+        }
+
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 道具设计图生成 ====================
+
+
+@router.post("/projects/{project_name}/generate/prop/{prop_name}")
+async def generate_prop(
+    project_name: str,
+    prop_name: str,
+    req: GeneratePropRequest,
+    _user: CurrentUser,
+    _t: Translator,
+):
+    """提交道具设计图生成任务到队列，立即返回 task_id。"""
+    try:
+
+        def _sync():
+            project = get_project_manager().load_project(project_name)
+            if prop_name not in project.get("props", {}):
+                raise HTTPException(status_code=404, detail=_t("prop_not_found", name=prop_name))
+            return _snapshot_image_backend(project_name)
+
+        image_snapshot = await asyncio.to_thread(_sync)
+
+        queue = get_generation_queue()
+        result = await queue.enqueue_task(
+            project_name=project_name,
+            task_type="prop",
+            media_type="image",
+            resource_id=prop_name,
+            payload={"prompt": req.prompt, **image_snapshot},
+            source="webui",
+            user_id=_user.id,
+        )
+
+        return {
+            "success": True,
+            "task_id": result["task_id"],
+            "message": _t("prop_task_submitted", name=prop_name),
         }
 
     except FileNotFoundError as e:

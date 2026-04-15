@@ -29,7 +29,6 @@ from server.routers import (
     api_keys,
     assistant,
     characters,
-    clues,
     cost_estimation,
     custom_providers,
     files,
@@ -188,7 +187,6 @@ app.include_router(projects.router, prefix="/api/v1", tags=["项目管理"])
 app.include_router(characters.router, prefix="/api/v1", tags=["角色管理"])
 app.include_router(scenes.router, prefix="/api/v1", tags=["场景管理"])
 app.include_router(props.router, prefix="/api/v1", tags=["道具管理"])
-app.include_router(clues.router, prefix="/api/v1", tags=["线索管理"])
 app.include_router(files.router, prefix="/api/v1", tags=["文件管理"])
 app.include_router(generate.router, prefix="/api/v1", tags=["生成"])
 app.include_router(versions.router, prefix="/api/v1", tags=["版本管理"])
