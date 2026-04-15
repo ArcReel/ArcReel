@@ -74,6 +74,29 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
 
 
+@router.get("/global-assets/{asset_type}/{filename}")
+async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
+    """服务 _global_assets 下的全局资产图片（character/scene/prop）"""
+    if asset_type not in {"character", "scene", "prop"}:
+        raise HTTPException(status_code=400, detail=_t("invalid_asset_type"))
+    if "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail=_t("invalid_asset_filename"))
+
+    root = get_project_manager().get_global_assets_root()
+    path = root / asset_type / filename
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
+
+    # 防御性检查：即使 filename 通过了字符串校验，也要确保解析后的路径仍在 root 之内
+    # （防御 symlink / URL 编码等边界场景）
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail=_t("forbidden_access"))
+
+    return FileResponse(str(path))
+
+
 @router.post("/projects/{project_name}/upload/{upload_type}")
 async def upload_file(
     project_name: str,

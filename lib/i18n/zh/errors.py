@@ -41,6 +41,8 @@ MESSAGES = {
     "invalid_upload_type": "无效的上传类型: {upload_type}",
     "unsupported_image_type": "不支持的文件类型 {ext}，允许的类型: {allowed}",
     "invalid_image_file": "无效的图片文件，无法解析",
+    "invalid_asset_type": "资产类型必须为 character / scene / prop",
+    "invalid_asset_filename": "文件名不能包含路径分隔符或 ..",
     "invalid_step_num": "无效的步骤编号: {step_num}",
     "draft_file_not_found": "草稿文件不存在",
     "draft_event_label": "第 {episode} 集{label_prefix}",

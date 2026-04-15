@@ -41,6 +41,8 @@ MESSAGES = {
     "invalid_upload_type": "Invalid upload type: {upload_type}",
     "unsupported_image_type": "Unsupported file type {ext}. Allowed types: {allowed}",
     "invalid_image_file": "Invalid image file, could not be parsed",
+    "invalid_asset_type": "asset type must be character / scene / prop",
+    "invalid_asset_filename": "filename must not contain path separators or ..",
     "invalid_step_num": "Invalid step number: {step_num}",
     "draft_file_not_found": "Draft file does not exist",
     "draft_event_label": "Episode {episode} {label_prefix}",

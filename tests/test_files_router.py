@@ -388,3 +388,81 @@ class TestFilesRouter:
             change2 = mock_emit.call_args[0][1][0]
             assert change2["action"] == "updated"
             assert change2["important"] is False
+
+    def test_serve_global_asset_image(self, tmp_path, monkeypatch):
+        """全局资产图片能够被正确读取返回"""
+        client, pm = _client(monkeypatch, tmp_path)
+        target = pm.get_global_assets_root() / "character" / "abc.png"
+        target.write_bytes(b"img-bytes")
+
+        with client:
+            resp = client.get("/api/v1/global-assets/character/abc.png")
+            assert resp.status_code == 200
+            assert resp.content == b"img-bytes"
+
+    def test_serve_global_asset_scene_and_prop(self, tmp_path, monkeypatch):
+        """scene/prop 子目录也能正确读取"""
+        client, pm = _client(monkeypatch, tmp_path)
+        root = pm.get_global_assets_root()
+        (root / "scene" / "s.png").write_bytes(b"scene-bytes")
+        (root / "prop" / "p.png").write_bytes(b"prop-bytes")
+
+        with client:
+            r_scene = client.get("/api/v1/global-assets/scene/s.png")
+            assert r_scene.status_code == 200
+            assert r_scene.content == b"scene-bytes"
+
+            r_prop = client.get("/api/v1/global-assets/prop/p.png")
+            assert r_prop.status_code == 200
+            assert r_prop.content == b"prop-bytes"
+
+    def test_global_asset_invalid_type_returns_400(self, tmp_path, monkeypatch):
+        """非法 asset_type 返回 400"""
+        client, _ = _client(monkeypatch, tmp_path)
+
+        with client:
+            resp = client.get("/api/v1/global-assets/invalid/abc.png")
+            assert resp.status_code == 400
+
+    def test_global_asset_missing_file_returns_404(self, tmp_path, monkeypatch):
+        """文件不存在时返回 404"""
+        client, _ = _client(monkeypatch, tmp_path)
+
+        with client:
+            resp = client.get("/api/v1/global-assets/character/nonexistent.png")
+            assert resp.status_code == 404
+
+    def test_global_asset_path_traversal_rejected(self, tmp_path, monkeypatch):
+        """filename 中包含 .. 应被阻止（400/403/404 均可接受）"""
+        client, _ = _client(monkeypatch, tmp_path)
+
+        with client:
+            # URL 编码的 ../evil.png
+            resp = client.get("/api/v1/global-assets/character/..%2Fevil.png")
+            assert resp.status_code in (400, 403, 404)
+
+    def test_global_asset_symlink_escape_returns_403(self, tmp_path, monkeypatch):
+        """在 _global_assets/character/ 里放一个指向外部文件的 symlink,应被 resolve-relative 检查拦截为 403。"""
+        import os
+        import sys
+
+        if sys.platform == "win32":
+            import pytest
+
+            pytest.skip("symlinks require admin on Windows")
+
+        client, pm = _client(monkeypatch, tmp_path)
+
+        # 在 tmp_path 下(但不在 _global_assets 里)创建一个外部目标文件
+        outside = tmp_path / "outside.png"
+        outside.write_bytes(b"secret")
+
+        # 在 _global_assets/character/ 下建立指向外部目标的 symlink
+        global_dir = pm.get_global_assets_root() / "character"
+        global_dir.mkdir(parents=True, exist_ok=True)
+        link = global_dir / "evil.png"
+        os.symlink(outside, link)
+
+        with client:
+            r = client.get("/api/v1/global-assets/character/evil.png")
+            assert r.status_code == 403
