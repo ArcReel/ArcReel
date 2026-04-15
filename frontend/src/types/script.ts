@@ -77,7 +77,8 @@ export interface NarrationSegment {
   segment_break: boolean;
   novel_text: string;
   characters_in_segment: string[];
-  clues_in_segment: string[];
+  scenes?: string[];
+  props?: string[];
   image_prompt: ImagePrompt | string;
   video_prompt: VideoPrompt | string;
   transition_to_next: TransitionType;
@@ -91,7 +92,8 @@ export interface DramaScene {
   segment_break: boolean;
   scene_type: string;
   characters_in_scene: string[];
-  clues_in_scene: string[];
+  scenes?: string[];
+  props?: string[];
   image_prompt: ImagePrompt | string;
   video_prompt: VideoPrompt | string;
   transition_to_next: TransitionType;
@@ -111,6 +113,7 @@ export interface NarrationEpisodeScript {
   content_mode: "narration";
   duration_seconds: number;
   summary: string;
+  schema_version?: number;
   novel: NovelInfo;
   segments: NarrationSegment[];
 }
@@ -121,6 +124,7 @@ export interface DramaEpisodeScript {
   content_mode: "drama";
   duration_seconds: number;
   summary: string;
+  schema_version?: number;
   novel: NovelInfo;
   scenes: DramaScene[];
 }

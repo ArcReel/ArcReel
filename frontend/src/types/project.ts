@@ -22,11 +22,14 @@ export interface Character {
   reference_image?: string;
 }
 
-export interface Clue {
-  type: "prop" | "location";
+export interface Scene {
   description: string;
-  importance: "major" | "minor";
-  clue_sheet?: string;
+  scene_sheet?: string;
+}
+
+export interface Prop {
+  description: string;
+  prop_sheet?: string;
 }
 
 export interface AspectRatio {
@@ -53,7 +56,8 @@ export interface ProjectStatus {
   current_phase: "setup" | "worldbuilding" | "scripting" | "production" | "completed";
   phase_progress: number;
   characters: ProgressCategory;
-  clues: ProgressCategory;
+  scenes: ProgressCategory;
+  props: ProgressCategory;
   episodes_summary: EpisodesSummary;
 }
 
@@ -85,9 +89,11 @@ export interface ProjectData {
   overview?: ProjectOverview;
   aspect_ratio?: string | AspectRatio;  // 新项目为 string，旧项目可能为 dict
   default_duration?: number | null;     // 新增
+  schema_version?: number;
   episodes: EpisodeMeta[];
   characters: Record<string, Character>;
-  clues: Record<string, Clue>;
+  scenes?: Record<string, Scene>;
+  props?: Record<string, Prop>;
   /** Injected by StatusCalculator.enrich_project at read time */
   status?: ProjectStatus;
   video_backend?: string | null;
