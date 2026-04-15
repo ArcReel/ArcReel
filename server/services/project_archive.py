@@ -555,7 +555,10 @@ class ProjectArchiveService:
                     project_changed = True
 
         project_characters = {name for name, payload in (characters or {}).items() if isinstance(payload, dict)}
+        # 兼容新 props 字段和旧 clues 字段
+        props = project.get("props")
         project_clues = {name for name, payload in (clues or {}).items() if isinstance(payload, dict)}
+        project_clues |= {name for name, payload in (props or {}).items() if isinstance(payload, dict)}
 
         episodes = project.get("episodes")
         if isinstance(episodes, list):

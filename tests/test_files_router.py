@@ -45,7 +45,7 @@ def _client(monkeypatch, tmp_path):
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.add_character("demo", "Alice", "desc")
-    pm.add_clue("demo", "玉佩", "prop", "desc", "major")
+    pm.add_prop("demo", "玉佩", "古玉")
 
     monkeypatch.setattr(files, "get_project_manager", lambda: pm)
     monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _fake_create_backend)
@@ -113,11 +113,11 @@ class TestFilesRouter:
             assert character_ref.json()["path"] == "characters/refs/Alice.webp"
 
             clue = client.post(
-                "/api/v1/projects/demo/upload/clue?name=玉佩",
-                files={"file": ("clue.jpg", _img_bytes("JPEG"), "image/jpeg")},
+                "/api/v1/projects/demo/upload/prop?name=玉佩",
+                files={"file": ("prop.jpg", _img_bytes("JPEG"), "image/jpeg")},
             )
             assert clue.status_code == 200
-            assert clue.json()["path"] == "clues/玉佩.jpg"
+            assert clue.json()["path"] == "props/玉佩.jpg"
 
             storyboard = client.post(
                 "/api/v1/projects/demo/upload/storyboard?name=E1S01",
@@ -170,11 +170,11 @@ class TestFilesRouter:
             missing_draft = client.get("/api/v1/projects/demo/drafts/1/step1")
             assert missing_draft.status_code == 404
 
-            # confirm metadata updated for character/clue
+            # confirm metadata updated for character/prop
             project = pm.load_project("demo")
             assert project["characters"]["Alice"]["character_sheet"] == "characters/Alice.jpg"
             assert project["characters"]["Alice"]["reference_image"] == "characters/refs/Alice.webp"
-            assert project["clues"]["玉佩"]["clue_sheet"] == "clues/玉佩.jpg"
+            assert project["props"]["玉佩"]["prop_sheet"] == "props/玉佩.jpg"
 
     def test_style_image_endpoints(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
@@ -236,11 +236,11 @@ class TestFilesRouter:
             assert ref_no_name.json()["path"] == "characters/refs/no_name.jpg"
 
             clue_missing_entity = client.post(
-                "/api/v1/projects/demo/upload/clue?name=不存在线索",
+                "/api/v1/projects/demo/upload/prop?name=不存在道具",
                 files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
             )
             assert clue_missing_entity.status_code == 200
-            assert clue_missing_entity.json()["path"] == "clues/不存在线索.jpg"
+            assert clue_missing_entity.json()["path"] == "props/不存在道具.jpg"
 
             character_missing_entity = client.post(
                 "/api/v1/projects/demo/upload/character?name=不存在角色",

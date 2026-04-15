@@ -84,12 +84,10 @@ def _create_project(
             "reference_image": "characters/refs/Hero.png",
         }
     }
-    project["clues"] = {
+    project["props"] = {
         "Key": {
-            "type": "prop",
-            "description": "Important clue",
-            "importance": "major",
-            "clue_sheet": "clues/Key.png",
+            "description": "Important prop",
+            "prop_sheet": "props/Key.png",
         }
     }
     project["episodes"] = [
@@ -107,7 +105,7 @@ def _create_project(
     _write_bytes(project_dir / "style_reference.png", b"png")
     _write_bytes(project_dir / "characters" / "Hero.png", b"png")
     _write_bytes(project_dir / "characters" / "refs" / "Hero.png", b"png")
-    _write_bytes(project_dir / "clues" / "Key.png", b"png")
+    _write_bytes(project_dir / "props" / "Key.png", b"png")
     _write_bytes(project_dir / "storyboards" / "scene_E1S01.png", b"png")
     _write_bytes(project_dir / "videos" / "scene_E1S01.mp4", b"mp4")
     _write_bytes(project_dir / "output" / "final.mp4", b"mp4")
@@ -167,7 +165,7 @@ class TestProjectArchiveService:
             assert "demo/drafts/episode_2/" in names
             assert "demo/characters/Hero.png" in names
             assert "demo/characters/refs/Hero.png" in names
-            assert "demo/clues/Key.png" in names
+            assert "demo/props/Key.png" in names
             assert "demo/storyboards/scene_E1S01.png" in names
             assert "demo/videos/scene_E1S01.mp4" in names
             assert "demo/output/final.mp4" in names
@@ -294,7 +292,7 @@ class TestProjectArchiveService:
         ("field_name", "target_path"),
         [
             ("characters[Hero].character_sheet", ("characters", "Hero.png")),
-            ("clues[Key].clue_sheet", ("clues", "Key.png")),
+            ("props[Key].prop_sheet", ("props", "Key.png")),
             (
                 "segments[0].generated_assets.storyboard_image",
                 ("storyboards", "scene_E1S01.png"),

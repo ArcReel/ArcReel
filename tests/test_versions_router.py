@@ -17,8 +17,8 @@ class _FakePM:
     def update_project_character_sheet(self, *args):
         self.updated.append(("character", args))
 
-    def update_clue_sheet(self, *args):
-        self.updated.append(("clue", args))
+    def update_prop_sheet(self, *args):
+        self.updated.append(("prop", args))
 
     def update_scene_asset(self, *args, **kwargs):
         self.updated.append(("scene", args, kwargs))

@@ -33,12 +33,10 @@ def _create_demo_project(pm: ProjectManager) -> None:
     project = pm.load_project("demo")
     project["episodes"] = [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}]
     project["characters"] = {"Hero": {"description": "Lead", "character_sheet": "characters/Hero.png"}}
-    project["clues"] = {
+    project["props"] = {
         "Key": {
-            "type": "prop",
             "description": "Important",
-            "importance": "major",
-            "clue_sheet": "clues/Key.png",
+            "prop_sheet": "props/Key.png",
         }
     }
     pm.save_project("demo", project)
@@ -46,7 +44,7 @@ def _create_demo_project(pm: ProjectManager) -> None:
     project_dir = pm.get_project_path("demo")
     _write_text(project_dir / "source" / "chapter.txt", "source")
     _write_bytes(project_dir / "characters" / "Hero.png", b"png")
-    _write_bytes(project_dir / "clues" / "Key.png", b"png")
+    _write_bytes(project_dir / "props" / "Key.png", b"png")
     _write_bytes(project_dir / "storyboards" / "scene_E1S01.png", b"png")
     _write_bytes(project_dir / "videos" / "scene_E1S01.mp4", b"mp4")
     _write_json(

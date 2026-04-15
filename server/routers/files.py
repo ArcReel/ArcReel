@@ -37,7 +37,7 @@ ALLOWED_EXTENSIONS = {
     "source": [".txt", ".md", ".doc", ".docx"],
     "character": [".png", ".jpg", ".jpeg", ".webp"],
     "character_ref": [".png", ".jpg", ".jpeg", ".webp"],
-    "clue": [".png", ".jpg", ".jpeg", ".webp"],
+    "prop": [".png", ".jpg", ".jpeg", ".webp"],
     "storyboard": [".png", ".jpg", ".jpeg", ".webp"],
 }
 
@@ -88,9 +88,9 @@ async def upload_file(
 
     Args:
         project_name: 项目名称
-        upload_type: 上传类型 (source/character/clue/storyboard)
+        upload_type: 上传类型 (source/character/prop/storyboard)
         file: 上传的文件
-        name: 可选，用于角色/线索名称，或分镜 ID（自动更新元数据）
+        name: 可选，用于角色/道具名称，或分镜 ID（自动更新元数据）
     """
     if upload_type not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=_t("invalid_upload_type", upload_type=upload_type))
@@ -126,8 +126,8 @@ async def upload_file(
                     filename = f"{name}.png"
                 else:
                     filename = f"{Path(file.filename).stem}.png"
-            elif upload_type == "clue":
-                target_dir = project_dir / "clues"
+            elif upload_type == "prop":
+                target_dir = project_dir / "props"
                 if name:
                     filename = f"{name}.png"
                 else:
@@ -147,7 +147,7 @@ async def upload_file(
 
             # 保存文件（大于 2MB 时压缩为 JPEG，否则校验后原样保存）
             nonlocal content
-            if upload_type in ("character", "character_ref", "clue", "storyboard"):
+            if upload_type in ("character", "character_ref", "prop", "storyboard"):
                 try:
                     content, ext = normalize_uploaded_image(content, Path(file.filename).suffix.lower())
                 except ValueError:
@@ -165,8 +165,8 @@ async def upload_file(
                 relative_path = f"characters/{filename}"
             elif upload_type == "character_ref":
                 relative_path = f"characters/refs/{filename}"
-            elif upload_type == "clue":
-                relative_path = f"clues/{filename}"
+            elif upload_type == "prop":
+                relative_path = f"props/{filename}"
             elif upload_type == "storyboard":
                 relative_path = f"storyboards/{filename}"
             else:
@@ -190,16 +190,16 @@ async def upload_file(
                 except KeyError:
                     pass  # 角色不存在，忽略
 
-            if upload_type == "clue" and name:
+            if upload_type == "prop" and name:
                 try:
                     with project_change_source("webui"):
-                        get_project_manager().update_clue_sheet(
+                        get_project_manager().update_prop_sheet(
                             project_name,
                             name,
-                            f"clues/{filename}",
+                            f"props/{filename}",
                         )
                 except KeyError:
-                    pass  # 线索不存在，忽略
+                    pass  # 道具不存在，忽略
 
             return {
                 "success": True,
@@ -230,7 +230,8 @@ async def list_project_files(project_name: str, _user: CurrentUser, _t: Translat
             files = {
                 "source": [],
                 "characters": [],
-                "clues": [],
+                "scenes": [],
+                "props": [],
                 "storyboards": [],
                 "videos": [],
                 "output": [],

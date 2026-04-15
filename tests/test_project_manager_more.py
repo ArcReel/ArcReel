@@ -56,7 +56,8 @@ class TestProjectManagerMore:
         _write(project_dir / "source" / "a.txt", "source")
         _write(project_dir / "scripts" / "episode_1.json", "{}")
         _write(project_dir / "characters" / "alice.png", "x")
-        _write(project_dir / "clues" / "clue.png", "x")
+        _write(project_dir / "scenes" / "s.png", "x")
+        _write(project_dir / "props" / "p.png", "x")
         _write(project_dir / "storyboards" / "scene_1.png", "x")
         _write(project_dir / "videos" / "scene_1.mp4", "x")
         _write(project_dir / "output" / "final.mp4", "x")
@@ -213,13 +214,11 @@ class TestProjectManagerMore:
             "novel": {"chapter": "chapter"},
             "scenes": [{"scene_id": "001"}],
             "characters": {"A": {"description": "desc"}},
-            "clues": {"C": {"type": "prop", "description": "d", "importance": "major"}},
         }
         _write(tmp_path / "projects" / "demo" / "scripts" / "legacy.json", json.dumps(raw_script, ensure_ascii=False))
 
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(pm, "sync_characters_from_script", lambda *args, **kwargs: None, raising=False)
-        monkeypatch.setattr(pm, "sync_clues_from_script", lambda *args, **kwargs: None, raising=False)
         normalized_script = pm.normalize_script("demo", "legacy.json", save=False)
         monkeypatch.undo()
 
@@ -236,24 +235,39 @@ class TestProjectManagerMore:
         pm.update_character_reference_image("demo", "Alice", "characters/refs/Alice.png")
         assert pm.get_project_character("demo", "Alice")["reference_image"].endswith("Alice.png")
 
-        pm.add_clues_batch("demo", {"玉佩": {"type": "prop", "description": "d", "importance": "major"}})
-        pm.update_clue_sheet("demo", "玉佩", "clues/玉佩.png")
-        assert pm.get_clue("demo", "玉佩")["clue_sheet"].endswith("玉佩.png")
+        # scene lifecycle
+        pm.add_scenes_batch("demo", {"客厅": {"description": "宽敞的客厅"}})
+        pm.update_scene_sheet("demo", "客厅", "scenes/客厅.png")
+        assert pm.get_scene("demo", "客厅")["scene_sheet"].endswith("客厅.png")
 
         project_dir = pm.get_project_path("demo")
-        (project_dir / "clues" / "玉佩.png").write_bytes(b"png")
-        assert pm.get_pending_clues("demo") == []
+        (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
+        assert pm.get_pending_project_scenes("demo") == []
+
+        # prop lifecycle
+        pm.add_props_batch("demo", {"玉佩": {"description": "古玉"}})
+        pm.update_prop_sheet("demo", "玉佩", "props/玉佩.png")
+        assert pm.get_prop("demo", "玉佩")["prop_sheet"].endswith("玉佩.png")
+
+        (project_dir / "props" / "玉佩.png").write_bytes(b"png")
+        assert pm.get_pending_project_props("demo") == []
 
         # direct add_* return bool
         assert pm.add_character("demo", "Bob", "side", "") is True
         assert pm.add_character("demo", "Bob", "side", "") is False
-        assert pm.add_clue("demo", "线索X", "prop", "desc", "minor") is True
-        assert pm.add_clue("demo", "线索X", "prop", "desc", "minor") is False
+        assert pm.add_project_scene("demo", "卧室", "宁静的卧室") is True
+        assert pm.add_project_scene("demo", "卧室", "宁静的卧室") is False
+        assert pm.add_prop("demo", "宝剑", "古代宝剑") is True
+        assert pm.add_prop("demo", "宝剑", "古代宝剑") is False
 
         added_chars = pm.add_characters_batch("demo", {"Bob": {"description": "d"}, "C": {"description": "d"}})
         assert added_chars == 1
-        added_clues = pm.add_clues_batch("demo", {"线索X": {"type": "prop"}, "线索Y": {"type": "location"}})
-        assert added_clues == 1
+        added_scenes = pm.add_scenes_batch(
+            "demo", {"卧室": {"description": "d"}, "书房": {"description": "d"}}
+        )  # 卧室已存在
+        assert added_scenes == 1
+        added_props = pm.add_props_batch("demo", {"玉佩": {"description": "d"}, "铜钱": {"description": "d"}})
+        assert added_props == 1
 
         pm.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
         pm.add_episode("demo", 1, "第一集-改", "scripts/episode_1.json")
@@ -264,7 +278,8 @@ class TestProjectManagerMore:
         assert str(pm.get_storyboard_path("demo", "a.png")).endswith("/storyboards/a.png")
         assert str(pm.get_video_path("demo", "a.mp4")).endswith("/videos/a.mp4")
         assert str(pm.get_output_path("demo", "a.mp4")).endswith("/output/a.mp4")
-        assert str(pm.get_clue_path("demo", "a.png")).endswith("/clues/a.png")
+        assert str(pm.get_scene_path("demo", "a.png")).endswith("/scenes/a.png")
+        assert str(pm.get_prop_path("demo", "a.png")).endswith("/props/a.png")
 
         with pytest.raises(KeyError):
             pm.get_project_character("demo", "none")
@@ -273,9 +288,13 @@ class TestProjectManagerMore:
         with pytest.raises(KeyError):
             pm.update_character_reference_image("demo", "none", "x")
         with pytest.raises(KeyError):
-            pm.get_clue("demo", "none")
+            pm.get_scene("demo", "none")
         with pytest.raises(KeyError):
-            pm.update_clue_sheet("demo", "none", "x")
+            pm.update_scene_sheet("demo", "none", "x")
+        with pytest.raises(KeyError):
+            pm.get_prop("demo", "none")
+        with pytest.raises(KeyError):
+            pm.update_prop_sheet("demo", "none", "x")
 
     @pytest.mark.asyncio
     async def test_reference_read_source_and_generate_overview(self, tmp_path, monkeypatch):
@@ -284,20 +303,20 @@ class TestProjectManagerMore:
         pm.create_project_metadata("demo", "Demo")
 
         pm.add_character("demo", "Alice", "hero")
-        pm.add_clues_batch("demo", {"玉佩": {"type": "prop", "description": "d", "importance": "major"}})
+        pm.add_props_batch("demo", {"玉佩": {"description": "古玉"}})
 
         project_dir = pm.get_project_path("demo")
         (project_dir / "characters" / "Alice.png").write_bytes(b"png")
-        (project_dir / "clues" / "玉佩.png").write_bytes(b"png")
+        (project_dir / "props" / "玉佩.png").write_bytes(b"png")
 
         project = pm.load_project("demo")
         project["characters"]["Alice"]["character_sheet"] = "characters/Alice.png"
-        project["clues"]["玉佩"]["clue_sheet"] = "clues/玉佩.png"
+        project["props"]["玉佩"]["prop_sheet"] = "props/玉佩.png"
         pm.save_project("demo", project)
 
         refs = pm.collect_reference_images(
             "demo",
-            {"characters_in_scene": ["Alice"], "clues_in_scene": ["玉佩"]},
+            {"characters_in_scene": ["Alice"], "props_in_scene": ["玉佩"]},
         )
         assert len(refs) == 2
 
@@ -421,3 +440,106 @@ class TestResolveEpisodeFromScript:
     def test_raises_when_unresolvable(self):
         with pytest.raises(ValueError, match="无法确定集号"):
             ProjectManager.resolve_episode_from_script({}, "random_name.json")
+
+
+class TestScenePropLifecycle:
+    """scene / prop 生命周期测试（Task 9）"""
+
+    def test_add_scene_creates_entry(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+
+        assert pm.add_project_scene("demo", "客厅", "宽敞的客厅") is True
+        assert pm.add_project_scene("demo", "客厅", "宽敞的客厅") is False  # 重复返回 False
+
+        project = pm.load_project("demo")
+        assert "客厅" in project["scenes"]
+        assert project["scenes"]["客厅"]["description"] == "宽敞的客厅"
+        assert project["scenes"]["客厅"]["scene_sheet"] == ""
+
+    def test_add_prop_creates_entry(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+
+        assert pm.add_prop("demo", "玉佩", "一块古玉") is True
+        assert pm.add_prop("demo", "玉佩", "一块古玉") is False  # 重复返回 False
+
+        project = pm.load_project("demo")
+        assert "玉佩" in project["props"]
+        assert project["props"]["玉佩"]["description"] == "一块古玉"
+        assert project["props"]["玉佩"]["prop_sheet"] == ""
+
+    def test_get_pending_scenes_lists_without_sheet(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_scene("demo", "客厅", "宽敞的客厅")
+        pm.add_project_scene("demo", "书房", "安静的书房")
+
+        # 无 scene_sheet 时全部 pending
+        pending = pm.get_pending_project_scenes("demo")
+        assert len(pending) == 2
+        assert any(s["name"] == "客厅" for s in pending)
+
+        # 设置 sheet 但文件不存在 → 依然 pending
+        pm.update_scene_sheet("demo", "客厅", "scenes/客厅.png")
+        pending2 = pm.get_pending_project_scenes("demo")
+        assert len(pending2) == 2
+
+        # 文件存在 → 不再 pending
+        project_dir = pm.get_project_path("demo")
+        (project_dir / "scenes" / "客厅.png").parent.mkdir(parents=True, exist_ok=True)
+        (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
+        pending3 = pm.get_pending_project_scenes("demo")
+        assert len(pending3) == 1
+        assert pending3[0]["name"] == "书房"
+
+    def test_get_pending_props_lists_without_sheet(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_prop("demo", "玉佩", "古玉")
+        pm.add_prop("demo", "宝剑", "利剑")
+
+        # 无 prop_sheet 时全部 pending
+        pending = pm.get_pending_project_props("demo")
+        assert len(pending) == 2
+
+        # 文件存在 → 不再 pending
+        pm.update_prop_sheet("demo", "玉佩", "props/玉佩.png")
+        project_dir = pm.get_project_path("demo")
+        (project_dir / "props" / "玉佩.png").parent.mkdir(parents=True, exist_ok=True)
+        (project_dir / "props" / "玉佩.png").write_bytes(b"png")
+        pending2 = pm.get_pending_project_props("demo")
+        assert len(pending2) == 1
+        assert pending2[0]["name"] == "宝剑"
+
+    def test_add_scenes_batch_skips_existing(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_scene("demo", "客厅", "已有的客厅")
+
+        added = pm.add_scenes_batch("demo", {"客厅": {"description": "新描述"}, "书房": {"description": "书房"}})
+        assert added == 1
+
+        project = pm.load_project("demo")
+        # 已有的不被覆盖
+        assert project["scenes"]["客厅"]["description"] == "已有的客厅"
+        # 新的被添加
+        assert "书房" in project["scenes"]
+
+    def test_add_props_batch_skips_existing(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_prop("demo", "玉佩", "已有的玉佩")  # add_prop 无命名冲突
+
+        added = pm.add_props_batch("demo", {"玉佩": {"description": "新描述"}, "宝剑": {"description": "宝剑"}})
+        assert added == 1
+
+        project = pm.load_project("demo")
+        assert project["props"]["玉佩"]["description"] == "已有的玉佩"
+        assert "宝剑" in project["props"]

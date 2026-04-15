@@ -49,7 +49,8 @@ class ProjectManager:
         "scripts",
         "drafts",
         "characters",
-        "clues",
+        "scenes",
+        "props",
         "storyboards",
         "videos",
         "thumbnails",
@@ -248,7 +249,8 @@ class ProjectManager:
             "source_files": [],
             "scripts": [],
             "characters": [],
-            "clues": [],
+            "scenes": [],
+            "props": [],
             "storyboards": [],
             "videos": [],
             "outputs": [],
@@ -266,8 +268,10 @@ class ProjectManager:
                     status["scripts"] = [f.name for f in files if f.suffix == ".json"]
                 elif subdir == "characters":
                     status["characters"] = [f.name for f in files if f.suffix in [".png", ".jpg", ".jpeg"]]
-                elif subdir == "clues":
-                    status["clues"] = [f.name for f in files if f.suffix in [".png", ".jpg", ".jpeg"]]
+                elif subdir == "scenes":
+                    status["scenes"] = [f.name for f in files if f.suffix in [".png", ".jpg", ".jpeg"]]
+                elif subdir == "props":
+                    status["props"] = [f.name for f in files if f.suffix in [".png", ".jpg", ".jpeg"]]
                 elif subdir == "storyboards":
                     status["storyboards"] = [f.name for f in files if f.suffix in [".png", ".jpg", ".jpeg"]]
                 elif subdir == "videos":
@@ -698,13 +702,7 @@ class ProjectManager:
             # sync_characters_from_script 会重新加载和保存 script，所以需要重新加载
             script = self.load_script(project_name, script_filename)
 
-        # 处理旧格式：如果有 clues 对象，同步到 project.json
-        if "clues" in script and isinstance(script["clues"], dict) and script["clues"]:
-            logger.warning("检测到旧格式 clues 对象，自动同步到 project.json")
-            self.sync_clues_from_script(project_name, script_filename)
-            script = self.load_script(project_name, script_filename)
-
-        # 注意：characters_in_episode 和 clues_in_episode 已改为读时计算
+        # 注意：characters_in_episode 已改为读时计算
         # 不再在 normalize_script 中创建这些字段
 
         if "scenes" not in script:
@@ -1164,7 +1162,8 @@ class ProjectManager:
             "style": style or "",
             "episodes": [],
             "characters": {},
-            "clues": {},
+            "scenes": {},
+            "props": {},
             "metadata": {
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat(),
@@ -1312,46 +1311,71 @@ class ProjectManager:
 
         return project["characters"][name]
 
-    # ==================== 线索管理 ====================
+    # ==================== 场景管理（scene） ====================
 
-    def update_clue_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
-        """
-        更新线索设计图路径
-
-        Args:
-            project_name: 项目名称
-            name: 线索名称
-            sheet_path: 设计图路径
-
-        Returns:
-            更新后的项目元数据
-        """
+    def update_scene_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
+        """更新场景设计图路径"""
         project = self.load_project(project_name)
-
-        if name not in project["clues"]:
-            raise KeyError(f"线索 '{name}' 不存在")
-
-        project["clues"][name]["clue_sheet"] = sheet_path
+        if name not in project.get("scenes", {}):
+            raise KeyError(f"场景 '{name}' 不存在")
+        project["scenes"][name]["scene_sheet"] = sheet_path
         self.save_project(project_name, project)
         return project
 
-    def get_clue(self, project_name: str, name: str) -> dict:
-        """
-        获取线索定义
-
-        Args:
-            project_name: 项目名称
-            name: 线索名称
-
-        Returns:
-            线索定义字典
-        """
+    def get_scene(self, project_name: str, name: str) -> dict:
+        """获取场景定义"""
         project = self.load_project(project_name)
+        if name not in project.get("scenes", {}):
+            raise KeyError(f"场景 '{name}' 不存在")
+        return project["scenes"][name]
 
-        if name not in project["clues"]:
-            raise KeyError(f"线索 '{name}' 不存在")
+    def get_pending_project_scenes(self, project_name: str) -> list[dict]:
+        """无 scene_sheet 或文件不存在的场景。"""
+        project = self.load_project(project_name)
+        project_dir = self.get_project_path(project_name)
+        pending = []
+        for name, scene in (project.get("scenes") or {}).items():
+            sheet = scene.get("scene_sheet")
+            if not sheet or not (project_dir / sheet).exists():
+                pending.append({"name": name, **scene})
+        return pending
 
-        return project["clues"][name]
+    def get_scene_path(self, project_name: str, filename: str) -> Path:
+        """获取场景设计图路径"""
+        return self.get_project_path(project_name) / "scenes" / filename
+
+    # ==================== 道具管理（prop） ====================
+
+    def update_prop_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
+        """更新道具设计图路径"""
+        project = self.load_project(project_name)
+        if name not in project.get("props", {}):
+            raise KeyError(f"道具 '{name}' 不存在")
+        project["props"][name]["prop_sheet"] = sheet_path
+        self.save_project(project_name, project)
+        return project
+
+    def get_prop(self, project_name: str, name: str) -> dict:
+        """获取道具定义"""
+        project = self.load_project(project_name)
+        if name not in project.get("props", {}):
+            raise KeyError(f"道具 '{name}' 不存在")
+        return project["props"][name]
+
+    def get_pending_project_props(self, project_name: str) -> list[dict]:
+        """无 prop_sheet 或文件不存在的道具。"""
+        project = self.load_project(project_name)
+        project_dir = self.get_project_path(project_name)
+        pending = []
+        for name, prop in (project.get("props") or {}).items():
+            sheet = prop.get("prop_sheet")
+            if not sheet or not (project_dir / sheet).exists():
+                pending.append({"name": name, **prop})
+        return pending
+
+    def get_prop_path(self, project_name: str, filename: str) -> Path:
+        """获取道具设计图路径"""
+        return self.get_project_path(project_name) / "props" / filename
 
     def get_pending_characters(self, project_name: str) -> list[dict]:
         """
@@ -1374,33 +1398,7 @@ class ProjectManager:
 
         return pending
 
-    def get_pending_clues(self, project_name: str) -> list[dict]:
-        """
-        获取待生成设计图的线索列表
-
-        Args:
-            project_name: 项目名称
-
-        Returns:
-            待处理线索列表（importance='major' 且无 clue_sheet）
-        """
-        project = self.load_project(project_name)
-        project_dir = self.get_project_path(project_name)
-
-        pending = []
-        for name, clue in project["clues"].items():
-            if clue.get("importance") == "major":
-                sheet = clue.get("clue_sheet")
-                if not sheet or not (project_dir / sheet).exists():
-                    pending.append({"name": name, **clue})
-
-        return pending
-
-    def get_clue_path(self, project_name: str, filename: str) -> Path:
-        """获取线索设计图路径"""
-        return self.get_project_path(project_name) / "clues" / filename
-
-    # ==================== 角色/线索直接写入工具 ====================
+    # ==================== 角色/场景/道具直接写入工具 ====================
 
     def add_character(self, project_name: str, name: str, description: str, voice_style: str = "") -> bool:
         """
@@ -1436,47 +1434,30 @@ class ProjectManager:
         logger.info("添加角色: %s", name)
         return True
 
-    def add_clue(
-        self,
-        project_name: str,
-        name: str,
-        clue_type: str,
-        description: str,
-        importance: str = "minor",
-    ) -> bool:
-        """
-        直接添加线索到 project.json
-
-        如果线索已存在，跳过不覆盖。
-
-        Args:
-            project_name: 项目名称
-            name: 线索名称
-            clue_type: 线索类型（prop 或 location）
-            description: 线索描述
-            importance: 重要性（major 或 minor，默认 minor）
-
-        Returns:
-            True 如果新增成功，False 如果已存在
-        """
+    def add_project_scene(self, project_name: str, name: str, description: str) -> bool:
+        """直接添加场景到 project.json。已存在返回 False。"""
         project = self.load_project(project_name)
-
-        if name in project.get("clues", {}):
-            logger.debug("线索 '%s' 已存在于 project.json，跳过", name)
+        if name in project.get("scenes", {}):
+            logger.debug("场景 '%s' 已存在于 project.json，跳过", name)
             return False
-
-        if "clues" not in project:
-            project["clues"] = {}
-
-        project["clues"][name] = {
-            "type": clue_type,
-            "description": description,
-            "importance": importance,
-            "clue_sheet": "",
-        }
-
+        if "scenes" not in project:
+            project["scenes"] = {}
+        project["scenes"][name] = {"description": description, "scene_sheet": ""}
         self.save_project(project_name, project)
-        logger.info("添加线索: %s", name)
+        logger.info("添加场景: %s", name)
+        return True
+
+    def add_prop(self, project_name: str, name: str, description: str) -> bool:
+        """直接添加道具到 project.json。已存在返回 False。"""
+        project = self.load_project(project_name)
+        if name in project.get("props", {}):
+            logger.debug("道具 '%s' 已存在于 project.json，跳过", name)
+            return False
+        if "props" not in project:
+            project["props"] = {}
+        project["props"][name] = {"description": description, "prop_sheet": ""}
+        self.save_project(project_name, project)
+        logger.info("添加道具: %s", name)
         return True
 
     def add_characters_batch(self, project_name: str, characters: dict[str, dict]) -> int:
@@ -1513,39 +1494,44 @@ class ProjectManager:
 
         return added
 
-    def add_clues_batch(self, project_name: str, clues: dict[str, dict]) -> int:
-        """
-        批量添加线索到 project.json
-
-        Args:
-            project_name: 项目名称
-            clues: 线索字典 {name: {type, description, importance}}
-
-        Returns:
-            新增的线索数量
-        """
+    def add_scenes_batch(self, project_name: str, scenes: dict[str, dict]) -> int:
+        """批量添加场景到 project.json。已存在的跳过，返回新增数量。"""
         project = self.load_project(project_name)
-
-        if "clues" not in project:
-            project["clues"] = {}
-
+        if "scenes" not in project:
+            project["scenes"] = {}
         added = 0
-        for name, data in clues.items():
-            if name not in project["clues"]:
-                project["clues"][name] = {
-                    "type": data.get("type", "prop"),
+        for name, data in scenes.items():
+            if name not in project["scenes"]:
+                project["scenes"][name] = {
                     "description": data.get("description", ""),
-                    "importance": data.get("importance", "minor"),
-                    "clue_sheet": data.get("clue_sheet", ""),
+                    "scene_sheet": data.get("scene_sheet", ""),
                 }
                 added += 1
-                logger.info("添加线索: %s", name)
+                logger.info("添加场景: %s", name)
             else:
-                logger.debug("线索 '%s' 已存在，跳过", name)
-
+                logger.debug("场景 '%s' 已存在，跳过", name)
         if added > 0:
             self.save_project(project_name, project)
+        return added
 
+    def add_props_batch(self, project_name: str, props: dict[str, dict]) -> int:
+        """批量添加道具到 project.json。已存在的跳过，返回新增数量。"""
+        project = self.load_project(project_name)
+        if "props" not in project:
+            project["props"] = {}
+        added = 0
+        for name, data in props.items():
+            if name not in project["props"]:
+                project["props"][name] = {
+                    "description": data.get("description", ""),
+                    "prop_sheet": data.get("prop_sheet", ""),
+                }
+                added += 1
+                logger.info("添加道具: %s", name)
+            else:
+                logger.debug("道具 '%s' 已存在，跳过", name)
+        if added > 0:
+            self.save_project(project_name, project)
         return added
 
     # ==================== 参考图收集工具 ====================
@@ -1574,10 +1560,10 @@ class ProjectManager:
                 if sheet_path.exists():
                     refs.append(sheet_path)
 
-        # 线索参考图
-        for clue in scene.get("clues_in_scene", []):
-            clue_data = project["clues"].get(clue, {})
-            sheet = clue_data.get("clue_sheet")
+        # 道具参考图
+        for prop in scene.get("props_in_scene", []):
+            prop_data = project.get("props", {}).get(prop, {})
+            sheet = prop_data.get("prop_sheet")
             if sheet:
                 sheet_path = project_dir / sheet
                 if sheet_path.exists():
