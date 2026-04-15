@@ -40,8 +40,6 @@ class DataValidator:
 
     VALID_CONTENT_MODES = {"narration", "drama"}
     VALID_DURATIONS = {4, 6, 8}
-    VALID_CLUE_TYPES = {"prop", "location"}
-    VALID_CLUE_IMPORTANCE = {"major", "minor"}
     VALID_SCENE_TYPES = {"剧情", "空镜"}
     ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
@@ -55,7 +53,8 @@ class DataValidator:
         "scripts",
         "drafts",
         "characters",
-        "clues",
+        "scenes",
+        "props",
         "storyboards",
         "videos",
         "thumbnails",
@@ -206,29 +205,43 @@ class DataValidator:
                 if not char_data.get("description"):
                     errors.append(f"角色 '{char_name}' 缺少必填字段: description")
 
-        clues = project.get("clues", {})
-        if isinstance(clues, dict):
-            for clue_name, clue_data in clues.items():
-                if not isinstance(clue_data, dict):
-                    errors.append(f"线索 '{clue_name}' 数据格式错误，应为对象")
-                    continue
+        if project.get("clues") is not None:
+            errors.append("project.json 含已废弃字段 clues，请等待自动迁移或手动重启服务")
 
-                clue_type = clue_data.get("type")
-                if not clue_type:
-                    errors.append(f"线索 '{clue_name}' 缺少必填字段: type")
-                elif clue_type not in self.VALID_CLUE_TYPES:
-                    errors.append(f"线索 '{clue_name}' type 值无效: '{clue_type}'，必须是 {self.VALID_CLUE_TYPES}")
+        self._validate_project_scenes(project.get("scenes") or {}, errors)
+        self._validate_project_props(project.get("props") or {}, errors)
 
-                if not clue_data.get("description"):
-                    errors.append(f"线索 '{clue_name}' 缺少必填字段: description")
+    def _validate_project_scenes(
+        self,
+        scenes: dict[str, Any],
+        errors: list[str],
+    ) -> None:
+        """验证 project.json 顶层 scenes 字典"""
+        if not isinstance(scenes, dict):
+            errors.append("scenes 必须是对象")
+            return
+        for scene_name, scene_data in scenes.items():
+            if not isinstance(scene_data, dict):
+                errors.append(f"场景 '{scene_name}' 数据格式错误，应为对象")
+                continue
+            if not scene_data.get("description"):
+                errors.append(f"场景 '{scene_name}' 缺少必填字段: description")
 
-                importance = clue_data.get("importance")
-                if not importance:
-                    errors.append(f"线索 '{clue_name}' 缺少必填字段: importance")
-                elif importance not in self.VALID_CLUE_IMPORTANCE:
-                    errors.append(
-                        f"线索 '{clue_name}' importance 值无效: '{importance}'，必须是 {self.VALID_CLUE_IMPORTANCE}"
-                    )
+    def _validate_project_props(
+        self,
+        props: dict[str, Any],
+        errors: list[str],
+    ) -> None:
+        """验证 project.json 顶层 props 字典"""
+        if not isinstance(props, dict):
+            errors.append("props 必须是对象")
+            return
+        for prop_name, prop_data in props.items():
+            if not isinstance(prop_data, dict):
+                errors.append(f"道具 '{prop_name}' 数据格式错误，应为对象")
+                continue
+            if not prop_data.get("description"):
+                errors.append(f"道具 '{prop_name}' 缺少必填字段: description")
 
     def validate_project(self, project_name: str) -> ValidationResult:
         """验证 project.json"""
@@ -297,7 +310,7 @@ class DataValidator:
         self,
         segments: list[dict[str, Any]],
         project_characters: set[str],
-        project_clues: set[str],
+        project_asset_refs: set[str],
         errors: list[str],
         warnings: list[str],
         *,
@@ -336,15 +349,25 @@ class DataValidator:
                 if invalid:
                     errors.append(f"{prefix}: characters_in_segment 引用了不存在于 project.json 的角色: {invalid}")
 
-            clues_in_segment = segment.get("clues_in_segment")
-            if clues_in_segment is None:
-                warnings.append(f"{prefix}: 缺少 clues_in_segment，将使用默认空数组")
-            elif not isinstance(clues_in_segment, list):
-                errors.append(f"{prefix}: clues_in_segment 必须是数组")
+            scenes_in_segment = segment.get("scenes")
+            if scenes_in_segment is None:
+                warnings.append(f"{prefix}: 缺少 scenes，将使用默认空数组")
+            elif not isinstance(scenes_in_segment, list):
+                errors.append(f"{prefix}: scenes 必须是数组")
             else:
-                invalid = set(clues_in_segment) - project_clues
+                invalid = set(scenes_in_segment) - project_asset_refs
                 if invalid:
-                    errors.append(f"{prefix}: clues_in_segment 引用了不存在于 project.json 的线索: {invalid}")
+                    errors.append(f"{prefix}: scenes 引用了不存在于 project.json 的场景或道具: {invalid}")
+
+            props_in_segment = segment.get("props")
+            if props_in_segment is None:
+                warnings.append(f"{prefix}: 缺少 props，将使用默认空数组")
+            elif not isinstance(props_in_segment, list):
+                errors.append(f"{prefix}: props 必须是数组")
+            else:
+                invalid = set(props_in_segment) - project_asset_refs
+                if invalid:
+                    errors.append(f"{prefix}: props 引用了不存在于 project.json 的场景或道具: {invalid}")
 
             if not segment.get("image_prompt"):
                 errors.append(f"{prefix}: 缺少必填字段 image_prompt")
@@ -363,7 +386,7 @@ class DataValidator:
         self,
         scenes: list[dict[str, Any]],
         project_characters: set[str],
-        project_clues: set[str],
+        project_asset_refs: set[str],
         errors: list[str],
         warnings: list[str],
         *,
@@ -405,15 +428,25 @@ class DataValidator:
                 if invalid:
                     errors.append(f"{prefix}: characters_in_scene 引用了不存在于 project.json 的角色: {invalid}")
 
-            clues_in_scene = scene.get("clues_in_scene")
-            if clues_in_scene is None:
-                warnings.append(f"{prefix}: 缺少 clues_in_scene，将使用默认空数组")
-            elif not isinstance(clues_in_scene, list):
-                errors.append(f"{prefix}: clues_in_scene 必须是数组")
+            scenes_in_scene = scene.get("scenes")
+            if scenes_in_scene is None:
+                warnings.append(f"{prefix}: 缺少 scenes，将使用默认空数组")
+            elif not isinstance(scenes_in_scene, list):
+                errors.append(f"{prefix}: scenes 必须是数组")
             else:
-                invalid = set(clues_in_scene) - project_clues
+                invalid = set(scenes_in_scene) - project_asset_refs
                 if invalid:
-                    errors.append(f"{prefix}: clues_in_scene 引用了不存在于 project.json 的线索: {invalid}")
+                    errors.append(f"{prefix}: scenes 引用了不存在于 project.json 的场景或道具: {invalid}")
+
+            props_in_scene = scene.get("props")
+            if props_in_scene is None:
+                warnings.append(f"{prefix}: 缺少 props，将使用默认空数组")
+            elif not isinstance(props_in_scene, list):
+                errors.append(f"{prefix}: props 必须是数组")
+            else:
+                invalid = set(props_in_scene) - project_asset_refs
+                if invalid:
+                    errors.append(f"{prefix}: props 引用了不存在于 project.json 的场景或道具: {invalid}")
 
             if not scene.get("image_prompt"):
                 errors.append(f"{prefix}: 缺少必填字段 image_prompt")
@@ -437,7 +470,7 @@ class DataValidator:
         warnings: list[str],
     ) -> None:
         project_characters = set(project.get("characters", {}).keys())
-        project_clues = set(project.get("clues", {}).keys())
+        project_asset_refs = set(project.get("scenes", {}).keys()) | set(project.get("props", {}).keys())
 
         if not isinstance(episode.get("episode"), int):
             errors.append("缺少必填字段: episode (整数)")
@@ -454,9 +487,11 @@ class DataValidator:
         if characters_in_episode is not None:
             warnings.append("characters_in_episode 字段已废弃（改为读时计算），可安全移除")
 
-        clues_in_episode = episode.get("clues_in_episode")
-        if clues_in_episode is not None:
-            warnings.append("clues_in_episode 字段已废弃（改为读时计算），可安全移除")
+        if episode.get("scenes_in_episode") is not None:
+            warnings.append("scenes_in_episode 字段已废弃（改为读时计算），可安全移除")
+
+        if episode.get("props_in_episode") is not None:
+            warnings.append("props_in_episode 字段已废弃（改为读时计算），可安全移除")
 
         novel = episode.get("novel")
         if novel is not None and not isinstance(novel, dict):
@@ -466,7 +501,7 @@ class DataValidator:
             self._validate_segments(
                 episode.get("segments", []),
                 project_characters,
-                project_clues,
+                project_asset_refs,
                 errors,
                 warnings,
                 project_dir=project_dir,
@@ -475,7 +510,7 @@ class DataValidator:
             self._validate_scenes(
                 episode.get("scenes", []),
                 project_characters,
-                project_clues,
+                project_asset_refs,
                 errors,
                 warnings,
                 project_dir=project_dir,
@@ -568,17 +603,30 @@ class DataValidator:
                     default_dir="characters/refs",
                 )
 
-        clues = project.get("clues", {})
-        if isinstance(clues, dict):
-            for clue_name, clue_data in clues.items():
-                if not isinstance(clue_data, dict):
+        scenes_dict = project.get("scenes", {})
+        if isinstance(scenes_dict, dict):
+            for scene_name, scene_data in scenes_dict.items():
+                if not isinstance(scene_data, dict):
                     continue
                 self._validate_local_reference(
                     project_dir,
-                    clue_data.get("clue_sheet"),
+                    scene_data.get("scene_sheet"),
                     errors,
-                    f"clues[{clue_name}].clue_sheet",
-                    default_dir="clues",
+                    f"scenes[{scene_name}].scene_sheet",
+                    default_dir="scenes",
+                )
+
+        props_dict = project.get("props", {})
+        if isinstance(props_dict, dict):
+            for prop_name, prop_data in props_dict.items():
+                if not isinstance(prop_data, dict):
+                    continue
+                self._validate_local_reference(
+                    project_dir,
+                    prop_data.get("prop_sheet"),
+                    errors,
+                    f"props[{prop_name}].prop_sheet",
+                    default_dir="props",
                 )
 
         episodes = project.get("episodes", [])
