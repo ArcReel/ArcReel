@@ -15,7 +15,10 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 _IMAGE_PATTERN = re.compile(r"image|dall|img", re.IGNORECASE)
-_VIDEO_PATTERN = re.compile(r"video|sora|kling|wan|seedance|cog|mochi|veo|pika", re.IGNORECASE)
+_VIDEO_PATTERN = re.compile(
+    r"video|sora|kling|wan|seedance|cog|mochi|veo|pika|minimax|hailuo|seedream|jimeng|runway",
+    re.IGNORECASE,
+)
 
 # Google generation method → media_type 映射
 _GENERATION_METHOD_MAP: dict[str, str] = {
@@ -43,7 +46,7 @@ async def discover_models(api_format: str, base_url: str | None, api_key: str) -
     """查询供应商的可用模型列表。
 
     Args:
-        api_format: API 格式 ("openai" | "google")
+        api_format: API 格式 ("openai" | "google" | "newapi")
         base_url: 供应商 API 基础 URL
         api_key: API 密钥
 
@@ -53,12 +56,12 @@ async def discover_models(api_format: str, base_url: str | None, api_key: str) -
     Raises:
         ValueError: api_format 不支持
     """
-    if api_format == "openai":
+    if api_format == "openai" or api_format == "newapi":
         return await _discover_openai(base_url, api_key)
     elif api_format == "google":
         return await _discover_google(base_url, api_key)
     else:
-        raise ValueError(f"不支持的 api_format: {api_format!r}，支持: 'openai', 'google'")
+        raise ValueError(f"不支持的 api_format: {api_format!r}，支持: 'openai', 'google', 'newapi'")
 
 
 async def _discover_openai(base_url: str | None, api_key: str) -> list[dict]:

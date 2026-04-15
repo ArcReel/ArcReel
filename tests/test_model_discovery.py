@@ -299,3 +299,28 @@ class TestUnknownFormat:
     async def test_unknown_api_format(self):
         with pytest.raises(ValueError, match="api_format"):
             await discover_models("anthropic", "https://api.example.com", "sk-test")
+
+
+class TestDiscoverNewAPI:
+    async def test_newapi_reuses_openai_path(self):
+        """newapi 格式应走 OpenAI 兼容的 /v1/models 路径。"""
+        from unittest.mock import patch
+
+        fake_models = [
+            type("M", (), {"id": "gpt-4o"}),
+            type("M", (), {"id": "kling-v1"}),
+        ]
+
+        with patch("lib.custom_provider.discovery.OpenAI") as mock_cls:
+            mock_client = mock_cls.return_value
+            mock_client.models.list.return_value = fake_models
+
+            from lib.custom_provider.discovery import discover_models
+
+            result = await discover_models(api_format="newapi", base_url="https://x/v1", api_key="sk")
+
+        ids = [m["model_id"] for m in result]
+        assert "gpt-4o" in ids
+        assert "kling-v1" in ids
+        kling = next(m for m in result if m["model_id"] == "kling-v1")
+        assert kling["media_type"] == "video"
