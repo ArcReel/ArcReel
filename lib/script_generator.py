@@ -259,6 +259,10 @@ class ScriptGenerator:
         except json.JSONDecodeError as e:
             raise ValueError(f"JSON 解析失败: {e}")
 
+        if isinstance(data, list):
+            logger.warning("模型返回顶层数组，自动包装为剧本对象 content_mode=%s episode=%s", self.content_mode, episode)
+            data = self._wrap_list_response(data, episode)
+
         # Pydantic 验证
         try:
             if self.content_mode == "narration":
@@ -270,6 +274,37 @@ class ScriptGenerator:
             logger.warning("数据验证警告: %s", e)
             # 返回原始数据，允许部分不符合 schema
             return data
+
+    def _wrap_list_response(self, items: list, episode: int) -> dict:
+        """将模型误返回的顶层数组包装为剧本对象，并补充缺失的 scene_id/segment_id。"""
+        episode_title = f"第{episode}集"
+        for ep in self.project_json.get("episodes", []):
+            if ep.get("episode") == episode and isinstance(ep.get("title"), str) and ep.get("title").strip():
+                episode_title = ep["title"].strip()
+                break
+
+        # 为每个场景/片段补充缺失的 ID
+        for idx, item in enumerate(items, 1):
+            if self.content_mode == "drama" and "scene_id" not in item:
+                item["scene_id"] = f"E{episode:02d}S{idx:02d}"
+            elif self.content_mode == "narration" and "segment_id" not in item:
+                item["segment_id"] = f"E{episode:02d}F{idx:02d}"
+
+        base = {
+            "episode": episode,
+            "title": episode_title,
+            "content_mode": self.content_mode,
+            "summary": "",
+            "novel": {
+                "title": self.project_json.get("title", ""),
+                "chapter": episode_title,
+            },
+        }
+        if self.content_mode == "narration":
+            base["segments"] = items
+        else:
+            base["scenes"] = items
+        return base
 
     def _add_metadata(self, script_data: dict, episode: int) -> dict:
         """

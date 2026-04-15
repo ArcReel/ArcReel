@@ -21,7 +21,7 @@ __all__ = [
 ]
 # Backend auto-registration
 from lib.image_backends.gemini import GeminiImageBackend
-from lib.providers import PROVIDER_ARK, PROVIDER_GEMINI
+from lib.providers import PROVIDER_ARK, PROVIDER_BAILIAN, PROVIDER_GEMINI
 
 register_backend(PROVIDER_GEMINI, GeminiImageBackend)
 
@@ -38,3 +38,7 @@ from lib.image_backends.openai import OpenAIImageBackend
 from lib.providers import PROVIDER_OPENAI
 
 register_backend(PROVIDER_OPENAI, OpenAIImageBackend)
+
+from lib.image_backends.bailian import BailianImageBackend
+
+register_backend(PROVIDER_BAILIAN, BailianImageBackend)

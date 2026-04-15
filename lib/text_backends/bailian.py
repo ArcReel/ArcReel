@@ -1,4 +1,4 @@
-"""OpenAITextBackend — OpenAI 文本生成后端。"""
+"""BailianTextBackend — 百炼文本生成后端（基于 OpenAI 兼容接口）。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import logging
 from openai import AsyncOpenAI, BadRequestError
 
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
-from lib.providers import PROVIDER_OPENAI
+from lib.providers import PROVIDER_BAILIAN
 from lib.retry import with_retry_async
 from lib.text_backends.base import (
     TextCapability,
@@ -16,14 +16,16 @@ from lib.text_backends.base import (
     resolve_schema,
     warn_if_truncated,
 )
+from lib.text_backends.instructor_support import instructor_fallback_async
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-5.4-mini"
+DEFAULT_MODEL = "qwen3.6-plus"
+DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 
-class OpenAITextBackend:
-    """OpenAI 文本生成后端，支持 Chat Completions API。"""
+class BailianTextBackend:
+    """百炼文本生成后端，基于 DashScope OpenAI 兼容接口。"""
 
     def __init__(
         self,
@@ -32,8 +34,9 @@ class OpenAITextBackend:
         model: str | None = None,
         base_url: str | None = None,
     ):
-        # 禁用 SDK 内置重试，由本层 generate() 统一管理重试策略
-        self._client = create_openai_client(api_key=api_key, base_url=base_url, max_retries=0)
+        # 使用百炼兼容端点，禁用 SDK 内置重试
+        effective_base_url = base_url or DEFAULT_BASE_URL
+        self._client = create_openai_client(api_key=api_key, base_url=effective_base_url, max_retries=0)
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[TextCapability] = {
             TextCapability.TEXT_GENERATION,
@@ -43,7 +46,7 @@ class OpenAITextBackend:
 
     @property
     def name(self) -> str:
-        return PROVIDER_OPENAI
+        return PROVIDER_BAILIAN
 
     @property
     def model(self) -> str:
@@ -61,8 +64,6 @@ class OpenAITextBackend:
         1. 尝试原生 response_format 调用
         2. 若遇 schema 不兼容错误 → 本次 attempt 内降级到 Instructor
         3. 若遇瞬态错误（429/500/503/网络）→ 由装饰器自动重试整个流程
-
-        这样无论是原生调用还是降级路径遇到瞬态错误，都统一由外层重试处理。
         """
         messages = _build_messages(request)
         kwargs: dict = {"model": self._model, "messages": messages}
@@ -80,13 +81,6 @@ class OpenAITextBackend:
                 },
             }
 
-        logger.info(
-            "OpenAITextBackend 请求参数 provider=%s model=%s kwargs=%r",
-            PROVIDER_OPENAI,
-            self._model,
-            kwargs,
-        )
-
         try:
             response = await self._client.chat.completions.create(**kwargs)
         except Exception as exc:
@@ -103,13 +97,13 @@ class OpenAITextBackend:
         output_tokens = usage.completion_tokens if usage else None
         warn_if_truncated(
             getattr(choice, "finish_reason", None),
-            provider=PROVIDER_OPENAI,
+            provider=PROVIDER_BAILIAN,
             model=self._model,
             output_tokens=output_tokens,
         )
         return TextGenerationResult(
             text=choice.message.content or "",
-            provider=PROVIDER_OPENAI,
+            provider=PROVIDER_BAILIAN,
             model=self._model,
             input_tokens=usage.prompt_tokens if usage else None,
             output_tokens=output_tokens,
@@ -154,13 +148,11 @@ _SCHEMA_ERROR_KEYWORDS = (
 def _is_schema_error(exc: BaseException) -> bool:
     """判断异常是否为 JSON Schema 不兼容导致的错误。
 
-    除了标准的 400 BadRequestError，一些 OpenAI 兼容代理（如 Gemini
-    兼容端点）会将上游 schema 错误包装成其他状态码（如 429），
-    因此也检查错误信息中是否包含 schema 相关关键字。
+    除了标准的 400 BadRequestError，一些 OpenAI 兼容代理也可能把上游
+    schema 错误包装成其他状态码，因此也检查错误信息中的 schema 关键字。
     """
     if isinstance(exc, BadRequestError):
         return True
-    # 代理可能把上游 schema 错误包装成非 400 状态码
     error_str = str(exc)
     return any(kw in error_str for kw in _SCHEMA_ERROR_KEYWORDS)
 
@@ -172,13 +164,11 @@ async def _instructor_fallback(
     messages: list[dict],
 ) -> TextGenerationResult:
     """Instructor 降级：当原生 response_format 不可用时的备选路径。"""
-    from lib.text_backends.instructor_support import instructor_fallback_async
-
     return await instructor_fallback_async(
         client=client,
         model=model,
         messages=messages,
         response_schema=request.response_schema,
-        provider=PROVIDER_OPENAI,
+        provider=PROVIDER_BAILIAN,
         max_tokens=request.max_output_tokens,
     )

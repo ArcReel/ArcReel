@@ -321,4 +321,73 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
         },
     ),
+    "bailian": ProviderMeta(
+        display_name="阿里云百炼",
+        description="阿里云百炼（DashScope）提供通义千问文本模型、万相图像生成和视频生成能力。",
+        required_keys=["api_key"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        secret_keys=["api_key"],
+        models={
+            # --- text ---
+            "qwen3.6-plus": ModelInfo(
+                display_name="Qwen 3.6 Plus",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+                default=True,
+            ),
+            "qwen-max": ModelInfo(
+                display_name="Qwen Max",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+            ),
+            "qwen-plus": ModelInfo(
+                display_name="Qwen Plus",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+            ),
+            "qwen-turbo": ModelInfo(
+                display_name="Qwen Turbo",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+            ),
+            # --- image ---
+            "wan2.7-image-pro": ModelInfo(
+                display_name="Wan 2.7 Image Pro",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                default=True,
+            ),
+            "wan2.7-image": ModelInfo(
+                display_name="Wan 2.7 Image",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+            ),
+            # --- video ---
+            "wan2.7-t2v": ModelInfo(
+                display_name="Wan 2.7 T2V",
+                media_type="video",
+                capabilities=["text_to_video", "generate_audio"],
+                default=True,
+                supported_durations=list(range(2, 16)),
+            ),
+            "wan2.7-i2v": ModelInfo(
+                display_name="Wan 2.7 I2V",
+                media_type="video",
+                capabilities=["image_to_video", "generate_audio"],
+                supported_durations=list(range(2, 16)),
+            ),
+            "wan2.7-r2v": ModelInfo(
+                display_name="Wan 2.7 R2V",
+                media_type="video",
+                capabilities=["reference_to_video", "generate_audio"],
+                supported_durations=list(range(2, 11)),
+            ),
+            "wan2.7-videoedit": ModelInfo(
+                display_name="Wan 2.7 Video Edit",
+                media_type="video",
+                capabilities=["video_editing"],
+                supported_durations=list(range(2, 11)),
+            ),
+        },
+    ),
 }

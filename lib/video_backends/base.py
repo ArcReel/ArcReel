@@ -163,6 +163,7 @@ class VideoGenerationResult:
     seed: int | None = None
     usage_tokens: int | None = None
     task_id: str | None = None
+    request_id: str | None = None
     generate_audio: bool | None = None
 
 

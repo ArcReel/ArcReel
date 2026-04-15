@@ -1615,15 +1615,31 @@ class ProjectManager:
 
         # 调用 TextGenerator（Structured Outputs）
         prompt = f"请分析以下小说内容，提取关键信息：\n\n{source_content}"
+        request = TextGenerationRequest(
+            prompt=prompt,
+            response_schema=ProjectOverview,
+        )
+        logger.info(
+            "生成项目概述，请求参数 project=%s provider=%s model=%s schema=%s prompt=%r",
+            project_name,
+            generator.backend.name,
+            generator.model,
+            ProjectOverview.__name__,
+            prompt,
+        )
 
         result = await generator.generate(
-            TextGenerationRequest(
-                prompt=prompt,
-                response_schema=ProjectOverview,
-            ),
+            request,
             project_name=project_name,
         )
         response_text = result.text
+        logger.info(
+            "生成项目概述，模型返回 project=%s provider=%s model=%s response=%r",
+            project_name,
+            result.provider,
+            result.model,
+            response_text,
+        )
 
         # 解析并验证响应
         overview = ProjectOverview.model_validate_json(response_text)

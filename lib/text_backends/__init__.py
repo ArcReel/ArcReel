@@ -42,3 +42,8 @@ from lib.providers import PROVIDER_OPENAI
 from lib.text_backends.openai import OpenAITextBackend
 
 register_backend(PROVIDER_OPENAI, OpenAITextBackend)
+
+from lib.providers import PROVIDER_BAILIAN
+from lib.text_backends.bailian import BailianTextBackend
+
+register_backend(PROVIDER_BAILIAN, BailianTextBackend)
