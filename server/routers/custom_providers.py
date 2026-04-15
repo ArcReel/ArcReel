@@ -72,7 +72,7 @@ class ModelInput(BaseModel):
 
 class CreateProviderRequest(BaseModel):
     display_name: str
-    api_format: str  # "openai" or "google"
+    api_format: str  # "openai" | "google" | "newapi"
     base_url: str
     api_key: str
     models: list[ModelInput] = []
@@ -491,6 +491,12 @@ async def _run_connection_test(
         elif api_format == "google":
             result = await asyncio.wait_for(
                 asyncio.to_thread(_test_google, base_url, api_key, _t),
+                timeout=_CONNECTION_TEST_TIMEOUT,
+            )
+        elif api_format == "newapi":
+            # NewAPI 的 /v1/models 是 OpenAI 兼容
+            result = await asyncio.wait_for(
+                asyncio.to_thread(_test_openai, base_url, api_key, _t),
                 timeout=_CONNECTION_TEST_TIMEOUT,
             )
         else:
