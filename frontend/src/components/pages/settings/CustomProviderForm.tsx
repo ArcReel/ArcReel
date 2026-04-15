@@ -14,12 +14,13 @@ import type {
 // Types
 // ---------------------------------------------------------------------------
 
-type ApiFormat = "openai" | "google";
+type ApiFormat = "openai" | "google" | "newapi";
 type MediaType = "text" | "image" | "video";
 
 const API_FORMAT_OPTIONS: { value: ApiFormat; label: string }[] = [
   { value: "openai", label: "OpenAI" },
   { value: "google", label: "Google" },
+  { value: "newapi", label: "NewAPI" },
 ];
 
 const MEDIA_TYPE_OPTIONS: { value: MediaType; label: string }[] = [
