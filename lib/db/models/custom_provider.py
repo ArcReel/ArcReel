@@ -15,7 +15,7 @@ class CustomProvider(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    api_format: Mapped[str] = mapped_column(String(32), nullable=False)  # "openai" | "google"
+    api_format: Mapped[str] = mapped_column(String(32), nullable=False)  # "openai" | "google" | "newapi"
     base_url: Mapped[str] = mapped_column(Text, nullable=False)
     api_key: Mapped[str] = mapped_column(Text, nullable=False)  # sensitive, masked in API responses
 
