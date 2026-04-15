@@ -283,3 +283,215 @@ class TestFromProject:
         )
         assert r.status_code == 200
         assert r.json()["asset"]["image_path"] is None
+
+
+class TestApplyToProject:
+    def test_apply_with_skip_policy(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+
+        # Create 2 scene assets in library
+        for n in ("A", "B"):
+            client.post("/api/v1/assets", data={"type": "scene", "name": n})
+        ids = [a["id"] for a in client.get("/api/v1/assets?type=scene").json()["items"]]
+
+        r = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": ids,
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body["succeeded"]) == 2
+        data = pm.load_project("target")
+        assert set(data["scenes"].keys()) == {"A", "B"}
+
+        # Second round: duplicates, skip all
+        r2 = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": ids,
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+        body2 = r2.json()
+        assert len(body2["succeeded"]) == 0
+        assert len(body2["skipped"]) == 2
+
+    def test_rename_policy_adds_numeric_suffix(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+
+        client.post("/api/v1/assets", data={"type": "prop", "name": "玉佩"})
+        aid = client.get("/api/v1/assets?type=prop").json()["items"][0]["id"]
+
+        # Apply first — creates "玉佩"
+        client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [aid],
+                "target_project": "target",
+                "conflict_policy": "rename",
+            },
+        )
+        # Apply again with rename — creates "玉佩 (2)"
+        r = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [aid],
+                "target_project": "target",
+                "conflict_policy": "rename",
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["succeeded"][0]["name"] == "玉佩 (2)"
+        data = pm.load_project("target")
+        assert "玉佩" in data["props"] and "玉佩 (2)" in data["props"]
+
+    def test_overwrite_policy_replaces_existing(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+
+        r0 = client.post(
+            "/api/v1/assets",
+            data={"type": "character", "name": "王", "description": "library desc"},
+        )
+        aid = r0.json()["asset"]["id"]
+
+        # Pre-populate target with a different "王"
+        pm.add_project_character("target", "王", "old desc", "")
+
+        r = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [aid],
+                "target_project": "target",
+                "conflict_policy": "overwrite",
+            },
+        )
+        assert r.status_code == 200
+        assert len(r.json()["succeeded"]) == 1
+        data = pm.load_project("target")
+        assert data["characters"]["王"]["description"] == "library desc"
+
+    def test_invalid_policy_returns_400(self, _assets_env):
+        client = _assets_env["client"]
+        r = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [],
+                "target_project": "target",
+                "conflict_policy": "nope",
+            },
+        )
+        assert r.status_code == 400
+
+    def test_missing_project_returns_404(self, _assets_env):
+        client = _assets_env["client"]
+        r = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [],
+                "target_project": "nonexistent",
+                "conflict_policy": "skip",
+            },
+        )
+        assert r.status_code == 404
+
+    def test_unknown_asset_id_listed_in_failed(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+
+        r = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": ["00000000-0000-0000-0000-000000000000"],
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+        assert r.status_code == 200
+        assert len(r.json()["failed"]) == 1
+        assert r.json()["failed"][0]["reason"] == "not_found"
+
+    def test_image_missing_adds_to_failed(self, _assets_env):
+        """If asset.image_path is set but the file on disk is gone, record as failed."""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+
+        # Create asset with image
+        img = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+        r0 = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "A"},
+            files={"image": ("a.png", img, "image/png")},
+        )
+        aid = r0.json()["asset"]["id"]
+        rel = r0.json()["asset"]["image_path"]
+
+        # Simulate external deletion of the global file
+        (pm.projects_root / rel).unlink()
+
+        r = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [aid],
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body["failed"]) == 1
+        assert body["failed"][0]["id"] == aid
+        assert body["failed"][0]["reason"] == "image_missing"
+        # project.json should NOT contain the entry
+        data = pm.load_project("target")
+        assert "A" not in (data.get("scenes") or {})
+
+    def test_image_copied_to_target_project(self, _assets_env):
+        """End-to-end: from-project → asset library → apply-to-project copies the image too."""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+
+        # 1) Create asset with image directly
+        img = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+        r0 = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "A"},
+            files={"image": ("a.png", img, "image/png")},
+        )
+        aid = r0.json()["asset"]["id"]
+
+        # 2) Prepare target project
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+
+        # 3) Apply
+        r = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [aid],
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+        assert r.status_code == 200
+        # File copied to target
+        assert (pm.projects_root / "target" / "scenes" / "A.png").exists()
+        data = pm.load_project("target")
+        assert data["scenes"]["A"]["scene_sheet"] == "scenes/A.png"

@@ -366,3 +366,108 @@ async def from_project(
         raise
 
     return {"asset": _serialize(a)}
+
+
+class ApplyToProjectRequest(BaseModel):
+    asset_ids: list[str]
+    target_project: str
+    conflict_policy: str = "skip"  # 'skip' | 'overwrite' | 'rename'
+
+
+@router.post("/apply-to-project")
+async def apply_to_project(
+    req: ApplyToProjectRequest,
+    _user: CurrentUser,
+    _t: Translator,
+):
+    # 1) 校验冲突策略（400 先于其它检查）
+    if req.conflict_policy not in {"skip", "overwrite", "rename"}:
+        raise HTTPException(status_code=400, detail="invalid conflict_policy")
+
+    # 2) 校验目标项目存在
+    project_manager = get_project_manager()
+    try:
+        project = project_manager.load_project(req.target_project)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail=_t("asset_target_project_not_found", project=req.target_project),
+        )
+
+    succeeded: list[dict] = []
+    skipped: list[dict] = []
+    failed: list[dict] = []
+
+    for asset_id in req.asset_ids:
+        # 3a) 查找资产
+        async with async_session_factory() as s:
+            a = await AssetRepository(s).get_by_id(asset_id)
+        if a is None:
+            failed.append({"id": asset_id, "reason": "not_found"})
+            continue
+
+        # 3b) 解析 bucket / sheet key
+        bucket_key = BUCKET_KEY[a.type]
+        sheet_key = SHEET_KEY[a.type]
+        bucket = project.get(bucket_key) or {}
+
+        # 3c) 冲突处理，决定目标名
+        desired_name = a.name
+        if desired_name in bucket:
+            if req.conflict_policy == "skip":
+                skipped.append({"id": a.id, "name": a.name})
+                continue
+            if req.conflict_policy == "rename":
+                i = 2
+                while f"{a.name} ({i})" in bucket:
+                    i += 1
+                desired_name = f"{a.name} ({i})"
+            # overwrite: 保留原名，后续覆盖
+
+        # 3d) 拷贝图片
+        target_sheet: str | None = None
+        if a.image_path:
+            src = project_manager.projects_root / a.image_path
+            if src.exists() and src.is_file():
+                ext = src.suffix.lower() or ".png"
+                rel_sheet = f"{bucket_key}/{desired_name}{ext}"
+                dst = project_manager.projects_root / req.target_project / rel_sheet
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(src.read_bytes())
+                target_sheet = rel_sheet
+            else:
+                # 资产 DB 记录有 image_path,但磁盘文件已丢失 → 记为失败,跳过 project.json 变更
+                logger.warning(
+                    "apply_to_project: asset %s image file missing on disk: %s",
+                    a.id,
+                    a.image_path,
+                )
+                failed.append({"id": a.id, "reason": "image_missing"})
+                continue
+
+        # 3e) 更新 project.json（default-arg 冻结本次迭代的变量）
+        def _mut(
+            data: dict,
+            _n=desired_name,
+            _bk=bucket_key,
+            _sk=sheet_key,
+            _ts=target_sheet,
+            _a=a,
+        ) -> None:
+            payload: dict = {"description": _a.description or ""}
+            if _a.type == "character":
+                payload["voice_style"] = _a.voice_style or ""
+            if _ts:
+                payload[_sk] = _ts
+            if _bk not in data or not isinstance(data.get(_bk), dict):
+                data[_bk] = {}
+            data[_bk][_n] = payload
+
+        project_manager.update_project(req.target_project, _mut)
+
+        succeeded.append({"id": a.id, "name": desired_name})
+
+        # 3g) 刷新 project 快照，下一轮冲突检查使用最新状态
+        project = project_manager.load_project(req.target_project)
+
+    return {"succeeded": succeeded, "skipped": skipped, "failed": failed}
