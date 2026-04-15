@@ -1,8 +1,7 @@
 from lib.prompt_builders import (
     build_character_prompt,
-    build_clue_prompt,
-    build_location_prompt,
     build_prop_prompt,
+    build_scene_prompt,
     build_storyboard_suffix,
     build_style_prompt,
 )
@@ -21,12 +20,19 @@ class TestPromptBuilders:
         assert "姜月茴" in prompt
         assert "黑发，冷静神态。" in prompt
 
-    def test_build_clue_prompt_dispatches_by_type(self):
-        prop_prompt = build_clue_prompt("玉佩", "古朴", clue_type="prop", style="写实")
-        location_prompt = build_clue_prompt("祠堂", "昏暗", clue_type="location", style="写实")
+    def test_build_prop_prompt_has_three_view_layout(self):
+        prompt = build_prop_prompt("玉佩", "古朴温润", style="写实", style_description="")
+        assert "玉佩" in prompt
+        assert "古朴温润" in prompt
+        assert "道具" in prompt
+        assert "三个视图" in prompt
 
-        assert prop_prompt == build_prop_prompt("玉佩", "古朴", "写实", "")
-        assert location_prompt == build_location_prompt("祠堂", "昏暗", "写实", "")
+    def test_build_scene_prompt_has_main_detail_layout(self):
+        prompt = build_scene_prompt("祠堂", "昏暗古朴", style="写实", style_description="")
+        assert "祠堂" in prompt
+        assert "昏暗古朴" in prompt
+        assert "场景" in prompt
+        assert "主画面占据四分之三" in prompt
 
     def test_build_storyboard_suffix_by_aspect_ratio(self):
         assert build_storyboard_suffix(aspect_ratio="9:16") == "竖屏构图。"

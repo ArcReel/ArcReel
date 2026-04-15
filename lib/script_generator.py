@@ -81,9 +81,10 @@ class ScriptGenerator:
         # 1. 加载中间文件
         step1_md = self._load_step1(episode)
 
-        # 2. 提取角色和线索（从 project.json）
+        # 2. 提取角色、场景、道具（从 project.json）
         characters = self.project_json.get("characters", {})
-        clues = self.project_json.get("clues", {})
+        scenes = self.project_json.get("scenes", {})
+        props = self.project_json.get("props", {})
 
         # 3. 构建 Prompt
         if self.content_mode == "narration":
@@ -92,7 +93,8 @@ class ScriptGenerator:
                 style=self.project_json.get("style", ""),
                 style_description=self.project_json.get("style_description", ""),
                 characters=characters,
-                clues=clues,
+                scenes=scenes,
+                props=props,
                 segments_md=step1_md,
                 supported_durations=self._resolve_supported_durations(),
                 default_duration=self.project_json.get("default_duration"),
@@ -105,7 +107,8 @@ class ScriptGenerator:
                 style=self.project_json.get("style", ""),
                 style_description=self.project_json.get("style_description", ""),
                 characters=characters,
-                clues=clues,
+                scenes=scenes,
+                props=props,
                 scenes_md=step1_md,
                 supported_durations=self._resolve_supported_durations(),
                 default_duration=self.project_json.get("default_duration"),
@@ -155,7 +158,8 @@ class ScriptGenerator:
         """
         step1_md = self._load_step1(episode)
         characters = self.project_json.get("characters", {})
-        clues = self.project_json.get("clues", {})
+        scenes = self.project_json.get("scenes", {})
+        props = self.project_json.get("props", {})
 
         if self.content_mode == "narration":
             return build_narration_prompt(
@@ -163,7 +167,8 @@ class ScriptGenerator:
                 style=self.project_json.get("style", ""),
                 style_description=self.project_json.get("style_description", ""),
                 characters=characters,
-                clues=clues,
+                scenes=scenes,
+                props=props,
                 segments_md=step1_md,
                 supported_durations=self._resolve_supported_durations(),
                 default_duration=self.project_json.get("default_duration"),
@@ -175,7 +180,8 @@ class ScriptGenerator:
                 style=self.project_json.get("style", ""),
                 style_description=self.project_json.get("style_description", ""),
                 characters=characters,
-                clues=clues,
+                scenes=scenes,
+                props=props,
                 scenes_md=step1_md,
                 supported_durations=self._resolve_supported_durations(),
                 default_duration=self.project_json.get("default_duration"),

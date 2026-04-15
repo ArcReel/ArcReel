@@ -1,6 +1,6 @@
 from lib.prompt_builders_script import (
+    _format_asset_names,
     _format_character_names,
-    _format_clue_names,
     build_drama_prompt,
     build_narration_prompt,
 )
@@ -9,7 +9,7 @@ from lib.prompt_builders_script import (
 class TestPromptBuildersScript:
     def test_formatters_emit_bullet_lists(self):
         assert _format_character_names({"A": {}, "B": {}}) == "- A\n- B"
-        assert _format_clue_names({"玉佩": {}, "祠堂": {}}) == "- 玉佩\n- 祠堂"
+        assert _format_asset_names({"玉佩": {}, "祠堂": {}}) == "- 玉佩\n- 祠堂"
 
     def test_build_narration_prompt_contains_dynamic_durations(self):
         prompt = build_narration_prompt(
@@ -17,7 +17,8 @@ class TestPromptBuildersScript:
             style="古风",
             style_description="cinematic",
             characters={"姜月茴": {}},
-            clues={"玉佩": {}},
+            scenes={"祠堂": {}},
+            props={"玉佩": {}},
             segments_md="E1S01 | 文本",
             supported_durations=[4, 6, 8],
             default_duration=4,
@@ -25,6 +26,8 @@ class TestPromptBuildersScript:
         )
         assert "4, 6, 8" in prompt
         assert "默认使用 4 秒" in prompt
+        assert "祠堂" in prompt
+        assert "玉佩" in prompt
 
     def test_build_narration_prompt_auto_duration(self):
         prompt = build_narration_prompt(
@@ -32,7 +35,8 @@ class TestPromptBuildersScript:
             style="古风",
             style_description="cinematic",
             characters={"姜月茴": {}},
-            clues={"玉佩": {}},
+            scenes={},
+            props={"玉佩": {}},
             segments_md="E1S01 | 文本",
             supported_durations=[5, 10],
             default_duration=None,
@@ -47,7 +51,8 @@ class TestPromptBuildersScript:
             style="赛博",
             style_description="high contrast",
             characters={"林": {}},
-            clues={"芯片": {}},
+            scenes={"天台": {}},
+            props={"芯片": {}},
             scenes_md="E1S01 | 追逐",
             supported_durations=[4, 8, 12],
             default_duration=8,
@@ -63,7 +68,8 @@ class TestPromptBuildersScript:
             style="赛博",
             style_description="high contrast",
             characters={"林": {}},
-            clues={"芯片": {}},
+            scenes={"天台": {}},
+            props={"芯片": {}},
             scenes_md="E1S01 | 追逐",
             supported_durations=[4, 6, 8],
             default_duration=8,

@@ -15,10 +15,10 @@ def _format_character_names(characters: dict) -> str:
     return "\n".join(lines)
 
 
-def _format_clue_names(clues: dict) -> str:
-    """格式化线索列表"""
+def _format_asset_names(assets: dict) -> str:
+    """格式化场景或道具列表"""
     lines = []
-    for name in clues.keys():
+    for name in assets.keys():
         lines.append(f"- {name}")
     return "\n".join(lines)
 
@@ -45,7 +45,8 @@ def build_narration_prompt(
     style: str,
     style_description: str,
     characters: dict,
-    clues: dict,
+    scenes: dict,
+    props: dict,
     segments_md: str,
     supported_durations: list[int] | None = None,
     default_duration: int | None = None,
@@ -60,7 +61,8 @@ def build_narration_prompt(
         style: 视觉风格标签
         style_description: 风格描述
         characters: 角色字典（仅用于提取名称列表）
-        clues: 线索字典（仅用于提取名称列表）
+        scenes: 场景字典（仅用于提取名称列表）
+        props: 道具字典（仅用于提取名称列表）
         segments_md: Step 1 的 Markdown 内容
         target_language: 输出的目标语言
 
@@ -68,13 +70,14 @@ def build_narration_prompt(
         构建好的 Prompt 字符串
     """
     character_names = list(characters.keys())
-    clue_names = list(clues.keys())
+    scene_names = list(scenes.keys())
+    prop_names = list(props.keys())
 
     prompt = f"""你的任务是为短视频生成分镜剧本。请仔细遵循以下指示：
 
 **重要：所有输出内容必须使用{target_language}。仅 JSON 键名和枚举值使用英文。**
 
-1. 你将获得故事概述、视觉风格、角色列表、线索列表，以及已拆分的小说片段。
+1. 你将获得故事概述、视觉风格、角色列表、场景列表、道具列表，以及已拆分的小说片段。
 
 2. 为每个片段生成：
    - image_prompt：第一帧的图像生成提示词（{target_language}描述）
@@ -97,9 +100,13 @@ def build_narration_prompt(
 {_format_character_names(characters)}
 </characters>
 
-<clues>
-{_format_clue_names(clues)}
-</clues>
+<scenes>
+{_format_asset_names(scenes)}
+</scenes>
+
+<props>
+{_format_asset_names(props)}
+</props>
 
 <segments>
 {segments_md}
@@ -120,11 +127,15 @@ b. **characters_in_segment**：列出本片段中出场的角色名称。
    - 可选值：[{", ".join(character_names)}]
    - 仅包含明确提及或明显暗示的角色
 
-c. **clues_in_segment**：列出本片段中涉及的线索名称。
-   - 可选值：[{", ".join(clue_names)}]
-   - 仅包含明确提及或明显暗示的线索
+c. **scenes**：列出本片段中涉及的场景名称（空间位置）。
+   - 可选值：[{", ".join(scene_names)}]
+   - 仅包含明确提及或明显暗示的场景
 
-d. **image_prompt**：生成包含以下字段的对象：
+d. **props**：列出本片段中涉及的道具名称（物品）。
+   - 可选值：[{", ".join(prop_names)}]
+   - 仅包含明确提及或明显暗示的道具
+
+e. **image_prompt**：生成包含以下字段的对象：
    - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。
      聚焦当下瞬间的可见画面。仅描述摄像机能够捕捉到的具体视觉元素。
      确保描述避免超出此刻画面的元素。排除比喻、隐喻、抽象情绪词、主观评价、多场景切换等无法直接渲染的描述。
@@ -134,7 +145,7 @@ d. **image_prompt**：生成包含以下字段的对象：
      - lighting：用中文描述具体的光源类型、方向和色温（如"左侧窗户透入的暖黄色晨光"）
      - ambiance：用中文描述可见的环境效果（如"薄雾弥漫"、"尘埃飞扬"），避免抽象情绪词
 
-e. **video_prompt**：生成包含以下字段的对象：
+f. **video_prompt**：生成包含以下字段的对象：
    - action：用中文精确描述该时长内主体的具体动作——身体移动、手势变化、表情转换。
      聚焦单一连贯动作，确保在指定时长内可完成。
      排除多场景切换、蒙太奇、快速剪辑等单次生成无法实现的效果。
@@ -145,11 +156,11 @@ e. **video_prompt**：生成包含以下字段的对象：
      仅描述场景内真实存在的声音。排除音乐、BGM、旁白、画外音。
    - dialogue：{{speaker, line}} 数组。仅当原文有引号对话时填写。speaker 必须来自 characters_in_segment。
 
-f. **segment_break**：如果在片段表中标记为"是"，则设为 true。
+g. **segment_break**：如果在片段表中标记为"是"，则设为 true。
 
-g. **duration_seconds**：使用片段表中的时长。
+h. **duration_seconds**：使用片段表中的时长。
 
-h. **transition_to_next**：默认为 "cut"。
+i. **transition_to_next**：默认为 "cut"。
 
 目标：创建生动、视觉一致的分镜提示词，用于指导 AI 图像和视频生成。保持创意、具体，并忠于原文。
 """
@@ -161,7 +172,8 @@ def build_drama_prompt(
     style: str,
     style_description: str,
     characters: dict,
-    clues: dict,
+    scenes: dict,
+    props: dict,
     scenes_md: str,
     supported_durations: list[int] | None = None,
     default_duration: int | None = None,
@@ -176,23 +188,25 @@ def build_drama_prompt(
         style: 视觉风格标签
         style_description: 风格描述
         characters: 角色字典
-        clues: 线索字典
-        scenes_md: Step 1 的 Markdown 内容
+        scenes: 场景字典（project 级场景资源列表）
+        props: 道具字典
+        scenes_md: Step 1 的 Markdown 分镜拆分内容
         target_language: 输出的目标语言
 
     Returns:
         构建好的 Prompt 字符串
     """
     character_names = list(characters.keys())
-    clue_names = list(clues.keys())
+    scene_names = list(scenes.keys())
+    prop_names = list(props.keys())
 
     prompt = f"""你的任务是为剧集动画生成分镜剧本。请仔细遵循以下指示：
 
 **重要：所有输出内容必须使用{target_language}。仅 JSON 键名和枚举值使用英文。**
 
-1. 你将获得故事概述、视觉风格、角色列表、线索列表，以及已拆分的场景列表。
+1. 你将获得故事概述、视觉风格、角色列表、场景列表、道具列表，以及已拆分的分镜列表。
 
-2. 为每个场景生成：
+2. 为每个分镜生成：
    - image_prompt：第一帧的图像生成提示词（{target_language}描述）
    - video_prompt：动作和音效的视频生成提示词（{target_language}描述）
 
@@ -213,32 +227,40 @@ def build_drama_prompt(
 {_format_character_names(characters)}
 </characters>
 
-<clues>
-{_format_clue_names(clues)}
-</clues>
+<project_scenes>
+{_format_asset_names(scenes)}
+</project_scenes>
 
-<scenes>
+<props>
+{_format_asset_names(props)}
+</props>
+
+<shots>
 {scenes_md}
-</scenes>
+</shots>
 
-scenes 为场景拆分表，每行是一个场景，包含：
-- 场景 ID：格式为 E{{集数}}S{{序号}}
-- 场景描述：剧本改编后的场景内容
+shots 为分镜拆分表，每行是一个分镜，包含：
+- 分镜 ID：格式为 E{{集数}}S{{序号}}
+- 分镜描述：剧本改编后的分镜内容
 - {_format_duration_constraint(supported_durations or [4, 6, 8], default_duration)}
 - 场景类型：剧情、动作、对话等
 - 是否为 segment_break：场景切换点，需设置 segment_break 为 true
 
-3. 为每个场景生成时，遵循以下规则：
+3. 为每个分镜生成时，遵循以下规则：
 
-a. **characters_in_scene**：列出本场景中出场的角色名称。
+a. **characters_in_scene**：列出本分镜中出场的角色名称。
    - 可选值：[{", ".join(character_names)}]
    - 仅包含明确提及或明显暗示的角色
 
-b. **clues_in_scene**：列出本场景中涉及的线索名称。
-   - 可选值：[{", ".join(clue_names)}]
-   - 仅包含明确提及或明显暗示的线索
+b. **scenes**：列出本分镜所处的场景名称（空间位置）。
+   - 可选值：[{", ".join(scene_names)}]
+   - 仅包含明确提及或明显暗示的场景
 
-c. **image_prompt**：生成包含以下字段的对象：
+c. **props**：列出本分镜中涉及的道具名称（物品）。
+   - 可选值：[{", ".join(prop_names)}]
+   - 仅包含明确提及或明显暗示的道具
+
+d. **image_prompt**：生成包含以下字段的对象：
    - scene：用中文描述此刻画面中的具体场景——角色位置、姿态、表情、服装细节，以及可见的环境元素和物品。{_format_aspect_ratio_desc(aspect_ratio)}。
      聚焦当下瞬间的可见画面。仅描述摄像机能够捕捉到的具体视觉元素。
      确保描述避免超出此刻画面的元素。排除比喻、隐喻、抽象情绪词、主观评价、多场景切换等无法直接渲染的描述。
@@ -248,7 +270,7 @@ c. **image_prompt**：生成包含以下字段的对象：
      - lighting：用中文描述具体的光源类型、方向和色温（如"左侧窗户透入的暖黄色晨光"）
      - ambiance：用中文描述可见的环境效果（如"薄雾弥漫"、"尘埃飞扬"），避免抽象情绪词
 
-d. **video_prompt**：生成包含以下字段的对象：
+e. **video_prompt**：生成包含以下字段的对象：
    - action：用中文精确描述该时长内主体的具体动作——身体移动、手势变化、表情转换。
      聚焦单一连贯动作，确保在指定时长内可完成。
      排除多场景切换、蒙太奇、快速剪辑等单次生成无法实现的效果。
@@ -259,13 +281,13 @@ d. **video_prompt**：生成包含以下字段的对象：
      仅描述场景内真实存在的声音。排除音乐、BGM、旁白、画外音。
    - dialogue：{{speaker, line}} 数组。包含角色对话。speaker 必须来自 characters_in_scene。
 
-e. **segment_break**：如果在场景表中标记为"是"，则设为 true。
+f. **segment_break**：如果在分镜表中标记为"是"，则设为 true。
 
-f. **duration_seconds**：使用场景表中的时长。
+g. **duration_seconds**：使用分镜表中的时长。
 
-g. **scene_type**：使用场景表中的场景类型，默认为"剧情"。
+h. **scene_type**：使用分镜表中的场景类型，默认为"剧情"。
 
-h. **transition_to_next**：默认为 "cut"。
+i. **transition_to_next**：默认为 "cut"。
 
 目标：创建生动、视觉一致的分镜提示词，用于指导 AI 图像和视频生成。保持创意、具体，适合{_format_aspect_ratio_desc(aspect_ratio)}动画呈现。
 """

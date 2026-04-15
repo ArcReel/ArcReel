@@ -5,13 +5,13 @@
 
 模块职责:
 - 角色设计图 Prompt 构建
-- 线索设计图 Prompt 构建（道具类/环境类）
+- 场景设计图 Prompt 构建
+- 道具设计图 Prompt 构建
 - 分镜图 Prompt 后缀
 
 使用方:
-- webui/server/routers/generate.py
-- .claude/skills/generate-characters/scripts/generate_character.py
-- .claude/skills/generate-clues/scripts/generate_clue.py
+- server/routers/generate.py
+- agent_runtime_profile/.claude/skills/generate-assets/
 """
 
 
@@ -52,30 +52,15 @@ def build_character_prompt(name: str, description: str, style: str = "", style_d
 def build_clue_prompt(
     name: str, description: str, clue_type: str = "prop", style: str = "", style_description: str = ""
 ) -> str:
-    """
-    构建线索设计图 Prompt
-
-    根据线索类型选择对应的模板。
-
-    Args:
-        name: 线索名称
-        description: 线索描述
-        clue_type: 线索类型 ("prop" 道具 或 "location" 环境)
-        style: 项目风格
-        style_description: AI 分析的风格描述
-
-    Returns:
-        完整的 Prompt 字符串
-    """
+    """Deprecated 兼容 wrapper，Task 11 后删除。使用 build_scene_prompt / build_prop_prompt 取代。"""
     if clue_type == "location":
-        return build_location_prompt(name, description, style, style_description)
-    else:
-        return build_prop_prompt(name, description, style, style_description)
+        return build_scene_prompt(name, description, style, style_description)
+    return build_prop_prompt(name, description, style, style_description)
 
 
 def build_prop_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
     """
-    构建道具类线索 Prompt
+    构建道具设计图 Prompt
 
     使用三视图构图：正面全视图、45度侧视图、细节特写。
 
@@ -102,11 +87,11 @@ def build_prop_prompt(name: str, description: str, style: str = "", style_descri
 三个视图水平排列在纯净浅灰背景上：左侧正面全视图、中间45度侧视图展示立体感、右侧关键细节特写。柔和均匀的摄影棚照明，高清质感，色彩准确。"""
 
 
-def build_location_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
+def build_scene_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
     """
-    构建环境类线索 Prompt
+    构建场景设计图 Prompt
 
-    使用 3/4 主画面 + 右下角细节特写的构图。
+    使用 3/4 主画面 + 右下角细节特写的构图，强调空间结构与氛围。
 
     Args:
         name: 场景名称
