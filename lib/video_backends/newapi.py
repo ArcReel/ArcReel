@@ -48,7 +48,16 @@ _DEFAULT_SIZE: tuple[int, int] = (720, 1280)
 
 
 def _resolve_size(resolution: str, aspect_ratio: str) -> tuple[int, int]:
-    return _SIZE_MAP.get((resolution, aspect_ratio), _DEFAULT_SIZE)
+    size = _SIZE_MAP.get((resolution, aspect_ratio))
+    if size is None:
+        logger.warning(
+            "NewAPIVideoBackend 未知 resolution+aspect 组合 (%s, %s)，回退到默认 %dx%d",
+            resolution,
+            aspect_ratio,
+            *_DEFAULT_SIZE,
+        )
+        return _DEFAULT_SIZE
+    return size
 
 
 def _encode_image_to_data_uri(path: Path) -> str:
@@ -111,8 +120,12 @@ class NewAPIVideoBackend:
             payload["seed"] = request.seed
         if request.negative_prompt:
             payload.setdefault("metadata", {})["negative_prompt"] = request.negative_prompt
-        if request.start_image and Path(request.start_image).exists():
-            payload["image"] = _encode_image_to_data_uri(Path(request.start_image))
+        if request.start_image:
+            start_path = Path(request.start_image)
+            if start_path.exists():
+                payload["image"] = _encode_image_to_data_uri(start_path)
+            else:
+                logger.warning("start_image 文件不存在，已忽略: %s", start_path)
         if request.reference_images:
             logger.warning(
                 "NewAPIVideoBackend 不支持多张参考图（reference_images=%d），已忽略",
@@ -165,10 +178,6 @@ class NewAPIVideoBackend:
     async def _poll_until_done(self, client: httpx.AsyncClient, *, task_id: str, max_wait: float) -> dict:
         elapsed = 0.0
         while True:
-            if elapsed >= max_wait:
-                raise TimeoutError(f"NewAPI 视频任务超时（{max_wait:.0f}秒）: task_id={task_id}")
-            await asyncio.sleep(_POLL_INTERVAL_SECONDS)
-            elapsed += _POLL_INTERVAL_SECONDS
             state = await self._poll_once(client, task_id)
             status = state.get("status")
             if status == "completed":
@@ -176,6 +185,10 @@ class NewAPIVideoBackend:
             if status == "failed":
                 err = (state.get("error") or {}).get("message") or "unknown"
                 raise RuntimeError(f"NewAPI 视频生成失败: {err}")
+            if elapsed >= max_wait:
+                raise TimeoutError(f"NewAPI 视频任务超时（{max_wait:.0f}秒）: task_id={task_id}")
+            await asyncio.sleep(_POLL_INTERVAL_SECONDS)
+            elapsed += _POLL_INTERVAL_SECONDS
 
     @with_retry_async(
         max_attempts=DEFAULT_MAX_ATTEMPTS,
