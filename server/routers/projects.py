@@ -90,7 +90,6 @@ class UpdateProjectRequest(BaseModel):
     text_backend_overview: str | None = None
     text_backend_style: str | None = None
     style_template_id: str | None = None
-    clear_style_image: bool | None = None
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -420,6 +419,17 @@ async def create_project(
                 manager.create_project(project_name)
             except FileExistsError:
                 raise HTTPException(status_code=400, detail=_t("project_exists", name=project_name))
+            extras = {
+                field: value
+                for field in (
+                    "video_backend",
+                    "image_backend",
+                    "text_backend_script",
+                    "text_backend_overview",
+                    "text_backend_style",
+                )
+                if (value := getattr(req, field))
+            }
             with project_change_source("webui"):
                 project = manager.create_project_metadata(
                     project_name,
@@ -429,11 +439,7 @@ async def create_project(
                     aspect_ratio=req.aspect_ratio,
                     default_duration=req.default_duration,
                     style_template_id=req.style_template_id,
-                    video_backend=req.video_backend or None,
-                    image_backend=req.image_backend or None,
-                    text_backend_script=req.text_backend_script or None,
-                    text_backend_overview=req.text_backend_overview or None,
-                    text_backend_style=req.text_backend_style or None,
+                    extras=extras or None,
                 )
                 if req.generation_mode is not None:
                     project["generation_mode"] = req.generation_mode
@@ -572,10 +578,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     # 强互斥：模版与参考图二选一
                     project.pop("style_image", None)
                     project.pop("style_description", None)
-
-            if req.clear_style_image:
-                project.pop("style_image", None)
-                project.pop("style_description", None)
 
             with project_change_source("webui"):
                 manager.save_project(name, project)

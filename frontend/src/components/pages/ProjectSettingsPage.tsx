@@ -84,6 +84,8 @@ export function ProjectSettingsPage() {
     aspectRatio: "", generationMode: "single" as "single" | "grid",
     defaultDuration: null as number | null,
   });
+  // 风格区独立保存，但"未保存就离开"也需被 isDirty 拦截。
+  const initialStyleRef = useRef<StylePickerValue | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -136,7 +138,9 @@ export function ProjectSettingsPage() {
       setAspectRatio(ar);
       setGenerationMode(gm);
       setDefaultDuration(dd);
-      setStyleValue(deriveStyleValue(project, projectName));
+      const derivedStyle = deriveStyleValue(project, projectName);
+      setStyleValue(derivedStyle);
+      initialStyleRef.current = derivedStyle;
       initialRef.current = {
         videoBackend: vb, imageBackend: ib, audioOverride: ao,
         textScript: ts, textOverview: to, textStyle: tst,
@@ -147,6 +151,22 @@ export function ProjectSettingsPage() {
     return () => { disposed = true; };
   }, [projectName]);
 
+  // blob: URL 所有权集中：StylePicker 只通过 onChange 更换引用，
+  // revoke 统一在此 effect 做（URL 变更或卸载时）。
+  useEffect(() => {
+    const url = styleValue?.uploadedPreview;
+    if (!url?.startsWith("blob:")) return;
+    return () => URL.revokeObjectURL(url);
+  }, [styleValue?.uploadedPreview]);
+
+  const styleIsDirty = (() => {
+    const init = initialStyleRef.current;
+    if (!styleValue || !init) return false;
+    if (styleValue.mode !== init.mode) return true;
+    if (styleValue.mode === "template") return styleValue.templateId !== init.templateId;
+    return styleValue.uploadedFile !== null;
+  })();
+
   const isDirty =
     videoBackend !== initialRef.current.videoBackend ||
     imageBackend !== initialRef.current.imageBackend ||
@@ -156,7 +176,8 @@ export function ProjectSettingsPage() {
     textStyle !== initialRef.current.textStyle ||
     aspectRatio !== initialRef.current.aspectRatio ||
     generationMode !== initialRef.current.generationMode ||
-    defaultDuration !== initialRef.current.defaultDuration;
+    defaultDuration !== initialRef.current.defaultDuration ||
+    styleIsDirty;
 
   useEffect(() => {
     if (!isDirty) return;
@@ -189,7 +210,9 @@ export function ProjectSettingsPage() {
       }
       // Refetch project to reset styleValue from canonical server state
       const refreshed = await API.getProject(projectName);
-      setStyleValue(deriveStyleValue(refreshed.project as unknown as Record<string, unknown>, projectName));
+      const nextStyle = deriveStyleValue(refreshed.project as unknown as Record<string, unknown>, projectName);
+      setStyleValue(nextStyle);
+      initialStyleRef.current = nextStyle;
       useAppStore.getState().pushToast(t("saved"), "success");
     } catch (e: unknown) {
       useAppStore.getState().pushToast(e instanceof Error ? e.message : t("save_failed"), "error");

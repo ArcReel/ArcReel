@@ -1,6 +1,6 @@
 
-import { useState, useEffect } from "react";
-import { voidPromise } from "@/utils/async";
+import { useState, useEffect, useRef } from "react";
+import { voidCall, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -8,8 +8,10 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { DEFAULT_TEMPLATE_ID } from "@/data/style-templates";
+import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { WizardStep1Basics, type WizardStep1Value } from "./create-project/WizardStep1Basics";
-import { WizardStep2Models } from "./create-project/WizardStep2Models";
+import { WizardStep2Models, type WizardStep2Data } from "./create-project/WizardStep2Models";
 import { WizardStep3Style, type WizardStep3Value } from "./create-project/WizardStep3Style";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
 
@@ -99,12 +101,53 @@ export function CreateProjectModal() {
 
   const [creating, setCreating] = useState(false);
 
-  // Unified object URL lifetime: revoke on URL change and on unmount
+  // Step2 的远端数据 hoist 到此处：只在 modal 挂载时 fetch 一次，
+  // 前进/后退切 step 时 Step2 unmount/mount 不再触发 HTTP。
+  const [step2Data, setStep2Data] = useState<WizardStep2Data | null>(null);
+  const [step2Error, setStep2Error] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    voidCall((async () => {
+      try {
+        const [sysConfig, providersRes, customRes] = await Promise.all([
+          API.getSystemConfig(),
+          API.getProviders(),
+          API.listCustomProviders(),
+        ]);
+        if (cancelled) return;
+        setStep2Data({
+          options: {
+            video: sysConfig.options.video_backends,
+            image: sysConfig.options.image_backends,
+            text: sysConfig.options.text_backends,
+            providerNames: { ...PROVIDER_NAMES, ...(sysConfig.options.provider_names ?? {}) },
+          },
+          providers: providersRes.providers,
+          customProviders: customRes.providers,
+          globalDefaults: {
+            video: sysConfig.settings.default_video_backend ?? "",
+            image: sysConfig.settings.default_image_backend ?? "",
+            textScript: sysConfig.settings.text_backend_script ?? "",
+            textOverview: sysConfig.settings.text_backend_overview ?? "",
+            textStyle: sysConfig.settings.text_backend_style ?? "",
+          },
+        });
+      } catch (err) {
+        if (!cancelled) setStep2Error((err as Error).message);
+      }
+    })());
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // blob: URL 所有权集中在此：StylePicker 只通过 onChange 更换引用，
+  // revoke 统一由本 effect 在 URL 变更或 unmount 时触发。非 blob: 跳过。
   useEffect(() => {
     const url = style.uploadedPreview;
-    return () => {
-      if (url) URL.revokeObjectURL(url);
-    };
+    if (!url?.startsWith("blob:")) return;
+    return () => URL.revokeObjectURL(url);
   }, [style.uploadedPreview]);
 
   const handleClose = () => {
@@ -113,12 +156,26 @@ export function CreateProjectModal() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") handleClose();
+      if (e.key === "Escape") setShowCreateModal(false);
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setShowCreateModal]);
+
+  // 背景 inert：打开期间屏蔽 modal 兄弟节点的键盘与 SR 聚焦
+  useEffect(() => {
+    const root = document.getElementById("root");
+    if (!root) return;
+    root.setAttribute("aria-hidden", "true");
+    root.setAttribute("inert", "");
+    return () => {
+      root.removeAttribute("aria-hidden");
+      root.removeAttribute("inert");
+    };
   }, []);
+
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, true);
 
   const handleCreate = async () => {
     setCreating(true);
@@ -162,13 +219,22 @@ export function CreateProjectModal() {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="create-project-title"
-    >
-      <div className="w-full max-w-3xl rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      {/* 遮罩层：点击关闭。键盘路径走 Esc（见上方 handleKeyDown）。 */}
+      <button
+        type="button"
+        aria-label={t("common:close")}
+        tabIndex={-1}
+        onClick={handleClose}
+        className="absolute inset-0 cursor-default bg-transparent"
+      />
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-project-title"
+        className="relative w-full max-w-3xl rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
+      >
         {/* Header: title + close */}
         <div className="flex items-center justify-between mb-6">
           <h2 id="create-project-title" className="text-lg font-semibold text-gray-100">{t("dashboard:new_project")}</h2>
@@ -202,6 +268,8 @@ export function CreateProjectModal() {
               onBack={() => setStep(1)}
               onNext={() => setStep(3)}
               onCancel={handleClose}
+              data={step2Data}
+              error={step2Error}
             />
           )}
           {step === 3 && (

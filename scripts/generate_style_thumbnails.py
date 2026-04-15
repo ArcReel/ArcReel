@@ -9,18 +9,19 @@
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import lib.config  # noqa: E402,F401  # 先初始化 config 以打破 db.repositories 的循环导入
+from lib.db import async_session_factory  # noqa: E402
+from lib.db.repositories.credential_repository import CredentialRepository  # noqa: E402
 from lib.image_backends.base import ImageGenerationRequest  # noqa: E402
 from lib.image_backends.grok import GrokImageBackend  # noqa: E402
 from lib.style_templates import STYLE_TEMPLATES  # noqa: E402
 
-DB_PATH = ROOT / "projects" / ".arcreel.db"
 OUT_DIR = ROOT / "frontend" / "public" / "style-thumbnails"
 
 CONCURRENCY = 4
@@ -68,18 +69,12 @@ SUBJECTS: dict[str, str] = {
 }
 
 
-def load_grok_api_key() -> str:
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        cur = conn.execute(
-            "SELECT api_key FROM provider_credential WHERE provider='grok' AND is_active=1 LIMIT 1"
-        )
-        row = cur.fetchone()
-        if not row or not row[0]:
-            raise RuntimeError(f"未在 {DB_PATH} 的 provider_credential 表找到 grok 活跃凭证")
-        return row[0]
-    finally:
-        conn.close()
+async def load_grok_api_key() -> str:
+    async with async_session_factory() as session:
+        cred = await CredentialRepository(session).get_active("grok")
+    if cred is None or not cred.api_key:
+        raise RuntimeError("未找到 grok 活跃凭证（provider_credential 表）")
+    return cred.api_key
 
 
 def build_prompt(tpl_id: str) -> str:
@@ -100,9 +95,7 @@ async def generate_one(
     tpl_id: str,
     out_path: Path,
 ) -> tuple[str, bool, str]:
-    if out_path.exists():
-        # 删除旧图以便重生成
-        out_path.unlink()
+    out_path.unlink(missing_ok=True)
     prompt = build_prompt(tpl_id)
     async with sem:
         try:
@@ -125,14 +118,11 @@ async def main() -> None:
     if missing:
         raise RuntimeError(f"SUBJECTS 缺少: {sorted(missing)}")
 
-    api_key = load_grok_api_key()
+    api_key = await load_grok_api_key()
     backend = GrokImageBackend(api_key=api_key)
     sem = asyncio.Semaphore(CONCURRENCY)
 
-    tasks = [
-        generate_one(backend, sem, tpl_id, OUT_DIR / f"{tpl_id}.png")
-        for tpl_id in STYLE_TEMPLATES
-    ]
+    tasks = [generate_one(backend, sem, tpl_id, OUT_DIR / f"{tpl_id}.png") for tpl_id in STYLE_TEMPLATES]
 
     ok = fail = 0
     for coro in asyncio.as_completed(tasks):

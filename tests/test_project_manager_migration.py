@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from lib.project_manager import ProjectManager
+from lib.style_templates import resolve_template_prompt
 
 
 @pytest.fixture
@@ -24,7 +25,7 @@ def test_migrates_photographic_to_live_premium_drama(pm: ProjectManager):
     _write_project(pm, "p1", {"title": "P1", "style": "Photographic"})
     data = pm.load_project("p1")
     assert data["style_template_id"] == "live_premium_drama"
-    assert "真人电视剧" in data["style"] or "精品短剧" in data["style"]
+    assert data["style"] == resolve_template_prompt("live_premium_drama")
 
 
 def test_migrates_anime_to_kyoto(pm: ProjectManager):
@@ -85,6 +86,51 @@ def test_migration_persists_to_disk(pm: ProjectManager, tmp_path: Path):
     pm.load_project("p7")
     raw = json.loads((tmp_path / "p7" / "project.json").read_text(encoding="utf-8"))
     assert raw["style_template_id"] == "live_premium_drama"
+
+
+def test_legacy_value_with_existing_template_id_untouched(pm: ProjectManager):
+    """若 project 已经带 style_template_id，即使 style 值还是 legacy 标签也不再动。"""
+    _write_project(
+        pm,
+        "p-existing",
+        {
+            "title": "PE",
+            "style": "Photographic",
+            "style_template_id": "anim_kyoto",
+        },
+    )
+    data = pm.load_project("p-existing")
+    assert data["style_template_id"] == "anim_kyoto"
+    assert data["style"] == "Photographic"  # 原样保留
+
+
+def test_migration_does_not_touch_updated_at(pm: ProjectManager, tmp_path: Path):
+    """迁移写回不应污染 updated_at。"""
+    original = "2020-01-01T00:00:00Z"
+    _write_project(
+        pm,
+        "p-timestamp",
+        {"title": "PT", "style": "Photographic", "updated_at": original},
+    )
+    pm.load_project("p-timestamp")
+    raw = json.loads((tmp_path / "p-timestamp" / "project.json").read_text(encoding="utf-8"))
+    assert raw["updated_at"] == original
+    assert raw["style_template_id"] == "live_premium_drama"
+
+
+def test_migration_emits_change_hint(pm: ProjectManager):
+    """迁移写回后应触发 project change hint，供 SSE 订阅者感知。"""
+    from lib.project_change_hints import register_project_change_listener
+
+    events: list[tuple[str, str, tuple[str, ...]]] = []
+    unregister = register_project_change_listener(lambda name, source, paths: events.append((name, source, paths)))
+    try:
+        _write_project(pm, "p-hint", {"title": "PH", "style": "Photographic"})
+        pm.load_project("p-hint")
+    finally:
+        unregister()
+
+    assert any(name == "p-hint" and "project.json" in paths for name, _source, paths in events)
 
 
 def test_concurrent_migration_does_not_lose_data(pm: ProjectManager):

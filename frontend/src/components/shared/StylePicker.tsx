@@ -68,6 +68,10 @@ function TemplateCard({
       <img
         src={thumbnail}
         alt={label}
+        width={240}
+        height={320}
+        loading="lazy"
+        decoding="async"
         className="w-full h-full object-cover"
         onError={(e) => {
           (e.currentTarget as HTMLImageElement).style.display = "none";
@@ -105,11 +109,9 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
     onChange({ ...value, mode: "custom", templateId: null });
   };
 
+  // blob: URL 的生命周期统一由 parent 的 effect 清理（见 CreateProjectModal /
+  // ProjectSettingsPage），这里仅通过 onChange 更换引用即可。
   const handleCategoryTab = (cat: StyleCategory) => {
-    // Switching to a template tab clears any pending blob upload to enforce mutual exclusion.
-    if (value.uploadedPreview?.startsWith("blob:")) {
-      URL.revokeObjectURL(value.uploadedPreview);
-    }
     const keepId = idBelongsToCategory(value.templateId, cat)
       ? value.templateId
       : fallbackIdForCategory(cat);
@@ -126,18 +128,12 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (value.uploadedPreview?.startsWith("blob:")) {
-      URL.revokeObjectURL(value.uploadedPreview);
-    }
     const objectUrl = URL.createObjectURL(file);
     onChange({ ...value, mode: "custom", templateId: null, uploadedFile: file, uploadedPreview: objectUrl });
     e.target.value = "";
   };
 
   const handleClearUpload = () => {
-    if (value.uploadedPreview?.startsWith("blob:")) {
-      URL.revokeObjectURL(value.uploadedPreview);
-    }
     onChange({ ...value, uploadedFile: null, uploadedPreview: null });
   };
 

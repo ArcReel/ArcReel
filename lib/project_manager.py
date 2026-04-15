@@ -994,6 +994,10 @@ class ProjectManager:
             # 持锁写回，防止并发 load 互相覆盖。锁只包写操作，迁移判断是纯内存操作无需锁。
             with self._project_lock(project_name):
                 self._atomic_write_json(project_file, project)
+            emit_project_change_hint(
+                project_name,
+                changed_paths=[self.PROJECT_FILE],
+            )
         return project
 
     @contextmanager
@@ -1137,31 +1141,14 @@ class ProjectManager:
         aspect_ratio: str = "9:16",
         default_duration: int | None = None,
         style_template_id: str | None = None,
-        video_backend: str | None = None,
-        image_backend: str | None = None,
-        text_backend_script: str | None = None,
-        text_backend_overview: str | None = None,
-        text_backend_style: str | None = None,
+        extras: dict | None = None,
     ) -> dict:
         """
         创建新的项目元数据文件
 
-        Args:
-            project_name: 项目标识
-            title: 项目标题，留空时默认使用项目标识
-            style: 整体视觉风格描述
-            content_mode: 内容模式 ('narration' 或 'drama')
-            aspect_ratio: 视频宽高比（独立于 content_mode）
-            default_duration: 默认视频时长（秒），None 表示使用系统默认值
-            style_template_id: 风格模版 id（来自 style_templates 注册表）
-            video_backend: 视频生成后端（格式 provider/model）
-            image_backend: 图像生成后端（格式 provider/model）
-            text_backend_script: 剧本生成文本后端
-            text_backend_overview: 概述生成文本后端
-            text_backend_style: 风格生成文本后端
-
-        Returns:
-            项目元数据字典
+        `extras` 用于写入可选的模型/后端等字段（如 video_backend / image_backend /
+        text_backend_{script,overview,style}）。调用方负责剔除空值，本方法只按字面
+        写入 extras 中已有的键。
         """
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
@@ -1183,15 +1170,8 @@ class ProjectManager:
             project["default_duration"] = default_duration
         if style_template_id is not None:
             project["style_template_id"] = style_template_id
-        for key, val in (
-            ("video_backend", video_backend),
-            ("image_backend", image_backend),
-            ("text_backend_script", text_backend_script),
-            ("text_backend_overview", text_backend_overview),
-            ("text_backend_style", text_backend_style),
-        ):
-            if val:
-                project[key] = val
+        if extras:
+            project.update(extras)
 
         self.save_project(project_name, project)
         return project

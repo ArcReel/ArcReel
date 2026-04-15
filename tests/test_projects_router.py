@@ -83,11 +83,7 @@ class _FakePM:
         aspect_ratio="9:16",
         default_duration=None,
         style_template_id=None,
-        video_backend=None,
-        image_backend=None,
-        text_backend_script=None,
-        text_backend_overview=None,
-        text_backend_style=None,
+        extras=None,
     ):
         payload = {
             "title": (title or name),
@@ -100,15 +96,8 @@ class _FakePM:
             payload["default_duration"] = default_duration
         if style_template_id is not None:
             payload["style_template_id"] = style_template_id
-        for key, val in (
-            ("video_backend", video_backend),
-            ("image_backend", image_backend),
-            ("text_backend_script", text_backend_script),
-            ("text_backend_overview", text_backend_overview),
-            ("text_backend_style", text_backend_style),
-        ):
-            if val:
-                payload[key] = val
+        if extras:
+            payload.update(extras)
         self.project_data[name] = payload
         return payload
 
@@ -451,19 +440,3 @@ class TestProjectsRouter:
                 json={"style_template_id": "no_such_template"},
             )
             assert resp.status_code == 400
-
-    def test_update_project_clear_style_image_drops_fields(self, tmp_path, monkeypatch):
-        fake_pm = _FakePM(tmp_path)
-        fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
-        fake_pm.project_data["ready"]["style_description"] = "to be removed"
-
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
-        with client:
-            resp = client.patch(
-                "/api/v1/projects/ready",
-                json={"clear_style_image": True},
-            )
-            assert resp.status_code == 200
-            data = fake_pm.project_data["ready"]
-            assert "style_image" not in data
-            assert "style_description" not in data
