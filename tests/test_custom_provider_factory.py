@@ -185,6 +185,51 @@ class TestOpenAIUrlAutoCompletion:
 
 
 # ---------------------------------------------------------------------------
+# NewAPI format
+# ---------------------------------------------------------------------------
+
+
+class TestNewAPIFormat:
+    @patch("lib.custom_provider.factory.OpenAITextBackend")
+    def test_text_backend_uses_openai_delegate(self, mock_cls):
+        provider = _make_provider(api_format="newapi", base_url="https://newapi.example.com")
+        result = create_custom_backend(provider=provider, model_id="gpt-oss", media_type="text")
+
+        assert isinstance(result, CustomTextBackend)
+        assert result.model == "gpt-oss"
+        mock_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://newapi.example.com/v1",
+            model="gpt-oss",
+        )
+
+    @patch("lib.custom_provider.factory.OpenAIImageBackend")
+    def test_image_backend_uses_openai_delegate(self, mock_cls):
+        provider = _make_provider(api_format="newapi", base_url="https://newapi.example.com/v1")
+        result = create_custom_backend(provider=provider, model_id="dall-e-3", media_type="image")
+
+        assert isinstance(result, CustomImageBackend)
+        mock_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://newapi.example.com/v1",
+            model="dall-e-3",
+        )
+
+    @patch("lib.custom_provider.factory.NewAPIVideoBackend")
+    def test_video_backend_uses_newapi_delegate(self, mock_cls):
+        provider = _make_provider(api_format="newapi", base_url="https://newapi.example.com/v1")
+        result = create_custom_backend(provider=provider, model_id="kling-v1", media_type="video")
+
+        assert isinstance(result, CustomVideoBackend)
+        assert result.model == "kling-v1"
+        mock_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://newapi.example.com/v1",
+            model="kling-v1",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Error cases
 # ---------------------------------------------------------------------------
 
