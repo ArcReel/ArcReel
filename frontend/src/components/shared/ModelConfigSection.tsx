@@ -121,6 +121,7 @@ export function ModelConfigSection({
                 ? t("current_global_default", { value: globalDefaults.video })
                 : undefined
             }
+            fallbackValue={globalDefaults.video || undefined}
             aria-label={t("model_video")}
           />
 
@@ -187,6 +188,7 @@ export function ModelConfigSection({
                 ? t("current_global_default", { value: globalDefaults.image })
                 : undefined
             }
+            fallbackValue={globalDefaults.image || undefined}
             aria-label={t("model_image")}
           />
         </div>
@@ -211,6 +213,7 @@ export function ModelConfigSection({
                     ? t("current_global_default", { value: globalDefaults.textScript })
                     : undefined
                 }
+                fallbackValue={globalDefaults.textScript || undefined}
                 aria-label={t("model_text_script")}
               />
             </div>
@@ -230,6 +233,7 @@ export function ModelConfigSection({
                     ? t("current_global_default", { value: globalDefaults.textOverview })
                     : undefined
                 }
+                fallbackValue={globalDefaults.textOverview || undefined}
                 aria-label={t("model_text_overview")}
               />
             </div>
@@ -249,6 +253,7 @@ export function ModelConfigSection({
                     ? t("current_global_default", { value: globalDefaults.textStyle })
                     : undefined
                 }
+                fallbackValue={globalDefaults.textStyle || undefined}
                 aria-label={t("model_text_style")}
               />
             </div>

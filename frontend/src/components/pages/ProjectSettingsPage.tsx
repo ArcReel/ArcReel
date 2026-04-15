@@ -123,9 +123,10 @@ export function ProjectSettingsPage() {
       const to = (project.text_backend_overview as string | undefined) ?? "";
       const tst = (project.text_backend_style as string | undefined) ?? "";
 
-      const ar = typeof project.aspect_ratio === "string"
-        ? project.aspect_ratio
-        : "";
+      const rawAr = typeof project.aspect_ratio === "string" ? project.aspect_ratio : "";
+      // Backend's get_aspect_ratio() falls back to "9:16" when unset (generation_tasks.py).
+      // Mirror that here so the UI reflects the actually-effective ratio.
+      const ar = rawAr || "9:16";
       const gm = (project.generation_mode as "single" | "grid" | undefined) ?? "single";
       const dd = project.default_duration != null ? (project.default_duration as number) : null;
 

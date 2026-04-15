@@ -15,6 +15,8 @@ interface ProviderModelSelectProps {
   /** Label for the default option */
   defaultLabel?: string;
   defaultHint?: string; // "当前: gemini-aistudio/veo-3.1-generate-001"
+  /** When value is empty, show this "provider/model" as the effective fallback in the trigger */
+  fallbackValue?: string;
   /** Accessible label for the trigger button */
   "aria-label"?: string;
 }
@@ -49,6 +51,7 @@ export function ProviderModelSelect({
   allowDefault,
   defaultLabel,
   defaultHint,
+  fallbackValue,
   "aria-label": ariaLabel,
 }: ProviderModelSelectProps) {
   const { t } = useTranslation("dashboard");
@@ -166,9 +169,16 @@ export function ProviderModelSelect({
   const currentProvider = slashIdx !== -1 ? value.slice(0, slashIdx) : "";
   const currentModel = slashIdx !== -1 ? value.slice(slashIdx + 1) : "";
 
+  const fbSlashIdx = !value && fallbackValue ? fallbackValue.indexOf("/") : -1;
+  const fbProvider = fbSlashIdx !== -1 ? fallbackValue!.slice(0, fbSlashIdx) : "";
+  const fbModel = fbSlashIdx !== -1 ? fallbackValue!.slice(fbSlashIdx + 1) : "";
+  const showFallback = !value && fbSlashIdx !== -1;
+
   const displayText = value
     ? `${providerNames[currentProvider] || currentProvider} · ${currentModel}`
-    : resolvedPlaceholder;
+    : showFallback
+      ? `${t("follow_global_default")} · ${providerNames[fbProvider] || fbProvider} · ${fbModel}`
+      : resolvedPlaceholder;
 
   const activeDescendantId =
     open && flatOptions.length > 0 ? `${LISTBOX_ID}-option-${activeIndex}` : undefined;
@@ -192,7 +202,7 @@ export function ProviderModelSelect({
         onKeyDown={handleKeyDown}
         className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-800/80 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
       >
-        <span className="truncate">{displayText}</span>
+        <span className={`truncate ${showFallback ? "text-gray-400" : ""}`}>{displayText}</span>
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
         />
