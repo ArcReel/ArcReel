@@ -22,6 +22,7 @@ from lib import PROJECT_ROOT
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
 from lib.logging_config import setup_logging
+from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from server.auth import ensure_auth_password
 from server.routers import (
     agent_chat,
@@ -58,6 +59,18 @@ async def lifespan(app: FastAPI):
 
     # Run Alembic migrations (auto-creates tables on first start)
     await init_db()
+
+    # Project-level schema migrations (file-based, e.g. clues→scenes/props)
+    projects_root = PROJECT_ROOT / "projects"
+    migration_summary = run_project_migrations(projects_root)
+    if migration_summary.migrated or migration_summary.failed:
+        logger.info(
+            "Project migrations: migrated=%s skipped=%d failed=%s",
+            migration_summary.migrated,
+            len(migration_summary.skipped),
+            migration_summary.failed,
+        )
+    cleanup_stale_backups(projects_root, max_age_days=7)
 
     # Migrate legacy .system_config.json → DB (no-op if file doesn't exist or already migrated)
     try:
