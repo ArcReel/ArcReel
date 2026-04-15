@@ -6,4 +6,6 @@ MESSAGES = {
     "asset_unsupported_format": "Only png/jpg/jpeg/webp are supported",
     "asset_source_resource_not_found": "Project '{project}' does not contain {kind} '{name}'",
     "asset_target_project_not_found": "Target project '{project}' does not exist",
+    "asset_load_project_failed": "failed to load target project",
+    "asset_invalid_conflict_policy": "conflict_policy must be skip / overwrite / rename",
 }

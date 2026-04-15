@@ -21,6 +21,8 @@ def test_all_asset_keys_registered_in_both_locales():
         "asset_unsupported_format",
         "asset_source_resource_not_found",
         "asset_target_project_not_found",
+        "asset_load_project_failed",
+        "asset_invalid_conflict_policy",
     }
     for key in expected:
         assert key in MESSAGES["zh"], f"missing zh key: {key}"

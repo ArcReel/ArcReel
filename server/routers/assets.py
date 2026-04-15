@@ -269,7 +269,7 @@ async def from_project(
         )
     except Exception:
         logger.exception("Failed to load project '%s' for from-project", req.project_name)
-        raise HTTPException(status_code=500, detail="internal error loading project")
+        raise HTTPException(status_code=500, detail=_t("asset_load_project_failed"))
 
     # 3) 从对应 bucket 中读取资源
     bucket_key = BUCKET_KEY[req.resource_type]
@@ -382,7 +382,7 @@ async def apply_to_project(
 ):
     # 1) 校验冲突策略（400 先于其它检查）
     if req.conflict_policy not in {"skip", "overwrite", "rename"}:
-        raise HTTPException(status_code=400, detail="invalid conflict_policy")
+        raise HTTPException(status_code=400, detail=_t("asset_invalid_conflict_policy"))
 
     # 2) 校验目标项目存在
     project_manager = get_project_manager()
