@@ -22,6 +22,16 @@ def _make_response(status_code: int, json_body: dict) -> MagicMock:
     return resp
 
 
+def _fake_download_factory(payload: bytes = b"mp4-bytes"):
+    """返回一个模拟 `download_video` 的异步函数，写入 payload 到 output_path。"""
+
+    async def _fake(url: str, output_path: Path, *, timeout: int = 120) -> None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(payload)
+
+    return _fake
+
+
 class TestNewAPIVideoBackend:
     def test_name_and_model(self):
         from lib.video_backends.newapi import NewAPIVideoBackend
@@ -51,20 +61,19 @@ class TestNewAPIVideoBackend:
                 "metadata": {"duration": 5, "fps": 24, "width": 720, "height": 1280, "seed": 0},
             },
         )
-        download_resp = MagicMock()
-        download_resp.status_code = 200
-        download_resp.content = b"mp4-bytes"
-        download_resp.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(side_effect=[poll_resp, download_resp])
+        mock_client.get = AsyncMock(return_value=poll_resp)
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"mp4-bytes"))
 
         with (
             patch("httpx.AsyncClient", return_value=mock_client),
             patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.newapi.download_video", fake_download),
         ):
             from lib.video_backends.newapi import NewAPIVideoBackend
 
@@ -96,6 +105,12 @@ class TestNewAPIVideoBackend:
         assert "image" not in post_call.kwargs["json"]
         assert post_call.kwargs["headers"]["Authorization"] == "Bearer sk-test"
 
+        # 下载走 base.download_video，URL 正确且不带 auth（base.download_video 不接 headers 参数）
+        fake_download.assert_called_once()
+        download_call = fake_download.call_args
+        assert download_call.args[0] == "https://cdn.example.com/out.mp4"
+        assert download_call.args[1] == tmp_path / "out.mp4"
+
     async def test_image_to_video_encodes_base64(self, tmp_path: Path):
         img_path = tmp_path / "start.png"
         img_path.write_bytes(b"\x89PNG\r\nfake")
@@ -110,20 +125,19 @@ class TestNewAPIVideoBackend:
                 "metadata": {"duration": 5},
             },
         )
-        download_resp = MagicMock()
-        download_resp.status_code = 200
-        download_resp.content = b"v"
-        download_resp.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(side_effect=[poll_resp, download_resp])
+        mock_client.get = AsyncMock(return_value=poll_resp)
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
 
         with (
             patch("httpx.AsyncClient", return_value=mock_client),
             patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.newapi.download_video", fake_download),
         ):
             from lib.video_backends.newapi import NewAPIVideoBackend
 
@@ -159,9 +173,12 @@ class TestNewAPIVideoBackend:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
+        fake_download = AsyncMock()
+
         with (
             patch("httpx.AsyncClient", return_value=mock_client),
             patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.newapi.download_video", fake_download),
         ):
             from lib.video_backends.newapi import NewAPIVideoBackend
 
@@ -177,6 +194,8 @@ class TestNewAPIVideoBackend:
                     )
                 )
 
+        fake_download.assert_not_called()
+
     async def test_polls_through_in_progress(self, tmp_path: Path):
         create_resp = _make_response(200, {"task_id": "t3", "status": "queued"})
         in_progress = _make_response(200, {"task_id": "t3", "status": "in_progress"})
@@ -189,20 +208,19 @@ class TestNewAPIVideoBackend:
                 "metadata": {"duration": 5},
             },
         )
-        download_resp = MagicMock()
-        download_resp.status_code = 200
-        download_resp.content = b"v"
-        download_resp.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(side_effect=[in_progress, in_progress, completed, download_resp])
+        mock_client.get = AsyncMock(side_effect=[in_progress, in_progress, completed])
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
 
         with (
             patch("httpx.AsyncClient", return_value=mock_client),
             patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.newapi.download_video", fake_download),
         ):
             from lib.video_backends.newapi import NewAPIVideoBackend
 
@@ -218,4 +236,6 @@ class TestNewAPIVideoBackend:
             )
 
         assert result.task_id == "t3"
-        assert mock_client.get.call_count == 4
+        # 3 次 poll（in_progress → in_progress → completed），下载不经过 mock_client
+        assert mock_client.get.call_count == 3
+        fake_download.assert_called_once()

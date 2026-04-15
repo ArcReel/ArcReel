@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 
@@ -18,8 +17,6 @@ from lib.retry import (
     BASE_RETRYABLE_ERRORS,
     DEFAULT_BACKOFF_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
-    DOWNLOAD_BACKOFF_SECONDS,
-    DOWNLOAD_MAX_ATTEMPTS,
     with_retry_async,
 )
 from lib.video_backends.base import (
@@ -27,6 +24,7 @@ from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
+    download_video,
     poll_with_retry,
 )
 
@@ -38,7 +36,7 @@ _POLL_INTERVAL_SECONDS = 5.0
 _MIN_POLL_TIMEOUT_SECONDS = 600
 _POLL_TIMEOUT_PER_SECOND = 30
 
-_NEWAPI_RETRYABLE_ERRORS = BASE_RETRYABLE_ERRORS + (httpx.HTTPError,)
+_NEWAPI_RETRYABLE_ERRORS = BASE_RETRYABLE_ERRORS + (httpx.RequestError,)
 
 _SIZE_MAP: dict[tuple[str, str], tuple[int, int]] = {
     ("720p", "9:16"): (720, 1280),
@@ -147,7 +145,8 @@ class NewAPIVideoBackend:
             if not video_url:
                 raise RuntimeError(f"NewAPI 任务完成但缺少 url 字段: {final}")
 
-            await self._download(client, video_url, request.output_path)
+        # 流式下载，不携带 Authorization 头（视频 URL 常为 CDN/OSS，避免 API Key 泄露）
+        await download_video(video_url, request.output_path)
 
         meta = final.get("metadata") or {}
         return VideoGenerationResult(
@@ -184,21 +183,6 @@ class NewAPIVideoBackend:
         )
         resp.raise_for_status()
         return resp.json()
-
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retryable_errors=_NEWAPI_RETRYABLE_ERRORS,
-    )
-    async def _download(self, client: httpx.AsyncClient, url: str, output_path: Path) -> None:
-        resp = await client.get(url, headers=self._headers())
-        resp.raise_for_status()
-
-        def _write():
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_bytes(resp.content)
-
-        await asyncio.to_thread(_write)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
