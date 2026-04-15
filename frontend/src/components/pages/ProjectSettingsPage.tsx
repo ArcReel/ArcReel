@@ -202,7 +202,16 @@ export function ProjectSettingsPage() {
     navigate(path);
   }, [isDirty, navigate, t]);
 
-  const isStyleSaveDisabled = savingStyle || !styleIsDirty;
+  // Cross-tab switch from custom → template may leave {mode:"template", templateId:null}
+  // while an uploaded preview still lingers — no user-chosen card. Block save so
+  // clicking it can't silently route to the "clear style" PATCH branch. The
+  // explicit 取消风格 action zeroes uploadedFile/uploadedPreview too, bypassing this.
+  const isStyleIncomplete =
+    !!styleValue
+    && styleValue.mode === "template"
+    && !styleValue.templateId
+    && (styleValue.uploadedFile !== null || !!styleValue.uploadedPreview);
+  const isStyleSaveDisabled = savingStyle || !styleIsDirty || isStyleIncomplete;
 
   const handleSaveStyle = useCallback(async () => {
     if (!styleValue) return;

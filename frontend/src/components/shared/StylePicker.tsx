@@ -2,7 +2,6 @@ import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Upload, X } from "lucide-react";
 import {
-  STYLE_TEMPLATES,
   DEFAULT_TEMPLATE_ID,
   getTemplatesByCategory,
   type StyleCategory,
@@ -20,17 +19,6 @@ export interface StylePickerValue {
 export interface StylePickerProps {
   value: StylePickerValue;
   onChange: (next: StylePickerValue) => void;
-}
-
-function fallbackIdForCategory(cat: StyleCategory): string {
-  if (cat === "live") return DEFAULT_TEMPLATE_ID;
-  const t = STYLE_TEMPLATES.find((x) => x.category === cat);
-  return t ? t.id : DEFAULT_TEMPLATE_ID;
-}
-
-function idBelongsToCategory(id: string | null, cat: StyleCategory): boolean {
-  if (!id) return false;
-  return STYLE_TEMPLATES.some((t) => t.id === id && t.category === cat);
 }
 
 interface TemplateCardProps {
@@ -115,14 +103,13 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
   };
 
   const handleCategoryTab = (cat: StyleCategory) => {
-    const keepId = idBelongsToCategory(value.templateId, cat)
-      ? value.templateId
-      : fallbackIdForCategory(cat);
+    // Preserve templateId across tab switches. If it belongs to the other
+    // category, the current tab will simply render no selected card —
+    // clicking a tab must never silently overwrite the user's chosen style.
     onChange({
       ...value,
       mode: "template",
       activeCategory: cat,
-      templateId: keepId,
     });
   };
 

@@ -187,8 +187,9 @@ interface State {
 
 **Tab 切换语义**
 - 切到 `custom`：`styleMode = "custom"`；`styleTemplateId` 保留在 state 但不起作用（UI 视觉置灰）
-- 切回 `live`/`anim`：`styleMode = "template"`；`activeCategoryTab = 切到的类别`；如果 `styleTemplateId` 不属于当前类别，重新选该类别第一项
+- 切回 `live`/`anim`：`styleMode = "template"`；`activeCategoryTab = 切到的类别`；`styleTemplateId` **保持不变**——若不属于当前类别，当前 tab 不高亮任何卡片，由用户主动点选（切 tab 绝不暗改用户已选，防止 UI 误高亮与保存时隐性覆盖）
 - 两种模式的 state 在本地保留，切换无损失
+- **ProjectSettingsPage 保护**：当 `mode=template` 且 `templateId=null`（从 custom 切到模板 tab 的中间态）且仍残留 `uploadedFile/uploadedPreview` 时，禁用"保存风格"按钮，避免误落入"清空风格"的 PATCH 路径；显式"取消风格"会清掉上传残留，不受此约束
 
 **提交流程**
 ```ts

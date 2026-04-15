@@ -62,14 +62,14 @@ describe("WizardStep3Style", () => {
     }));
   });
 
-  it("switches to anim category and selects the first anim template when anim tab clicked from live", () => {
+  it("switches to anim tab while preserving the live templateId (cross-tab selection is not auto-overridden)", () => {
     const onChange = vi.fn();
     render(<WizardStep3Style value={baseValue} onChange={onChange} {...commonProps} />);
     fireEvent.click(screen.getByRole("button", { name: /漫剧|Animation/ }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
       mode: "template",
       activeCategory: "anim",
-      templateId: "anim_3d_cg",   // first anim template id
+      templateId: "live_premium_drama",   // preserved from live; anim tab shows no selection
     }));
   });
 
@@ -114,7 +114,7 @@ describe("WizardStep3Style", () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
-  it("falls back to DEFAULT_TEMPLATE_ID when switching live tab from custom", () => {
+  it("preserves null templateId when switching from custom to live tab (no auto-selection)", () => {
     const onChange = vi.fn();
     const customValue = { ...baseValue, mode: "custom" as const, templateId: null };
     render(<WizardStep3Style value={customValue} onChange={onChange} {...commonProps} />);
@@ -122,7 +122,7 @@ describe("WizardStep3Style", () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
       mode: "template",
       activeCategory: "live",
-      templateId: "live_premium_drama",
+      templateId: null,   // unchanged; user must explicitly click a card
     }));
   });
 
@@ -135,6 +135,17 @@ describe("WizardStep3Style", () => {
       activeCategory: "live",
       templateId: "live_zhang_yimou",
     }));
+  });
+
+  it("shows no selected card in anim tab when current templateId belongs to live (bug repro)", () => {
+    // Simulate the state AFTER the (fixed) tab switch: live_premium_drama
+    // stays as templateId but activeCategory moves to anim.
+    const crossTabValue = { ...baseValue, activeCategory: "anim" as const };
+    render(<WizardStep3Style value={crossTabValue} onChange={noop} {...commonProps} />);
+    // No anim template card should be rendered as pressed/selected.
+    const pressedCards = screen.queryAllByRole("button", { pressed: true });
+    // The tab buttons themselves don't use aria-pressed, so this queries only template cards.
+    expect(pressedCards).toHaveLength(0);
   });
 
   it("preserves anim templateId when re-clicking anim tab", () => {
