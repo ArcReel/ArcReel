@@ -27,6 +27,7 @@ from server.auth import ensure_auth_password
 from server.routers import (
     agent_chat,
     api_keys,
+    assets,
     assistant,
     characters,
     cost_estimation,
@@ -201,6 +202,7 @@ app.include_router(agent_chat.router, prefix="/api/v1", tags=["Agent 对话"])
 app.include_router(custom_providers.router, prefix="/api/v1", tags=["自定义供应商"])
 app.include_router(cost_estimation.router, prefix="/api/v1", tags=["费用估算"])
 app.include_router(grids.router, prefix="/api/v1", tags=["宫格图"])
+app.include_router(assets.router, prefix="/api/v1", tags=["全局资产库"])
 
 
 def create_generation_worker() -> GenerationWorker:
