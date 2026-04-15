@@ -74,18 +74,24 @@ export function ModelConfigSection({
   const showText = enable?.text !== false;
   const showDuration = enable?.duration !== false;
 
-  // Compute supported durations based on current video backend (pre-sorted)
+  // "Follow global default" (empty videoBackend) means the effective backend at
+  // generation time will be globalDefaults.video — duration options should
+  // reflect that model's real supported_durations, not the generic fallback.
+  const effectiveVideoBackend = value.videoBackend || globalDefaults.video || "";
+
+  // Compute supported durations based on current effective video backend (pre-sorted)
   const supportedDurations = useMemo<readonly number[]>(() => {
-    const raw = !value.videoBackend
+    const raw = !effectiveVideoBackend
       ? DEFAULT_DURATIONS
-      : (lookupSupportedDurations(providers, value.videoBackend, customProviders) ?? DEFAULT_DURATIONS);
+      : (lookupSupportedDurations(providers, effectiveVideoBackend, customProviders) ?? DEFAULT_DURATIONS);
     return [...raw].sort((a, b) => a - b);
-  }, [providers, value.videoBackend, customProviders]);
+  }, [providers, effectiveVideoBackend, customProviders]);
 
   // Video backend change: may reset duration if not supported by new backend
   const handleVideoChange = (next: string) => {
-    const nextDurations = next
-      ? (lookupSupportedDurations(providers, next, customProviders) ?? DEFAULT_DURATIONS)
+    const effectiveNext = next || globalDefaults.video || "";
+    const nextDurations = effectiveNext
+      ? (lookupSupportedDurations(providers, effectiveNext, customProviders) ?? DEFAULT_DURATIONS)
       : DEFAULT_DURATIONS;
     const shouldReset =
       value.defaultDuration !== null && !nextDurations.includes(value.defaultDuration);

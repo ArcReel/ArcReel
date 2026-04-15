@@ -191,7 +191,32 @@ describe("ModelConfigSection", () => {
     expect(screen.getByRole("combobox", { name: /图片模型/ })).toBeInTheDocument();
   });
 
-  it("uses DEFAULT_DURATIONS when videoBackend is empty", () => {
+  it("falls back to globalDefaults.video supported_durations when videoBackend is empty (bug repro)", () => {
+    render(
+      <ModelConfigSection
+        value={EMPTY_VALUE}
+        onChange={() => {}}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={{
+          video: "ark/seedance",
+          image: "",
+          textScript: "",
+          textOverview: "",
+          textStyle: "",
+        }}
+      />,
+    );
+    // Should reflect ark/seedance's supported_durations [5, 8, 10]
+    expect(screen.getByRole("radio", { name: "5s" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "8s" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "10s" })).toBeInTheDocument();
+    // Should NOT show DEFAULT_DURATIONS buttons that ark/seedance doesn't support
+    expect(screen.queryByRole("radio", { name: "4s" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "6s" })).not.toBeInTheDocument();
+  });
+
+  it("uses DEFAULT_DURATIONS when videoBackend is empty and no global default", () => {
     render(
       <ModelConfigSection
         value={EMPTY_VALUE}
