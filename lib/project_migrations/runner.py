@@ -10,11 +10,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
+
 logger = logging.getLogger(__name__)
 
 CURRENT_SCHEMA_VERSION = 1
 
-# 实际 migrator 在 v0_to_v1_clues_to_scenes_props.py 注册（Task 5）
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
 
 
@@ -103,3 +104,7 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
                     bak.unlink()
             except OSError:
                 logger.warning("无法删除备份：%s", bak)
+
+
+# 注册 v0→v1 迁移器（顶部 import，此处仅赋值）
+MIGRATORS[0] = migrate_v0_to_v1
