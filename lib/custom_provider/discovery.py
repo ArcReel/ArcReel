@@ -56,7 +56,7 @@ async def discover_models(api_format: str, base_url: str | None, api_key: str) -
     Raises:
         ValueError: api_format 不支持
     """
-    if api_format == "openai" or api_format == "newapi":
+    if api_format in {"openai", "newapi"}:
         return await _discover_openai(base_url, api_key)
     elif api_format == "google":
         return await _discover_google(base_url, api_key)
