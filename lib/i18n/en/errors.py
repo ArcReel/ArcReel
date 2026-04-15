@@ -79,11 +79,14 @@ MESSAGES = {
     "project_deleted": "Project '{name}' deleted",
     "scene_updated": "Scene '{scene_id}' updated",
     "segment_updated": "Segment '{segment_id}' updated",
-    # Clues & Characters
-    "invalid_clue_type": "Clue type must be 'prop' or 'location'",
-    "invalid_importance": "Importance must be 'major' or 'minor'",
-    "clue_deleted": "Clue '{clue_name}' deleted",
+    # Characters / Scenes / Props
     "character_deleted": "Character '{char_name}' deleted",
+    "project_scene_already_exists": "Scene '{name}' already exists",
+    "project_scene_not_found": "Scene '{name}' not found",
+    "project_scene_deleted": "Scene '{name}' deleted",
+    "prop_already_exists": "Prop '{name}' already exists",
+    "prop_not_found": "Prop '{name}' not found",
+    "prop_deleted": "Prop '{name}' deleted",
     # API Keys
     "jwt_auth_required": "API Key is not authorized to perform this action, please use JWT authentication",
     "api_key_name_exists": "Name '{name}' already exists",

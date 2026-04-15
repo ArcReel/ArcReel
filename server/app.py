@@ -37,7 +37,9 @@ from server.routers import (
     grids,
     project_events,
     projects,
+    props,
     providers,
+    scenes,
     system_config,
     tasks,
     usage,
@@ -184,6 +186,8 @@ async def request_logging_middleware(request: Request, call_next):
 app.include_router(auth_router.router, prefix="/api/v1", tags=["认证"])
 app.include_router(projects.router, prefix="/api/v1", tags=["项目管理"])
 app.include_router(characters.router, prefix="/api/v1", tags=["角色管理"])
+app.include_router(scenes.router, prefix="/api/v1", tags=["场景管理"])
+app.include_router(props.router, prefix="/api/v1", tags=["道具管理"])
 app.include_router(clues.router, prefix="/api/v1", tags=["线索管理"])
 app.include_router(files.router, prefix="/api/v1", tags=["文件管理"])
 app.include_router(generate.router, prefix="/api/v1", tags=["生成"])

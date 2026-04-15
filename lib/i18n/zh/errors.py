@@ -79,11 +79,14 @@ MESSAGES = {
     "project_deleted": "项目 '{name}' 已删除",
     "scene_updated": "场景 '{scene_id}' 已更新",
     "segment_updated": "片段 '{segment_id}' 已更新",
-    # Clues & Characters
-    "invalid_clue_type": "线索类型必须是 'prop' 或 'location'",
-    "invalid_importance": "重要程度必须是 'major' 或 'minor'",
-    "clue_deleted": "线索 '{clue_name}' 已删除",
+    # Characters / Scenes / Props
     "character_deleted": "角色 '{char_name}' 已删除",
+    "project_scene_already_exists": "场景「{name}」已存在",
+    "project_scene_not_found": "场景「{name}」不存在",
+    "project_scene_deleted": "场景「{name}」已删除",
+    "prop_already_exists": "道具「{name}」已存在",
+    "prop_not_found": "道具「{name}」不存在",
+    "prop_deleted": "道具「{name}」已删除",
     # API Keys
     "jwt_auth_required": "API Key 无权执行此操作，请使用 JWT 认证",
     "api_key_name_exists": "名称 '{name}' 已存在",
