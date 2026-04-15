@@ -21,7 +21,8 @@ class TestScriptModels:
             duration_seconds=4,
             novel_text="原文",
             characters_in_segment=["姜月茴"],
-            clues_in_segment=["玉佩"],
+            scenes=[],
+            props=["玉佩"],
             image_prompt=ImagePrompt(
                 scene="场景",
                 composition=Composition(
@@ -40,6 +41,25 @@ class TestScriptModels:
 
         assert segment.transition_to_next == "cut"
         assert segment.generated_assets.status == "pending"
+        assert segment.scenes == []
+        assert segment.props == ["玉佩"]
+        assert not hasattr(segment, "clues_in_segment")
+
+    def test_drama_scene_has_scenes_and_props_fields(self):
+        scene = DramaScene(
+            scene_id="E1S01",
+            characters_in_scene=["王"],
+            scenes=["庙宇"],
+            props=["玉佩"],
+            image_prompt=ImagePrompt(
+                scene="场景",
+                composition=Composition(shot_type="Medium Shot", lighting="暖光", ambiance="薄雾"),
+            ),
+            video_prompt=VideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声"),
+        )
+        assert scene.scenes == ["庙宇"]
+        assert scene.props == ["玉佩"]
+        assert not hasattr(scene, "clues_in_scene")
 
     def test_duration_accepts_any_positive_int_within_range(self):
         """duration_seconds 接受 1-60 范围内任意整数。"""
