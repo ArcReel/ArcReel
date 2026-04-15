@@ -475,6 +475,22 @@ class TestProjectsRouter:
             assert "style_image" not in data
             assert "style_description" not in data
 
+    def test_list_projects_returns_style_image_field(self, tmp_path, monkeypatch):
+        """列表端点需返回 style_image：否则前端无法区分"自定义风格"与"未设置"。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
+        # 互斥：自定义图情况下 style_template_id 应为空
+        fake_pm.project_data["ready"].pop("style_template_id", None)
+        fake_pm.project_data["ready"]["style"] = ""
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.get("/api/v1/projects")
+            assert resp.status_code == 200
+            ready = [p for p in resp.json()["projects"] if p["name"] == "ready"][0]
+            assert ready["style_image"] == "style_reference.png"
+            assert ready.get("style_template_id") is None
+
     def test_update_project_clear_style_combined(self, tmp_path, monkeypatch):
         """一次性清空所有风格：style_template_id=null + clear_style_image=true。"""
         fake_pm = _FakePM(tmp_path)

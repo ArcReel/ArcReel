@@ -105,12 +105,15 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
   const { t } = useTranslation(["common", "templates"]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 切换 tab "无损失"：保留对侧 state。
+  // - 切到 custom：保留 templateId，回到模板 tab 时恢复选中
+  // - 切到 template category：保留 uploadedFile/uploadedPreview，回到 custom tab 时恢复
+  // blob: URL 生命周期仍由 parent 的 effect 清理（见 CreateProjectModal /
+  // ProjectSettingsPage），onChange 只更换引用。
   const handleCustomTab = () => {
-    onChange({ ...value, mode: "custom", templateId: null });
+    onChange({ ...value, mode: "custom" });
   };
 
-  // blob: URL 的生命周期统一由 parent 的 effect 清理（见 CreateProjectModal /
-  // ProjectSettingsPage），这里仅通过 onChange 更换引用即可。
   const handleCategoryTab = (cat: StyleCategory) => {
     const keepId = idBelongsToCategory(value.templateId, cat)
       ? value.templateId
@@ -120,8 +123,6 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
       mode: "template",
       activeCategory: cat,
       templateId: keepId,
-      uploadedFile: null,
-      uploadedPreview: null,
     });
   };
 

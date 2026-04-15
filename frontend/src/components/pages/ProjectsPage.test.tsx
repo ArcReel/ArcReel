@@ -77,6 +77,60 @@ describe("ProjectsPage", () => {
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
+  it("shows 自定义风格 label when project has style_image but no template_id", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        {
+          name: "demo",
+          title: "Custom Demo",
+          style: "",
+          style_template_id: null,
+          style_image: "style_reference.png",
+          thumbnail: null,
+          status: {
+            current_phase: "production",
+            phase_progress: 0.1,
+            characters: { total: 1, completed: 0 },
+            clues: { total: 0, completed: 0 },
+            episodes_summary: { total: 1, scripted: 0, in_production: 1, completed: 0 },
+          },
+        },
+      ],
+    });
+
+    renderPage();
+
+    await screen.findByText("Custom Demo");
+    expect(screen.getByText(/自定义风格/)).toBeInTheDocument();
+  });
+
+  it("shows 未设置风格 label when project has neither template_id nor style_image", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        {
+          name: "demo",
+          title: "Empty Style Demo",
+          style: "",
+          style_template_id: null,
+          style_image: null,
+          thumbnail: null,
+          status: {
+            current_phase: "production",
+            phase_progress: 0,
+            characters: { total: 0, completed: 0 },
+            clues: { total: 0, completed: 0 },
+            episodes_summary: { total: 0, scripted: 0, in_production: 0, completed: 0 },
+          },
+        },
+      ],
+    });
+
+    renderPage();
+
+    await screen.findByText("Empty Style Demo");
+    expect(screen.getByText(/未设置风格/)).toBeInTheDocument();
+  });
+
   it("opens create project modal after clicking new project button", async () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
 

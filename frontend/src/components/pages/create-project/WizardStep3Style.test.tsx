@@ -33,13 +33,32 @@ describe("WizardStep3Style", () => {
     }));
   });
 
-  it("switches to custom mode and clears templateId when custom tab clicked", () => {
+  it("switches to custom mode while preserving templateId (切换无损失)", () => {
     const onChange = vi.fn();
     render(<WizardStep3Style value={baseValue} onChange={onChange} {...commonProps} />);
     fireEvent.click(screen.getByRole("button", { name: /自定义|Custom/ }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
       mode: "custom",
-      templateId: null,
+      templateId: baseValue.templateId,   // 原 template 保留，回切时恢复
+    }));
+  });
+
+  it("switches category tab while preserving uploaded file/preview (切换无损失)", () => {
+    const onChange = vi.fn();
+    const uploaded = new File([""], "x.png", { type: "image/png" });
+    const valueWithUpload = {
+      ...baseValue,
+      mode: "custom" as const,
+      uploadedFile: uploaded,
+      uploadedPreview: "blob:test",
+    };
+    render(<WizardStep3Style value={valueWithUpload} onChange={onChange} {...commonProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /漫剧|Animation/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      mode: "template",
+      activeCategory: "anim",
+      uploadedFile: uploaded,
+      uploadedPreview: "blob:test",
     }));
   });
 

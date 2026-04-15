@@ -351,6 +351,7 @@ async def list_projects(_user: CurrentUser):
                             "title": project.get("title", name),
                             "style": project.get("style", ""),
                             "style_template_id": project.get("style_template_id"),
+                            "style_image": project.get("style_image"),
                             "thumbnail": thumbnail,
                             "status": status,
                         }

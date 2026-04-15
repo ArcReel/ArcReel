@@ -114,6 +114,7 @@ export interface ProjectSummary {
   title: string;
   style: string;
   style_template_id?: string | null;
+  style_image?: string | null;
   thumbnail: string | null;
   status: ProjectStatus | Record<string, never>;
 }

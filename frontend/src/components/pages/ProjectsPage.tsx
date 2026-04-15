@@ -54,9 +54,11 @@ function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete:
   const clues = hasStatus ? (status as ProjectStatus).clues : null;
   const summary = hasStatus ? (status as ProjectStatus).episodes_summary : null;
 
+  // 自定义参考图项目后端会把 style 清空（互斥），仅靠 style_template_id 判断
+  // 会落到"未设置"分支。额外看 style_image 才能正确显示"自定义风格"。
   const styleLabel = project.style_template_id
     ? t(`templates:name.${project.style_template_id}`)
-    : project.style
+    : project.style_image
     ? t("dashboard:style_custom")
     : t("dashboard:style_not_set");
 
