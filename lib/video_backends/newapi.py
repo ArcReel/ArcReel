@@ -11,7 +11,6 @@ from pathlib import Path
 
 import httpx
 
-from lib.image_backends.base import image_to_base64_data_uri
 from lib.providers import PROVIDER_NEWAPI
 from lib.retry import (
     BASE_RETRYABLE_ERRORS,
@@ -117,6 +116,9 @@ class NewAPIVideoBackend:
         if request.start_image:
             start_path = Path(request.start_image)
             if start_path.exists():
+                # 延迟导入避免 image_backends ↔ video_backends 循环依赖
+                from lib.image_backends.base import image_to_base64_data_uri
+
                 payload["image"] = image_to_base64_data_uri(start_path)
             else:
                 logger.warning("start_image 文件不存在，已忽略: %s", start_path)
