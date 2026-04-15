@@ -1,7 +1,7 @@
 export interface CustomProviderInfo {
   id: number;
   display_name: string;
-  api_format: "openai" | "google";
+  api_format: "openai" | "google" | "newapi";
   base_url: string;
   api_key_masked: string;
   models: CustomProviderModelInfo[];
@@ -32,7 +32,7 @@ export interface DiscoveredModel {
 
 export interface CustomProviderCreateRequest {
   display_name: string;
-  api_format: "openai" | "google";
+  api_format: "openai" | "google" | "newapi";
   base_url: string;
   api_key: string;
   models: CustomProviderModelInput[];
