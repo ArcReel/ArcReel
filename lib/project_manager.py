@@ -117,7 +117,15 @@ class ProjectManager:
 
     def list_projects(self) -> list[str]:
         """列出所有项目"""
-        return [d.name for d in self.projects_root.iterdir() if d.is_dir() and not d.name.startswith(".")]
+        return [d.name for d in self.projects_root.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))]
+
+    def get_global_assets_root(self) -> Path:
+        """返回全局资产根目录，并确保 character/scene/prop 子目录存在。"""
+        root = self.projects_root / "_global_assets"
+        root.mkdir(parents=True, exist_ok=True)
+        for sub in ("character", "scene", "prop"):
+            (root / sub).mkdir(exist_ok=True)
+        return root
 
     def create_project(self, name: str) -> Path:
         """
