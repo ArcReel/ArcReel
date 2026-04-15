@@ -440,3 +440,58 @@ class TestProjectsRouter:
                 json={"style_template_id": "no_such_template"},
             )
             assert resp.status_code == 400
+
+    def test_update_project_clear_style_template(self, tmp_path, monkeypatch):
+        """PATCH style_template_id=null：同时清掉 id 与派生的 style 长文本。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["style_template_id"] = "live_premium_drama"
+        fake_pm.project_data["ready"]["style"] = "画风：真人电视剧风格，精品短剧画风，大师级构图"
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"style_template_id": None},
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert "style_template_id" not in data
+            assert data["style"] == ""
+
+    def test_update_project_clear_style_image(self, tmp_path, monkeypatch):
+        """PATCH clear_style_image=true：清掉 style_image 与 style_description。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
+        fake_pm.project_data["ready"]["style_description"] = "some desc"
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"clear_style_image": True},
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert "style_image" not in data
+            assert "style_description" not in data
+
+    def test_update_project_clear_style_combined(self, tmp_path, monkeypatch):
+        """一次性清空所有风格：style_template_id=null + clear_style_image=true。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["style_template_id"] = "live_premium_drama"
+        fake_pm.project_data["ready"]["style"] = "画风：..."
+        fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
+        fake_pm.project_data["ready"]["style_description"] = "some desc"
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"style_template_id": None, "clear_style_image": True},
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert "style_template_id" not in data
+            assert data["style"] == ""
+            assert "style_image" not in data
+            assert "style_description" not in data

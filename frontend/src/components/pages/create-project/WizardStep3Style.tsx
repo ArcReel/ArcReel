@@ -23,8 +23,9 @@ export function WizardStep3Style({
 }: WizardStep3StyleProps) {
   const { t } = useTranslation(["common", "dashboard", "templates"]);
 
-  const isCreateDisabled =
-    creating || (value.mode === "custom" && value.uploadedFile === null);
+  // 风格为可选项：不选模版且未上传自定义图也可创建（项目建好后为"无风格"态，
+  // 生成链路不附加风格 prompt）。
+  const isCreateDisabled = creating;
 
   return (
     <div className="space-y-4">

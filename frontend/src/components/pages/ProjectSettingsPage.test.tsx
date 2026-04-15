@@ -80,7 +80,7 @@ describe("ProjectSettingsPage – style picker", () => {
     });
   });
 
-  it("clearing the reference image disables the save button", async () => {
+  it("clearing the reference image keeps save enabled and triggers clear PATCH", async () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {
         title: "Demo",
@@ -91,6 +91,10 @@ describe("ProjectSettingsPage – style picker", () => {
       },
       scripts: {},
     } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
 
     renderAt("/app/projects/demo/settings");
 
@@ -98,8 +102,54 @@ describe("ProjectSettingsPage – style picker", () => {
     const removeBtn = screen.getByRole("button", { name: /^remove$/i });
     fireEvent.click(removeBtn);
 
+    // 移除自定义图后 save 应可点：保存即清除后端残留 style_image / description
     const saveBtn = screen.getByRole("button", { name: /保存风格|Save style/ });
-    expect(saveBtn).toBeDisabled();
+    expect(saveBtn).not.toBeDisabled();
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith("demo", {
+        style_template_id: null,
+        clear_style_image: true,
+      });
+    });
+  });
+
+  it("clicking 取消风格 when project has a template sends clear PATCH", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        style_template_id: "live_premium_drama",
+        style: "画风：...",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    // 等到 style picker 已经 mount（能找到保存按钮）
+    await screen.findByRole("button", { name: /保存风格|Save style/ });
+
+    const clearBtn = screen.getByRole("button", { name: /取消风格|Remove style/ });
+    fireEvent.click(clearBtn);
+
+    const saveBtn = screen.getByRole("button", { name: /保存风格|Save style/ });
+    expect(saveBtn).not.toBeDisabled();
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith("demo", {
+        style_template_id: null,
+        clear_style_image: true,
+      });
+    });
   });
 
   it("saves a template change via PATCH style_template_id", async () => {

@@ -1,5 +1,6 @@
 
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { voidCall, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { X } from "lucide-react";
@@ -162,7 +163,8 @@ export function CreateProjectModal() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [setShowCreateModal]);
 
-  // 背景 inert：打开期间屏蔽 modal 兄弟节点的键盘与 SR 聚焦
+  // 背景 inert：打开期间屏蔽 #root 内容（modal 通过 portal 挂到 body，
+  // 不在 #root 子树内，因此不会被 inert 传染）。
   useEffect(() => {
     const root = document.getElementById("root");
     if (!root) return;
@@ -218,7 +220,7 @@ export function CreateProjectModal() {
     }
   };
 
-  return (
+  const modal = (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       {/* 遮罩层：点击关闭。键盘路径走 Esc（见上方 handleKeyDown）。 */}
       <button
@@ -286,4 +288,6 @@ export function CreateProjectModal() {
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

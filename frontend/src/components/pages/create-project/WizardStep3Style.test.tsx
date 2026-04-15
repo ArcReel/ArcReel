@@ -54,11 +54,11 @@ describe("WizardStep3Style", () => {
     }));
   });
 
-  it("disables Create button when custom mode has no uploaded file", () => {
+  it("keeps Create button enabled when custom mode has no uploaded file (style 为可选)", () => {
     const value = { ...baseValue, mode: "custom" as const, templateId: null };
     render(<WizardStep3Style value={value} onChange={noop} {...commonProps} />);
     const createBtn = screen.getByRole("button", { name: /创建项目|Create/i });
-    expect(createBtn).toBeDisabled();
+    expect(createBtn).not.toBeDisabled();
   });
 
   it("enables Create button when custom mode has uploaded file", () => {

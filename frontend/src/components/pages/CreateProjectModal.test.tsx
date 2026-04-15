@@ -203,4 +203,27 @@ describe("CreateProjectModal", () => {
     }));
     await waitFor(() => expect(API.uploadStyleImage).toHaveBeenCalledWith("demo-proj", file));
   });
+
+  it("允许在 custom tab 未上传文件时创建项目（风格为可选）", async () => {
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument());
+
+    // Switch to custom tab WITHOUT uploading anything
+    fireEvent.click(screen.getByRole("button", { name: /自定义|Custom/ }));
+
+    // Create button should still be enabled — style is optional
+    await waitFor(() => expect(screen.getByRole("button", { name: /创建项目/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
+
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+    expect(API.createProject).toHaveBeenCalledWith(expect.objectContaining({
+      style_template_id: null,
+    }));
+    // No upload since no file
+    expect(API.uploadStyleImage).not.toHaveBeenCalled();
+  });
 });

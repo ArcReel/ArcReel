@@ -323,7 +323,7 @@ class API {
 
   static async updateProject(
     name: string,
-    updates: Partial<ProjectData>
+    updates: Partial<ProjectData> & { clear_style_image?: boolean }
   ): Promise<{ success: boolean; project: ProjectData }> {
     if ("content_mode" in updates) {
       throw new Error("项目创建后不支持修改 content_mode");

@@ -45,13 +45,16 @@
 
 ### 互斥约束
 
+- 风格是**可选**项：可选模版、选自定义参考图、或都不选（"无风格"终态）
 - 选择模版（step 3 "AI 漫剧" 或 "AI 真人剧" tab）：`style_template_id = <id>`, `style = <展开的 prompt 文本>`, `style_image/style_description` 清空（若有）
 - 上传参考图（step 3 "自定义" tab）：`style_template_id = null`, `style = ""`, `style_image/style_description` 由 `POST /style-image` 写入
 - 后端读取时若同时出现两者（历史数据竞态），以 `style_image` 优先（迁移逻辑主动清理 `style_template_id`）
-- **Settings 修改路径（Task 20 新增）**：
-  - `PATCH /projects/{name}` 接 `style_template_id`：校验 → 写入 id + `style` 展开文本 + 清 `style_image/style_description`
+- **Settings 修改路径（Task 20）**：
+  - `PATCH /projects/{name}` 接 `style_template_id`（非空）：校验 → 写入 id + `style` 展开文本 + 清 `style_image/style_description`
+  - `PATCH /projects/{name}` 接 `style_template_id: null`：清 `style_template_id` + `style = ""`（同时清掉派生 prompt，避免孤儿文本）
   - `PATCH /projects/{name}` 接 `clear_style_image: true`：清 `style_image/style_description`
-  - `POST /projects/{name}/style-image`：写入 `style_image/style_description` + **同时清 `style_template_id`**
+  - 一次性取消所有风格：同时带 `style_template_id: null` + `clear_style_image: true`
+  - `POST /projects/{name}/style-image`：写入 `style_image/style_description` + **同时清 `style_template_id` 与 `style`**（完整互斥）
 
 ### 模版注册表（权威源在后端）
 
@@ -180,9 +183,7 @@ interface State {
 **导航按钮行为**
 - Step 1 下一步：`title.trim()` 非空
 - Step 2 下一步：总是允许
-- Step 3 创建项目：
-  - `styleMode === "template"`：`styleTemplateId !== null`（默认已有）
-  - `styleMode === "custom"`：`uploadedFile !== null`
+- Step 3 创建项目：始终允许（风格为可选）。若用户在 custom tab 未上传，则项目以"无风格"态建立，`style_template_id = null` 且无 `style_image`
 
 **Tab 切换语义**
 - 切到 `custom`：`styleMode = "custom"`；`styleTemplateId` 保留在 state 但不起作用（UI 视觉置灰）

@@ -164,8 +164,18 @@ export function ProjectSettingsPage() {
     if (!styleValue || !init) return false;
     if (styleValue.mode !== init.mode) return true;
     if (styleValue.mode === "template") return styleValue.templateId !== init.templateId;
-    return styleValue.uploadedFile !== null;
+    // custom 模式：新上传文件、或既有图被用户清空（preview 从 URL 变为 null）
+    return styleValue.uploadedFile !== null || styleValue.uploadedPreview !== init.uploadedPreview;
   })();
+
+  // "无风格"态：模版未选 + 未上传新文件 + 未保留旧预览
+  const isStyleCleared = !!styleValue
+    && styleValue.templateId === null
+    && styleValue.uploadedFile === null
+    && !styleValue.uploadedPreview;
+  const hasInitialStyle = !!initialStyleRef.current
+    && (initialStyleRef.current.templateId !== null
+      || initialStyleRef.current.uploadedPreview !== null);
 
   const isDirty =
     videoBackend !== initialRef.current.videoBackend ||
@@ -191,11 +201,7 @@ export function ProjectSettingsPage() {
     navigate(path);
   }, [isDirty, navigate, t]);
 
-  const isStyleSaveDisabled = useMemo(() => {
-    if (savingStyle || !styleValue) return true;
-    if (styleValue.mode === "template") return !styleValue.templateId;
-    return !styleValue.uploadedFile && !styleValue.uploadedPreview;
-  }, [savingStyle, styleValue]);
+  const isStyleSaveDisabled = savingStyle || !styleIsDirty;
 
   const handleSaveStyle = useCallback(async () => {
     if (!styleValue) return;
@@ -206,7 +212,11 @@ export function ProjectSettingsPage() {
       } else if (styleValue.mode === "custom" && styleValue.uploadedFile) {
         await API.uploadStyleImage(projectName, styleValue.uploadedFile);
       } else {
-        return;
+        // 取消风格：显式清掉模板 ID 与自定义图
+        await API.updateProject(projectName, {
+          style_template_id: null,
+          clear_style_image: true,
+        });
       }
       // Refetch project to reset styleValue from canonical server state
       const refreshed = await API.getProject(projectName);
@@ -220,6 +230,16 @@ export function ProjectSettingsPage() {
       setSavingStyle(false);
     }
   }, [styleValue, projectName, t]);
+
+  const handleClearStyle = useCallback(() => {
+    if (!styleValue) return;
+    setStyleValue({
+      ...styleValue,
+      templateId: null,
+      uploadedFile: null,
+      uploadedPreview: null,
+    });
+  }, [styleValue]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -286,8 +306,17 @@ export function ProjectSettingsPage() {
                 {savingStyle && <Loader2 className="h-4 w-4 animate-spin" />}
                 {savingStyle ? t("style_saving") : t("style_save")}
               </button>
-              {isStyleSaveDisabled && !savingStyle && (
-                <p className="text-xs text-gray-500">{t("style_save_hint_required")}</p>
+              {hasInitialStyle && !isStyleCleared && !savingStyle && (
+                <button
+                  type="button"
+                  onClick={handleClearStyle}
+                  className="text-sm text-gray-400 hover:text-gray-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950 rounded"
+                >
+                  {t("style_clear")}
+                </button>
+              )}
+              {isStyleCleared && !savingStyle && styleIsDirty && (
+                <p className="text-xs text-gray-500">{t("style_cleared_hint")}</p>
               )}
             </div>
           </div>

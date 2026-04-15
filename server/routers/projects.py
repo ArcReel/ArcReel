@@ -90,6 +90,7 @@ class UpdateProjectRequest(BaseModel):
     text_backend_overview: str | None = None
     text_backend_style: str | None = None
     style_template_id: str | None = None
+    clear_style_image: bool | None = None
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -566,7 +567,9 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
 
             if "style_template_id" in req.model_fields_set:
                 if req.style_template_id is None:
+                    # 取消模版选择：同时清掉展开的 style prompt，避免遗留孤儿文本
                     project.pop("style_template_id", None)
+                    project["style"] = ""
                 else:
                     if not is_known_template(req.style_template_id):
                         raise HTTPException(
@@ -575,9 +578,14 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                         )
                     project["style_template_id"] = req.style_template_id
                     project["style"] = resolve_template_prompt(req.style_template_id)
-                    # 强互斥：模版与参考图二选一
+                    # 强互斥:模版与参考图二选一
                     project.pop("style_image", None)
                     project.pop("style_description", None)
+
+            if req.clear_style_image:
+                # 显式清除自定义参考图，用于"取消风格"流程
+                project.pop("style_image", None)
+                project.pop("style_description", None)
 
             with project_change_source("webui"):
                 manager.save_project(name, project)
