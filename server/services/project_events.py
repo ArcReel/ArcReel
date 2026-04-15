@@ -398,14 +398,21 @@ class ProjectEventService:
             if isinstance(data, dict)
         }
 
-        clues = {
+        scenes = {
             name: {
-                "type": str(data.get("type") or ""),
                 "description": str(data.get("description") or ""),
-                "importance": str(data.get("importance") or ""),
-                "clue_sheet": str(data.get("clue_sheet") or ""),
+                "scene_sheet": str(data.get("scene_sheet") or ""),
             }
-            for name, data in sorted(project.get("clues", {}).items())
+            for name, data in sorted(project.get("scenes", {}).items())
+            if isinstance(data, dict)
+        }
+
+        props = {
+            name: {
+                "description": str(data.get("description") or ""),
+                "prop_sheet": str(data.get("prop_sheet") or ""),
+            }
+            for name, data in sorted(project.get("props", {}).items())
             if isinstance(data, dict)
         }
 
@@ -449,7 +456,8 @@ class ProjectEventService:
             "project": {
                 "meta": project_meta,
                 "characters": characters,
-                "clues": clues,
+                "scenes": scenes,
+                "props": props,
                 "overview": normalized_overview,
                 "episodes": episodes,
             },
@@ -463,7 +471,6 @@ class ProjectEventService:
             raw_items = []
         id_field = "segment_id" if content_mode == "narration" else "scene_id"
         chars_field = "characters_in_segment" if content_mode == "narration" else "characters_in_scene"
-        clues_field = "clues_in_segment" if content_mode == "narration" else "clues_in_scene"
 
         items: dict[str, Any] = {}
         for item in raw_items:
@@ -479,7 +486,8 @@ class ProjectEventService:
                 "duration_seconds": item.get("duration_seconds"),
                 "segment_break": bool(item.get("segment_break")),
                 "characters": sorted(str(name) for name in item.get(chars_field, []) or []),
-                "clues": sorted(str(name) for name in item.get(clues_field, []) or []),
+                "scenes": sorted(str(name) for name in item.get("scenes", []) or []),
+                "props": sorted(str(name) for name in item.get("props", []) or []),
                 "image_prompt": item.get("image_prompt"),
                 "video_prompt": item.get("video_prompt"),
                 "generated_assets": {
@@ -513,10 +521,18 @@ class ProjectEventService:
         )
         changes.extend(
             self._diff_named_entities(
-                entity_type="clue",
-                previous_items=previous["project"]["clues"],
-                current_items=current["project"]["clues"],
-                pane="clues",
+                entity_type="scene",
+                previous_items=previous["project"]["scenes"],
+                current_items=current["project"]["scenes"],
+                pane="scenes",
+            )
+        )
+        changes.extend(
+            self._diff_named_entities(
+                entity_type="prop",
+                previous_items=previous["project"]["props"],
+                current_items=current["project"]["props"],
+                pane="props",
             )
         )
         if previous["project"]["meta"] != current["project"]["meta"]:

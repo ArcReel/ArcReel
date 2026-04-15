@@ -163,16 +163,21 @@ class TestStatusCalculator:
         project_root = tmp_path / "projects"
         project_path = project_root / "demo"
         (project_path / "characters").mkdir(parents=True)
-        (project_path / "clues").mkdir(parents=True)
+        (project_path / "scenes").mkdir(parents=True)
+        (project_path / "props").mkdir(parents=True)
         (project_path / "characters" / "A.png").write_bytes(b"ok")
-        (project_path / "clues" / "C.png").write_bytes(b"ok")
+        (project_path / "scenes" / "S1.png").write_bytes(b"ok")
+        (project_path / "props" / "P1.png").write_bytes(b"ok")
 
         project = {
             "overview": {"synopsis": "test"},
             "characters": {"A": {"character_sheet": "characters/A.png"}, "B": {"character_sheet": ""}},
-            "clues": {
-                "C": {"importance": "major", "clue_sheet": "clues/C.png"},
-                "D": {"importance": "minor", "clue_sheet": ""},
+            "scenes": {
+                "S1": {"scene_sheet": "scenes/S1.png"},
+                "S2": {"scene_sheet": ""},
+            },
+            "props": {
+                "P1": {"prop_sheet": "props/P1.png"},
             },
             "episodes": [
                 {"episode": 1, "script_file": "scripts/episode_1.json"},
@@ -192,7 +197,8 @@ class TestStatusCalculator:
         assert status["current_phase"] == "completed"
         assert status["phase_progress"] == 1.0
         assert status["characters"] == {"total": 2, "completed": 1}
-        assert status["clues"] == {"total": 2, "completed": 1}
+        assert status["scenes"] == {"total": 2, "completed": 1}
+        assert status["props"] == {"total": 1, "completed": 1}
         assert status["episodes_summary"] == {"total": 1, "scripted": 1, "in_production": 0, "completed": 1}
 
     def test_enrich_project(self, tmp_path):
@@ -205,7 +211,8 @@ class TestStatusCalculator:
                 {"episode": 2, "script_file": "scripts/missing.json"},
             ],
             "characters": {},
-            "clues": {},
+            "scenes": {},
+            "props": {},
         }
         script = {
             "content_mode": "narration",
@@ -214,7 +221,8 @@ class TestStatusCalculator:
                     "segment_id": "E1S01",
                     "duration_seconds": 6,
                     "characters_in_segment": ["A", "B"],
-                    "clues_in_segment": ["C"],
+                    "scenes": ["S1"],
+                    "props": ["P1"],
                     "generated_assets": {},
                 }
             ],
@@ -251,7 +259,8 @@ class TestStatusCalculator:
                     "segment_id": "E1S01",
                     "duration_seconds": 6,
                     "characters_in_segment": ["A", "B"],
-                    "clues_in_segment": ["C"],
+                    "scenes": ["S1"],
+                    "props": ["P1"],
                     "generated_assets": {},
                 }
             ],
@@ -261,7 +270,8 @@ class TestStatusCalculator:
         assert enriched_script["metadata"]["total_scenes"] == 1
         assert enriched_script["metadata"]["estimated_duration_seconds"] == 6
         assert enriched_script["characters_in_episode"] == ["A", "B"]
-        assert enriched_script["clues_in_episode"] == ["C"]
+        assert enriched_script["scenes_in_episode"] == ["S1"]
+        assert enriched_script["props_in_episode"] == ["P1"]
 
     def test_load_episode_script_corrupted_json(self, tmp_path):
         """JSON 损坏时应降级返回 ('generated', None)，而不是上抛异常。"""
