@@ -49,15 +49,6 @@ def build_character_prompt(name: str, description: str, style: str = "", style_d
 画质：高清，细节清晰，色彩准确。"""
 
 
-def build_clue_prompt(
-    name: str, description: str, clue_type: str = "prop", style: str = "", style_description: str = ""
-) -> str:
-    """Deprecated 兼容 wrapper，Task 11 后删除。使用 build_scene_prompt / build_prop_prompt 取代。"""
-    if clue_type == "location":
-        return build_scene_prompt(name, description, style, style_description)
-    return build_prop_prompt(name, description, style, style_description)
-
-
 def build_prop_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
     """
     构建道具设计图 Prompt

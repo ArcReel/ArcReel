@@ -113,7 +113,7 @@ async def generate_storyboard(
         def _sync():
             get_project_manager().load_project(project_name)
             script = get_project_manager().load_script(project_name, req.script_file)
-            items, id_field, _, _ = get_storyboard_items(script)
+            items, id_field, _, _, _ = get_storyboard_items(script)
             resolved = find_storyboard_item(items, id_field, segment_id)
             if resolved is None:
                 raise HTTPException(status_code=404, detail=_t("segment_not_found", id=segment_id))

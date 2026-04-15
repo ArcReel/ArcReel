@@ -51,7 +51,7 @@ def generate_grid(
     script = pm.load_script(project_name, script_filename)
     episode = ProjectManager.resolve_episode_from_script(script, script_filename)
     project_path = pm.get_project_path(project_name)
-    items, id_field, _, _ = get_storyboard_items(script)
+    items, id_field, _, _, _ = get_storyboard_items(script)
     aspect_ratio = project.get("aspect_ratio", "9:16")
     style = project.get("style", "")
 
@@ -162,7 +162,7 @@ def main():
         pm, project_name = ProjectManager.from_cwd()
         project = pm.load_project(project_name)
         script = pm.load_script(project_name, args.script_file)
-        items, id_field, _, _ = get_storyboard_items(script)
+        items, id_field, _, _, _ = get_storyboard_items(script)
         aspect_ratio = project.get("aspect_ratio", "9:16")
         groups = group_scenes_by_segment_break(items, id_field)
         print(f"共 {len(groups)} 个分组：")

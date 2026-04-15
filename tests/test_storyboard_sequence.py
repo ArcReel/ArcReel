@@ -18,12 +18,14 @@ class TestStoryboardSequence:
         assert narration_items[1:] == (
             "segment_id",
             "characters_in_segment",
-            "clues_in_segment",
+            "scenes",
+            "props",
         )
         assert drama_items[1:] == (
             "scene_id",
             "characters_in_scene",
-            "clues_in_scene",
+            "scenes",
+            "props",
         )
 
     def test_resolve_previous_storyboard_path_respects_first_item_and_segment_break(self, tmp_path: Path):

@@ -34,7 +34,8 @@ class _FakePM:
                     "reference_image": "characters/refs/Alice-ref.png",
                 }
             },
-            "clues": {"玉佩": {"type": "prop", "clue_sheet": "clues/玉佩.png"}},
+            "scenes": {"祠堂": {"scene_sheet": "scenes/祠堂.png"}},
+            "props": {"玉佩": {"prop_sheet": "props/玉佩.png"}},
         }
         self.script = {
             "content_mode": "narration",
@@ -44,7 +45,8 @@ class _FakePM:
                     "duration_seconds": 4,
                     "segment_break": False,
                     "characters_in_segment": [],
-                    "clues_in_segment": [],
+                    "scenes": [],
+                    "props": [],
                     "image_prompt": "首镜头",
                 },
                 {
@@ -52,7 +54,8 @@ class _FakePM:
                     "duration_seconds": 4,
                     "segment_break": False,
                     "characters_in_segment": ["Alice"],
-                    "clues_in_segment": ["玉佩"],
+                    "scenes": ["祠堂"],
+                    "props": ["玉佩"],
                     "image_prompt": {
                         "scene": "在雨夜街道",
                         "composition": {
@@ -67,7 +70,8 @@ class _FakePM:
                     "duration_seconds": 4,
                     "segment_break": True,
                     "characters_in_segment": ["Alice"],
-                    "clues_in_segment": ["玉佩"],
+                    "scenes": ["祠堂"],
+                    "props": ["玉佩"],
                     "image_prompt": "切场后的镜头",
                 },
             ],
@@ -94,6 +98,18 @@ class _FakePM:
 
     def project_exists(self, project_name: str) -> bool:
         return True
+
+    def update_scene_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
+        self.project.setdefault("scenes", {}).setdefault(name, {})["scene_sheet"] = sheet_path
+        return self.project
+
+    def update_prop_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
+        self.project.setdefault("props", {}).setdefault(name, {})["prop_sheet"] = sheet_path
+        return self.project
+
+    def update_project_character_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
+        self.project.setdefault("characters", {}).setdefault(name, {})["character_sheet"] = sheet_path
+        return self.project
 
 
 class _FakeGenerator:
@@ -127,11 +143,13 @@ def _prepare_files(tmp_path: Path):
     (project_path / "storyboards").mkdir(parents=True, exist_ok=True)
     (project_path / "characters").mkdir(parents=True, exist_ok=True)
     (project_path / "characters" / "refs").mkdir(parents=True, exist_ok=True)
-    (project_path / "clues").mkdir(parents=True, exist_ok=True)
+    (project_path / "scenes").mkdir(parents=True, exist_ok=True)
+    (project_path / "props").mkdir(parents=True, exist_ok=True)
     (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
     (project_path / "characters" / "Alice.png").write_bytes(b"png")
     (project_path / "characters" / "refs" / "Alice-ref.png").write_bytes(b"png")
-    (project_path / "clues" / "玉佩.png").write_bytes(b"png")
+    (project_path / "scenes" / "祠堂.png").write_bytes(b"png")
+    (project_path / "props" / "玉佩.png").write_bytes(b"png")
     return project_path
 
 
@@ -194,7 +212,8 @@ class TestGenerationTasks:
         storyboard_refs = fake_generator.image_calls[0]["reference_images"]
         assert storyboard_refs == [
             project_path / "characters" / "Alice.png",
-            project_path / "clues" / "玉佩.png",
+            project_path / "scenes" / "祠堂.png",
+            project_path / "props" / "玉佩.png",
             project_path / "characters" / "Alice.png",
             {
                 "image": project_path / "storyboards" / "scene_E1S01.png",
@@ -210,7 +229,8 @@ class TestGenerationTasks:
         )
         assert fake_generator.image_calls[1]["reference_images"] == [
             project_path / "characters" / "Alice.png",
-            project_path / "clues" / "玉佩.png",
+            project_path / "scenes" / "祠堂.png",
+            project_path / "props" / "玉佩.png",
         ]
 
         video_result = await generation_tasks.execute_video_task(
@@ -229,12 +249,19 @@ class TestGenerationTasks:
         assert character_result["resource_type"] == "characters"
         assert fake_pm.project["characters"]["Alice"]["character_sheet"] == "characters/Alice.png"
 
-        clue_result = await generation_tasks.execute_clue_task(
+        scene_result = await generation_tasks.execute_scene_task(
+            "demo",
+            "祠堂",
+            {"prompt": "场景描述"},
+        )
+        assert scene_result["resource_type"] == "scenes"
+
+        prop_result = await generation_tasks.execute_prop_task(
             "demo",
             "玉佩",
-            {"prompt": "线索描述"},
+            {"prompt": "道具描述"},
         )
-        assert clue_result["resource_type"] == "clues"
+        assert prop_result["resource_type"] == "props"
 
         dispatch = await generation_tasks.execute_generation_task(
             {
@@ -376,7 +403,10 @@ class TestGenerationTasks:
             await generation_tasks.execute_character_task("demo", "Alice", {"prompt": ""})
 
         with pytest.raises(ValueError):
-            await generation_tasks.execute_clue_task("demo", "玉佩", {"prompt": ""})
+            await generation_tasks.execute_scene_task("demo", "祠堂", {"prompt": ""})
+
+        with pytest.raises(ValueError):
+            await generation_tasks.execute_prop_task("demo", "玉佩", {"prompt": ""})
 
 
 class TestGetAspectRatio:

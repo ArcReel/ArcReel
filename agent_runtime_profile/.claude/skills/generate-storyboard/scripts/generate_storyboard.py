@@ -102,7 +102,7 @@ def get_items_from_script(script: dict) -> tuple:
         script: 剧本数据
 
     Returns:
-        (items_list, id_field, char_field, clue_field) 元组
+        (items_list, id_field, char_field, scene_field, prop_field) 元组
     """
     return get_storyboard_items(script)
 
@@ -110,12 +110,10 @@ def get_items_from_script(script: dict) -> tuple:
 def build_storyboard_prompt(
     segment: dict,
     characters: dict = None,
-    clues: dict = None,
     style: str = "",
     style_description: str = "",
     id_field: str = "segment_id",
     char_field: str = "characters_in_segment",
-    clue_field: str = "clues_in_segment",
     content_mode: str = "narration",
 ) -> str:
     """
@@ -168,12 +166,10 @@ def _build_storyboard_specs(
     plans: list[StoryboardTaskPlan],
     items_by_id: dict[str, dict],
     characters: dict[str, dict],
-    clues: dict[str, dict],
     style: str,
     style_description: str,
     id_field: str,
     char_field: str,
-    clue_field: str,
     content_mode: str,
     script_filename: str,
 ) -> list[BatchTaskSpec]:
@@ -184,12 +180,10 @@ def _build_storyboard_specs(
         prompt = build_storyboard_prompt(
             item,
             characters,
-            clues,
             style,
             style_description,
             id_field,
             char_field,
-            clue_field,
             content_mode=content_mode,
         )
         specs.append(
@@ -253,7 +247,7 @@ def generate_storyboard_direct(
     content_mode = script.get("content_mode", "narration")
     project_data = _load_project_metadata(pm, project_name)
 
-    items, id_field, char_field, clue_field = get_items_from_script(script)
+    items, id_field, char_field, scene_field, prop_field = get_items_from_script(script)
     segments_to_process = _select_storyboard_items(items, id_field, segment_ids)
 
     if not segments_to_process:
@@ -261,7 +255,6 @@ def generate_storyboard_direct(
         return [], []
 
     characters = project_data.get("characters", {}) if project_data else {}
-    clues = project_data.get("clues", {}) if project_data else {}
     style = project_data.get("style", "") if project_data else ""
     style_description = project_data.get("style_description", "") if project_data else ""
     items_by_id = {str(item[id_field]): item for item in items if item.get(id_field)}
@@ -276,12 +269,10 @@ def generate_storyboard_direct(
         plans=dependency_plans,
         items_by_id=items_by_id,
         characters=characters,
-        clues=clues,
         style=style,
         style_description=style_description,
         id_field=id_field,
         char_field=char_field,
-        clue_field=clue_field,
         content_mode=content_mode,
         script_filename=script_filename,
     )

@@ -126,7 +126,7 @@ class CostEstimationService:
             if not script:
                 continue
 
-            raw_segments, id_key, _, _ = get_storyboard_items(script)
+            raw_segments, id_key, _, _, _ = get_storyboard_items(script)
 
             # Grid 模式：预计算每个 segment 的图片分摊费用
             grid_cost_per_segment: dict[str, tuple[float, str]] = {}

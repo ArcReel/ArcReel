@@ -97,7 +97,7 @@ async def generate_grid(
         script = get_project_manager().load_script(project_name, req.script_file)
         project_path = get_project_manager().get_project_path(project_name)
 
-        items, id_field, _, _ = get_storyboard_items(script)
+        items, id_field, _, _, _ = get_storyboard_items(script)
         aspect_ratio = project.get("aspect_ratio", "9:16")
         style = project.get("style", "")
 
