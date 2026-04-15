@@ -113,3 +113,173 @@ class TestAssetsCRUD:
         assert r2.status_code == 409
         files_after_dup = list(global_dir.iterdir())
         assert len(files_after_dup) == len(files_after_first), "duplicate upload must not leave orphan files"
+
+    def test_replace_image(self, _assets_env):
+        client = _assets_env["client"]
+        r = client.post("/api/v1/assets", data={"type": "scene", "name": "A"})
+        aid = r.json()["asset"]["id"]
+
+        img = b"\x89PNG\r\n\x1a\n" + b"\x00" * 128
+        r2 = client.post(
+            f"/api/v1/assets/{aid}/image",
+            files={"image": ("pic.png", img, "image/png")},
+        )
+        assert r2.status_code == 200
+        assert r2.json()["asset"]["image_path"] is not None
+
+    def test_replace_image_invalid_format_preserves_old_image(self, _assets_env):
+        """If new upload fails validation, old image must NOT be deleted."""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+
+        # create asset with a valid image
+        img = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+        r = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "X"},
+            files={"image": ("a.png", img, "image/png")},
+        )
+        assert r.status_code == 200
+        old_rel = r.json()["asset"]["image_path"]
+        assert old_rel
+        assert (pm.projects_root / old_rel).exists()
+
+        aid = r.json()["asset"]["id"]
+
+        # try replacing with unsupported format → 415, old file must still exist
+        bad = b"garbage"
+        r2 = client.post(
+            f"/api/v1/assets/{aid}/image",
+            files={"image": ("bad.exe", bad, "application/octet-stream")},
+        )
+        assert r2.status_code == 415
+        assert (pm.projects_root / old_rel).exists(), "old image deleted on failed replace"
+
+
+class TestFromProject:
+    def test_from_project_copies_image(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        # 造 project + character + sheet 文件
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+        sheet_rel = "characters/王.png"
+        (pm.projects_root / "demo" / "characters").mkdir(parents=True, exist_ok=True)
+        (pm.projects_root / "demo" / sheet_rel).write_bytes(b"img")
+
+        def _set_sheet(project):
+            project["characters"]["王"]["character_sheet"] = sheet_rel
+
+        pm.update_project("demo", _set_sheet)
+
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
+        assert r.status_code == 200, r.text
+        ip = r.json()["asset"]["image_path"]
+        assert ip and ip.startswith("_global_assets/character/")
+        # 落盘文件与源文件相同字节
+        assert (pm.projects_root / ip).read_bytes() == b"img"
+
+    def test_from_project_conflict_409_and_overwrite(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+
+        r1 = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
+        assert r1.status_code == 200, r1.text
+
+        r2 = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
+        assert r2.status_code == 409
+
+        r3 = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+                "overwrite": True,
+            },
+        )
+        assert r3.status_code == 200
+
+    def test_from_project_invalid_type_returns_400(self, _assets_env):
+        client = _assets_env["client"]
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "invalid",
+                "resource_id": "X",
+            },
+        )
+        assert r.status_code == 400
+
+    def test_from_project_missing_project_returns_404(self, _assets_env):
+        client = _assets_env["client"]
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "nonexistent",
+                "resource_type": "character",
+                "resource_id": "X",
+            },
+        )
+        assert r.status_code == 404
+
+    def test_from_project_missing_resource_returns_404(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "ghost",
+            },
+        )
+        assert r.status_code == 404
+
+    def test_from_project_without_sheet_has_null_image_path(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+        # No character_sheet set
+
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["asset"]["image_path"] is None
