@@ -9,12 +9,14 @@ import enAuth from './en/auth';
 import enDashboard from './en/dashboard';
 import enErrors from './en/errors';
 import enTemplates from './en/templates';
+import enAssets from './en/assets';
 
 import zhCommon from './zh/common';
 import zhAuth from './zh/auth';
 import zhDashboard from './zh/dashboard';
 import zhErrors from './zh/errors';
 import zhTemplates from './zh/templates';
+import zhAssets from './zh/assets';
 
 const resources = {
   en: {
@@ -23,6 +25,7 @@ const resources = {
     dashboard: enDashboard,
     errors: enErrors,
     templates: enTemplates,
+    assets: enAssets,
   },
   zh: {
     common: zhCommon,
@@ -30,6 +33,7 @@ const resources = {
     dashboard: zhDashboard,
     errors: zhErrors,
     templates: zhTemplates,
+    assets: zhAssets,
   },
 };
 
@@ -45,7 +49,7 @@ voidCall(i18n
     },
     // Use 'common' as the default namespace
     defaultNS: 'common',
-    ns: ['common', 'auth', 'dashboard', 'errors', 'templates'],
+    ns: ['common', 'auth', 'dashboard', 'errors', 'templates', 'assets'],
   }));
 
 export default i18n;
