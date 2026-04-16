@@ -45,7 +45,7 @@ describe("AssetPickerModal", () => {
     fireEvent.click(screen.getByText("小师妹"));
     // Click the import button (not the count span)
     const buttons = screen.getAllByRole("button");
-    const importButton = buttons.find(b => b.textContent?.includes("import_count") && !b.disabled);
+    const importButton = buttons.find(b => b.textContent?.includes("import_count") && !(b as HTMLButtonElement).disabled);
     fireEvent.click(importButton!);
     await waitFor(() => expect(onImport).toHaveBeenCalledWith(["1", "2"]));
   });
