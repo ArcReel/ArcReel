@@ -8,10 +8,11 @@ import {
   ChevronDown,
   FileText,
   Users,
-  Puzzle,
   Film,
   Circle,
   User,
+  Landmark,
+  Package,
   LayoutDashboard,
   Upload,
   X,
@@ -77,7 +78,7 @@ function CollapsibleSection({
 }
 
 // ---------------------------------------------------------------------------
-// AssetThumbnail — shared thumbnail for characters (circle) and clues (square)
+// AssetThumbnail — shared thumbnail for characters (circle) and scenes/props (square)
 // ---------------------------------------------------------------------------
 
 function AssetThumbnail({
@@ -124,7 +125,23 @@ function AssetThumbnail({
 }
 
 // ---------------------------------------------------------------------------
-// EmptyState — shared empty placeholder
+// EmptyAction — clickable empty placeholder that navigates to relevant page
+// ---------------------------------------------------------------------------
+
+function EmptyAction({ text, onClick }: { text: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left px-8 py-2 text-[11px] italic text-gray-500 hover:text-gray-300 hover:bg-gray-800/40 transition-colors"
+    >
+      {text} →
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EmptyState — shared empty placeholder (used for source files / episodes)
 // ---------------------------------------------------------------------------
 
 function EmptyState({ text }: { text: string }) {
@@ -153,7 +170,8 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   const [location, setLocation] = useLocation();
 
   const characters = currentProjectData?.characters ?? {};
-  const clues = currentProjectData?.clues ?? {};
+  const scenes = currentProjectData?.scenes ?? {};
+  const props = currentProjectData?.props ?? {};
   const episodes = currentProjectData?.episodes ?? [];
   const projectName = currentProjectName ?? "";
 
@@ -218,7 +236,8 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   }, [projectName, loadSourceFiles, location, setLocation]);
 
   const characterEntries = Object.entries(characters);
-  const clueEntries = Object.entries(clues);
+  const sceneEntries = Object.entries(scenes);
+  const propEntries = Object.entries(props);
 
   // Check if a path is active (matches current nested location)
   const isActive = (path: string) => location === path;
@@ -312,7 +331,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       {/* ---- Divider ---- */}
       <div className="mx-3 border-t border-gray-800" />
 
-      {/* ---- Section 2: Lorebook (Characters + Clues) ---- */}
+      {/* ---- Section 2: Lorebook (Characters + Scenes + Props) ---- */}
       <CollapsibleSection title={t("dashboard:lorebook")} icon={Users} defaultOpen={true}>
         {/* Characters sub-section */}
         <div className="mb-1">
@@ -321,7 +340,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
             <span>{t("dashboard:characters")}</span>
           </div>
           {characterEntries.length === 0 ? (
-            <EmptyState text={t("dashboard:no_characters_hint")} />
+            <EmptyAction onClick={() => setLocation("/characters")} text={t("dashboard:no_characters_hint_clickable")} />
           ) : (
             <ul>
               {characterEntries.map(([name, char]) => (
@@ -350,34 +369,58 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
           )}
         </div>
 
-        {/* Clues sub-section */}
-        <div>
+        {/* Scenes sub-section */}
+        <div className="mb-1">
           <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-600">
-            <Puzzle className="h-3 w-3" />
-            <span>{t("dashboard:clues")}</span>
+            <Landmark className="h-3 w-3" />
+            <span>{t("dashboard:scenes")}</span>
           </div>
-          {clueEntries.length === 0 ? (
-            <EmptyState text={t("dashboard:no_clues_hint")} />
+          {sceneEntries.length === 0 ? (
+            <EmptyAction onClick={() => setLocation("/scenes")} text={t("dashboard:no_scenes_hint_clickable")} />
           ) : (
             <ul>
-              {clueEntries.map(([name, clue]) => (
+              {sceneEntries.map(([name, scene]) => (
                 <li key={name}>
                   <button
                     type="button"
-                    onClick={() => setLocation("/clues")}
+                    onClick={() => setLocation("/scenes")}
                     className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
-                      isActive("/clues")
+                      isActive("/scenes")
                         ? "bg-gray-800 text-white"
                         : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
                     }`}
                   >
-                    <AssetThumbnail
-                      name={name}
-                      sheetPath={clue.clue_sheet}
-                      projectName={projectName}
-                      shape="square"
-                      FallbackIcon={Puzzle}
-                    />
+                    <AssetThumbnail name={name} sheetPath={scene.scene_sheet} projectName={projectName} shape="square" FallbackIcon={Landmark} />
+                    <span className="truncate">{name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Props sub-section */}
+        <div>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-600">
+            <Package className="h-3 w-3" />
+            <span>{t("dashboard:props")}</span>
+          </div>
+          {propEntries.length === 0 ? (
+            <EmptyAction onClick={() => setLocation("/props")} text={t("dashboard:no_props_hint_clickable")} />
+          ) : (
+            <ul>
+              {propEntries.map(([name, prop]) => (
+                <li key={name}>
+                  <button
+                    type="button"
+                    onClick={() => setLocation("/props")}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
+                      isActive("/props")
+                        ? "bg-gray-800 text-white"
+                        : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
+                    }`}
+                  >
+                    <AssetThumbnail name={name} sheetPath={prop.prop_sheet} projectName={projectName} shape="square" FallbackIcon={Package} />
                     <span className="truncate">{name}</span>
                   </button>
                 </li>
