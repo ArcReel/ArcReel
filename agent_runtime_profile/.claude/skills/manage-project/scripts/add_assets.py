@@ -37,6 +37,26 @@ def _strip_legacy_fields(data: dict[str, dict], asset_type: str) -> dict[str, di
     return cleaned
 
 
+def _process_asset(
+    pm: "ProjectManager",
+    project_name: str,
+    asset_key: str,
+    label: str,
+    data: dict,
+    batch_fn,
+) -> int:
+    """Strip legacy fields, compute skipped, call batch_fn, print summary, return added count."""
+    if not data:
+        return 0
+    data = _strip_legacy_fields(data, label)
+    project = pm.load_project(project_name)
+    existing = project.get(asset_key, {})
+    skipped = sum(1 for name in data if name in existing)
+    added = batch_fn(project_name, data)
+    print(f"{label}: 新增 {added} 个，跳过 {skipped} 个（已存在）")
+    return added
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="批量添加角色/场景/道具到 project.json",
@@ -98,37 +118,9 @@ def main():
 
     pm, project_name = ProjectManager.from_cwd()
 
-    # 添加角色
-    chars_added = 0
-    chars_skipped = 0
-    if characters:
-        project = pm.load_project(project_name)
-        existing = project.get("characters", {})
-        chars_skipped = sum(1 for name in characters if name in existing)
-        chars_added = pm.add_characters_batch(project_name, characters)
-        print(f"角色: 新增 {chars_added} 个，跳过 {chars_skipped} 个（已存在）")
-
-    # 添加场景
-    scenes_added = 0
-    scenes_skipped = 0
-    if scenes:
-        scenes = _strip_legacy_fields(scenes, "场景")
-        project = pm.load_project(project_name)
-        existing = project.get("scenes", {})
-        scenes_skipped = sum(1 for name in scenes if name in existing)
-        scenes_added = pm.add_scenes_batch(project_name, scenes)
-        print(f"场景: 新增 {scenes_added} 个，跳过 {scenes_skipped} 个（已存在）")
-
-    # 添加道具
-    props_added = 0
-    props_skipped = 0
-    if props:
-        props = _strip_legacy_fields(props, "道具")
-        project = pm.load_project(project_name)
-        existing = project.get("props", {})
-        props_skipped = sum(1 for name in props if name in existing)
-        props_added = pm.add_props_batch(project_name, props)
-        print(f"道具: 新增 {props_added} 个，跳过 {props_skipped} 个（已存在）")
+    chars_added = _process_asset(pm, project_name, "characters", "角色", characters, pm.add_characters_batch)
+    scenes_added = _process_asset(pm, project_name, "scenes", "场景", scenes, pm.add_scenes_batch)
+    props_added = _process_asset(pm, project_name, "props", "道具", props, pm.add_props_batch)
 
     # 数据验证
     result = validate_project(project_name, projects_root=str(pm.projects_root))
