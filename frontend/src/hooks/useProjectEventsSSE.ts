@@ -21,8 +21,10 @@ const CHANGE_PRIORITY: Record<string, number> = {
   "segment:updated": 0,
   "character:created": 1,
   "character:updated": 2,
-  "clue:created": 3,
-  "clue:updated": 4,
+  "scene:created": 3,
+  "scene:updated": 3.5,
+  "prop:created": 4,
+  "prop:updated": 4.5,
   "episode:created": 5,
   "episode:updated": 6,
   "draft:created": 6.5,
@@ -52,8 +54,10 @@ function buildNotificationTarget(change: ProjectChange): WorkspaceNotificationTa
   let route = "";
   if (focus.pane === "characters") {
     route = "/characters";
-  } else if (focus.pane === "clues") {
-    route = "/clues";
+  } else if (focus.pane === "scenes") {
+    route = "/scenes";
+  } else if (focus.pane === "props") {
+    route = "/props";
   } else if (focus.pane === "episode" && typeof focus.episode === "number") {
     route = `/episodes/${focus.episode}`;
   }

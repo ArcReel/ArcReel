@@ -35,7 +35,8 @@ describe("useProjectEventsSSE", () => {
         style: "Anime",
         episodes: [{ episode: 1, title: "第一集", script_file: "scripts/episode_1.json" }],
         characters: { hero: { description: "勇者" } },
-        clues: {},
+        scenes: {},
+        props: {},
       },
       scripts: {
         "episode_1.json": {
@@ -135,14 +136,14 @@ describe("useProjectEventsSSE", () => {
           source: "worker",
           changes: [
             {
-              entity_type: "clue",
+              entity_type: "scene",
               action: "updated",
-              entity_id: "玉佩",
-              label: "线索「玉佩」",
+              entity_id: "酒馆",
+              label: "场景「酒馆」",
               focus: {
-                pane: "clues",
-                anchor_type: "clue",
-                anchor_id: "玉佩",
+                pane: "scenes",
+                anchor_type: "scene",
+                anchor_id: "酒馆",
               },
               important: true,
             },
@@ -154,7 +155,7 @@ describe("useProjectEventsSSE", () => {
 
     await waitFor(() => {
       expect(API.getProject).toHaveBeenCalledWith("demo");
-      expect(useAppStore.getState().workspaceNotifications[0]?.target?.id).toBe("玉佩");
+      expect(useAppStore.getState().workspaceNotifications[0]?.target?.id).toBe("酒馆");
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/");
     expect(useAppStore.getState().scrollTarget).toBeNull();
@@ -252,13 +253,13 @@ describe("useProjectEventsSSE", () => {
               important: true,
             },
             {
-              entity_type: "clue",
+              entity_type: "prop",
               action: "updated",
               entity_id: "玉佩",
-              label: "线索「玉佩」",
+              label: "道具「玉佩」",
               focus: {
-                pane: "clues",
-                anchor_type: "clue",
+                pane: "props",
+                anchor_type: "prop",
                 anchor_id: "玉佩",
               },
               important: true,
@@ -271,12 +272,12 @@ describe("useProjectEventsSSE", () => {
 
     await waitFor(() => {
       expect(API.getProject).toHaveBeenCalledWith("demo");
-      expect(useAppStore.getState().toast?.text).toBe("线索「玉佩」已更新");
+      expect(useAppStore.getState().toast?.text).toBe("道具「玉佩」已更新");
     });
 
     expect(useAppStore.getState().getEntityRevision("character:hero")).toBe(1);
     expect(useAppStore.getState().getEntityRevision("character:mage")).toBe(1);
-    expect(useAppStore.getState().getEntityRevision("clue:玉佩")).toBe(1);
+    expect(useAppStore.getState().getEntityRevision("prop:玉佩")).toBe(1);
     expect(useAppStore.getState().getEntityRevision("segment:SEG-404")).toBe(0);
     expect(useAppStore.getState().workspaceNotifications).toEqual(
       expect.arrayContaining([
@@ -289,11 +290,11 @@ describe("useProjectEventsSSE", () => {
           }),
         }),
         expect.objectContaining({
-          text: "AI 刚更新了 线索「玉佩」，点击查看",
+          text: "AI 刚更新了 道具「玉佩」，点击查看",
           target: expect.objectContaining({
-            type: "clue",
+            type: "prop",
             id: "玉佩",
-            route: "/clues",
+            route: "/props",
           }),
         }),
       ]),
@@ -307,7 +308,7 @@ describe("useProjectEventsSSE", () => {
       return { close: vi.fn() } as unknown as EventSource;
     });
 
-    renderHarness("/clues");
+    renderHarness("/props");
 
     act(() => {
       capturedOptions?.onChanges?.(
@@ -319,13 +320,13 @@ describe("useProjectEventsSSE", () => {
           source: "webui",
           changes: [
             {
-              entity_type: "clue",
+              entity_type: "prop",
               action: "updated",
               entity_id: "玉佩",
-              label: "线索「玉佩」",
+              label: "道具「玉佩」",
               focus: {
-                pane: "clues",
-                anchor_type: "clue",
+                pane: "props",
+                anchor_type: "prop",
                 anchor_id: "玉佩",
               },
               important: true,
@@ -339,7 +340,7 @@ describe("useProjectEventsSSE", () => {
     await waitFor(() => {
       expect(API.getProject).toHaveBeenCalledWith("demo");
     });
-    expect(screen.getByTestId("location")).toHaveTextContent("/clues");
+    expect(screen.getByTestId("location")).toHaveTextContent("/props");
     expect(useAppStore.getState().scrollTarget).toBeNull();
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
   });
@@ -366,14 +367,14 @@ describe("useProjectEventsSSE", () => {
           source: "filesystem",
           changes: [
             {
-              entity_type: "clue",
+              entity_type: "scene",
               action: "updated",
-              entity_id: "玉佩",
-              label: "线索「玉佩」",
+              entity_id: "酒馆",
+              label: "场景「酒馆」",
               focus: {
-                pane: "clues",
-                anchor_type: "clue",
-                anchor_id: "玉佩",
+                pane: "scenes",
+                anchor_type: "scene",
+                anchor_id: "酒馆",
               },
               important: true,
             },
@@ -384,7 +385,7 @@ describe("useProjectEventsSSE", () => {
     });
 
     await waitFor(() => {
-      expect(useAppStore.getState().workspaceNotifications[0]?.target?.id).toBe("玉佩");
+      expect(useAppStore.getState().workspaceNotifications[0]?.target?.id).toBe("酒馆");
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/characters");
     expect(useAppStore.getState().scrollTarget).toBeNull();

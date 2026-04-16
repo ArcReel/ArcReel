@@ -5,7 +5,8 @@ const GROUP_NAME_LIMIT = 5;
 const ENTITY_LABELS: Record<ProjectChange["entity_type"], string> = {
   project: "项目",
   character: "角色",
-  clue: "线索",
+  scene: "场景",
+  prop: "道具",
   segment: "分镜",
   episode: "剧集",
   overview: "项目概览",
@@ -28,7 +29,7 @@ export function buildEntityRevisionKey(
 }
 
 export function buildVersionResourceRevisionKey(
-  resourceType: "storyboards" | "videos" | "characters" | "clues",
+  resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props",
   resourceId: string,
 ): string {
   if (resourceType === "storyboards" || resourceType === "videos") {
@@ -37,7 +38,10 @@ export function buildVersionResourceRevisionKey(
   if (resourceType === "characters") {
     return buildEntityRevisionKey("character", resourceId);
   }
-  return buildEntityRevisionKey("clue", resourceId);
+  if (resourceType === "scenes") {
+    return buildEntityRevisionKey("scene", resourceId);
+  }
+  return buildEntityRevisionKey("prop", resourceId);
 }
 
 export function groupChangesByType(
@@ -79,7 +83,8 @@ function getEntityLabel(group: GroupedProjectChange): string {
 function getChangeListLabel(change: ProjectChange): string {
   if (
     change.entity_type === "character" ||
-    change.entity_type === "clue" ||
+    change.entity_type === "scene" ||
+    change.entity_type === "prop" ||
     change.entity_type === "segment"
   ) {
     return change.entity_id;
