@@ -1545,6 +1545,26 @@ class API {
       { method: "POST" }
     );
   }
+
+  // ==================== Global Asset Library ====================
+
+  /**
+   * 列出全局资产库
+   */
+  static async listAssets(params?: { type?: string; q?: string }): Promise<{ items: unknown[] }> {
+    const query = new URLSearchParams();
+    if (params?.type) query.set("type", params.type);
+    if (params?.q) query.set("q", params.q);
+    const qs = query.toString();
+    return this.request(`/assets${qs ? `?${qs}` : ""}`);
+  }
+
+  /**
+   * 删除全局资产
+   */
+  static async deleteAsset(id: string): Promise<void> {
+    return this.request(`/assets/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
 }
 
 export { API };
