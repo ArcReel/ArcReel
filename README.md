@@ -15,6 +15,7 @@
 <p align="center">
   <a href="README.md"><img src="https://img.shields.io/badge/lang-中文-red?style=flat-square" alt="中文"></a>
   <a href="README.en.md"><img src="https://img.shields.io/badge/lang-English-blue?style=flat-square" alt="English"></a>
+  <a href="README.vi.md"><img src="https://img.shields.io/badge/lang-Tiếng_Việt-green?style=flat-square" alt="Tiếng Việt"></a>
 </p>
 
 <p align="center">
@@ -131,7 +132,7 @@ docker compose up -d
 - **剪映草稿导出** — 按集导出剪映草稿 ZIP，支持剪映 5.x / 6+（[操作指南](docs/jianying-export-guide.md)）
 - **宫格模式** — 多个分镜合成为宫格图（grid_4/grid_6/grid_9），自动选格，拆分后作为首尾帧驱动视频生成
 - **多 API Key 管理** — 每个供应商支持配置多个 API Key 并切换激活，支持 Google Vertex AI 凭证上传
-- **中英文双语 UI** — 前端和后端全面国际化，支持中文/英文界面切换
+- **中英越三语 UI** — 前端和后端全面国际化，支持中文/英文/越南文界面切换
 - **项目导入/导出** — 整个项目打包归档，方便备份和迁移
 
 ## 供应商支持
@@ -264,7 +265,9 @@ flowchart TB
 ## 文档
 
 - 📖 [完整入门教程](docs/getting-started.md) — 从零开始的手把手指南
+- 📖 [Hướng dẫn bắt đầu (Tiếng Việt)](docs/vi/getting-started.md) — Hướng dẫn từ A-Z bằng tiếng Việt
 - 📦 [剪映草稿导出指南](docs/jianying-export-guide.md) — 将视频片段导入剪映桌面版进行二次编辑
+- 📦 [Hướng dẫn xuất JianYing (Tiếng Việt)](docs/vi/jianying-export-guide.md)
 - 💰 [Google GenAI 费用说明](docs/google-genai-docs/Google视频&图片生成费用参考.md) — Gemini 图像 / Veo 视频生成费用参考
 - 💰 [火山方舟费用说明](docs/ark-docs/火山方舟费用参考.md) — 火山方舟视频 / 图片 / 文本模型费用参考
 

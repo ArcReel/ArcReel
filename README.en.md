@@ -15,6 +15,7 @@
 <p align="center">
   <a href="README.md"><img src="https://img.shields.io/badge/lang-中文-red?style=flat-square" alt="中文"></a>
   <a href="README.en.md"><img src="https://img.shields.io/badge/lang-English-blue?style=flat-square" alt="English"></a>
+  <a href="README.vi.md"><img src="https://img.shields.io/badge/lang-Tiếng_Việt-green?style=flat-square" alt="Tiếng Việt"></a>
 </p>
 
 <p align="center">

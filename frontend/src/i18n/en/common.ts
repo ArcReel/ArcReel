@@ -3,6 +3,7 @@ export default {
   'language': 'Language',
   'chinese': 'Chinese',
   'english': 'English',
+  'vietnamese': 'Vietnamese',
   'settings': 'Settings',
   'logout': 'Logout',
   'cancel': 'Cancel',

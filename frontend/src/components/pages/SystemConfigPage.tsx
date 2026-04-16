@@ -114,7 +114,8 @@ export function SystemConfigPage() {
           <button
             type="button"
             onClick={() => {
-              const nextLang = i18n.language.startsWith("zh") ? "en" : "zh";
+              const lang = i18n.language.split("-")[0];
+              const nextLang = lang === "zh" ? "en" : lang === "en" ? "vi" : "zh";
               void i18n.changeLanguage(nextLang);
             }}
             className="flex w-full items-center gap-3 px-4 py-2.5 text-sm border-l-2 border-transparent text-gray-400 hover:bg-gray-800/30 hover:text-gray-200 transition-colors focus-ring focus-visible:ring-inset"

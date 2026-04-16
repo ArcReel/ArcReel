@@ -734,4 +734,23 @@ export default {
 
   // SystemConfigPage - language
   'language_setting': 'Language',
+
+  // OpenClaw Integration Modal
+  'openclaw_title': 'OpenClaw Integration Guide',
+  'openclaw_subtitle': 'Connect ArcReel to OpenClaw AI Agent',
+  'openclaw_prompt_label': 'Prompt',
+  'openclaw_copy': 'Copy',
+  'openclaw_copied': 'Copied',
+  'openclaw_system_prompt': 'Learn {{skillUrl}} then follow the skill to understand how to use ArcReel for video creation',
+  'openclaw_skill_doc_url': 'Skill Doc URL:',
+  'openclaw_steps_title': 'Steps',
+  'openclaw_step1_title': 'Send the prompt above to your OpenClaw',
+  'openclaw_step1_desc': 'Copy the prompt and paste it to send to OpenClaw',
+  'openclaw_step2_title': 'OpenClaw learns capabilities from the Skill doc',
+  'openclaw_step2_desc': 'OpenClaw will automatically read the ArcReel Skill document to discover all available tools and API usage',
+  'openclaw_step3_title': 'OpenClaw interacts with ArcReel to create videos',
+  'openclaw_step3_desc': 'Describe your creative needs, and OpenClaw will call ArcReel to manage projects, generate scripts, and create videos',
+  'openclaw_close': 'Close',
+  'openclaw_get_api_token': 'Get API Token',
+  'openclaw_integration': 'OpenClaw Integration',
 };

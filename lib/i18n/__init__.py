@@ -11,6 +11,11 @@ from .en import errors as en_errors
 from .en import providers as en_providers
 from .en import system as en_system
 from .en import templates as en_templates
+from .vi import emails as vi_emails
+from .vi import errors as vi_errors
+from .vi import providers as vi_providers
+from .vi import system as vi_system
+from .vi import templates as vi_templates
 from .zh import emails as zh_emails
 from .zh import errors as zh_errors
 from .zh import providers as zh_providers
@@ -21,12 +26,13 @@ logger = logging.getLogger(__name__)
 
 # Default locale
 DEFAULT_LOCALE = "zh"
-SUPPORTED_LOCALES = ["zh", "en"]
+SUPPORTED_LOCALES = ["zh", "en", "vi"]
 
 # Mapping from locale code to human-readable language name
 LOCALE_LANGUAGE_MAP: dict[str, str] = {
     "zh": "中文",
     "en": "English",
+    "vi": "Tiếng Việt",
 }
 
 # Merged message dictionary
@@ -44,6 +50,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         **en_emails.MESSAGES,
         **en_providers.MESSAGES,
         **en_templates.MESSAGES,
+    },
+    "vi": {
+        **vi_errors.MESSAGES,
+        **vi_system.MESSAGES,
+        **vi_emails.MESSAGES,
+        **vi_providers.MESSAGES,
+        **vi_templates.MESSAGES,
     },
 }
 
