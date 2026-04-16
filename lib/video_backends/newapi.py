@@ -155,7 +155,7 @@ class NewAPIVideoBackend:
             video_path=request.output_path,
             provider=PROVIDER_NEWAPI,
             model=self._model,
-            duration_seconds=int(meta.get("duration") or request.duration_seconds),
+            duration_seconds=int(float(meta.get("duration") or request.duration_seconds)),
             task_id=task_id,
             seed=meta.get("seed"),
         )
