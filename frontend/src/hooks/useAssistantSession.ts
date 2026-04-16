@@ -5,6 +5,7 @@ import { uid } from "@/utils/id";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type {
   AssistantSnapshot,
+  PendingApproval,
   PendingQuestion,
   SessionMeta,
   SessionStatus,
@@ -127,9 +128,18 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setAnsweringQuestion(false);
   }, [store]);
 
+  const syncPendingApproval = useCallback((approval: PendingApproval | null) => {
+    store.getState().setPendingApproval(approval);
+    store.getState().setDecidingApproval(false);
+  }, [store]);
+
   const clearPendingQuestion = useCallback(() => {
     syncPendingQuestion(null);
   }, [syncPendingQuestion]);
+
+  const clearPendingApproval = useCallback(() => {
+    syncPendingApproval(null);
+  }, [syncPendingApproval]);
 
   const invalidatePendingSend = useCallback(() => {
     pendingSendVersionRef.current += 1;
@@ -187,7 +197,8 @@ export function useAssistantSession(projectName: string | null) {
 
     store.getState().setDraftTurn((snapshot.draft_turn as Turn) ?? null);
     syncPendingQuestion(getPendingQuestionFromSnapshot(snapshot));
-  }, [store, syncPendingQuestion]);
+    syncPendingApproval(getPendingApprovalFromSnapshot(snapshot));
+  }, [store, syncPendingQuestion, syncPendingApproval]);
 
   // 关闭流
   const closeStream = useCallback(() => {
@@ -288,6 +299,7 @@ export function useAssistantSession(projectName: string | null) {
           store.getState().setSending(false);
           store.getState().setInterrupting(false);
           clearPendingQuestion();
+          clearPendingApproval();
           if (status !== "interrupted") {
             store.getState().setDraftTurn(null);
           }
@@ -312,6 +324,15 @@ export function useAssistantSession(projectName: string | null) {
         }
       });
 
+      source.addEventListener("approval", (event) => {
+        if (!isActiveStream()) return;
+        const payload = parseSsePayload(event);
+        const pendingApproval = getPendingApprovalFromEvent(payload);
+        if (pendingApproval) {
+          syncPendingApproval(pendingApproval);
+        }
+      });
+
       source.onerror = () => {
         if (!isActiveStream()) return;
         // 重连条件：session 正在运行，或者前端正在发送消息。
@@ -324,7 +345,7 @@ export function useAssistantSession(projectName: string | null) {
         }
       };
     },
-    [applySnapshot, clearPendingQuestion, projectName, closeStream, store, syncPendingQuestion],
+    [applySnapshot, clearPendingQuestion, clearPendingApproval, projectName, closeStream, store, syncPendingQuestion, syncPendingApproval],
   );
 
   // 加载会话
@@ -348,6 +369,7 @@ export function useAssistantSession(projectName: string | null) {
         if (!sessionId) {
           store.getState().setCurrentSessionId(null);
           clearPendingQuestion();
+          clearPendingApproval();
           store.getState().setMessagesLoading(false);
           return;
         }
@@ -395,6 +417,7 @@ export function useAssistantSession(projectName: string | null) {
     projectName,
     applySnapshot,
     clearPendingQuestion,
+    clearPendingApproval,
     connectStream,
     closeStream,
     invalidatePendingSend,
@@ -514,6 +537,26 @@ export function useAssistantSession(projectName: string | null) {
     [projectName, store],
   );
 
+  const decideApproval = useCallback(
+    async (requestId: string, decision: "allow" | "deny", updatedInput?: Record<string, unknown>, message?: string) => {
+      const sessionId = store.getState().currentSessionId;
+      if (!projectName || !sessionId) return;
+
+      store.getState().setError(null);
+      store.getState().setDecidingApproval(true);
+
+      try {
+        await API.decideAssistantToolApproval(projectName, sessionId, requestId, decision, updatedInput, message);
+        store.getState().setPendingApproval(null);
+      } catch (err) {
+        store.getState().setError((err as Error).message ?? "审批操作失败");
+      } finally {
+        store.getState().setDecidingApproval(false);
+      }
+    },
+    [projectName, store],
+  );
+
   // 中断会话
   const interrupt = useCallback(async () => {
     const sessionId = store.getState().currentSessionId;
@@ -538,10 +581,11 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setDraftTurn(null);
     store.getState().setSessionStatus("idle");
     clearPendingQuestion();
+    clearPendingApproval();
     store.getState().setCurrentSessionId(null);
     store.getState().setIsDraftSession(true);
     statusRef.current = "idle";
-  }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, store]);
+  }, [projectName, clearPendingQuestion, clearPendingApproval, closeStream, invalidatePendingSend, store]);
 
   // 切换到指定会话
   const switchSession = useCallback(async (sessionId: string) => {
@@ -554,6 +598,7 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setTurns([]);
     store.getState().setDraftTurn(null);
     clearPendingQuestion();
+    clearPendingApproval();
     store.getState().setMessagesLoading(true);
 
     // 记住选择
@@ -578,7 +623,7 @@ export function useAssistantSession(projectName: string | null) {
     } finally {
       store.getState().setMessagesLoading(false);
     }
-  }, [projectName, applySnapshot, clearPendingQuestion, closeStream, connectStream, invalidatePendingSend, store]);
+  }, [projectName, applySnapshot, clearPendingQuestion, clearPendingApproval, closeStream, connectStream, invalidatePendingSend, store]);
 
   // 删除会话
   const deleteSession = useCallback(async (sessionId: string) => {
@@ -600,15 +645,16 @@ export function useAssistantSession(projectName: string | null) {
           store.getState().setDraftTurn(null);
           store.getState().setSessionStatus(null);
           clearPendingQuestion();
+          clearPendingApproval();
           statusRef.current = "idle";
         }
       }
     } catch {
       // 静默失败
     }
-  }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, switchSession, store]);
+  }, [projectName, clearPendingQuestion, clearPendingApproval, closeStream, invalidatePendingSend, switchSession, store]);
 
-  return { sendMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession };
+  return { sendMessage, answerQuestion, decideApproval, interrupt, createNewSession, switchSession, deleteSession };
 }
 
 function getPendingQuestionFromSnapshot(
@@ -640,5 +686,40 @@ function getPendingQuestionFromEvent(payload: Record<string, unknown>): PendingQ
   return {
     question_id: payload.question_id,
     questions: payload.questions as PendingQuestion["questions"],
+  };
+}
+
+function getPendingApprovalFromSnapshot(
+  snapshot: Partial<AssistantSnapshot> | Record<string, unknown>,
+): PendingApproval | null {
+  const approvals = snapshot.pending_approvals as Array<Record<string, unknown>> | undefined;
+  const pending = approvals?.[0]; // backend only emits one at a time for now
+
+  if (!pending) {
+    return null;
+  }
+
+  return {
+    type: "tool_approval_request",
+    request_id: pending.request_id as string,
+    tool_name: pending.tool_name as string,
+    input: pending.input as Record<string, unknown>,
+    session_id: pending.session_id as string,
+    timestamp: pending.timestamp as string,
+  };
+}
+
+function getPendingApprovalFromEvent(payload: Record<string, unknown>): PendingApproval | null {
+  if (payload.type !== "tool_approval_request" || typeof payload.request_id !== "string") {
+    return null;
+  }
+
+  return {
+    type: "tool_approval_request",
+    request_id: payload.request_id,
+    tool_name: payload.tool_name as string,
+    input: payload.input as Record<string, unknown>,
+    session_id: payload.session_id as string,
+    timestamp: payload.timestamp as string || new Date().toISOString(),
   };
 }

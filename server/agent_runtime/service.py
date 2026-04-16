@@ -155,13 +155,16 @@ class AssistantService:
         projector = await self._build_projector(meta, session_id)
 
         pending_questions = []
+        pending_approvals = []
         if status == "running":
             pending_questions = await self.session_manager.get_pending_questions_snapshot(session_id)
+            pending_approvals = await self.session_manager.get_pending_approvals_snapshot(session_id)
         snapshot = await self._with_session_metadata(
             projector.build_snapshot(
                 session_id=session_id,
                 status=status,
                 pending_questions=pending_questions,
+                pending_approvals=pending_approvals,
             ),
             session_id=session_id,
         )
@@ -286,6 +289,31 @@ class AssistantService:
         await self.session_manager.answer_user_question(session_id, question_id, answers)
         return {"status": "accepted", "session_id": session_id, "question_id": question_id}
 
+    async def answer_tool_approval(
+        self,
+        session_id: str,
+        request_id: str,
+        decision: str,
+        updated_input: dict[str, Any] | None = None,
+        message: str | None = None,
+        *,
+        meta: SessionMeta | None = None,
+    ) -> dict[str, Any]:
+        """Submit a decision for a pending tool approval request."""
+        if meta is None:
+            meta = await self.meta_store.get(session_id)
+            if meta is None:
+                raise FileNotFoundError(f"session not found: {session_id}")
+        data: dict[str, Any] | str
+        if decision == "allow":
+            data = updated_input if updated_input is not None else {}
+        else:
+            data = message or "用户拒绝了此工具调用"
+        await self.session_manager.resolve_pending_approval(
+            session_id, request_id, decision, data
+        )
+        return {"status": "accepted", "session_id": session_id, "request_id": request_id}
+
     async def interrupt_session(self, session_id: str, *, meta: SessionMeta | None = None) -> dict[str, Any]:
         """Interrupt a running session."""
         if meta is None:
@@ -368,6 +396,7 @@ class AssistantService:
                 session_id=session_id,
                 status=status,
                 pending_questions=[],
+                pending_approvals=[],
             ),
             session_id=session_id,
         )
@@ -391,13 +420,16 @@ class AssistantService:
     ) -> list[ServerSentEvent]:
         """Build snapshot (+ optional terminal status) for a possibly-running session."""
         pending_questions: list[dict[str, Any]] = []
+        pending_approvals: list[dict[str, Any]] = []
         if status == "running":
             pending_questions = await self.session_manager.get_pending_questions_snapshot(session_id)
+            pending_approvals = await self.session_manager.get_pending_approvals_snapshot(session_id)
         snapshot_payload = await self._with_session_metadata(
             projector.build_snapshot(
                 session_id=session_id,
                 status=status,
                 pending_questions=pending_questions,
+                pending_approvals=pending_approvals,
             ),
             session_id=session_id,
         )
@@ -476,6 +508,17 @@ class AssistantService:
             )
 
         msg_type = message.get("type", "")
+
+        if msg_type == "tool_approval_request":
+            events.append(
+                self._sse_event(
+                    "approval",
+                    await self._with_session_metadata(
+                        message,
+                        session_id=session_id,
+                    ),
+                )
+            )
 
         if msg_type == "_queue_overflow":
             return events, True

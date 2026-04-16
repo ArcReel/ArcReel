@@ -499,6 +499,7 @@ class AssistantStreamProjector:
         session_id: str,
         status: str,
         pending_questions: list[dict[str, Any]] | None = None,
+        pending_approvals: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Build unified snapshot payload for API and SSE."""
         # self.turns are already normalized by group_messages_into_turns
@@ -508,4 +509,5 @@ class AssistantStreamProjector:
             "turns": self.turns,
             "draft_turn": self._build_visible_draft_turn(),
             "pending_questions": pending_questions or [],
+            "pending_approvals": pending_approvals or [],
         }

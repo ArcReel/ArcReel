@@ -95,3 +95,4 @@ deploy/production/vertex_keys/
 deploy/production/claude_data/
 deploy/production/pgdata/
 .venv
+._*

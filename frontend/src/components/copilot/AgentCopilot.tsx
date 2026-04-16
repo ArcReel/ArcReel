@@ -12,6 +12,7 @@ import type { AttachedImage } from "@/hooks/useAssistantSession";
 import { Popover } from "@/components/ui/Popover";
 import { ContextBanner } from "./ContextBanner";
 import { PendingQuestionWizard } from "./PendingQuestionWizard";
+import { ToolApprovalCard } from "./ToolApprovalCard";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 import { TodoListPanel } from "./TodoListPanel";
@@ -140,12 +141,12 @@ export function AgentCopilot() {
   const { t } = useTranslation(["dashboard", "common"]);
   const {
     turns, draftTurn, messagesLoading,
-    sending, sessionStatus, pendingQuestion, answeringQuestion, error,
+    sending, sessionStatus, pendingQuestion, answeringQuestion, pendingApproval, decidingApproval, error,
   } = useAssistantStore();
 
   const { currentProjectName } = useProjectsStore();
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
-  const { sendMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession } =
+  const { sendMessage, answerQuestion, decideApproval, interrupt, createNewSession, switchSession, deleteSession } =
     useAssistantSession(currentProjectName);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -161,7 +162,7 @@ export function AgentCopilot() {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const allTurns = composeAllTurns(turns, draftTurn);
   const isRunning = sessionStatus === "running";
-  const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
+  const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || Boolean(pendingApproval) || decidingApproval || isRunning || sending;
   const attachDisabled = inputDisabled || attachedImages.length >= MAX_IMAGES;
   const inputPlaceholder = pendingQuestion
     ? t("answer_above_hint")
@@ -380,6 +381,14 @@ export function AgentCopilot() {
         ))}
       </div>
 
+      {pendingApproval && !pendingQuestion && (
+        <ToolApprovalCard
+          pendingApproval={pendingApproval}
+          decidingApproval={decidingApproval}
+          onDecide={voidPromise(decideApproval)}
+        />
+      )}
+
       {pendingQuestion && (
         <PendingQuestionWizard
           pendingQuestion={pendingQuestion}
@@ -391,7 +400,7 @@ export function AgentCopilot() {
 
       <TodoListPanel turns={turns} draftTurn={draftTurn} />
 
-      {!pendingQuestion && (error || attachError) && (
+      {!pendingQuestion && !pendingApproval && (error || attachError) && (
         <div className="border-t border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
           {error || attachError}
         </div>

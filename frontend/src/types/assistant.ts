@@ -59,12 +59,22 @@ export interface PendingQuestion {
   }>;
 }
 
+export interface PendingApproval {
+  type: "tool_approval_request";
+  request_id: string;
+  tool_name: string;
+  input: Record<string, unknown>;
+  session_id: string;
+  timestamp: string;
+}
+
 export interface AssistantSnapshot {
   session_id: string;
   status: SessionStatus;
   turns: Turn[];
   draft_turn: Turn | null;
   pending_questions: PendingQuestion[];
+  pending_approvals: PendingApproval[];
 }
 
 export interface SkillInfo {

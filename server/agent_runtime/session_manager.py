@@ -81,6 +81,16 @@ class PendingQuestion:
 
 
 @dataclass
+class PendingApproval:
+    """Tracks a pending tool approval request."""
+
+    request_id: str
+    payload: dict[str, Any]
+    # Resolves to ("allow", updated_input) or ("deny", message)
+    decision_future: asyncio.Future[tuple[str, dict[str, Any] | str]]
+
+
+@dataclass
 class ManagedSession:
     """A managed ClaudeSDKClient session."""
 
@@ -94,6 +104,7 @@ class ManagedSession:
     subscribers: set[asyncio.Queue] = field(default_factory=set)
     buffer_max_size: int = 100
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
+    pending_approvals: dict[str, PendingApproval] = field(default_factory=dict)
     pending_user_echoes: list[str] = field(default_factory=list)
     interrupt_requested: bool = False
     last_activity: float | None = None  # updated on every send/receive
@@ -280,6 +291,43 @@ class ManagedSession:
         """Return unresolved AskUserQuestion payloads for reconnect snapshot."""
         return [pending.payload for pending in self.pending_questions.values()]
 
+    # ---- Tool Approval ----
+
+    def add_pending_approval(self, payload: dict[str, Any]) -> PendingApproval:
+        """Register a pending tool approval request."""
+        request_id = str(payload.get("request_id") or f"ta_{uuid4().hex}")
+        payload["request_id"] = request_id
+        future: asyncio.Future[tuple[str, dict[str, Any] | str]] = asyncio.get_running_loop().create_future()
+        pending = PendingApproval(
+            request_id=request_id,
+            payload=payload,
+            decision_future=future,
+        )
+        self.pending_approvals[request_id] = pending
+        return pending
+
+    def resolve_pending_approval(
+        self, request_id: str, decision: str, data: dict[str, Any] | str
+    ) -> bool:
+        """Resolve a pending tool approval with user decision."""
+        pending = self.pending_approvals.pop(request_id, None)
+        if not pending:
+            return False
+        if not pending.decision_future.done():
+            pending.decision_future.set_result((decision, data))
+        return True
+
+    def cancel_pending_approvals(self, reason: str = "session closed") -> None:
+        """Cancel all pending tool approvals."""
+        for pending in list(self.pending_approvals.values()):
+            if not pending.decision_future.done():
+                pending.decision_future.set_exception(RuntimeError(reason))
+        self.pending_approvals.clear()
+
+    def get_pending_approval_payloads(self) -> list[dict[str, Any]]:
+        """Return unresolved approval payloads for reconnect snapshot."""
+        return [pending.payload for pending in self.pending_approvals.values()]
+
 
 class SessionManager:
     """Manages all active ClaudeSDKClient instances."""
@@ -294,6 +342,18 @@ class SessionManager:
         "Glob",
         "AskUserQuestion",
     ]
+
+    # Tools that are automatically approved without user confirmation.
+    # All other allowed tools will trigger a pending approval request.
+    AUTO_APPROVE_TOOLS = {
+        "read",
+        "glob",
+        "grep",
+        "ls",
+        "skill",
+        "task",
+        "askuserquestion",
+    }
     DEFAULT_SETTING_SOURCES = ["project"]
     _SDK_ID_TIMEOUT = 60.0
 
@@ -1117,6 +1177,7 @@ Bạn là ArcReel Agent, một trợ lý sáng tạo nội dung video AI chuyên
             else:
                 logger.error("等待 sdk_session_id 超时 temp_id=%s", temp_id)
             managed.cancel_pending_questions("session creation timed out")
+            managed.cancel_pending_approvals("session creation timed out")
             await _cleanup_on_error()
             raise TimeoutError("SDK 会话创建超时")
 
@@ -1339,6 +1400,7 @@ Bạn là ArcReel Agent, một trợ lý sáng tạo nội dung video AI chuyên
         managed.pending_user_echoes.clear()
         managed.interrupt_requested = True
         managed.cancel_pending_questions("session interrupted by user")
+        managed.cancel_pending_approvals("session interrupted by user")
 
         try:
             await managed.send_interrupt()
@@ -1366,6 +1428,7 @@ Bạn là ArcReel Agent, một trợ lý sáng tạo nội dung video AI chuyên
         """Settle session state after a result message completes a turn."""
         managed.pending_user_echoes.clear()
         managed.cancel_pending_questions("session completed")
+        managed.cancel_pending_approvals("session completed")
         explicit = str(result_msg.get("session_status") or "").strip()
         final_status: SessionStatus = (
             explicit  # type: ignore[assignment]
@@ -1387,6 +1450,7 @@ Bạn là ArcReel Agent, một trợ lý sáng tạo nội dung video AI chuyên
         """Set terminal status on abnormal consumer exit."""
         managed.pending_user_echoes.clear()
         managed.cancel_pending_questions(reason)
+        managed.cancel_pending_approvals(reason)
         managed.status = status
         managed.last_activity = time.monotonic()
         await self.meta_store.update_status(managed.session_id, status)
@@ -1449,6 +1513,7 @@ Bạn là ArcReel Agent, một trợ lý sáng tạo nội dung video AI chuyên
         if managed is None:
             return
         managed.cancel_pending_questions(reason)
+        managed.cancel_pending_approvals(reason)
         await self._evict_one(managed)
 
     async def _evict_one(self, managed: ManagedSession) -> None:
@@ -1780,6 +1845,20 @@ Bạn là ArcReel Agent, một trợ lý sáng tạo nội dung video AI chuyên
                     input_data,
                 )
 
+            # Auto-approve safe read-only tools
+            if normalized_tool in self.AUTO_APPROVE_TOOLS:
+                return PermissionResultAllow(updated_input=input_data)
+
+            # Non-auto-approved tools: route through interactive approval flow
+            # so the user can allow/deny from the frontend.
+            managed = managed_ref[0] if managed_ref else self.sessions.get(session_id)
+            if managed is not None:
+                return await self._handle_tool_approval(
+                    managed,
+                    tool_name,
+                    input_data,
+                )
+
             # Whitelist fallback: deny any tool that was not pre-approved
             # by allowed_tools or settings.json allow rules.
             if PermissionResultDeny is not None:
@@ -1796,6 +1875,50 @@ Bạn là ArcReel Agent, một trợ lý sáng tạo nội dung video AI chuyên
             return PermissionResultAllow(updated_input=input_data)
 
         return _can_use_tool
+
+    async def _handle_tool_approval(
+        self,
+        managed: ManagedSession | None,
+        tool_name: str,
+        input_data: dict[str, Any],
+    ) -> Any:
+        """Route non-auto-approved tool calls through the approval flow.
+
+        Creates a pending_approval, pushes a tool_approval_request message
+        to the SSE stream, and awaits the user's decision.
+        """
+        if managed is None:
+            return PermissionResultAllow(updated_input=input_data)
+
+        payload = {
+            "type": "tool_approval_request",
+            "request_id": f"ta_{uuid4().hex}",
+            "tool_name": tool_name,
+            "input": input_data,
+            "timestamp": _utc_now_iso(),
+            "session_id": managed.session_id,
+        }
+        pending = managed.add_pending_approval(payload)
+        managed.add_message(payload)
+
+        try:
+            decision, data = await pending.decision_future
+        except Exception as exc:
+            if PermissionResultDeny is not None:
+                return PermissionResultDeny(
+                    message=str(exc) or "session interrupted by user",
+                    interrupt=True,
+                )
+            raise
+
+        if decision == "allow":
+            updated_input = data if isinstance(data, dict) else input_data
+            return PermissionResultAllow(updated_input=updated_input)
+        else:
+            deny_message = data if isinstance(data, str) else "用户拒绝了此工具调用"
+            if PermissionResultDeny is not None:
+                return PermissionResultDeny(message=deny_message)
+            return PermissionResultAllow(updated_input=input_data)
 
     def _message_to_dict(self, message: Any) -> dict[str, Any]:
         """Convert SDK message to dict for JSON serialization."""
@@ -2010,6 +2133,29 @@ Bạn là ArcReel Agent, một trợ lý sáng tạo nội dung video AI chuyên
         if not managed:
             return []
         return managed.get_pending_question_payloads()
+
+    async def get_pending_approvals_snapshot(self, session_id: str) -> list[dict[str, Any]]:
+        """Get unresolved tool approval payloads for reconnect."""
+        managed = self.sessions.get(session_id)
+        if not managed:
+            return []
+        return managed.get_pending_approval_payloads()
+
+    async def resolve_pending_approval(
+        self,
+        session_id: str,
+        request_id: str,
+        decision: str,
+        data: dict[str, Any] | str,
+    ) -> None:
+        """Resolve a pending tool approval for a running session."""
+        managed = self.sessions.get(session_id)
+        if managed is None:
+            raise ValueError("会话未运行或无待审批请求")
+        if managed.status != "running":
+            raise ValueError("会话未运行或无待审批请求")
+        if not managed.resolve_pending_approval(request_id, decision, data):
+            raise ValueError("未找到待审批的请求")
 
     async def answer_user_question(
         self,
