@@ -173,6 +173,20 @@ describe("GlobalHeader", () => {
     expect(useAppStore.getState().toast?.text).toContain("包含 1 条诊断");
   });
 
+  it("renders asset library button", async () => {
+    vi.spyOn(API, "getUsageStats").mockResolvedValue({
+      total_cost: 0,
+      image_count: 0,
+      video_count: 0,
+      failed_count: 0,
+      total_count: 0,
+    });
+
+    renderHeader();
+
+    expect(screen.getByRole("button", { name: "资产库" })).toBeInTheDocument();
+  });
+
   it("shows an error toast when exporting fails", async () => {
     vi.spyOn(API, "getUsageStats").mockResolvedValue({
       total_cost: 0,

@@ -1,7 +1,7 @@
 import { startTransition, useState, useEffect, useRef } from "react";
 import { voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
-import { ChevronLeft, Activity, Settings, Bell, Download, Loader2 } from "lucide-react";
+import { ChevronLeft, Activity, Settings, Bell, Download, Loader2, Package } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -371,6 +371,17 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             jianyingExporting={jianyingExporting}
           />
         </div>
+
+        {/* Asset library */}
+        <button
+          type="button"
+          onClick={() => setLocation("~/app/assets")}
+          className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+          title={t("assets:library_title")}
+          aria-label={t("assets:library_title")}
+        >
+          <Package className="h-4 w-4" />
+        </button>
 
         {/* Settings (placeholder) */}
         <button
