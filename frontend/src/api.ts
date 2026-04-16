@@ -38,6 +38,7 @@ import type {
   CostEstimateResponse,
 } from "@/types";
 import type { GridGeneration } from "@/types/grid";
+import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import { getToken, clearToken } from "@/utils/auth";
 import i18n from "./i18n";
 
@@ -1548,22 +1549,96 @@ class API {
 
   // ==================== Global Asset Library ====================
 
-  /**
-   * 列出全局资产库
-   */
-  static async listAssets(params?: { type?: string; q?: string }): Promise<{ items: unknown[] }> {
-    const query = new URLSearchParams();
-    if (params?.type) query.set("type", params.type);
-    if (params?.q) query.set("q", params.q);
-    const qs = query.toString();
-    return this.request(`/assets${qs ? `?${qs}` : ""}`);
+  static async listAssets(params: { type?: AssetType; q?: string; limit?: number; offset?: number } = {}) {
+    const usp = new URLSearchParams();
+    if (params.type) usp.set("type", params.type);
+    if (params.q) usp.set("q", params.q);
+    if (params.limit) usp.set("limit", String(params.limit));
+    if (params.offset) usp.set("offset", String(params.offset));
+    return this.request<{ items: Asset[] }>(`/assets?${usp.toString()}`);
   }
 
-  /**
-   * 删除全局资产
-   */
+  static async getAsset(id: string) {
+    return this.request<{ asset: Asset }>(`/assets/${encodeURIComponent(id)}`);
+  }
+
+  static async createAsset(payload: AssetCreatePayload & { image?: File }) {
+    const form = new FormData();
+    form.append("type", payload.type);
+    form.append("name", payload.name);
+    form.append("description", payload.description ?? "");
+    form.append("voice_style", payload.voice_style ?? "");
+    if (payload.image) form.append("image", payload.image);
+    const url = `${API_BASE}/assets`;
+    const response = await fetch(url, withAuth({ method: "POST", body: form }));
+    if (!response.ok) {
+      handleUnauthorized(response);
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(typeof error.detail === "string" ? error.detail : "请求失败");
+    }
+    return response.json() as Promise<{ asset: Asset }>;
+  }
+
+  static async updateAsset(id: string, patch: AssetUpdatePayload) {
+    return this.request<{ asset: Asset }>(`/assets/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  }
+
+  static async replaceAssetImage(id: string, image: File) {
+    const form = new FormData();
+    form.append("image", image);
+    const url = `${API_BASE}/assets/${encodeURIComponent(id)}/image`;
+    const response = await fetch(url, withAuth({ method: "POST", body: form }));
+    if (!response.ok) {
+      handleUnauthorized(response);
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(typeof error.detail === "string" ? error.detail : "请求失败");
+    }
+    return response.json() as Promise<{ asset: Asset }>;
+  }
+
   static async deleteAsset(id: string): Promise<void> {
     return this.request(`/assets/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
+  static async addAssetFromProject(payload: {
+    project_name: string;
+    resource_type: AssetType;
+    resource_id: string;
+    override_name?: string;
+    overwrite?: boolean;
+  }) {
+    return this.request<{ asset: Asset }>(`/assets/from-project`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  static async applyAssetsToProject(payload: {
+    asset_ids: string[];
+    target_project: string;
+    conflict_policy: "skip" | "overwrite" | "rename";
+  }) {
+    return this.request<{
+      succeeded: Array<{ id: string; name: string }>;
+      skipped: Array<{ id: string; name: string }>;
+      failed: Array<{ id: string; reason: string }>;
+    }>(`/assets/apply-to-project`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  static getGlobalAssetUrl(assetId: string, path: string | null, fp?: string | null): string | null {
+    if (!path) return null;
+    const parts = path.split("/");
+    if (parts.length < 3 || parts[0] !== "_global_assets") return null;
+    const type = parts[1];
+    const filename = parts.slice(2).join("/");
+    const qs = fp ? `?fp=${encodeURIComponent(fp)}` : "";
+    return `${API_BASE}/global-assets/${type}/${filename}${qs}`;
   }
 }
 
