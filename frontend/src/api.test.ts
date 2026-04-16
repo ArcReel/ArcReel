@@ -152,7 +152,7 @@ describe("API", () => {
   });
 
   describe("request-based wrappers", () => {
-    it("covers project, character, clue, script and generation endpoints", async () => {
+    it("covers project, character, scene, prop, script and generation endpoints", async () => {
       const requestSpy = vi
         .spyOn(API, "request")
         .mockResolvedValue({ success: true } as never);
@@ -168,9 +168,12 @@ describe("API", () => {
       await API.updateCharacter("demo", "Hero", { description: "updated" });
       await API.deleteCharacter("demo", "Hero");
 
-      await API.addClue("demo", "Key", "prop", "important");
-      await API.updateClue("demo", "Key", { importance: "minor" });
-      await API.deleteClue("demo", "Key");
+      await API.addProjectScene("demo", "Temple", "ancient");
+      await API.updateProjectScene("demo", "Temple", { description: "dark" });
+      await API.deleteProjectScene("demo", "Temple");
+      await API.addProjectProp("demo", "Sword", "rusty");
+      await API.updateProjectProp("demo", "Sword", { description: "shiny" });
+      await API.deleteProjectProp("demo", "Sword");
 
       await API.getScript("demo", "episode 1.json");
       await API.updateScene("demo", "scene-1", "episode_1.json", { x: 1 });
@@ -187,7 +190,8 @@ describe("API", () => {
       await API.generateStoryboard("demo", "seg-1", "img", "episode_1.json");
       await API.generateVideo("demo", "seg-1", "vid", "episode_1.json");
       await API.generateCharacter("demo", "Hero", "prompt");
-      await API.generateClue("demo", "Key", "prompt");
+      await API.generateProjectScene("demo", "Temple", "prompt");
+      await API.generateProjectProp("demo", "Sword", "prompt");
 
       expect(requestSpy).toHaveBeenCalledWith("/projects");
       expect(requestSpy).toHaveBeenCalledWith("/projects", {
@@ -214,14 +218,13 @@ describe("API", () => {
           voice_style: "",
         }),
       });
-      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/clues", {
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/scenes", {
         method: "POST",
-        body: JSON.stringify({
-          name: "Key",
-          clue_type: "prop",
-          description: "important",
-          importance: "major",
-        }),
+        body: JSON.stringify({ name: "Temple", description: "ancient" }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/props", {
+        method: "POST",
+        body: JSON.stringify({ name: "Sword", description: "rusty" }),
       });
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/scripts/episode%201.json",
@@ -506,7 +509,8 @@ describe("API", () => {
                 style: "Anime",
                 episodes: [],
                 characters: {},
-                clues: {},
+                scenes: {},
+                props: {},
               },
               warnings: [],
               conflict_resolution: "none",

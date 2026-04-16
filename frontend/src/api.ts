@@ -480,36 +480,29 @@ class API {
     );
   }
 
-  // ==================== 线索管理 ====================
+  // ==================== 项目场景管理 ====================
 
-  static async addClue(
+  static async addProjectScene(
     projectName: string,
     name: string,
-    clueType: string,
-    description: string,
-    importance: string = "major"
+    description: string
   ): Promise<SuccessResponse> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/clues`,
+      `/projects/${encodeURIComponent(projectName)}/scenes`,
       {
         method: "POST",
-        body: JSON.stringify({
-          name,
-          clue_type: clueType,
-          description,
-          importance,
-        }),
+        body: JSON.stringify({ name, description }),
       }
     );
   }
 
-  static async updateClue(
+  static async updateProjectScene(
     projectName: string,
-    clueName: string,
+    sceneName: string,
     updates: Record<string, unknown>
   ): Promise<SuccessResponse> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/clues/${encodeURIComponent(clueName)}`,
+      `/projects/${encodeURIComponent(projectName)}/scenes/${encodeURIComponent(sceneName)}`,
       {
         method: "PATCH",
         body: JSON.stringify(updates),
@@ -517,12 +510,54 @@ class API {
     );
   }
 
-  static async deleteClue(
+  static async deleteProjectScene(
     projectName: string,
-    clueName: string
+    sceneName: string
   ): Promise<SuccessResponse> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/clues/${encodeURIComponent(clueName)}`,
+      `/projects/${encodeURIComponent(projectName)}/scenes/${encodeURIComponent(sceneName)}`,
+      {
+        method: "DELETE",
+      }
+    );
+  }
+
+  // ==================== 项目道具管理 ====================
+
+  static async addProjectProp(
+    projectName: string,
+    name: string,
+    description: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/props`,
+      {
+        method: "POST",
+        body: JSON.stringify({ name, description }),
+      }
+    );
+  }
+
+  static async updateProjectProp(
+    projectName: string,
+    propName: string,
+    updates: Record<string, unknown>
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/props/${encodeURIComponent(propName)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      }
+    );
+  }
+
+  static async deleteProjectProp(
+    projectName: string,
+    propName: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/props/${encodeURIComponent(propName)}`,
       {
         method: "DELETE",
       }
@@ -845,14 +880,14 @@ class API {
   }
 
   /**
-   * 生成线索设计图
+   * 生成场景设计图
    * @param projectName - 项目名称
-   * @param clueName - 线索名称
-   * @param prompt - 线索描述 prompt
+   * @param sceneName - 场景名称
+   * @param prompt - 场景描述 prompt
    */
-  static async generateClue(
+  static async generateProjectScene(
     projectName: string,
-    clueName: string,
+    sceneName: string,
     prompt: string
   ): Promise<{
     success: boolean;
@@ -860,7 +895,31 @@ class API {
     message: string;
   }> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/generate/clue/${encodeURIComponent(clueName)}`,
+      `/projects/${encodeURIComponent(projectName)}/generate/scene/${encodeURIComponent(sceneName)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ prompt }),
+      }
+    );
+  }
+
+  /**
+   * 生成道具设计图
+   * @param projectName - 项目名称
+   * @param propName - 道具名称
+   * @param prompt - 道具描述 prompt
+   */
+  static async generateProjectProp(
+    projectName: string,
+    propName: string,
+    prompt: string
+  ): Promise<{
+    success: boolean;
+    task_id: string;
+    message: string;
+  }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/generate/prop/${encodeURIComponent(propName)}`,
       {
         method: "POST",
         body: JSON.stringify({ prompt }),
@@ -1041,7 +1100,7 @@ class API {
   /**
    * 获取资源版本列表
    * @param projectName - 项目名称
-   * @param resourceType - 资源类型 (storyboards, videos, characters, clues)
+   * @param resourceType - 资源类型 (storyboards, videos, characters, scenes, props)
    * @param resourceId - 资源 ID
    */
   static async getVersions(
