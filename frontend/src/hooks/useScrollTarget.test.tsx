@@ -72,10 +72,10 @@ describe("useScrollTarget", () => {
   it("clears target even when target element does not exist", async () => {
     vi.useFakeTimers();
 
-    render(<ScrollTargetHarness type="clue" />);
+    render(<ScrollTargetHarness type="scene" />);
 
     act(() => {
-      useAppStore.getState().triggerScrollTo({ type: "clue", id: "missing", route: "/clues" });
+      useAppStore.getState().triggerScrollTo({ type: "scene", id: "missing", route: "/scenes" });
     });
 
     await act(async () => {

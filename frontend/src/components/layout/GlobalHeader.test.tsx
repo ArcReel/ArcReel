@@ -84,7 +84,8 @@ describe("GlobalHeader", () => {
         style: "Anime",
         episodes: [],
         characters: {},
-        clues: {},
+        scenes: {},
+        props: {},
       },
     });
 
@@ -110,11 +111,11 @@ describe("GlobalHeader", () => {
     });
 
     useAppStore.getState().pushWorkspaceNotification({
-      text: "AI 刚更新了线索「玉佩」，点击查看",
+      text: "AI 刚更新了道具「玉佩」，点击查看",
       target: {
-        type: "clue",
+        type: "prop",
         id: "玉佩",
-        route: "/clues",
+        route: "/props",
       },
     });
 
@@ -152,7 +153,8 @@ describe("GlobalHeader", () => {
         style: "Anime",
         episodes: [],
         characters: {},
-        clues: {},
+        scenes: {},
+        props: {},
       },
     });
 
@@ -189,7 +191,8 @@ describe("GlobalHeader", () => {
         style: "Anime",
         episodes: [],
         characters: {},
-        clues: {},
+        scenes: {},
+        props: {},
       },
     });
 

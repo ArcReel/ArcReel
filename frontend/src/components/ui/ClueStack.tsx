@@ -1,36 +1,46 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { Puzzle } from "lucide-react";
+import { MapPin, Puzzle } from "lucide-react";
 import { API } from "@/api";
 import { Popover } from "@/components/ui/Popover";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { Clue } from "@/types";
+import type { Scene, Prop } from "@/types";
 
 import { colorForName } from "@/utils/color";
 
 // ---------------------------------------------------------------------------
-// CluePopover — shows clue detail on hover
+// AssetPopover — shows scene/prop detail on hover
 // ---------------------------------------------------------------------------
 
-function CluePopover({
+type AssetKind = "scene" | "prop";
+
+function getSheetPath(kind: AssetKind, asset: Scene | Prop): string | undefined {
+  return kind === "scene"
+    ? (asset as Scene).scene_sheet
+    : (asset as Prop).prop_sheet;
+}
+
+function AssetPopover({
   name,
-  clue,
+  kind,
+  asset,
   projectName,
   anchorRef,
   sheetFp,
 }: {
   name: string;
-  clue: Clue;
+  kind: AssetKind;
+  asset: Scene | Prop;
   projectName: string;
   anchorRef: RefObject<HTMLElement | null>;
   sheetFp: number | null;
 }) {
-
-  const firstLine = clue.description?.split("\n")[0] ?? "";
-  const typeLabel = clue.type === "location" ? "场景" : "道具";
+  const firstLine = asset.description?.split("\n")[0] ?? "";
+  const typeLabel = kind === "scene" ? "场景" : "道具";
   const typeBadgeClass =
-    clue.type === "location"
+    kind === "scene"
       ? "bg-amber-800/60 text-amber-300"
       : "bg-emerald-800/60 text-emerald-300";
+  const sheetPath = getSheetPath(kind, asset);
 
   return (
     <Popover
@@ -43,15 +53,19 @@ function CluePopover({
       className="pointer-events-none max-w-[calc(100vw-1.5rem)] rounded-lg border border-gray-700 p-2 shadow-xl"
     >
       <div className="flex items-start gap-2.5">
-        {clue.clue_sheet ? (
+        {sheetPath ? (
           <img
-            src={API.getFileUrl(projectName, clue.clue_sheet, sheetFp)}
+            src={API.getFileUrl(projectName, sheetPath, sheetFp)}
             alt={name}
             className="h-[120px] w-[90px] shrink-0 rounded object-cover"
           />
         ) : (
           <div className="flex h-[120px] w-[90px] shrink-0 items-center justify-center rounded bg-gray-800">
-            <Puzzle className="h-8 w-8 text-gray-600" />
+            {kind === "scene" ? (
+              <MapPin className="h-8 w-8 text-gray-600" />
+            ) : (
+              <Puzzle className="h-8 w-8 text-gray-600" />
+            )}
           </div>
         )}
         <div className="min-w-0 flex-1">
@@ -75,23 +89,25 @@ function CluePopover({
 }
 
 // ---------------------------------------------------------------------------
-// SingleClue — one rounded-square thumbnail with hover popover
+// SingleAsset — one rounded-square thumbnail with hover popover
 // ---------------------------------------------------------------------------
 
-function SingleClue({
+function SingleAsset({
   name,
-  clue,
+  kind,
+  asset,
   projectName,
 }: {
   name: string;
-  clue: Clue | undefined;
+  kind: AssetKind;
+  asset: Scene | Prop | undefined;
   projectName: string;
 }) {
   const [imgError, setImgError] = useState(false);
   const [hovered, setHovered] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
 
-  const sheetPath = clue?.clue_sheet;
+  const sheetPath = asset ? getSheetPath(kind, asset) : undefined;
   const sheetFp = useProjectsStore(
     (s) => sheetPath ? s.getAssetFingerprint(sheetPath) : null,
   );
@@ -125,10 +141,11 @@ function SingleClue({
           </span>
         )}
       </span>
-      {hovered && clue && (
-        <CluePopover
+      {hovered && asset && (
+        <AssetPopover
           name={name}
-          clue={clue}
+          kind={kind}
+          asset={asset}
           projectName={projectName}
           anchorRef={ref}
           sheetFp={sheetFp}
@@ -139,34 +156,44 @@ function SingleClue({
 }
 
 // ---------------------------------------------------------------------------
-// ClueStack
+// ClueStack — renders a combined stack of scene + prop thumbnails
 // ---------------------------------------------------------------------------
 
 interface ClueStackProps {
-  names: string[];
-  clues: Record<string, Clue>;
+  sceneNames: string[];
+  propNames: string[];
+  scenes: Record<string, Scene>;
+  props: Record<string, Prop>;
   projectName: string;
   maxShow?: number;
 }
 
 export function ClueStack({
-  names,
-  clues,
+  sceneNames,
+  propNames,
+  scenes,
+  props,
   projectName,
   maxShow = 4,
 }: ClueStackProps) {
-  if (names.length === 0) return null;
+  const allNames = [
+    ...sceneNames.map((n) => ({ name: n, kind: "scene" as AssetKind })),
+    ...propNames.map((n) => ({ name: n, kind: "prop" as AssetKind })),
+  ];
 
-  const visible = names.slice(0, maxShow);
-  const overflow = names.length - maxShow;
+  if (allNames.length === 0) return null;
+
+  const visible = allNames.slice(0, maxShow);
+  const overflow = allNames.length - maxShow;
 
   return (
     <div className="flex -space-x-2">
-      {visible.map((name) => (
-        <SingleClue
-          key={name}
+      {visible.map(({ name, kind }) => (
+        <SingleAsset
+          key={`${kind}-${name}`}
           name={name}
-          clue={clues[name]}
+          kind={kind}
+          asset={kind === "scene" ? scenes[name] : props[name]}
           projectName={projectName}
         />
       ))}

@@ -18,7 +18,7 @@ interface ToastOptions {
 }
 
 interface FocusedContext {
-  type: "character" | "clue" | "segment";
+  type: "character" | "scene" | "prop" | "segment";
   id: string;
 }
 

@@ -162,7 +162,8 @@ describe("stores", () => {
       style: "Anime",
       episodes: [],
       characters: {},
-      clues: {},
+      scenes: {},
+      props: {},
     });
     expect(useProjectsStore.getState().currentProjectName).toBe("demo");
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("Demo");

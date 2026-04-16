@@ -24,7 +24,8 @@ function makeProjectData(overrides: Partial<ProjectData> = {}): ProjectData {
     },
     episodes: [{ episode: 1, title: "EP1", script_file: "scripts/episode_1.json" }],
     characters: {},
-    clues: {},
+    scenes: {},
+    props: {},
     ...overrides,
   };
 }

@@ -4,7 +4,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 
-const SYNCED_TASK_TYPES = new Set(["storyboard", "video", "character", "clue"]);
+const SYNCED_TASK_TYPES = new Set(["storyboard", "video", "character", "scene", "prop"]);
 
 export function useProjectAssetSync(projectName?: string | null): void {
   const tasks = useTasksStore((s) => s.tasks);

@@ -21,7 +21,8 @@ import type {
   NarrationSegment,
   DramaScene,
   Character,
-  Clue,
+  Scene,
+  Prop,
   ImagePrompt,
   VideoPrompt,
   TransitionType,
@@ -64,8 +65,12 @@ function getCharacterNames(segment: Segment, mode: "narration" | "drama"): strin
   return getSegmentField(segment, mode, "characters_in_segment", "characters_in_scene");
 }
 
-function getClueNames(segment: Segment, mode: "narration" | "drama"): string[] {
-  return getSegmentField(segment, mode, "clues_in_segment", "clues_in_scene");
+function getSceneNames(segment: Segment, _mode: "narration" | "drama"): string[] {
+  return segment.scenes ?? [];
+}
+
+function getPropNames(segment: Segment, _mode: "narration" | "drama"): string[] {
+  return segment.props ?? [];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -146,7 +151,8 @@ interface SegmentCardProps {
   contentMode: "narration" | "drama";
   aspectRatio: string; // "9:16" or "16:9"
   characters: Record<string, Character>;
-  clues: Record<string, Clue>;
+  scenes: Record<string, Scene>;
+  props: Record<string, Prop>;
   projectName: string;
   durationOptions?: number[];
   /** When true, hides the per-scene "生成分镜" button (grid mode manages storyboards). */
@@ -693,7 +699,8 @@ export function SegmentCard({
   contentMode,
   aspectRatio,
   characters,
-  clues,
+  scenes,
+  props,
   projectName,
   durationOptions,
   isGridMode,
@@ -709,7 +716,9 @@ export function SegmentCard({
   const segmentId = getSegmentId(segment, contentMode);
   const segCost = useCostStore((s) => s.getSegmentCost(segmentId));
   const charNames = getCharacterNames(segment, contentMode);
-  const clueNames = getClueNames(segment, contentMode);
+  const sceneNames = getSceneNames(segment, contentMode);
+  const propNames = getPropNames(segment, contentMode);
+  const hasAssetNames = sceneNames.length > 0 || propNames.length > 0;
 
   return (
     <div>
@@ -752,12 +761,14 @@ export function SegmentCard({
               characters={characters}
               projectName={projectName}
             />
-            {charNames.length > 0 && clueNames.length > 0 && (
+            {charNames.length > 0 && hasAssetNames && (
               <div className="border-l border-gray-700 self-stretch" />
             )}
             <ClueStack
-              names={clueNames}
-              clues={clues}
+              sceneNames={sceneNames}
+              propNames={propNames}
+              scenes={scenes}
+              props={props}
               projectName={projectName}
             />
           </div>

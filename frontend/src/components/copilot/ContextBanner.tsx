@@ -1,14 +1,14 @@
 import { useAppStore } from "@/stores/app-store";
-import { X, User, Puzzle, Film } from "lucide-react";
+import { X, User, MapPin, Puzzle, Film } from "lucide-react";
 
 export function ContextBanner() {
   const { focusedContext, setFocusedContext } = useAppStore();
 
   if (!focusedContext) return null;
 
-  const icons = { character: User, clue: Puzzle, segment: Film };
+  const icons = { character: User, scene: MapPin, prop: Puzzle, segment: Film };
   const Icon = icons[focusedContext.type];
-  const labels: Record<string, string> = { character: "角色", clue: "线索", segment: "片段" };
+  const labels: Record<string, string> = { character: "角色", scene: "场景", prop: "道具", segment: "片段" };
 
   return (
     <div className="flex items-center gap-2 border-b border-gray-800 bg-indigo-950/30 px-3 py-1.5 text-xs">

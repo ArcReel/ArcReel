@@ -455,7 +455,8 @@ export function TimelineCanvas({
                             contentMode={contentMode}
                             aspectRatio={aspectRatio}
                             characters={projectData.characters}
-                            clues={projectData.clues}
+                            scenes={projectData.scenes ?? {}}
+                            props={projectData.props ?? {}}
                             projectName={projectName}
                             durationOptions={durationOptions}
                             isGridMode
@@ -498,7 +499,8 @@ export function TimelineCanvas({
                       contentMode={contentMode}
                       aspectRatio={aspectRatio}
                       characters={projectData.characters}
-                      clues={projectData.clues}
+                      scenes={projectData.scenes ?? {}}
+                      props={projectData.props ?? {}}
                       projectName={projectName}
                       durationOptions={durationOptions}
                       onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}

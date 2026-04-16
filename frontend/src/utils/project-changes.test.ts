@@ -24,9 +24,9 @@ describe("project-changes utils", () => {
       makeChange({ entity_id: "张三", label: "角色「张三」" }),
       makeChange({ entity_id: "李四", label: "角色「李四」" }),
       makeChange({
-        entity_type: "clue",
+        entity_type: "prop",
         entity_id: "玉佩",
-        label: "线索「玉佩」",
+        label: "道具「玉佩」",
       }),
       makeChange({
         entity_type: "character",
@@ -41,7 +41,7 @@ describe("project-changes utils", () => {
       key: "character:created",
       changes: [expect.objectContaining({ entity_id: "张三" }), expect.objectContaining({ entity_id: "李四" })],
     });
-    expect(groups[1].key).toBe("clue:created");
+    expect(groups[1].key).toBe("prop:created");
     expect(groups[2].key).toBe("character:updated");
   });
 

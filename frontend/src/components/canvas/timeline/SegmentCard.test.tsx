@@ -36,7 +36,8 @@ function makeSegment(overrides: Partial<NarrationSegment> = {}): NarrationSegmen
     segment_break: false,
     novel_text: "在雨夜里抬头。",
     characters_in_segment: ["Hero"],
-    clues_in_segment: [],
+    scenes: [],
+    props: [],
     image_prompt: "一张电影感分镜图",
     video_prompt: "镜头缓慢推进",
     transition_to_next: "cut",
@@ -67,7 +68,8 @@ describe("SegmentCard", () => {
         contentMode="narration"
         aspectRatio="16:9"
         characters={{}}
-        clues={{}}
+        scenes={{}}
+        props={{}}
         projectName="demo"
       />,
     );

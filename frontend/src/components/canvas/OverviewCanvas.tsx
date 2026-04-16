@@ -135,7 +135,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
 
             {status && (
               <div className="grid grid-cols-2 gap-3">
-                {(["characters", "clues"] as const).map(
+                {(["characters", "scenes", "props"] as const).map(
                   (key) => {
                     const cat = status[key] as
                       | { total: number; completed: number }
@@ -147,7 +147,8 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                         : 0;
                     const labels: Record<string, string> = {
                       characters: t("characters"),
-                      clues: t("clues"),
+                      scenes: t("scenes"),
+                      props: t("props"),
                     };
                     return (
                       <div

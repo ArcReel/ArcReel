@@ -48,7 +48,8 @@ describe("useProjectAssetSync", () => {
         style: "Anime",
         episodes: [],
         characters: {},
-        clues: {},
+        scenes: {},
+        props: {},
       },
       scripts: {},
     });
@@ -67,7 +68,8 @@ describe("useProjectAssetSync", () => {
         style: "Anime",
         episodes: [],
         characters: {},
-        clues: {},
+        scenes: {},
+        props: {},
       },
       scripts: {},
     });

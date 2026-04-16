@@ -51,7 +51,8 @@ function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete:
   const phase = hasStatus ? (status as ProjectStatus).current_phase : "";
   const phaseLabel = PHASE_LABELS[phase] ?? phase;
   const characters = hasStatus ? (status as ProjectStatus).characters : null;
-  const clues = hasStatus ? (status as ProjectStatus).clues : null;
+  const scenes = hasStatus ? (status as ProjectStatus).scenes : null;
+  const props = hasStatus ? (status as ProjectStatus).props : null;
   const summary = hasStatus ? (status as ProjectStatus).episodes_summary : null;
 
   // 自定义参考图项目后端会把 style 清空（互斥），仅靠 style_template_id 判断
@@ -103,14 +104,17 @@ function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete:
         <ProgressBar value={pct} barClassName="bg-indigo-600 transition-all" />
       </div>
 
-      {/* Characters & Clues — always shown */}
-      {(characters || clues) && (
+      {/* Characters, Scenes & Props — always shown */}
+      {(characters || scenes || props) && (
         <div className="flex gap-3 text-xs text-gray-500">
           {characters && (
             <span>{t("dashboard:characters")} {characters.completed}/{characters.total}</span>
           )}
-          {clues && (
-            <span>{t("dashboard:clues")} {clues.completed}/{clues.total}</span>
+          {scenes && (
+            <span>{t("dashboard:scenes")} {scenes.completed}/{scenes.total}</span>
+          )}
+          {props && (
+            <span>{t("dashboard:props")} {props.completed}/{props.total}</span>
           )}
         </div>
       )}

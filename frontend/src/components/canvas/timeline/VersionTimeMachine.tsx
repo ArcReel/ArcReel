@@ -8,7 +8,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 
 interface VersionTimeMachineProps {
   projectName: string;
-  resourceType: "storyboards" | "videos" | "characters" | "clues";
+  resourceType: "storyboards" | "videos" | "characters" | "scenes" | "props";
   resourceId: string;
   onRestore?: (version: number) => void | Promise<void>;
 }
@@ -17,7 +17,7 @@ function getImagePreviewHeightClass(
   resourceType: VersionTimeMachineProps["resourceType"],
 ): string {
   if (resourceType === "characters") return "h-80";
-  if (resourceType === "clues") return "h-56";
+  if (resourceType === "scenes" || resourceType === "props") return "h-56";
   return "h-64";
 }
 
@@ -44,7 +44,8 @@ export function VersionTimeMachine({
     resourceType === "storyboards" ? `storyboards/scene_${resourceId}.png` :
     resourceType === "videos" ? `videos/scene_${resourceId}.mp4` :
     resourceType === "characters" ? `characters/${resourceId}.png` :
-    `clues/${resourceId}.png`;
+    resourceType === "scenes" ? `scenes/${resourceId}.png` :
+    `props/${resourceId}.png`;
   const resourceFp = useProjectsStore((s) => s.getAssetFingerprint(resourcePath));
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
