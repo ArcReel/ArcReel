@@ -166,6 +166,37 @@ def _build_specs(
     ]
 
 
+def _run_batch_for_type(
+    pm: ProjectManager,
+    project_name: str,
+    asset_type: str,
+    names: list[str] | None,
+) -> tuple[int, int]:
+    """为单一 type 入队 + 等待，返回 (成功数, 失败数)。"""
+    cfg = TYPE_CONFIG[asset_type]
+    specs = _build_specs(pm, project_name, asset_type, names)
+    if not specs:
+        return (0, 0)
+
+    print(f"\n🚀 批量提交 {len(specs)} 个{cfg['label']}设计图到生成队列...\n")
+
+    def on_success(br: BatchTaskResult) -> None:
+        version = (br.result or {}).get("version")
+        version_text = f" (版本 v{version})" if version is not None else ""
+        print(f"✅ {cfg['label']}设计图: {br.resource_id} 完成{version_text}")
+
+    def on_failure(br: BatchTaskResult) -> None:
+        print(f"❌ {cfg['label']}设计图: {br.resource_id} 失败 - {br.error}")
+
+    successes, failures = batch_enqueue_and_wait_sync(
+        project_name=project_name,
+        specs=specs,
+        on_success=on_success,
+        on_failure=on_failure,
+    )
+    return (len(successes), len(failures))
+
+
 def generate_batch(
     asset_type: str | None = None,
     names: list[str] | None = None,
@@ -173,7 +204,8 @@ def generate_batch(
     """
     批量生成资产设计图。
 
-    - asset_type=None 且 names=None → 扫描所有类型的 pending 一次性入队
+    - asset_type=None 且 names=None → 按 character / scene / prop 顺序，每类独立 batch
+      （避免同名资产跨 type 在单批 task_ids 映射中互相覆盖）
     - asset_type=<t> 且 names=None → 扫描该类型的所有 pending
     - asset_type=<t> 且 names=[...] → 生成指定资产
     - asset_type=None 且 names=[...] → 不合法（必须提供 --type 才能指定名字）
@@ -184,51 +216,24 @@ def generate_batch(
         raise ValueError("--name/--names 必须配合 --type 使用")
 
     types = (asset_type,) if asset_type else ALL_TYPES
-    all_specs: list[BatchTaskSpec] = []
+    total_success = 0
+    total_failure = 0
     for t in types:
-        all_specs.extend(_build_specs(pm, project_name, t, names))
+        s, f = _run_batch_for_type(pm, project_name, t, names)
+        total_success += s
+        total_failure += f
 
-    if not all_specs:
+    if total_success == 0 and total_failure == 0:
         print("✅ 没有需要生成的资产")
         return (0, 0)
 
-    total = len(all_specs)
-    print(f"\n🚀 批量提交 {total} 个资产设计图到生成队列...\n")
-
-    # 用 resource_id → label 映射，便于回调展示类型
-    # 注意：同名资产理论上可跨 type 重复，这里以首次入队的 type 为准（callback 打印用）
-    label_by_resource: dict[str, str] = {}
-    for spec in all_specs:
-        label = next(
-            (cfg["label"] for cfg in TYPE_CONFIG.values() if cfg["task_type"] == spec.task_type),
-            spec.task_type,
-        )
-        label_by_resource.setdefault(spec.resource_id, label)
-
-    def on_success(br: BatchTaskResult) -> None:
-        version = (br.result or {}).get("version")
-        version_text = f" (版本 v{version})" if version is not None else ""
-        label = label_by_resource.get(br.resource_id, "资产")
-        print(f"✅ {label}设计图: {br.resource_id} 完成{version_text}")
-
-    def on_failure(br: BatchTaskResult) -> None:
-        label = label_by_resource.get(br.resource_id, "资产")
-        print(f"❌ {label}设计图: {br.resource_id} 失败 - {br.error}")
-
-    successes, failures = batch_enqueue_and_wait_sync(
-        project_name=project_name,
-        specs=all_specs,
-        on_success=on_success,
-        on_failure=on_failure,
-    )
-
     print(f"\n{'=' * 40}")
     print("生成完成!")
-    print(f"   ✅ 成功: {len(successes)}")
-    print(f"   ❌ 失败: {len(failures)}")
+    print(f"   ✅ 成功: {total_success}")
+    print(f"   ❌ 失败: {total_failure}")
     print(f"{'=' * 40}")
 
-    return (len(successes), len(failures))
+    return (total_success, total_failure)
 
 
 def main():
