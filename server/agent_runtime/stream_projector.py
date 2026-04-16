@@ -503,6 +503,11 @@ class AssistantStreamProjector:
     ) -> dict[str, Any]:
         """Build unified snapshot payload for API and SSE."""
         # self.turns are already normalized by group_messages_into_turns
+        turns_count = len(self.turns)
+        # Threshold: warn UI when conversation is getting very long
+        # (Claude Sonnet context = ~200K tokens ≈ 300-400 visible turns typically)
+        _CONTEXT_WARN_TURNS = 80
+        context_long = turns_count >= _CONTEXT_WARN_TURNS
         return {
             "session_id": session_id,
             "status": status,
@@ -510,4 +515,6 @@ class AssistantStreamProjector:
             "draft_turn": self._build_visible_draft_turn(),
             "pending_questions": pending_questions or [],
             "pending_approvals": pending_approvals or [],
+            "turns_count": turns_count,
+            "context_long": context_long,
         }

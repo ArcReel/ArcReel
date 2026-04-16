@@ -40,6 +40,10 @@ interface AssistantState {
   // Draft session (lazy creation)
   isDraftSession: boolean;
 
+  // Context length awareness
+  contextLong: boolean;
+  turnsCount: number;
+
   // Actions (basic setters -- full logic migrated later)
   setSessions: (sessions: SessionMeta[]) => void;
   setCurrentSessionId: (id: string | null) => void;
@@ -61,6 +65,8 @@ interface AssistantState {
   setSkillsLoading: (loading: boolean) => void;
   setCurrentProject: (project: string | null) => void;
   setIsDraftSession: (draft: boolean) => void;
+  setContextLong: (long: boolean) => void;
+  setTurnsCount: (count: number) => void;
 }
 
 export const useAssistantStore = create<AssistantState>((set) => ({
@@ -83,6 +89,8 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   skills: [],
   skillsLoading: false,
   currentProject: null,
+  contextLong: false,
+  turnsCount: 0,
   isDraftSession: false,
 
   setSessions: (sessions) => set({ sessions }),
@@ -105,4 +113,6 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   setSkillsLoading: (loading) => set({ skillsLoading: loading }),
   setCurrentProject: (project) => set({ currentProject: project }),
   setIsDraftSession: (draft) => set({ isDraftSession: draft }),
+  setContextLong: (long) => set({ contextLong: long }),
+  setTurnsCount: (count) => set({ turnsCount: count }),
 }));

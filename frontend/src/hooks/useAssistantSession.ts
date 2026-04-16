@@ -198,6 +198,9 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setDraftTurn((snapshot.draft_turn as Turn) ?? null);
     syncPendingQuestion(getPendingQuestionFromSnapshot(snapshot));
     syncPendingApproval(getPendingApprovalFromSnapshot(snapshot));
+    // Context length awareness — propagate to store
+    store.getState().setContextLong(snapshot.context_long ?? false);
+    store.getState().setTurnsCount(snapshot.turns_count ?? snapshotTurns.length);
   }, [store, syncPendingQuestion, syncPendingApproval]);
 
   // 关闭流
