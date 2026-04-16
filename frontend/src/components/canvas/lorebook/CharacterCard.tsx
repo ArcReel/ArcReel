@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ImagePlus, Upload, User } from "lucide-react";
 import { API } from "@/api";
+import { AddToLibraryButton } from "@/components/assets/AddToLibraryButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
@@ -155,7 +156,16 @@ export function CharacterCard({
         setIsEditing(false);
       }}
     >
-      <h3 className="mb-4 truncate text-lg font-bold text-white">{name}</h3>
+      <div className="mb-4 flex items-center gap-2">
+        <h3 className="flex-1 truncate text-lg font-bold text-white">{name}</h3>
+        <AddToLibraryButton
+          resourceType="character"
+          resourceId={name}
+          projectName={projectName}
+          initialDescription={character.description}
+          initialVoiceStyle={character.voice_style ?? ""}
+        />
+      </div>
 
       <div className="mb-4 space-y-3">
         <div>

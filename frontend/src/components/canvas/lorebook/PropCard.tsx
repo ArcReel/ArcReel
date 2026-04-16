@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Package } from "lucide-react";
 import { API } from "@/api";
+import { AddToLibraryButton } from "@/components/assets/AddToLibraryButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
@@ -96,7 +97,13 @@ export function PropCard({
     >
       {/* ---- Header: name only ---- */}
       <div className="mb-4 flex items-center gap-2">
-        <h3 className="text-lg font-bold text-white truncate">{name}</h3>
+        <h3 className="flex-1 text-lg font-bold text-white truncate">{name}</h3>
+        <AddToLibraryButton
+          resourceType="prop"
+          resourceId={name}
+          projectName={projectName}
+          initialDescription={prop.description}
+        />
       </div>
 
       {/* ---- Image area ---- */}

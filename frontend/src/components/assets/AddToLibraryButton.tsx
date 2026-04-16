@@ -1,0 +1,71 @@
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Package } from "lucide-react";
+import { API } from "@/api";
+import { AssetFormModal } from "./AssetFormModal";
+import { useAppStore } from "@/stores/app-store";
+import type { Asset, AssetType } from "@/types/asset";
+
+interface Props {
+  resourceType: AssetType;
+  resourceId: string;
+  projectName: string;
+  initialDescription: string;
+  initialVoiceStyle?: string;
+}
+
+export function AddToLibraryButton({ resourceType, resourceId, projectName, initialDescription, initialVoiceStyle = "" }: Props) {
+  const { t } = useTranslation("assets");
+  const [modal, setModal] = useState<{ conflictWith?: Asset } | null>(null);
+
+  const openPreview = async () => {
+    try {
+      const res = await API.listAssets({ type: resourceType, q: resourceId });
+      const exact = res.items.find((a) => a.name === resourceId);
+      setModal({ conflictWith: exact });
+    } catch {
+      setModal({});
+    }
+  };
+
+  const handleSubmit = async (payload: { name: string; description: string; voice_style: string; overwrite?: boolean }) => {
+    try {
+      await API.addAssetFromProject({
+        project_name: projectName,
+        resource_type: resourceType,
+        resource_id: resourceId,
+        override_name: payload.name !== resourceId ? payload.name : undefined,
+        overwrite: payload.overwrite,
+      });
+      useAppStore.getState().pushToast(t("add_to_library_success", { name: payload.name }), "success");
+    } catch (err) {
+      useAppStore.getState().pushToast((err as Error).message, "error");
+      throw err;
+    }
+  };
+
+  return (
+    <>
+      <button type="button" onClick={() => void openPreview()}
+        aria-label={t("add_to_library")}
+        className="inline-flex items-center justify-center h-6 w-6 rounded bg-indigo-950/40 text-indigo-300 hover:bg-indigo-900 hover:text-white transition-colors">
+        <Package className="h-3.5 w-3.5" />
+      </button>
+      {modal && (
+        <AssetFormModal
+          type={resourceType}
+          mode="import"
+          scope="library"
+          initialData={{
+            name: resourceId,
+            description: initialDescription,
+            voice_style: initialVoiceStyle,
+          }}
+          conflictWith={modal.conflictWith}
+          onClose={() => setModal(null)}
+          onSubmit={handleSubmit}
+        />
+      )}
+    </>
+  );
+}
