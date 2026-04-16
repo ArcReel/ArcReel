@@ -10,7 +10,7 @@ user-invocable: false
 
 ## 前置条件
 
-1. 项目目录下存在 `project.json`（包含 style、overview、characters、clues）
+1. 项目目录下存在 `project.json`（包含 style、overview、characters、scenes、props）
 2. 已完成 Step 1 预处理：
    - narration：`drafts/episode_N/step1_segments.md`
    - drama：`drafts/episode_N/step1_normalized_script.md`
@@ -32,9 +32,9 @@ python .claude/skills/generate-script/scripts/generate_script.py --episode {N} -
 
 脚本内部通过 `ScriptGenerator` 完成以下步骤：
 
-1. **加载 project.json** — 读取 content_mode、characters、clues、overview、style
+1. **加载 project.json** — 读取 content_mode、characters、scenes、props、overview、style
 2. **加载 Step 1 中间文件** — 根据 content_mode 选择 `step1_segments.md`（narration）或 `step1_normalized_script.md`（drama）
-3. **构建 Prompt** — 将项目概述、风格、角色、线索和中间文件内容组合成完整 prompt
+3. **构建 Prompt** — 将项目概述、风格、角色、场景、道具和中间文件内容组合成完整 prompt
 4. **调用 Gemini API** — 使用 `gemini-3-flash-preview` 模型，传入 Pydantic schema 作为 `response_schema` 约束输出格式
 5. **Pydantic 验证** — 用 `NarrationEpisodeScript`（narration）或 `DramaEpisodeScript`（drama）校验返回 JSON
 6. **补充元数据** — 写入 episode、content_mode、统计信息（片段/场景数、总时长）、时间戳

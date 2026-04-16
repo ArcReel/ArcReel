@@ -30,7 +30,7 @@ description: "剧集动画模式单集规范化剧本 subagent（drama 模式专
 **Step 1**: 检查文件状态
 
 使用 Glob 工具检查 `projects/{项目名}/drafts/episode_{N}/` 是否存在。
-使用 Read 工具读取 `projects/{项目名}/project.json` 了解角色/线索列表。
+使用 Read 工具读取 `projects/{项目名}/project.json` 了解角色/场景/道具列表。
 
 **Step 2**: 调用 Gemini 生成规范化剧本
 

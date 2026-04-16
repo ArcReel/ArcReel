@@ -32,12 +32,14 @@ def build_normalize_prompt(
     project_overview: dict,
     style: str,
     characters: dict,
-    clues: dict,
+    scenes: dict,
+    props: dict,
 ) -> str:
     """构建规范化剧本的 Prompt"""
 
     char_list = "\n".join(f"- {name}" for name in characters.keys()) or "（暂无）"
-    clue_list = "\n".join(f"- {name}" for name in clues.keys()) or "（暂无）"
+    scene_list = "\n".join(f"- {name}" for name in scenes.keys()) or "（暂无）"
+    prop_list = "\n".join(f"- {name}" for name in props.keys()) or "（暂无）"
 
     return f"""你的任务是将小说原文改编为结构化的分镜场景表（Markdown 格式），用于后续 AI 视频生成。
 
@@ -59,9 +61,13 @@ def build_normalize_prompt(
 {char_list}
 </characters>
 
-<clues>
-{clue_list}
-</clues>
+<scenes>
+{scene_list}
+</scenes>
+
+<props>
+{prop_list}
+</props>
 
 ## 小说原文
 
@@ -152,7 +158,8 @@ def main():
         project_overview=project.get("overview", {}),
         style=project.get("style", ""),
         characters=project.get("characters", {}),
-        clues=project.get("clues", {}),
+        scenes=project.get("scenes", {}),
+        props=project.get("props", {}),
     )
 
     if args.dry_run:

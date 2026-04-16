@@ -39,7 +39,7 @@ python .claude/skills/generate-storyboard/scripts/generate_storyboard.py script.
 
 脚本自动处理以下参考图传入，无需手动指定：
 - **character_sheet**：场景中出场角色的设计图，保持外貌一致
-- **clue_sheet**：场景中出现的线索设计图
+- **scene_sheet / prop_sheet**：场景中出现的场景 / 道具设计图
 - **上一张分镜图**：相邻片段默认引用，提升画面连续性
 - 当片段标记 `segment_break=true` 时，跳过上一张分镜图参考
 

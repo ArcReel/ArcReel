@@ -79,18 +79,18 @@ def get_video_prompt(item: dict) -> str:
 
 def get_items_from_script(script: dict) -> tuple:
     """
-    根据内容模式获取场景/片段列表和相关字段名
+    根据内容模式获取场景/片段列表和相关字段名。
 
     Args:
         script: 剧本数据
 
     Returns:
-        (items_list, id_field, char_field, clue_field) 元组
+        (items_list, id_field, char_field) 三元组
     """
     content_mode = script.get("content_mode", "narration")
     if content_mode == "narration" and "segments" in script:
-        return (script["segments"], "segment_id", "characters_in_segment", "clues_in_segment")
-    return (script.get("scenes", []), "scene_id", "characters_in_scene", "clues_in_scene")
+        return (script["segments"], "segment_id", "characters_in_segment")
+    return (script.get("scenes", []), "scene_id", "characters_in_scene")
 
 
 def parse_scene_ids(scenes_arg: str) -> list:
@@ -399,7 +399,7 @@ def generate_episode_video(
     script = pm.load_script(project_name, script_filename)
     episode = ProjectManager.resolve_episode_from_script(script, script_filename)
     content_mode = script.get("content_mode", "narration")
-    all_items, id_field, _, _ = get_items_from_script(script)
+    all_items, id_field, _ = get_items_from_script(script)
 
     # script 文件（episode_N.json）已按集分开存储，场景/片段天然属于本集，无需按 episode 字段过滤
     episode_items = all_items
@@ -488,7 +488,7 @@ def generate_scene_video(script_filename: str, scene_id: str) -> Path:
     # 加载剧本
     script = pm.load_script(project_name, script_filename)
     content_mode = script.get("content_mode", "narration")
-    all_items, id_field, _, _ = get_items_from_script(script)
+    all_items, id_field, _ = get_items_from_script(script)
 
     # 找到指定场景/片段
     item = None
@@ -556,7 +556,7 @@ def generate_all_videos(script_filename: str) -> list:
     # 加载剧本
     script = pm.load_script(project_name, script_filename)
     content_mode = script.get("content_mode", "narration")
-    all_items, id_field, _, _ = get_items_from_script(script)
+    all_items, id_field, _ = get_items_from_script(script)
 
     pending_items = [item for item in all_items if not (item.get("generated_assets") or {}).get("video_clip")]
 
@@ -635,7 +635,7 @@ def generate_selected_videos(
     project = pm.load_project(project_name)
     script = pm.load_script(project_name, script_filename)
     content_mode = script.get("content_mode", "narration")
-    all_items, id_field, _, _ = get_items_from_script(script)
+    all_items, id_field, _ = get_items_from_script(script)
 
     # 筛选指定的场景
     items_by_id = {}

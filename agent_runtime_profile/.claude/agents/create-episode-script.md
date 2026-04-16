@@ -27,7 +27,7 @@ skills:
 
 使用 Read 工具读取 `projects/{项目名}/project.json`，确认：
 - content_mode 字段（narration 或 drama）
-- characters 和 clues 已有数据
+- characters、scenes、props 已有数据
 
 使用 Glob 工具确认中间文件存在：
 - narration 模式：`projects/{项目名}/drafts/episode_{N}/step1_segments.md`
