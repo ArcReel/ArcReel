@@ -22,9 +22,11 @@ import { TaskProgressBlock } from "./TaskProgressBlock";
 interface ContentBlockRendererProps {
   block: ContentBlock;
   index: number;
+  /** Called when user clicks ↩ on a Write/Edit tool header. */
+  onUndoWrite?: () => Promise<{ file_path: string } | null>;
 }
 
-export function ContentBlockRenderer({ block, index }: ContentBlockRendererProps) {
+export function ContentBlockRenderer({ block, index, onUndoWrite }: ContentBlockRendererProps) {
   if (!block || typeof block !== "object") {
     return null;
   }
@@ -43,6 +45,7 @@ export function ContentBlockRenderer({ block, index }: ContentBlockRendererProps
         <ToolCallWithResult
           key={block.id ?? `block-${index}`}
           block={block}
+          onUndoWrite={onUndoWrite}
         />
       );
 

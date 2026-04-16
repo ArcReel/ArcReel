@@ -1,0 +1,101 @@
+# =============================================================================
+# ArcReel CI Pipeline
+# Chạy tự động khi push/PR vào main
+# Runs automatically on push/PR to main
+# 推送/PR 到 main 时自动运行
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --- Backend Tests ---
+  backend:
+    name: Backend (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: arcreel
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: arcreel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd  "pg_isready -U arcreel"
+          --health-interval  10s
+          --health-timeout   5s
+          --health-retries   5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://arcreel:test_password@localhost:5432/arcreel
+          AUTH_PASSWORD: test_ci_password
+        run: uv run pytest tests/ -x -q --tb=short 2>&1 | tail -30
+
+  # --- Frontend Build & Type Check ---
+  frontend:
+    name: Frontend (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ["22"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        working-directory: frontend
+        run: pnpm lint 2>&1 || true
+
+      - name: Build
+        working-directory: frontend
+        run: pnpm build

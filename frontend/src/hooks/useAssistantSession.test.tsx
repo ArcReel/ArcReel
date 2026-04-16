@@ -66,6 +66,7 @@ function makeSnapshot(overrides: Partial<AssistantSnapshot> = {}): AssistantSnap
     turns: [],
     draft_turn: null,
     pending_questions: [],
+    pending_approvals: [],
     ...overrides,
   };
 }

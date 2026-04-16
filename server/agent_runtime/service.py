@@ -307,12 +307,55 @@ class AssistantService:
         data: dict[str, Any] | str
         if decision == "allow":
             data = updated_input if updated_input is not None else {}
+            # Capture file backup BEFORE the tool writes, so the user can undo.
+            approval = self.session_manager.get_pending_approval(session_id, request_id)
+            if approval is not None:
+                tool_name = approval.payload.get("tool_name", "")
+                tool_input = approval.payload.get("input", {})
+                if tool_name in ("Write", "Edit"):
+                    file_path = (
+                        tool_input.get("file_path")
+                        or (updated_input or {}).get("file_path")
+                    )
+                    if file_path and isinstance(file_path, str):
+                        await asyncio.to_thread(
+                            self.session_manager.capture_write_backup,
+                            session_id,
+                            file_path,
+                        )
         else:
             data = message or "用户拒绝了此工具调用"
         await self.session_manager.resolve_pending_approval(
             session_id, request_id, decision, data
         )
         return {"status": "accepted", "session_id": session_id, "request_id": request_id}
+
+    async def undo_last_write(
+        self,
+        session_id: str,
+        *,
+        meta: SessionMeta | None = None,
+    ) -> dict[str, Any]:
+        """Restore the file that was last written/edited in this session.
+
+        Returns {"status": "restored", "file_path": str} on success,
+        or raises ValueError when there is nothing to undo.
+        """
+        if meta is None:
+            meta = await self.meta_store.get(session_id)
+            if meta is None:
+                raise FileNotFoundError(f"session not found: {session_id}")
+        backup = self.session_manager.get_write_backup(session_id)
+        if not backup:
+            raise ValueError("no_undo_available")
+        file_path, old_content = next(iter(backup.items()))
+        await asyncio.to_thread(
+            Path(file_path).write_text,
+            old_content,
+            encoding="utf-8",
+        )
+        self.session_manager.clear_write_backup(session_id)
+        return {"status": "restored", "file_path": file_path}
 
     async def interrupt_session(self, session_id: str, *, meta: SessionMeta | None = None) -> dict[str, Any]:
         """Interrupt a running session."""

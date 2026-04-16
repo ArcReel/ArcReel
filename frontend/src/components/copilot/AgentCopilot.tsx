@@ -146,7 +146,7 @@ export function AgentCopilot() {
 
   const { currentProjectName } = useProjectsStore();
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
-  const { sendMessage, answerQuestion, decideApproval, interrupt, createNewSession, switchSession, deleteSession } =
+  const { sendMessage, answerQuestion, decideApproval, interrupt, undoLastWrite, createNewSession, switchSession, deleteSession } =
     useAssistantSession(currentProjectName);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -393,7 +393,7 @@ export function AgentCopilot() {
           </div>
         )}
         {allTurns.map((turn, i) => (
-          <ChatMessage key={turn.uuid || `turn-${i}`} message={turn} />
+          <ChatMessage key={turn.uuid || `turn-${i}`} message={turn} onUndoWrite={undoLastWrite} />
         ))}
       </div>
 

@@ -58,6 +58,8 @@ function extractSkillInfo(input: Record<string, unknown> | undefined): {
 
 interface ToolCallWithResultProps {
   block: ContentBlock;
+  /** Called when user clicks the undo button on a Write/Edit tool. */
+  onUndoWrite?: () => Promise<{ file_path: string } | null>;
 }
 
 /**
@@ -69,8 +71,9 @@ interface ToolCallWithResultProps {
  * Skill tool:     purple-accented header with `/skill-name`, optional skill
  *                 content rendered as markdown.
  */
-export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
+export function ToolCallWithResult({ block, onUndoWrite }: ToolCallWithResultProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [undoState, setUndoState] = useState<"idle" | "pending" | "done" | "unavailable">("idle");
 
   const toolName = block.name || "Tool";
   const isSkill = toolName === "Skill";
@@ -134,11 +137,36 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
           </span>
         </div>
         <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
+          {/* Undo button — only for successful Write/Edit with a handler */}
+          {onUndoWrite && hasResult && !isError && (toolName === "Write" || toolName === "Edit") && undoState !== "done" && (
+            <button
+              type="button"
+              onClick={async (e) => {
+                e.stopPropagation();
+                setUndoState("pending");
+                const result = await onUndoWrite();
+                setUndoState(result ? "done" : "unavailable");
+              }}
+              disabled={undoState === "pending"}
+              className={cn(
+                "text-[9px] px-1.5 py-0.5 rounded border transition-colors",
+                undoState === "unavailable"
+                  ? "border-red-500/30 text-red-400/60 cursor-not-allowed"
+                  : "border-slate-600 text-slate-400 hover:border-amber-400/50 hover:text-amber-300",
+              )}
+              title={undoState === "unavailable" ? "Undo unavailable" : "Undo this write"}
+            >
+              {undoState === "pending" ? "…" : undoState === "unavailable" ? "✗" : "↩"}
+            </button>
+          )}
+          {undoState === "done" && (
+            <span className="text-[9px] text-emerald-400/70">✓</span>
+          )}
           <span className={cn("text-xs font-medium", statusColor)}>
             {statusIcon}
           </span>
           <span className="text-[10px] text-slate-500">
-            {isExpanded ? "\u25BC" : "\u25B6"}
+            {isExpanded ? "▼" : "▶"}
           </span>
         </div>
       </button>

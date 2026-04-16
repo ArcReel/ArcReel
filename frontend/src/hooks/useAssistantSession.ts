@@ -574,6 +574,18 @@ export function useAssistantSession(projectName: string | null) {
     }
   }, [projectName, store]);
 
+  // 撤销最后一次 Write/Edit
+  const undoLastWrite = useCallback(async (): Promise<{ file_path: string } | null> => {
+    const sessionId = store.getState().currentSessionId;
+    if (!projectName || !sessionId) return null;
+    try {
+      const result = await API.undoLastAssistantWrite(projectName, sessionId);
+      return { file_path: result.file_path };
+    } catch {
+      return null;
+    }
+  }, [projectName, store]);
+
   // 创建新会话（懒创建：仅清空状态，实际创建延迟到首次发消息时）
   const createNewSession = useCallback(() => {
     if (!projectName) return;
@@ -657,7 +669,7 @@ export function useAssistantSession(projectName: string | null) {
     }
   }, [projectName, clearPendingQuestion, clearPendingApproval, closeStream, invalidatePendingSend, switchSession, store]);
 
-  return { sendMessage, answerQuestion, decideApproval, interrupt, createNewSession, switchSession, deleteSession };
+  return { sendMessage, answerQuestion, decideApproval, interrupt, undoLastWrite, createNewSession, switchSession, deleteSession };
 }
 
 function getPendingQuestionFromSnapshot(

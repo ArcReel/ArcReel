@@ -11,9 +11,11 @@ import { ContentBlockRenderer } from "./ContentBlockRenderer";
 
 interface ChatMessageProps {
   message: Turn;
+  /** Undo handler forwarded from the session — only available on assistant turns. */
+  onUndoWrite?: () => Promise<{ file_path: string } | null>;
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, onUndoWrite }: ChatMessageProps) {
   if (!message) return null;
 
   const messageType = typeof message.type === "string" ? message.type : "";
@@ -52,6 +54,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
             key={block.id ?? index}
             block={block}
             index={index}
+            onUndoWrite={messageType === "assistant" ? onUndoWrite : undefined}
           />
         ))}
       </div>

@@ -113,6 +113,9 @@ class ManagedSession:
     _inbox_warned: bool = False  # edge-triggered backlog warning state
     _process_task: asyncio.Task | None = None  # per-session async inbox processor
     _interrupting: bool = False  # send_interrupt re-entry guard (distinct from interrupt_requested)
+    # Stores {file_path: old_content} captured BEFORE the last allowed Write/Edit.
+    # Cleared on new session or when undo is consumed.
+    _last_write_backup: dict[str, str] = field(default_factory=dict)
 
     # Message types that must never be silently dropped from subscriber queues.
     _CRITICAL_MESSAGE_TYPES = {"result", "runtime_status", "user", "assistant"}
@@ -327,6 +330,29 @@ class ManagedSession:
     def get_pending_approval_payloads(self) -> list[dict[str, Any]]:
         """Return unresolved approval payloads for reconnect snapshot."""
         return [pending.payload for pending in self.pending_approvals.values()]
+
+    def capture_write_backup(self, file_path: str) -> None:
+        """Read `file_path` and store its content as the undo backup.
+
+        Called right before a Write/Edit tool is approved so the user can
+        restore the previous state.  Silently skips if the file doesn't exist
+        (new-file writes) or is unreadable.
+        """
+        try:
+            from pathlib import Path
+            content = Path(file_path).read_text(encoding="utf-8", errors="replace")
+            self._last_write_backup = {file_path: content}
+        except OSError:
+            # New file or permission error — nothing to back up
+            self._last_write_backup = {}
+
+    def get_write_backup(self) -> dict[str, str]:
+        """Return the most recent write backup (file_path → old_content)."""
+        return dict(self._last_write_backup)
+
+    def clear_write_backup(self) -> None:
+        """Discard the write backup after undo is consumed."""
+        self._last_write_backup = {}
 
 
 class SessionManager:
@@ -2215,3 +2241,31 @@ Bạn là ArcReel Agent, một trợ lý sáng tạo nội dung video AI chuyên
             *[self._evict_one(s) for s in sessions],
             return_exceptions=True,
         )
+
+    # ==================== Undo Write ====================
+
+    def get_pending_approval(self, session_id: str, request_id: str) -> "PendingApproval | None":
+        """Return a pending approval object without removing it."""
+        managed = self.sessions.get(session_id)
+        if managed is None:
+            return None
+        return managed.pending_approvals.get(request_id)
+
+    def capture_write_backup(self, session_id: str, file_path: str) -> None:
+        """Snapshot file content before Write/Edit executes (called synchronously in thread)."""
+        managed = self.sessions.get(session_id)
+        if managed is not None:
+            managed.capture_write_backup(file_path)
+
+    def get_write_backup(self, session_id: str) -> dict[str, str]:
+        """Return {file_path: old_content} for the last Write/Edit, or empty dict."""
+        managed = self.sessions.get(session_id)
+        if managed is None:
+            return {}
+        return managed.get_write_backup()
+
+    def clear_write_backup(self, session_id: str) -> None:
+        """Discard the write backup after undo is consumed."""
+        managed = self.sessions.get(session_id)
+        if managed is not None:
+            managed.clear_write_backup()

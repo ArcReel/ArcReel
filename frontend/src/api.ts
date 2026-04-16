@@ -1235,6 +1235,18 @@ class API {
     );
   }
 
+  /** Restore the file last written/edited by the agent in this session.
+   *  Returns 409 `no_undo_available` when there is no backup to restore. */
+  static async undoLastAssistantWrite(
+    projectName: string,
+    sessionId: string
+  ): Promise<{ status: string; file_path: string }> {
+    return this.request(
+      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/undo-last-write`,
+      { method: "POST" }
+    );
+  }
+
   // ==================== 费用统计 API ====================
 
   /**

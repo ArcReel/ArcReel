@@ -64,7 +64,9 @@ describe("AgentCopilot", () => {
     mockedUseAssistantSession.mockReturnValue({
       sendMessage,
       answerQuestion,
+      decideApproval: vi.fn().mockResolvedValue(undefined),
       interrupt,
+      undoLastWrite: vi.fn().mockResolvedValue(null),
       createNewSession,
       switchSession,
       deleteSession,

@@ -264,6 +264,39 @@ async def decide_tool_approval(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+
+@router.post("/sessions/{session_id}/undo-last-write")
+@limiter.limit(RATE_LIMIT_AGENT)
+async def undo_last_write(
+    project_name: str,
+    session_id: str,
+    request: Request,
+    _user: CurrentUser,
+    _t: Translator,
+):
+    """Restore the file last written/edited in this session.
+
+    Returns 409 when no undo backup is available (write never approved, session
+    evicted, or backup already consumed by a previous undo call).
+    """
+    try:
+        service = get_assistant_service()
+        await _validate_session_ownership(service, session_id, project_name, _t)
+        result = await service.undo_last_write(session_id)
+        return result
+    except HTTPException:
+        raise
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
+    except ValueError:
+        raise HTTPException(status_code=409, detail="no_undo_available")
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"file_restore_failed: {exc}")
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.get("/sessions/{session_id}/stream", response_class=EventSourceResponse)
 async def stream_events(
     project_name: str,
