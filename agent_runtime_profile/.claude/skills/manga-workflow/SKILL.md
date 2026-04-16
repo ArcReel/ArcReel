@@ -144,7 +144,7 @@ dispatch `generate-assets` subagent：
   项目路径：projects/{project_name}/
   待生成项：{缺失角色名列表}
   脚本命令：
-    python .claude/skills/generate-characters/scripts/generate_character.py --all
+    python .claude/skills/generate-assets/scripts/generate_asset.py --type character --all
   验证方式：重新读取 project.json，检查对应角色的 character_sheet 字段
 ```
 
@@ -159,7 +159,8 @@ dispatch `generate-assets` subagent：
   项目路径：projects/{project_name}/
   待生成项：{缺失线索名列表}
   脚本命令：
-    python .claude/skills/generate-clues/scripts/generate_clue.py --all
+    python .claude/skills/generate-assets/scripts/generate_asset.py --type scene --all && \
+    python .claude/skills/generate-assets/scripts/generate_asset.py --type prop --all
   验证方式：重新读取 project.json，检查对应线索的 clue_sheet 字段
 ```
 
