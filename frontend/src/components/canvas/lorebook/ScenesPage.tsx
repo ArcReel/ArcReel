@@ -87,7 +87,7 @@ export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene
           type="scene"
           existingNames={new Set(Object.keys(scenes))}
           onClose={() => setPicking(false)}
-          onImport={handleImport}
+          onImport={(ids) => { void handleImport(ids); }}
         />
       )}
     </div>

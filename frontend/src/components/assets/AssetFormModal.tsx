@@ -23,7 +23,7 @@ interface Props {
 }
 
 export function AssetFormModal({
-  type, mode, scope, initialData, conflictWith, onClose, onSubmit,
+  type, mode, scope: _scope, initialData, conflictWith, onClose, onSubmit,
 }: Props) {
   const { t } = useTranslation("assets");
   const [name, setName] = useState(initialData?.name ?? "");
@@ -98,12 +98,12 @@ export function AssetFormModal({
             {t("cancel")}
           </button>
           {mode === "import" && conflictWith && (
-            <button onClick={() => submit(true)} disabled={submitting}
+            <button onClick={() => void submit(true)} disabled={submitting}
               className="px-3 py-1 text-xs rounded bg-gray-700 text-white">
               {t("overwrite_existing")}
             </button>
           )}
-          <button onClick={() => submit(false)} disabled={submitting || !name.trim()}
+          <button onClick={() => void submit(false)} disabled={submitting || !name.trim()}
             aria-label={mode === "create" ? t("create") : mode === "edit" ? t("save") : t("confirm_import")}
             className="ml-auto px-3 py-1 text-xs rounded bg-indigo-600 text-white disabled:opacity-50">
             {mode === "create" ? t("create") : mode === "edit" ? t("save") : t("confirm_import")}

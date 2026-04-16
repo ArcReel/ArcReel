@@ -19,7 +19,7 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
 
   useEffect(() => {
     let disposed = false;
-    (async () => {
+    void (async () => {
       const res = await API.listAssets({ type, q: q || undefined });
       if (!disposed) setAssets(res.items);
     })();
@@ -57,8 +57,14 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
             const sel = selected.has(a.id);
             const url = API.getGlobalAssetUrl(a.id, a.image_path, a.updated_at);
             return (
-              <div key={a.id} role="button" aria-disabled={dup}
+              <div key={a.id} role="button" aria-disabled={dup} tabIndex={dup ? -1 : 0}
                 onClick={() => toggle(a.id, dup)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggle(a.id, dup);
+                  }
+                }}
                 className={`relative rounded border p-2 cursor-pointer transition-colors ${
                   dup ? "opacity-40 cursor-not-allowed" :
                   sel ? "border-indigo-500 bg-indigo-950" : "border-gray-700 bg-gray-800 hover:border-gray-600"

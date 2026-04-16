@@ -1573,7 +1573,9 @@ class API {
     const response = await fetch(url, withAuth({ method: "POST", body: form }));
     if (!response.ok) {
       handleUnauthorized(response);
-      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      const error = (await response.json().catch(() => ({ detail: response.statusText }))) as {
+        detail?: string;
+      };
       throw new Error(typeof error.detail === "string" ? error.detail : "请求失败");
     }
     return response.json() as Promise<{ asset: Asset }>;
@@ -1593,7 +1595,9 @@ class API {
     const response = await fetch(url, withAuth({ method: "POST", body: form }));
     if (!response.ok) {
       handleUnauthorized(response);
-      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      const error = (await response.json().catch(() => ({ detail: response.statusText }))) as {
+        detail?: string;
+      };
       throw new Error(typeof error.detail === "string" ? error.detail : "请求失败");
     }
     return response.json() as Promise<{ asset: Asset }>;

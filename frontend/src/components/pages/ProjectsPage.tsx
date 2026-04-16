@@ -52,7 +52,7 @@ function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete:
   const phaseLabel = PHASE_LABELS[phase] ?? phase;
   const characters = hasStatus ? (status as ProjectStatus).characters : null;
   const scenes = hasStatus ? (status as ProjectStatus).scenes : null;
-  const props = hasStatus ? (status as ProjectStatus).props : null;
+  const propsStats = hasStatus ? (status as ProjectStatus).props : null;
   const summary = hasStatus ? (status as ProjectStatus).episodes_summary : null;
 
   // 自定义参考图项目后端会把 style 清空（互斥），仅靠 style_template_id 判断
@@ -105,7 +105,7 @@ function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete:
       </div>
 
       {/* Characters, Scenes & Props — always shown */}
-      {(characters || scenes || props) && (
+      {(characters || scenes || propsStats) && (
         <div className="flex gap-3 text-xs text-gray-500">
           {characters && (
             <span>{t("dashboard:characters")} {characters.completed}/{characters.total}</span>
@@ -113,8 +113,8 @@ function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete:
           {scenes && (
             <span>{t("dashboard:scenes")} {scenes.completed}/{scenes.total}</span>
           )}
-          {props && (
-            <span>{t("dashboard:props")} {props.completed}/{props.total}</span>
+          {propsStats && (
+            <span>{t("dashboard:props")} {propsStats.completed}/{propsStats.total}</span>
           )}
         </div>
       )}

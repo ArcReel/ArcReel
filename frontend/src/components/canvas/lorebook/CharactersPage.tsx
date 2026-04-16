@@ -87,7 +87,7 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
           type="character"
           existingNames={new Set(Object.keys(characters))}
           onClose={() => setPicking(false)}
-          onImport={handleImport}
+          onImport={(ids) => { void handleImport(ids); }}
         />
       )}
     </div>

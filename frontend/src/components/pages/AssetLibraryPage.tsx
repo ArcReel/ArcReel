@@ -96,7 +96,7 @@ export function AssetLibraryPage() {
         {assets.length === 0 ? (
           <div className="text-center py-16 text-gray-500 text-sm">{t("no_assets_hint")}</div>
         ) : (
-          <AssetGrid assets={assets} onEdit={(a) => setFormModal({ mode: "edit", asset: a })} onDelete={handleDelete} />
+          <AssetGrid assets={assets} onEdit={(a) => setFormModal({ mode: "edit", asset: a })} onDelete={(a) => { void handleDelete(a); }} />
         )}
       </div>
 

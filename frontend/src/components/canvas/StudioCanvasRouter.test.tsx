@@ -249,11 +249,9 @@ describe("StudioCanvasRouter", () => {
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "updateCharacter").mockResolvedValue({ success: true });
-    const uploadFileSpy = vi
-      .spyOn(API, "uploadFile")
-      .mockResolvedValue({ success: true, path: "x", url: "y" });
+    vi.spyOn(API, "uploadFile").mockResolvedValue({ success: true, path: "x", url: "y" });
     vi.spyOn(API, "generateCharacter").mockResolvedValue({ success: true, task_id: "t-1", message: "已提交" });
-    const addCharacterSpy = vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });
+    vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });
 
     renderAt("/characters");
 

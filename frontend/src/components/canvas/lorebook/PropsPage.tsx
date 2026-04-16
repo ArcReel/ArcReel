@@ -87,7 +87,7 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
           type="prop"
           existingNames={new Set(Object.keys(props))}
           onClose={() => setPicking(false)}
-          onImport={handleImport}
+          onImport={(ids) => { void handleImport(ids); }}
         />
       )}
     </div>
