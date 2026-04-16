@@ -183,6 +183,8 @@ export default {
   'no_clues_hint': '暂无线索，点击下方按钮添加',
   'add_character': '添加角色',
   'add_clue': '添加线索',
+  'add_scene': '添加场景',
+  'add_prop': '添加道具',
   'model_selection': '模型选择',
   'model_selection_desc': '设置全局默认的生成模型，项目内可单独覆盖',
   'default_video_model': '默认视频模型',
@@ -332,6 +334,12 @@ export default {
   'update_clue_failed': '更新线索失败: {{message}}',
   'clue_task_submitted_toast': '线索 "{{name}}" 生成任务已提交',
   'clue_added_toast': '线索 "{{name}}" 已添加',
+  'update_scene_failed': '更新场景失败: {{message}}',
+  'scene_task_submitted_toast': '场景 "{{name}}" 生成任务已提交',
+  'scene_added_toast': '场景 "{{name}}" 已添加',
+  'update_prop_failed': '更新道具失败: {{message}}',
+  'prop_task_submitted_toast': '道具 "{{name}}" 生成任务已提交',
+  'prop_added_toast': '道具 "{{name}}" 已添加',
   'loading_placeholder': '加载中...',
 
   // AddCharacterForm & AddClueForm

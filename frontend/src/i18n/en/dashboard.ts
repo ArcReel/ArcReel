@@ -182,6 +182,8 @@ export default {
   'no_clues_hint': 'No clues yet, click the button below to add.',
   'add_character': 'Add Character',
   'add_clue': 'Add Clue',
+  'add_scene': 'Add Scene',
+  'add_prop': 'Add Prop',
   'model_selection': 'Model Selection',
   'model_selection_desc': 'Set global default generation models, can be overridden per project.',
   'default_video_model': 'Default Video Model',
@@ -331,6 +333,12 @@ export default {
   'update_clue_failed': 'Failed to update clue: {{message}}',
   'clue_task_submitted_toast': 'Clue generation task for "{{name}}" submitted',
   'clue_added_toast': 'Clue "{{name}}" added',
+  'update_scene_failed': 'Failed to update scene: {{message}}',
+  'scene_task_submitted_toast': 'Scene generation task for "{{name}}" submitted',
+  'scene_added_toast': 'Scene "{{name}}" added',
+  'update_prop_failed': 'Failed to update prop: {{message}}',
+  'prop_task_submitted_toast': 'Prop generation task for "{{name}}" submitted',
+  'prop_added_toast': 'Prop "{{name}}" added',
   'loading_placeholder': 'Loading...',
 
   // AddCharacterForm & AddClueForm

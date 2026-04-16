@@ -1,24 +1,25 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { voidPromise } from "@/utils/async";
-import { Route, Switch, Redirect, useLocation } from "wouter";
+import { Route, Switch, Redirect } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
-import { LorebookGallery } from "./lorebook/LorebookGallery";
+import { CharacterCard } from "./lorebook/CharacterCard";
+import { SceneCard } from "./lorebook/SceneCard";
+import { PropCard } from "./lorebook/PropCard";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { SourceFileViewer } from "./SourceFileViewer";
 import { AddCharacterForm } from "./lorebook/AddCharacterForm";
-import { AddClueForm } from "./lorebook/AddClueForm";
 import { API } from "@/api";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
 import { getProviderModels, getCustomProviderModels, lookupSupportedDurations } from "@/utils/provider-models";
-import type { Clue, CustomProviderInfo, ProviderInfo } from "@/types";
+import type { Scene, Prop, CustomProviderInfo, ProviderInfo } from "@/types";
 import type { EpisodeScript } from "@/types/script";
 
 // ---------------------------------------------------------------------------
-// resolveSegmentPrompt — shared segment lookup for generate storyboard/video
+// resolveSegmentPrompt -- shared segment lookup for generate storyboard/video
 // ---------------------------------------------------------------------------
 
 type PromptField = "image_prompt" | "video_prompt";
@@ -45,7 +46,7 @@ function resolveSegmentPrompt(
 }
 
 // ---------------------------------------------------------------------------
-// StudioCanvasRouter — reads Zustand store data and renders the correct
+// StudioCanvasRouter -- reads Zustand store data and renders the correct
 // canvas view based on the nested route within /app/projects/:projectName.
 // ---------------------------------------------------------------------------
 
@@ -58,7 +59,8 @@ export function StudioCanvasRouter() {
     useProjectsStore();
 
   const [addingCharacter, setAddingCharacter] = useState(false);
-  const [addingClue, setAddingClue] = useState(false);
+  const [addingScene, setAddingScene] = useState(false);
+  const [addingProp, setAddingProp] = useState(false);
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
@@ -98,11 +100,24 @@ export function StudioCanvasRouter() {
     }
     return names;
   }, [tasks, currentProjectName]);
-  const generatingClueNames = useMemo(() => {
+  const generatingSceneNames = useMemo(() => {
     const names = new Set<string>();
     for (const t of tasks) {
       if (
-        t.task_type === "clue" &&
+        t.task_type === "scene" &&
+        t.project_name === currentProjectName &&
+        (t.status === "queued" || t.status === "running")
+      ) {
+        names.add(t.resource_id);
+      }
+    }
+    return names;
+  }, [tasks, currentProjectName]);
+  const generatingPropNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const t of tasks) {
+      if (
+        t.task_type === "prop" &&
         t.project_name === currentProjectName &&
         (t.status === "queued" || t.status === "running")
       ) {
@@ -261,40 +276,67 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
-  // ---- Clue CRUD callbacks ----
-  const handleUpdateClue = useCallback(async (name: string, updates: Partial<Clue>) => {
+  // ---- Scene CRUD callbacks ----
+  const handleUpdateScene = useCallback(async (name: string, updates: Partial<Scene>) => {
     if (!currentProjectName) return;
     try {
-      await API.updateClue(currentProjectName, name, updates);
+      await API.updateProjectScene(currentProjectName, name, updates);
       await refreshProject();
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("update_clue_failed", { message: (err as Error).message }), "error");
+      useAppStore.getState().pushToast(tRef.current("update_scene_failed", { message: (err as Error).message }), "error");
     }
   }, [currentProjectName, refreshProject]);
 
-  const handleGenerateClue = useCallback(async (name: string) => {
+  const handleGenerateScene = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await API.generateClue(
-        currentProjectName,
-        name,
-        currentProjectData?.clues?.[name]?.description ?? "",
-      );
-      useAppStore
-        .getState()
-        .pushToast(tRef.current("clue_task_submitted_toast", { name }), "success");
+      await API.generateProjectScene(currentProjectName, name, currentProjectData?.scenes?.[name]?.description ?? "");
+      useAppStore.getState().pushToast(tRef.current("scene_task_submitted_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: (err as Error).message }), "error");
     }
   }, [currentProjectName, currentProjectData]);
 
-  const handleAddClueSubmit = useCallback(async (name: string, clueType: string, description: string, importance: string) => {
+  const handleAddSceneSubmit = useCallback(async (name: string, description: string) => {
     if (!currentProjectName) return;
     try {
-      await API.addClue(currentProjectName, name, clueType, description, importance);
+      await API.addProjectScene(currentProjectName, name, description);
       await refreshProject();
-      setAddingClue(false);
-      useAppStore.getState().pushToast(tRef.current("clue_added_toast", { name }), "success");
+      setAddingScene(false);
+      useAppStore.getState().pushToast(tRef.current("scene_added_toast", { name }), "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(tRef.current("add_failed", { message: (err as Error).message }), "error");
+    }
+  }, [currentProjectName, refreshProject]);
+
+  // ---- Prop CRUD callbacks ----
+  const handleUpdateProp = useCallback(async (name: string, updates: Partial<Prop>) => {
+    if (!currentProjectName) return;
+    try {
+      await API.updateProjectProp(currentProjectName, name, updates);
+      await refreshProject();
+    } catch (err) {
+      useAppStore.getState().pushToast(tRef.current("update_prop_failed", { message: (err as Error).message }), "error");
+    }
+  }, [currentProjectName, refreshProject]);
+
+  const handleGenerateProp = useCallback(async (name: string) => {
+    if (!currentProjectName) return;
+    try {
+      await API.generateProjectProp(currentProjectName, name, currentProjectData?.props?.[name]?.description ?? "");
+      useAppStore.getState().pushToast(tRef.current("prop_task_submitted_toast", { name }), "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(tRef.current("submit_failed", { message: (err as Error).message }), "error");
+    }
+  }, [currentProjectName, currentProjectData]);
+
+  const handleAddPropSubmit = useCallback(async (name: string, description: string) => {
+    if (!currentProjectName) return;
+    try {
+      await API.addProjectProp(currentProjectName, name, description);
+      await refreshProject();
+      setAddingProp(false);
+      useAppStore.getState().pushToast(tRef.current("prop_added_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("add_failed", { message: (err as Error).message }), "error");
     }
@@ -314,17 +356,21 @@ export function StudioCanvasRouter() {
     await refreshProject();
   }, [refreshProject]);
 
-  const handleUpdateClueVoid = useCallback((...args: Parameters<typeof handleUpdateClue>) => {
-    void handleUpdateClue(...args).catch(console.error);
-  }, [handleUpdateClue]);
   const handleGenerateCharacterVoid = useCallback((...args: Parameters<typeof handleGenerateCharacter>) => {
     void handleGenerateCharacter(...args).catch(console.error);
   }, [handleGenerateCharacter]);
-  const handleGenerateClueVoid = useCallback((...args: Parameters<typeof handleGenerateClue>) => {
-    void handleGenerateClue(...args).catch(console.error);
-  }, [handleGenerateClue]);
-
-  const [location] = useLocation();
+  const handleUpdateSceneVoid = useCallback((...args: Parameters<typeof handleUpdateScene>) => {
+    void handleUpdateScene(...args).catch(console.error);
+  }, [handleUpdateScene]);
+  const handleGenerateSceneVoid = useCallback((...args: Parameters<typeof handleGenerateScene>) => {
+    void handleGenerateScene(...args).catch(console.error);
+  }, [handleGenerateScene]);
+  const handleUpdatePropVoid = useCallback((...args: Parameters<typeof handleUpdateProp>) => {
+    void handleUpdateProp(...args).catch(console.error);
+  }, [handleUpdateProp]);
+  const handleGeneratePropVoid = useCallback((...args: Parameters<typeof handleGenerateProp>) => {
+    void handleGenerateProp(...args).catch(console.error);
+  }, [handleGenerateProp]);
 
   if (!currentProjectName) {
     return (
@@ -347,24 +393,20 @@ export function StudioCanvasRouter() {
         <Redirect to="/characters" />
       </Route>
 
-      {/* Characters & Clues share one LorebookGallery to avoid remount flash */}
-      {(location === "/characters" || location === "/clues") && (
+      <Route path="/clues">
+        <Redirect to="/scenes" />
+      </Route>
+
+      <Route path="/characters">
         <div className="p-4">
-          <LorebookGallery
+          <CharactersPage
             projectName={currentProjectName}
             characters={currentProjectData?.characters ?? {}}
-            clues={currentProjectData?.clues ?? {}}
-            mode={location === "/clues" ? "clues" : "characters"}
             onSaveCharacter={handleSaveCharacter}
-            onUpdateClue={handleUpdateClueVoid}
             onGenerateCharacter={handleGenerateCharacterVoid}
-            onGenerateClue={handleGenerateClueVoid}
-            onRestoreCharacterVersion={handleRestoreAsset}
-            onRestoreClueVersion={handleRestoreAsset}
-            generatingCharacterNames={generatingCharacterNames}
-            generatingClueNames={generatingClueNames}
             onAddCharacter={() => setAddingCharacter(true)}
-            onAddClue={() => setAddingClue(true)}
+            onRestoreCharacterVersion={handleRestoreAsset}
+            generatingCharacterNames={generatingCharacterNames}
           />
           {addingCharacter && (
             <AddCharacterForm
@@ -372,14 +414,48 @@ export function StudioCanvasRouter() {
               onCancel={() => setAddingCharacter(false)}
             />
           )}
-          {addingClue && (
-            <AddClueForm
-              onSubmit={handleAddClueSubmit}
-              onCancel={() => setAddingClue(false)}
+        </div>
+      </Route>
+
+      <Route path="/scenes">
+        <div className="p-4">
+          <ScenesPage
+            projectName={currentProjectName}
+            scenes={currentProjectData?.scenes ?? {}}
+            onUpdateScene={handleUpdateSceneVoid}
+            onGenerateScene={handleGenerateSceneVoid}
+            onAddScene={() => setAddingScene(true)}
+            onRestoreSceneVersion={handleRestoreAsset}
+            generatingSceneNames={generatingSceneNames}
+          />
+          {addingScene && (
+            <AddSceneInline
+              onSubmit={handleAddSceneSubmit}
+              onCancel={() => setAddingScene(false)}
             />
           )}
         </div>
-      )}
+      </Route>
+
+      <Route path="/props">
+        <div className="p-4">
+          <PropsPage
+            projectName={currentProjectName}
+            props={currentProjectData?.props ?? {}}
+            onUpdateProp={handleUpdatePropVoid}
+            onGenerateProp={handleGeneratePropVoid}
+            onAddProp={() => setAddingProp(true)}
+            onRestorePropVersion={handleRestoreAsset}
+            generatingPropNames={generatingPropNames}
+          />
+          {addingProp && (
+            <AddPropInline
+              onSubmit={handleAddPropSubmit}
+              onCancel={() => setAddingProp(false)}
+            />
+          )}
+        </div>
+      </Route>
 
       <Route path="/source/:filename">
         {(params) => (
@@ -425,5 +501,148 @@ export function StudioCanvasRouter() {
         }}
       </Route>
     </Switch>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CharactersPage -- placeholder grid (Task 37 will replace with GalleryToolbar)
+// ---------------------------------------------------------------------------
+
+function CharactersPage(props: {
+  projectName: string;
+  characters: Record<string, import("@/types").Character>;
+  onSaveCharacter: (name: string, payload: { description: string; voiceStyle: string; referenceFile?: File | null }) => Promise<void>;
+  onGenerateCharacter: (name: string) => void;
+  onAddCharacter: () => void;
+  onRestoreCharacterVersion: () => Promise<void> | void;
+  generatingCharacterNames: Set<string>;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {Object.entries(props.characters).map(([name, char]) => (
+        <CharacterCard
+          key={name}
+          name={name}
+          character={char}
+          projectName={props.projectName}
+          onSave={props.onSaveCharacter}
+          onGenerate={props.onGenerateCharacter}
+          onRestoreVersion={props.onRestoreCharacterVersion}
+          generating={props.generatingCharacterNames.has(name)}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ScenesPage -- placeholder grid (Task 37 will replace)
+// ---------------------------------------------------------------------------
+
+function ScenesPage(props: {
+  projectName: string;
+  scenes: Record<string, Scene>;
+  onUpdateScene: (name: string, updates: Partial<Scene>) => void;
+  onGenerateScene: (name: string) => void;
+  onAddScene: () => void;
+  onRestoreSceneVersion: () => Promise<void> | void;
+  generatingSceneNames: Set<string>;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {Object.entries(props.scenes).map(([name, scene]) => (
+        <SceneCard
+          key={name}
+          name={name}
+          scene={scene}
+          projectName={props.projectName}
+          onUpdate={props.onUpdateScene}
+          onGenerate={props.onGenerateScene}
+          onRestoreVersion={props.onRestoreSceneVersion}
+          generating={props.generatingSceneNames.has(name)}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PropsPage -- placeholder grid (Task 37 will replace)
+// ---------------------------------------------------------------------------
+
+function PropsPage(props: {
+  projectName: string;
+  props: Record<string, Prop>;
+  onUpdateProp: (name: string, updates: Partial<Prop>) => void;
+  onGenerateProp: (name: string) => void;
+  onAddProp: () => void;
+  onRestorePropVersion: () => Promise<void> | void;
+  generatingPropNames: Set<string>;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {Object.entries(props.props).map(([name, prop]) => (
+        <PropCard
+          key={name}
+          name={name}
+          prop={prop}
+          projectName={props.projectName}
+          onUpdate={props.onUpdateProp}
+          onGenerate={props.onGenerateProp}
+          onRestoreVersion={props.onRestorePropVersion}
+          generating={props.generatingPropNames.has(name)}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AddSceneInline -- simple inline form for adding a scene
+// ---------------------------------------------------------------------------
+
+function AddSceneInline({ onSubmit, onCancel }: { onSubmit: (name: string, description: string) => void; onCancel: () => void }) {
+  const { t } = useTranslation("dashboard");
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  return (
+    <div className="mt-4 rounded-xl border border-gray-700 bg-gray-900 p-4">
+      <h4 className="mb-3 text-sm font-semibold text-white">{t("add_scene")}</h4>
+      <input type="text" placeholder={t("name")} value={name} onChange={e => setName(e.target.value)}
+        className="mb-2 w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200" />
+      <textarea placeholder={t("scene_desc_placeholder")} value={desc} onChange={e => setDesc(e.target.value)} rows={2}
+        className="mb-3 w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200" />
+      <div className="flex gap-2">
+        <button type="button" onClick={() => { if (name.trim()) onSubmit(name.trim(), desc); }}
+          className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500">{t("common:confirm")}</button>
+        <button type="button" onClick={onCancel}
+          className="rounded-lg bg-gray-700 px-4 py-1.5 text-sm font-medium text-gray-300 hover:bg-gray-600">{t("common:cancel")}</button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AddPropInline -- simple inline form for adding a prop
+// ---------------------------------------------------------------------------
+
+function AddPropInline({ onSubmit, onCancel }: { onSubmit: (name: string, description: string) => void; onCancel: () => void }) {
+  const { t } = useTranslation("dashboard");
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  return (
+    <div className="mt-4 rounded-xl border border-gray-700 bg-gray-900 p-4">
+      <h4 className="mb-3 text-sm font-semibold text-white">{t("add_prop")}</h4>
+      <input type="text" placeholder={t("name")} value={name} onChange={e => setName(e.target.value)}
+        className="mb-2 w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200" />
+      <textarea placeholder={t("prop_desc_placeholder")} value={desc} onChange={e => setDesc(e.target.value)} rows={2}
+        className="mb-3 w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200" />
+      <div className="flex gap-2">
+        <button type="button" onClick={() => { if (name.trim()) onSubmit(name.trim(), desc); }}
+          className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500">{t("common:confirm")}</button>
+        <button type="button" onClick={onCancel}
+          className="rounded-lg bg-gray-700 px-4 py-1.5 text-sm font-medium text-gray-300 hover:bg-gray-600">{t("common:cancel")}</button>
+      </div>
+    </div>
   );
 }
