@@ -113,27 +113,53 @@ def _migrate_scripts(project_dir: Path, old_clues: dict[str, dict]) -> None:
         _atomic_write_json(sp, data)
 
 
+def _reconstruct_old_clues_from_v1(data: dict) -> dict[str, dict]:
+    """从 v1 schema 反推 old_clues（用于半迁移项目的自愈补跑）。
+
+    scene → type=location，prop → type=prop；clue_sheet 字段无法恢复（已删除），但
+    _relocate_clue_files 仅依赖 name + type 分流文件，不依赖 clue_sheet。
+    """
+    old: dict[str, dict] = {}
+    for name in data.get("scenes") or {}:
+        old[name] = {"type": "location"}
+    for name in data.get("props") or {}:
+        old[name] = {"type": "prop"}
+    return old
+
+
 def migrate_v0_to_v1(project_dir: Path) -> None:
-    """幂等。若已是 v1 直接返回。"""
+    """v0→v1 迁移。幂等 + 半迁移自愈。
+
+    顺序：先搬文件 → 再改剧本 → 最后升 schema_version。这样任一步崩溃时
+    schema_version 仍是 0，下次启动会重新尝试（不会因"已升版本"而跳过丢图）。
+    """
     pj = project_dir / "project.json"
     if not pj.exists():
         return
     data = _load_json(pj)
-    if data.get("schema_version", 0) >= 1:
+    current_version = data.get("schema_version", 0)
+
+    # 自愈：schema_version>=1 但 clues/ 仍存在 → 补跑文件/剧本迁移
+    if current_version >= 1:
+        clues_dir = project_dir / "clues"
+        if clues_dir.is_dir() and any(clues_dir.iterdir()):
+            old_clues = _reconstruct_old_clues_from_v1(data)
+            _relocate_clue_files(project_dir, old_clues)
+            _migrate_scripts(project_dir, old_clues)
         return
 
     old_clues: dict[str, dict] = data.get("clues") or {}
     scenes, props = _split_clues(old_clues)
 
-    # 更新 project.json
+    # 1. 先搬文件（任一步失败时 schema_version 仍为 0，重启会重试）
+    _relocate_clue_files(project_dir, old_clues)
+
+    # 2. 级联剧本
+    _migrate_scripts(project_dir, old_clues)
+
+    # 3. 最后更新 project.json（原子写，schema_version 升级作为"提交"标志）
     data["scenes"] = scenes
     data["props"] = props
     data.pop("clues", None)
     data["schema_version"] = 1
     _atomic_write_json(pj, data)
-
-    # 文件系统
-    _relocate_clue_files(project_dir, old_clues)
-
-    # 级联剧本
-    _migrate_scripts(project_dir, old_clues)

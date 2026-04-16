@@ -94,3 +94,69 @@ def test_migrate_idempotent(tmp_path: Path):
     migrate_v0_to_v1(p)  # 再跑一次不应抛错
     data = json.loads((p / "project.json").read_text())
     assert data["schema_version"] == 1
+
+
+def test_migrate_order_files_before_schema_bump(tmp_path: Path, monkeypatch):
+    """若剧本迁移中途崩溃，schema_version 必须仍为 0（防止下次启动因幂等跳过 → 永久丢图）。"""
+    import lib.project_migrations.v0_to_v1_clues_to_scenes_props as mod
+
+    p = _make_v0_project(tmp_path)
+    original = mod._migrate_scripts
+
+    def fail(*args, **kwargs):
+        original(*args, **kwargs)
+        raise RuntimeError("boom mid-migration")
+
+    monkeypatch.setattr(mod, "_migrate_scripts", fail)
+    try:
+        mod.migrate_v0_to_v1(p)
+    except RuntimeError:
+        pass
+
+    data = json.loads((p / "project.json").read_text(encoding="utf-8"))
+    assert data.get("schema_version", 0) == 0
+    assert "clues" in data  # project.json 未升级，幂等检查会重试
+
+
+def test_migrate_self_heals_half_migrated(tmp_path: Path):
+    """schema_version=1 但 clues/ 仍存在 → 自愈补跑。"""
+    p = tmp_path / "demo"
+    p.mkdir()
+    (p / "characters").mkdir()
+    (p / "clues").mkdir()
+    (p / "clues" / "玉佩.png").write_bytes(b"prop-image")
+    (p / "clues" / "庙宇.png").write_bytes(b"scene-image")
+    (p / "scripts").mkdir()
+
+    # 模拟"半迁移"状态：project.json 已 v1，但 clues/ 文件未搬走、剧本 clues[] 未拆
+    (p / "project.json").write_text(
+        json.dumps(
+            {
+                "name": "demo",
+                "schema_version": 1,
+                "scenes": {"庙宇": {"description": "阴森"}},
+                "props": {"玉佩": {"description": "白玉", "prop_sheet": "props/玉佩.png"}},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (p / "scripts" / "ep1.json").write_text(
+        json.dumps(
+            {
+                "content_mode": "drama",
+                "scenes": [{"scene_id": "s1", "characters": ["王小明"], "clues": ["玉佩", "庙宇"]}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    migrate_v0_to_v1(p)
+
+    assert not (p / "clues").exists()
+    assert (p / "scenes" / "庙宇.png").read_bytes() == b"scene-image"
+    assert (p / "props" / "玉佩.png").read_bytes() == b"prop-image"
+    script = json.loads((p / "scripts" / "ep1.json").read_text(encoding="utf-8"))
+    assert script["scenes"][0]["scenes"] == ["庙宇"]
+    assert script["scenes"][0]["props"] == ["玉佩"]

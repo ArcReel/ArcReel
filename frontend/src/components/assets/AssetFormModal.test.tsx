@@ -22,7 +22,7 @@ describe("AssetFormModal", () => {
   it("create mode renders empty fields and calls onSubmit", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(
-      <AssetFormModal type="character" mode="create" scope="library"
+      <AssetFormModal type="character" mode="create"
         onClose={() => {}} onSubmit={onSubmit} />
     );
     fireEvent.change(screen.getByLabelText(/field\.name/), { target: { value: "王小明" } });
@@ -33,7 +33,7 @@ describe("AssetFormModal", () => {
   it("edit mode prefills fields", () => {
     render(
       <AssetFormModal
-        type="scene" mode="edit" scope="library"
+        type="scene" mode="edit"
         initialData={{ name: "庙宇", description: "阴森" }}
         onClose={() => {}} onSubmit={vi.fn()}
       />
@@ -45,7 +45,7 @@ describe("AssetFormModal", () => {
   it("import mode with conflict shows warning", () => {
     render(
       <AssetFormModal
-        type="character" mode="import" scope="library"
+        type="character" mode="import"
         initialData={{ name: "王", description: "" }}
         conflictWith={{ id: "1", type: "character", name: "王", description: "", voice_style: "", image_path: null, source_project: null, updated_at: null }}
         onClose={() => {}} onSubmit={vi.fn()}
@@ -57,13 +57,13 @@ describe("AssetFormModal", () => {
 
   it("shows voice_style field only for character type", () => {
     const { rerender } = render(
-      <AssetFormModal type="character" mode="create" scope="library"
+      <AssetFormModal type="character" mode="create"
         onClose={() => {}} onSubmit={vi.fn()} />
     );
     expect(screen.getByLabelText(/field\.voice_style/)).toBeInTheDocument();
 
     rerender(
-      <AssetFormModal type="scene" mode="create" scope="library"
+      <AssetFormModal type="scene" mode="create"
         onClose={() => {}} onSubmit={vi.fn()} />
     );
     expect(screen.queryByLabelText(/field\.voice_style/)).not.toBeInTheDocument();

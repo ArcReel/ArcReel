@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, Landmark, Package as PackageIcon, Plus, Search, User } from "lucide-react";
+import { AlertTriangle, ChevronLeft, Landmark, Package as PackageIcon, Plus, Search, User } from "lucide-react";
 import { AssetGrid } from "@/components/assets/AssetGrid";
 import { AssetFormModal } from "@/components/assets/AssetFormModal";
 import { useAssetsStore } from "@/stores/assets-store";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import type { Asset, AssetType } from "@/types/asset";
 
 interface TabDef {
@@ -31,7 +32,9 @@ export function AssetLibraryPage() {
   const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState<AssetType>("character");
   const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q, 250);
   const [formModal, setFormModal] = useState<{ mode: "create" | "edit"; asset?: Asset } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null);
 
   const byType = useAssetsStore((s) => s.byType);
   const loadList = useAssetsStore((s) => s.loadList);
@@ -40,8 +43,8 @@ export function AssetLibraryPage() {
   const deleteAssetLocal = useAssetsStore((s) => s.deleteAsset);
 
   useEffect(() => {
-    void loadList(activeTab, q || undefined);
-  }, [activeTab, q, loadList]);
+    void loadList(activeTab, debouncedQ || undefined);
+  }, [activeTab, debouncedQ, loadList]);
 
   const assets = byType[activeTab];
 
@@ -71,8 +74,10 @@ export function AssetLibraryPage() {
     }
   };
 
-  const handleDelete = async (asset: Asset) => {
-    if (!confirm(t("delete_confirm", { type: t(`type.${asset.type}`) }))) return;
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const asset = deleteTarget;
+    setDeleteTarget(null);
     try {
       await deleteAssetLocal(asset.id, asset.type);
     } catch (err) {
@@ -187,7 +192,7 @@ export function AssetLibraryPage() {
           <AssetGrid
             assets={assets}
             onEdit={(a) => setFormModal({ mode: "edit", asset: a })}
-            onDelete={(a) => { void handleDelete(a); }}
+            onDelete={(a) => setDeleteTarget(a)}
           />
         )}
       </main>
@@ -196,16 +201,56 @@ export function AssetLibraryPage() {
         <AssetFormModal
           type={formModal.asset?.type ?? activeTab}
           mode={formModal.mode}
-          scope="library"
           initialData={formModal.asset}
           previewImageUrl={
             formModal.asset
-              ? API.getGlobalAssetUrl(formModal.asset.id, formModal.asset.image_path, formModal.asset.updated_at) ?? undefined
+              ? API.getGlobalAssetUrl(formModal.asset.image_path, formModal.asset.updated_at) ?? undefined
               : undefined
           }
           onClose={() => setFormModal(null)}
           onSubmit={handleSubmit}
         />
+      )}
+
+      {deleteTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("delete_confirm", { type: t(`type.${deleteTarget.type}`) })}
+          onClick={() => setDeleteTarget(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-[420px] max-w-[96vw] rounded-xl border border-gray-700 bg-gray-900 p-5 shadow-2xl"
+          >
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 shrink-0 text-amber-400" />
+              <div>
+                <h3 className="text-sm font-semibold text-white">
+                  {t("delete_confirm", { type: t(`type.${deleteTarget.type}`) })}
+                </h3>
+                <p className="mt-1 text-xs text-gray-400">「{deleteTarget.name}」</p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="rounded-lg border border-gray-800 px-4 py-1.5 text-sm text-gray-300 hover:border-gray-600 hover:text-white"
+              >
+                {t("cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDelete()}
+                className="rounded-lg bg-red-600 px-4 py-1.5 text-sm font-medium text-white shadow-lg shadow-red-900/40 hover:bg-red-500"
+              >
+                {t("delete")}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

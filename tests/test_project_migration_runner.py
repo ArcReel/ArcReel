@@ -86,12 +86,44 @@ def test_cleanup_old_backups(tmp_projects: Path):
     old.write_text("old")
     new.write_text("new")
 
-    # mtime 控制：old 文件 mtime 设为 8 天前
+    old_clues_dir = p / "clues.bak.v0-100000000"
+    new_clues_dir = p / "clues.bak.v0-9999999999"
+    old_clues_dir.mkdir()
+    (old_clues_dir / "a.png").write_bytes(b"x")
+    new_clues_dir.mkdir()
+
+    # mtime 控制：old 文件/目录 mtime 设为 8 天前
     eight_days_ago = time.time() - 8 * 86400
     import os
 
     os.utime(old, (eight_days_ago, eight_days_ago))
+    os.utime(old_clues_dir, (eight_days_ago, eight_days_ago))
 
     cleanup_stale_backups(tmp_projects, max_age_days=7)
     assert not old.exists()
     assert new.exists()
+    assert not old_clues_dir.exists()
+    assert new_clues_dir.exists()
+
+
+def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):
+    """v0→v1 迁移前应硬链接备份 clues/ 到 clues.bak.v0-<ts>/。"""
+    p = _write_project(tmp_projects, "p1", {"name": "p1"})  # v0
+    (p / "clues").mkdir()
+    (p / "clues" / "玉佩.png").write_bytes(b"prop-image")
+    (p / "clues" / "nested").mkdir()
+    (p / "clues" / "nested" / "deep.png").write_bytes(b"deep")
+
+    def noop_migrator(project_dir: Path) -> None:
+        data = json.loads((project_dir / "project.json").read_text())
+        data["schema_version"] = 1
+        (project_dir / "project.json").write_text(json.dumps(data))
+
+    monkeypatch.setattr("lib.project_migrations.runner.MIGRATORS", {0: noop_migrator})
+    run_project_migrations(tmp_projects)
+
+    backups = list(p.glob("clues.bak.v0-*"))
+    assert len(backups) == 1
+    bak = backups[0]
+    assert (bak / "玉佩.png").read_bytes() == b"prop-image"
+    assert (bak / "nested" / "deep.png").read_bytes() == b"deep"

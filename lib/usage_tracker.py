@@ -145,6 +145,11 @@ class UsageTracker:
             repo = UsageRepository(session)
             return await repo.get_actual_costs_by_segment(project_name)
 
+    async def get_project_image_costs_by_asset_type(self, project_name: str) -> dict:
+        async with self._session_factory() as session:
+            repo = UsageRepository(session)
+            return await repo.get_project_image_costs_by_asset_type(project_name)
+
     async def get_projects_list(self) -> list[str]:
 
         async with self._session_factory() as session:

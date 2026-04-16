@@ -78,7 +78,6 @@ export function AddToLibraryButton({
         <AssetFormModal
           type={resourceType}
           mode="import"
-          scope="library"
           initialData={{
             name: resourceId,
             description: initialDescription,

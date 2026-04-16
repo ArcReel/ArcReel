@@ -5,7 +5,9 @@ export type CostBreakdown = Record<string, number>;
 export interface CostByType {
   image?: CostBreakdown;
   video?: CostBreakdown;
-  character_and_clue?: CostBreakdown;
+  characters?: CostBreakdown;
+  scenes?: CostBreakdown;
+  props?: CostBreakdown;
 }
 
 /** 单个 segment 的费用 */

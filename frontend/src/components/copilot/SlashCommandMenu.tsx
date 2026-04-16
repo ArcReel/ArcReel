@@ -6,7 +6,6 @@ import {
   LayoutGrid,
   Scissors,
   ScrollText,
-  Search,
   Users,
   Zap,
 } from "lucide-react";
@@ -19,7 +18,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "layout-grid": LayoutGrid,
   film: Film,
   users: Users,
-  search: Search,
   scissors: Scissors,
 };
 
@@ -29,8 +27,7 @@ const SKILL_META_FALLBACK: Record<string, { label: string; icon: LucideIcon }> =
   "generate-script":     { label: "生成剧本",     icon: ScrollText },
   "generate-storyboard": { label: "生成分镜图",   icon: LayoutGrid },
   "generate-video":      { label: "生成视频",     icon: Film },
-  "generate-characters": { label: "生成角色图",   icon: Users },
-  "generate-clues":      { label: "生成线索图",   icon: Search },
+  "generate-assets":     { label: "生成资产图",   icon: Users },
   "compose-video":       { label: "合成视频",     icon: Scissors },
 };
 

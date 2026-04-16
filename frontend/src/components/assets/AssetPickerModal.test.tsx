@@ -57,7 +57,7 @@ describe("AssetPickerModal", () => {
         onClose={() => {}} onImport={vi.fn()} />
     );
     await waitFor(() => screen.getByText("王小明"));
-    const card = screen.getByText("王小明").closest("[role='button']") as HTMLElement;
-    expect(card).toHaveAttribute("aria-disabled", "true");
+    const card = screen.getByText("王小明").closest("button") as HTMLButtonElement;
+    expect(card).toBeDisabled();
   });
 });

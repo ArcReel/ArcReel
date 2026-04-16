@@ -1635,7 +1635,7 @@ class API {
     });
   }
 
-  static getGlobalAssetUrl(assetId: string, path: string | null, fp?: string | null): string | null {
+  static getGlobalAssetUrl(path: string | null, fp?: string | null): string | null {
     if (!path) return null;
     const parts = path.split("/");
     if (parts.length < 3 || parts[0] !== "_global_assets") return null;

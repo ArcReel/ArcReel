@@ -60,7 +60,8 @@ def _create_demo_project(pm: ProjectManager) -> None:
                     "duration_seconds": 4,
                     "novel_text": "原文",
                     "characters_in_segment": ["Hero"],
-                    "clues_in_segment": ["Key"],
+                    "scenes": [],
+                    "props": ["Key"],
                     "image_prompt": "img",
                     "video_prompt": "vid",
                     "generated_assets": {

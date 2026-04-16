@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
 import time
 import traceback
 from collections.abc import Callable
@@ -47,6 +49,33 @@ def _backup_project_json(project_dir: Path, from_version: int) -> None:
     bak.write_bytes(pj.read_bytes())
 
 
+def _hardlink_backup_clues(project_dir: Path, from_version: int) -> None:
+    """v0→v1 专用：硬链接备份 clues/ 到 clues.bak.v0-<ts>/，失败则 copytree。0 磁盘开销且可完整回滚。"""
+    src = project_dir / "clues"
+    if not src.is_dir():
+        return
+    ts = int(time.time())
+    bak = project_dir / f"clues.bak.v{from_version}-{ts}"
+    if bak.exists():
+        return
+    try:
+        bak.mkdir()
+        for entry in src.rglob("*"):
+            rel = entry.relative_to(src)
+            target = bak / rel
+            if entry.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(entry, target)
+            except OSError:
+                # 跨文件系统（EXDEV）等情况 fallback 到复制
+                shutil.copy2(entry, target)
+    except OSError as exc:
+        logger.warning("clues 备份失败（非阻塞）：%s: %s", project_dir, exc)
+
+
 def run_project_migrations(projects_root: Path) -> MigrationSummary:
     """扫 projects_root 下每个项目目录，升级到 CURRENT_SCHEMA_VERSION。"""
     summary = MigrationSummary()
@@ -73,6 +102,8 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
             # 逐级迁移
             while version < CURRENT_SCHEMA_VERSION:
                 _backup_project_json(child, version)
+                if version == 0:
+                    _hardlink_backup_clues(child, version)
                 migrator = MIGRATORS.get(version)
                 if not migrator:
                     raise RuntimeError(f"no migrator from v{version}")
@@ -91,7 +122,7 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
 
 
 def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
-    """删除超过 max_age_days 的 .bak.v*- 备份文件。"""
+    """删除超过 max_age_days 的 .bak.v*- 备份文件与 clues.bak.v*-/ 目录。"""
     if not projects_root.exists():
         return
     cutoff = time.time() - max_age_days * 86400
@@ -104,6 +135,14 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
                     bak.unlink()
             except OSError:
                 logger.warning("无法删除备份：%s", bak)
+        for bak_dir in project_dir.glob("clues.bak.v*-*"):
+            if not bak_dir.is_dir():
+                continue
+            try:
+                if bak_dir.stat().st_mtime < cutoff:
+                    shutil.rmtree(bak_dir, ignore_errors=True)
+            except OSError:
+                logger.warning("无法删除 clues 备份：%s", bak_dir)
 
 
 # 注册 v0→v1 迁移器（顶部 import，此处仅赋值）

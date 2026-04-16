@@ -214,12 +214,16 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                       <span className="text-gray-200">{formatCost(projectTotals.actual.image)}</span>
                       <span className="ml-3 text-gray-500">{t("video")} </span>
                       <span className="text-gray-200">{formatCost(projectTotals.actual.video)}</span>
-                      {projectTotals.actual.character_and_clue && (
-                        <>
-                          <span className="ml-3 text-gray-500">{t("character_and_clue")} </span>
-                          <span className="text-gray-200">{formatCost(projectTotals.actual.character_and_clue)}</span>
-                        </>
-                      )}
+                      {(["characters", "scenes", "props"] as const).map((kind) => {
+                        const bucket = projectTotals.actual[kind];
+                        if (!bucket) return null;
+                        return (
+                          <span key={kind} className="ml-3">
+                            <span className="text-gray-500">{t(`actual_${kind}`)} </span>
+                            <span className="text-gray-200">{formatCost(bucket)}</span>
+                          </span>
+                        );
+                      })}
                       <span className="ml-3 text-gray-500">{t("total")} </span>
                       <span className="font-semibold text-emerald-400">{formatCost(totalBreakdown(projectTotals.actual))}</span>
                     </dd>

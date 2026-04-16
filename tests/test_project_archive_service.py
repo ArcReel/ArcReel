@@ -48,7 +48,8 @@ def _build_episode_payload(*, video_uri: str | None = None) -> dict:
                 "segment_break": False,
                 "novel_text": "原文",
                 "characters_in_segment": ["Hero"],
-                "clues_in_segment": ["Key"],
+                "scenes": [],
+                "props": ["Key"],
                 "image_prompt": "img",
                 "video_prompt": "vid",
                 "transition_to_next": "cut",
@@ -554,11 +555,13 @@ class TestProjectArchiveService:
 
         assert "Ghost" in imported_project["characters"]
         assert "source_file" not in imported_script["novel"]
-        assert imported_script["segments"][0]["clues_in_segment"] == []
+        assert imported_script["segments"][0]["scenes"] == []
+        assert imported_script["segments"][0]["props"] == []
+        assert "clues_in_segment" not in imported_script["segments"][0]
         assert imported_script["segments"][0]["generated_assets"]["video_clip"] == "videos/scene_E1S01_1.mp4"
         assert result.diagnostics["auto_fixed"]
 
-    def test_import_blocks_missing_clue_definition(self, tmp_path):
+    def test_import_blocks_missing_scene_definition(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -579,7 +582,8 @@ class TestProjectArchiveService:
                         "duration_seconds": 4,
                         "novel_text": "原文",
                         "characters_in_segment": ["Hero"],
-                        "clues_in_segment": ["Missing"],
+                        "scenes": ["Missing"],
+                        "props": [],
                         "image_prompt": "img",
                         "video_prompt": "vid",
                     }
@@ -587,13 +591,52 @@ class TestProjectArchiveService:
             },
         )
 
-        archive_path = tmp_path / "missing-clue.zip"
+        archive_path = tmp_path / "missing-scene.zip"
         _make_manual_zip(project_dir, archive_path)
 
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
-            service.import_project_archive(archive_path, uploaded_filename="missing-clue.zip")
+            service.import_project_archive(archive_path, uploaded_filename="missing-scene.zip")
 
-        assert any("不存在于 project.json 的线索" in error for error in exc_info.value.errors)
+        assert any("不存在于 project.json 的场景" in error for error in exc_info.value.errors)
+        assert exc_info.value.extra["diagnostics"]["blocking"]
+
+    def test_import_blocks_missing_prop_definition(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "novel": {
+                    "title": "Demo",
+                    "chapter": "第一章",
+                },
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": ["Hero"],
+                        "scenes": [],
+                        "props": ["Missing"],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                ],
+            },
+        )
+
+        archive_path = tmp_path / "missing-prop.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="missing-prop.zip")
+
+        assert any("不存在于 project.json 的道具" in error for error in exc_info.value.errors)
         assert exc_info.value.extra["diagnostics"]["blocking"]
 
     def test_export_dirty_project_emits_diagnostics_and_repairs_snapshot(self, tmp_path):
@@ -660,7 +703,9 @@ class TestProjectArchiveService:
         assert manifest["script_schema_version"] == 2
         assert "run_video_gen.py" in manifest["pass_through_entries"]
         assert manifest["export_diagnostics"]["auto_fixed"]
-        assert exported_script["segments"][0]["clues_in_segment"] == []
+        assert exported_script["segments"][0]["scenes"] == []
+        assert exported_script["segments"][0]["props"] == []
+        assert "clues_in_segment" not in exported_script["segments"][0]
         assert exported_script["segments"][0]["generated_assets"]["video_clip"] == "videos/scene_E1S01.mp4"
 
 
@@ -674,7 +719,8 @@ class TestExportScope:
         _write_bytes(project_dir / "versions" / "storyboards" / "E1S01_v2.png", b"png-v2")
         _write_bytes(project_dir / "versions" / "videos" / "E1S01_v1.mp4", b"mp4-v1")
         _write_bytes(project_dir / "versions" / "characters" / "Hero_v1.png", b"char-v1")
-        _write_bytes(project_dir / "versions" / "clues" / "Key_v1.png", b"clue-v1")
+        _write_bytes(project_dir / "versions" / "scenes" / "Temple_v1.png", b"scene-v1")
+        _write_bytes(project_dir / "versions" / "props" / "Key_v1.png", b"prop-v1")
 
         # 创建 versions/versions.json
         versions_data = {
@@ -714,7 +760,8 @@ class TestExportScope:
             assert "demo/versions/storyboards/E1S01_v2.png" in names
             assert "demo/versions/videos/E1S01_v1.mp4" in names
             assert "demo/versions/characters/Hero_v1.png" in names
-            assert "demo/versions/clues/Key_v1.png" in names
+            assert "demo/versions/scenes/Temple_v1.png" in names
+            assert "demo/versions/props/Key_v1.png" in names
 
     def test_export_scope_current_skips_version_history_files(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -730,7 +777,8 @@ class TestExportScope:
             assert "demo/versions/storyboards/E1S01_v2.png" not in names
             assert "demo/versions/videos/E1S01_v1.mp4" not in names
             assert "demo/versions/characters/Hero_v1.png" not in names
-            assert "demo/versions/clues/Key_v1.png" not in names
+            assert "demo/versions/scenes/Temple_v1.png" not in names
+            assert "demo/versions/props/Key_v1.png" not in names
             # 主资源应保留
             assert "demo/storyboards/scene_E1S01.png" in names
             assert "demo/videos/scene_E1S01.mp4" in names

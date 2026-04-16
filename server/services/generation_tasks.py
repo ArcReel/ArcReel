@@ -900,96 +900,87 @@ async def execute_character_task(
     }
 
 
-async def execute_scene_task(
-    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+_DESIGN_TASK_SPECS: dict[str, dict[str, Any]] = {
+    "scene": {
+        "bucket_key": "scenes",
+        "prompt_builder": build_scene_prompt,
+        "update_sheet": lambda pm, proj, rid, path: pm.update_scene_sheet(proj, rid, path),
+    },
+    "prop": {
+        "bucket_key": "props",
+        "prompt_builder": build_prop_prompt,
+        "update_sheet": lambda pm, proj, rid, path: pm.update_prop_sheet(proj, rid, path),
+    },
+}
+
+
+async def execute_design_task(
+    kind: str,
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
 ) -> dict[str, Any]:
+    """合并 execute_scene_task / execute_prop_task：按 kind 查表派发。"""
+    spec = _DESIGN_TASK_SPECS[kind]
+    bucket_key = spec["bucket_key"]
+    prompt_builder = spec["prompt_builder"]
+    update_sheet = spec["update_sheet"]
+
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
-        raise ValueError("prompt is required for scene task")
+        raise ValueError(f"prompt is required for {kind} task")
 
-    def _prepare_scene():
-        _project = get_project_manager().load_project(project_name)
-        if resource_id not in _project.get("scenes", {}):
-            raise ValueError(f"scene not found: {resource_id}")
-        _style = _project.get("style", "")
-        _style_desc = _project.get("style_description", "")
-        _full_prompt = build_scene_prompt(resource_id, prompt, _style, _style_desc)
-        return _project, _full_prompt
+    def _prepare():
+        project = get_project_manager().load_project(project_name)
+        if resource_id not in project.get(bucket_key, {}):
+            raise ValueError(f"{kind} not found: {resource_id}")
+        style = project.get("style", "")
+        style_desc = project.get("style_description", "")
+        full_prompt = prompt_builder(resource_id, prompt, style, style_desc)
+        return project, full_prompt
 
-    project, full_prompt = await asyncio.to_thread(_prepare_scene)
+    project, full_prompt = await asyncio.to_thread(_prepare)
 
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
-    aspect_ratio = get_aspect_ratio(project, "scenes")
+    aspect_ratio = get_aspect_ratio(project, bucket_key)
 
     _, version = await generator.generate_image_async(
         prompt=full_prompt,
-        resource_type="scenes",
+        resource_type=bucket_key,
         resource_id=resource_id,
         aspect_ratio=aspect_ratio,
         image_size="1K",
     )
 
-    sheet_path = f"scenes/{resource_id}.png"
+    sheet_path = f"{bucket_key}/{resource_id}.png"
 
-    def _finalize_scene():
-        get_project_manager().update_scene_sheet(project_name, resource_id, sheet_path)
-        return generator.versions.get_versions("scenes", resource_id)["versions"][-1]["created_at"]
+    def _finalize():
+        update_sheet(get_project_manager(), project_name, resource_id, sheet_path)
+        return generator.versions.get_versions(bucket_key, resource_id)["versions"][-1]["created_at"]
 
-    created_at = await asyncio.to_thread(_finalize_scene)
+    created_at = await asyncio.to_thread(_finalize)
 
     return {
         "version": version,
         "file_path": sheet_path,
         "created_at": created_at,
-        "resource_type": "scenes",
+        "resource_type": bucket_key,
         "resource_id": resource_id,
     }
+
+
+async def execute_scene_task(
+    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
+) -> dict[str, Any]:
+    return await execute_design_task("scene", project_name, resource_id, payload, user_id=user_id)
 
 
 async def execute_prop_task(
     project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str = DEFAULT_USER_ID
 ) -> dict[str, Any]:
-    prompt = str(payload.get("prompt", "") or "").strip()
-    if not prompt:
-        raise ValueError("prompt is required for prop task")
-
-    def _prepare_prop():
-        _project = get_project_manager().load_project(project_name)
-        if resource_id not in _project.get("props", {}):
-            raise ValueError(f"prop not found: {resource_id}")
-        _style = _project.get("style", "")
-        _style_desc = _project.get("style_description", "")
-        _full_prompt = build_prop_prompt(resource_id, prompt, _style, _style_desc)
-        return _project, _full_prompt
-
-    project, full_prompt = await asyncio.to_thread(_prepare_prop)
-
-    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
-    aspect_ratio = get_aspect_ratio(project, "props")
-
-    _, version = await generator.generate_image_async(
-        prompt=full_prompt,
-        resource_type="props",
-        resource_id=resource_id,
-        aspect_ratio=aspect_ratio,
-        image_size="1K",
-    )
-
-    sheet_path = f"props/{resource_id}.png"
-
-    def _finalize_prop():
-        get_project_manager().update_prop_sheet(project_name, resource_id, sheet_path)
-        return generator.versions.get_versions("props", resource_id)["versions"][-1]["created_at"]
-
-    created_at = await asyncio.to_thread(_finalize_prop)
-
-    return {
-        "version": version,
-        "file_path": sheet_path,
-        "created_at": created_at,
-        "resource_type": "props",
-        "resource_id": resource_id,
-    }
+    return await execute_design_task("prop", project_name, resource_id, payload, user_id=user_id)
 
 
 def _group_scenes_by_segment_break(items: list[dict], id_field: str) -> list[list[dict]]:

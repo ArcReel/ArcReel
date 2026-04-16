@@ -38,7 +38,8 @@ def project_with_script(tmp_path):
                         "duration_seconds": 4,
                         "novel_text": "text",
                         "characters_in_segment": [],
-                        "clues_in_segment": [],
+                        "scenes": [],
+                        "props": [],
                         "image_prompt": {
                             "scene": f"scene{i}",
                             "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},

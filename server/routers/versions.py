@@ -29,6 +29,7 @@ _RESOURCE_FILE_PATTERNS: dict[str, tuple[str, str]] = {
     "storyboards": ("storyboards", "scene_{id}.png"),
     "videos": ("videos", "scene_{id}.mp4"),
     "characters": ("characters", "{id}.png"),
+    "scenes": ("scenes", "{id}.png"),
     "props": ("props", "{id}.png"),
 }
 
@@ -98,6 +99,12 @@ def _sync_metadata(
                 get_project_manager().update_project_character_sheet(project_name, resource_id, file_path)
         except KeyError:
             pass  # 角色条目可能已从 project.json 删除，跳过元数据同步
+    elif resource_type == "scenes":
+        try:
+            with project_change_source("webui"):
+                get_project_manager().update_scene_sheet(project_name, resource_id, file_path)
+        except KeyError:
+            pass  # 场景条目可能已从 project.json 删除，跳过元数据同步
     elif resource_type == "props":
         try:
             with project_change_source("webui"):
@@ -123,7 +130,7 @@ async def get_versions(
 
     Args:
         project_name: 项目名称
-        resource_type: 资源类型 (storyboards, videos, characters, props)
+        resource_type: 资源类型 (storyboards, videos, characters, scenes, props)
         resource_id: 资源 ID
     """
     try:

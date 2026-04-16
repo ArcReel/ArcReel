@@ -2,14 +2,13 @@ import { useEffect, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ImagePlus, Landmark, Package, User, X } from "lucide-react";
 import type { Asset, AssetType } from "@/types/asset";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 type Mode = "create" | "edit" | "import";
-type Scope = "project" | "library";
 
 interface Props {
   type: AssetType;
   mode: Mode;
-  scope: Scope;
   initialData?: Partial<Asset>;
   previewImageUrl?: string;
   conflictWith?: Asset;
@@ -31,7 +30,7 @@ const TYPE_ICON: Record<AssetType, React.ComponentType<{ className?: string }>> 
 };
 
 export function AssetFormModal({
-  type, mode, scope: _scope, initialData, previewImageUrl, conflictWith, onClose, onSubmit,
+  type, mode, initialData, previewImageUrl, conflictWith, onClose, onSubmit,
 }: Props) {
   const { t } = useTranslation("assets");
   const [name, setName] = useState(initialData?.name ?? "");
@@ -41,6 +40,16 @@ export function AssetFormModal({
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   useEffect(() => {
     if (!image) {
@@ -77,10 +86,12 @@ export function AssetFormModal({
     <div
       role="dialog"
       aria-modal="true"
+      aria-label={title}
       onClick={onClose}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
     >
       <div
+        ref={dialogRef}
         onClick={(e) => e.stopPropagation()}
         className="w-[560px] max-w-[96vw] overflow-hidden rounded-2xl border border-gray-700/80 bg-gray-900 shadow-2xl shadow-black/60"
       >
@@ -211,7 +222,6 @@ export function AssetFormModal({
             type="button"
             onClick={() => void submit(false)}
             disabled={submitting || !name.trim()}
-            aria-label={primaryLabel}
             className="ml-auto rounded-lg bg-indigo-600 px-5 py-1.5 text-sm font-medium text-white shadow-lg shadow-indigo-900/40 transition-all hover:bg-indigo-500 hover:shadow-indigo-700/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {primaryLabel}

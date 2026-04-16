@@ -15,6 +15,18 @@ from lib.db.repositories.base import BaseRepository
 from lib.providers import PROVIDER_GEMINI, CallType
 
 
+def _classify_asset_output_path(output_path: str | None) -> str:
+    """从 api_call.output_path 推断资产类型（characters/scenes/props/other）。"""
+    if not output_path:
+        return "other"
+    # 兼容绝对路径与相对路径
+    normalized = output_path.replace("\\", "/").lower()
+    for asset_type in ("characters", "scenes", "props"):
+        if f"/{asset_type}/" in normalized or normalized.startswith(f"{asset_type}/"):
+            return asset_type
+    return "other"
+
+
 def _row_to_dict(row: ApiCall) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -416,6 +428,40 @@ class UsageRepository(BaseRepository):
         for seg_id, call_type, currency, total in rows:
             key = seg_id if seg_id is not None else "__project__"
             result.setdefault(key, {}).setdefault(call_type, {})[currency] = round(total, 6)
+        return result
+
+    async def get_project_image_costs_by_asset_type(
+        self,
+        project_name: str,
+    ) -> dict[str, dict[str, float]]:
+        """project-level（segment_id is null）的 image 成本按 output_path 前缀分拆。
+
+        Returns:
+            {asset_type: {currency: total_amount}}，asset_type ∈ {characters, scenes, props, other}。
+        """
+        stmt = (
+            select(
+                ApiCall.output_path,
+                ApiCall.currency,
+                func.sum(ApiCall.cost_amount).label("total"),
+            )
+            .where(
+                ApiCall.project_name == project_name,
+                ApiCall.status == "success",
+                ApiCall.cost_amount > 0,
+                ApiCall.call_type == "image",
+                ApiCall.segment_id.is_(None),
+            )
+            .group_by(ApiCall.output_path, ApiCall.currency)
+        )
+        stmt = self._scope_query(stmt, ApiCall)
+        rows = (await self.session.execute(stmt)).all()
+
+        result: dict[str, dict[str, float]] = {}
+        for output_path, currency, total in rows:
+            asset_type = _classify_asset_output_path(output_path)
+            bucket = result.setdefault(asset_type, {})
+            bucket[currency] = round(bucket.get(currency, 0) + total, 6)
         return result
 
     async def get_projects_list(self) -> list[str]:

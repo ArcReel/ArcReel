@@ -27,7 +27,8 @@ class TestProjectEventService:
                             "duration_seconds": 4,
                             "segment_break": False,
                             "characters_in_segment": [],
-                            "clues_in_segment": [],
+                            "scenes": [],
+                            "props": [],
                             "image_prompt": "old",
                             "video_prompt": "old",
                             "generated_assets": {
@@ -88,7 +89,8 @@ class TestProjectEventService:
                             "duration_seconds": 4,
                             "segment_break": False,
                             "characters_in_segment": [],
-                            "clues_in_segment": [],
+                            "scenes": [],
+                            "props": [],
                             "image_prompt": "old",
                             "video_prompt": "old",
                             "generated_assets": {
@@ -119,7 +121,8 @@ class TestProjectEventService:
                 "duration_seconds": 4,
                 "segment_break": False,
                 "characters_in_segment": [],
-                "clues_in_segment": [],
+                "scenes": [],
+                "props": [],
                 "image_prompt": "new",
                 "video_prompt": "new",
                 "generated_assets": {

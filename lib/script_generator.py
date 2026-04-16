@@ -310,29 +310,17 @@ class ScriptGenerator:
         script_data["metadata"]["updated_at"] = now
         script_data["metadata"]["generator"] = self.generator.model if self.generator else "unknown"
 
-        # 计算统计信息 + 聚合 episode 级角色/线索（从 segment/scene 中收集）
+        # 计算统计信息（episode 级角色/场景/道具聚合由 StatusCalculator 读时计算）
         if self.content_mode == "narration":
             segments = script_data.get("segments", [])
             script_data["metadata"]["total_segments"] = len(segments)
             script_data["duration_seconds"] = sum(int(s.get("duration_seconds", 4)) for s in segments)
-            chars_field, clues_field = "characters_in_segment", "clues_in_segment"
-            items = segments
         else:
             scenes = script_data.get("scenes", [])
             script_data["metadata"]["total_scenes"] = len(scenes)
             script_data["duration_seconds"] = sum(int(s.get("duration_seconds", 8)) for s in scenes)
-            chars_field, clues_field = "characters_in_scene", "clues_in_scene"
-            items = scenes
 
-        all_chars: set[str] = set()
-        all_clues: set[str] = set()
-        for item in items:
-            for name in item.get(chars_field, []):
-                if isinstance(name, str):
-                    all_chars.add(name)
-            for name in item.get(clues_field, []):
-                if isinstance(name, str):
-                    all_clues.add(name)
+        # 剥离废弃的 episode 级聚合字段（改为读时计算）
         script_data.pop("characters_in_episode", None)
         script_data.pop("clues_in_episode", None)
 

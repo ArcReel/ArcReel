@@ -4,7 +4,7 @@ import { API } from "@/api";
 
 describe("useAssetsStore", () => {
   beforeEach(() => {
-    useAssetsStore.setState({ byType: { character: [], scene: [], prop: [] }, loading: false });
+    useAssetsStore.setState({ byType: { character: [], scene: [], prop: [] } });
     vi.restoreAllMocks();
   });
 
@@ -15,7 +15,7 @@ describe("useAssetsStore", () => {
   });
 
   it("removes asset locally after delete", async () => {
-    useAssetsStore.setState({ byType: { character: [], scene: [{ id: "1", type: "scene", name: "A", description: "", voice_style: "", image_path: null, source_project: null, updated_at: null }], prop: [] }, loading: false });
+    useAssetsStore.setState({ byType: { character: [], scene: [{ id: "1", type: "scene", name: "A", description: "", voice_style: "", image_path: null, source_project: null, updated_at: null }], prop: [] } });
     vi.spyOn(API, "deleteAsset" as any).mockResolvedValue(undefined);
     await useAssetsStore.getState().deleteAsset("1", "scene");
     expect(useAssetsStore.getState().byType.scene).toHaveLength(0);

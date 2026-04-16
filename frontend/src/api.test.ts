@@ -752,17 +752,17 @@ describe("API", () => {
 
   describe("getGlobalAssetUrl", () => {
     it("returns URL for valid path", () => {
-      const url = API.getGlobalAssetUrl("1", "_global_assets/character/abc.png", "123");
+      const url = API.getGlobalAssetUrl("_global_assets/character/abc.png", "123");
       expect(url).toContain("/global-assets/character/abc.png");
       expect(url).toContain("fp=123");
     });
 
     it("returns null for null path", () => {
-      expect(API.getGlobalAssetUrl("1", null)).toBeNull();
+      expect(API.getGlobalAssetUrl(null)).toBeNull();
     });
 
     it("returns null for non-global path", () => {
-      expect(API.getGlobalAssetUrl("1", "regular/path.png")).toBeNull();
+      expect(API.getGlobalAssetUrl("regular/path.png")).toBeNull();
     });
   });
 });

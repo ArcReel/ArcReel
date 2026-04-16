@@ -22,11 +22,12 @@ class TestComputeAssetFingerprints:
         assert "videos/scene_E1S01.mp4" in result
         assert isinstance(result["storyboards/scene_E1S01.png"], int)
 
-    def test_includes_thumbnails_and_characters_and_clues(self, tmp_path):
+    def test_includes_thumbnails_characters_scenes_props(self, tmp_path):
         for subdir, name in [
             ("thumbnails", "scene_E1S01.jpg"),
             ("characters", "Alice.png"),
-            ("clues", "玉佩.png"),
+            ("scenes", "庙宇.png"),
+            ("props", "玉佩.png"),
         ]:
             (tmp_path / subdir).mkdir()
             (tmp_path / subdir / name).write_bytes(b"x")
@@ -34,7 +35,8 @@ class TestComputeAssetFingerprints:
         result = compute_asset_fingerprints(tmp_path)
         assert "thumbnails/scene_E1S01.jpg" in result
         assert "characters/Alice.png" in result
-        assert "clues/玉佩.png" in result
+        assert "scenes/庙宇.png" in result
+        assert "props/玉佩.png" in result
 
     def test_includes_root_level_assets(self, tmp_path):
         (tmp_path / "style_reference.png").write_bytes(b"style")

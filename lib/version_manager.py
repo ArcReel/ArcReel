@@ -1,7 +1,7 @@
 """
 版本管理模块
 
-管理分镜图、视频、角色图、线索图的历史版本。
+管理分镜图、视频、角色图、场景设计图、道具设计图、宫格图的历史版本。
 支持版本备份、切换当前版本、记录和查询。
 """
 
@@ -29,14 +29,15 @@ class VersionManager:
     """版本管理器"""
 
     # 支持的资源类型
-    RESOURCE_TYPES = ("storyboards", "videos", "characters", "clues", "grids")
+    RESOURCE_TYPES = ("storyboards", "videos", "characters", "scenes", "props", "grids")
 
     # 资源类型对应的文件扩展名
     EXTENSIONS = {
         "storyboards": ".png",
         "videos": ".mp4",
         "characters": ".png",
-        "clues": ".png",
+        "scenes": ".png",
+        "props": ".png",
         "grids": ".png",
     }
 

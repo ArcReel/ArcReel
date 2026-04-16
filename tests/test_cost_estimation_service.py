@@ -40,7 +40,8 @@ def _make_script(
                 "segment_break": False,
                 "novel_text": "text",
                 "characters_in_segment": [],
-                "clues_in_segment": [],
+                "scenes": [],
+                "props": [],
                 "image_prompt": {
                     "scene": "s",
                     "composition": {"shot_type": "medium", "lighting": "l", "ambiance": "a"},
@@ -213,6 +214,30 @@ class TestCostEstimationService:
         assert seg1["actual"]["image"]["USD"] == pytest.approx(0.067)
         seg2 = result["episodes"][0]["segments"][1]
         assert seg2["actual"]["image"] == {}
+
+    async def test_project_level_actual_split_by_asset_type(self, db_factory):
+        """project-level image 成本应按 output_path 前缀拆分为 characters/scenes/props 三项。"""
+        resolver = ConfigResolver(db_factory)
+        tracker = UsageTracker(session_factory=db_factory)
+        service = CostEstimationService(resolver, tracker)
+
+        # 3 条 project-level image 调用，分别落在 characters / scenes / props
+        for sub in ("characters", "scenes", "props"):
+            cid = await tracker.start_call("proj", "image", "gemini-3.1-flash-image-preview", resolution="1K")
+            await tracker.finish_call(cid, status="success", output_path=f"projects/proj/{sub}/a.png")
+
+        result = await service.compute(
+            {"title": "T", "content_mode": "narration", "episodes": []},
+            {},
+            project_name="proj",
+        )
+        actual = result["project_totals"]["actual"]
+
+        assert "characters" in actual and actual["characters"].get("USD", 0) > 0
+        assert "scenes" in actual and actual["scenes"].get("USD", 0) > 0
+        assert "props" in actual and actual["props"].get("USD", 0) > 0
+        # 旧 key 不应出现
+        assert "character_and_clue" not in actual
 
     async def test_empty_episodes(self, db_factory):
         resolver = ConfigResolver(db_factory)

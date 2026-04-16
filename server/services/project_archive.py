@@ -149,14 +149,16 @@ class ProjectArchiveService:
             "storyboards",
             "videos",
             "characters",
-            "clues",
+            "scenes",
+            "props",
         }
     )
     _RESOURCE_EXTENSIONS = {
         "storyboards": ".png",
         "videos": ".mp4",
         "characters": ".png",
-        "clues": ".png",
+        "scenes": ".png",
+        "props": ".png",
     }
     _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES)
     _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
@@ -536,29 +538,45 @@ class ProjectArchiveService:
                 ):
                     project_changed = True
 
-        clues = project.get("clues")
-        if isinstance(clues, dict):
-            for clue_name, clue_data in clues.items():
-                if not isinstance(clue_data, dict):
+        scenes = project.get("scenes")
+        if isinstance(scenes, dict):
+            for scene_name, scene_data in scenes.items():
+                if not isinstance(scene_data, dict):
                     continue
                 if self._repair_path_to_canonical(
                     project_dir,
-                    clue_data,
-                    field_name="clue_sheet",
-                    canonical_rel=f"clues/{clue_name}.png",
-                    location=f"clues[{clue_name}].clue_sheet",
+                    scene_data,
+                    field_name="scene_sheet",
+                    canonical_rel=f"scenes/{scene_name}.png",
+                    location=f"scenes[{scene_name}].scene_sheet",
                     diagnostics=diagnostics,
-                    resource_type="clues",
-                    resource_id=clue_name,
+                    resource_type="scenes",
+                    resource_id=scene_name,
+                    versions_payload=versions_payload,
+                ):
+                    project_changed = True
+
+        props = project.get("props")
+        if isinstance(props, dict):
+            for prop_name, prop_data in props.items():
+                if not isinstance(prop_data, dict):
+                    continue
+                if self._repair_path_to_canonical(
+                    project_dir,
+                    prop_data,
+                    field_name="prop_sheet",
+                    canonical_rel=f"props/{prop_name}.png",
+                    location=f"props[{prop_name}].prop_sheet",
+                    diagnostics=diagnostics,
+                    resource_type="props",
+                    resource_id=prop_name,
                     versions_payload=versions_payload,
                 ):
                     project_changed = True
 
         project_characters = {name for name, payload in (characters or {}).items() if isinstance(payload, dict)}
-        # 兼容新 props 字段和旧 clues 字段
-        props = project.get("props")
-        project_clues = {name for name, payload in (clues or {}).items() if isinstance(payload, dict)}
-        project_clues |= {name for name, payload in (props or {}).items() if isinstance(payload, dict)}
+        project_scenes = {name for name, payload in (scenes or {}).items() if isinstance(payload, dict)}
+        project_props = {name for name, payload in (props or {}).items() if isinstance(payload, dict)}
 
         episodes = project.get("episodes")
         if isinstance(episodes, list):
@@ -618,7 +636,8 @@ class ProjectArchiveService:
                     script_payload=script_payload,
                     project_payload=project,
                     project_characters=project_characters,
-                    project_clues=project_clues,
+                    project_scenes=project_scenes,
+                    project_props=project_props,
                     versions_payload=versions_payload,
                     diagnostics=diagnostics,
                     basename_index=basename_index,
@@ -641,7 +660,8 @@ class ProjectArchiveService:
         script_payload: dict[str, Any],
         project_payload: dict[str, Any],
         project_characters: set[str],
-        project_clues: set[str],
+        project_scenes: set[str],
+        project_props: set[str],
         versions_payload: dict[str, Any],
         diagnostics: ArchiveDiagnostics,
         basename_index: dict[str, list[str]],
@@ -676,7 +696,6 @@ class ProjectArchiveService:
         items_key = "segments" if content_mode == "narration" else "scenes"
         id_field = "segment_id" if content_mode == "narration" else "scene_id"
         chars_field = "characters_in_segment" if content_mode == "narration" else "characters_in_scene"
-        clues_field = "clues_in_segment" if content_mode == "narration" else "clues_in_scene"
 
         raw_items = script_payload.get(items_key)
         if not isinstance(raw_items, list):
@@ -689,15 +708,27 @@ class ProjectArchiveService:
             location_prefix = f"{script_path_rel}:{items_key}[{index}]"
             resource_id = str(item.get(id_field) or "").strip()
 
-            if clues_field not in item:
-                item[clues_field] = []
-                script_changed = True
-                diagnostics.add(
-                    "auto_fixed",
-                    "missing_clues_field",
-                    f"{items_key}[{index}]: 补全缺失字段 {clues_field}",
-                    location=f"{location_prefix}.{clues_field}",
-                )
+            for legacy_field in ("clues_in_segment", "clues_in_scene", "clues"):
+                if legacy_field in item:
+                    item.pop(legacy_field)
+                    script_changed = True
+                    diagnostics.add(
+                        "auto_fixed",
+                        "deprecated_clue_field_removed",
+                        f"{items_key}[{index}]: 废弃字段 {legacy_field} 已移除（请改用 scenes/props）",
+                        location=f"{location_prefix}.{legacy_field}",
+                    )
+
+            for asset_field in ("scenes", "props"):
+                if asset_field not in item:
+                    item[asset_field] = []
+                    script_changed = True
+                    diagnostics.add(
+                        "auto_fixed",
+                        f"missing_{asset_field}_field",
+                        f"{items_key}[{index}]: 补全缺失字段 {asset_field}",
+                        location=f"{location_prefix}.{asset_field}",
+                    )
 
             assets = item.get("generated_assets")
             if assets is None:
@@ -749,20 +780,23 @@ class ProjectArchiveService:
                         location=f"characters[{character_name}]",
                     )
 
-            clues = item.get(clues_field)
-            if isinstance(clues, list):
-                missing_clues = sorted(
-                    {clue_name for clue_name in clues if isinstance(clue_name, str) and clue_name not in project_clues}
-                )
-                if missing_clues:
+            for asset_field, pool, label in (
+                ("scenes", project_scenes, "场景"),
+                ("props", project_props, "道具"),
+            ):
+                refs = item.get(asset_field)
+                if not isinstance(refs, list):
+                    continue
+                missing = sorted({name for name in refs if isinstance(name, str) and name not in pool})
+                if missing:
                     diagnostics.add(
                         "blocking",
-                        "missing_clue_definition",
+                        f"missing_{asset_field.rstrip('s')}_definition",
                         (
-                            f"{items_key}[{index}]: {clues_field} 引用了不存在于 "
-                            f"project.json 的线索: {', '.join(missing_clues)}"
+                            f"{items_key}[{index}]: {asset_field} 引用了不存在于 "
+                            f"project.json 的{label}: {', '.join(missing)}"
                         ),
-                        location=f"{location_prefix}.{clues_field}",
+                        location=f"{location_prefix}.{asset_field}",
                     )
 
             if isinstance(assets, dict) and resource_id:
