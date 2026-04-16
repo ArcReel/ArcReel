@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import type { PendingApproval } from "@/types";
 import { cn } from "./chat/utils";
 
@@ -20,6 +20,23 @@ export function ToolApprovalCard({
   const handleDeny = () => {
     onDecide(pendingApproval.request_id, "deny", undefined, "User denied tool execution.");
   };
+
+  // Keyboard shortcuts: Esc = deny, Ctrl+Enter / Cmd+Enter = allow
+  useEffect(() => {
+    if (decidingApproval) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        handleDeny();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleAllow();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- request_id and decidingApproval are the key deps
+  }, [pendingApproval.request_id, decidingApproval]);
 
   const getToolColorClass = (toolName: string) => {
     switch (toolName.toLowerCase()) {
@@ -72,18 +89,26 @@ export function ToolApprovalCard({
             type="button"
             onClick={handleDeny}
             disabled={decidingApproval}
+            title="Deny (Esc)"
             className="flex-1 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {decidingApproval ? "处理中..." : "拒绝 (Deny)"}
+            <span>{decidingApproval ? "处理中..." : "拒绝 (Deny)"}</span>
+            {!decidingApproval && (
+              <span className="ml-1.5 text-[10px] opacity-50">Esc</span>
+            )}
           </button>
 
           <button
             type="button"
             onClick={handleAllow}
             disabled={decidingApproval}
+            title="Allow (Ctrl+Enter)"
             className="flex-1 rounded-lg bg-blue-500/80 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {decidingApproval ? "处理中..." : "允许 (Allow)"}
+            <span>{decidingApproval ? "处理中..." : "允许 (Allow)"}</span>
+            {!decidingApproval && (
+              <span className="ml-1.5 text-[10px] opacity-60">⌃↵</span>
+            )}
           </button>
         </div>
       </div>

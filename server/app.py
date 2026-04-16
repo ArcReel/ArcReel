@@ -129,11 +129,36 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 配置 — 可通过环境变量限制 origins (production 建议设置具体域名)
-# Configurable via CORS_ORIGINS env var; defaults to * for dev compatibility
+# CORS 配置 — 安全默认值：development 模式才允许 *，production 必须明确配置
+# CORS config — safe default: allow * only in development; production requires explicit CORS_ORIGINS
+# Cấu hình CORS — mặc định an toàn: chỉ development mới cho phép *, production phải cấu hình rõ
 import os as _os
-_cors_origins_raw = _os.environ.get("CORS_ORIGINS", "*")
-_cors_origins = ["*"] if _cors_origins_raw == "*" else [o.strip() for o in _cors_origins_raw.split(",")]
+_env_name = _os.environ.get("ENV", "production").lower().strip()
+_is_dev = _env_name == "development"
+_cors_origins_raw = _os.environ.get("CORS_ORIGINS", "*" if _is_dev else None)
+
+if _cors_origins_raw is None and not _is_dev:
+    logger.warning(
+        "SECURITY: CORS_ORIGINS is not set in production environment. "
+        "All cross-origin requests will be blocked. "
+        "Set CORS_ORIGINS=https://yourdomain.com or ENV=development to allow."
+    )
+    _cors_origins: list[str] = []
+elif _cors_origins_raw == "*":
+    if not _is_dev:
+        logger.warning(
+            "SECURITY: CORS_ORIGINS=* in production. "
+            "Consider restricting to specific origins for security."
+        )
+    _cors_origins = ["*"]
+else:
+    _cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+
+logger.info(
+    "CORS origins: %s (ENV=%s)",
+    _cors_origins if _cors_origins else "[deny all]",
+    _env_name,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,

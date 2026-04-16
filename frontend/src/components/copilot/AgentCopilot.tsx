@@ -327,6 +327,22 @@ export function AgentCopilot() {
     }
   }, [allTurns.length]);
 
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Ctrl+K / Cmd+K — focus chat input from anywhere
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        // Don't intercept if user is typing in another input
+        const tag = (e.target as HTMLElement)?.tagName.toLowerCase();
+        if (tag === "input" || tag === "textarea") return;
+        e.preventDefault();
+        textareaRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
   return (
     <div className="relative isolate flex h-full flex-col">
       {/* Header */}
