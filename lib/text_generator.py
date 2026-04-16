@@ -51,7 +51,33 @@ class TextGenerator:
         request: TextGenerationRequest,
         project_name: str | None = None,
     ) -> TextGenerationResult:
-        """生成文本并自动记录用量。"""
+        """生成文本并自动记录用量。
+
+        若 request.max_output_tokens 超过 registry 中该模型的硬上限，
+        自动 clamp 并 warning，避免输出被静默截断。
+        """
+        # --- clamp max_output_tokens ---
+        if request.max_output_tokens is not None:
+            from lib.config.registry import get_model_max_output_tokens
+
+            model_limit = get_model_max_output_tokens(self.backend.name, self.backend.model)
+            if model_limit is not None and request.max_output_tokens > model_limit:
+                logger.warning(
+                    "请求 max_output_tokens=%d 超过 %s/%s 上限 %d，已自动 clamp。"
+                    "建议切换到更大输出上限的模型。",
+                    request.max_output_tokens,
+                    self.backend.name,
+                    self.backend.model,
+                    model_limit,
+                )
+                request = TextGenerationRequest(
+                    prompt=request.prompt,
+                    response_schema=request.response_schema,
+                    images=request.images,
+                    system_prompt=request.system_prompt,
+                    max_output_tokens=model_limit,
+                )
+
         call_id = await self.usage_tracker.start_call(
             project_name=project_name or "",
             call_type="text",
@@ -75,3 +101,4 @@ class TextGenerator:
                 error_message=str(e)[:500],
             )
             raise
+

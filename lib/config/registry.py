@@ -11,6 +11,7 @@ class ModelInfo:
     default: bool = False
     supported_durations: list[int] = field(default_factory=list)
     duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)
+    max_output_tokens: int | None = None  # text models only; None = unknown/unlimited
 
 
 @dataclass(frozen=True)
@@ -44,17 +45,20 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Gemini 3.1 Pro",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                max_output_tokens=65536,
             ),
             "gemini-3-flash-preview": ModelInfo(
                 display_name="Gemini 3 Flash",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
+                max_output_tokens=65536,
             ),
             "gemini-3.1-flash-lite-preview": ModelInfo(
                 display_name="Gemini 3.1 Flash Lite",
                 media_type="text",
                 capabilities=["text_generation", "structured_output"],
+                max_output_tokens=65536,
             ),
             # --- image ---
             "gemini-3-pro-image-preview": ModelInfo(
@@ -105,17 +109,20 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Gemini 3.1 Pro",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                max_output_tokens=65536,
             ),
             "gemini-3-flash-preview": ModelInfo(
                 display_name="Gemini 3 Flash",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
+                max_output_tokens=65536,
             ),
             "gemini-3.1-flash-lite-preview": ModelInfo(
                 display_name="Gemini 3.1 Flash Lite",
                 media_type="text",
                 capabilities=["text_generation", "structured_output"],
+                max_output_tokens=65536,
             ),
             # --- image ---
             "gemini-3-pro-image-preview": ModelInfo(
@@ -157,22 +164,26 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="豆包 Seed 2.0 Pro",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
+                max_output_tokens=16384,
             ),
             "doubao-seed-2-0-lite-260215": ModelInfo(
                 display_name="豆包 Seed 2.0 Lite",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
                 default=True,
+                max_output_tokens=16384,
             ),
             "doubao-seed-2-0-mini-260215": ModelInfo(
                 display_name="豆包 Seed 2.0 Mini",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
+                max_output_tokens=16384,
             ),
             "doubao-seed-1-8-251228": ModelInfo(
                 display_name="豆包 Seed 1.8",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                max_output_tokens=8192,
             ),
             # --- image ---
             "doubao-seedream-5-0-lite-260128": ModelInfo(
@@ -230,22 +241,26 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Grok 4.20 Reasoning",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                max_output_tokens=32768,
             ),
             "grok-4.20-0309-non-reasoning": ModelInfo(
                 display_name="Grok 4.20 Non-Reasoning",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                max_output_tokens=32768,
             ),
             "grok-4-1-fast-reasoning": ModelInfo(
                 display_name="Grok 4.1 Fast Reasoning",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
+                max_output_tokens=32768,
             ),
             "grok-4-1-fast-non-reasoning": ModelInfo(
                 display_name="Grok 4.1 Fast (Non-Reasoning)",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                max_output_tokens=32768,
             ),
             # --- image ---
             "grok-imagine-image-pro": ModelInfo(
@@ -281,17 +296,20 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="GPT-5.4",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                max_output_tokens=16384,
             ),
             "gpt-5.4-mini": ModelInfo(
                 display_name="GPT-5.4 Mini",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
+                max_output_tokens=16384,
             ),
             "gpt-5.4-nano": ModelInfo(
                 display_name="GPT-5.4 Nano",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
+                max_output_tokens=16384,
             ),
             # --- image ---
             "gpt-image-1.5": ModelInfo(
@@ -322,3 +340,18 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         },
     ),
 }
+
+
+def get_model_max_output_tokens(provider_id: str, model_id: str) -> int | None:
+    """查询指定 provider/model 的 max_output_tokens 上限。
+
+    Returns:
+        int 表示已知上限；None 表示 Registry 中未注册或未设置。
+    """
+    provider = PROVIDER_REGISTRY.get(provider_id)
+    if provider is None:
+        return None
+    model = provider.models.get(model_id)
+    if model is None:
+        return None
+    return model.max_output_tokens
