@@ -87,7 +87,7 @@ describe("SceneCard", () => {
   });
 
   it("does not render importance or type badges", () => {
-    const { container } = render(
+    render(
       <SceneCard
         name="A"
         scene={scene}
@@ -96,9 +96,7 @@ describe("SceneCard", () => {
         onGenerate={vi.fn()}
       />,
     );
-    // Only one element in the header — the name, no badge spans
-    const header = container.querySelector("h3")!;
-    expect(header.parentElement!.querySelectorAll("span")).toHaveLength(0);
+    expect(screen.queryByText(/major|minor|主要|次要|location|场景类型/i)).toBeNull();
   });
 
   it("always shows generate button (not gated on importance)", () => {

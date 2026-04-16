@@ -331,110 +331,99 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       {/* ---- Divider ---- */}
       <div className="mx-3 border-t border-gray-800" />
 
-      {/* ---- Section 2: Lorebook (Characters + Scenes + Props) ---- */}
-      <CollapsibleSection title={t("dashboard:lorebook")} icon={Users} defaultOpen={true}>
-        {/* Characters sub-section */}
-        <div className="mb-1">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-600">
-            <Users className="h-3 w-3" />
-            <span>{t("dashboard:characters")}</span>
-          </div>
-          {characterEntries.length === 0 ? (
-            <EmptyAction onClick={() => setLocation("/characters")} text={t("dashboard:no_characters_hint_clickable")} />
-          ) : (
-            <ul>
-              {characterEntries.map(([name, char]) => (
-                <li key={name}>
-                  <button
-                    type="button"
-                    onClick={() => setLocation("/characters")}
-                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
-                      isActive("/characters")
-                        ? "bg-gray-800 text-white"
-                        : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
-                    }`}
-                  >
-                    <AssetThumbnail
-                      name={name}
-                      sheetPath={char.character_sheet}
-                      projectName={projectName}
-                      shape="circle"
-                      FallbackIcon={User}
-                    />
-                    <span className="truncate">{name}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      {/* ---- Section 2: Characters ---- */}
+      <CollapsibleSection title={t("dashboard:characters")} icon={Users} defaultOpen={true}>
+        {characterEntries.length === 0 ? (
+          <EmptyAction onClick={() => setLocation("/characters")} text={t("dashboard:no_characters_hint_clickable")} />
+        ) : (
+          <ul>
+            {characterEntries.map(([name, char]) => (
+              <li key={name}>
+                <button
+                  type="button"
+                  onClick={() => setLocation("/characters")}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
+                    isActive("/characters")
+                      ? "bg-gray-800 text-white"
+                      : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
+                  }`}
+                >
+                  <AssetThumbnail
+                    name={name}
+                    sheetPath={char.character_sheet}
+                    projectName={projectName}
+                    shape="circle"
+                    FallbackIcon={User}
+                  />
+                  <span className="truncate">{name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CollapsibleSection>
 
-        {/* Scenes sub-section */}
-        <div className="mb-1">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-600">
-            <Landmark className="h-3 w-3" />
-            <span>{t("dashboard:scenes")}</span>
-          </div>
-          {sceneEntries.length === 0 ? (
-            <EmptyAction onClick={() => setLocation("/scenes")} text={t("dashboard:no_scenes_hint_clickable")} />
-          ) : (
-            <ul>
-              {sceneEntries.map(([name, scene]) => (
-                <li key={name}>
-                  <button
-                    type="button"
-                    onClick={() => setLocation("/scenes")}
-                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
-                      isActive("/scenes")
-                        ? "bg-gray-800 text-white"
-                        : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
-                    }`}
-                  >
-                    <AssetThumbnail name={name} sheetPath={scene.scene_sheet} projectName={projectName} shape="square" FallbackIcon={Landmark} />
-                    <span className="truncate">{name}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      <div className="mx-3 border-t border-gray-800" />
 
-        {/* Props sub-section */}
-        <div>
-          <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-600">
-            <Package className="h-3 w-3" />
-            <span>{t("dashboard:props")}</span>
-          </div>
-          {propEntries.length === 0 ? (
-            <EmptyAction onClick={() => setLocation("/props")} text={t("dashboard:no_props_hint_clickable")} />
-          ) : (
-            <ul>
-              {propEntries.map(([name, prop]) => (
-                <li key={name}>
-                  <button
-                    type="button"
-                    onClick={() => setLocation("/props")}
-                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
-                      isActive("/props")
-                        ? "bg-gray-800 text-white"
-                        : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
-                    }`}
-                  >
-                    <AssetThumbnail name={name} sheetPath={prop.prop_sheet} projectName={projectName} shape="square" FallbackIcon={Package} />
-                    <span className="truncate">{name}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      {/* ---- Section 3: Scenes ---- */}
+      <CollapsibleSection title={t("dashboard:scenes")} icon={Landmark} defaultOpen={true}>
+        {sceneEntries.length === 0 ? (
+          <EmptyAction onClick={() => setLocation("/scenes")} text={t("dashboard:no_scenes_hint_clickable")} />
+        ) : (
+          <ul>
+            {sceneEntries.map(([name, scene]) => (
+              <li key={name}>
+                <button
+                  type="button"
+                  onClick={() => setLocation("/scenes")}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
+                    isActive("/scenes")
+                      ? "bg-gray-800 text-white"
+                      : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
+                  }`}
+                >
+                  <AssetThumbnail name={name} sheetPath={scene.scene_sheet} projectName={projectName} shape="square" FallbackIcon={Landmark} />
+                  <span className="truncate">{name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CollapsibleSection>
+
+      <div className="mx-3 border-t border-gray-800" />
+
+      {/* ---- Section 4: Props ---- */}
+      <CollapsibleSection title={t("dashboard:props")} icon={Package} defaultOpen={true}>
+        {propEntries.length === 0 ? (
+          <EmptyAction onClick={() => setLocation("/props")} text={t("dashboard:no_props_hint_clickable")} />
+        ) : (
+          <ul>
+            {propEntries.map(([name, prop]) => (
+              <li key={name}>
+                <button
+                  type="button"
+                  onClick={() => setLocation("/props")}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors focus-ring ${
+                    isActive("/props")
+                      ? "bg-gray-800 text-white"
+                      : "text-gray-300 hover:bg-gray-800/50 hover:text-white"
+                  }`}
+                >
+                  <AssetThumbnail name={name} sheetPath={prop.prop_sheet} projectName={projectName} shape="square" FallbackIcon={Package} />
+                  <span className="truncate">{name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </CollapsibleSection>
 
       {/* ---- Divider ---- */}
       <div className="mx-3 border-t border-gray-800" />
 
       {/* ---- Section 3: Episodes ---- */}
-      <CollapsibleSection title={t("dashboard:episodes")} icon={Film}>
+      <CollapsibleSection title={t("dashboard:episodes")} icon={Film} defaultOpen={true}>
         {episodes.length === 0 ? (
           <EmptyState text={t("dashboard:no_episodes_yet")} />
         ) : (

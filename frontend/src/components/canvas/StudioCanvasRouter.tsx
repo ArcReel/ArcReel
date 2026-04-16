@@ -397,6 +397,7 @@ export function StudioCanvasRouter() {
           onGenerateCharacter={handleGenerateCharacterVoid}
           onAddCharacter={handleAddCharacterSubmit}
           onRestoreCharacterVersion={handleRestoreAsset}
+          onRefreshProject={refreshProject}
           generatingCharacterNames={generatingCharacterNames}
         />
       </Route>
@@ -409,6 +410,7 @@ export function StudioCanvasRouter() {
           onGenerateScene={handleGenerateSceneVoid}
           onAddScene={handleAddSceneSubmit}
           onRestoreSceneVersion={handleRestoreAsset}
+          onRefreshProject={refreshProject}
           generatingSceneNames={generatingSceneNames}
         />
       </Route>
@@ -421,6 +423,7 @@ export function StudioCanvasRouter() {
           onGenerateProp={handleGeneratePropVoid}
           onAddProp={handleAddPropSubmit}
           onRestorePropVersion={handleRestoreAsset}
+          onRefreshProject={refreshProject}
           generatingPropNames={generatingPropNames}
         />
       </Route>

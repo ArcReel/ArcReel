@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback, useId } from "react";
 import { useTranslation } from "react-i18next";
-import { Landmark } from "lucide-react";
+import { Landmark, Upload } from "lucide-react";
 import { API } from "@/api";
 import { AddToLibraryButton } from "@/components/assets/AddToLibraryButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
+import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { Scene } from "@/types";
 
@@ -21,6 +22,7 @@ interface SceneCardProps {
   onUpdate: (name: string, updates: Partial<Scene>) => void;
   onGenerate: (name: string) => void;
   onRestoreVersion?: () => void | Promise<void>;
+  onReload?: () => void | Promise<void>;
   onAddToLibrary?: () => void;
   generating?: boolean;
 }
@@ -36,15 +38,34 @@ export function SceneCard({
   onUpdate,
   onGenerate,
   onRestoreVersion,
+  onReload,
   generating = false,
 }: SceneCardProps) {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation(["dashboard", "assets"]);
   const sheetFp = useProjectsStore(
     (s) => scene.scene_sheet ? s.getAssetFingerprint(scene.scene_sheet) : null,
   );
   const [description, setDescription] = useState(scene.description);
   const [imgError, setImgError] = useState(false);
+  const [uploadingSheet, setUploadingSheet] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const sheetInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSheetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadingSheet(true);
+    try {
+      await API.uploadFile(projectName, "scene", file, name);
+      await onReload?.();
+      useAppStore.getState().pushToast(t("assets:upload_sheet_success", { name }), "success");
+    } catch (err) {
+      useAppStore.getState().pushToast((err as Error).message, "error");
+    } finally {
+      setUploadingSheet(false);
+    }
+  };
 
   const isDirty = description !== scene.description;
 
@@ -95,23 +116,37 @@ export function SceneCard({
         setIsEditing(false);
       }}
     >
-      {/* ---- Header: name only ---- */}
-      <div className="mb-4 flex items-center gap-2">
-        <h3 className="flex-1 text-lg font-bold text-white truncate">{name}</h3>
-        <AddToLibraryButton
-          resourceType="scene"
-          resourceId={name}
-          projectName={projectName}
-          initialDescription={scene.description}
-        />
-      </div>
-
-      {/* ---- Image area ---- */}
-      <div className="mb-4">
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-            {t("scene_design")}
-          </span>
+      {/* ---- Header: name + actions ---- */}
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="min-w-0 flex-1 truncate text-lg font-bold text-white">{name}</h3>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => sheetInputRef.current?.click()}
+            disabled={uploadingSheet}
+            title={t("assets:upload_sheet")}
+            aria-label={t("assets:upload_sheet")}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40"
+          >
+            <Upload className="h-3 w-3" />
+            <span>{t("assets:upload_sheet_short")}</span>
+          </button>
+          <input
+            ref={sheetInputRef}
+            type="file"
+            accept=".png,.jpg,.jpeg,.webp"
+            aria-label={t("assets:upload_sheet")}
+            className="hidden"
+            onChange={(e) => void handleSheetUpload(e)}
+          />
+          <AddToLibraryButton
+            resourceType="scene"
+            resourceId={name}
+            projectName={projectName}
+            initialDescription={scene.description}
+            sheetPath={scene.scene_sheet}
+            showLabel
+          />
           <VersionTimeMachine
             projectName={projectName}
             resourceType="scenes"
@@ -119,6 +154,10 @@ export function SceneCard({
             onRestore={onRestoreVersion}
           />
         </div>
+      </div>
+
+      {/* ---- Image area ---- */}
+      <div className="mb-4">
         <PreviewableImageFrame
           src={sheetUrl && !imgError ? sheetUrl : null}
           alt={`${name} ${t("scene_design")}`}

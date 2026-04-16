@@ -15,10 +15,11 @@ interface Props {
   onGenerateScene: (name: string) => void;
   onAddScene: (name: string, description: string) => Promise<void>;
   onRestoreSceneVersion?: () => Promise<void> | void;
+  onRefreshProject?: () => Promise<void> | void;
   generatingSceneNames?: Set<string>;
 }
 
-export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene, onAddScene, onRestoreSceneVersion, generatingSceneNames }: Props) {
+export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene, onAddScene, onRestoreSceneVersion, onRefreshProject, generatingSceneNames }: Props) {
   const { t } = useTranslation(["dashboard", "assets"]);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -33,7 +34,7 @@ export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene
         conflict_policy: "skip",
       });
       useAppStore.getState().pushToast(t("assets:import_count", { count: ids.length }), "success");
-      window.location.reload();
+      await onRefreshProject?.();
     } catch (err) {
       useAppStore.getState().pushToast((err as Error).message, "error");
     } finally {
@@ -51,9 +52,13 @@ export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene
       />
       <div className="p-4">
         {entries.length === 0 ? (
-          <div className="py-16 text-center text-gray-500 text-sm">
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="w-full rounded-lg border border-dashed border-gray-700 py-16 text-center text-sm text-gray-500 transition-colors hover:border-indigo-500/60 hover:bg-gray-900/50 hover:text-gray-300 focus-ring"
+          >
             {t("dashboard:no_scenes_hint_clickable")}
-          </div>
+          </button>
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             {entries.map(([name, scene]) => (
@@ -61,6 +66,7 @@ export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene
                 onUpdate={onUpdateScene}
                 onGenerate={onGenerateScene}
                 onRestoreVersion={onRestoreSceneVersion}
+                onReload={onRefreshProject}
                 generating={generatingSceneNames?.has(name)}
               />
             ))}

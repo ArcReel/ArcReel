@@ -44,7 +44,7 @@ describe("CharacterCard", () => {
 
   it("keeps selected reference file until save and submits it in the payload", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
-    const { container } = render(
+    render(
       <CharacterCard
         name="Hero"
         character={{ description: "hero desc", voice_style: "warm" }}
@@ -54,7 +54,7 @@ describe("CharacterCard", () => {
       />,
     );
 
-    const fileInput = container.querySelector("input[type='file']");
+    const fileInput = screen.getByLabelText("上传角色参考图");
     expect(fileInput).not.toBeNull();
 
     const file = new File(["ref"], "hero.png", { type: "image/png" });

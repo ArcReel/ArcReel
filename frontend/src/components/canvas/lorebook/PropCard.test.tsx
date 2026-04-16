@@ -87,7 +87,7 @@ describe("PropCard", () => {
   });
 
   it("does not render importance or type badges", () => {
-    const { container } = render(
+    render(
       <PropCard
         name="A"
         prop={prop}
@@ -96,8 +96,7 @@ describe("PropCard", () => {
         onGenerate={vi.fn()}
       />,
     );
-    const header = container.querySelector("h3")!;
-    expect(header.parentElement!.querySelectorAll("span")).toHaveLength(0);
+    expect(screen.queryByText(/major|minor|主要|次要|道具类型/i)).toBeNull();
   });
 
   it("always shows generate button (not gated on importance)", () => {

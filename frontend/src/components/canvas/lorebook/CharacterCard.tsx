@@ -8,6 +8,7 @@ import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
+import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { Character } from "@/types";
 
@@ -24,6 +25,7 @@ interface CharacterCardProps {
   onSave: (name: string, payload: CharacterSavePayload) => Promise<void>;
   onGenerate: (name: string) => void;
   onRestoreVersion?: () => Promise<void> | void;
+  onReload?: () => Promise<void> | void;
   generating?: boolean;
 }
 
@@ -34,9 +36,10 @@ export function CharacterCard({
   onSave,
   onGenerate,
   onRestoreVersion,
+  onReload,
   generating = false,
 }: CharacterCardProps) {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation(["dashboard", "assets"]);
   const sheetFp = useProjectsStore(
     (s) => character.character_sheet ? s.getAssetFingerprint(character.character_sheet) : null,
   );
@@ -49,10 +52,28 @@ export function CharacterCard({
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [referencePreview, setReferencePreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploadingSheet, setUploadingSheet] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sheetInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const descId = useId();
+
+  const handleSheetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadingSheet(true);
+    try {
+      await API.uploadFile(projectName, "character", file, name);
+      await onReload?.();
+      useAppStore.getState().pushToast(t("assets:upload_sheet_success", { name }), "success");
+    } catch (err) {
+      useAppStore.getState().pushToast((err as Error).message, "error");
+    } finally {
+      setUploadingSheet(false);
+    }
+  };
 
   useEffect(() => {
     setDescription(character.description);
@@ -156,30 +177,48 @@ export function CharacterCard({
         setIsEditing(false);
       }}
     >
-      <div className="mb-4 flex items-center gap-2">
-        <h3 className="flex-1 truncate text-lg font-bold text-white">{name}</h3>
-        <AddToLibraryButton
-          resourceType="character"
-          resourceId={name}
-          projectName={projectName}
-          initialDescription={character.description}
-          initialVoiceStyle={character.voice_style ?? ""}
-        />
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="min-w-0 flex-1 truncate text-lg font-bold text-white">{name}</h3>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => sheetInputRef.current?.click()}
+            disabled={uploadingSheet}
+            title={t("assets:upload_sheet")}
+            aria-label={t("assets:upload_sheet")}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40"
+          >
+            <Upload className="h-3 w-3" />
+            <span>{t("assets:upload_sheet_short")}</span>
+          </button>
+          <input
+            ref={sheetInputRef}
+            type="file"
+            accept=".png,.jpg,.jpeg,.webp"
+            aria-label={t("assets:upload_sheet")}
+            className="hidden"
+            onChange={(e) => void handleSheetUpload(e)}
+          />
+          <AddToLibraryButton
+            resourceType="character"
+            resourceId={name}
+            projectName={projectName}
+            initialDescription={character.description}
+            initialVoiceStyle={character.voice_style ?? ""}
+            sheetPath={character.character_sheet}
+            showLabel
+          />
+          <VersionTimeMachine
+            projectName={projectName}
+            resourceType="characters"
+            resourceId={name}
+            onRestore={onRestoreVersion}
+          />
+        </div>
       </div>
 
       <div className="mb-4 space-y-3">
         <div>
-          <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-              {t("character_design")}
-            </span>
-            <VersionTimeMachine
-              projectName={projectName}
-              resourceType="characters"
-              resourceId={name}
-              onRestore={onRestoreVersion}
-            />
-          </div>
           <PreviewableImageFrame
             src={sheetUrl && !imgError ? sheetUrl : null}
             alt={`${name} ${t("character_design")}`}

@@ -15,10 +15,11 @@ interface Props {
   onGenerateProp: (name: string) => void;
   onAddProp: (name: string, description: string) => Promise<void>;
   onRestorePropVersion?: () => Promise<void> | void;
+  onRefreshProject?: () => Promise<void> | void;
   generatingPropNames?: Set<string>;
 }
 
-export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, onAddProp, onRestorePropVersion, generatingPropNames }: Props) {
+export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, onAddProp, onRestorePropVersion, onRefreshProject, generatingPropNames }: Props) {
   const { t } = useTranslation(["dashboard", "assets"]);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -33,7 +34,7 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
         conflict_policy: "skip",
       });
       useAppStore.getState().pushToast(t("assets:import_count", { count: ids.length }), "success");
-      window.location.reload();
+      await onRefreshProject?.();
     } catch (err) {
       useAppStore.getState().pushToast((err as Error).message, "error");
     } finally {
@@ -51,9 +52,13 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
       />
       <div className="p-4">
         {entries.length === 0 ? (
-          <div className="py-16 text-center text-gray-500 text-sm">
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="w-full rounded-lg border border-dashed border-gray-700 py-16 text-center text-sm text-gray-500 transition-colors hover:border-indigo-500/60 hover:bg-gray-900/50 hover:text-gray-300 focus-ring"
+          >
             {t("dashboard:no_props_hint_clickable")}
-          </div>
+          </button>
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             {entries.map(([name, prop]) => (
@@ -61,6 +66,7 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
                 onUpdate={onUpdateProp}
                 onGenerate={onGenerateProp}
                 onRestoreVersion={onRestorePropVersion}
+                onReload={onRefreshProject}
                 generating={generatingPropNames?.has(name)}
               />
             ))}

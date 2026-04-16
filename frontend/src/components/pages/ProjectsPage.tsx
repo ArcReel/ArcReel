@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { voidCall, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
-import { Loader2, Plus, FolderOpen, Upload, AlertTriangle, Settings, EllipsisVertical, Trash2 } from "lucide-react";
+import { Loader2, Plus, FolderOpen, Upload, AlertTriangle, Settings, EllipsisVertical, Trash2, Package } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -171,7 +171,7 @@ function ProjectCard({ project, onDelete }: { project: ProjectSummary; onDelete:
 // ---------------------------------------------------------------------------
 
 export function ProjectsPage() {
-  const { t } = useTranslation(["common", "dashboard"]);
+  const { t } = useTranslation(["common", "dashboard", "assets"]);
   const [, navigate] = useLocation();
   const { projects, projectsLoading, showCreateModal, setProjects, setProjectsLoading, setShowCreateModal } =
     useProjectsStore();
@@ -266,23 +266,50 @@ export function ProjectsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="relative min-h-screen bg-gray-950 text-gray-100">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_20%_0%,rgba(99,102,241,0.14),transparent_55%)]"
+      />
+
       {/* Header */}
-      <header className="border-b border-gray-800 bg-gray-900/50 px-6 py-4 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <h1 className="flex items-center text-xl font-bold">
-            <img src="/android-chrome-192x192.png" alt="ArcReel" className="mr-2 h-6 w-6" />
-            <span className="text-indigo-400">
-              ArcReel
-            </span>
-            <span className="ml-1 text-gray-400 font-normal text-base">{t("dashboard:projects")}</span>
+      <header className="relative border-b border-gray-800/80 bg-gray-950/60 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-3">
+          {/* Left: brand */}
+          <h1 className="flex items-center gap-2.5">
+            <img
+              src="/android-chrome-192x192.png"
+              alt="ArcReel"
+              className="h-7 w-7 rounded-lg border border-gray-800 bg-gray-900 p-0.5 shadow-md shadow-black/40"
+            />
+            <span className="text-lg font-semibold tracking-tight text-white">ArcReel</span>
+            <span className="text-sm font-normal text-gray-500">{t("dashboard:projects")}</span>
+            {projects.length > 0 && (
+              <span className="text-xs text-gray-600">· {t("assets:project_count", { count: projects.length })}</span>
+            )}
           </h1>
-          <div className="flex items-center gap-3">
+
+          {/* Right: action groups */}
+          <div className="flex items-center gap-2">
+            {/* Asset library pill */}
+            <button
+              type="button"
+              onClick={() => navigate("/app/assets")}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-3 py-1.5 text-sm text-indigo-200 transition-colors hover:border-indigo-400/40 hover:bg-indigo-500/15 hover:text-white"
+              title={t("assets:library_title")}
+            >
+              <Package className="h-3.5 w-3.5" />
+              {t("assets:library_title")}
+            </button>
+
+            <div className="mx-1 h-5 w-px bg-gray-800" />
+
+            {/* Primary actions */}
             <button
               type="button"
               onClick={() => importInputRef.current?.click()}
               disabled={importingProject}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 bg-gray-900 px-4 py-2 text-sm font-medium text-gray-200 transition-colors hover:border-gray-500 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-800 bg-gray-900 px-3.5 py-1.5 text-sm font-medium text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {importingProject ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -294,34 +321,36 @@ export function ProjectsPage() {
             <button
               type="button"
               onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-sm font-medium text-white shadow-lg shadow-indigo-900/40 transition-all hover:bg-indigo-500 hover:shadow-indigo-700/50"
             >
               <Plus className="h-4 w-4" />
               {t("dashboard:create_project")}
             </button>
-            <div className="ml-1 flex items-center gap-1 border-l border-gray-800 pl-3">
-              <button
-                type="button"
-                onClick={() => setShowOpenClaw(true)}
-                className="rounded-md px-2.5 py-1.5 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-                title="OpenClaw 集成"
-                aria-label="OpenClaw 集成指南"
-              >
-                🦞
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate("/app/settings")}
-                className="relative rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-                title={t("settings")}
-                aria-label={t("settings")}
-              >
-                <Settings className="h-4 w-4" />
-                {!isConfigComplete && (
-                  <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500" aria-label={t("config_incomplete")} />
-                )}
-              </button>
-            </div>
+
+            <div className="mx-1 h-5 w-px bg-gray-800" />
+
+            {/* Utility */}
+            <button
+              type="button"
+              onClick={() => setShowOpenClaw(true)}
+              className="rounded-md px-2 py-1.5 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+              title="OpenClaw 集成"
+              aria-label="OpenClaw 集成指南"
+            >
+              🦞
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/app/settings")}
+              className="relative rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+              title={t("settings")}
+              aria-label={t("settings")}
+            >
+              <Settings className="h-4 w-4" />
+              {!isConfigComplete && (
+                <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-rose-500" aria-label={t("config_incomplete")} />
+              )}
+            </button>
           </div>
         </div>
         <input

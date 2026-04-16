@@ -15,10 +15,11 @@ interface Props {
   onGenerateCharacter: (name: string) => void;
   onAddCharacter: (name: string, description: string, voiceStyle: string, referenceFile?: File | null) => Promise<void>;
   onRestoreCharacterVersion?: () => Promise<void> | void;
+  onRefreshProject?: () => Promise<void> | void;
   generatingCharacterNames?: Set<string>;
 }
 
-export function CharactersPage({ projectName, characters, onSaveCharacter, onGenerateCharacter, onAddCharacter, onRestoreCharacterVersion, generatingCharacterNames }: Props) {
+export function CharactersPage({ projectName, characters, onSaveCharacter, onGenerateCharacter, onAddCharacter, onRestoreCharacterVersion, onRefreshProject, generatingCharacterNames }: Props) {
   const { t } = useTranslation(["dashboard", "assets"]);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -33,7 +34,7 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
         conflict_policy: "skip",
       });
       useAppStore.getState().pushToast(t("assets:import_count", { count: ids.length }), "success");
-      window.location.reload();
+      await onRefreshProject?.();
     } catch (err) {
       useAppStore.getState().pushToast((err as Error).message, "error");
     } finally {
@@ -51,16 +52,21 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
       />
       <div className="p-4">
         {entries.length === 0 ? (
-          <div className="py-16 text-center text-gray-500 text-sm">
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="w-full rounded-lg border border-dashed border-gray-700 py-16 text-center text-sm text-gray-500 transition-colors hover:border-indigo-500/60 hover:bg-gray-900/50 hover:text-gray-300 focus-ring"
+          >
             {t("dashboard:no_characters_hint_clickable")}
-          </div>
+          </button>
         ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             {entries.map(([name, char]) => (
               <CharacterCard key={name} name={name} character={char} projectName={projectName}
                 onSave={onSaveCharacter}
                 onGenerate={onGenerateCharacter}
                 onRestoreVersion={onRestoreCharacterVersion}
+                onReload={onRefreshProject}
                 generating={generatingCharacterNames?.has(name)}
               />
             ))}

@@ -37,6 +37,7 @@ ALLOWED_EXTENSIONS = {
     "source": [".txt", ".md", ".doc", ".docx"],
     "character": [".png", ".jpg", ".jpeg", ".webp"],
     "character_ref": [".png", ".jpg", ".jpeg", ".webp"],
+    "scene": [".png", ".jpg", ".jpeg", ".webp"],
     "prop": [".png", ".jpg", ".jpeg", ".webp"],
     "storyboard": [".png", ".jpg", ".jpeg", ".webp"],
 }
@@ -149,6 +150,12 @@ async def upload_file(
                     filename = f"{name}.png"
                 else:
                     filename = f"{Path(file.filename).stem}.png"
+            elif upload_type == "scene":
+                target_dir = project_dir / "scenes"
+                if name:
+                    filename = f"{name}.png"
+                else:
+                    filename = f"{Path(file.filename).stem}.png"
             elif upload_type == "prop":
                 target_dir = project_dir / "props"
                 if name:
@@ -170,7 +177,7 @@ async def upload_file(
 
             # 保存文件（大于 2MB 时压缩为 JPEG，否则校验后原样保存）
             nonlocal content
-            if upload_type in ("character", "character_ref", "prop", "storyboard"):
+            if upload_type in ("character", "character_ref", "scene", "prop", "storyboard"):
                 try:
                     content, ext = normalize_uploaded_image(content, Path(file.filename).suffix.lower())
                 except ValueError:
@@ -188,6 +195,8 @@ async def upload_file(
                 relative_path = f"characters/{filename}"
             elif upload_type == "character_ref":
                 relative_path = f"characters/refs/{filename}"
+            elif upload_type == "scene":
+                relative_path = f"scenes/{filename}"
             elif upload_type == "prop":
                 relative_path = f"props/{filename}"
             elif upload_type == "storyboard":
@@ -212,6 +221,17 @@ async def upload_file(
                         )
                 except KeyError:
                     pass  # 角色不存在，忽略
+
+            if upload_type == "scene" and name:
+                try:
+                    with project_change_source("webui"):
+                        get_project_manager().update_scene_sheet(
+                            project_name,
+                            name,
+                            f"scenes/{filename}",
+                        )
+                except KeyError:
+                    pass  # 场景不存在，忽略
 
             if upload_type == "prop" and name:
                 try:

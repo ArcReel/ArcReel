@@ -4,6 +4,7 @@ import { Package } from "lucide-react";
 import { API } from "@/api";
 import { AssetFormModal } from "./AssetFormModal";
 import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import type { Asset, AssetType } from "@/types/asset";
 
 interface Props {
@@ -12,11 +13,27 @@ interface Props {
   projectName: string;
   initialDescription: string;
   initialVoiceStyle?: string;
+  sheetPath?: string | null;
+  className?: string;
+  showLabel?: boolean;
 }
 
-export function AddToLibraryButton({ resourceType, resourceId, projectName, initialDescription, initialVoiceStyle = "" }: Props) {
+export function AddToLibraryButton({
+  resourceType,
+  resourceId,
+  projectName,
+  initialDescription,
+  initialVoiceStyle = "",
+  sheetPath = null,
+  className,
+  showLabel = false,
+}: Props) {
   const { t } = useTranslation("assets");
   const [modal, setModal] = useState<{ conflictWith?: Asset } | null>(null);
+  const sheetFp = useProjectsStore((s) =>
+    sheetPath ? s.getAssetFingerprint(sheetPath) : null,
+  );
+  const previewUrl = sheetPath ? API.getFileUrl(projectName, sheetPath, sheetFp) : undefined;
 
   const openPreview = async () => {
     try {
@@ -44,12 +61,18 @@ export function AddToLibraryButton({ resourceType, resourceId, projectName, init
     }
   };
 
+  const defaultClass = showLabel
+    ? "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+    : "inline-flex items-center justify-center h-6 w-6 rounded text-gray-500 hover:bg-gray-800 hover:text-indigo-300 transition-colors";
+
   return (
     <>
       <button type="button" onClick={() => void openPreview()}
         aria-label={t("add_to_library")}
-        className="inline-flex items-center justify-center h-6 w-6 rounded bg-indigo-950/40 text-indigo-300 hover:bg-indigo-900 hover:text-white transition-colors">
-        <Package className="h-3.5 w-3.5" />
+        title={t("add_to_library")}
+        className={className ?? defaultClass}>
+        <Package className="h-3 w-3" />
+        {showLabel && <span>{t("add_to_library_short")}</span>}
       </button>
       {modal && (
         <AssetFormModal
@@ -61,6 +84,7 @@ export function AddToLibraryButton({ resourceType, resourceId, projectName, init
             description: initialDescription,
             voice_style: initialVoiceStyle,
           }}
+          previewImageUrl={previewUrl}
           conflictWith={modal.conflictWith}
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
