@@ -7,6 +7,7 @@ import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
 import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
+import { AssetLibraryPage } from "@/components/pages/AssetLibraryPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
@@ -121,6 +122,13 @@ export function AppRoutes() {
         <Route path="/app/settings">
           <AuthGuard>
             <SystemConfigPage />
+          </AuthGuard>
+        </Route>
+
+        {/* Asset library */}
+        <Route path="/app/assets">
+          <AuthGuard>
+            <AssetLibraryPage />
           </AuthGuard>
         </Route>
 
