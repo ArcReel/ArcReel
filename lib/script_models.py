@@ -166,3 +166,31 @@ class ReferenceResource(BaseModel):
 
     type: Literal["character", "scene", "prop"] = Field(description="引用的资源类型")
     name: str = Field(description="角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
+
+
+class ReferenceVideoUnit(BaseModel):
+    """参考视频单元——一个视频文件的最小生成粒度。"""
+
+    unit_id: str = Field(description="格式 E{集}U{序号}")
+    shots: list[Shot] = Field(min_length=1, description="1-4 个 shot")
+    references: list[ReferenceResource] = Field(
+        default_factory=list,
+        description="按顺序决定 [图N] 编号",
+    )
+    duration_seconds: int = Field(description="派生字段：所有 shot 时长之和")
+    duration_override: bool = Field(default=False, description="true 时停止自动派生")
+    transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut")
+    note: str | None = Field(default=None, description="用户备注")
+    generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets)
+
+
+class ReferenceVideoScript(BaseModel):
+    """参考生视频模式剧集脚本。"""
+
+    episode: int = Field(description="剧集编号")
+    title: str = Field(description="剧集标题")
+    content_mode: Literal["reference_video"] = Field(default="reference_video")
+    duration_seconds: int = Field(default=0, description="总时长（秒）")
+    summary: str = Field(description="剧集摘要")
+    novel: NovelInfo = Field(description="小说来源信息")
+    video_units: list[ReferenceVideoUnit] = Field(description="视频单元列表")
