@@ -39,7 +39,7 @@ class ValidationResult:
 class DataValidator:
     """数据验证器"""
 
-    VALID_CONTENT_MODES = {"narration", "drama"}
+    VALID_CONTENT_MODES = {"narration", "drama", "reference_video"}
     VALID_DURATIONS = {4, 6, 8}
     VALID_SCENE_TYPES = {"剧情", "空镜"}
     ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
@@ -56,6 +56,7 @@ class DataValidator:
         "characters",
         "scenes",
         "props",
+        "reference_videos",
         "storyboards",
         "videos",
         "thumbnails",
@@ -472,6 +473,66 @@ class DataValidator:
                     errors,
                 )
 
+    def _validate_reference_video_script(
+        self,
+        video_units: list[dict[str, Any]] | Any,
+        project_characters: set[str],
+        project_scenes: set[str],
+        project_props: set[str],
+        errors: list[str],
+        warnings: list[str],
+        *,
+        project_dir: Path | None = None,
+    ) -> None:
+        """验证 video_units（reference_video 模式）"""
+        if not isinstance(video_units, list) or not video_units:
+            errors.append("reference_video 脚本缺少 video_units 数组或为空")
+            return
+
+        bucket_by_type = {
+            "character": project_characters,
+            "scene": project_scenes,
+            "prop": project_props,
+        }
+
+        for index, unit in enumerate(video_units):
+            prefix = f"video_units[{index}]"
+            if not isinstance(unit, dict):
+                errors.append(f"{prefix}: 必须是对象")
+                continue
+
+            if not unit.get("unit_id"):
+                errors.append(f"{prefix}: 缺少 unit_id")
+
+            shots = unit.get("shots")
+            if not isinstance(shots, list) or not shots:
+                errors.append(f"{prefix}: shots 必须是非空数组")
+
+            refs = unit.get("references") or []
+            if not isinstance(refs, list):
+                errors.append(f"{prefix}: references 必须是数组")
+            else:
+                for ref in refs:
+                    if not isinstance(ref, dict):
+                        errors.append(f"{prefix}: reference 条目必须是对象")
+                        continue
+                    rtype = ref.get("type")
+                    rname = ref.get("name")
+                    if rtype not in {"character", "scene", "prop"}:
+                        errors.append(f"{prefix}: reference.type 无效: {rtype!r}")
+                        continue
+                    bucket = bucket_by_type.get(rtype, set())
+                    if rname not in bucket:
+                        errors.append(f"{prefix}: 引用的{rtype} '{rname}' 不在 project.json 对应 bucket 中")
+
+            if project_dir is not None:
+                self._validate_generated_assets(
+                    project_dir,
+                    prefix,
+                    unit.get("generated_assets"),
+                    errors,
+                )
+
     def _validate_episode_payload(
         self,
         project_dir: Path,
@@ -512,6 +573,16 @@ class DataValidator:
         if content_mode == "narration":
             self._validate_segments(
                 episode.get("segments", []),
+                project_characters,
+                project_scenes,
+                project_props,
+                errors,
+                warnings,
+                project_dir=project_dir,
+            )
+        elif content_mode == "reference_video":
+            self._validate_reference_video_script(
+                episode.get("video_units", []),
                 project_characters,
                 project_scenes,
                 project_props,
