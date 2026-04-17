@@ -13,12 +13,14 @@
       "Bash(uv run ruff check:*)",
       "Bash(uv run ruff format:*)",
       "Bash(uv run alembic:*)",
+      "Bash(uv run python -m alembic:*)",
+      "Bash(uv run uvicorn:*)",
       "Bash(uv sync:*)",
+      "Bash(uv lock:*)",
       "Bash(pnpm build:*)",
       "Bash(pnpm test:*)",
       "Bash(pnpm check:*)",
       "Bash(pnpm typecheck:*)",
-      "Bash(pnpm install:*)",
       "Bash(pnpm dev:*)",
       "Bash(git status:*)",
       "Bash(git add:*)",
@@ -28,28 +30,45 @@
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git show:*)",
-      "Bash(git branch:*)",
+      "Bash(git branch)",
+      "Bash(git branch -a:*)",
+      "Bash(git branch -r:*)",
+      "Bash(git branch -v:*)",
+      "Bash(git branch --list:*)",
+      "Bash(git branch --show-current:*)",
       "Bash(git fetch:*)",
-      "Bash(gh pr create:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr status:*)",
       "Bash(gh pr checks:*)",
       "Bash(gh pr diff:*)",
       "Bash(gh pr checkout:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh repo list:*)",
+      "Bash(gh repo clone:*)",
       "Bash(openspec:*)",
       "Bash(command -v openspec)",
       "Bash(bash scripts/new-worktree.sh:*)",
       "Skill(commit-commands:commit)",
       "Skill(commit-commands:commit-push-pr)",
       "Skill(claude-api)",
+      "Skill(superpowers:brainstorming)",
+      "Skill(superpowers:writing-plans)",
+      "Skill(superpowers:executing-plans)",
+      "Skill(superpowers:systematic-debugging)",
+      "Skill(superpowers:test-driven-development)",
+      "Skill(superpowers:verification-before-completion)",
+      "Skill(superpowers:subagent-driven-development)",
       "mcp__github__issue_read",
       "mcp__github__pull_request_read",
       "mcp__github__list_pull_requests",
+      "mcp__github__search_issues",
+      "mcp__github__list_issues",
       "mcp__context7__resolve-library-id",
       "mcp__context7__query-docs",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:docs.claude.com)"
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:github.com)"
     ]
   },
   "hooks": {
@@ -59,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.py) uv run ruff check --fix \"$f\" && uv run ruff format \"$f\";; esac; } 2>/dev/null || true"
+            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.py) uv run ruff check --fix --unfixable F401,F811,F841 \"$f\" && uv run ruff format \"$f\";; esac; } 2>/dev/null || true"
           }
         ]
       }
