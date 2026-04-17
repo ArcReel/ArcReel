@@ -43,6 +43,7 @@ class DataValidator:
     VALID_CONTENT_MODES = {"narration", "drama", "reference_video"}
     VALID_DURATIONS = {4, 6, 8}
     VALID_SCENE_TYPES = {"剧情", "空镜"}
+    VALID_SHOT_DURATION_RANGE = (1, 15)
     ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
     ALLOWED_ROOT_ENTRIES = {
@@ -515,8 +516,9 @@ class DataValidator:
                         errors.append(f"{sp}: 必须是对象")
                         continue
                     duration = shot.get("duration")
-                    if not isinstance(duration, int) or duration < 1 or duration > 15:
-                        errors.append(f"{sp}: duration 必须是 1-15 之间的整数")
+                    low, high = self.VALID_SHOT_DURATION_RANGE
+                    if not isinstance(duration, int) or duration < low or duration > high:
+                        errors.append(f"{sp}: duration 必须是 {low}-{high} 之间的整数")
                     if not isinstance(shot.get("text"), str):
                         errors.append(f"{sp}: text 必须是字符串")
 

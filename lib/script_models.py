@@ -8,7 +8,7 @@ script_models.py - 剧本数据模型
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ============ 枚举类型定义 ============
 
@@ -188,6 +188,17 @@ class ReferenceVideoUnit(BaseModel):
     transition_to_next: TransitionType = Field(default="cut", description="转场类型")
     note: str | None = Field(default=None, description="用户备注")
     generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
+
+    @model_validator(mode="after")
+    def _check_duration_consistency(self) -> "ReferenceVideoUnit":
+        if not self.duration_override:
+            expected = sum(s.duration for s in self.shots)
+            if self.duration_seconds != expected:
+                raise ValueError(
+                    f"duration_seconds ({self.duration_seconds}) 与 shots 总时长 ({expected}) 不符；"
+                    "如需手动指定请置 duration_override=True"
+                )
+        return self
 
 
 class ReferenceVideoScript(BaseModel):

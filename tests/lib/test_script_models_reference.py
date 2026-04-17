@@ -99,3 +99,13 @@ def test_reference_video_unit_rejects_more_than_four_shots():
     many_shots = [Shot(duration=1, text=f"s{i}") for i in range(5)]
     with pytest.raises(ValidationError):
         _make_unit(shots=many_shots)
+
+
+def test_reference_video_unit_rejects_duration_mismatch():
+    with pytest.raises(ValidationError):
+        _make_unit(duration_seconds=99)  # shots 3+5=8, 99 ≠ 8
+
+
+def test_reference_video_unit_allows_mismatch_with_override():
+    u = _make_unit(duration_seconds=99, duration_override=True)
+    assert u.duration_seconds == 99
