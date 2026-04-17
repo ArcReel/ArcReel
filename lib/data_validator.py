@@ -508,6 +508,17 @@ class DataValidator:
             shots = unit.get("shots")
             if not isinstance(shots, list) or not shots:
                 errors.append(f"{prefix}: shots 必须是非空数组")
+            else:
+                for si, shot in enumerate(shots):
+                    sp = f"{prefix}.shots[{si}]"
+                    if not isinstance(shot, dict):
+                        errors.append(f"{sp}: 必须是对象")
+                        continue
+                    duration = shot.get("duration")
+                    if not isinstance(duration, int) or duration < 1 or duration > 15:
+                        errors.append(f"{sp}: duration 必须是 1-15 之间的整数")
+                    if not isinstance(shot.get("text"), str):
+                        errors.append(f"{sp}: text 必须是字符串")
 
             refs = unit.get("references")
             if refs is None:
@@ -523,6 +534,9 @@ class DataValidator:
                 rname = ref.get("name")
                 if rtype not in ASSET_TYPES:
                     errors.append(f"{prefix}: reference.type 无效: {rtype!r}")
+                    continue
+                if not isinstance(rname, str) or not rname:
+                    errors.append(f"{prefix}: reference.name 必须是非空字符串: {rname!r}")
                     continue
                 bucket = bucket_by_type.get(rtype, set())
                 if rname not in bucket:

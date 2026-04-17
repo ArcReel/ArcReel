@@ -134,3 +134,19 @@ def test_resolve_references_empty_input():
     refs, missing = resolve_references([], _proj())
     assert refs == []
     assert missing == []
+
+
+def test_parse_multi_shot_preserves_pre_header_text():
+    text = (
+        "开场说明：这段剧本的整体基调偏紧张。\n"
+        "Shot 1 (3s): 中远景，主角推门进酒馆。\n"
+        "Shot 2 (5s): 近景，对面的张三抬眼。\n"
+    )
+    shots, _refs, override = parse_prompt(text)
+    assert len(shots) == 2
+    assert override is False
+    # Pre-header text 前置到首 shot
+    assert "开场说明" in shots[0].text
+    assert "中远景" in shots[0].text
+    # 第二个 shot 不受影响
+    assert shots[1].text == "近景，对面的张三抬眼。"

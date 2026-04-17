@@ -103,3 +103,45 @@ def test_validator_allows_reference_videos_dir(tmp_path: Path):
     v = DataValidator()
     result = v.validate_project_tree(tmp_path)
     assert result.valid, result.errors
+
+
+def test_validator_rejects_non_string_reference_name(tmp_path: Path):
+    project = {
+        "title": "T",
+        "content_mode": "reference_video",
+        "style": "s",
+        "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
+        "characters": {},
+        "scenes": {},
+        "props": {},
+    }
+    script = _valid_reference_script()
+    script["video_units"][0]["references"] = [{"type": "character", "name": {"bad": "dict"}}]
+    _write(tmp_path, "project.json", project)
+    _write(tmp_path, "scripts/episode_1.json", script)
+
+    v = DataValidator()
+    result = v.validate_project_tree(tmp_path)
+    assert not result.valid
+    assert any("reference.name 必须是非空字符串" in e for e in result.errors)
+
+
+def test_validator_rejects_invalid_shot_duration(tmp_path: Path):
+    project = {
+        "title": "T",
+        "content_mode": "reference_video",
+        "style": "s",
+        "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
+        "characters": {"张三": {"description": "x"}},
+        "scenes": {"酒馆": {"description": "x"}},
+        "props": {},
+    }
+    script = _valid_reference_script()
+    script["video_units"][0]["shots"][0]["duration"] = 99  # 超出 [1,15]
+    _write(tmp_path, "project.json", project)
+    _write(tmp_path, "scripts/episode_1.json", script)
+
+    v = DataValidator()
+    result = v.validate_project_tree(tmp_path)
+    assert not result.valid
+    assert any("duration 必须是 1-15" in e for e in result.errors)

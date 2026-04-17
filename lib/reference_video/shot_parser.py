@@ -42,8 +42,12 @@ def parse_prompt(text: str) -> tuple[list[Shot], list[str], bool]:
         if m:
             if current_duration is not None:
                 segments.append((current_duration, "\n".join(current_buf).strip()))
+                current_buf = [m.group(2)]
+            else:
+                # 首个 header 之前的非空文本保留，前置到首镜头 text
+                pre_header = "\n".join(current_buf).strip()
+                current_buf = [pre_header, m.group(2)] if pre_header else [m.group(2)]
             current_duration = int(m.group(1))
-            current_buf = [m.group(2)]
         else:
             current_buf.append(line)
 
