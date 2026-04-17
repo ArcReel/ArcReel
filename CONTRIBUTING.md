@@ -12,6 +12,9 @@
 uv sync
 cd frontend && pnpm install && cd ..
 
+# 一次性安装 pre-commit 钩子（ruff / eslint / pull_request_target tripwire）
+uv run pre-commit install
+
 # 初始化数据库
 uv run alembic upgrade head
 

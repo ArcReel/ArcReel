@@ -272,6 +272,14 @@ flowchart TB
 
 欢迎贡献代码、报告 Bug 或提出功能建议！请参阅 [贡献指南](CONTRIBUTING.md) 了解本地开发环境搭建、测试和代码规范。
 
+本地克隆后请务必执行一次：
+
+```bash
+uv run pre-commit install
+```
+
+安装 pre-commit 钩子（ruff check + format、frontend eslint、workflow tripwire），避免把可被自动修复的问题推到 CI。
+
 ## 许可证
 
 [AGPL-3.0](LICENSE)
