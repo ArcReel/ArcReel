@@ -1,0 +1,30 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check (python staged)
+        entry: uv run ruff check
+        language: system
+        types: [python]
+        pass_filenames: true
+
+      - id: ruff-format
+        name: ruff format (python staged)
+        entry: uv run ruff format
+        language: system
+        types: [python]
+        pass_filenames: true
+
+      - id: frontend-eslint
+        name: eslint (frontend staged)
+        entry: bash -c 'files=(); for f in "$@"; do files+=("${f#frontend/}"); done; cd frontend && ./node_modules/.bin/eslint "${files[@]}"' --
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js|jsx)$
+        pass_filenames: true
+
+      - id: no-pull-request-target
+        name: block pull_request_target in workflows
+        entry: bash -c 'files=$(grep -rlE "(^|[^a-zA-Z_])pull_request_target" .github/workflows/ 2>/dev/null || true); if [ -n "$files" ]; then echo "pull_request_target 被禁止（权限放大风险）:" >&2; echo "$files" >&2; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
