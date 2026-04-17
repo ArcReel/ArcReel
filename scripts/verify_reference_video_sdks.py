@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -58,6 +59,49 @@ def parse_args(argv: list[str] | None = None) -> Args:
         multi_shot=ns.multi_shot,
         report_dir=ns.report_dir,
     )
+
+
+@dataclass
+class RunResult:
+    provider: Provider
+    model: str
+    refs: int
+    duration: int
+    multi_shot: bool
+    success: bool
+    elapsed_sec: float
+    request_bytes: int
+    error: str | None
+    video_path: Path | None
+    note: str
+
+
+def render_report(results: list[RunResult], *, generated_at: datetime | None = None) -> str:
+    ts = (generated_at or datetime.now()).isoformat(sep=" ", timespec="seconds")
+    lines: list[str] = [
+        "# Reference-to-Video SDK 验证报告",
+        "",
+        f"生成时间：{ts}",
+        "",
+    ]
+    if not results:
+        lines.append("_no results_")
+        return "\n".join(lines) + "\n"
+
+    lines.extend(
+        [
+            "| Provider | Model | Refs | Duration | Multi-shot | Result | Elapsed | Bytes | Note |",
+            "|---|---|---|---|---|---|---|---|---|",
+        ]
+    )
+    for r in results:
+        outcome = "PASS" if r.success else f"FAIL: {r.error or ''}".strip()
+        lines.append(
+            f"| {r.provider} | {r.model} | {r.refs} | {r.duration}s "
+            f"| {'yes' if r.multi_shot else 'no'} | {outcome} "
+            f"| {r.elapsed_sec:.1f}s | {r.request_bytes} | {r.note} |"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def main() -> int:
