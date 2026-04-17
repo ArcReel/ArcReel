@@ -35,8 +35,8 @@ def atomic_write_json(path: Path, data: Any) -> None:
             suffix=".tmp",
             delete=False,
         ) as tmp:
-            json.dump(data, tmp, ensure_ascii=False, indent=2)
             tmp_path = Path(tmp.name)
+            json.dump(data, tmp, ensure_ascii=False, indent=2)
         os.replace(tmp_path, path)
         tmp_path = None
     finally:
