@@ -10,6 +10,12 @@ import enDashboard from './en/dashboard';
 import enErrors from './en/errors';
 import enTemplates from './en/templates';
 
+import viCommon from './vi/common';
+import viAuth from './vi/auth';
+import viDashboard from './vi/dashboard';
+import viErrors from './vi/errors';
+import viTemplates from './vi/templates';
+
 import zhCommon from './zh/common';
 import zhAuth from './zh/auth';
 import zhDashboard from './zh/dashboard';
@@ -23,6 +29,13 @@ const resources = {
     dashboard: enDashboard,
     errors: enErrors,
     templates: enTemplates,
+  },
+  vi: {
+    common: viCommon,
+    auth: viAuth,
+    dashboard: viDashboard,
+    errors: viErrors,
+    templates: viTemplates,
   },
   zh: {
     common: zhCommon,

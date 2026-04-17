@@ -1,0 +1,23 @@
+# PostgreSQL dev container for ArcReel local development
+# Chạy: docker compose -f docker-compose.dev.yml up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: arcreel-postgres
+    environment:
+      POSTGRES_USER: arcreel
+      POSTGRES_PASSWORD: arcreel_dev_pass
+      POSTGRES_DB: arcreel
+    ports:
+      - "5433:5432"
+    volumes:
+      - arcreel_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arcreel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  arcreel_pgdata:

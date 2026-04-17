@@ -1,47 +1,65 @@
 # ArcReel Skill
 
+ArcReel là nền tảng tạo video AI, chuyển đổi tiểu thuyết thành video ngắn. Thông qua Skill này, bạn có thể sử dụng hội thoại ngôn ngữ tự nhiên để gọi các khả năng quản lý dự án và sáng tạo nội dung của ArcReel.
+
+ArcReel is an AI video generation platform that transforms novels into short videos. Through this Skill, you can use natural language conversations to invoke ArcReel's project management and content creation capabilities.
+
 ArcReel 是一个 AI 视频生成平台，将小说转化为短视频。通过此 Skill，你可以使用自然语言对话来调用 ArcReel 的项目管理和内容创作能力。
 
-## 认证
+---
 
+## Xác thực / Authentication / 认证
+
+Tất cả yêu cầu API cần truyền API Key trong Header:
+All API requests require an API Key in the Header:
 所有 API 请求需要在 Header 中传递 API Key：
 
 ```
 Authorization: Bearer arc-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
+Lấy API Key từ trang cài đặt ArcReel → mục "Khóa API".
+Get the API Key from ArcReel Settings → "API Keys" section.
 API Key 可从 ArcReel 设置页面的「API Keys」管理区获取。
 
-## 工作流
+---
 
+## Quy trình / Workflow / 工作流
+
+Quy trình sáng tạo hoàn chỉnh được khuyến nghị:
+Recommended complete creative workflow:
 推荐的完整创作工作流：
 
-1. **创建项目**：`POST {{BASE_URL}}/api/v1/projects`
-2. **上传小说内容并生成概述**：`POST {{BASE_URL}}/api/v1/projects/{name}/source`
-3. **多轮 Agent 对话**（创作剧本、分镜等）：`POST {{BASE_URL}}/api/v1/agent/chat`
-4. **查看生成结果**：`GET {{BASE_URL}}/api/v1/projects/{name}`
+1. **Tạo dự án / Create project / 创建项目**：`POST {{BASE_URL}}/api/v1/projects`
+2. **Tải nội dung tiểu thuyết & tạo tổng quan / Upload novel content & generate overview / 上传小说内容并生成概述**：`POST {{BASE_URL}}/api/v1/projects/{name}/source`
+3. **Hội thoại Agent đa lượt (tạo kịch bản, phân cảnh…) / Multi-turn Agent chat (scripts, storyboards…) / 多轮 Agent 对话（创作剧本、分镜等）**：`POST {{BASE_URL}}/api/v1/agent/chat`
+4. **Xem kết quả / View results / 查看生成结果**：`GET {{BASE_URL}}/api/v1/projects/{name}`
 
-## 工具定义
+---
 
-### 1. 项目列表
+## Định nghĩa công cụ / Tool Definitions / 工具定义
 
+### 1. Danh sách dự án / Project List / 项目列表
+
+Liệt kê tất cả dự án hiện có.
+List all existing projects.
 列出所有现有项目。
 
-- **端点**：`GET {{BASE_URL}}/api/v1/projects`
-- **认证**：需要 Bearer Token
+- **Endpoint / 端点**：`GET {{BASE_URL}}/api/v1/projects`
+- **Xác thực / Auth / 认证**：Cần Bearer Token / Requires Bearer Token / 需要 Bearer Token
 
 ```bash
 curl {{BASE_URL}}/api/v1/projects \
   -H "Authorization: Bearer <API_KEY>"
 ```
 
-- **响应示例**：
+- **Ví dụ phản hồi / Response Example / 响应示例**：
 ```json
 {
   "projects": [
     {
       "name": "my-novel",
-      "title": "我的小说",
+      "title": "Tiểu thuyết của tôi / My Novel / 我的小说",
       "scenes_count": 12,
       "status": "ready"
     }
@@ -49,47 +67,55 @@ curl {{BASE_URL}}/api/v1/projects \
 }
 ```
 
-### 2. 创建项目
+---
 
+### 2. Tạo dự án / Create Project / 创建项目
+
+Tạo dự án sáng tạo video mới.
+Create a new video creation project.
 创建新的视频创作项目。
 
-- **端点**：`POST {{BASE_URL}}/api/v1/projects`
-- **认证**：需要 Bearer Token
+- **Endpoint / 端点**：`POST {{BASE_URL}}/api/v1/projects`
+- **Xác thực / Auth / 认证**：Cần Bearer Token / Requires Bearer Token / 需要 Bearer Token
 
 ```bash
 curl -X POST {{BASE_URL}}/api/v1/projects \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "project-id", "title": "项目标题"}'
+  -d '{"name": "project-id", "title": "Tiêu đề dự án / Project Title / 项目标题"}'
 ```
 
-- **响应**：201，返回项目详情
+- **Phản hồi / Response / 响应**：201 — Trả về chi tiết dự án / Returns project details / 返回项目详情
 
-### 3. 上传小说内容并生成概述（新项目必须）
+---
 
+### 3. Tải nội dung tiểu thuyết & tạo tổng quan / Upload Novel Content & Generate Overview / 上传小说内容并生成概述
+
+Truyền nội dung tiểu thuyết vào dự án và tự động kích hoạt phân tích AI để tạo tổng quan. Hỗ trợ 2 cách: **gửi trực tiếp văn bản** hoặc **tải file lên**.
+Pass novel content into the project and automatically trigger AI analysis to generate an overview. Supports two methods: **submit text directly** or **upload a file**.
 将小说内容传入项目，并自动触发 AI 分析生成概述。支持两种方式：**直接提交文本** 或 **上传文件**。
 
-- **端点**：`POST {{BASE_URL}}/api/v1/projects/{name}/source`
-- **认证**：需要 Bearer Token
+- **Endpoint / 端点**：`POST {{BASE_URL}}/api/v1/projects/{name}/source`
+- **Xác thực / Auth / 认证**：Cần Bearer Token / Requires Bearer Token / 需要 Bearer Token
 - **Content-Type**：`multipart/form-data`
-- **表单字段**：
+- **Các trường biểu mẫu / Form Fields / 表单字段**：
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `content` | string（文本字段） | 小说文本内容，与 `file` 二选一，最大 200000 字符 |
-| `file` | file（文件字段） | 上传 .txt/.md 文件，文件名自动取自原始文件名，与 `content` 二选一 |
-| `generate_overview` | bool | 是否自动生成概述，默认 `true` |
+| Trường / Field / 字段 | Loại / Type / 类型 | Mô tả / Description / 说明 |
+|---|---|---|
+| `content` | string | Nội dung văn bản tiểu thuyết, chọn 1 trong 2 với `file`, tối đa 200000 ký tự / Novel text content, choose one of `content` or `file`, max 200000 chars / 小说文本内容，与 `file` 二选一，最大 200000 字符 |
+| `file` | file | Tải file .txt/.md, tên file lấy tự động, chọn 1 trong 2 với `content` / Upload .txt/.md file, filename auto-detected, choose one of `file` or `content` / 上传 .txt/.md 文件，与 `content` 二选一 |
+| `generate_overview` | bool | Tự động tạo tổng quan? Mặc định `true` / Auto-generate overview? Default `true` / 是否自动生成概述，默认 `true` |
 
-**方式 A：提交文本内容**（文件自动命名为 `novel.txt`）
+**Cách A: Gửi văn bản / Method A: Submit text / 方式 A：提交文本内容**
 
 ```bash
 curl -X POST {{BASE_URL}}/api/v1/projects/my-novel/source \
   -H "Authorization: Bearer <API_KEY>" \
-  -F "content=第一章\n\n这是小说的正文内容……" \
+  -F "content=Chương 1\n\nNội dung tiểu thuyết..." \
   -F "generate_overview=true"
 ```
 
-**方式 B：上传文件**（文件名取自上传文件）
+**Cách B: Tải file / Method B: Upload file / 方式 B：上传文件**
 
 ```bash
 curl -X POST {{BASE_URL}}/api/v1/projects/my-novel/source \
@@ -98,67 +124,79 @@ curl -X POST {{BASE_URL}}/api/v1/projects/my-novel/source \
   -F "generate_overview=true"
 ```
 
-- **响应示例**：
+- **Ví dụ phản hồi / Response Example / 响应示例**：
 ```json
 {
   "success": true,
   "filename": "my-novel.txt",
   "chars": 12345,
   "overview": {
-    "synopsis": "一个关于……的故事",
-    "genre": "悬疑",
-    "theme": "人性与救赎",
-    "world_setting": "现代都市"
+    "synopsis": "Câu chuyện về... / A story about... / 一个关于……的故事",
+    "genre": "Trinh thám / Mystery / 悬疑",
+    "theme": "Nhân tính & Cứu chuộc / Humanity & Redemption / 人性与救赎",
+    "world_setting": "Đô thị hiện đại / Modern City / 现代都市"
   }
 }
 ```
-  - 若 `generate_overview=false`，响应中无 `overview` 字段
-  - 若概述生成失败，响应包含 `overview: null` 和 `overview_error` 说明，文件仍写入成功
+  - Nếu `generate_overview=false`, phản hồi không có trường `overview` / If `generate_overview=false`, response has no `overview` field / 若 `generate_overview=false`，响应中无 `overview` 字段
+  - Nếu tạo tổng quan thất bại, phản hồi có `overview: null` và `overview_error` / If overview generation fails, response contains `overview: null` and `overview_error` / 若概述生成失败，响应包含 `overview: null` 和 `overview_error`
 
-### 4. 获取项目详情
+---
 
+### 4. Chi tiết dự án / Project Details / 获取项目详情
+
+Lấy thông tin đầy đủ của dự án, bao gồm trạng thái kịch bản và phân cảnh đã tạo.
+Get the full project information, including generated script and storyboard status.
 获取项目的完整信息，包括已生成的剧本和分镜状态。
 
-- **端点**：`GET {{BASE_URL}}/api/v1/projects/{name}`
-- **认证**：需要 Bearer Token
+- **Endpoint / 端点**：`GET {{BASE_URL}}/api/v1/projects/{name}`
+- **Xác thực / Auth / 认证**：Cần Bearer Token / Requires Bearer Token / 需要 Bearer Token
 
 ```bash
 curl {{BASE_URL}}/api/v1/projects/my-novel \
   -H "Authorization: Bearer <API_KEY>"
 ```
 
-- **响应示例**：
+- **Ví dụ phản hồi / Response Example / 响应示例**：
 ```json
 {
   "project": {
     "name": "my-novel",
-    "title": "我的小说",
+    "title": "Tiểu thuyết của tôi / My Novel / 我的小说",
     "synopsis": "...",
     "status": "ready"
   }
 }
 ```
 
-### 5. 更新项目设置
+---
 
+### 5. Cập nhật cài đặt dự án / Update Project Settings / 更新项目设置
+
+Sửa cấu hình dự án (tiêu đề, phong cách…).
+Modify project configuration (title, style, etc.).
 修改项目配置（标题、风格等）。
 
-- **端点**：`PATCH {{BASE_URL}}/api/v1/projects/{name}`
-- **认证**：需要 Bearer Token
+- **Endpoint / 端点**：`PATCH {{BASE_URL}}/api/v1/projects/{name}`
+- **Xác thực / Auth / 认证**：Cần Bearer Token / Requires Bearer Token / 需要 Bearer Token
 
 ```bash
 curl -X PATCH {{BASE_URL}}/api/v1/projects/my-novel \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"title": "新标题"}'
+  -d '{"title": "Tiêu đề mới / New Title / 新标题"}'
 ```
 
-### 6. Agent 对话（剧本与创作）
+---
 
+### 6. Hội thoại Agent (Kịch bản & Sáng tạo) / Agent Chat (Scripts & Creation) / Agent 对话（剧本与创作）
+
+Gửi tin nhắn đến ArcReel AI Agent. Agent có thể thực hiện các tác vụ phức tạp: tạo kịch bản, phân cảnh, video…
+Send a message to the ArcReel AI Agent. The Agent can execute complex tasks: generate scripts, storyboards, videos, etc.
 向 ArcReel AI Agent 发送消息，Agent 可执行剧本生成、分镜创作、视频生成等复杂任务。
 
-- **端点**：`POST {{BASE_URL}}/api/v1/agent/chat`
-- **认证**：需要 Bearer Token
+- **Endpoint / 端点**：`POST {{BASE_URL}}/api/v1/agent/chat`
+- **Xác thực / Auth / 认证**：Cần Bearer Token / Requires Bearer Token / 需要 Bearer Token
 
 ```bash
 curl -X POST {{BASE_URL}}/api/v1/agent/chat \
@@ -166,62 +204,77 @@ curl -X POST {{BASE_URL}}/api/v1/agent/chat \
   -H "Content-Type: application/json" \
   -d '{
     "project_name": "my-novel",
-    "message": "帮我为第一章生成剧本，风格要偏向悬疑",
+    "message": "Hãy tạo kịch bản cho chương 1, phong cách trinh thám / Generate a script for chapter 1, mystery style / 帮我为第一章生成剧本，风格要偏向悬疑",
     "session_id": null
   }'
 ```
 
-  - `project_name`：项目 ID（必填）
-  - `message`：发送给 Agent 的消息（必填）
-  - `session_id`：会话 ID，传入已有 ID 可继续多轮对话，不传则创建新会话
+  - `project_name`：Mã dự án (bắt buộc) / Project ID (required) / 项目 ID（必填）
+  - `message`：Tin nhắn gửi Agent (bắt buộc) / Message to Agent (required) / 发送给 Agent 的消息（必填）
+  - `session_id`：ID phiên. Truyền ID hiện có để tiếp tục hội thoại, không truyền = tạo phiên mới / Session ID. Pass existing ID to continue conversation, omit to create new session / 会话 ID，传入已有 ID 可继续多轮对话，不传则创建新会话
 
-- **响应示例**：
+- **Ví dụ phản hồi / Response Example / 响应示例**：
 ```json
 {
   "session_id": "sess-abc123",
-  "reply": "好的，我已经为第一章生成了悬疑风格的剧本...",
+  "reply": "OK, tôi đã tạo kịch bản trinh thám cho chương 1... / OK, I've generated a mystery-style script for chapter 1... / 好的，我已经为第一章生成了悬疑风格的剧本...",
   "status": "completed"
 }
 ```
-  - `status` 可能为：`completed`（成功）、`timeout`（超时，含部分响应）、`error`（出错）
+  - `status` có thể là / can be / 可能为：`completed` (thành công / success / 成功)、`timeout` (hết thời gian, có phản hồi một phần / timed out with partial response / 超时，含部分响应)、`error` (lỗi / error / 出错)
 
-## 使用示例
+---
 
-### 从小说文本到视频项目（推荐完整流程）
+## Ví dụ sử dụng / Usage Examples / 使用示例
+
+### Từ tiểu thuyết đến dự án video (Quy trình đầy đủ) / From Novel to Video Project (Complete Workflow) / 从小说文本到视频项目（推荐完整流程）
 
 ```bash
-# 1. 创建项目
+# 1. Tạo dự án / Create project / 创建项目
 curl -X POST {{BASE_URL}}/api/v1/projects \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "ghost-story", "title": "鬼屋探险"}'
+  -d '{"name": "ghost-story", "title": "Khám phá ngôi nhà ma / Haunted House / 鬼屋探险"}'
 
-# 2A. 上传小说文本，自动生成概述
+# 2A. Tải nội dung, tự động tạo tổng quan / Upload content, auto-generate overview / 上传文本，自动生成概述
 curl -X POST {{BASE_URL}}/api/v1/projects/ghost-story/source \
   -H "Authorization: Bearer <API_KEY>" \
-  -F "content=第一章\n\n探险者张明在山区发现了一座废弃的老宅……（完整小说文本）" \
+  -F "content=Chương 1\n\nNhà thám hiểm phát hiện một ngôi nhà cổ bỏ hoang trên núi... / Chapter 1\n\nThe explorer found an abandoned old house in the mountains... / 第一章\n\n探险者在山区发现了一座废弃的老宅……" \
   -F "generate_overview=true"
 
-# 2B. 或者上传文件
+# 2B. Hoặc tải file / Or upload file / 或者上传文件
 curl -X POST {{BASE_URL}}/api/v1/projects/ghost-story/source \
   -H "Authorization: Bearer <API_KEY>" \
   -F "file=@ghost-story.txt" \
   -F "generate_overview=true"
 
-# 3. 开始 Agent 对话，生成第一集剧本
+# 3. Bắt đầu hội thoại Agent, tạo kịch bản tập 1 / Start Agent chat, generate episode 1 script / 开始 Agent 对话，生成第一集剧本
 curl -X POST {{BASE_URL}}/api/v1/agent/chat \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"project_name": "ghost-story", "message": "请为这个故事生成第一集的分镜剧本，大约5个场景"}'
+  -d '{"project_name": "ghost-story", "message": "Tạo kịch bản phân cảnh tập 1, khoảng 5 cảnh / Generate episode 1 storyboard script, about 5 scenes / 请为这个故事生成第一集的分镜剧本，大约5个场景"}'
 
-# 4. 查看生成结果
+# 4. Xem kết quả / View results / 查看生成结果
 curl {{BASE_URL}}/api/v1/projects/ghost-story \
   -H "Authorization: Bearer <API_KEY>"
 ```
 
-## 注意事项
+---
 
-- `source` 接口最大 200000 字符（约 10 万汉字）；超长小说建议分章节多次传入（后续调用会覆盖同名文件）
-- Agent 对话最长等待 120 秒，复杂任务可能返回 `status: "timeout"` 和部分响应，此时可继续传入同一 `session_id` 查询进度
-- 所有 API 响应均为 JSON 格式
-- 项目名称（`name`）仅支持字母、数字和连字符，建议使用英文或拼音
+## Lưu ý / Notes / 注意事项
+
+- API `source` tối đa 200000 ký tự (~100000 chữ Hán); tiểu thuyết dài nên chia chương để truyền nhiều lần (gọi tiếp sẽ ghi đè file cùng tên).
+  The `source` API supports max 200000 characters (~100K Chinese chars); for long novels, upload in chapters (subsequent calls overwrite same-named files).
+  `source` 接口最大 200000 字符（约 10 万汉字）；超长小说建议分章节多次传入（后续调用会覆盖同名文件）。
+
+- Hội thoại Agent tối đa chờ 120 giây. Tác vụ phức tạp có thể trả về `status: "timeout"` kèm phản hồi một phần; tiếp tục truyền cùng `session_id` để kiểm tra tiến độ.
+  Agent chat waits max 120 seconds. Complex tasks may return `status: "timeout"` with a partial response; continue with the same `session_id` to check progress.
+  Agent 对话最长等待 120 秒，复杂任务可能返回 `status: "timeout"` 和部分响应，此时可继续传入同一 `session_id` 查询进度。
+
+- Tất cả phản hồi API đều ở định dạng JSON.
+  All API responses are in JSON format.
+  所有 API 响应均为 JSON 格式。
+
+- Tên dự án (`name`) chỉ hỗ trợ chữ cái, số và dấu gạch ngang; nên dùng tiếng Anh hoặc pinyin.
+  Project name (`name`) only supports letters, numbers, and hyphens; use English or pinyin.
+  项目名称（`name`）仅支持字母、数字和连字符，建议使用英文或拼音。

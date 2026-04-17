@@ -300,8 +300,8 @@ export function ProjectsPage() {
                 type="button"
                 onClick={() => setShowOpenClaw(true)}
                 className="rounded-md px-2.5 py-1.5 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-                title="OpenClaw 集成"
-                aria-label="OpenClaw 集成指南"
+                title={t("dashboard:openclaw_integration")}
+                aria-label={t("dashboard:openclaw_integration")}
               >
                 🦞
               </button>

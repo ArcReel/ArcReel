@@ -1,8 +1,9 @@
 /**
- * OpenClaw 集成引导 Modal
- * 提示词区域（可复制，含动态 skill.md URL）、3 步使用说明、"获取 API 令牌"按钮
+ * OpenClaw Integration Guide Modal
+ * Prompt area (copyable, with dynamic skill.md URL), 3-step instructions, "Get API Token" button
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { copyText } from "@/utils/clipboard";
 import { Check, Copy, ExternalLink, X } from "lucide-react";
 import { useLocation } from "wouter";
@@ -20,39 +21,40 @@ interface OpenClawModalProps {
   onClose: () => void;
 }
 
-// 使用步骤数据（静态，提升到组件外避免每次渲染重建）
-const STEPS = [
-  {
-    step: "01",
-    title: "向你的 OpenClaw 发送上述提示词",
-    desc: "复制提示词，粘贴给 OpenClaw 发送",
-  },
-  {
-    step: "02",
-    title: "OpenClaw 从 Skill 文档学习能力",
-    desc: "OpenClaw 会自动读取 ArcReel Skill 文档，获取所有可用工具与 API 的使用方式",
-  },
-  {
-    step: "03",
-    title: "OpenClaw 与 ArcReel 交互并创建视频",
-    desc: "描述你的创作需求，OpenClaw 将调用 ArcReel 完成项目管理、剧本生成和视频创作",
-  },
-] as const;
-
 export function OpenClawModal({ onClose }: OpenClawModalProps) {
+  const { t } = useTranslation("dashboard");
   const [, navigate] = useLocation();
   const [copied, setCopied] = useState(false);
 
-  // task 7.3：动态适配当前访问地址
+  // Dynamic skill.md URL based on current origin
   const skillUrl = useMemo(
     () => `${window.location.origin}/skill.md`,
     [],
   );
 
   const systemPrompt = useMemo(
-    () => `学习 ${skillUrl} 然后遵循 skill，了解如何使用 ArcReel 创作视频`,
-    [skillUrl],
+    () => t("openclaw_system_prompt", { skillUrl }),
+    [skillUrl, t],
   );
+
+  // Steps data — localized
+  const steps = useMemo(() => [
+    {
+      step: "01",
+      title: t("openclaw_step1_title"),
+      desc: t("openclaw_step1_desc"),
+    },
+    {
+      step: "02",
+      title: t("openclaw_step2_title"),
+      desc: t("openclaw_step2_desc"),
+    },
+    {
+      step: "03",
+      title: t("openclaw_step3_title"),
+      desc: t("openclaw_step3_desc"),
+    },
+  ], [t]);
 
   const handleCopyPrompt = useCallback(async () => {
     await copyText(systemPrompt);
@@ -60,7 +62,7 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
     setTimeout(() => setCopied(false), 2000);
   }, [systemPrompt]);
 
-  // task 7.4：跳转 API Key 管理页
+  // Navigate to API Key management page
   const handleGoToApiKeys = useCallback(() => {
     onClose();
     navigate("/app/settings?section=api-keys");
@@ -83,35 +85,35 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
       {/* backdrop: click-to-close */}
       <button
         type="button"
-        aria-label="关闭"
+        aria-label={t("openclaw_close")}
         className="absolute inset-0 cursor-default appearance-none border-0 bg-transparent p-0"
         onClick={onClose}
       />
       <div className="relative z-10 flex w-full max-w-lg flex-col rounded-2xl border border-gray-800 bg-gray-900 shadow-2xl shadow-black/60 max-h-[90vh] overflow-y-auto">
-        {/* ——— 顶栏 ——— */}
+        {/* ——— Header ——— */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-800 bg-gray-900 px-5 py-4">
           <div className="flex items-center gap-2.5">
             <LobsterIcon className="text-xl leading-none" />
             <div>
-              <h2 className="text-sm font-semibold text-gray-100">OpenClaw 集成指南</h2>
-              <p className="text-xs text-gray-500">将 ArcReel 接入 OpenClaw AI Agent</p>
+              <h2 className="text-sm font-semibold text-gray-100">{t("openclaw_title")}</h2>
+              <p className="text-xs text-gray-500">{t("openclaw_subtitle")}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
-            aria-label="关闭"
+            aria-label={t("openclaw_close")}
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="p-5 space-y-5">
-          {/* ——— Prompt 区域 ——— */}
+          {/* ——— Prompt area ——— */}
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-400">Prompt</span>
+              <span className="text-xs font-medium text-gray-400">{t("openclaw_prompt_label")}</span>
               <button
                 type="button"
                 onClick={() => void handleCopyPrompt()}
@@ -120,12 +122,12 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
                 {copied ? (
                   <>
                     <Check className="h-3 w-3 text-emerald-400" />
-                    已复制
+                    {t("openclaw_copied")}
                   </>
                 ) : (
                   <>
                     <Copy className="h-3 w-3" />
-                    复制
+                    {t("openclaw_copy")}
                   </>
                 )}
               </button>
@@ -136,7 +138,7 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
               </pre>
             </div>
             <p className="mt-1.5 text-xs text-gray-600">
-              Skill 文档地址：
+              {t("openclaw_skill_doc_url")}
               <a
                 href={skillUrl}
                 target="_blank"
@@ -149,11 +151,11 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
             </p>
           </div>
 
-          {/* ——— 3 步说明 ——— */}
+          {/* ——— 3 Steps ——— */}
           <div>
-            <div className="mb-3 text-xs font-medium text-gray-400">使用步骤</div>
+            <div className="mb-3 text-xs font-medium text-gray-400">{t("openclaw_steps_title")}</div>
             <div className="space-y-2">
-              {STEPS.map(({ step, title, desc }) => (
+              {steps.map(({ step, title, desc }) => (
                 <div
                   key={step}
                   className="flex gap-3 rounded-xl border border-gray-800 bg-gray-950/50 px-3.5 py-3"
@@ -170,21 +172,21 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
             </div>
           </div>
 
-          {/* ——— 操作按钮 ——— */}
+          {/* ——— Action buttons ——— */}
           <div className="flex gap-2 pt-1">
             <button
               type="button"
               onClick={onClose}
               className="flex-1 rounded-xl border border-gray-700 bg-gray-800 px-4 py-2.5 text-sm text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-700"
             >
-              关闭
+              {t("openclaw_close")}
             </button>
             <button
               type="button"
               onClick={handleGoToApiKeys}
               className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
             >
-              获取 API 令牌
+              {t("openclaw_get_api_token")}
             </button>
           </div>
         </div>

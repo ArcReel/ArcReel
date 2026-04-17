@@ -43,6 +43,7 @@ from server.routers import (
     versions,
 )
 from server.routers import auth as auth_router
+from server.rate_limiter import setup_rate_limiter
 from server.services.project_events import ProjectEventService
 
 # 初始化日志
@@ -128,14 +129,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 配置
+# CORS 配置 — 可通过环境变量限制 origins (production 建议设置具体域名)
+# Configurable via CORS_ORIGINS env var; defaults to * for dev compatibility
+import os as _os
+_cors_origins_raw = _os.environ.get("CORS_ORIGINS", "*")
+_cors_origins = ["*"] if _cors_origins_raw == "*" else [o.strip() for o in _cors_origins_raw.split(",")]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiter (additive — does not change any existing logic)
+setup_rate_limiter(app)
 
 
 @app.middleware("http")
@@ -194,8 +202,59 @@ def create_generation_worker() -> GenerationWorker:
 
 @app.get("/health")
 async def health_check():
-    """健康检查"""
+    """健康检查 / Health Check / Kiểm tra sức khỏe"""
     return {"status": "ok", "message": "视频项目管理 WebUI 运行正常"}
+
+
+@app.get("/health/detailed", include_in_schema=False)
+async def health_check_detailed():
+    """
+    Chi tiết sức khỏe hệ thống (dành cho admin/monitoring).
+    Detailed system health (for admin/monitoring).
+    详细系统健康信息（管理员/监控用）。
+    """
+    import platform
+    import shutil
+
+    from lib import PROJECT_ROOT
+
+    checks = {
+        "status": "ok",
+        "version": "0.9.0",
+        "python": platform.python_version(),
+        "platform": f"{platform.system()} {platform.machine()}",
+    }
+
+    # DB check
+    try:
+        async with async_session_factory() as session:
+            from sqlalchemy import text
+            await session.execute(text("SELECT 1"))
+        checks["database"] = "connected"
+    except Exception as e:
+        checks["database"] = f"error: {e}"
+        checks["status"] = "degraded"
+
+    # Disk check
+    try:
+        disk = shutil.disk_usage(str(PROJECT_ROOT))
+        checks["disk_free_gb"] = round(disk.free / (1024**3), 1)
+        checks["disk_total_gb"] = round(disk.total / (1024**3), 1)
+        if disk.free / disk.total < 0.1:
+            checks["disk_warning"] = "Less than 10% disk space remaining"
+            checks["status"] = "degraded"
+    except Exception:
+        checks["disk_free_gb"] = "unknown"
+
+    # Worker check
+    worker = getattr(app.state, "generation_worker", None)
+    checks["generation_worker"] = "running" if worker else "not_started"
+
+    # Event service check
+    evt_svc = getattr(app.state, "project_event_service", None)
+    checks["event_service"] = "running" if evt_svc else "not_started"
+
+    return checks
 
 
 @app.get("/skill.md", include_in_schema=False)
