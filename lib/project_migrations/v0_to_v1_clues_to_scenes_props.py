@@ -63,6 +63,7 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
     try:
         clues_dir.rmdir()
     except OSError:
+        # 目录非空（有残余未知文件）则保留，不视为迁移失败
         pass
 
     # versions/clues 同样按原 clue type 分流
@@ -164,7 +165,6 @@ def migrate_v0_to_v1(project_dir: Path) -> None:
         return
 
     old_clues: dict[str, dict] = data.get("clues") or {}
-    scenes, props = _split_clues(old_clues)
 
     # 1. 先搬文件（任一步失败时 schema_version 仍为 0，重启会重试）
     _relocate_clue_files(project_dir, old_clues)
@@ -173,8 +173,15 @@ def migrate_v0_to_v1(project_dir: Path) -> None:
     _migrate_scripts(project_dir, old_clues)
 
     # 3. 最后更新 project.json（原子写，schema_version 升级作为"提交"标志）
-    data["scenes"] = scenes
-    data["props"] = props
+    # 仅在 clues 实际有数据时改写 scenes/props；否则保留新项目已有的字段，
+    # 避免"schema_version 缺失 + 无 clues + 已有 scenes/props"被误清空。
+    if old_clues:
+        scenes, props = _split_clues(old_clues)
+        data["scenes"] = scenes
+        data["props"] = props
+    else:
+        data.setdefault("scenes", {})
+        data.setdefault("props", {})
     data.pop("clues", None)
     data["schema_version"] = 1
     _atomic_write_json(pj, data)

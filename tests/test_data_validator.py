@@ -153,7 +153,8 @@ class TestDataValidator:
         assert any("segment_id 格式错误" in error for error in result.errors)
         assert any("duration_seconds 值无效" in error for error in result.errors)
         assert any("不存在于 project.json 的角色" in error for error in result.errors)
-        assert any("不存在于 project.json 的场景或道具" in error for error in result.errors)
+        assert any("不存在于 project.json 的场景" in error for error in result.errors)
+        assert any("不存在于 project.json 的道具" in error for error in result.errors)
 
     def test_validate_episode_drama_mode(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
@@ -300,4 +301,5 @@ class TestDataValidator:
 
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_3.json")
         assert not result.valid
-        assert any("不存在于 project.json 的场景或道具" in error for error in result.errors)
+        assert any("不存在于 project.json 的场景" in error for error in result.errors)
+        assert any("不存在于 project.json 的道具" in error for error in result.errors)

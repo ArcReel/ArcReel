@@ -310,7 +310,8 @@ class DataValidator:
         self,
         segments: list[dict[str, Any]],
         project_characters: set[str],
-        project_asset_refs: set[str],
+        project_scenes: set[str],
+        project_props: set[str],
         errors: list[str],
         warnings: list[str],
         *,
@@ -355,9 +356,9 @@ class DataValidator:
             elif not isinstance(scenes_in_segment, list):
                 errors.append(f"{prefix}: scenes 必须是数组")
             else:
-                invalid = set(scenes_in_segment) - project_asset_refs
+                invalid = set(scenes_in_segment) - project_scenes
                 if invalid:
-                    errors.append(f"{prefix}: scenes 引用了不存在于 project.json 的场景或道具: {invalid}")
+                    errors.append(f"{prefix}: scenes 引用了不存在于 project.json 的场景: {invalid}")
 
             props_in_segment = segment.get("props")
             if props_in_segment is None:
@@ -365,9 +366,9 @@ class DataValidator:
             elif not isinstance(props_in_segment, list):
                 errors.append(f"{prefix}: props 必须是数组")
             else:
-                invalid = set(props_in_segment) - project_asset_refs
+                invalid = set(props_in_segment) - project_props
                 if invalid:
-                    errors.append(f"{prefix}: props 引用了不存在于 project.json 的场景或道具: {invalid}")
+                    errors.append(f"{prefix}: props 引用了不存在于 project.json 的道具: {invalid}")
 
             if not segment.get("image_prompt"):
                 errors.append(f"{prefix}: 缺少必填字段 image_prompt")
@@ -386,7 +387,8 @@ class DataValidator:
         self,
         scenes: list[dict[str, Any]],
         project_characters: set[str],
-        project_asset_refs: set[str],
+        project_scenes: set[str],
+        project_props: set[str],
         errors: list[str],
         warnings: list[str],
         *,
@@ -434,9 +436,9 @@ class DataValidator:
             elif not isinstance(scenes_in_scene, list):
                 errors.append(f"{prefix}: scenes 必须是数组")
             else:
-                invalid = set(scenes_in_scene) - project_asset_refs
+                invalid = set(scenes_in_scene) - project_scenes
                 if invalid:
-                    errors.append(f"{prefix}: scenes 引用了不存在于 project.json 的场景或道具: {invalid}")
+                    errors.append(f"{prefix}: scenes 引用了不存在于 project.json 的场景: {invalid}")
 
             props_in_scene = scene.get("props")
             if props_in_scene is None:
@@ -444,9 +446,9 @@ class DataValidator:
             elif not isinstance(props_in_scene, list):
                 errors.append(f"{prefix}: props 必须是数组")
             else:
-                invalid = set(props_in_scene) - project_asset_refs
+                invalid = set(props_in_scene) - project_props
                 if invalid:
-                    errors.append(f"{prefix}: props 引用了不存在于 project.json 的场景或道具: {invalid}")
+                    errors.append(f"{prefix}: props 引用了不存在于 project.json 的道具: {invalid}")
 
             if not scene.get("image_prompt"):
                 errors.append(f"{prefix}: 缺少必填字段 image_prompt")
@@ -470,7 +472,8 @@ class DataValidator:
         warnings: list[str],
     ) -> None:
         project_characters = set(project.get("characters", {}).keys())
-        project_asset_refs = set(project.get("scenes", {}).keys()) | set(project.get("props", {}).keys())
+        project_scenes = set(project.get("scenes", {}).keys())
+        project_props = set(project.get("props", {}).keys())
 
         if not isinstance(episode.get("episode"), int):
             errors.append("缺少必填字段: episode (整数)")
@@ -501,7 +504,8 @@ class DataValidator:
             self._validate_segments(
                 episode.get("segments", []),
                 project_characters,
-                project_asset_refs,
+                project_scenes,
+                project_props,
                 errors,
                 warnings,
                 project_dir=project_dir,
@@ -510,7 +514,8 @@ class DataValidator:
             self._validate_scenes(
                 episode.get("scenes", []),
                 project_characters,
-                project_asset_refs,
+                project_scenes,
+                project_props,
                 errors,
                 warnings,
                 project_dir=project_dir,

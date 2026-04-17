@@ -1165,7 +1165,10 @@ class ProjectManager:
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
 
+        # schema_version 与 CURRENT_SCHEMA_VERSION 对齐，防止 v0→v1 迁移
+        # 在"新项目未含 clues 字段"时误清空已有的 scenes/props。
         project = {
+            "schema_version": 1,
             "title": project_title or project_name,
             "content_mode": content_mode,
             "aspect_ratio": aspect_ratio,

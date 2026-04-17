@@ -19,7 +19,7 @@ router = build_bucket_router(
     i18n_exists_key="project_scene_already_exists",
     i18n_not_found_key="project_scene_not_found",
     i18n_deleted_key="project_scene_deleted",
-    add_method=lambda m, project, name, desc: m.add_project_scene(project, name, desc),
+    add_method=ProjectManager.add_project_scene,
     # late-binding 必需：测试通过 monkeypatch.setattr(scenes, "get_project_manager", ...) 替换模块属性
     pm_getter=lambda: get_project_manager(),  # noqa: PLW0108
 )
