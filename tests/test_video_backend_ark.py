@@ -350,7 +350,8 @@ class TestArkServiceTierParam:
         patcher = _mock_httpx_stream()
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
-            await backend.generate(request)
+            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+                await backend.generate(request)
         finally:
             patcher.stop()
 
@@ -375,7 +376,8 @@ class TestArkServiceTierParam:
         patcher = _mock_httpx_stream()
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
-            await backend.generate(request)
+            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+                await backend.generate(request)
         finally:
             patcher.stop()
 
