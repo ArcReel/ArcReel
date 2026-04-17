@@ -27,6 +27,10 @@ def parse_prompt(text: str) -> tuple[list[Shot], list[str], bool]:
 
     - 有 `Shot N (Xs):` header → 按 header 切分；override=False
     - 无 header → 整段视为单镜头、duration 由 caller 指定；override=True
+
+    Raises:
+        pydantic.ValidationError: 当 header 中的 duration 超出 Shot.duration 的 [1, 15]
+            范围时由 Shot 构造抛出；调用方（PR3 executor）须捕获并映射为用户友好错误。
     """
     lines = text.splitlines()
     segments: list[tuple[int, str]] = []
@@ -88,6 +92,8 @@ def resolve_references(
     project: dict,
 ) -> tuple[list[ReferenceResource], list[str]]:
     """按 project.json 三 bucket 把 mention 名字分派成 ReferenceResource。
+
+    当同一名称同时存在于多个 bucket 时，优先级为 character → scene → prop。
 
     Returns:
         (refs, missing): refs 保持入参顺序；missing 是没在任何 bucket 找到的名字

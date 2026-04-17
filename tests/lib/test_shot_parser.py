@@ -1,4 +1,10 @@
-from lib.reference_video.shot_parser import parse_prompt
+from lib.reference_video.shot_parser import (
+    compute_duration_from_shots,
+    parse_prompt,
+    render_prompt_for_backend,
+    resolve_references,
+)
+from lib.script_models import ReferenceResource, Shot
 
 
 def test_parse_single_shot_no_header():
@@ -34,10 +40,6 @@ def test_parse_empty_returns_empty_text_as_single_shot():
     assert len(shots) == 1
     assert shots[0].text == ""
     assert override is True
-
-
-from lib.reference_video.shot_parser import render_prompt_for_backend
-from lib.script_models import ReferenceResource, Shot
 
 
 def test_extract_mentions_ordered_unique():
@@ -78,9 +80,6 @@ def test_render_prompt_multi_shot_text():
     assert "Shot 1 (3s):" in rendered  # header 保留
 
 
-from lib.reference_video.shot_parser import compute_duration_from_shots
-
-
 def test_compute_duration_sums_shots():
     shots = [Shot(duration=3, text="a"), Shot(duration=5, text="b"), Shot(duration=2, text="c")]
     assert compute_duration_from_shots(shots) == 10
@@ -92,9 +91,6 @@ def test_compute_duration_single_shot():
 
 def test_compute_duration_empty_list():
     assert compute_duration_from_shots([]) == 0
-
-
-from lib.reference_video.shot_parser import resolve_references
 
 
 def _proj(characters=None, scenes=None, props=None):
