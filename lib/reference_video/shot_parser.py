@@ -60,12 +60,14 @@ def parse_prompt(text: str) -> tuple[list[Shot], list[str], bool]:
 
 
 def _extract_mentions(text: str) -> list[str]:
-    seen: list[str] = []
+    seen: set[str] = set()
+    result: list[str] = []
     for m in _MENTION_RE.finditer(text):
         name = m.group(1)
         if name not in seen:
-            seen.append(name)
-    return seen
+            seen.add(name)
+            result.append(name)
+    return result
 
 
 def render_prompt_for_backend(text: str, references: list[ReferenceResource]) -> str:

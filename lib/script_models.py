@@ -35,6 +35,12 @@ CameraMotion = Literal[
     "Tracking Shot",
 ]
 
+TransitionType = Literal[
+    "cut",
+    "fade",
+    "dissolve",
+]
+
 
 class Dialogue(BaseModel):
     """对话条目"""
@@ -95,7 +101,7 @@ class NarrationSegment(BaseModel):
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
-    transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="转场类型")
+    transition_to_next: TransitionType = Field(default="cut", description="转场类型")
     note: str | None = Field(default=None, description="用户备注（不参与生成）")
     generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
 
@@ -134,7 +140,7 @@ class DramaScene(BaseModel):
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
-    transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="转场类型")
+    transition_to_next: TransitionType = Field(default="cut", description="转场类型")
     note: str | None = Field(default=None, description="用户备注（不参与生成）")
     generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
 
@@ -179,7 +185,7 @@ class ReferenceVideoUnit(BaseModel):
     )
     duration_seconds: int = Field(description="派生字段：所有 shot 时长之和")
     duration_override: bool = Field(default=False, description="true 时停止自动派生")
-    transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="转场类型")
+    transition_to_next: TransitionType = Field(default="cut", description="转场类型")
     note: str | None = Field(default=None, description="用户备注")
     generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
 

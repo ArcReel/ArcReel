@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from lib.asset_types import ASSET_TYPES
 from lib.json_io import load_json_or_none
 
 
@@ -520,7 +521,7 @@ class DataValidator:
                     continue
                 rtype = ref.get("type")
                 rname = ref.get("name")
-                if rtype not in {"character", "scene", "prop"}:
+                if rtype not in ASSET_TYPES:
                     errors.append(f"{prefix}: reference.type 无效: {rtype!r}")
                     continue
                 bucket = bucket_by_type.get(rtype, set())
