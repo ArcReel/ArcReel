@@ -28,6 +28,24 @@ logger = logging.getLogger(__name__)
 PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
+_VALID_GENERATION_MODES = {"storyboard", "grid", "reference_video"}
+_DEFAULT_GENERATION_MODE = "storyboard"
+
+
+def effective_mode(*, project: dict, episode: dict) -> str:
+    """按 episode → project → 默认 storyboard 回退解析 generation_mode。
+
+    Spec §4.6。未知值一律回退到默认，兼容旧项目/脏数据。
+    """
+    ep_mode = episode.get("generation_mode")
+    if ep_mode in _VALID_GENERATION_MODES:
+        return ep_mode
+    proj_mode = project.get("generation_mode")
+    if proj_mode in _VALID_GENERATION_MODES:
+        return proj_mode
+    return _DEFAULT_GENERATION_MODE
+
+
 # ==================== 数据模型 ====================
 
 
