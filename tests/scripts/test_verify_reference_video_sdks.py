@@ -250,44 +250,15 @@ def test_clamp_refs_backend_without_reference_support():
         clamp_refs_for_backend(requested=1, caps=caps)
 
 
-def test_lazy_register_factories_smoke():
-    # 每家 try/except 容错；至少不应抛出异常
-    from scripts.verify_reference_video_sdks import _lazy_register_factories
+def test_resolve_backend_delegates_to_create_backend(monkeypatch):
+    """resolve_backend 应把 Provider 映射到 lib.video_backends 名称并调用 create_backend。"""
+    called: list[str] = []
+    monkeypatch.setattr(mod, "create_backend", lambda name: called.append(name) or _FakeBackend())
 
-    _lazy_register_factories()
+    backend = mod.resolve_backend(Provider.VEO)
 
-
-def test_resolve_backend_reports_reason_when_missing(monkeypatch):
-    """未注册的 provider 应抛 RuntimeError 并附带可读原因，而非 KeyError。"""
-    # 清空注册表与失败表，模拟所有家都无法 import
-    monkeypatch.setattr(mod, "_BACKEND_FACTORIES", {})
-    monkeypatch.setattr(
-        mod,
-        "_REGISTRATION_FAILURES",
-        {Provider.ARK: "ImportError: No module named 'ark_sdk'"},
-    )
-    # 禁用懒加载以确保 resolve_backend 走 missing 分支
-    monkeypatch.setattr(mod, "_lazy_register_factories", lambda: None)
-
-    with pytest.raises(RuntimeError, match="backend ark not available"):
-        mod.resolve_backend(Provider.ARK)
-
-
-def test_try_register_logs_warning_on_failure(monkeypatch, caplog):
-    import logging
-
-    monkeypatch.setattr(mod, "_BACKEND_FACTORIES", {})
-    monkeypatch.setattr(mod, "_REGISTRATION_FAILURES", {})
-
-    def _raise():
-        raise ImportError("simulated missing SDK")
-
-    with caplog.at_level(logging.WARNING, logger="scripts.verify_reference_video_sdks"):
-        mod._try_register(Provider.SORA, _raise)
-
-    assert Provider.SORA not in mod._BACKEND_FACTORIES
-    assert "simulated missing SDK" in mod._REGISTRATION_FAILURES[Provider.SORA]
-    assert any("simulated missing SDK" in rec.message for rec in caplog.records)
+    assert called == [mod.PROVIDER_GEMINI]
+    assert isinstance(backend, _FakeBackend)
 
 
 @pytest.mark.asyncio

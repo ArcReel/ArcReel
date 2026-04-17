@@ -8,18 +8,23 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import logging
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
 
-from lib.video_backends.base import VideoBackend, VideoCapabilities, VideoGenerationRequest
+from lib.video_backends import (
+    PROVIDER_ARK,
+    PROVIDER_GEMINI,
+    PROVIDER_GROK,
+    PROVIDER_OPENAI,
+    VideoBackend,
+    VideoGenerationRequest,
+    create_backend,
+)
+from lib.video_backends.base import VideoCapabilities
 from scripts.fixtures.reference_video.generate_fixtures import generate_color_refs
-
-logger = logging.getLogger(__name__)
 
 
 class Provider(StrEnum):
@@ -138,10 +143,11 @@ async def run_once(
     duration: int,
     multi_shot: bool,
     work_dir: Path,
+    note: str = "",
 ) -> RunResult:
     ref_dir = work_dir / "refs"
     ref_paths = generate_color_refs(ref_dir, count=refs)
-    out_path = work_dir / f"{provider}_{int(time.time())}.mp4"
+    out_path = work_dir / f"{provider.value}_{int(time.time())}.mp4"
     prompt = DEFAULT_PROMPT_MULTI if multi_shot else DEFAULT_PROMPT_SINGLE
     request = VideoGenerationRequest(
         prompt=prompt,
@@ -149,51 +155,42 @@ async def run_once(
         duration_seconds=duration,
         reference_images=ref_paths,
     )
-    # 粗估请求体大小：仅累加原始文件字节数，用于 Grok gRPC 上限观测。
-    # 注意不含序列化开销——各供应商编码方式不同：
-    #   - Ark:  multipart form-data（约 1× 原字节 + 极小边界头）
-    #   - Grok: multipart（约 1×，部分接口用 Base64 时 ≈1.33×）
-    #   - Veo/Sora: JSON+Base64（≈1.33× 原字节）
-    # 要观察"实际发送"请参考各 backend 日志；此处仅做量级监控。
+    # raw byte sum only; actual wire size varies by encoding (multipart ~1x, base64 ~1.33x).
     request_bytes = len(prompt.encode("utf-8")) + sum(p.stat().st_size for p in ref_paths)
+    base: dict = {
+        "provider": provider,
+        "model": backend.model,
+        "refs": refs,
+        "duration": duration,
+        "multi_shot": multi_shot,
+        "request_bytes": request_bytes,
+        "note": note,
+    }
     start = time.monotonic()
     try:
         await backend.generate(request)
         # 防 false-positive：backend 返回成功但视频文件未落盘 / 为空时应判 FAIL
         if not out_path.exists() or out_path.stat().st_size == 0:
             raise RuntimeError(f"output video missing or empty: {out_path}")
-        elapsed = time.monotonic() - start
         return RunResult(
-            provider=provider,
-            model=backend.model,
-            refs=refs,
-            duration=duration,
-            multi_shot=multi_shot,
+            **base,
             success=True,
-            elapsed_sec=elapsed,
-            request_bytes=request_bytes,
+            elapsed_sec=time.monotonic() - start,
             error=None,
             video_path=out_path,
-            note="",
         )
     except Exception as exc:  # noqa: BLE001
-        elapsed = time.monotonic() - start
         return RunResult(
-            provider=provider,
-            model=backend.model,
-            refs=refs,
-            duration=duration,
-            multi_shot=multi_shot,
+            **base,
             success=False,
-            elapsed_sec=elapsed,
-            request_bytes=request_bytes,
+            elapsed_sec=time.monotonic() - start,
             error=f"{type(exc).__name__}: {exc}",
             video_path=None,
-            note="",
         )
 
 
 def clamp_refs_for_backend(*, requested: int, caps: VideoCapabilities) -> tuple[int, str]:
+    """把 requested 夹到 backend 上限；若 backend 不支持 reference_images 则直接抛 ValueError。"""
     if not caps.reference_images:
         raise ValueError("Backend does not support reference_images")
     if requested <= caps.max_reference_images:
@@ -202,74 +199,17 @@ def clamp_refs_for_backend(*, requested: int, caps: VideoCapabilities) -> tuple[
     return caps.max_reference_images, note
 
 
-# Provider → backend factory（懒加载 import，避免未配置环境启动时爆炸）
-_BACKEND_FACTORIES: dict[Provider, Callable[[], VideoBackend]] = {}
-
-
-def _register_factory(provider: Provider, factory: Callable[[], VideoBackend]) -> None:
-    _BACKEND_FACTORIES[provider] = factory
+_PROVIDER_TO_BACKEND: dict[Provider, str] = {
+    Provider.ARK: PROVIDER_ARK,
+    Provider.GROK: PROVIDER_GROK,
+    Provider.VEO: PROVIDER_GEMINI,
+    Provider.SORA: PROVIDER_OPENAI,
+}
 
 
 def resolve_backend(provider: Provider) -> VideoBackend:
-    """返回指定 provider 的 backend 实例；若未注册给出具体原因，而非晦涩的 KeyError。"""
-    if provider not in _BACKEND_FACTORIES:
-        _lazy_register_factories()
-    if provider not in _BACKEND_FACTORIES:
-        reason = _REGISTRATION_FAILURES.get(provider, "unknown reason")
-        raise RuntimeError(
-            f"backend {provider} not available: {reason}. 已知可用 provider: {sorted(_BACKEND_FACTORIES)}"
-        )
-    return _BACKEND_FACTORIES[provider]()
-
-
-# 记录每家 backend 懒加载失败的原因，resolve_backend 用来给出可读错误
-_REGISTRATION_FAILURES: dict[Provider, str] = {}
-
-
-def _try_register(provider: Provider, import_and_build: Callable[[], Callable[[], VideoBackend]]) -> None:
-    """统一 try/except 模板：import + 构造 factory，失败时 log warning 并登记原因。"""
-    try:
-        factory = import_and_build()
-    except Exception as exc:  # noqa: BLE001
-        reason = f"{type(exc).__name__}: {exc}"
-        _REGISTRATION_FAILURES[provider] = reason
-        logger.warning("provider %s 未注册: %s", provider, reason)
-        return
-    _register_factory(provider, factory)
-    _REGISTRATION_FAILURES.pop(provider, None)
-
-
-def _lazy_register_factories() -> None:
-    """按需 import 各家后端，避免一个家配置缺失就整个脚本启不来。
-
-    失败原因通过 logger.warning 输出并记录在 _REGISTRATION_FAILURES，
-    resolve_backend 报错时引用，以给出可读信息。
-    """
-
-    def _ark() -> Callable[[], VideoBackend]:
-        from lib.video_backends.ark import ArkVideoBackend
-
-        return lambda: ArkVideoBackend()
-
-    def _grok() -> Callable[[], VideoBackend]:
-        from lib.video_backends.grok import GrokVideoBackend
-
-        return lambda: GrokVideoBackend()
-
-    def _veo() -> Callable[[], VideoBackend]:
-        from lib.video_backends.gemini import GeminiVideoBackend
-
-        return lambda: GeminiVideoBackend()
-
-    def _sora() -> Callable[[], VideoBackend]:
-        from lib.video_backends.openai import OpenAIVideoBackend
-
-        return lambda: OpenAIVideoBackend()
-
-    _try_register(Provider.ARK, _ark)
-    _try_register(Provider.GROK, _grok)
-    _try_register(Provider.VEO, _veo)
-    _try_register(Provider.SORA, _sora)
+    """直接复用 lib.video_backends 的注册表——import lib.video_backends 已自动注册全部后端。"""
+    return create_backend(_PROVIDER_TO_BACKEND[provider])
 
 
 def _extract_data_rows(report_lines: list[str]) -> list[str]:
@@ -306,9 +246,8 @@ async def run_with_backend(
         duration=duration,
         multi_shot=multi_shot,
         work_dir=work_dir,
+        note=note,
     )
-    if note:
-        result.note = note
     report_dir.mkdir(parents=True, exist_ok=True)
     fname = report_dir / f"reference-video-sdks-{date.today():%Y-%m-%d}.md"
     # 多次运行追加模式：读原文件剥离 header、合并行
@@ -328,7 +267,7 @@ async def run_with_backend(
 
 def main() -> int:
     args = parse_args()
-    work_dir = Path(".verify_work") / args.provider
+    work_dir = Path(".verify_work") / args.provider.value
     return asyncio.run(
         run_with_backend(
             provider=args.provider,
