@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 
+from lib.asset_types import BUCKET_KEY
 from lib.script_models import ReferenceResource, Shot
 
 _SHOT_HEADER_RE = re.compile(
@@ -80,3 +81,31 @@ def render_prompt_for_backend(text: str, references: list[ReferenceResource]) ->
 def compute_duration_from_shots(shots: list[Shot]) -> int:
     """把 shots 时长求和，返回整数秒。"""
     return sum(s.duration for s in shots)
+
+
+def resolve_references(
+    names: list[str],
+    project: dict,
+) -> tuple[list[ReferenceResource], list[str]]:
+    """按 project.json 三 bucket 把 mention 名字分派成 ReferenceResource。
+
+    Returns:
+        (refs, missing): refs 保持入参顺序；missing 是没在任何 bucket 找到的名字
+    """
+    buckets: dict[str, dict] = {
+        "character": project.get(BUCKET_KEY["character"]) or {},
+        "scene": project.get(BUCKET_KEY["scene"]) or {},
+        "prop": project.get(BUCKET_KEY["prop"]) or {},
+    }
+    refs: list[ReferenceResource] = []
+    missing: list[str] = []
+    for name in names:
+        resolved = False
+        for rtype, bucket in buckets.items():
+            if name in bucket:
+                refs.append(ReferenceResource(type=rtype, name=name))
+                resolved = True
+                break
+        if not resolved:
+            missing.append(name)
+    return refs, missing

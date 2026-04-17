@@ -92,3 +92,49 @@ def test_compute_duration_single_shot():
 
 def test_compute_duration_empty_list():
     assert compute_duration_from_shots([]) == 0
+
+
+from lib.reference_video.shot_parser import resolve_references
+
+
+def _proj(characters=None, scenes=None, props=None):
+    return {
+        "characters": characters or {},
+        "scenes": scenes or {},
+        "props": props or {},
+    }
+
+
+def test_resolve_references_character():
+    proj = _proj(characters={"张三": {}})
+    refs, missing = resolve_references(["张三"], proj)
+    assert len(refs) == 1
+    assert refs[0].type == "character"
+    assert refs[0].name == "张三"
+    assert missing == []
+
+
+def test_resolve_references_scene_and_prop():
+    proj = _proj(scenes={"酒馆": {}}, props={"长剑": {}})
+    refs, missing = resolve_references(["酒馆", "长剑"], proj)
+    types = {r.name: r.type for r in refs}
+    assert types == {"酒馆": "scene", "长剑": "prop"}
+    assert missing == []
+
+
+def test_resolve_references_missing_reports_name():
+    refs, missing = resolve_references(["张三", "未知"], _proj(characters={"张三": {}}))
+    assert len(refs) == 1
+    assert missing == ["未知"]
+
+
+def test_resolve_references_preserves_order():
+    proj = _proj(characters={"B": {}}, scenes={"A": {}}, props={"C": {}})
+    refs, _ = resolve_references(["A", "B", "C"], proj)
+    assert [r.name for r in refs] == ["A", "B", "C"]
+
+
+def test_resolve_references_empty_input():
+    refs, missing = resolve_references([], _proj())
+    assert refs == []
+    assert missing == []
