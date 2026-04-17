@@ -149,3 +149,20 @@ class DramaEpisodeScript(BaseModel):
     summary: str = Field(description="剧集摘要")
     novel: NovelInfo = Field(description="小说来源信息")
     scenes: list[DramaScene] = Field(description="场景列表")
+
+
+# ============ 参考生视频模式（Reference Video） ============
+
+
+class Shot(BaseModel):
+    """参考视频单元内的一个镜头。"""
+
+    duration: int = Field(ge=1, le=15, description="该镜头时长（秒）")
+    text: str = Field(description="镜头描述，可包含 @角色/@场景/@道具 引用")
+
+
+class ReferenceResource(BaseModel):
+    """参考图引用——只存名称 + 类型，具体路径从 project.json 对应 bucket 读时解析。"""
+
+    type: Literal["character", "scene", "prop"] = Field(description="引用的资源类型")
+    name: str = Field(description="角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
