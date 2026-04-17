@@ -75,3 +75,8 @@ def render_prompt_for_backend(text: str, references: list[ReferenceResource]) ->
         return f"[图{idx}]" if idx else m.group(0)  # 未注册 → 保留原样
 
     return _MENTION_RE.sub(_repl, text)
+
+
+def compute_duration_from_shots(shots: list[Shot]) -> int:
+    """把 shots 时长求和，返回整数秒。"""
+    return sum(s.duration for s in shots)

@@ -37,7 +37,7 @@ def test_parse_empty_returns_empty_text_as_single_shot():
 
 
 from lib.reference_video.shot_parser import render_prompt_for_backend
-from lib.script_models import ReferenceResource
+from lib.script_models import ReferenceResource, Shot
 
 
 def test_extract_mentions_ordered_unique():
@@ -76,3 +76,19 @@ def test_render_prompt_multi_shot_text():
     rendered = render_prompt_for_backend(text, refs)
     assert rendered.count("[图1]") == 2
     assert "Shot 1 (3s):" in rendered  # header 保留
+
+
+from lib.reference_video.shot_parser import compute_duration_from_shots
+
+
+def test_compute_duration_sums_shots():
+    shots = [Shot(duration=3, text="a"), Shot(duration=5, text="b"), Shot(duration=2, text="c")]
+    assert compute_duration_from_shots(shots) == 10
+
+
+def test_compute_duration_single_shot():
+    assert compute_duration_from_shots([Shot(duration=7, text="x")]) == 7
+
+
+def test_compute_duration_empty_list():
+    assert compute_duration_from_shots([]) == 0
