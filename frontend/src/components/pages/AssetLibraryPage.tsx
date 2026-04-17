@@ -213,16 +213,18 @@ export function AssetLibraryPage() {
       )}
 
       {deleteTarget && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("delete_confirm", { type: t(`type.${deleteTarget.type}`) })}
-          onClick={() => setDeleteTarget(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
-        >
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <button
+            type="button"
+            aria-label={t("cancel")}
+            onClick={() => setDeleteTarget(null)}
+            className="absolute inset-0 bg-black/70"
+          />
           <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-[420px] max-w-[96vw] rounded-xl border border-gray-700 bg-gray-900 p-5 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("delete_confirm", { type: t(`type.${deleteTarget.type}`) })}
+            className="relative w-[420px] max-w-[96vw] rounded-xl border border-gray-700 bg-gray-900 p-5 shadow-2xl"
           >
             <div className="flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 shrink-0 text-amber-400" />

@@ -36,8 +36,8 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
 
   useEffect(() => {
     let disposed = false;
-    setLoading(true);
     void (async () => {
+      setLoading(true);
       const res = await API.listAssets({ type, q: debouncedQ || undefined, limit: PAGE_SIZE, offset: 0 });
       if (!disposed) {
         setAssets(res.items);
@@ -68,17 +68,19 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
   const titleKey = `picker_title_${type}` as const;
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t(titleKey)}
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <button
+        type="button"
+        aria-label={t("close")}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/70"
+      />
       <div
         ref={dialogRef}
-        onClick={(e) => e.stopPropagation()}
-        className="w-[720px] max-w-[96vw] max-h-[90vh] flex flex-col rounded-lg bg-gray-900 border border-gray-700 shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t(titleKey)}
+        className="relative w-[720px] max-w-[96vw] max-h-[90vh] flex flex-col rounded-lg bg-gray-900 border border-gray-700 shadow-2xl"
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-800">
           <h3 className="text-sm font-semibold text-white flex-1">{t(titleKey)}</h3>

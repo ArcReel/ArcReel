@@ -39,6 +39,16 @@ BUCKET_KEY = {"character": "characters", "scene": "scenes", "prop": "props"}
 # 资源类型 → bucket 项内的 sheet 字段名
 SHEET_KEY = {"character": "character_sheet", "scene": "scene_sheet", "prop": "prop_sheet"}
 
+_ILLEGAL_NAME_CHARS = ("/", "\\", "\0")
+
+
+def _validate_asset_name(name: str, _t: Translator) -> str:
+    """拒绝包含路径分隔符 / 空字节 / .. 的名字；防止路径穿越。"""
+    cleaned = (name or "").strip()
+    if not cleaned or ".." in cleaned or any(c in cleaned for c in _ILLEGAL_NAME_CHARS):
+        raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=name))
+    return cleaned
+
 
 def _serialize(asset) -> dict:
     return {
@@ -75,7 +85,8 @@ def _delete_global_asset_file(rel_path: str) -> None:
     try:
         path.unlink()
     except FileNotFoundError:
-        pass
+        # 文件已不存在（并发删除或 create 回滚）视为成功，忽略即可
+        return
     except OSError:
         logger.warning("delete global asset file failed: %s", rel_path)
 
@@ -115,6 +126,7 @@ async def create_asset(
 ):
     if type not in VALID_TYPES:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
+    name = _validate_asset_name(name, _t)
 
     # 1) DB 预检查先行，避免写文件后才发现重复导致 orphan
     async with async_session_factory() as s:
@@ -173,6 +185,8 @@ async def update_asset(
     _t: Translator,
 ):
     patch = {k: v for k, v in req.model_dump().items() if v is not None}
+    if "name" in patch:
+        patch["name"] = _validate_asset_name(patch["name"], _t)
     async with async_session_factory() as s:
         repo = AssetRepository(s)
         a = await repo.get_by_id(asset_id)
@@ -286,16 +300,22 @@ async def from_project(
             ),
         )
 
-    asset_name = req.override_name or req.resource_id
+    asset_name = _validate_asset_name(req.override_name or req.resource_id, _t)
     description = resource.get("description") or ""
     voice_style = resource.get("voice_style", "") if req.resource_type == "character" else ""
 
     sheet_rel = resource.get(SHEET_KEY[req.resource_type]) or ""
     source_sheet_path: Path | None = None
     if sheet_rel:
-        candidate = get_project_manager().projects_root / req.project_name / sheet_rel
-        if candidate.exists() and candidate.is_file():
-            source_sheet_path = candidate
+        try:
+            project_dir = get_project_manager().get_project_path(req.project_name)
+            ProjectManager._safe_subpath(project_dir, sheet_rel)
+            candidate = project_dir / sheet_rel
+            if candidate.exists() and candidate.is_file():
+                source_sheet_path = candidate
+        except (ValueError, FileNotFoundError):
+            # 非法路径或项目丢失：视作无源图继续流程
+            source_sheet_path = None
 
     # 4) DB 预检查（orphan-safe：先查再拷贝文件）
     async with async_session_factory() as s:
@@ -326,9 +346,10 @@ async def from_project(
         async with async_session_factory() as s:
             repo = AssetRepository(s)
             if existing is not None:
-                # overwrite：删旧文件（若不同）+ 更新
-                if existing.image_path and existing.image_path != new_image_path:
-                    _delete_global_asset_file(existing.image_path)
+                # overwrite：先记下旧文件路径，commit 成功后再删；回滚时旧文件保留
+                old_image = (
+                    existing.image_path if existing.image_path and existing.image_path != new_image_path else None
+                )
                 a = await repo.update(
                     existing.id,
                     description=description,
@@ -338,6 +359,8 @@ async def from_project(
                 )
                 await s.commit()
                 await s.refresh(a)
+                if old_image:
+                    _delete_global_asset_file(old_image)
             else:
                 try:
                     a = await repo.create(
@@ -411,8 +434,12 @@ async def apply_to_project(
         sheet_key = SHEET_KEY[a.type]
         bucket = project.get(bucket_key) or {}
 
-        # 3c) 冲突处理，决定目标名
-        desired_name = a.name
+        # 3c) 冲突处理，决定目标名（防御性再次校验 DB 中名字）
+        try:
+            desired_name = _validate_asset_name(a.name, _t)
+        except HTTPException:
+            failed.append({"id": a.id, "reason": "invalid_name"})
+            continue
         if desired_name in bucket:
             if req.conflict_policy == "skip":
                 skipped.append({"id": a.id, "name": a.name})
@@ -431,7 +458,14 @@ async def apply_to_project(
             if src.exists() and src.is_file():
                 ext = src.suffix.lower() or ".png"
                 rel_sheet = f"{bucket_key}/{desired_name}{ext}"
-                dst = project_manager.projects_root / req.target_project / rel_sheet
+                project_dir = project_manager.get_project_path(req.target_project)
+                try:
+                    # realpath 防御：确保最终落点仍在目标项目目录内
+                    ProjectManager._safe_subpath(project_dir, rel_sheet)
+                except ValueError:
+                    failed.append({"id": a.id, "reason": "invalid_name"})
+                    continue
+                dst = project_dir / rel_sheet
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 dst.write_bytes(src.read_bytes())
                 target_sheet = rel_sheet

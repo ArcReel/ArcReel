@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, ImagePlus, Landmark, Package, User, X } from "lucide-react";
 import type { Asset, AssetType } from "@/types/asset";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { sanitizeImageSrc } from "@/utils/safe-url";
 
 type Mode = "create" | "edit" | "import";
 
@@ -40,8 +41,13 @@ export function AssetFormModal({
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
+
+  useEffect(() => {
+    nameRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -61,7 +67,7 @@ export function AssetFormModal({
     return () => URL.revokeObjectURL(url);
   }, [image]);
 
-  const displayedPreview = localPreview ?? previewImageUrl ?? null;
+  const displayedPreview = sanitizeImageSrc(localPreview ?? previewImageUrl);
   const TypeIcon = TYPE_ICON[type];
 
   const isCharacter = type === "character";
@@ -83,17 +89,19 @@ export function AssetFormModal({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+      <button
+        type="button"
+        aria-label={t("close")}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+      />
       <div
         ref={dialogRef}
-        onClick={(e) => e.stopPropagation()}
-        className="w-[560px] max-w-[96vw] overflow-hidden rounded-2xl border border-gray-700/80 bg-gray-900 shadow-2xl shadow-black/60"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="relative w-[560px] max-w-[96vw] overflow-hidden rounded-2xl border border-gray-700/80 bg-gray-900 shadow-2xl shadow-black/60"
       >
         {/* Header */}
         <div className="relative flex items-start gap-3 border-b border-gray-800 bg-gradient-to-b from-gray-900 to-gray-950 px-6 py-5">
@@ -171,9 +179,9 @@ export function AssetFormModal({
                 {t("field.name")} <span className="text-indigo-300">*</span>
               </span>
               <input
+                ref={nameRef}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                autoFocus
                 className="rounded-lg border border-gray-800 bg-gray-950 px-3 py-2 text-sm text-gray-100 transition-colors placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none"
               />
             </label>

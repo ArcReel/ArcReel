@@ -32,7 +32,7 @@ async def test_startup_invokes_project_migrations(monkeypatch):
     monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")
     monkeypatch.setattr(app_module, "init_db", _noop_async)
     monkeypatch.setattr(lib.db, "init_db", _noop_async)
-    monkeypatch.setattr(app_module, "create_generation_worker", lambda: _FakeWorker())
+    monkeypatch.setattr(app_module, "create_generation_worker", _FakeWorker)
     monkeypatch.setattr(assistant_router.assistant_service, "startup", _noop_async)
     monkeypatch.setattr(assistant_router.assistant_service, "shutdown", _noop_async)
 

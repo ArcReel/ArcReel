@@ -20,5 +20,6 @@ router = build_bucket_router(
     i18n_not_found_key="prop_not_found",
     i18n_deleted_key="prop_deleted",
     add_method=lambda m, project, name, desc: m.add_prop(project, name, desc),
-    pm_getter=lambda: get_project_manager(),
+    # late-binding 必需：测试通过 monkeypatch.setattr(props, "get_project_manager", ...) 替换模块属性
+    pm_getter=lambda: get_project_manager(),  # noqa: PLW0108
 )

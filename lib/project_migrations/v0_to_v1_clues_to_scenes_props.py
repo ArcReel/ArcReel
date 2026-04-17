@@ -61,7 +61,8 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
     try:
         clues_dir.rmdir()
     except OSError:
-        pass
+        # 目录非空（有未知文件）或其它原因无法删除——故意保留，下轮启动不再尝试
+        return
 
     # versions/clues 同样按原 clue type 分流
     versions_clues = project_dir / "versions" / "clues"
@@ -75,6 +76,7 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
         try:
             versions_clues.rmdir()
         except OSError:
+            # versions/clues 非空（有未归类文件）则保留，不视为迁移失败
             pass
 
 
@@ -96,15 +98,27 @@ def _migrate_scripts(project_dir: Path, old_clues: dict[str, dict]) -> None:
         if data.get("schema_version", 0) >= 1:
             continue
 
+        # v0 剧本中线索引用历史字段：clues / clues_in_segment / clues_in_scene。
+        # 三者都可能并存，需要合并后再拆为 scenes/props。
+        legacy_fields = ("clues", "clues_in_segment", "clues_in_scene")
         for bucket_key in ("scenes", "segments"):
             items = data.get(bucket_key) or []
             for item in items:
-                old = item.pop("clues", None)
-                if old is None:
+                merged: list[str] = []
+                seen: set[str] = set()
+                found_any = False
+                for lf in legacy_fields:
+                    if lf in item:
+                        found_any = True
+                        for nm in item.pop(lf) or []:
+                            if nm not in seen:
+                                seen.add(nm)
+                                merged.append(nm)
+                if not found_any:
                     continue
                 scenes_list: list[str] = []
                 props_list: list[str] = []
-                for nm in old:
+                for nm in merged:
                     (scenes_list if kind(nm) == "scene" else props_list).append(nm)
                 item["scenes"] = scenes_list
                 item["props"] = props_list

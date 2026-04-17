@@ -3,7 +3,11 @@
 import json
 from pathlib import Path
 
-from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
+import pytest
+
+from lib.project_migrations import v0_to_v1_clues_to_scenes_props as mod
+
+migrate_v0_to_v1 = mod.migrate_v0_to_v1
 
 
 def _make_v0_project(root: Path) -> Path:
@@ -98,8 +102,6 @@ def test_migrate_idempotent(tmp_path: Path):
 
 def test_migrate_order_files_before_schema_bump(tmp_path: Path, monkeypatch):
     """若剧本迁移中途崩溃，schema_version 必须仍为 0（防止下次启动因幂等跳过 → 永久丢图）。"""
-    import lib.project_migrations.v0_to_v1_clues_to_scenes_props as mod
-
     p = _make_v0_project(tmp_path)
     original = mod._migrate_scripts
 
@@ -108,10 +110,8 @@ def test_migrate_order_files_before_schema_bump(tmp_path: Path, monkeypatch):
         raise RuntimeError("boom mid-migration")
 
     monkeypatch.setattr(mod, "_migrate_scripts", fail)
-    try:
+    with pytest.raises(RuntimeError):
         mod.migrate_v0_to_v1(p)
-    except RuntimeError:
-        pass
 
     data = json.loads((p / "project.json").read_text(encoding="utf-8"))
     assert data.get("schema_version", 0) == 0
