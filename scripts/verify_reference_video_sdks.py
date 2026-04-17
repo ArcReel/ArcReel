@@ -7,10 +7,14 @@
 from __future__ import annotations
 
 import argparse
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
+
+from lib.video_backends.base import VideoBackend, VideoGenerationRequest
+from scripts.fixtures.reference_video.generate_fixtures import generate_color_refs
 
 
 class Provider(StrEnum):
@@ -102,6 +106,67 @@ def render_report(results: list[RunResult], *, generated_at: datetime | None = N
             f"| {r.elapsed_sec:.1f}s | {r.request_bytes} | {r.note} |"
         )
     return "\n".join(lines) + "\n"
+
+
+DEFAULT_PROMPT_SINGLE = "A cinematic establishing shot of [图1]."
+DEFAULT_PROMPT_MULTI = (
+    "Shot 1 (3s): medium shot of [图1] walking into the room.\nShot 2 (5s): close-up of [图1] reacting to [图2]."
+)
+
+
+async def run_once(
+    *,
+    provider: Provider,
+    backend: VideoBackend,
+    refs: int,
+    duration: int,
+    multi_shot: bool,
+    work_dir: Path,
+) -> RunResult:
+    ref_dir = work_dir / "refs"
+    ref_paths = generate_color_refs(ref_dir, count=refs)
+    out_path = work_dir / f"{provider}_{int(time.time())}.mp4"
+    prompt = DEFAULT_PROMPT_MULTI if multi_shot else DEFAULT_PROMPT_SINGLE
+    request = VideoGenerationRequest(
+        prompt=prompt,
+        output_path=out_path,
+        duration_seconds=duration,
+        reference_images=ref_paths,
+    )
+    # 粗估请求体大小（prompt + 图片字节数），用于 Grok gRPC 上限观测
+    request_bytes = len(prompt.encode("utf-8")) + sum(p.stat().st_size for p in ref_paths)
+    start = time.monotonic()
+    try:
+        await backend.generate(request)
+        elapsed = time.monotonic() - start
+        return RunResult(
+            provider=provider,
+            model=backend.model,
+            refs=refs,
+            duration=duration,
+            multi_shot=multi_shot,
+            success=True,
+            elapsed_sec=elapsed,
+            request_bytes=request_bytes,
+            error=None,
+            video_path=out_path,
+            note="",
+        )
+    except Exception as exc:  # noqa: BLE001
+        elapsed = time.monotonic() - start
+        return RunResult(
+            provider=provider,
+            model=backend.model,
+            refs=refs,
+            duration=duration,
+            multi_shot=multi_shot,
+            success=False,
+            elapsed_sec=elapsed,
+            request_bytes=request_bytes,
+            error=f"{type(exc).__name__}: {exc}",
+            video_path=None,
+            note="",
+        )
 
 
 def main() -> int:
