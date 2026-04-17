@@ -320,3 +320,64 @@ class TestArkModelCapabilities:
             b = ArkVideoBackend(api_key="test", model="some-future-model")
         caps = b.capabilities
         assert VideoCapability.FLEX_TIER in caps
+
+
+class TestArkServiceTierParam:
+    """service_tier 只对声明了 FLEX_TIER 能力的模型传入，否则 API 会报错。"""
+
+    async def test_seedance_2_does_not_send_service_tier(self, tmp_path):
+        output = tmp_path / "out.mp4"
+        mock_client = MagicMock()
+        mock_client.content_generation = MagicMock()
+        mock_client.content_generation.tasks = MagicMock()
+
+        with patch("lib.video_backends.ark.create_ark_client", return_value=mock_client):
+            backend = ArkVideoBackend(api_key="test", model="doubao-seedance-2-0-260128")
+        backend._client = mock_client
+
+        create_result = MagicMock()
+        create_result.id = "cgt-seedance2"
+        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+
+        get_result = MagicMock()
+        get_result.status = "succeeded"
+        get_result.content = MagicMock()
+        get_result.content.video_url = "https://cdn.example.com/v.mp4"
+        get_result.seed = None
+        get_result.usage = None
+        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+
+        patcher = _mock_httpx_stream()
+        try:
+            request = VideoGenerationRequest(prompt="test", output_path=output)
+            await backend.generate(request)
+        finally:
+            patcher.stop()
+
+        create_kwargs = backend._client.content_generation.tasks.create.call_args.kwargs
+        assert "service_tier" not in create_kwargs
+
+    async def test_seedance_1_5_sends_service_tier(self, backend, tmp_path):
+        output = tmp_path / "out.mp4"
+
+        create_result = MagicMock()
+        create_result.id = "cgt-seedance15"
+        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+
+        get_result = MagicMock()
+        get_result.status = "succeeded"
+        get_result.content = MagicMock()
+        get_result.content.video_url = "https://cdn.example.com/v.mp4"
+        get_result.seed = None
+        get_result.usage = None
+        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+
+        patcher = _mock_httpx_stream()
+        try:
+            request = VideoGenerationRequest(prompt="test", output_path=output)
+            await backend.generate(request)
+        finally:
+            patcher.stop()
+
+        create_kwargs = backend._client.content_generation.tasks.create.call_args.kwargs
+        assert create_kwargs.get("service_tier") == "default"
