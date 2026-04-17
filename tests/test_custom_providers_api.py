@@ -132,6 +132,33 @@ class TestCreateProvider:
         assert resp.status_code == 201
         assert resp.json()["models"] == []
 
+    def test_create_newapi_provider(self, client: TestClient):
+        """回归: POST /custom-providers 接受 api_format=newapi 且持久化正确字段。"""
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "NewAPI Gateway",
+                "api_format": "newapi",
+                "base_url": "https://newapi.example.com/v1",
+                "api_key": "sk-newapi-test-12345",
+                "models": [
+                    {
+                        "model_id": "kling-v1",
+                        "display_name": "Kling v1",
+                        "media_type": "video",
+                        "is_default": True,
+                        "is_enabled": True,
+                    },
+                ],
+            },
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["api_format"] == "newapi"
+        assert body["base_url"] == "https://newapi.example.com/v1"
+        assert len(body["models"]) == 1
+        assert body["models"][0]["model_id"] == "kling-v1"
+
 
 class TestListProviders:
     def test_empty_list(self, client: TestClient):
@@ -403,6 +430,35 @@ class TestDiscoverModels:
         assert len(resp.json()["models"]) == 1
         assert resp.json()["models"][0]["model_id"] == "gpt-4"
 
+    def test_discover_newapi(self, client: TestClient):
+        """newapi 的模型发现复用 OpenAI 兼容的 /v1/models 路径。"""
+        fake_models = [
+            {
+                "model_id": "kling-v1",
+                "display_name": "kling-v1",
+                "media_type": "video",
+                "is_default": True,
+                "is_enabled": True,
+            },
+        ]
+        with patch(
+            "lib.custom_provider.discovery.discover_models",
+            new_callable=AsyncMock,
+            return_value=fake_models,
+        ) as mock_discover:
+            resp = client.post(
+                "/api/v1/custom-providers/discover",
+                json={
+                    "api_format": "newapi",
+                    "base_url": "https://newapi.example.com/v1",
+                    "api_key": "sk-newapi-discover",
+                },
+            )
+        assert resp.status_code == 200
+        assert resp.json()["models"][0]["model_id"] == "kling-v1"
+        # 确认 api_format 作为 newapi 透传
+        assert mock_discover.call_args.kwargs["api_format"] == "newapi"
+
     def test_discover_invalid_format(self, client: TestClient):
         with patch(
             "lib.custom_provider.discovery.discover_models",
@@ -477,6 +533,26 @@ class TestConnectionTest:
         body = resp.json()
         assert body["success"] is True
         assert body["model_count"] == 10
+
+    def test_newapi_success(self, client: TestClient):
+        """newapi 的 /v1/models 走 OpenAI 兼容路径，连接测试应通过 _test_openai。"""
+        with patch(
+            "server.routers.custom_providers._test_openai",
+            return_value=custom_providers.ConnectionTestResponse(success=True, message="连接成功", model_count=42),
+        ) as mock_openai_test:
+            resp = client.post(
+                "/api/v1/custom-providers/test",
+                json={
+                    "api_format": "newapi",
+                    "base_url": "https://newapi.example.com/v1",
+                    "api_key": "sk-newapi-conn",
+                },
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert body["model_count"] == 42
+        mock_openai_test.assert_called_once()
 
     def test_unsupported_format(self, client: TestClient):
         resp = client.post(

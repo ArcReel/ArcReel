@@ -128,7 +128,7 @@ API_FORMAT_OPTIONS = [
 
 ### 6. i18n
 
-- 后端：`lib/i18n/{zh,en}/errors.py` — `invalid_api_format` 枚举文案更新
+- 后端：**实现时发现仓库实际使用 `unsupported_format` 参数化文案**（`不支持的 api_format: {api_format}`），`{api_format}` 会在运行时自动填入，新增 `newapi` 无需改动 `errors.py`；factory 抛出的 `ValueError(f"不支持的 api_format: {api_format!r}")` 是开发层错误，不走 i18n。原 spec 提到的 `invalid_api_format` key 在代码中不存在，此条作废
 - 前端：`frontend/src/i18n/{zh,en}/dashboard.ts` — 若有 NewAPI 说明文案新增
 
 ## 错误处理
@@ -164,7 +164,7 @@ API_FORMAT_OPTIONS = [
 | `lib/custom_provider/discovery.py` | `discover_models("newapi", ...)` 复用 openai 路径；补充视频关键词 |
 | `lib/video_backends/newapi.py` | **新建** NewAPIVideoBackend |
 | `lib/video_backends/registry.py` | 注册（如有显式注册表） |
-| `lib/i18n/{zh,en}/errors.py` | 更新 `invalid_api_format` 文案 |
+| ~~`lib/i18n/{zh,en}/errors.py`~~ | ~~更新 `invalid_api_format` 文案~~ （作废：key 不存在，实际使用参数化 `unsupported_format`） |
 | `server/routers/custom_providers.py` | 校验允许 `newapi` |
 | `frontend/src/types/custom-provider.ts` | 类型联合加 `newapi` |
 | `frontend/src/components/pages/settings/CustomProviderForm.tsx` | 下拉选项加 NewAPI |

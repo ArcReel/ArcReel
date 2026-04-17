@@ -16,6 +16,8 @@ from lib.retry import (
     BASE_RETRYABLE_ERRORS,
     DEFAULT_BACKOFF_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
+    DOWNLOAD_BACKOFF_SECONDS,
+    DOWNLOAD_MAX_ATTEMPTS,
     with_retry_async,
 )
 from lib.video_backends.base import (
@@ -35,7 +37,11 @@ _POLL_INTERVAL_SECONDS = 5.0
 _MIN_POLL_TIMEOUT_SECONDS = 600
 _POLL_TIMEOUT_PER_SECOND = 30
 
-_NEWAPI_RETRYABLE_ERRORS = BASE_RETRYABLE_ERRORS + (httpx.RequestError,)
+# HTTPStatusError 不继承 RequestError，必须显式列出以便 5xx 响应走类型匹配而非字符串匹配
+_NEWAPI_RETRYABLE_ERRORS = BASE_RETRYABLE_ERRORS + (httpx.RequestError, httpx.HTTPStatusError)
+
+# 超过此阈值的起始图会触发 warning，NewAPI 聚合后端常见 4MB 请求体上限
+_LARGE_IMAGE_WARN_BYTES = 4 * 1024 * 1024
 
 _SIZE_MAP: dict[tuple[str, str], tuple[int, int]] = {
     ("720p", "9:16"): (720, 1280),
@@ -116,6 +122,12 @@ class NewAPIVideoBackend:
         if request.start_image:
             start_path = Path(request.start_image)
             if start_path.exists():
+                size_bytes = start_path.stat().st_size
+                if size_bytes > _LARGE_IMAGE_WARN_BYTES:
+                    logger.warning(
+                        "NewAPI start_image 较大 (%.1fMB)，Base64 编码后可能触发服务端请求体限制",
+                        size_bytes / 1024 / 1024,
+                    )
                 # 延迟导入避免 image_backends ↔ video_backends 循环依赖
                 from lib.image_backends.base import image_to_base64_data_uri
 
@@ -148,7 +160,7 @@ class NewAPIVideoBackend:
                 raise RuntimeError(f"NewAPI 任务完成但缺少 url 字段: {final}")
 
         # 流式下载，不携带 Authorization 头（视频 URL 常为 CDN/OSS，避免 API Key 泄露）
-        await download_video(video_url, request.output_path)
+        await self._download_with_retry(video_url, request.output_path)
 
         meta = final.get("metadata") or {}
         return VideoGenerationResult(
@@ -185,6 +197,16 @@ class NewAPIVideoBackend:
         )
         resp.raise_for_status()
         return resp.json()
+
+    @staticmethod
+    @with_retry_async(
+        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
+        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
+        retryable_errors=_NEWAPI_RETRYABLE_ERRORS,
+    )
+    async def _download_with_retry(video_url: str, output_path: Path) -> None:
+        """对齐 OpenAI/Ark 的下载重试策略（5 次、5/10/20/40 秒），与生成阶段独立。"""
+        await download_video(video_url, output_path)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
