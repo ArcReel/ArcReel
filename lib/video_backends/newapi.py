@@ -163,11 +163,14 @@ class NewAPIVideoBackend:
         await self._download_with_retry(video_url, request.output_path)
 
         meta = final.get("metadata") or {}
+        # 用 is None 显式判空，避免 API 返回 0 / 0.0 时被 `or` 误判为 falsy 而回退
+        raw_duration = meta.get("duration")
+        duration_seconds = int(float(raw_duration)) if raw_duration is not None else request.duration_seconds
         return VideoGenerationResult(
             video_path=request.output_path,
             provider=PROVIDER_NEWAPI,
             model=self._model,
-            duration_seconds=int(float(meta.get("duration") or request.duration_seconds)),
+            duration_seconds=duration_seconds,
             task_id=task_id,
             seed=meta.get("seed"),
         )

@@ -325,6 +325,48 @@ class TestNewAPIVideoBackend:
 
         fake_download.assert_not_called()
 
+    async def test_zero_duration_from_api_is_preserved(self, tmp_path: Path):
+        """回归: API 返回 duration=0 时不应被 falsy 回退到请求值（is None 判空）。"""
+        create_resp = _make_response(200, {"task_id": "t-zero", "status": "queued"})
+        poll_resp = _make_response(
+            200,
+            {
+                "task_id": "t-zero",
+                "status": "completed",
+                "url": "https://cdn/v.mp4",
+                "metadata": {"duration": 0},
+            },
+        )
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=create_resp)
+        mock_client.get = AsyncMock(return_value=poll_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
+
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+            patch("lib.video_backends.newapi.download_video", fake_download),
+        ):
+            from lib.video_backends.newapi import NewAPIVideoBackend
+
+            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+            result = await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p",
+                    output_path=tmp_path / "o.mp4",
+                    resolution="720p",
+                    aspect_ratio="9:16",
+                    duration_seconds=5,
+                )
+            )
+
+        # API 明确返回 0，应如实保留，不是回退到 request.duration_seconds=5
+        assert result.duration_seconds == 0
+
     async def test_create_retries_on_5xx(self, tmp_path: Path):
         """5xx HTTPStatusError 应通过 _NEWAPI_RETRYABLE_ERRORS 类型匹配重试。"""
         failing_resp = MagicMock()
