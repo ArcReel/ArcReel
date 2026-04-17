@@ -152,10 +152,25 @@ chore: 构建/工具变更
 
 ## 发版流程
 
-当前形态：手动维护版本号。
+版本号与 changelog 由 [release-please](https://github.com/googleapis/release-please) 自动维护（配置见 `.release-please-config.json`，workflow 见 `.github/workflows/release-please.yml`）。**开发者无需手动 bump 版本号**——只需写合规的 conventional commits。
 
-- 修改 `pyproject.toml` 和 `frontend/package.json` 的 `version` 字段到同一值
-- `uv lock` 同步 `uv.lock`
-- 提交 `chore: bump version to X.Y.Z`，打 tag `vX.Y.Z`，推送
+### 工作流程
 
-后续将由 release-please 接管（PR 追加），届时开发者仅需写合规 conventional commits，版本号与 changelog 自动生成。本节届时重写。
+1. PR 按 conventional commits 规范 squash merge 到 `main`
+2. release-please 扫描自上次 release 以来的 commit，自动开/更新一个标题形如 `chore(main): release X.Y.Z` 的 Release PR，里面包含下次版本号 bump + 更新的 `CHANGELOG.md`
+3. 合并该 Release PR 即自动打 `vX.Y.Z` tag 并发布 GitHub Release
+
+### commit type → 版本步进
+
+| commit type | 版本步进 | changelog |
+|-------------|---------|-----------|
+| `feat`      | minor   | ✨ 新功能 |
+| `fix`       | patch   | 🐛 Bug 修复 |
+| `perf`      | patch   | ⚡ 性能优化 |
+| `refactor`  | patch   | ♻️ 重构 |
+| `docs`      | patch   | 📚 文档 |
+| `revert`    | patch   | ↩️ 回滚 |
+| `chore` / `ci` / `build` / `test` / `style` | 不步进 | 隐藏 |
+| `feat!` / 任意 type + `!` / footer 含 `BREAKING CHANGE:` | **major** | ⚠️ BREAKING CHANGES（changelog 置顶） |
+
+文件中的 `version` 字段固定为 `0.1.0`（见 `pyproject.toml` 的 `# managed by release-please` 注释），实际版本状态以 git tag + `.release-please-manifest.json` 为准。
