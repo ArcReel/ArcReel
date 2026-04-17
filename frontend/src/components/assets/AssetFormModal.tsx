@@ -13,7 +13,6 @@ interface Props {
   initialData?: Partial<Asset>;
   previewImageUrl?: string;
   conflictWith?: Asset;
-  targetProject?: string;
   onClose: () => void;
   onSubmit: (payload: {
     name: string;

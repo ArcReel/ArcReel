@@ -13,8 +13,8 @@ class ReferenceImage:
     """Metadata for a reference image used during grid generation."""
 
     path: str  # Relative path from project root (e.g. "characters/hero/sheet.png")
-    name: str  # Display name (character or clue name)
-    ref_type: str  # "character" or "clue"
+    name: str  # Display name
+    ref_type: str  # "character" | "scene" | "prop"
 
     def to_dict(self) -> dict:
         return {"path": self.path, "name": self.name, "ref_type": self.ref_type}

@@ -43,6 +43,11 @@ class AssetRepository(BaseRepository):
             await self.session.execute(select(Asset).where(Asset.type == type, Asset.name == name))
         ).scalar_one_or_none()
 
+    async def get_by_ids(self, asset_ids: list[str]) -> list[Asset]:
+        if not asset_ids:
+            return []
+        return list((await self.session.execute(select(Asset).where(Asset.id.in_(asset_ids)))).scalars())
+
     async def list(
         self,
         *,

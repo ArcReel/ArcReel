@@ -62,9 +62,11 @@ async def lifespan(app: FastAPI):
     # Run Alembic migrations (auto-creates tables on first start)
     await init_db()
 
-    # Project-level schema migrations (file-based, e.g. clues→scenes/props)
+    # Run any pending project.json schema migrations (file-based).
+    # Both calls are synchronous filesystem walks — offload to a worker thread
+    # so they don't block the event loop during uvicorn startup.
     projects_root = PROJECT_ROOT / "projects"
-    migration_summary = run_project_migrations(projects_root)
+    migration_summary = await asyncio.to_thread(run_project_migrations, projects_root)
     if migration_summary.migrated or migration_summary.failed:
         logger.info(
             "Project migrations: migrated=%s skipped=%d failed=%s",
@@ -72,7 +74,7 @@ async def lifespan(app: FastAPI):
             len(migration_summary.skipped),
             migration_summary.failed,
         )
-    cleanup_stale_backups(projects_root, max_age_days=7)
+    await asyncio.to_thread(cleanup_stale_backups, projects_root, 7)
 
     # Migrate legacy .system_config.json → DB (no-op if file doesn't exist or already migrated)
     try:
@@ -95,11 +97,11 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("DB→env Anthropic config sync failed (non-fatal): %s", exc)
 
-    # 修复存量项目的 agent_runtime 软连接
+    # 修复存量项目的 agent_runtime 软连接（同步文件遍历 → 放到 worker 线程）
     from lib.project_manager import ProjectManager
 
     _pm = ProjectManager(PROJECT_ROOT / "projects")
-    _symlink_stats = _pm.repair_all_symlinks()
+    _symlink_stats = await asyncio.to_thread(_pm.repair_all_symlinks)
     if any(v > 0 for v in _symlink_stats.values()):
         logger.info("agent_runtime 软连接修复完成: %s", _symlink_stats)
 

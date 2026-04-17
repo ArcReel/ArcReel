@@ -23,7 +23,6 @@ interface PropCardProps {
   onGenerate: (name: string) => void;
   onRestoreVersion?: () => void | Promise<void>;
   onReload?: () => void | Promise<void>;
-  onAddToLibrary?: () => void;
   generating?: boolean;
 }
 

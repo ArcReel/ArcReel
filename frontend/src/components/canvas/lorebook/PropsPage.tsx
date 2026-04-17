@@ -78,7 +78,6 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
         <AssetFormModal
           type="prop"
           mode="create"
-          targetProject={projectName}
           onClose={() => setAdding(false)}
           onSubmit={async ({ name, description }) => {
             await onAddProp(name, description);

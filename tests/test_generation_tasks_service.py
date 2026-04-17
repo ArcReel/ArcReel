@@ -427,6 +427,7 @@ class TestGetAspectRatio:
         project = {"aspect_ratio": "16:9"}
         assert generation_tasks.get_aspect_ratio(project, "characters") == "3:4"
 
-    def test_clues_always_16_9(self):
+    def test_scenes_and_props_always_16_9(self):
         project = {"aspect_ratio": "9:16"}
-        assert generation_tasks.get_aspect_ratio(project, "clues") == "16:9"
+        assert generation_tasks.get_aspect_ratio(project, "scenes") == "16:9"
+        assert generation_tasks.get_aspect_ratio(project, "props") == "16:9"

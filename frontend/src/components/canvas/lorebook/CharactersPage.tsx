@@ -78,7 +78,6 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
         <AssetFormModal
           type="character"
           mode="create"
-          targetProject={projectName}
           onClose={() => setAdding(false)}
           onSubmit={async ({ name, description, voice_style, image }) => {
             await onAddCharacter(name, description, voice_style, image ?? null);

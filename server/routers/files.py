@@ -16,6 +16,7 @@ from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib import PROJECT_ROOT
+from lib.asset_types import ASSET_TYPES
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image
 from lib.project_change_hints import emit_project_change_batch, project_change_source
@@ -78,7 +79,7 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
 @router.get("/global-assets/{asset_type}/{filename}")
 async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
     """服务 _global_assets 下的全局资产图片（character/scene/prop）"""
-    if asset_type not in {"character", "scene", "prop"}:
+    if asset_type not in ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_type"))
     if "/" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_filename"))

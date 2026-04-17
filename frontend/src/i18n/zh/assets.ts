@@ -39,7 +39,6 @@ export default {
   "load_more": "加载更多",
   "loading": "加载中...",
   "already_in_project": "已在项目",
-  "no_assets_hint": "暂无资产，点击上方【+ 新增资产】",
   "add_to_library": "加入资产库",
   "add_to_library_short": "入库",
   "add_to_library_success": "「{{name}}」已加入资产库",

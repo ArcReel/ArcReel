@@ -39,7 +39,6 @@ export default {
   "load_more": "Load more",
   "loading": "Loading...",
   "already_in_project": "Already in project",
-  "no_assets_hint": "No assets yet. Click [+ New Asset] above.",
   "add_to_library": "Add to Library",
   "add_to_library_short": "Library",
   "add_to_library_success": "\"{{name}}\" added to library",

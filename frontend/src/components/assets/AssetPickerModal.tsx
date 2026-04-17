@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Search, X } from "lucide-react";
 import { API } from "@/api";
@@ -35,18 +35,32 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
   }, [onClose]);
 
   useEffect(() => {
-    let disposed = false;
+    const ctrl = new AbortController();
     void (async () => {
       setLoading(true);
-      const res = await API.listAssets({ type, q: debouncedQ || undefined, limit: PAGE_SIZE, offset: 0 });
-      if (!disposed) {
-        setAssets(res.items);
-        setHasMore(res.items.length === PAGE_SIZE);
-        setLoading(false);
+      try {
+        const res = await API.listAssets(
+          { type, q: debouncedQ || undefined, limit: PAGE_SIZE, offset: 0 },
+          { signal: ctrl.signal },
+        );
+        if (!ctrl.signal.aborted) {
+          setAssets(res.items);
+          setHasMore(res.items.length === PAGE_SIZE);
+          setLoading(false);
+        }
+      } catch (err) {
+        if ((err as Error).name !== "AbortError" && !ctrl.signal.aborted) {
+          setLoading(false);
+        }
       }
     })();
-    return () => { disposed = true; };
+    return () => ctrl.abort();
   }, [type, debouncedQ]);
+
+  const assetsWithUrl = useMemo(
+    () => assets.map((a) => ({ asset: a, url: API.getGlobalAssetUrl(a.image_path, a.updated_at) })),
+    [assets],
+  );
 
   const loadMore = async () => {
     setLoading(true);
@@ -101,10 +115,9 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 grid grid-cols-4 gap-2">
-          {assets.map((a) => {
+          {assetsWithUrl.map(({ asset: a, url }) => {
             const dup = existingNames.has(a.name);
             const sel = selected.has(a.id);
-            const url = API.getGlobalAssetUrl(a.image_path, a.updated_at);
             return (
               <button
                 key={a.id}

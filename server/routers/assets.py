@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 import uuid
@@ -12,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from lib import PROJECT_ROOT
+from lib.asset_types import ASSET_TYPES, BUCKET_KEY, SHEET_KEY
 from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.i18n import Translator
@@ -30,14 +32,8 @@ def get_project_manager() -> ProjectManager:
     return pm
 
 
-VALID_TYPES = {"character", "scene", "prop"}
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
-
-# 资源类型 → project.json 中的 bucket key
-BUCKET_KEY = {"character": "characters", "scene": "scenes", "prop": "props"}
-# 资源类型 → bucket 项内的 sheet 字段名
-SHEET_KEY = {"character": "character_sheet", "scene": "scene_sheet", "prop": "prop_sheet"}
 
 _ILLEGAL_NAME_CHARS = ("/", "\\", "\0")
 
@@ -75,7 +71,7 @@ async def _save_upload(file: UploadFile, asset_type: str, _t: Translator) -> str
     root = get_project_manager().get_global_assets_root() / asset_type
     uid = uuid.uuid4().hex
     target = root / f"{uid}{ext}"
-    target.write_bytes(data)
+    await asyncio.to_thread(target.write_bytes, data)
     # 存相对路径（相对 projects_root）
     return f"_global_assets/{asset_type}/{uid}{ext}"
 
@@ -124,22 +120,16 @@ async def create_asset(
     voice_style: str = Form(""),
     image: UploadFile | None = File(None),
 ):
-    if type not in VALID_TYPES:
+    if type not in ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
     name = _validate_asset_name(name, _t)
 
-    # 1) DB 预检查先行，避免写文件后才发现重复导致 orphan
-    async with async_session_factory() as s:
-        repo = AssetRepository(s)
-        if await repo.exists(type, name):
-            raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=name))
-
-    # 2) 预检查通过后再落盘（session 外）
+    # 1) 先落盘再 create；IntegrityError 路径负责清理 orphan
     image_path: str | None = None
     if image is not None and image.filename:
         image_path = await _save_upload(image, type, _t)
 
-    # 3) 真正 create；任何失败路径都必须清理已落盘文件，保证 DB/磁盘一致
+    # 2) 真正 create；任何失败路径都必须清理已落盘文件，保证 DB/磁盘一致
     try:
         async with async_session_factory() as s:
             repo = AssetRepository(s)
@@ -270,7 +260,7 @@ async def from_project(
     _t: Translator,
 ):
     # 1) 类型合法性
-    if req.resource_type not in VALID_TYPES:
+    if req.resource_type not in ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
 
     # 2) 加载项目
@@ -338,7 +328,7 @@ async def from_project(
         root = get_project_manager().get_global_assets_root() / req.resource_type
         uid = uuid.uuid4().hex
         target = root / f"{uid}{ext}"
-        shutil.copyfile(source_sheet_path, target)
+        await asyncio.to_thread(shutil.copyfile, source_sheet_path, target)
         new_image_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
 
     # 6) 写 DB：失败路径清理拷贝文件
@@ -421,56 +411,64 @@ async def apply_to_project(
     skipped: list[dict] = []
     failed: list[dict] = []
 
+    # 3) 批量读取所有请求的 asset，缺失的直接归入 failed
+    async with async_session_factory() as s:
+        assets = await AssetRepository(s).get_by_ids(req.asset_ids)
+    assets_by_id = {a.id: a for a in assets}
     for asset_id in req.asset_ids:
-        # 3a) 查找资产
-        async with async_session_factory() as s:
-            a = await AssetRepository(s).get_by_id(asset_id)
-        if a is None:
+        if asset_id not in assets_by_id:
             failed.append({"id": asset_id, "reason": "not_found"})
-            continue
 
-        # 3b) 解析 bucket / sheet key
+    # 4) 先在内存里算好每条 asset 的目标名 + 是否需要拷贝文件，
+    #    再一次性执行文件拷贝和 project.json 写回
+    project_dir = project_manager.get_project_path(req.target_project)
+    # 按 bucket 维护一份"已占用的名字"集合，用于 rename 策略的累积冲突检查
+    bucket_names: dict[str, set[str]] = {bk: set((project.get(bk) or {}).keys()) for bk in BUCKET_KEY.values()}
+    plans: list[dict] = []
+    for asset_id in req.asset_ids:
+        a = assets_by_id.get(asset_id)
+        if a is None:
+            continue  # 已在 failed
+
         bucket_key = BUCKET_KEY[a.type]
         sheet_key = SHEET_KEY[a.type]
-        bucket = project.get(bucket_key) or {}
+        names = bucket_names[bucket_key]
 
-        # 3c) 冲突处理，决定目标名（防御性再次校验 DB 中名字）
         try:
             desired_name = _validate_asset_name(a.name, _t)
         except HTTPException:
             failed.append({"id": a.id, "reason": "invalid_name"})
             continue
-        if desired_name in bucket:
+
+        if desired_name in names:
             if req.conflict_policy == "skip":
                 skipped.append({"id": a.id, "name": a.name})
                 continue
             if req.conflict_policy == "rename":
                 i = 2
-                while f"{a.name} ({i})" in bucket:
+                while f"{a.name} ({i})" in names:
                     i += 1
                 desired_name = f"{a.name} ({i})"
             # overwrite: 保留原名，后续覆盖
 
-        # 3d) 拷贝图片
+        # 规划图片拷贝
         target_sheet: str | None = None
+        copy_src: Path | None = None
+        copy_dst: Path | None = None
         if a.image_path:
             src = project_manager.projects_root / a.image_path
             if src.exists() and src.is_file():
                 ext = src.suffix.lower() or ".png"
                 rel_sheet = f"{bucket_key}/{desired_name}{ext}"
-                project_dir = project_manager.get_project_path(req.target_project)
                 try:
-                    # realpath 防御：确保最终落点仍在目标项目目录内
                     ProjectManager._safe_subpath(project_dir, rel_sheet)
                 except ValueError:
                     failed.append({"id": a.id, "reason": "invalid_name"})
                     continue
-                dst = project_dir / rel_sheet
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                dst.write_bytes(src.read_bytes())
                 target_sheet = rel_sheet
+                copy_src = src
+                copy_dst = project_dir / rel_sheet
             else:
-                # 资产 DB 记录有 image_path,但磁盘文件已丢失 → 记为失败,跳过 project.json 变更
                 logger.warning(
                     "apply_to_project: asset %s image file missing on disk: %s",
                     a.id,
@@ -479,29 +477,53 @@ async def apply_to_project(
                 failed.append({"id": a.id, "reason": "image_missing"})
                 continue
 
-        # 3e) 更新 project.json（default-arg 冻结本次迭代的变量）
-        def _mut(
-            data: dict,
-            _n=desired_name,
-            _bk=bucket_key,
-            _sk=sheet_key,
-            _ts=target_sheet,
-            _a=a,
-        ) -> None:
-            payload: dict = {"description": _a.description or ""}
-            if _a.type == "character":
-                payload["voice_style"] = _a.voice_style or ""
-            if _ts:
-                payload[_sk] = _ts
-            if _bk not in data or not isinstance(data.get(_bk), dict):
-                data[_bk] = {}
-            data[_bk][_n] = payload
+        names.add(desired_name)
+        plans.append(
+            {
+                "asset": a,
+                "bucket_key": bucket_key,
+                "sheet_key": sheet_key,
+                "desired_name": desired_name,
+                "target_sheet": target_sheet,
+                "copy_src": copy_src,
+                "copy_dst": copy_dst,
+            }
+        )
 
-        project_manager.update_project(req.target_project, _mut)
+    # 5) 执行文件拷贝（off event loop）
+    def _copy_all() -> None:
+        for plan in plans:
+            src = plan["copy_src"]
+            dst = plan["copy_dst"]
+            if src is None or dst is None:
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dst)
 
-        succeeded.append({"id": a.id, "name": desired_name})
+    if plans:
+        await asyncio.to_thread(_copy_all)
 
-        # 3g) 刷新 project 快照，下一轮冲突检查使用最新状态
-        project = project_manager.load_project(req.target_project)
+    # 6) 单次 update_project 把所有 bucket 变更一次性写回
+    def _apply_all(data: dict) -> None:
+        for plan in plans:
+            a_ = plan["asset"]
+            bk = plan["bucket_key"]
+            sk = plan["sheet_key"]
+            name_ = plan["desired_name"]
+            ts = plan["target_sheet"]
+            payload: dict = {"description": a_.description or ""}
+            if a_.type == "character":
+                payload["voice_style"] = a_.voice_style or ""
+            if ts:
+                payload[sk] = ts
+            if bk not in data or not isinstance(data.get(bk), dict):
+                data[bk] = {}
+            data[bk][name_] = payload
+
+    if plans:
+        project_manager.update_project(req.target_project, _apply_all)
+
+    for plan in plans:
+        succeeded.append({"id": plan["asset"].id, "name": plan["desired_name"]})
 
     return {"succeeded": succeeded, "skipped": skipped, "failed": failed}

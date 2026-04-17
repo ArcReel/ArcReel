@@ -78,7 +78,6 @@ export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene
         <AssetFormModal
           type="scene"
           mode="create"
-          targetProject={projectName}
           onClose={() => setAdding(false)}
           onSubmit={async ({ name, description }) => {
             await onAddScene(name, description);

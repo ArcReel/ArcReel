@@ -1549,13 +1549,16 @@ class API {
 
   // ==================== Global Asset Library ====================
 
-  static async listAssets(params: { type?: AssetType; q?: string; limit?: number; offset?: number } = {}) {
+  static async listAssets(
+    params: { type?: AssetType; q?: string; limit?: number; offset?: number } = {},
+    options: RequestInit = {},
+  ) {
     const usp = new URLSearchParams();
     if (params.type) usp.set("type", params.type);
     if (params.q) usp.set("q", params.q);
     if (params.limit) usp.set("limit", String(params.limit));
     if (params.offset) usp.set("offset", String(params.offset));
-    return this.request<{ items: Asset[] }>(`/assets?${usp.toString()}`);
+    return this.request<{ items: Asset[] }>(`/assets?${usp.toString()}`, options);
   }
 
   static async getAsset(id: string) {

@@ -328,7 +328,7 @@ async def get_media_generator(
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
     if resource_type == "characters":
         return "3:4"
-    if resource_type in ("clues", "scenes", "props"):
+    if resource_type in ("scenes", "props"):
         return "16:9"
     # 优先读顶层字段；缺失时按 content_mode 推导（向后兼容）
     val = project.get("aspect_ratio")
@@ -543,13 +543,6 @@ def _compute_affected_fingerprints(project_name: str, task_type: str, resource_i
                 project_path / "characters" / f"{resource_id}.png",
             )
         )
-    elif task_type == "clue":
-        paths.append(
-            (
-                f"props/{resource_id}.png",
-                project_path / "props" / f"{resource_id}.png",
-            )
-        )
     elif task_type == "scene":
         paths.append(
             (
@@ -587,7 +580,6 @@ _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "character": ("character", "updated", "角色「{}」设计图", False),
     "scene": ("scene", "updated", "场景「{}」设计图", False),
     "prop": ("prop", "updated", "道具「{}」设计图", False),
-    "clue": ("prop", "updated", "道具「{}」设计图", False),  # 兼容别名
     "grid": ("grid", "grid_ready", "宫格「{}」", True),
 }
 
@@ -996,7 +988,7 @@ def _collect_grid_reference_images(
     payload: dict[str, Any],
     scene_ids: list[str],
 ) -> tuple[list[object] | None, list[dict]]:
-    """Collect character/clue sheet images referenced by grid scenes.
+    """Collect character/scene/prop sheet images referenced by grid scenes.
 
     Returns a tuple of ``(image_paths, metadata)``:
     - *image_paths*: up to 6 :class:`~pathlib.Path` objects for the generation API.
@@ -1223,7 +1215,6 @@ _TASK_EXECUTORS = {
     "character": execute_character_task,
     "scene": execute_scene_task,
     "prop": execute_prop_task,
-    "clue": execute_prop_task,  # 兼容别名
     "grid": execute_grid_task,
 }
 

@@ -1007,7 +1007,8 @@ class ProjectArchiveService:
                 "storyboards": {},
                 "videos": {},
                 "characters": {},
-                "clues": {},
+                "scenes": {},
+                "props": {},
             }
         return payload
 

@@ -34,7 +34,8 @@ export interface Prop {
 
 export interface AspectRatio {
   characters?: string;
-  clues?: string;
+  scenes?: string;
+  props?: string;
   storyboard?: string;
   video?: string;
 }
