@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -221,10 +222,60 @@ def _lazy_register_factories() -> None:
         pass
 
 
+async def run_with_backend(
+    *,
+    provider: Provider,
+    refs: int,
+    duration: int,
+    multi_shot: bool,
+    report_dir: Path,
+    work_dir: Path,
+) -> int:
+    backend = resolve_backend(provider)
+    clamped, note = clamp_refs_for_backend(
+        requested=refs,
+        caps=backend.video_capabilities,
+    )
+    result = await run_once(
+        provider=provider,
+        backend=backend,
+        refs=clamped,
+        duration=duration,
+        multi_shot=multi_shot,
+        work_dir=work_dir,
+    )
+    if note:
+        result.note = note
+    report_dir.mkdir(parents=True, exist_ok=True)
+    fname = report_dir / f"reference-video-sdks-{date.today():%Y-%m-%d}.md"
+    # 多次运行追加模式：读原文件剥离 header、合并行
+    existing_rows: list[str] = []
+    if fname.exists():
+        existing = fname.read_text(encoding="utf-8").splitlines()
+        existing_rows = [ln for ln in existing if ln.startswith("| ") and "Provider" not in ln and "---" not in ln]
+    md = render_report([result])
+    if existing_rows:
+        lines = md.splitlines()
+        # 把已有数据行塞回表尾
+        lines.extend(existing_rows)
+        md = "\n".join(lines) + "\n"
+    fname.write_text(md, encoding="utf-8")
+    return 0 if result.success else 2
+
+
 def main() -> int:
     args = parse_args()
-    print(f"[verify] provider={args.provider} refs={args.refs} duration={args.duration}s multi_shot={args.multi_shot}")
-    return 0
+    work_dir = Path(".verify_work") / args.provider
+    return asyncio.run(
+        run_with_backend(
+            provider=args.provider,
+            refs=args.refs,
+            duration=args.duration,
+            multi_shot=args.multi_shot,
+            report_dir=args.report_dir,
+            work_dir=work_dir,
+        )
+    )
 
 
 if __name__ == "__main__":

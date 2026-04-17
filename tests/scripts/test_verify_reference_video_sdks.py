@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+import scripts.verify_reference_video_sdks as mod
 from lib.video_backends.base import (
     VideoCapabilities,
     VideoCapability,
@@ -211,3 +212,27 @@ def test_lazy_register_factories_smoke():
     from scripts.verify_reference_video_sdks import _lazy_register_factories
 
     _lazy_register_factories()
+
+
+@pytest.mark.asyncio
+async def test_run_with_backend_writes_report(tmp_path: Path, monkeypatch):
+    fake = _FakeBackend()
+    report_dir = tmp_path / "reports"
+    work_dir = tmp_path / "work"
+
+    monkeypatch.setattr(mod, "resolve_backend", lambda p: fake)
+
+    code = await mod.run_with_backend(
+        provider=mod.Provider.ARK,
+        refs=3,
+        duration=5,
+        multi_shot=True,
+        report_dir=report_dir,
+        work_dir=work_dir,
+    )
+    assert code == 0
+    reports = list(report_dir.glob("reference-video-sdks-*.md"))
+    assert len(reports) == 1
+    content = reports[0].read_text(encoding="utf-8")
+    assert "| ark |" in content
+    assert "PASS" in content
