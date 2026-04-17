@@ -13,6 +13,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # Release PR 里 pyproject.toml 的 version 被 release-please 改动后，
+      # uv.lock 仍指向旧版本。checkout release PR 分支，跑一次 uv lock，把
+      # 同步 commit 推回该分支，保持 lock 与 source version 一致。
+      - name: Checkout release PR branch
+        if: ${{ steps.release.outputs.pr }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ fromJson(steps.release.outputs.pr).headBranchName }}
+          fetch-depth: 0
+
+      - name: Set up uv
+        if: ${{ steps.release.outputs.pr }}
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+
+      - name: Sync uv.lock
+        if: ${{ steps.release.outputs.pr }}
+        run: |
+          uv lock
+          if ! git diff --quiet uv.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uv.lock
+            git commit -m "chore: sync uv.lock with pyproject.toml version"
+            git push origin HEAD
+          fi
