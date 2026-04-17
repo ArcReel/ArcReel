@@ -31,11 +31,11 @@
       "Bash(git log:*)",
       "Bash(git show:*)",
       "Bash(git branch)",
-      "Bash(git branch -a:*)",
-      "Bash(git branch -r:*)",
-      "Bash(git branch -v:*)",
-      "Bash(git branch --list:*)",
-      "Bash(git branch --show-current:*)",
+      "Bash(git branch -a)",
+      "Bash(git branch -r)",
+      "Bash(git branch -v)",
+      "Bash(git branch -vv)",
+      "Bash(git branch --show-current)",
       "Bash(git fetch:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr list:*)",
@@ -78,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.py) uv run ruff check --fix --unfixable F401,F811,F841 \"$f\" && uv run ruff format \"$f\";; esac; } 2>/dev/null || true"
+            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.py) uv run ruff check --fix --unfixable F401,F811,F841 \"$f\"; uv run ruff format \"$f\";; esac; } 2>/dev/null || true"
           }
         ]
       }
