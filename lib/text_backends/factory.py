@@ -5,7 +5,7 @@ from __future__ import annotations
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db import async_session_factory
-from lib.providers import PROVIDER_OPENAI
+from lib.providers import PROVIDER_MINIMAX, PROVIDER_OPENAI
 from lib.text_backends.base import TextBackend, TextTaskType
 from lib.text_backends.registry import create_backend
 
@@ -15,6 +15,7 @@ PROVIDER_ID_TO_BACKEND: dict[str, str] = {
     "ark": "ark",
     "grok": "grok",
     "openai": "openai",
+    "minimax": "minimax",
 }
 
 
@@ -72,7 +73,7 @@ async def create_text_backend_for_task(
         kwargs["gcs_bucket"] = provider_config.get("gcs_bucket")
     else:
         kwargs["api_key"] = provider_config.get("api_key")
-        if provider_id in ("gemini-aistudio", PROVIDER_OPENAI):
+        if provider_id in ("gemini-aistudio", PROVIDER_OPENAI, PROVIDER_MINIMAX):
             kwargs["base_url"] = provider_config.get("base_url")
 
     return create_backend(backend_name, **kwargs)
