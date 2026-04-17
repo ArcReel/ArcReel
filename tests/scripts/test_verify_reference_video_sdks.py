@@ -236,3 +236,78 @@ async def test_run_with_backend_writes_report(tmp_path: Path, monkeypatch):
     content = reports[0].read_text(encoding="utf-8")
     assert "| ark |" in content
     assert "PASS" in content
+
+
+@pytest.mark.asyncio
+async def test_run_with_backend_returns_2_on_failure(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(mod, "resolve_backend", lambda p: _FailBackend())
+    code = await mod.run_with_backend(
+        provider=mod.Provider.ARK,
+        refs=3,
+        duration=5,
+        multi_shot=False,
+        report_dir=tmp_path / "reports",
+        work_dir=tmp_path / "work",
+    )
+    assert code == 2
+    # 失败时也应写报告（记录错误）
+    reports = list((tmp_path / "reports").glob("reference-video-sdks-*.md"))
+    assert len(reports) == 1
+    content = reports[0].read_text(encoding="utf-8")
+    assert "FAIL" in content
+
+
+class _CappedFakeBackend(_FakeBackend):
+    """max_reference_images=2，会触发 clamp note 分支。"""
+
+    video_capabilities = VideoCapabilities(reference_images=True, max_reference_images=2)
+
+
+@pytest.mark.asyncio
+async def test_run_with_backend_note_written_when_clamped(tmp_path: Path, monkeypatch):
+    """请求 5 refs 但 backend max=2，note 应被写入报告。"""
+    monkeypatch.setattr(mod, "resolve_backend", lambda p: _CappedFakeBackend())
+    code = await mod.run_with_backend(
+        provider=mod.Provider.ARK,
+        refs=5,
+        duration=5,
+        multi_shot=False,
+        report_dir=tmp_path / "reports",
+        work_dir=tmp_path / "work",
+    )
+    assert code == 0
+    content = (list((tmp_path / "reports").glob("reference-video-sdks-*.md"))[0]).read_text(encoding="utf-8")
+    assert "clamped" in content
+
+
+@pytest.mark.asyncio
+async def test_run_with_backend_appends_existing_rows(tmp_path: Path, monkeypatch):
+    """第二次运行时，旧数据行应被保留（追加模式）。"""
+    monkeypatch.setattr(mod, "resolve_backend", lambda p: _FakeBackend())
+    report_dir = tmp_path / "reports"
+    work_dir = tmp_path / "work"
+
+    # 第一次跑
+    await mod.run_with_backend(
+        provider=mod.Provider.ARK,
+        refs=3,
+        duration=5,
+        multi_shot=False,
+        report_dir=report_dir,
+        work_dir=work_dir,
+    )
+    # 第二次跑（同一天，会追加）
+    await mod.run_with_backend(
+        provider=mod.Provider.GROK,
+        refs=3,
+        duration=5,
+        multi_shot=False,
+        report_dir=report_dir,
+        work_dir=work_dir,
+    )
+    reports = list(report_dir.glob("reference-video-sdks-*.md"))
+    assert len(reports) == 1
+    content = reports[0].read_text(encoding="utf-8")
+    # 第一次和第二次的 provider 行都应存在
+    assert "| ark |" in content
+    assert "| grok |" in content
