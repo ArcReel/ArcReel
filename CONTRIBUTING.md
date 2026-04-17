@@ -166,14 +166,13 @@ chore: 构建/工具变更
 |-------------|---------|-----------|
 | `feat`      | minor   | ✨ 新功能 |
 | `fix`       | patch   | 🐛 Bug 修复 |
-| `perf`      | patch   | ⚡ 性能优化 |
-| `refactor`  | patch   | ♻️ 重构 |
-| `docs`      | patch   | 📚 文档 |
-| `revert`    | patch   | ↩️ 回滚 |
-| `chore` / `ci` / `build` / `test` / `style` | 不步进 | 隐藏 |
 | `feat!` / 任意 type + `!` / footer 含 `BREAKING CHANGE:` | **major** | ⚠️ BREAKING CHANGES（changelog 置顶） |
+| `perf` / `refactor` / `docs` / `revert` | 不步进 | 显示（⚡ / ♻️ / 📚 / ↩️） |
+| `chore` / `ci` / `build` / `test` / `style` | 不步进 | 隐藏 |
 
-文件中的 `version` 字段固定为 `0.1.0`（见 `pyproject.toml` 的 `# managed by release-please` 注释），实际版本状态以 git tag + `.release-please-manifest.json` 为准。
+> release-please 默认只有 `feat` 和 `fix`（以及破坏性变更）触发版本 bump。把 `perf`/`refactor`/`docs`/`revert` 配成 `hidden: false` 只影响 changelog 呈现，不会使它们触发 patch bump。如果一轮迭代只有这几类 commit，不会产出 Release PR，直到下一个 `fix`/`feat` commit 到来。
+
+`pyproject.toml` 和 `frontend/package.json` 的 `version` 字段由 release-please 自动维护（见 `pyproject.toml` 的 `# managed by release-please` 注释），**开发者视为只读**。`uv.lock` 同样由 release-please workflow 在 Release PR 分支上自动 `uv lock` 同步。实际版本状态以 git tag + `.release-please-manifest.json` 为准。
 
 ### commit 示例
 
