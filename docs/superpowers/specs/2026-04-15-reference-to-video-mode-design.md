@@ -1,8 +1,20 @@
 # 参考图生视频模式（Reference-to-Video）设计文档
 
-- **日期**：2026-04-15
+- **日期**：2026-04-15（2026-04-17 对齐 main 上的 clue→scene/prop 拆分与全局资产库重构）
 - **分支**：`feature/seedance2-reference-to-video`
-- **背景**：ArcReel 当前支持「图生视频」（逐张分镜 + 图生视频）与「宫格生视频」（宫格图切分 + 图生视频）两种生成模式。本 spec 新增第三种模式——**参考生视频**：跳过分镜生成，直接使用人物/场景/道具图作为参考图生成视频，单个视频可包含多个镜头（multi-shot）。
+- **背景**：ArcReel 当前支持「图生视频」（逐张分镜 + 图生视频）与「宫格生视频」（宫格图切分 + 图生视频）两种生成模式。本 spec 新增第三种模式——**参考生视频**：跳过分镜生成，直接使用角色/场景/道具图作为参考图生成视频，单个视频可包含多个镜头（multi-shot）。
+
+## 0. 术语表
+
+本 spec 中「scene/场景」一词出现在三个层面，必须区分：
+
+| 术语 | 含义 | 出处 |
+|---|---|---|
+| **场景资产**（scene asset） | `project.json.scenes` bucket 下的条目，带 `scene_sheet` 参考图 | `lib/asset_types.py` |
+| **剧本分镜场景**（DramaScene） | 仅 drama 模式剧本中的一个分镜单元，字段名 `scenes: list[DramaScene]` | `lib/script_models.py` |
+| **镜头**（Shot） | 参考模式下 video_unit 内的 multi-shot 子段，对应 Seedance `Shot N (Xs):` | 本 spec §4.2 |
+
+"道具"对应 `project.json.props` bucket（`prop_sheet`）。"角色"对应 `characters` bucket（`character_sheet`）。全局资产库（`_global_assets/`，ORM `Asset` 表）跨项目复用三类资产，通过 import 同步到项目级 bucket。
 
 ## 1. 目标与动机
 
@@ -91,8 +103,8 @@ class Shot(BaseModel):
     text: str = Field(description="镜头描述，可包含 @角色/@场景 引用")
 
 class ReferenceResource(BaseModel):
-    type: Literal["character", "clue"] = Field(description="引用的资源类型")
-    name: str = Field(description="角色/线索名称，必须在 project.json 中已注册")
+    type: Literal["character", "scene", "prop"] = Field(description="引用的资源类型")
+    name: str = Field(description="角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
 
 class ReferenceVideoUnit(BaseModel):
     unit_id: str = Field(description="格式 E{集}U{序号}")
@@ -132,6 +144,10 @@ class ReferenceVideoScript(BaseModel):
 
 ```
 projects/<p>/
+├── project.json                                 # schema_version ≥ 1；含 characters/scenes/props 三 bucket
+├── characters/                                  # 角色参考图（character_sheet）
+├── scenes/                                      # 场景参考图（scene_sheet）
+├── props/                                       # 道具参考图（prop_sheet）
 ├── scripts/
 │   └── episode_1.json                           # content_mode=reference_video, video_units=[...]
 ├── reference_videos/
@@ -143,9 +159,18 @@ projects/<p>/
     └── episode_1.mp4                            # ffmpeg concat 结果（沿用既有拼接逻辑）
 ```
 
+（`_global_assets/` 位于 `projects/` 同级根目录，跨项目复用，通过 `/api/v1/assets` 路由 + `AssetRepository` ORM 表管理；参考模式仅读取项目级 bucket，由全局资产导入时同步。）
+
 ### 4.5 数据分层约束
 
-- `references` 只存名称 + 类型；具体图片路径从 `project.json.characters[n].character_sheet` / `clues[n].clue_image` 读时解析。
+- `references` 只存名称 + 类型；具体图片路径按类型从 `project.json` 对应 bucket 读时解析，直接复用 `lib/asset_types.py` 的 `BUCKET_KEY` / `SHEET_KEY` 映射：
+
+  | type | bucket | sheet 字段 |
+  |---|---|---|
+  | `character` | `characters` | `character_sheet` |
+  | `scene`     | `scenes`     | `scene_sheet` |
+  | `prop`      | `props`      | `prop_sheet` |
+
 - `duration_seconds` 是派生字段，保存前由 parser 自动计算；`duration_override=true` 时保留用户值。
 
 ### 4.6 effective_mode 解析
@@ -181,15 +206,16 @@ effective_mode(project, episode) =
 
 ```
 1. 加载 project / episode script / unit
-2. 解析 references：
+2. 解析 references（按 lib.asset_types 映射表分派）：
    - type=character → project.characters[name].character_sheet
-   - type=clue      → project.clues[name].clue_image
+   - type=scene     → project.scenes[name].scene_sheet
+   - type=prop      → project.props[name].prop_sheet
    - 缺图 → raise MissingReferenceError
 3. 压缩参考图（内存 + NamedTemporaryFile）:
    - lib.image_utils.compress_image_bytes(long_edge=2048, q=85)
    - 失败回退 long_edge=1024, q=70
 4. 渲染 prompt：
-   - @角色/线索 → [图N] 按 references 顺序替换
+   - @角色/场景/道具 → [图N] 按 references 顺序替换
 5. 解析 video provider / model（沿用 execute_video_task 解析链）
 6. 模型特判：
    - Veo: duration_seconds = min(duration, 8), references = references[:3]
@@ -237,8 +263,8 @@ effective_mode(project, episode) =
 - **unit 列表**：状态点（pending/running/ready）、unit_id、总时长、prompt 前两行预览、references pills。
 - **prompt 编辑器**：
   - 高亮 `Shot N (Xs):` 段标
-  - 高亮 `@张三`（人物色）/ `@酒馆`（线索/场景色）
-  - 输入 `@` 弹 `MentionPicker`（combobox，按类型分组、键盘 ↑↓ + Enter 选择、过滤匹配）
+  - 按资产类型三色区分：`@张三`（角色色）/ `@酒馆`（场景色）/ `@长剑`（道具色）——与 `AssetSidebar` / `AssetLibraryPage` 的分组色板一致
+  - 输入 `@` 弹 `MentionPicker`（combobox，按 character/scene/prop 三组分类、键盘 ↑↓ + Enter 选择、过滤匹配）
   - 自动保存 debounce；保存时后端重算 `duration_seconds`、`references`
 - **references 面板**：按顺序显示 `[图1]...[图N]` 缩略图，可拖拽换序（触发编号重排），`+` 按钮打开 `MentionPicker` 等价 UI。
 - **警告 chip**：解析失败、缺图、Veo 超限、references 数超限。
@@ -246,13 +272,14 @@ effective_mode(project, episode) =
 
 ### 6.3 `MentionPicker`
 
-独立组件：接受候选列表（characters + clues，含类型与预览图），返回选中项。在 prompt 编辑器以及 references 面板中都复用。
+独立组件：接受候选列表（characters + scenes + props，三分组带类型图标与预览图），返回 `{type, name}`。在 prompt 编辑器以及 references 面板中都复用。候选数据源直接复用 `frontend/src/stores/assets-store.ts` 已暴露的项目级资产集合，无需新建数据层。
 
 ### 6.4 其他改动
 
-- `StylePicker`、`AssetSidebar` 等全局组件无影响。
+- **`AssetSidebar` 无需再改**：main 上 51dde36 已将其拆分为 characters/scenes/props 三组（并新增 `AssetLibraryPage` / `GalleryToolbar` / `CharactersPage` / `ScenesPage` / `PropsPage` 以及 `assets-store`）。参考模式直接消费这些既有结构。
+- `StylePicker` 无影响。
 - `StatusCalculator` 加 `reference_video` 状态分支：进度按已生成 units / 总 units 计算。
-- i18n：zh/en 翻译 key 加参考模式相关文案（错误、提示、按钮）。
+- i18n：zh/en 翻译 key 加参考模式相关文案（错误、提示、按钮）；需要兼容 `i18n/{zh,en}/assets.ts` 已存在的资产命名空间，避免 key 冲突。
 
 ## 7. Agent 工作流
 
@@ -296,7 +323,7 @@ Step 8 视频
 - 输入：episode 号、小说原文路径、project.json 摘要
 - 输出：`drafts/episode_N/step1_reference_units.md`
   - 按 video_unit 粒度拆分（1-4 shot/unit，每 shot 带估算时长）
-  - 标注每个 unit 涉及的 characters / clues（必须已在 project.json 注册）
+  - 标注每个 unit 涉及的 characters / scenes / props（必须已在 project.json 对应 bucket 中注册）
 - 遵循 subagent 职责边界：不修改代码、不决定模式；仅完成一个聚焦任务。
 
 ### 7.3 `generate-script` skill 扩展
@@ -306,7 +333,7 @@ Step 8 视频
   - schema：`ReferenceVideoScript`
   - LLM 提示模板强调：
     1. 每 unit 1-4 shot，shot 时长之和不超过所选模型上限
-    2. references 必须来自 project.json 已注册的人物/线索
+    2. references 必须来自 project.json 已注册的角色 / 场景 / 道具（三类 bucket 任选）
     3. 描述里用 `@名称`，不描述外貌（外貌由参考图提供）
 - 不在 SKILL.md 写模式自检；前置条件扩展为「三种预处理中间文件之一就绪」。
 
@@ -315,7 +342,8 @@ Step 8 视频
 - 脚本读 episode 脚本，检测顶层结构：
   - `video_units` 存在 → 调用 `/reference-videos/episodes/{ep}/units/{id}/generate`
   - `segments` / `scenes` 存在 → 调用 `/generate/video/{scene_id}`（原逻辑）
-- SKILL.md 前置条件：episode 脚本存在 & 对应类型的资源已就绪（ref 模式要求 characters/clues sheet 齐全）。
+- SKILL.md 前置条件：episode 脚本存在 & 对应类型的资源已就绪（ref 模式要求引用到的 characters / scenes / props 三类 bucket 中的 sheet 图齐全）。
+- `agent_runtime_profile/.claude/skills/generate-assets/` 在 main（51dde36）已存在，按 `--characters/--scenes/--props` 分派生成三类资产 sheet 图。参考模式无需新增 skill；前置条件直接调用该统一入口即可。
 
 ### 7.5 `agent_runtime_profile/CLAUDE.md` 更新
 
@@ -350,7 +378,7 @@ python scripts/verify_reference_video_sdks.py --provider {ark|grok|veo|sora} --r
 
 | 错误类 | 触发 | 处理 |
 |---|---|---|
-| `MissingReferenceError` | @ 提及解析到不存在或无图的资源 | 任务 fail，列出缺失项；前端提示"先生成 X" |
+| `MissingReferenceError` | @ 提及解析到不存在或无图的资源（character/scene/prop 任一 bucket 均覆盖） | 任务 fail，列出缺失项 + 类型；前端提示"先生成 X（角色/场景/道具）" |
 | `DurationExceedsLimitError` | unit duration 超模型上限 | clamp + warn；前端先提示 |
 | `TooManyReferencesError` | references 超模型上限 | clamp + warn；超出的 reference 在响应里返回 |
 | `RequestPayloadTooLargeError` | gRPC / HTTP 请求体超限 | 二次压缩重试（long_edge=1024, q=70）；二次失败 → fail 并建议减少 refs |
@@ -359,7 +387,13 @@ python scripts/verify_reference_video_sdks.py --provider {ark|grok|veo|sora} --r
 
 ### 8.3 i18n key
 
-所有错误消息都通过 `lib/i18n/{zh,en}/errors.py` 注入新 key（ref_missing_character、ref_duration_exceeded、ref_too_many_images、ref_payload_too_large、ref_sora_single_ref、ref_shot_parse_fallback 等）。
+所有错误消息都通过 `lib/i18n/{zh,en}/errors.py` 注入新 key。为避免 3 类资产重复 key，建议采用通用化命名 + 参数：
+
+- `ref_missing_asset`（参数 `type` ∈ {character, scene, prop}、`name`）
+- `ref_duration_exceeded`、`ref_too_many_images`、`ref_payload_too_large`
+- `ref_sora_single_ref`、`ref_shot_parse_fallback`
+
+`type` 参数的文案本地化复用已存在的 `lib/i18n/{zh,en}/assets.py` 命名空间（character/scene/prop 的显示名）。
 
 ## 9. 测试策略
 
@@ -371,14 +405,14 @@ python scripts/verify_reference_video_sdks.py --provider {ark|grok|veo|sora} --r
 | `tests/lib/test_shot_parser.py` | prompt → Shot[] / references 解析、`@` 替换为 `[图N]`、回退单镜头 |
 | `tests/lib/video_backends/test_*_reference_mode.py` | 各 backend mock 调用，断言 `reference_images` 透传；Veo clamp；Sora 单图降级 |
 | `tests/server/test_reference_videos_router.py` | CRUD / reorder / generate 全覆盖 |
-| `tests/server/test_reference_video_tasks.py` | 缺图、压缩、@→[图N]、Veo/Sora 特判、payload-too-large 重试 |
+| `tests/server/test_reference_video_tasks.py` | 缺图（三类 bucket 分别 miss）、压缩、@→[图N]、Veo/Sora 特判、payload-too-large 重试 |
 | `tests/lib/test_image_compression_batch.py` | 批量压缩 9 张，内存峰值、输出尺寸断言 |
 | `tests/agent/test_generate_script_reference_branch.py` | mock LLM，验证 ReferenceVideoScript schema 路径 |
 | `tests/agent/test_generate_video_branch.py` | 检测 script 形状后路由到正确端点 |
 
 ### 9.2 集成测试
 
-- `tests/integration/test_reference_video_e2e.py`：fixture 项目 → 注册人物/线索 → 注入 sheet 图 → 创建含 @ 提及的 prompt → 入队 → mock backend 回 mp4 → 校验文件落盘 + thumbnail + 元数据。
+- `tests/integration/test_reference_video_e2e.py`：fixture 项目 → 注册角色 + 场景 + 道具（三 bucket 各一条）→ 注入三类 sheet 图 → 创建含 `@character`、`@scene`、`@prop` 混合提及的 prompt → 入队 → mock backend 回 mp4 → 校验文件落盘 + thumbnail + 元数据；shot_parser 正确解析为 3 个 references 且 `[图N]` 顺序稳定。
 
 ### 9.3 前端测试
 
@@ -413,6 +447,9 @@ python scripts/verify_reference_video_sdks.py --provider {ark|grok|veo|sora} --r
 - Sora 真实能力验证结果决定是否完全隐藏 Sora 参考模式选项或降级为单图（M1 产出）。
 - **切换集级 generation_mode 的处理策略**：从 `storyboard/grid` 切到 `reference_video` 时，是否清空旧 segments 并提示重跑预处理；反向切换是否保留 `video_units`。v1 默认：切换时仅修改字段，**不主动删除** 旧数据；Canvas 按 effective_mode 渲染对应视图；实施计划需给出 UI 提示文案。
 - 视频生成 `generate_audio` 的默认值在 `project.video_model_settings` 不存在时的 fallback（推荐 `true`，但需要实施阶段与现有 storyboard 行为对齐确认）。
+- **schema_version 升级策略**：main 当前 `CURRENT_SCHEMA_VERSION = 1`（v0→v1 拆 clues）。新增顶层 `generation_mode` + 新脚本形态 `content_mode == "reference_video"` + 新目录 `reference_videos/` 是否需要 bump 到 v2 并提供 `v1_to_v2` 迁移器？
+  - 倾向：**不 bump**。`generation_mode` 缺省按 `effective_mode()` 回退 `"storyboard"`，`video_units` 仅在新模式下写入，对旧项目零影响。
+  - 若决定 bump：实施阶段需新增 `lib/project_migrations/v1_to_v2_*.py`，内容仅限"补 `generation_mode: "storyboard"` 默认字段"。此为实施 M2/M3 阶段要拍板的点。
 
 ## 附录 A：关键文件改动清单
 
@@ -462,6 +499,9 @@ agent_runtime_profile/.claude/references/content-modes.md  → generation-modes.
 - VideoBackends（Ark/Grok/Gemini/OpenAI）已支持 `reference_images` 字段。
 - MediaGenerator / VersionManager / UsageTracker 接口不变。
 - ffmpeg concat 与剪映草稿导出。
+- `lib/asset_types.py` 的 `BUCKET_KEY` / `SHEET_KEY` 映射——直接复用做资产类型分派。
+- `server/routers/_bucket_router_factory.py`、`server/routers/{scenes,props,characters,assets}.py`——参考模式不改 bucket 路由；同构的 unit CRUD 可考虑复用该 factory 生成（可选优化）。
+- `frontend/src/stores/assets-store.ts` / `frontend/src/components/layout/AssetSidebar.tsx` / `frontend/src/i18n/{zh,en}/assets.ts`——MentionPicker 直接复用。
 
 ## 附录 B：供应商能力矩阵（待 M1 SDK 验证后回填）
 
