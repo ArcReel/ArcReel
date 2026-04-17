@@ -57,12 +57,13 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
             if src.exists():
                 shutil.move(str(src), str(target / f"{name}.{ext}"))
 
-    # 清理空 clues 目录（即使有残余未知文件也保留，避免误删）
+    # 清理空 clues 目录（即使有残余未知文件也保留，避免误删）；
+    # 注意不能在失败时 return—— 下方 versions/clues 迁移与此目录的可删性无关，
+    # 必须无条件继续执行，否则 schema_version 升 1 后永久遗失版本文件。
     try:
         clues_dir.rmdir()
     except OSError:
-        # 目录非空（有未知文件）或其它原因无法删除——故意保留，下轮启动不再尝试
-        return
+        pass
 
     # versions/clues 同样按原 clue type 分流
     versions_clues = project_dir / "versions" / "clues"

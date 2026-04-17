@@ -16,7 +16,11 @@ from lib.providers import PROVIDER_GEMINI, CallType
 
 
 def _classify_asset_output_path(output_path: str | None) -> str:
-    """从 api_call.output_path 推断资产类型（characters/scenes/props/other）。"""
+    """从 api_call.output_path 推断资产类型（characters/scenes/props/other）。
+
+    v0→v1 迁移前的历史任务会写入 ``clues/...`` 路径，这里归并到 props，
+    与迁移默认的 clue→prop 映射一致，避免旧账单被静默归入 other 而丢失。
+    """
     if not output_path:
         return "other"
     # 兼容绝对路径与相对路径
@@ -24,6 +28,8 @@ def _classify_asset_output_path(output_path: str | None) -> str:
     for asset_type in ("characters", "scenes", "props"):
         if f"/{asset_type}/" in normalized or normalized.startswith(f"{asset_type}/"):
             return asset_type
+    if "/clues/" in normalized or normalized.startswith("clues/"):
+        return "props"
     return "other"
 
 

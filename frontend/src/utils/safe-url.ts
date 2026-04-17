@@ -4,15 +4,14 @@ export function sanitizeImageSrc(raw: string | null | undefined): string | undef
   if (!raw) return undefined;
   const trimmed = raw.trim();
   if (!trimmed) return undefined;
-  if (trimmed.startsWith("/") || trimmed.startsWith("./") || trimmed.startsWith("../")) {
-    return trimmed;
-  }
+  let url: URL;
   try {
-    const url = new URL(trimmed, window.location.origin);
-    if (!SAFE_IMAGE_PROTOCOLS.has(url.protocol)) return undefined;
-    if (url.protocol === "data:" && !/^data:image\//i.test(trimmed)) return undefined;
-    return trimmed;
+    url = new URL(trimmed, window.location.origin);
   } catch {
     return undefined;
   }
+  if (!SAFE_IMAGE_PROTOCOLS.has(url.protocol)) return undefined;
+  if (url.protocol === "data:" && !/^data:image\//i.test(url.href)) return undefined;
+  // 通过 URL 对象重建输出，让静态分析器识别为已归一化的安全 URL
+  return url.toString();
 }

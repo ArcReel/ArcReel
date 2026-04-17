@@ -267,6 +267,7 @@ export function StudioCanvasRouter() {
       useAppStore.getState().pushToast(tRef.current("character_added_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("add_failed", { message: (err as Error).message }), "error");
+      throw err; // AssetFormModal onSubmit 消费：失败时阻止 setAdding(false) 关闭对话框
     }
   }, [currentProjectName, refreshProject]);
 
@@ -299,6 +300,7 @@ export function StudioCanvasRouter() {
       useAppStore.getState().pushToast(tRef.current("scene_added_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("add_failed", { message: (err as Error).message }), "error");
+      throw err; // AssetFormModal onSubmit 消费：失败时阻止 setAdding(false) 关闭对话框
     }
   }, [currentProjectName, refreshProject]);
 
@@ -331,6 +333,7 @@ export function StudioCanvasRouter() {
       useAppStore.getState().pushToast(tRef.current("prop_added_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("add_failed", { message: (err as Error).message }), "error");
+      throw err; // AssetFormModal onSubmit 消费：失败时阻止 setAdding(false) 关闭对话框
     }
   }, [currentProjectName, refreshProject]);
 
