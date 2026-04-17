@@ -174,3 +174,36 @@ chore: 构建/工具变更
 | `feat!` / 任意 type + `!` / footer 含 `BREAKING CHANGE:` | **major** | ⚠️ BREAKING CHANGES（changelog 置顶） |
 
 文件中的 `version` 字段固定为 `0.1.0`（见 `pyproject.toml` 的 `# managed by release-please` 注释），实际版本状态以 git tag + `.release-please-manifest.json` 为准。
+
+### commit 示例
+
+```
+# 新功能（minor bump）
+feat(image-backends): 支持 OpenAI DALL-E 3 后端
+
+# Bug 修复（patch bump）
+fix(queue): 修复任务 lease 超时后未正确归还的问题
+
+# 带 scope 与正文
+feat(grid): 支持 grid_12 布局
+
+将宫格系统扩展到 12 宫格，适用于长篇剧集的批量预览。
+```
+
+**破坏性变更**有两种等价写法，release-please 均会自动 bump 到 major：
+
+```
+# 写法 1：type 后加 !
+feat(api)!: 移除 /api/v1/legacy 端点
+
+# 写法 2：footer 含 BREAKING CHANGE（更常用，可以写多行说明）
+feat(auth): 统一 API Key 验证逻辑
+
+BREAKING CHANGE: /api/v1/api-keys 的返回结构改为 { items: [...] }，
+旧客户端需要适配。
+```
+
+两种写法 release-please 都会：
+- 将版本号 bump 为 major
+- 在 changelog 顶部插入独立的 **⚠️ BREAKING CHANGES** 区块，把每条破坏性变更的描述汇总展示
+- 在对应 type section（如 `✨ 新功能`）下保留该 commit 的常规条目
