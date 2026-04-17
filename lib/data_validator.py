@@ -508,22 +508,24 @@ class DataValidator:
             if not isinstance(shots, list) or not shots:
                 errors.append(f"{prefix}: shots 必须是非空数组")
 
-            refs = unit.get("references") or []
-            if not isinstance(refs, list):
+            refs = unit.get("references")
+            if refs is None:
+                refs = []
+            elif not isinstance(refs, list):
                 errors.append(f"{prefix}: references 必须是数组")
-            else:
-                for ref in refs:
-                    if not isinstance(ref, dict):
-                        errors.append(f"{prefix}: reference 条目必须是对象")
-                        continue
-                    rtype = ref.get("type")
-                    rname = ref.get("name")
-                    if rtype not in {"character", "scene", "prop"}:
-                        errors.append(f"{prefix}: reference.type 无效: {rtype!r}")
-                        continue
-                    bucket = bucket_by_type.get(rtype, set())
-                    if rname not in bucket:
-                        errors.append(f"{prefix}: 引用的{rtype} '{rname}' 不在 project.json 对应 bucket 中")
+                refs = []
+            for ref in refs:
+                if not isinstance(ref, dict):
+                    errors.append(f"{prefix}: reference 条目必须是对象")
+                    continue
+                rtype = ref.get("type")
+                rname = ref.get("name")
+                if rtype not in {"character", "scene", "prop"}:
+                    errors.append(f"{prefix}: reference.type 无效: {rtype!r}")
+                    continue
+                bucket = bucket_by_type.get(rtype, set())
+                if rname not in bucket:
+                    errors.append(f"{prefix}: 引用的{rtype} '{rname}' 不在 project.json 对应 bucket 中")
 
             if project_dir is not None:
                 self._validate_generated_assets(

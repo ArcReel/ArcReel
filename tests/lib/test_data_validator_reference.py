@@ -83,6 +83,7 @@ def test_validator_rejects_unknown_mention(tmp_path: Path):
     result = v.validate_project_tree(tmp_path)
     assert not result.valid
     assert any("张三" in e for e in result.errors)
+    assert any("酒馆" in e for e in result.errors)
 
 
 def test_validator_allows_reference_videos_dir(tmp_path: Path):
