@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Image, Video, Check, X, Loader2, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
+import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { API } from "@/api";
@@ -345,17 +346,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
     }
   }, [cancelConfirm]);
 
-  // Escape 键关闭确认面板
-  useEffect(() => {
-    if (!cancelConfirm) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setCancelConfirm(null);
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [cancelConfirm]);
+  useEscapeClose(() => setCancelConfirm(null), Boolean(cancelConfirm));
 
   const imageTasks = tasks.filter((t) => t.media_type === "image");
   const videoTasks = tasks.filter((t) => t.media_type === "video");

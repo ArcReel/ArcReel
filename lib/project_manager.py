@@ -10,7 +10,6 @@ import logging
 import os
 import re
 import secrets
-import tempfile
 import unicodedata
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -20,6 +19,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from lib.json_io import atomic_write_json
 from lib.project_change_hints import emit_project_change_hint
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 
@@ -395,7 +395,7 @@ class ProjectManager:
         output_path = Path(real)
 
         with self._script_lock(project_name, filename):
-            self._atomic_write_json(output_path, script)
+            atomic_write_json(output_path, script)
 
             # 在同一把锁内同步到 project.json，保证 script 写入与元数据同步是单一事务
             if self.project_exists(project_name) and isinstance(script.get("episode"), int):
@@ -1001,9 +1001,8 @@ class ProjectManager:
             with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
             if self._migrate_legacy_style(project):
-                # 用 _atomic_write_json 保证一致性，不走 save_project 是为了
-                # 避免触发 _touch_metadata 污染 updated_at。
-                self._atomic_write_json(project_file, project)
+                # 不走 save_project 以避免触发 _touch_metadata 污染 updated_at。
+                atomic_write_json(project_file, project)
                 migrated = True
         if migrated:
             emit_project_change_hint(
@@ -1058,30 +1057,6 @@ class ProjectManager:
             fcntl.flock(fd, fcntl.LOCK_UN)
             fd.close()
 
-    @staticmethod
-    def _atomic_write_json(path: Path, data: dict) -> None:
-        """通过临时文件 + os.replace 原子写入 JSON。"""
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=str(path.parent),
-                prefix=".project.",
-                suffix=".tmp",
-                delete=False,
-            ) as tmp:
-                json.dump(data, tmp, ensure_ascii=False, indent=2)
-                tmp_path = Path(tmp.name)
-            os.replace(tmp_path, path)
-            tmp_path = None
-        finally:
-            if tmp_path is not None:
-                try:
-                    tmp_path.unlink()
-                except OSError:
-                    pass
-
     def save_project(self, project_name: str, project: dict) -> Path:
         """
         保存项目元数据
@@ -1098,7 +1073,7 @@ class ProjectManager:
         self._touch_metadata(project)
 
         with self._project_lock(project_name):
-            self._atomic_write_json(project_file, project)
+            atomic_write_json(project_file, project)
 
         emit_project_change_hint(
             project_name,
@@ -1127,7 +1102,7 @@ class ProjectManager:
                 project = json.load(f)
             mutate_fn(project)
             self._touch_metadata(project)
-            self._atomic_write_json(project_file, project)
+            atomic_write_json(project_file, project)
 
         emit_project_change_hint(
             project_name,

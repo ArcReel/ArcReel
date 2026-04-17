@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, ImagePlus, Landmark, Package, User, X } from "lucide-react";
 import type { Asset, AssetType } from "@/types/asset";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { sanitizeImageSrc } from "@/utils/safe-url";
 
 type Mode = "create" | "edit" | "import";
@@ -48,13 +49,7 @@ export function AssetFormModal({
     nameRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeClose(onClose);
 
   useEffect(() => {
     if (!image) {

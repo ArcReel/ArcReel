@@ -2,10 +2,11 @@
  * OpenClaw 集成引导 Modal
  * 提示词区域（可复制，含动态 skill.md URL）、3 步使用说明、"获取 API 令牌"按钮
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { copyText } from "@/utils/clipboard";
 import { Check, Copy, ExternalLink, X } from "lucide-react";
 import { useLocation } from "wouter";
+import { useEscapeClose } from "@/hooks/useEscapeClose";
 
 // 🦞 SVG lobster icon (inline, no external dep)
 function LobsterIcon({ className }: { className?: string }) {
@@ -66,13 +67,7 @@ export function OpenClawModal({ onClose }: OpenClawModalProps) {
     navigate("/app/settings?section=api-keys");
   }, [navigate, onClose]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  useEscapeClose(onClose);
 
   return (
     <div

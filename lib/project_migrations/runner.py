@@ -21,6 +21,16 @@ CURRENT_SCHEMA_VERSION = 1
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
 
 
+def _versioned_backup_name(base_name: str, from_version: int, ts: int) -> str:
+    """生成单个版本化备份名，例如 project.json → project.json.bak.v0-1712345678。"""
+    return f"{base_name}.bak.v{from_version}-{ts}"
+
+
+def _backup_glob_pattern(base_name: str) -> str:
+    """生成 cleanup 用 glob，例如 project.json → project.json.bak.v*-*。"""
+    return f"{base_name}.bak.v*-*"
+
+
 @dataclass
 class MigrationSummary:
     migrated: list[str] = field(default_factory=list)
@@ -45,7 +55,7 @@ def _backup_project_json(project_dir: Path, from_version: int) -> None:
     if not pj.exists():
         return
     ts = int(time.time())
-    bak = project_dir / f"project.json.bak.v{from_version}-{ts}"
+    bak = project_dir / _versioned_backup_name("project.json", from_version, ts)
     bak.write_bytes(pj.read_bytes())
 
 
@@ -55,7 +65,7 @@ def _hardlink_backup_clues(project_dir: Path, from_version: int) -> None:
     if not src.is_dir():
         return
     ts = int(time.time())
-    bak = project_dir / f"clues.bak.v{from_version}-{ts}"
+    bak = project_dir / _versioned_backup_name("clues", from_version, ts)
     if bak.exists():
         return
     try:
@@ -129,13 +139,13 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
     for project_dir in projects_root.iterdir():
         if not project_dir.is_dir():
             continue
-        for bak in project_dir.glob("project.json.bak.v*-*"):
+        for bak in project_dir.glob(_backup_glob_pattern("project.json")):
             try:
                 if bak.stat().st_mtime < cutoff:
                     bak.unlink()
             except OSError:
                 logger.warning("无法删除备份：%s", bak)
-        for bak_dir in project_dir.glob("clues.bak.v*-*"):
+        for bak_dir in project_dir.glob(_backup_glob_pattern("clues")):
             if not bak_dir.is_dir():
                 continue
             try:

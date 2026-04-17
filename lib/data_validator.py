@@ -6,11 +6,12 @@
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from lib.json_io import load_json_or_none
 
 
 @dataclass
@@ -75,14 +76,6 @@ class DataValidator:
         if projects_root is None:
             projects_root = os.environ.get("AI_ANIME_PROJECTS", "projects")
         self.projects_root = Path(projects_root)
-
-    def _load_json(self, file_path: Path) -> dict[str, Any] | None:
-        """加载 JSON 文件"""
-        try:
-            with open(file_path, encoding="utf-8") as handle:
-                return json.load(handle)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            return None
 
     @staticmethod
     def _is_hidden_path(path: Path) -> bool:
@@ -208,40 +201,57 @@ class DataValidator:
         if project.get("clues") is not None:
             errors.append("project.json 含已废弃字段 clues，请等待自动迁移或手动重启服务")
 
-        self._validate_project_scenes(project.get("scenes") or {}, errors)
-        self._validate_project_props(project.get("props") or {}, errors)
+        self._validate_project_catalog(
+            project.get("scenes") or {},
+            errors,
+            field_label="scenes",
+            kind_label="场景",
+        )
+        self._validate_project_catalog(
+            project.get("props") or {},
+            errors,
+            field_label="props",
+            kind_label="道具",
+        )
 
-    def _validate_project_scenes(
+    def _validate_project_catalog(
         self,
-        scenes: dict[str, Any],
+        catalog: Any,
         errors: list[str],
+        *,
+        field_label: str,
+        kind_label: str,
     ) -> None:
-        """验证 project.json 顶层 scenes 字典"""
-        if not isinstance(scenes, dict):
-            errors.append("scenes 必须是对象")
+        if not isinstance(catalog, dict):
+            errors.append(f"{field_label} 必须是对象")
             return
-        for scene_name, scene_data in scenes.items():
-            if not isinstance(scene_data, dict):
-                errors.append(f"场景 '{scene_name}' 数据格式错误，应为对象")
+        for name, data in catalog.items():
+            if not isinstance(data, dict):
+                errors.append(f"{kind_label} '{name}' 数据格式错误，应为对象")
                 continue
-            if not scene_data.get("description"):
-                errors.append(f"场景 '{scene_name}' 缺少必填字段: description")
+            if not data.get("description"):
+                errors.append(f"{kind_label} '{name}' 缺少必填字段: description")
 
-    def _validate_project_props(
+    def _validate_segment_refs(
         self,
-        props: dict[str, Any],
+        prefix: str,
+        refs: Any,
+        valid_set: set[str],
         errors: list[str],
+        warnings: list[str],
+        *,
+        field_label: str,
+        kind_label: str,
     ) -> None:
-        """验证 project.json 顶层 props 字典"""
-        if not isinstance(props, dict):
-            errors.append("props 必须是对象")
+        if refs is None:
+            warnings.append(f"{prefix}: 缺少 {field_label}，将使用默认空数组")
             return
-        for prop_name, prop_data in props.items():
-            if not isinstance(prop_data, dict):
-                errors.append(f"道具 '{prop_name}' 数据格式错误，应为对象")
-                continue
-            if not prop_data.get("description"):
-                errors.append(f"道具 '{prop_name}' 缺少必填字段: description")
+        if not isinstance(refs, list):
+            errors.append(f"{prefix}: {field_label} 必须是数组")
+            return
+        invalid = set(refs) - valid_set
+        if invalid:
+            errors.append(f"{prefix}: {field_label} 引用了不存在于 project.json 的{kind_label}: {invalid}")
 
     def validate_project(self, project_name: str) -> ValidationResult:
         """验证 project.json"""
@@ -253,7 +263,7 @@ class DataValidator:
         warnings: list[str] = []
 
         project_path = Path(project_dir) / "project.json"
-        project = self._load_json(project_path)
+        project = load_json_or_none(project_path)
         if project is None:
             return ValidationResult(
                 valid=False,
@@ -350,25 +360,24 @@ class DataValidator:
                 if invalid:
                     errors.append(f"{prefix}: characters_in_segment 引用了不存在于 project.json 的角色: {invalid}")
 
-            scenes_in_segment = segment.get("scenes")
-            if scenes_in_segment is None:
-                warnings.append(f"{prefix}: 缺少 scenes，将使用默认空数组")
-            elif not isinstance(scenes_in_segment, list):
-                errors.append(f"{prefix}: scenes 必须是数组")
-            else:
-                invalid = set(scenes_in_segment) - project_scenes
-                if invalid:
-                    errors.append(f"{prefix}: scenes 引用了不存在于 project.json 的场景: {invalid}")
-
-            props_in_segment = segment.get("props")
-            if props_in_segment is None:
-                warnings.append(f"{prefix}: 缺少 props，将使用默认空数组")
-            elif not isinstance(props_in_segment, list):
-                errors.append(f"{prefix}: props 必须是数组")
-            else:
-                invalid = set(props_in_segment) - project_props
-                if invalid:
-                    errors.append(f"{prefix}: props 引用了不存在于 project.json 的道具: {invalid}")
+            self._validate_segment_refs(
+                prefix,
+                segment.get("scenes"),
+                project_scenes,
+                errors,
+                warnings,
+                field_label="scenes",
+                kind_label="场景",
+            )
+            self._validate_segment_refs(
+                prefix,
+                segment.get("props"),
+                project_props,
+                errors,
+                warnings,
+                field_label="props",
+                kind_label="道具",
+            )
 
             if not segment.get("image_prompt"):
                 errors.append(f"{prefix}: 缺少必填字段 image_prompt")
@@ -536,7 +545,7 @@ class DataValidator:
 
         project_dir = Path(project_dir)
         project_path = project_dir / "project.json"
-        project = self._load_json(project_path)
+        project = load_json_or_none(project_path)
         if project is None:
             return ValidationResult(
                 valid=False,
@@ -555,7 +564,7 @@ class DataValidator:
             )
 
         episode_path = project_dir / resolved_episode_path
-        episode = self._load_json(episode_path)
+        episode = load_json_or_none(episode_path)
         if episode is None:
             return ValidationResult(
                 valid=False,
@@ -577,7 +586,7 @@ class DataValidator:
         warnings = list(project_result.warnings)
 
         project_path = project_dir / "project.json"
-        project = self._load_json(project_path)
+        project = load_json_or_none(project_path)
         if project is None:
             return ValidationResult(valid=False, errors=errors, warnings=warnings)
 
@@ -654,7 +663,7 @@ class DataValidator:
                 if not resolved_path:
                     continue
 
-                episode = self._load_json(project_dir / resolved_path)
+                episode = load_json_or_none(project_dir / resolved_path)
                 if episode is None:
                     errors.append(f"无法加载剧本文件: {project_dir / resolved_path}")
                     continue

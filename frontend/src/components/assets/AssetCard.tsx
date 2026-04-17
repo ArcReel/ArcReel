@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Edit2, Trash2, User as UserIcon, Landmark, Package } from "lucide-react";
 import { API } from "@/api";
 import type { Asset } from "@/types/asset";
+import { AssetThumb } from "./AssetThumb";
 
 interface Props {
   asset: Asset;
@@ -18,13 +19,12 @@ export function AssetCard({ asset, onEdit, onDelete }: Props) {
 
   return (
     <div className="group bg-gray-900 border border-gray-800 rounded-lg overflow-hidden hover:border-gray-600 transition-colors">
-      <div className="aspect-[3/4] bg-gradient-to-br from-gray-800 to-gray-700 flex items-center justify-center">
-        {imageUrl ? (
-          <img src={imageUrl} alt={asset.name} loading="lazy" decoding="async" className="h-full w-full object-cover" />
-        ) : (
-          <Icon className="h-10 w-10 text-gray-600" />
-        )}
-      </div>
+      <AssetThumb
+        imageUrl={imageUrl}
+        alt={asset.name}
+        fallback={<Icon className="h-10 w-10 text-gray-600" />}
+        variant="display"
+      />
       <div className="p-3">
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">

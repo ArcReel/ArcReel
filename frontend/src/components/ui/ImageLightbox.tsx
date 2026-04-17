@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { UI_LAYERS } from "@/utils/ui-layers";
+import { useEscapeClose } from "@/hooks/useEscapeClose";
 
 export interface ImageLightboxProps {
   src: string;
@@ -10,22 +11,15 @@ export interface ImageLightboxProps {
 }
 
 export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
+  useEscapeClose(onClose);
+
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-
     document.body.style.overflow = "hidden";
-    document.addEventListener("keydown", handleKeyDown);
-
     return () => {
       document.body.style.overflow = previousOverflow;
-      document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose]);
+  }, []);
 
   if (typeof document === "undefined") {
     return null;

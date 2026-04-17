@@ -11,6 +11,7 @@ import { useAppStore } from "@/stores/app-store";
 import { DEFAULT_TEMPLATE_ID } from "@/data/style-templates";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { WizardStep1Basics, type WizardStep1Value } from "./create-project/WizardStep1Basics";
 import { WizardStep2Models, type WizardStep2Data } from "./create-project/WizardStep2Models";
 import { WizardStep3Style, type WizardStep3Value } from "./create-project/WizardStep3Style";
@@ -155,13 +156,7 @@ export function CreateProjectModal() {
     setShowCreateModal(false);
   };
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowCreateModal(false);
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [setShowCreateModal]);
+  useEscapeClose(() => setShowCreateModal(false));
 
   // 背景 inert：打开期间屏蔽 #root 内容（modal 通过 portal 挂到 body，
   // 不在 #root 子树内，因此不会被 inert 传染）。

@@ -2,21 +2,11 @@
 
 from __future__ import annotations
 
-import json
-import os
 import shutil
 from pathlib import Path
 from typing import Any
 
-
-def _load_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _atomic_write_json(path: Path, data: Any) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+from lib.json_io import atomic_write_json, load_json
 
 
 def _split_clues(clues: dict[str, dict]) -> tuple[dict[str, dict], dict[str, dict]]:
@@ -94,7 +84,7 @@ def _migrate_scripts(project_dir: Path, old_clues: dict[str, dict]) -> None:
 
     for sp in scripts_dir.glob("*.json"):
         try:
-            data = _load_json(sp)
+            data = load_json(sp)
         except Exception:
             continue
         if data.get("schema_version", 0) >= 1:
@@ -126,7 +116,7 @@ def _migrate_scripts(project_dir: Path, old_clues: dict[str, dict]) -> None:
                 item["props"] = props_list
 
         data["schema_version"] = 1
-        _atomic_write_json(sp, data)
+        atomic_write_json(sp, data)
 
 
 def _reconstruct_old_clues_from_v1(data: dict) -> dict[str, dict]:
@@ -152,7 +142,7 @@ def migrate_v0_to_v1(project_dir: Path) -> None:
     pj = project_dir / "project.json"
     if not pj.exists():
         return
-    data = _load_json(pj)
+    data = load_json(pj)
     current_version = data.get("schema_version", 0)
 
     # 自愈：schema_version>=1 但 clues/ 仍存在 → 补跑文件/剧本迁移
@@ -184,4 +174,4 @@ def migrate_v0_to_v1(project_dir: Path) -> None:
         data.setdefault("props", {})
     data.pop("clues", None)
     data["schema_version"] = 1
-    _atomic_write_json(pj, data)
+    atomic_write_json(pj, data)

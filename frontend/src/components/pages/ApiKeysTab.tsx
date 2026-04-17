@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAutoFocus } from "@/hooks/useAutoFocus";
+import { useEscapeClose } from "@/hooks/useEscapeClose";
 import {
   AlertTriangle,
   Check,
@@ -92,14 +93,15 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
     setTimeout(() => setCopied(false), 2000);
   }, [created?.key]);
 
+  useEscapeClose(onClose);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Enter" && !created && canCreate) void handleCreate();
-      if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [canCreate, created, handleCreate, onClose]);
+  }, [canCreate, created, handleCreate]);
 
   return (
     <div

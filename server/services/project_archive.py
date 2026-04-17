@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from lib.data_validator import DataValidator, ValidationResult
+from lib.json_io import load_json
 from lib.project_change_hints import emit_project_change_hint
 from lib.project_manager import ProjectManager
 
@@ -1082,17 +1083,13 @@ class ProjectArchiveService:
         real = os.path.realpath(path)
         base = os.path.realpath(self.project_manager.projects_root) + os.sep
         tmp = os.path.realpath(tempfile.gettempdir()) + os.sep
+        if not (real.startswith(base) or real.startswith(tmp)):
+            logger.warning("路径越界，拒绝读取: %s", real)
+            return None
         try:
-            if real.startswith(base):
-                with open(real, encoding="utf-8") as handle:  # noqa: PTH123
-                    return json.load(handle)
-            if real.startswith(tmp):
-                with open(real, encoding="utf-8") as handle:  # noqa: PTH123
-                    return json.load(handle)
+            return load_json(Path(real))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return None
-        logger.warning("路径越界，拒绝读取: %s", real)
-        return None
 
     def _write_json_file(self, path: Path, payload: dict[str, Any]) -> None:
         real = os.path.realpath(path)
