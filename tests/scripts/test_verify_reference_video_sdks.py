@@ -29,6 +29,18 @@ def test_parse_args_rejects_unknown_provider():
         parse_args(["--provider", "unknown"])
 
 
+@pytest.mark.parametrize("bad", ["0", "-1", "-9", "abc"])
+def test_parse_args_rejects_non_positive_refs(bad: str):
+    with pytest.raises(SystemExit):
+        parse_args(["--provider", "ark", "--refs", bad])
+
+
+@pytest.mark.parametrize("bad", ["0", "-1"])
+def test_parse_args_rejects_non_positive_duration(bad: str):
+    with pytest.raises(SystemExit):
+        parse_args(["--provider", "ark", "--duration", bad])
+
+
 def test_parse_args_defaults():
     args = parse_args(["--provider", "ark"])
     assert args.refs == 3
@@ -116,6 +128,22 @@ class _FakeBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         type(self)._calls.append(request)
+        # 模拟落盘：写入非空 dummy 字节，让 run_once 的落盘校验通过
+        request.output_path.parent.mkdir(parents=True, exist_ok=True)
+        request.output_path.write_bytes(b"\x00fake-video-payload")
+        return VideoGenerationResult(
+            video_path=request.output_path,
+            provider=self.name,
+            model=self.model,
+            duration_seconds=request.duration_seconds,
+        )
+
+
+class _NoWriteFakeBackend(_FakeBackend):
+    """模拟：backend 返回成功但未落盘文件，用于 false-positive 校验。"""
+
+    async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        # 不写 output_path
         return VideoGenerationResult(
             video_path=request.output_path,
             provider=self.name,
@@ -168,6 +196,21 @@ async def test_run_once_multi_shot_prompt(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_run_once_flags_missing_output_as_failure(tmp_path: Path):
+    """backend.generate 成功返回但文件未落盘 → 应判 FAIL 而非 false-PASS。"""
+    result = await run_once(
+        provider=Provider.ARK,
+        backend=_NoWriteFakeBackend(),
+        refs=2,
+        duration=5,
+        multi_shot=False,
+        work_dir=tmp_path,
+    )
+    assert result.success is False
+    assert "missing or empty" in (result.error or "")
+
+
+@pytest.mark.asyncio
 async def test_run_once_failure_captures_error(tmp_path: Path):
     result = await run_once(
         provider=Provider.ARK,
@@ -212,6 +255,39 @@ def test_lazy_register_factories_smoke():
     from scripts.verify_reference_video_sdks import _lazy_register_factories
 
     _lazy_register_factories()
+
+
+def test_resolve_backend_reports_reason_when_missing(monkeypatch):
+    """未注册的 provider 应抛 RuntimeError 并附带可读原因，而非 KeyError。"""
+    # 清空注册表与失败表，模拟所有家都无法 import
+    monkeypatch.setattr(mod, "_BACKEND_FACTORIES", {})
+    monkeypatch.setattr(
+        mod,
+        "_REGISTRATION_FAILURES",
+        {Provider.ARK: "ImportError: No module named 'ark_sdk'"},
+    )
+    # 禁用懒加载以确保 resolve_backend 走 missing 分支
+    monkeypatch.setattr(mod, "_lazy_register_factories", lambda: None)
+
+    with pytest.raises(RuntimeError, match="backend ark not available"):
+        mod.resolve_backend(Provider.ARK)
+
+
+def test_try_register_logs_warning_on_failure(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr(mod, "_BACKEND_FACTORIES", {})
+    monkeypatch.setattr(mod, "_REGISTRATION_FAILURES", {})
+
+    def _raise():
+        raise ImportError("simulated missing SDK")
+
+    with caplog.at_level(logging.WARNING, logger="scripts.verify_reference_video_sdks"):
+        mod._try_register(Provider.SORA, _raise)
+
+    assert Provider.SORA not in mod._BACKEND_FACTORIES
+    assert "simulated missing SDK" in mod._REGISTRATION_FAILURES[Provider.SORA]
+    assert any("simulated missing SDK" in rec.message for rec in caplog.records)
 
 
 @pytest.mark.asyncio
@@ -311,3 +387,46 @@ async def test_run_with_backend_appends_existing_rows(tmp_path: Path, monkeypatc
     # 第一次和第二次的 provider 行都应存在
     assert "| ark |" in content
     assert "| grok |" in content
+
+
+def test_extract_data_rows_skips_header_and_separator():
+    lines = [
+        "# Title",
+        "",
+        "| Provider | Model | Refs | Duration | Multi-shot | Result | Elapsed | Bytes | Note |",
+        "|---|---|---|---|---|---|---|---|---|",
+        "| ark | m1 | 3 | 5s | no | PASS | 1.0s | 0 |  |",
+        "| grok | m2 | 7 | 5s | no | FAIL: 413 | 0.5s | 0 |  |",
+    ]
+    rows = mod._extract_data_rows(lines)
+    assert len(rows) == 2
+    assert rows[0].startswith("| ark |")
+    assert rows[1].startswith("| grok |")
+
+
+def test_extract_data_rows_keeps_error_with_provider_keyword():
+    """回归：Result 字段含 'Provider' 关键字的数据行不应被误过滤。"""
+    lines = [
+        "| Provider | Model | Refs | Duration | Multi-shot | Result | Elapsed | Bytes | Note |",
+        "|---|---|---|---|---|---|---|---|---|",
+        "| ark | m1 | 3 | 5s | no | FAIL: Provider timeout after 30s | 30.0s | 0 |  |",
+    ]
+    rows = mod._extract_data_rows(lines)
+    assert len(rows) == 1
+    assert "Provider timeout" in rows[0]
+
+
+def test_extract_data_rows_keeps_note_with_dashes():
+    """回归：Note 字段含 '---' 的数据行不应被误过滤。"""
+    lines = [
+        "| Provider | Model | Refs | Duration | Multi-shot | Result | Elapsed | Bytes | Note |",
+        "|---|---|---|---|---|---|---|---|---|",
+        "| ark | m1 | 3 | 5s | no | PASS | 1.0s | 0 | --- legacy --- |",
+    ]
+    rows = mod._extract_data_rows(lines)
+    assert len(rows) == 1
+    assert "legacy" in rows[0]
+
+
+def test_extract_data_rows_empty_input():
+    assert mod._extract_data_rows([]) == []

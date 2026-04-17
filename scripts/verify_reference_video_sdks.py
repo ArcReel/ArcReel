@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -18,12 +19,25 @@ from pathlib import Path
 from lib.video_backends.base import VideoBackend, VideoCapabilities, VideoGenerationRequest
 from scripts.fixtures.reference_video.generate_fixtures import generate_color_refs
 
+logger = logging.getLogger(__name__)
+
 
 class Provider(StrEnum):
     ARK = "ark"
     GROK = "grok"
     VEO = "veo"
     SORA = "sora"
+
+
+def _positive_int(value: str) -> int:
+    """argparse type：拒绝 0 / 负值，避免 --refs 0 或 --duration 0 污染报告。"""
+    try:
+        ivalue = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"必须是整数: {value!r}") from exc
+    if ivalue < 1:
+        raise argparse.ArgumentTypeError(f"必须 >= 1: {ivalue}")
+    return ivalue
 
 
 @dataclass
@@ -44,8 +58,8 @@ def parse_args(argv: list[str] | None = None) -> Args:
         required=True,
         help="Provider to test",
     )
-    p.add_argument("--refs", type=int, default=3, help="Number of reference images (default: 3)")
-    p.add_argument("--duration", type=int, default=5, help="Video duration in seconds (default: 5)")
+    p.add_argument("--refs", type=_positive_int, default=3, help="Number of reference images (>=1, default: 3)")
+    p.add_argument("--duration", type=_positive_int, default=5, help="Video duration in seconds (>=1, default: 5)")
     p.add_argument(
         "--multi-shot",
         action="store_true",
@@ -135,11 +149,19 @@ async def run_once(
         duration_seconds=duration,
         reference_images=ref_paths,
     )
-    # 粗估请求体大小（prompt + 图片字节数），用于 Grok gRPC 上限观测
+    # 粗估请求体大小：仅累加原始文件字节数，用于 Grok gRPC 上限观测。
+    # 注意不含序列化开销——各供应商编码方式不同：
+    #   - Ark:  multipart form-data（约 1× 原字节 + 极小边界头）
+    #   - Grok: multipart（约 1×，部分接口用 Base64 时 ≈1.33×）
+    #   - Veo/Sora: JSON+Base64（≈1.33× 原字节）
+    # 要观察"实际发送"请参考各 backend 日志；此处仅做量级监控。
     request_bytes = len(prompt.encode("utf-8")) + sum(p.stat().st_size for p in ref_paths)
     start = time.monotonic()
     try:
         await backend.generate(request)
+        # 防 false-positive：backend 返回成功但视频文件未落盘 / 为空时应判 FAIL
+        if not out_path.exists() or out_path.stat().st_size == 0:
+            raise RuntimeError(f"output video missing or empty: {out_path}")
         elapsed = time.monotonic() - start
         return RunResult(
             provider=provider,
@@ -189,37 +211,78 @@ def _register_factory(provider: Provider, factory: Callable[[], VideoBackend]) -
 
 
 def resolve_backend(provider: Provider) -> VideoBackend:
+    """返回指定 provider 的 backend 实例；若未注册给出具体原因，而非晦涩的 KeyError。"""
     if provider not in _BACKEND_FACTORIES:
         _lazy_register_factories()
+    if provider not in _BACKEND_FACTORIES:
+        reason = _REGISTRATION_FAILURES.get(provider, "unknown reason")
+        raise RuntimeError(
+            f"backend {provider} not available: {reason}. 已知可用 provider: {sorted(_BACKEND_FACTORIES)}"
+        )
     return _BACKEND_FACTORIES[provider]()
 
 
-def _lazy_register_factories() -> None:
-    """按需 import 各家后端，避免一个家配置缺失就整个脚本启不来。"""
+# 记录每家 backend 懒加载失败的原因，resolve_backend 用来给出可读错误
+_REGISTRATION_FAILURES: dict[Provider, str] = {}
+
+
+def _try_register(provider: Provider, import_and_build: Callable[[], Callable[[], VideoBackend]]) -> None:
+    """统一 try/except 模板：import + 构造 factory，失败时 log warning 并登记原因。"""
     try:
+        factory = import_and_build()
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+        _REGISTRATION_FAILURES[provider] = reason
+        logger.warning("provider %s 未注册: %s", provider, reason)
+        return
+    _register_factory(provider, factory)
+    _REGISTRATION_FAILURES.pop(provider, None)
+
+
+def _lazy_register_factories() -> None:
+    """按需 import 各家后端，避免一个家配置缺失就整个脚本启不来。
+
+    失败原因通过 logger.warning 输出并记录在 _REGISTRATION_FAILURES，
+    resolve_backend 报错时引用，以给出可读信息。
+    """
+
+    def _ark() -> Callable[[], VideoBackend]:
         from lib.video_backends.ark import ArkVideoBackend
 
-        _register_factory(Provider.ARK, lambda: ArkVideoBackend())
-    except Exception:  # noqa: BLE001
-        pass
-    try:
+        return lambda: ArkVideoBackend()
+
+    def _grok() -> Callable[[], VideoBackend]:
         from lib.video_backends.grok import GrokVideoBackend
 
-        _register_factory(Provider.GROK, lambda: GrokVideoBackend())
-    except Exception:  # noqa: BLE001
-        pass
-    try:
+        return lambda: GrokVideoBackend()
+
+    def _veo() -> Callable[[], VideoBackend]:
         from lib.video_backends.gemini import GeminiVideoBackend
 
-        _register_factory(Provider.VEO, lambda: GeminiVideoBackend())
-    except Exception:  # noqa: BLE001
-        pass
-    try:
+        return lambda: GeminiVideoBackend()
+
+    def _sora() -> Callable[[], VideoBackend]:
         from lib.video_backends.openai import OpenAIVideoBackend
 
-        _register_factory(Provider.SORA, lambda: OpenAIVideoBackend())
-    except Exception:  # noqa: BLE001
-        pass
+        return lambda: OpenAIVideoBackend()
+
+    _try_register(Provider.ARK, _ark)
+    _try_register(Provider.GROK, _grok)
+    _try_register(Provider.VEO, _veo)
+    _try_register(Provider.SORA, _sora)
+
+
+def _extract_data_rows(report_lines: list[str]) -> list[str]:
+    """从已有 Markdown 报告中挑出表格数据行（跳过 header / 分隔符）。
+
+    用行前缀精确识别表头和分隔行，避免 Result/Note 字段含 "Provider"
+    / "---" 等关键字时被误过滤（如 FAIL: "Provider timeout"）。
+    """
+    return [
+        ln
+        for ln in report_lines
+        if ln.startswith("| ") and not ln.startswith("| Provider |") and not ln.startswith("|---")
+    ]
 
 
 async def run_with_backend(
@@ -252,7 +315,7 @@ async def run_with_backend(
     existing_rows: list[str] = []
     if fname.exists():
         existing = fname.read_text(encoding="utf-8").splitlines()
-        existing_rows = [ln for ln in existing if ln.startswith("| ") and "Provider" not in ln and "---" not in ln]
+        existing_rows = _extract_data_rows(existing)
     md = render_report([result])
     if existing_rows:
         lines = md.splitlines()
