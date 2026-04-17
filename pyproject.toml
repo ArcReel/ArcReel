@@ -41,6 +41,11 @@ packages = ["lib", "server"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "unit: 快速、隔离、不触达真实 I/O 或外部服务的测试",
+    "integration: 跨模块真实协作测试；禁止 mock 被测 module 的公共入口（否则是在测 mock 本身）",
+    "e2e: 端到端、依赖真实外部资源（远程 API、大模型调用、重型 ffmpeg 等）的测试；CI 默认跳过",
+]
 
 [tool.coverage.run]
 source = ["lib", "server"]
