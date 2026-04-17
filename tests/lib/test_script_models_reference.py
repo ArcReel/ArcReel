@@ -93,3 +93,9 @@ def test_reference_video_script_rejects_wrong_content_mode():
             novel=NovelInfo(title="x", chapter="x"),
             video_units=[_make_unit()],
         )
+
+
+def test_reference_video_unit_rejects_more_than_four_shots():
+    many_shots = [Shot(duration=1, text=f"s{i}") for i in range(5)]
+    with pytest.raises(ValidationError):
+        _make_unit(shots=many_shots)
