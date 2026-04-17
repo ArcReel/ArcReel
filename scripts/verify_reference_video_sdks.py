@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import argparse
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
-from lib.video_backends.base import VideoBackend, VideoGenerationRequest
+from lib.video_backends.base import VideoBackend, VideoCapabilities, VideoGenerationRequest
 from scripts.fixtures.reference_video.generate_fixtures import generate_color_refs
 
 
@@ -167,6 +168,57 @@ async def run_once(
             video_path=None,
             note="",
         )
+
+
+def clamp_refs_for_backend(*, requested: int, caps: VideoCapabilities) -> tuple[int, str]:
+    if not caps.reference_images:
+        raise ValueError("Backend does not support reference_images")
+    if requested <= caps.max_reference_images:
+        return requested, ""
+    note = f"clamped {requested} → {caps.max_reference_images} (backend max)"
+    return caps.max_reference_images, note
+
+
+# Provider → backend factory（懒加载 import，避免未配置环境启动时爆炸）
+_BACKEND_FACTORIES: dict[Provider, Callable[[], VideoBackend]] = {}
+
+
+def _register_factory(provider: Provider, factory: Callable[[], VideoBackend]) -> None:
+    _BACKEND_FACTORIES[provider] = factory
+
+
+def resolve_backend(provider: Provider) -> VideoBackend:
+    if provider not in _BACKEND_FACTORIES:
+        _lazy_register_factories()
+    return _BACKEND_FACTORIES[provider]()
+
+
+def _lazy_register_factories() -> None:
+    """按需 import 各家后端，避免一个家配置缺失就整个脚本启不来。"""
+    try:
+        from lib.video_backends.ark import ArkVideoBackend
+
+        _register_factory(Provider.ARK, lambda: ArkVideoBackend())
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from lib.video_backends.grok import GrokVideoBackend
+
+        _register_factory(Provider.GROK, lambda: GrokVideoBackend())
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from lib.video_backends.gemini import GeminiVideoBackend
+
+        _register_factory(Provider.VEO, lambda: GeminiVideoBackend())
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from lib.video_backends.openai import OpenAIVideoBackend
+
+        _register_factory(Provider.SORA, lambda: OpenAIVideoBackend())
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def main() -> int:

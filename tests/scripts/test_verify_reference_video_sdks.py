@@ -178,3 +178,36 @@ async def test_run_once_failure_captures_error(tmp_path: Path):
     )
     assert result.success is False
     assert "payload too large" in (result.error or "")
+
+
+def test_clamp_refs_respects_backend_max():
+    from scripts.verify_reference_video_sdks import clamp_refs_for_backend
+
+    caps = VideoCapabilities(reference_images=True, max_reference_images=3)
+    clamped, note = clamp_refs_for_backend(requested=7, caps=caps)
+    assert clamped == 3
+    assert "clamped" in note.lower()
+
+
+def test_clamp_refs_under_limit_passthrough():
+    from scripts.verify_reference_video_sdks import clamp_refs_for_backend
+
+    caps = VideoCapabilities(reference_images=True, max_reference_images=9)
+    clamped, note = clamp_refs_for_backend(requested=3, caps=caps)
+    assert clamped == 3
+    assert note == ""
+
+
+def test_clamp_refs_backend_without_reference_support():
+    from scripts.verify_reference_video_sdks import clamp_refs_for_backend
+
+    caps = VideoCapabilities(reference_images=False, max_reference_images=0)
+    with pytest.raises(ValueError, match="does not support reference_images"):
+        clamp_refs_for_backend(requested=1, caps=caps)
+
+
+def test_lazy_register_factories_smoke():
+    # 每家 try/except 容错；至少不应抛出异常
+    from scripts.verify_reference_video_sdks import _lazy_register_factories
+
+    _lazy_register_factories()
