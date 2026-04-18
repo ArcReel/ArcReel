@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from lib import PROJECT_ROOT
 from lib.asset_types import BUCKET_KEY
+from lib.generation_queue import get_generation_queue
 from lib.project_manager import ProjectManager
 from lib.reference_video import parse_prompt
 from server.auth import CurrentUser
@@ -233,3 +234,58 @@ async def delete_unit(
     script["video_units"] = new_units
     get_project_manager().save_script(project_name, script, script_file)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class ReorderRequest(BaseModel):
+    unit_ids: list[str]
+
+
+@router.post("/episodes/{episode}/units/reorder")
+async def reorder_units(
+    project_name: str,
+    episode: int,
+    req: ReorderRequest,
+    _user: CurrentUser,
+) -> dict[str, Any]:
+    _project, script, script_file = _load_episode_script(project_name, episode)
+    units = script.get("video_units") or []
+    existing_ids = [u.get("unit_id") for u in units]
+
+    if len(req.unit_ids) != len(existing_ids):
+        raise HTTPException(status_code=400, detail="unit_ids length mismatch")
+    if len(set(req.unit_ids)) != len(req.unit_ids):
+        raise HTTPException(status_code=400, detail="duplicate unit_ids")
+    if set(req.unit_ids) != set(existing_ids):
+        raise HTTPException(status_code=400, detail="unit_ids do not match existing units")
+
+    by_id = {u["unit_id"]: u for u in units}
+    script["video_units"] = [by_id[uid] for uid in req.unit_ids]
+    get_project_manager().save_script(project_name, script, script_file)
+    return {"units": script["video_units"]}
+
+
+@router.post(
+    "/episodes/{episode}/units/{unit_id}/generate",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def generate_unit(
+    project_name: str,
+    episode: int,
+    unit_id: str,
+    _user: CurrentUser,
+) -> dict[str, Any]:
+    _project, script, script_file = _load_episode_script(project_name, episode)
+    _unit = _find_unit(script, unit_id)  # raises 404 if missing
+
+    queue = get_generation_queue()
+    result = await queue.enqueue_task(
+        project_name=project_name,
+        task_type="reference_video",
+        media_type="video",
+        resource_id=unit_id,
+        payload={"script_file": script_file},
+        script_file=script_file,
+        source="webui",
+        user_id=_user.id,
+    )
+    return {"task_id": result["task_id"], "deduped": result.get("deduped", False)}

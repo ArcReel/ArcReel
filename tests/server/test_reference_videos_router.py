@@ -161,3 +161,60 @@ def test_delete_unit_removes_entry(client: TestClient):
 def test_delete_unknown_unit_404(client: TestClient):
     resp = client.delete("/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9")
     assert resp.status_code == 404
+
+
+def test_reorder_units_applies_new_order(client: TestClient):
+    uid1 = _seed_unit(client)
+    uid2 = _seed_unit(client)
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/reorder",
+        json={"unit_ids": [uid2, uid1]},
+    )
+    assert resp.status_code == 200, resp.text
+    units = client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"]
+    assert [u["unit_id"] for u in units] == [uid2, uid1]
+
+
+def test_reorder_units_rejects_length_mismatch(client: TestClient):
+    uid = _seed_unit(client)
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/reorder",
+        json={"unit_ids": [uid, "E1U999"]},
+    )
+    assert resp.status_code == 400
+
+
+def test_reorder_units_rejects_duplicates(client: TestClient):
+    uid = _seed_unit(client)
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/reorder",
+        json={"unit_ids": [uid, uid]},
+    )
+    assert resp.status_code == 400
+
+
+def test_generate_unit_enqueues_task(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    uid = _seed_unit(client)
+
+    enqueued: list[dict] = []
+
+    class _FakeQueue:
+        async def enqueue_task(self, **kwargs):
+            enqueued.append(kwargs)
+            return {"task_id": "task-xyz", "deduped": False}
+
+    from server.routers import reference_videos as router_mod
+
+    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _FakeQueue())
+
+    resp = client.post(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate")
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["task_id"] == "task-xyz"
+    assert enqueued[0]["task_type"] == "reference_video"
+    assert enqueued[0]["media_type"] == "video"
+    assert enqueued[0]["resource_id"] == uid
+
+
+def test_generate_unit_missing_returns_404(client: TestClient):
+    resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9/generate")
+    assert resp.status_code == 404
