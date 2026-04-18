@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from lib import PROJECT_ROOT
@@ -161,3 +161,75 @@ async def add_unit(
     script.setdefault("video_units", []).append(unit)
     get_project_manager().save_script(project_name, script, script_file)
     return {"unit": unit}
+
+
+# ============ 端点：PATCH + DELETE ============
+
+
+class PatchUnitRequest(BaseModel):
+    prompt: str | None = None
+    references: list[ReferenceDto] | None = None
+    duration_seconds: int | None = None
+    transition_to_next: str | None = Field(default=None, pattern=r"^(cut|fade|dissolve)$")
+    note: str | None = None
+
+
+def _find_unit(script: dict, unit_id: str) -> dict:
+    for u in script.get("video_units") or []:
+        if u.get("unit_id") == unit_id:
+            return u
+    raise HTTPException(status_code=404, detail=f"unit {unit_id} not found")
+
+
+@router.patch("/episodes/{episode}/units/{unit_id}")
+async def patch_unit(
+    project_name: str,
+    episode: int,
+    unit_id: str,
+    req: PatchUnitRequest,
+    _user: CurrentUser,
+) -> dict[str, Any]:
+    project, script, script_file = _load_episode_script(project_name, episode)
+    unit = _find_unit(script, unit_id)
+
+    if req.references is not None:
+        refs = [r.model_dump() for r in req.references]
+        _validate_references_exist(project, refs)
+        unit["references"] = refs
+
+    if req.prompt is not None:
+        shots, _mentions, override = parse_prompt(req.prompt)
+        if override and req.duration_seconds is not None:
+            shots[0].duration = max(1, int(req.duration_seconds))
+        unit["shots"] = [s.model_dump() for s in shots]
+        unit["duration_seconds"] = sum(s.duration for s in shots)
+        unit["duration_override"] = override
+    elif req.duration_seconds is not None and unit.get("duration_override"):
+        unit["duration_seconds"] = max(1, int(req.duration_seconds))
+        if unit.get("shots"):
+            unit["shots"][0]["duration"] = unit["duration_seconds"]
+
+    if req.transition_to_next is not None:
+        unit["transition_to_next"] = req.transition_to_next
+    if req.note is not None:
+        unit["note"] = req.note
+
+    get_project_manager().save_script(project_name, script, script_file)
+    return {"unit": unit}
+
+
+@router.delete("/episodes/{episode}/units/{unit_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_unit(
+    project_name: str,
+    episode: int,
+    unit_id: str,
+    _user: CurrentUser,
+) -> Response:
+    _project, script, script_file = _load_episode_script(project_name, episode)
+    units = script.get("video_units") or []
+    new_units = [u for u in units if u.get("unit_id") != unit_id]
+    if len(new_units) == len(units):
+        raise HTTPException(status_code=404, detail=f"unit {unit_id} not found")
+    script["video_units"] = new_units
+    get_project_manager().save_script(project_name, script, script_file)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

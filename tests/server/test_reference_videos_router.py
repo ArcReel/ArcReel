@@ -94,3 +94,70 @@ def test_add_unit_rejects_unknown_asset_reference(client: TestClient):
     )
     assert resp.status_code == 400
     assert "未知角色" in resp.json()["detail"]
+
+
+def _seed_unit(client: TestClient) -> str:
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "Shot 1 (3s): @张三 推门", "references": [{"type": "character", "name": "张三"}]},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["unit"]["unit_id"]
+
+
+def test_patch_unit_prompt_recomputes_duration(client: TestClient):
+    uid = _seed_unit(client)
+    resp = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"prompt": "Shot 1 (4s): @张三 推门\nShot 2 (6s): @酒馆 全景"},
+    )
+    assert resp.status_code == 200, resp.text
+    unit = resp.json()["unit"]
+    assert unit["duration_seconds"] == 10
+    # 注意：prompt 新增的 @酒馆 应由 caller 先 PATCH references 再 PATCH prompt；本端点仅按旧 references 映射
+    assert len(unit["references"]) == 1
+
+
+def test_patch_unit_references_only(client: TestClient):
+    uid = _seed_unit(client)
+    resp = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={
+            "references": [
+                {"type": "character", "name": "张三"},
+                {"type": "scene", "name": "酒馆"},
+            ]
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()["unit"]["references"]) == 2
+
+
+def test_patch_unit_rejects_unknown_reference(client: TestClient):
+    uid = _seed_unit(client)
+    resp = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"references": [{"type": "prop", "name": "不存在"}]},
+    )
+    assert resp.status_code == 400
+
+
+def test_patch_unknown_unit_404(client: TestClient):
+    resp = client.patch(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9",
+        json={"note": "hi"},
+    )
+    assert resp.status_code == 404
+
+
+def test_delete_unit_removes_entry(client: TestClient):
+    uid = _seed_unit(client)
+    resp = client.delete(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}")
+    assert resp.status_code == 204
+    resp = client.get("/api/v1/projects/demo/reference-videos/episodes/1/units")
+    assert resp.json()["units"] == []
+
+
+def test_delete_unknown_unit_404(client: TestClient):
+    resp = client.delete("/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9")
+    assert resp.status_code == 404
