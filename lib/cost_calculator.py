@@ -440,6 +440,60 @@ class CostCalculator:
 
         return 0.0, "USD"
 
+    # Ark 生成视频的 token/s 近似常量（用于参考模式成本估算，实际 token 由生成回调覆盖）
+    _ARK_TOKENS_PER_SECOND_ESTIMATE = 60_000
+
+    def estimate_reference_video_cost(
+        self,
+        *,
+        unit_durations_seconds: list[int],
+        provider: str,
+        model: str | None = None,
+        resolution: str | None = None,
+        generate_audio: bool = True,
+        service_tier: str = "default",
+    ) -> tuple[float, str]:
+        """聚合参考模式一集的视频费用：sum over units of (duration × 单价)。
+
+        - Grok/OpenAI/Gemini：按 duration_seconds 累加后一次性计费
+        - Ark：token-based 计费，按 duration × _ARK_TOKENS_PER_SECOND_ESTIMATE 近似
+        """
+        if not unit_durations_seconds:
+            if provider == PROVIDER_ARK:
+                return 0.0, "CNY"
+            return 0.0, "USD"
+
+        total_duration = sum(max(0, int(d)) for d in unit_durations_seconds)
+        if provider == PROVIDER_ARK:
+            usage_tokens = total_duration * self._ARK_TOKENS_PER_SECOND_ESTIMATE
+            return self.calculate_ark_video_cost(
+                usage_tokens=usage_tokens,
+                service_tier=service_tier,
+                generate_audio=generate_audio,
+                model=model,
+            )
+        if provider == PROVIDER_GROK:
+            return self.calculate_grok_video_cost(
+                duration_seconds=total_duration,
+                model=model,
+            )
+        if provider == PROVIDER_OPENAI:
+            return self.calculate_openai_video_cost(
+                duration_seconds=total_duration,
+                model=model,
+                resolution=resolution,
+            )
+        # Gemini/Veo 默认
+        return (
+            self.calculate_video_cost(
+                duration_seconds=total_duration,
+                resolution=resolution or "1080p",
+                generate_audio=generate_audio,
+                model=model,
+            ),
+            "USD",
+        )
+
     @staticmethod
     def _calculate_custom_cost(
         call_type: str,
