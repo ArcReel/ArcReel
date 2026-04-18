@@ -5,6 +5,8 @@ Spec: docs/superpowers/specs/2026-04-15-reference-to-video-mode-design.md §5.2
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import tempfile
@@ -15,8 +17,10 @@ from lib.asset_types import BUCKET_KEY, SHEET_KEY
 from lib.db.base import DEFAULT_USER_ID
 from lib.image_utils import compress_image_bytes
 from lib.reference_video import render_prompt_for_backend
-from lib.reference_video.errors import MissingReferenceError
+from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
 from lib.script_models import ReferenceResource
+from lib.thumbnail import extract_video_thumbnail
+from server.services.generation_tasks import get_media_generator, get_project_manager
 
 logger = logging.getLogger(__name__)
 
@@ -185,5 +189,128 @@ async def execute_reference_video_task(
     *,
     user_id: str = DEFAULT_USER_ID,
 ) -> dict[str, Any]:
-    """占位：下一个 Task 会补齐压缩 + 渲染 + backend 调用 + 更新元数据。"""
-    raise NotImplementedError("execute_reference_video_task: filled in next task")
+    """处理一个 reference_video unit 的生成。
+
+    resource_id 即 unit_id（E{集}U{序号}）。
+    """
+    script_file = payload.get("script_file")
+    if not script_file:
+        raise ValueError("script_file is required for reference_video task")
+
+    # 1. 加载上下文（阻塞 IO，线程池）
+    def _load():
+        pm = get_project_manager()
+        project = pm.load_project(project_name)
+        project_path = pm.get_project_path(project_name)
+        script = pm.load_script(project_name, script_file)
+        units = script.get("video_units") or []
+        unit = next((u for u in units if u.get("unit_id") == resource_id), None)
+        if unit is None:
+            raise ValueError(f"unit not found: {resource_id}")
+        return project, project_path, unit
+
+    project, project_path, unit = await asyncio.to_thread(_load)
+
+    # 2. 解析 references（缺图直接失败）
+    source_refs = _resolve_unit_references(project, project_path, unit.get("references") or [])
+
+    # 3. 构造 generator（拿到 video_backend 名字后才能做 provider 特判）
+    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
+    backend = getattr(generator, "_video_backend", None)
+    provider_name = getattr(backend, "name", "") if backend else ""
+    model_name = getattr(backend, "model", "") if backend else ""
+
+    # 4. Provider 特判：裁 refs + duration
+    base_duration = int(unit.get("duration_seconds") or 8)
+    constrained_refs, effective_duration, warnings = _apply_provider_constraints(
+        provider=provider_name,
+        model=model_name,
+        references=source_refs,
+        duration_seconds=base_duration,
+    )
+
+    # 5. 渲染 prompt（@→[图N]）
+    rendered_prompt = _render_unit_prompt(unit)
+
+    # 6. 压缩到临时文件（2048px/q=85）→ 首次调用
+    tmp_refs: list[Path] = await asyncio.to_thread(_compress_references_to_tempfiles, constrained_refs)
+    output_path: Path | None = None
+    version = 0
+    video_uri: str | None = None
+    try:
+        try:
+            output_path, version, _, video_uri = await generator.generate_video_async(
+                prompt=rendered_prompt,
+                resource_type="reference_videos",
+                resource_id=resource_id,
+                reference_images=tmp_refs,
+                aspect_ratio=project.get("aspect_ratio", "9:16"),
+                duration_seconds=effective_duration,
+            )
+        except RequestPayloadTooLargeError:
+            # 二次压缩重试（1024px/q=70）
+            for p in tmp_refs:
+                p.unlink(missing_ok=True)
+            tmp_refs = await asyncio.to_thread(
+                _compress_references_to_tempfiles,
+                constrained_refs,
+                long_edge=1024,
+                quality=70,
+            )
+            warnings.append({"key": "ref_payload_too_large", "params": {}})
+            output_path, version, _, video_uri = await generator.generate_video_async(
+                prompt=rendered_prompt,
+                resource_type="reference_videos",
+                resource_id=resource_id,
+                reference_images=tmp_refs,
+                aspect_ratio=project.get("aspect_ratio", "9:16"),
+                duration_seconds=effective_duration,
+            )
+    finally:
+        for p in tmp_refs:
+            with contextlib.suppress(Exception):
+                p.unlink(missing_ok=True)
+
+    # 7. 首帧缩略图
+    assert output_path is not None
+    thumb_dir = project_path / "reference_videos" / "thumbnails"
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+    thumb_path = thumb_dir / f"{resource_id}.jpg"
+    if await extract_video_thumbnail(output_path, thumb_path):
+        thumb_rel = f"reference_videos/thumbnails/{resource_id}.jpg"
+    else:
+        thumb_path.unlink(missing_ok=True)
+        thumb_rel = None
+
+    # 8. 更新 unit.generated_assets（简单读改写 episode script）
+    def _update_unit_assets():
+        pm = get_project_manager()
+        script = pm.load_script(project_name, script_file)
+        for u in script.get("video_units") or []:
+            if u.get("unit_id") == resource_id:
+                ga = u.setdefault("generated_assets", {})
+                ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
+                if video_uri:
+                    ga["video_uri"] = video_uri
+                if thumb_rel:
+                    ga["video_thumbnail"] = thumb_rel
+                ga["status"] = "completed"
+                break
+        pm.save_script(project_name, script, script_file)
+        return script
+
+    await asyncio.to_thread(_update_unit_assets)
+
+    created_at = await asyncio.to_thread(
+        lambda: generator.versions.get_versions("reference_videos", resource_id)["versions"][-1]["created_at"]
+    )
+
+    return {
+        "version": version,
+        "file_path": f"reference_videos/{resource_id}.mp4",
+        "created_at": created_at,
+        "resource_type": "reference_videos",
+        "resource_id": resource_id,
+        "video_uri": video_uri,
+        "warnings": warnings,
+    }

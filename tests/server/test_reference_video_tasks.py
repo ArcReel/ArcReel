@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from lib.reference_video.errors import MissingReferenceError
+from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
 from server.services.reference_video_tasks import (
     _apply_provider_constraints,
     _compress_references_to_tempfiles,
@@ -63,9 +64,14 @@ def _write_project(tmp_path: Path) -> Path:
     (proj_dir / "scripts").mkdir()
     (proj_dir / "scripts" / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
     (proj_dir / "characters").mkdir()
-    (proj_dir / "characters" / "张三.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    _TINY_PNG = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
+        b"\x08\x02\x00\x00\x00&\x93\t)\x00\x00\x00\x13IDATx\x9cc<\x91b\xc4\x00"
+        b"\x03Lp\x16^\x0e\x00E\xf6\x01f\xac\xf5\x15\xfa\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    (proj_dir / "characters" / "张三.png").write_bytes(_TINY_PNG)
     (proj_dir / "scenes").mkdir()
-    (proj_dir / "scenes" / "酒馆.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (proj_dir / "scenes" / "酒馆.png").write_bytes(_TINY_PNG)
     return proj_dir
 
 
@@ -215,3 +221,135 @@ def test_apply_provider_constraints_ark_keeps_nine():
     assert len(new_refs) == 9
     assert new_duration == 12
     assert warnings == []
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    proj_dir = _write_project(tmp_path)
+
+    # Patch project_manager helpers
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+
+    def fake_load_script(_project_name, _filename):
+        return json.loads((proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+
+    fake_pm.load_script.side_effect = fake_load_script
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    # Mock generator.generate_video_async: 创建伪视频文件
+    async def _fake_generate_video_async(**kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        # (output_path, version, video_ref, video_uri)
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    fake_video_backend = MagicMock()
+    fake_video_backend.name = "ark"
+    fake_video_backend.model = "doubao-seedance-2-0-260128"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_args, **_kwargs):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    # Patch thumbnail extractor → success
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    result = await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+    assert result["resource_type"] == "reference_videos"
+    assert result["resource_id"] == "E1U1"
+    assert result["file_path"].endswith("E1U1.mp4")
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    proj_dir = _write_project(tmp_path)
+    (proj_dir / "characters" / "张三.png").unlink()
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    with pytest.raises(MissingReferenceError):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/episode_1.json"},
+            user_id="u1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_payload_too_large_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    proj_dir = _write_project(tmp_path)
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    call_count = {"n": 0}
+
+    async def _fake_generate_video_async(**kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RequestPayloadTooLargeError()
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    fake_video_backend = MagicMock()
+    fake_video_backend.name = "grok"
+    fake_video_backend.model = "grok-imagine-video"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_a, **_kw):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    result = await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+    assert call_count["n"] == 2
+    assert result["resource_id"] == "E1U1"
