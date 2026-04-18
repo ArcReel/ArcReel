@@ -101,4 +101,11 @@ MESSAGES = {
     "invalid_backend_format": "{field_name} format should be provider/model",
     # Versions
     "unsupported_resource_type": "Unsupported resource type: {resource_type}",
+    # Reference Video
+    "ref_missing_asset": "Reference to {type} '{name}' is not in the project asset library, please generate it first",
+    "ref_duration_exceeded": "Reference video unit duration {duration}s exceeds {model} limit of {max_duration}s, clamped",
+    "ref_too_many_images": "Reference image count {count} exceeds {model} limit of {max_count}, kept the first {max_count}",
+    "ref_payload_too_large": "Reference image payload exceeded provider limits, retried with extra compression",
+    "ref_sora_single_ref": "Sora reference mode does not currently support multiple images, downgraded to single image",
+    "ref_shot_parse_fallback": "No Shot N (Xs) header detected, treated as a single shot",
 }

@@ -101,4 +101,11 @@ MESSAGES = {
     "invalid_backend_format": "{field_name} 格式应为 provider/model",
     # Versions
     "unsupported_resource_type": "不支持的资源类型: {resource_type}",
+    # Reference Video
+    "ref_missing_asset": "参考图引用的{type}「{name}」不在项目资产库中，请先生成",
+    "ref_duration_exceeded": "参考视频单元时长 {duration}s 超出 {model} 上限 {max_duration}s，已裁剪",
+    "ref_too_many_images": "参考图数量 {count} 超出 {model} 上限 {max_count}，已取前 {max_count} 张",
+    "ref_payload_too_large": "参考图请求体超出供应商限制，已二次压缩重试",
+    "ref_sora_single_ref": "Sora 参考模式暂不支持多图，已降级为单图",
+    "ref_shot_parse_fallback": "未识别到 Shot N (Xs): 标记，按单镜头处理",
 }
