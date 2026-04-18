@@ -10,10 +10,16 @@ from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooL
 from server.services.reference_video_tasks import (
     _apply_provider_constraints,
     _compress_references_to_tempfiles,
-    _load_unit_context,
     _render_unit_prompt,
     _resolve_unit_references,
 )
+
+
+def _load_project_and_unit(proj_dir: Path, unit_id: str) -> tuple[dict, dict]:
+    project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    script = json.loads((proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+    unit = next(u for u in script["video_units"] if u["unit_id"] == unit_id)
+    return project, unit
 
 
 def _write_project(tmp_path: Path) -> Path:
@@ -75,46 +81,16 @@ def _write_project(tmp_path: Path) -> Path:
     return proj_dir
 
 
-def test_load_unit_context_returns_project_and_unit(tmp_path: Path):
-    proj_dir = _write_project(tmp_path)
-    project, script, unit = _load_unit_context(
-        project_path=proj_dir,
-        script_file="scripts/episode_1.json",
-        unit_id="E1U1",
-    )
-    assert project["title"] == "T"
-    assert script["episode"] == 1
-    assert unit["unit_id"] == "E1U1"
-
-
-def test_load_unit_context_unknown_unit_raises(tmp_path: Path):
-    proj_dir = _write_project(tmp_path)
-    with pytest.raises(ValueError, match="unit not found"):
-        _load_unit_context(
-            project_path=proj_dir,
-            script_file="scripts/episode_1.json",
-            unit_id="E9U9",
-        )
-
-
 def test_resolve_unit_references_maps_sheets(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
-    project, _, unit = _load_unit_context(
-        project_path=proj_dir,
-        script_file="scripts/episode_1.json",
-        unit_id="E1U1",
-    )
+    project, unit = _load_project_and_unit(proj_dir, "E1U1")
     resolved = _resolve_unit_references(project, proj_dir, unit["references"])
     assert [p.name for p in resolved] == ["张三.png", "酒馆.png"]
 
 
 def test_resolve_unit_references_missing_sheet_raises(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
-    project, _, unit = _load_unit_context(
-        project_path=proj_dir,
-        script_file="scripts/episode_1.json",
-        unit_id="E1U1",
-    )
+    project, unit = _load_project_and_unit(proj_dir, "E1U1")
     # 删掉 character sheet，模拟未生成的情况
     (proj_dir / "characters" / "张三.png").unlink()
     with pytest.raises(MissingReferenceError) as excinfo:
@@ -124,11 +100,7 @@ def test_resolve_unit_references_missing_sheet_raises(tmp_path: Path):
 
 def test_resolve_unit_references_unknown_name_raises(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
-    project, _, _ = _load_unit_context(
-        project_path=proj_dir,
-        script_file="scripts/episode_1.json",
-        unit_id="E1U1",
-    )
+    project, _ = _load_project_and_unit(proj_dir, "E1U1")
     bad_refs = [{"type": "prop", "name": "不存在的道具"}]
     with pytest.raises(MissingReferenceError) as excinfo:
         _resolve_unit_references(project, proj_dir, bad_refs)

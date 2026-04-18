@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 import tempfile
 from pathlib import Path
@@ -23,23 +22,6 @@ from lib.thumbnail import extract_video_thumbnail
 from server.services.generation_tasks import get_media_generator, get_project_manager
 
 logger = logging.getLogger(__name__)
-
-
-def _load_unit_context(
-    *,
-    project_path: Path,
-    script_file: str,
-    unit_id: str,
-) -> tuple[dict, dict, dict]:
-    """读取 project.json + 指定 episode 剧本 + 目标 unit。"""
-    project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
-    script_rel = script_file.removeprefix("scripts/")
-    script = json.loads((project_path / "scripts" / script_rel).read_text(encoding="utf-8"))
-    units = script.get("video_units") or []
-    unit = next((u for u in units if u.get("unit_id") == unit_id), None)
-    if unit is None:
-        raise ValueError(f"unit not found: {unit_id}")
-    return project, script, unit
 
 
 def _resolve_unit_references(
@@ -272,7 +254,8 @@ async def execute_reference_video_task(
                 p.unlink(missing_ok=True)
 
     # 7. 首帧缩略图
-    assert output_path is not None
+    if output_path is None:
+        raise RuntimeError("generate_video_async returned None output_path")
     thumb_dir = project_path / "reference_videos" / "thumbnails"
     thumb_dir.mkdir(parents=True, exist_ok=True)
     thumb_path = thumb_dir / f"{resource_id}.jpg"
