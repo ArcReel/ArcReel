@@ -7,7 +7,10 @@ import pytest
 
 from lib.reference_video.errors import MissingReferenceError
 from server.services.reference_video_tasks import (
+    _apply_provider_constraints,
+    _compress_references_to_tempfiles,
     _load_unit_context,
+    _render_unit_prompt,
     _resolve_unit_references,
 )
 
@@ -124,13 +127,6 @@ def test_resolve_unit_references_unknown_name_raises(tmp_path: Path):
     with pytest.raises(MissingReferenceError) as excinfo:
         _resolve_unit_references(project, proj_dir, bad_refs)
     assert ("prop", "不存在的道具") in excinfo.value.missing
-
-
-from server.services.reference_video_tasks import (  # noqa: E402
-    _apply_provider_constraints,
-    _compress_references_to_tempfiles,
-    _render_unit_prompt,
-)
 
 
 def _make_png_bytes() -> bytes:
