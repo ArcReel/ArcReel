@@ -152,6 +152,7 @@ class ProjectArchiveService:
             "characters",
             "scenes",
             "props",
+            "reference_videos",
         }
     )
     _RESOURCE_EXTENSIONS = {
@@ -160,6 +161,7 @@ class ProjectArchiveService:
         "characters": ".png",
         "scenes": ".png",
         "props": ".png",
+        "reference_videos": ".mp4",
     }
     _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES)
     _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
