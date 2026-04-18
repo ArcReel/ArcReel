@@ -564,6 +564,19 @@ def _compute_affected_fingerprints(project_name: str, task_type: str, resource_i
                 project_path / "grids" / f"{resource_id}.png",
             )
         )
+    elif task_type == "reference_video":
+        paths.append(
+            (
+                f"reference_videos/{resource_id}.mp4",
+                project_path / "reference_videos" / f"{resource_id}.mp4",
+            )
+        )
+        paths.append(
+            (
+                f"reference_videos/thumbnails/{resource_id}.jpg",
+                project_path / "reference_videos" / "thumbnails" / f"{resource_id}.jpg",
+            )
+        )
 
     result: dict[str, int] = {}
     for rel, abs_path in paths:
@@ -581,6 +594,7 @@ _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "scene": ("scene", "updated", "场景「{}」设计图", False),
     "prop": ("prop", "updated", "道具「{}」设计图", False),
     "grid": ("grid", "grid_ready", "宫格「{}」", True),
+    "reference_video": ("reference_video_unit", "reference_video_ready", "参考视频「{}」", True),
 }
 
 
@@ -1209,6 +1223,15 @@ async def execute_grid_task(
     }
 
 
+async def _execute_reference_video_task_proxy(
+    project_name: str, resource_id: str, payload: dict[str, Any], *, user_id: str
+) -> dict[str, Any]:
+    """Lazy proxy to avoid circular import: reference_video_tasks imports from this module."""
+    from server.services.reference_video_tasks import execute_reference_video_task
+
+    return await execute_reference_video_task(project_name, resource_id, payload, user_id=user_id)
+
+
 _TASK_EXECUTORS = {
     "storyboard": execute_storyboard_task,
     "video": execute_video_task,
@@ -1216,6 +1239,7 @@ _TASK_EXECUTORS = {
     "scene": execute_scene_task,
     "prop": execute_prop_task,
     "grid": execute_grid_task,
+    "reference_video": _execute_reference_video_task_proxy,
 }
 
 
