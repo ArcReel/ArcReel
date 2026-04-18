@@ -124,3 +124,98 @@ def test_resolve_unit_references_unknown_name_raises(tmp_path: Path):
     with pytest.raises(MissingReferenceError) as excinfo:
         _resolve_unit_references(project, proj_dir, bad_refs)
     assert ("prop", "不存在的道具") in excinfo.value.missing
+
+
+from server.services.reference_video_tasks import (  # noqa: E402
+    _apply_provider_constraints,
+    _compress_references_to_tempfiles,
+    _render_unit_prompt,
+)
+
+
+def _make_png_bytes() -> bytes:
+    import io
+
+    from PIL import Image
+
+    img = Image.new("RGB", (3000, 2000), color=(200, 100, 50))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_compress_references_returns_temp_paths(tmp_path: Path):
+    src = tmp_path / "big.png"
+    src.write_bytes(_make_png_bytes())
+    temps = _compress_references_to_tempfiles([src, src])
+    try:
+        assert len(temps) == 2
+        for p in temps:
+            assert p.exists()
+            assert p.stat().st_size > 0
+    finally:
+        for p in temps:
+            p.unlink(missing_ok=True)
+
+
+def test_compress_references_empty_input(tmp_path: Path):
+    assert _compress_references_to_tempfiles([]) == []
+
+
+def test_render_unit_prompt_replaces_mentions_in_order():
+    unit = {
+        "shots": [
+            {"duration": 3, "text": "Shot 1 (3s): @张三 推门"},
+            {"duration": 5, "text": "Shot 2 (5s): 对面的 @张三 抬眼，背景是 @酒馆"},
+        ],
+        "references": [
+            {"type": "character", "name": "张三"},
+            {"type": "scene", "name": "酒馆"},
+        ],
+    }
+    rendered = _render_unit_prompt(unit)
+    assert "[图1]" in rendered
+    assert "[图2]" in rendered
+    assert "@张三" not in rendered
+    # Shot header 保留
+    assert "Shot 1 (3s):" in rendered
+    assert "Shot 2 (5s):" in rendered
+
+
+def test_apply_provider_constraints_veo_clamps_duration_and_refs():
+    refs = [Path(f"/tmp/ref{i}.png") for i in range(5)]
+    new_refs, new_duration, warnings = _apply_provider_constraints(
+        provider="gemini",
+        model="veo-3.1-generate-preview",
+        references=refs,
+        duration_seconds=12,
+    )
+    assert len(new_refs) == 3
+    assert new_duration == 8
+    assert any("ref_duration_exceeded" in w["key"] for w in warnings)
+    assert any("ref_too_many_images" in w["key"] for w in warnings)
+
+
+def test_apply_provider_constraints_sora_single_ref():
+    refs = [Path(f"/tmp/ref{i}.png") for i in range(3)]
+    new_refs, _, warnings = _apply_provider_constraints(
+        provider="openai",
+        model="sora-2",
+        references=refs,
+        duration_seconds=8,
+    )
+    assert len(new_refs) == 1
+    assert any("ref_sora_single_ref" in w["key"] for w in warnings)
+
+
+def test_apply_provider_constraints_ark_keeps_nine():
+    refs = [Path(f"/tmp/ref{i}.png") for i in range(9)]
+    new_refs, new_duration, warnings = _apply_provider_constraints(
+        provider="ark",
+        model="doubao-seedance-2-0-260128",
+        references=refs,
+        duration_seconds=12,
+    )
+    assert len(new_refs) == 9
+    assert new_duration == 12
+    assert warnings == []
