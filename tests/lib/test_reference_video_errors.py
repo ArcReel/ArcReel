@@ -1,4 +1,5 @@
 import pytest
+
 from lib.reference_video.errors import (
     MissingReferenceError,
     ProviderUnsupportedFeatureError,
