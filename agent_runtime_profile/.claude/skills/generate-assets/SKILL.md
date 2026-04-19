@@ -7,7 +7,7 @@ description: "统一资产生成 skill：接受 `--type=character|scene|prop`，
 
 使用 Gemini 3 Pro Image API 创建角色、场景、道具设计图，确保整个视频中视觉元素的一致性。
 
-> Prompt 编写原则详见 `.claude/references/content-modes.md` 的"Prompt 语言"章节。
+> Prompt 编写原则详见 `.claude/references/generation-modes.md` 的"Prompt 语言"章节。
 
 ---
 
