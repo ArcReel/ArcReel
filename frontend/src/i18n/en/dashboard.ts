@@ -470,8 +470,6 @@ export default {
   'aspect_ratio_label': 'Aspect Ratio',
   'aspect_ratio_change_warning': 'Existing storyboards/videos remain at original ratio; consider regenerating',
   'generation_mode': 'Generation Mode',
-  'generation_mode_desc': 'Single mode generates one frame at a time; Grid mode batches by paragraph for more consistent visuals',
-  'single_generation': 'Single Generation',
   'grid_generation': 'Grid Generation',
   'mode_storyboard': 'Image-to-Video',
   'mode_grid': 'Grid-to-Video',

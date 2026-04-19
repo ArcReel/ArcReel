@@ -471,8 +471,6 @@ export default {
   'aspect_ratio_label': '画面比例',
   'aspect_ratio_change_warning': '已生成的分镜图/视频仍为原比例，建议重新生成',
   'generation_mode': '分镜生成模式',
-  'generation_mode_desc': '逐张模式逐帧单独生成；宫格模式按段落分组批量生成，画风更一致',
-  'single_generation': '逐张生成',
   'grid_generation': '宫格生成',
   'mode_storyboard': '图生视频',
   'mode_grid': '宫格生视频',
