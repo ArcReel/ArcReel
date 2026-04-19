@@ -43,6 +43,8 @@ describe("UnitList", () => {
     expect(screen.getByText("E1U1")).toBeInTheDocument();
     expect(screen.getByText("E1U2")).toBeInTheDocument();
     expect(screen.getAllByText(/enter the pub/)).toHaveLength(2);
+    expect(screen.getByText("3s")).toBeInTheDocument();
+    expect(screen.getByText("8s")).toBeInTheDocument();
   });
 
   it("highlights the selected unit", () => {

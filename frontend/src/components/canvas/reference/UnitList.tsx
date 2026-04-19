@@ -37,9 +37,9 @@ export function UnitList({ units, selectedId, onSelect, onAdd }: UnitListProps) 
         <button
           type="button"
           onClick={onAdd}
-          className="inline-flex items-center gap-1 rounded-md border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-300 hover:border-indigo-500 hover:text-indigo-300"
+          className="inline-flex items-center gap-1 rounded-md border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-300 hover:border-indigo-500 hover:text-indigo-300 focus-ring"
         >
-          <Plus className="h-3 w-3" />
+          <Plus className="h-3 w-3" aria-hidden="true" />
           {t("reference_unit_new")}
         </button>
       </div>
@@ -66,7 +66,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd }: UnitListProps) 
                     onSelect(u.unit_id);
                   }
                 }}
-                className={`cursor-pointer border-b border-gray-900 px-3 py-2 text-sm transition-colors ${
+                className={`cursor-pointer border-b border-gray-900 px-3 py-2 text-sm transition-colors focus-ring ${
                   selected ? "bg-indigo-500/15 text-indigo-200" : "text-gray-300 hover:bg-gray-900"
                 }`}
               >
