@@ -182,7 +182,7 @@ describe("reference-video-store · updatePromptDebounced", () => {
       .spyOn(API, "patchReferenceVideoUnit")
       .mockResolvedValueOnce({ unit: serverUnit });
 
-    useReferenceVideoStore.getState().updatePromptDebounced("proj", 1, "E1U1", "Shot 1 (3s): x", []);
+    useReferenceVideoStore.getState().updatePromptDebounced("proj", 1, "E1U1", "Shot 1 (3s): x");
     expect(patchSpy).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -204,16 +204,16 @@ describe("reference-video-store · updatePromptDebounced", () => {
       .mockResolvedValue({ unit: mkUnit("E1U1") });
 
     const store = useReferenceVideoStore.getState();
-    store.updatePromptDebounced("proj", 1, "E1U1", "a", []);
-    store.updatePromptDebounced("proj", 1, "E1U1", "ab", []);
-    store.updatePromptDebounced("proj", 1, "E1U1", "abc", []);
+    store.updatePromptDebounced("proj", 1, "E1U1", "a");
+    store.updatePromptDebounced("proj", 1, "E1U1", "ab");
+    store.updatePromptDebounced("proj", 1, "E1U1", "abc");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(600);
     });
     expect(patchSpy).toHaveBeenCalledTimes(1);
     const [, , , body] = patchSpy.mock.calls[0]!;
-    expect(body).toEqual({ prompt: "abc", references: [] });
+    expect(body).toEqual({ prompt: "abc" });
   });
 
   it("discards stale responses when a newer edit races in", async () => {
@@ -232,12 +232,12 @@ describe("reference-video-store · updatePromptDebounced", () => {
     patchSpy.mockResolvedValueOnce({ unit: mkUnit("E1U1", { note: "v2" }) });
 
     const store = useReferenceVideoStore.getState();
-    store.updatePromptDebounced("proj", 1, "E1U1", "first", []);
+    store.updatePromptDebounced("proj", 1, "E1U1", "first");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(600);
     });
     // first in-flight; now enqueue a second, then let first resolve late
-    store.updatePromptDebounced("proj", 1, "E1U1", "second", []);
+    store.updatePromptDebounced("proj", 1, "E1U1", "second");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(600);
     });
@@ -261,8 +261,8 @@ describe("reference-video-store · updatePromptDebounced", () => {
       .mockResolvedValueOnce({ unit: mkUnit("E1U2") });
 
     const store = useReferenceVideoStore.getState();
-    store.updatePromptDebounced("proj", 1, "E1U1", "draft1", []);
-    store.updatePromptDebounced("proj", 1, "E1U2", "draft2", []);
+    store.updatePromptDebounced("proj", 1, "E1U1", "draft1");
+    store.updatePromptDebounced("proj", 1, "E1U2", "draft2");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(600);
     });

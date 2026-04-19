@@ -49,7 +49,6 @@ interface ReferenceVideoStore {
     episode: number,
     unitId: string,
     prompt: string,
-    references: ReferenceResource[],
   ) => void;
 }
 
@@ -62,7 +61,7 @@ const _timers = new Map<string, ReturnType<typeof setTimeout>>();
 // Per-unit fetch id; latest wins.
 const _fetchIds = new Map<string, number>();
 // Last pending payload keyed by unitId.
-const _pendingPayload = new Map<string, { prompt: string; references: ReferenceResource[] }>();
+const _pendingPayload = new Map<string, { prompt: string }>();
 
 const DEBOUNCE_MS = 500;
 
@@ -146,8 +145,8 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
   select: (unitId) => set({ selectedUnitId: unitId }),
 
-  updatePromptDebounced: (projectName, episode, unitId, prompt, references) => {
-    _pendingPayload.set(unitId, { prompt, references });
+  updatePromptDebounced: (projectName, episode, unitId, prompt) => {
+    _pendingPayload.set(unitId, { prompt });
     const existing = _timers.get(unitId);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
@@ -161,7 +160,6 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
       void API.patchReferenceVideoUnit(projectName, episode, unitId, {
         prompt: payload.prompt,
-        references: payload.references,
       })
         .then(({ unit }) => {
           if (_fetchIds.get(unitId) !== myFetchId) return; // stale

@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
 import { useReferenceVideoStore } from "@/stores/reference-video-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { API } from "@/api";
 import type { ReferenceVideoUnit } from "@/types";
+import type { ProjectData } from "@/types";
 
 function mkUnit(id: string): ReferenceVideoUnit {
   return {
@@ -26,9 +28,20 @@ function mkUnit(id: string): ReferenceVideoUnit {
   };
 }
 
+const STUB_PROJECT: ProjectData = {
+  title: "p",
+  content_mode: "narration",
+  style: "",
+  episodes: [],
+  characters: {},
+  scenes: {},
+  props: {},
+};
+
 describe("ReferenceVideoCanvas", () => {
   beforeEach(() => {
     useReferenceVideoStore.setState({ unitsByEpisode: {}, selectedUnitId: null, loading: false, error: null });
+    useProjectsStore.setState({ currentProjectName: "proj", currentProjectData: STUB_PROJECT });
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -47,6 +60,17 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Generate video|生成视频/ })).toBeInTheDocument();
     });
+  });
+
+  it("renders the ReferenceVideoCard textarea when a unit is selected", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1")],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => expect(screen.getByText("E1U1")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("unit-row-E1U1"));
+    const ta = await screen.findByRole("textbox");
+    expect((ta as HTMLTextAreaElement).value).toContain("Shot 1 (3s): x");
   });
 
   it("adds a new unit via the store when the button is clicked", async () => {
