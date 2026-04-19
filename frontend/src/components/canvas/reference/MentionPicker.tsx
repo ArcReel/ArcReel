@@ -22,6 +22,7 @@ interface FlatItem {
   type: AssetKind;
   name: string;
   imagePath: string | null;
+  globalIndex: number;
 }
 
 const GROUP_ORDER: AssetKind[] = ["character", "scene", "prop"];
@@ -49,13 +50,24 @@ export function MentionPicker({
 
   const flat: FlatItem[] = useMemo(() => {
     const out: FlatItem[] = [];
+    let idx = 0;
     for (const kind of GROUP_ORDER) {
       for (const item of filtered[kind]) {
-        out.push({ type: kind, name: item.name, imagePath: item.imagePath });
+        out.push({ type: kind, name: item.name, imagePath: item.imagePath, globalIndex: idx });
+        idx += 1;
       }
     }
     return out;
   }, [filtered]);
+
+  // Map "<kind>:<name>" -> globalIndex for O(1) lookup during render.
+  const indexByKey = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const f of flat) {
+      m.set(`${f.type}:${f.name}`, f.globalIndex);
+    }
+    return m;
+  }, [flat]);
 
   // Eagerly clamp active index so keystrokes during render shrinkage never land
   // on an undefined item (e.g. parent shortens the candidates list on the same
@@ -125,7 +137,7 @@ export function MentionPicker({
                 {t(`reference_picker_group_${kind}`)}
               </div>
               {items.map((item) => {
-                const globalIndex = flat.findIndex((f) => f.type === kind && f.name === item.name);
+                const globalIndex = indexByKey.get(`${kind}:${item.name}`) ?? -1;
                 const active = globalIndex === clampedActive;
                 return (
                   <button

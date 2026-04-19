@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   DndContext,
@@ -101,34 +101,44 @@ export function ReferencePanel({
 }: ReferencePanelProps) {
   const { t } = useTranslation("dashboard");
   const [pickerOpen, setPickerOpen] = useState(false);
-  const project = useProjectsStore((s) => s.currentProjectData);
+  // Fine-grained subscriptions: depend on the specific slices we actually read,
+  // so unrelated changes to currentProjectData don't force candidates to rebuild.
+  const characters = useProjectsStore((s) => s.currentProjectData?.characters);
+  const scenes = useProjectsStore((s) => s.currentProjectData?.scenes);
+  const props = useProjectsStore((s) => s.currentProjectData?.props);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const existingKeys = new Set(references.map((r) => `${r.type}:${r.name}`));
+  const existingKeys = useMemo(
+    () => new Set(references.map((r) => `${r.type}:${r.name}`)),
+    [references],
+  );
 
-  const candidates: Record<AssetKind, MentionCandidate[]> = {
-    character: Object.entries(project?.characters ?? {})
-      .filter(([name]) => !existingKeys.has(`character:${name}`))
-      .map(([name, data]) => ({
-        name,
-        imagePath: (data as { character_sheet?: string }).character_sheet ?? null,
-      })),
-    scene: Object.entries(project?.scenes ?? {})
-      .filter(([name]) => !existingKeys.has(`scene:${name}`))
-      .map(([name, data]) => ({
-        name,
-        imagePath: (data as { scene_sheet?: string }).scene_sheet ?? null,
-      })),
-    prop: Object.entries(project?.props ?? {})
-      .filter(([name]) => !existingKeys.has(`prop:${name}`))
-      .map(([name, data]) => ({
-        name,
-        imagePath: (data as { prop_sheet?: string }).prop_sheet ?? null,
-      })),
-  };
+  const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(
+    () => ({
+      character: Object.entries(characters ?? {})
+        .filter(([name]) => !existingKeys.has(`character:${name}`))
+        .map(([name, data]) => ({
+          name,
+          imagePath: (data as { character_sheet?: string }).character_sheet ?? null,
+        })),
+      scene: Object.entries(scenes ?? {})
+        .filter(([name]) => !existingKeys.has(`scene:${name}`))
+        .map(([name, data]) => ({
+          name,
+          imagePath: (data as { scene_sheet?: string }).scene_sheet ?? null,
+        })),
+      prop: Object.entries(props ?? {})
+        .filter(([name]) => !existingKeys.has(`prop:${name}`))
+        .map(([name, data]) => ({
+          name,
+          imagePath: (data as { prop_sheet?: string }).prop_sheet ?? null,
+        })),
+    }),
+    [existingKeys, characters, scenes, props],
+  );
 
   const handleAddClick = () => setPickerOpen((v) => !v);
 
