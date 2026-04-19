@@ -18,6 +18,11 @@ from lib.prompt_builders_script import (
     build_drama_prompt,
     build_narration_prompt,
 )
+from lib.reference_video.limits import (
+    DEFAULT_MAX_REFS,
+    PROVIDER_MAX_REFS,
+    normalize_provider_id,
+)
 from lib.script_models import (
     DramaEpisodeScript,
     NarrationEpisodeScript,
@@ -243,23 +248,11 @@ class ScriptGenerator:
         return "9:16" if self.content_mode == "narration" else "16:9"
 
     def _resolve_max_refs(self) -> int:
-        """从 video_backend registry 解析最大参考图数。缺省按 provider 粗粒度兜底。"""
-        video_backend = self.project_json.get("video_backend")
-        if video_backend and isinstance(video_backend, str) and "/" in video_backend:
-            provider_id, model_id = video_backend.split("/", 1)
-            provider_meta = PROVIDER_REGISTRY.get(provider_id)
-            if provider_meta:
-                model_info = provider_meta.models.get(model_id)
-                max_refs = getattr(model_info, "max_reference_images", None) if model_info else None
-                if isinstance(max_refs, int) and max_refs > 0:
-                    return max_refs
-        # Provider-ID normalization: PROVIDER_REGISTRY uses "gemini-aistudio" / "gemini-vertex",
-        # but _PROVIDER_LIMITS in server/services/reference_video_tasks.py keys by backend.name
-        # ("gemini"). Fold all gemini variants to "gemini" to match.
-        raw_provider = (video_backend or "").split("/", 1)[0].lower() if video_backend else ""
-        provider_id = "gemini" if raw_provider.startswith("gemini") else raw_provider
-        # 与 server/services/reference_video_tasks.py._PROVIDER_LIMITS 对齐
-        return {"gemini": 3, "openai": 1, "grok": 7, "ark": 9}.get(provider_id, 9)
+        """按 provider 粗粒度解析最大参考图数。数值来源：`lib.reference_video.limits`。"""
+        video_backend = self.project_json.get("video_backend") or ""
+        raw_provider = video_backend.split("/", 1)[0] if "/" in video_backend else ""
+        provider_id = normalize_provider_id(raw_provider)
+        return PROVIDER_MAX_REFS.get(provider_id, DEFAULT_MAX_REFS)
 
     def _load_project_json(self) -> dict:
         """加载 project.json"""

@@ -17,6 +17,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.image_utils import compress_image_bytes
 from lib.reference_video import render_prompt_for_backend
 from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
+from lib.reference_video.limits import PROVIDER_MAX_DURATION, PROVIDER_MAX_REFS
 from lib.script_models import ReferenceResource
 from lib.thumbnail import extract_video_thumbnail
 from server.services.generation_tasks import get_media_generator, get_project_manager
@@ -59,13 +60,14 @@ def _resolve_unit_references(
     return resolved
 
 
-# 供应商能力上限（与 Spec §附录B + PROVIDER_REGISTRY 对齐）
+# 供应商能力上限（数值来源：lib/reference_video/limits.py 单一真相源）。
+# 这里保留 (provider, model_prefix) 粒度是因为同一 provider 不同模型上限一致，
+# 单键即可命中；若未来出现 provider 内差异，再扩展 model_prefix。
 _PROVIDER_LIMITS: dict[tuple[str, str | None], dict[str, int]] = {
-    # (provider, model_prefix) → limits；None 代表同 provider 所有模型共享
-    ("gemini", "veo"): {"max_refs": 3, "max_duration": 8},
-    ("openai", "sora"): {"max_refs": 1, "max_duration": 12},
-    ("grok", None): {"max_refs": 7, "max_duration": 15},
-    ("ark", None): {"max_refs": 9, "max_duration": 15},
+    ("gemini", "veo"): {"max_refs": PROVIDER_MAX_REFS["gemini"], "max_duration": PROVIDER_MAX_DURATION["gemini"]},
+    ("openai", "sora"): {"max_refs": PROVIDER_MAX_REFS["openai"], "max_duration": PROVIDER_MAX_DURATION["openai"]},
+    ("grok", None): {"max_refs": PROVIDER_MAX_REFS["grok"], "max_duration": PROVIDER_MAX_DURATION["grok"]},
+    ("ark", None): {"max_refs": PROVIDER_MAX_REFS["ark"], "max_duration": PROVIDER_MAX_DURATION["ark"]},
 }
 
 

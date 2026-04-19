@@ -55,25 +55,22 @@ def main():
     pm, project_name = ProjectManager.from_cwd()
     project_path = pm.get_project_path(project_name)
 
-    # 识别 generation_mode（项目 + 集级）
+    # 识别 generation_mode（项目 + 集级），由 lib.project_manager.effective_mode 统一解析
     import json as _json
 
-    project_json_path = project_path / "project.json"
-    content_mode = "narration"
-    generation_mode = "storyboard"
+    from lib.project_manager import effective_mode
+
     project_data: dict = {}
-    if project_json_path.exists():
-        try:
-            project_data = _json.loads(project_json_path.read_text(encoding="utf-8"))
-            content_mode = project_data.get("content_mode", "narration")
-            generation_mode = project_data.get("generation_mode", "storyboard")
-        except Exception:
-            pass  # 读取或解析失败时降级使用默认值
-    # 集级覆盖（Spec §4.6）
-    for ep in project_data.get("episodes") or []:
-        if ep.get("episode") == args.episode and ep.get("generation_mode"):
-            generation_mode = ep["generation_mode"]
-            break
+    try:
+        project_data = _json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+    except (OSError, _json.JSONDecodeError):
+        pass  # project.json 缺失或损坏时降级；ScriptGenerator 会再次尝试并报出精确错误
+    content_mode = project_data.get("content_mode", "narration")
+    episode_dict = next(
+        (ep for ep in (project_data.get("episodes") or []) if ep.get("episode") == args.episode),
+        {},
+    )
+    generation_mode = effective_mode(project=project_data, episode=episode_dict)
 
     drafts_path = project_path / "drafts" / f"episode_{args.episode}"
     if generation_mode == "reference_video":

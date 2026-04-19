@@ -456,9 +456,13 @@ def _generate_reference_episode(
     for idx, unit in enumerate(units):
         unit_id = unit.get("unit_id")
         candidate = output_dir / f"{unit_id}.mp4"
-        if unit_id in completed and candidate.exists():
-            ordered_paths[idx] = candidate
-            already_done.append(unit_id)
+        if unit_id in completed:
+            if candidate.exists():
+                ordered_paths[idx] = candidate
+                already_done.append(unit_id)
+            else:
+                # checkpoint 记录为完成但文件丢失 → 清掉幽灵记录，允许重生成
+                completed.remove(unit_id)
 
     specs, order_map = _build_reference_specs(
         units=units,
@@ -504,7 +508,6 @@ def generate_episode_video(
     """
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
-    project = pm.load_project(project_name)
     script = pm.load_script(project_name, script_filename)
     episode = ProjectManager.resolve_episode_from_script(script, script_filename)
 
@@ -518,10 +521,10 @@ def generate_episode_video(
             resume=resume,
         )
 
+    project = pm.load_project(project_name)
     content_mode = script.get("content_mode", "narration")
     all_items, id_field, _ = get_items_from_script(script)
 
-    # script 文件（episode_N.json）已按集分开存储，场景/片段天然属于本集，无需按 episode 字段过滤
     episode_items = all_items
     if not episode_items:
         raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
@@ -603,13 +606,11 @@ def generate_scene_video(script_filename: str, scene_id: str) -> Path:
     """
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
-    project = pm.load_project(project_name)
 
-    # 加载剧本
+    # 先读 script：reference 模式跳过 narration/drama 才需要的 project 加载
     script = pm.load_script(project_name, script_filename)
 
     if is_reference_video_script(script):
-        # reference 模式暂不支持单 unit 模式，回退到整集生成（skip/checkpoint 会跳过已完成的 unit）
         print(
             f"⚠️  reference_video 模式暂不支持单 unit 精确选择；"
             f"--scene {scene_id} 被忽略，将生成整集中所有未完成的 video_units。"
@@ -623,6 +624,7 @@ def generate_scene_video(script_filename: str, scene_id: str) -> Path:
             resume=False,
         )
 
+    project = pm.load_project(project_name)
     content_mode = script.get("content_mode", "narration")
     all_items, id_field, _ = get_items_from_script(script)
 
@@ -687,9 +689,8 @@ def generate_all_videos(script_filename: str) -> list:
     """
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
-    project = pm.load_project(project_name)
 
-    # 加载剧本
+    # 先读 script：reference 模式跳过 narration/drama 才需要的 project 加载
     script = pm.load_script(project_name, script_filename)
 
     if is_reference_video_script(script):
@@ -703,6 +704,7 @@ def generate_all_videos(script_filename: str) -> list:
             resume=False,
         )
 
+    project = pm.load_project(project_name)
     content_mode = script.get("content_mode", "narration")
     all_items, id_field, _ = get_items_from_script(script)
 
@@ -780,7 +782,6 @@ def generate_selected_videos(
 
     pm, project_name = ProjectManager.from_cwd()
     project_dir = pm.get_project_path(project_name)
-    project = pm.load_project(project_name)
     script = pm.load_script(project_name, script_filename)
 
     if is_reference_video_script(script):
@@ -797,10 +798,10 @@ def generate_selected_videos(
             resume=resume,
         )
 
+    project = pm.load_project(project_name)
     content_mode = script.get("content_mode", "narration")
     all_items, id_field, _ = get_items_from_script(script)
 
-    # 筛选指定的场景
     items_by_id = {}
     for item in all_items:
         items_by_id[item.get(id_field, "")] = item
