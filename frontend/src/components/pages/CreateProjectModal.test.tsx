@@ -139,7 +139,7 @@ describe("CreateProjectModal", () => {
         title: "demo",
         content_mode: "narration",
         aspect_ratio: "9:16",
-        generation_mode: "single",
+        generation_mode: "storyboard",
         style_template_id: "live_premium_drama",
         video_backend: null,
         image_backend: null,

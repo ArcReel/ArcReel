@@ -142,7 +142,7 @@ export interface CreateProjectPayload {
   name?: string;
   content_mode?: "narration" | "drama";
   aspect_ratio?: "9:16" | "16:9";
-  generation_mode?: "single" | "grid";
+  generation_mode?: "storyboard" | "grid" | "reference_video";
   default_duration?: number | null;
   style_template_id?: string | null;
   video_backend?: string | null;

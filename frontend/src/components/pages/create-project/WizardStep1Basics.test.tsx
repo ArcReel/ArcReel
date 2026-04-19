@@ -7,7 +7,7 @@ const baseValue = {
   title: "",
   contentMode: "narration" as const,
   aspectRatio: "9:16" as const,
-  generationMode: "single" as const,
+  generationMode: "storyboard" as const,
 };
 
 describe("WizardStep1Basics", () => {
@@ -93,8 +93,8 @@ describe("WizardStep1Basics", () => {
         onCancel={() => {}}
       />,
     );
-    // click 宫格生成
-    fireEvent.click(screen.getByText(/宫格生成/));
+    // click 宫格生视频 / Grid-to-Video
+    fireEvent.click(screen.getByText(/Grid-to-Video|宫格生视频/));
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ generationMode: "grid" }),
     );
@@ -156,5 +156,19 @@ describe("WizardStep1Basics", () => {
     expect(
       screen.getByText(/系统会自动生成内部项目标识/),
     ).toBeInTheDocument();
+  });
+
+  it("switches generation mode to reference_video", () => {
+    const onChange = vi.fn();
+    render(
+      <WizardStep1Basics
+        value={{ title: "t", contentMode: "narration", aspectRatio: "9:16", generationMode: "storyboard" }}
+        onChange={onChange}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("radio", { name: /Reference-to-Video|参考生视频/ }));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ generationMode: "reference_video" }));
   });
 });

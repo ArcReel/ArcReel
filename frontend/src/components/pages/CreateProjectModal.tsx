@@ -81,7 +81,7 @@ export function CreateProjectModal() {
     title: "",
     contentMode: "narration",
     aspectRatio: "9:16",
-    generationMode: "single",
+    generationMode: "storyboard",
   });
 
   const [models, setModels] = useState<ModelConfigValue>({

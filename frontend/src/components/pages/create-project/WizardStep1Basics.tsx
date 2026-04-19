@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
+import type { GenerationMode } from "@/utils/generation-mode";
 
 export interface WizardStep1Value {
   title: string;
   contentMode: "narration" | "drama";
   aspectRatio: "9:16" | "16:9";
-  generationMode: "single" | "grid";
+  generationMode: GenerationMode;
 }
 
 export interface WizardStep1BasicsProps {
@@ -135,33 +137,10 @@ export function WizardStep1Basics({
         <label className="block text-sm font-medium text-gray-400 mb-0.5">
           {t("dashboard:generation_mode")}
         </label>
-        <p className="text-xs text-gray-600 mb-1.5">
-          {t("dashboard:generation_mode_desc")}
-        </p>
-        <div className="flex gap-3" role="radiogroup" aria-label={t("dashboard:generation_mode")}>
-          <label className={radioClass(value.generationMode === "single")}>
-            <input
-              type="radio"
-              name="generationMode"
-              value="single"
-              checked={value.generationMode === "single"}
-              onChange={() => onChange({ ...value, generationMode: "single" })}
-              className="sr-only"
-            />
-            {t("dashboard:single_generation")}
-          </label>
-          <label className={radioClass(value.generationMode === "grid")}>
-            <input
-              type="radio"
-              name="generationMode"
-              value="grid"
-              checked={value.generationMode === "grid"}
-              onChange={() => onChange({ ...value, generationMode: "grid" })}
-              className="sr-only"
-            />
-            {t("dashboard:grid_generation")}
-          </label>
-        </div>
+        <GenerationModeSelector
+          value={value.generationMode}
+          onChange={(next) => onChange({ ...value, generationMode: next })}
+        />
       </div>
 
       {/* Footer */}
