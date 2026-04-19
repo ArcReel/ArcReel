@@ -30,7 +30,7 @@ export function UnitPreviewPanel({ unit, projectName, onGenerate, generating }: 
     <div className="flex h-full flex-col gap-3 p-3">
       <div className="aspect-video w-full overflow-hidden rounded-lg border border-gray-800 bg-black">
         {videoUrl ? (
-          <video src={videoUrl} controls className="h-full w-full object-contain" />
+          <video src={videoUrl} controls className="h-full w-full object-contain" aria-label={unit.unit_id} />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-gray-600">
             {t("reference_preview_empty")}
@@ -39,13 +39,13 @@ export function UnitPreviewPanel({ unit, projectName, onGenerate, generating }: 
       </div>
 
       <dl className="grid grid-cols-2 gap-1 text-xs text-gray-500">
-        <dt>Unit</dt>
+        <dt>{t("reference_meta_unit")}</dt>
         <dd className="font-mono text-gray-300">{unit.unit_id}</dd>
-        <dt>Duration</dt>
+        <dt>{t("reference_meta_duration")}</dt>
         <dd className="tabular-nums text-gray-300">{unit.duration_seconds}s</dd>
-        <dt>Shots</dt>
+        <dt>{t("reference_meta_shots")}</dt>
         <dd className="text-gray-300">{unit.shots.length}</dd>
-        <dt>References</dt>
+        <dt>{t("reference_meta_references")}</dt>
         <dd className="text-gray-300">{unit.references.length}</dd>
       </dl>
 
