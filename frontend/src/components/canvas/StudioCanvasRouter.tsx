@@ -356,14 +356,8 @@ export function StudioCanvasRouter() {
 
   const handleEpisodeModeChange = useCallback(
     async (epNum: number, next: GenerationMode) => {
-      if (!currentProjectName || !currentProjectData) return;
-      // Send minimal patch shape: only episode + the changed field.
-      // Casting to EpisodeMeta[] because the backend whitelist accepts partial dicts;
-      // sending the full enriched object would persist StatusCalculator-computed fields.
-      const episodes = (currentProjectData.episodes ?? []).map((e) => ({
-        episode: e.episode,
-        ...(e.episode === epNum ? { generation_mode: next } : {}),
-      })) as import("@/types/project").EpisodeMeta[];
+      if (!currentProjectName) return;
+      const episodes = [{ episode: epNum, generation_mode: next }] as import("@/types/project").EpisodeMeta[];
       try {
         await API.updateProject(currentProjectName, { episodes });
         await refreshProject();
@@ -374,7 +368,7 @@ export function StudioCanvasRouter() {
         );
       }
     },
-    [currentProjectName, currentProjectData, refreshProject],
+    [currentProjectName, refreshProject],
   );
 
   const handleGenerateCharacterVoid = useCallback((...args: Parameters<typeof handleGenerateCharacter>) => {
