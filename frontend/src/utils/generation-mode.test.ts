@@ -32,4 +32,8 @@ describe("effectiveMode", () => {
     expect(effectiveMode({ generation_mode: "single" }, {})).toBe("storyboard");
     expect(effectiveMode({}, { generation_mode: "single" })).toBe("storyboard");
   });
+  it("returns 'storyboard' when both arguments are null or undefined", () => {
+    expect(effectiveMode(null, null)).toBe("storyboard");
+    expect(effectiveMode(undefined, undefined)).toBe("storyboard");
+  });
 });
