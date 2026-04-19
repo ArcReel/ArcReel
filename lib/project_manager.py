@@ -1251,52 +1251,75 @@ class ProjectManager:
     # 100% 兼容旧调用方。
 
     def _add_asset(self, asset_type: str, project_name: str, name: str, entry: dict) -> bool:
-        """新增 entry 到 project[bucket][name]。冲突时返回 False。"""
+        """新增 entry 到 project[bucket][name]。冲突时返回 False。
+
+        通过 update_project 在单一文件锁内完成 read-modify-write，避免并发新增时的
+        lost-update 竞态。
+        """
         spec = ASSET_SPECS[asset_type]
-        project = self.load_project(project_name)
-        bucket = project.setdefault(spec.bucket_key, {})
-        if name in bucket:
-            logger.debug("%s '%s' 已存在于 project.json，跳过", spec.label_zh, name)
-            return False
-        bucket[name] = entry
-        self.save_project(project_name, project)
-        logger.info("添加%s: %s", spec.label_zh, name)
-        return True
+        added = False
+
+        def _mutate(project):
+            nonlocal added
+            bucket = project.setdefault(spec.bucket_key, {})
+            if name in bucket:
+                logger.debug("%s '%s' 已存在于 project.json，跳过", spec.label_zh, name)
+                return
+            bucket[name] = entry
+            added = True
+
+        self.update_project(project_name, _mutate)
+        if added:
+            logger.info("添加%s: %s", spec.label_zh, name)
+        return added
 
     def _add_assets_batch(self, asset_type: str, project_name: str, entries: dict[str, dict]) -> int:
-        """批量新增 entries。已存在的 name 跳过，返回新增数量。"""
+        """批量新增 entries。已存在的 name 跳过，返回新增数量。
+
+        通过 update_project 在单一文件锁内完成 read-modify-write，避免并发批量新增时
+        的 lost-update 竞态。
+        """
         spec = ASSET_SPECS[asset_type]
-        project = self.load_project(project_name)
-        bucket = project.setdefault(spec.bucket_key, {})
         added = 0
-        for name, entry in entries.items():
-            if name in bucket:
-                logger.debug("%s '%s' 已存在，跳过", spec.label_zh, name)
-                continue
-            bucket[name] = entry
-            added += 1
-            logger.info("添加%s: %s", spec.label_zh, name)
-        if added > 0:
-            self.save_project(project_name, project)
+
+        def _mutate(project):
+            nonlocal added
+            bucket = project.setdefault(spec.bucket_key, {})
+            for name, entry in entries.items():
+                if name in bucket:
+                    logger.debug("%s '%s' 已存在，跳过", spec.label_zh, name)
+                    continue
+                bucket[name] = entry
+                added += 1
+                logger.info("添加%s: %s", spec.label_zh, name)
+
+        if entries:
+            self.update_project(project_name, _mutate)
         return added
 
     def _update_asset_sheet(self, asset_type: str, project_name: str, name: str, sheet_path: str) -> dict:
-        """更新资产 sheet 字段路径。资产不存在抛 KeyError。"""
+        """更新资产 sheet 字段路径。资产不存在抛 KeyError。
+
+        通过 update_project 在单一文件锁内完成 read-modify-write，避免与并发 add /
+        update 任务的 lost-update 竞态。
+        """
         spec = ASSET_SPECS[asset_type]
-        project = self.load_project(project_name)
-        bucket = project.get(spec.bucket_key) or {}
-        if name not in bucket:
-            raise KeyError(f"{spec.label_zh} '{name}' 不存在")
-        bucket[name][spec.sheet_field] = sheet_path
-        self.save_project(project_name, project)
-        return project
+
+        def _mutate(project):
+            bucket = project.get(spec.bucket_key)
+            if bucket is None or name not in bucket:
+                raise KeyError(f"{spec.label_zh} '{name}' 不存在")
+            bucket[name][spec.sheet_field] = sheet_path
+
+        self.update_project(project_name, _mutate)
+        return self.load_project(project_name)
 
     def _get_asset(self, asset_type: str, project_name: str, name: str) -> dict:
         """获取资产定义。不存在抛 KeyError。"""
         spec = ASSET_SPECS[asset_type]
         project = self.load_project(project_name)
-        bucket = project.get(spec.bucket_key) or {}
-        if name not in bucket:
+        bucket = project.get(spec.bucket_key)
+        if bucket is None or name not in bucket:
             raise KeyError(f"{spec.label_zh} '{name}' 不存在")
         return bucket[name]
 
@@ -1422,41 +1445,39 @@ class ProjectManager:
 
     # ==================== 角色/场景/道具直接写入工具 ====================
 
+    @staticmethod
+    def _build_asset_entry(asset_type: str, description: str, source: dict | None = None) -> dict:
+        """按 ASSET_SPECS 构造 entry：description + sheet 字段为空 + extra 字段从 source 取或默认 ''。
+
+        source 为 None 时（add_character 等单条新增），仅写入 spec 中声明的 extra 字段
+        默认空串；source 提供时（batch 新增），同时允许覆盖 sheet 字段。
+        """
+        spec = ASSET_SPECS[asset_type]
+        data = source or {}
+        entry: dict = {"description": description, spec.sheet_field: data.get(spec.sheet_field, "")}
+        for field in spec.extra_string_fields:
+            entry[field] = data.get(field, "")
+        return entry
+
     def add_character(self, project_name: str, name: str, description: str, voice_style: str = "") -> bool:
         """直接添加角色到 project.json。已存在返回 False。"""
-        return self._add_asset(
-            "character",
-            project_name,
-            name,
-            {"description": description, "character_sheet": "", "voice_style": voice_style},
-        )
+        entry = self._build_asset_entry("character", description, {"voice_style": voice_style})
+        return self._add_asset("character", project_name, name, entry)
 
     def add_project_scene(self, project_name: str, name: str, description: str) -> bool:
         """直接添加场景到 project.json。已存在返回 False。"""
-        return self._add_asset(
-            "scene",
-            project_name,
-            name,
-            {"description": description, "scene_sheet": ""},
-        )
+        entry = self._build_asset_entry("scene", description)
+        return self._add_asset("scene", project_name, name, entry)
 
     def add_prop(self, project_name: str, name: str, description: str) -> bool:
         """直接添加道具到 project.json。已存在返回 False。"""
-        return self._add_asset(
-            "prop",
-            project_name,
-            name,
-            {"description": description, "prop_sheet": ""},
-        )
+        entry = self._build_asset_entry("prop", description)
+        return self._add_asset("prop", project_name, name, entry)
 
     def add_characters_batch(self, project_name: str, characters: dict[str, dict]) -> int:
         """批量添加角色到 project.json。已存在的跳过，返回新增数量。"""
         entries = {
-            name: {
-                "description": data.get("description", ""),
-                "character_sheet": data.get("character_sheet", ""),
-                "voice_style": data.get("voice_style", ""),
-            }
+            name: self._build_asset_entry("character", data.get("description", ""), data)
             for name, data in characters.items()
         }
         return self._add_assets_batch("character", project_name, entries)
@@ -1464,22 +1485,14 @@ class ProjectManager:
     def add_scenes_batch(self, project_name: str, scenes: dict[str, dict]) -> int:
         """批量添加场景到 project.json。已存在的跳过，返回新增数量。"""
         entries = {
-            name: {
-                "description": data.get("description", ""),
-                "scene_sheet": data.get("scene_sheet", ""),
-            }
-            for name, data in scenes.items()
+            name: self._build_asset_entry("scene", data.get("description", ""), data) for name, data in scenes.items()
         }
         return self._add_assets_batch("scene", project_name, entries)
 
     def add_props_batch(self, project_name: str, props: dict[str, dict]) -> int:
         """批量添加道具到 project.json。已存在的跳过，返回新增数量。"""
         entries = {
-            name: {
-                "description": data.get("description", ""),
-                "prop_sheet": data.get("prop_sheet", ""),
-            }
-            for name, data in props.items()
+            name: self._build_asset_entry("prop", data.get("description", ""), data) for name, data in props.items()
         }
         return self._add_assets_batch("prop", project_name, entries)
 

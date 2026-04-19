@@ -115,6 +115,14 @@ def build_asset_router(
         _user: CurrentUser,
         _t: Translator,
     ):
+        # 写入前对所有可写字段做字符串校验。req 是 dict[str, Any]，若客户端传入对象 /
+        # 数组会污染 project.json 并在下游 (例如 execute_character_task 拼接 reference_image
+        # 路径) 引发 TypeError。422 在边界拦截。
+        for field in update_fields:
+            value = req.get(field)
+            if value is not None and not isinstance(value, str):
+                raise HTTPException(status_code=422, detail=f"field '{field}' must be a string")
+
         try:
 
             def _sync():

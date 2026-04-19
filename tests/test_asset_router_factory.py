@@ -100,6 +100,23 @@ class TestAssetRouterFactory:
             assert entry["voice_style"] == "strong"
             assert entry["reference_image"] == "characters/refs/Alice.png"
 
+    def test_character_patch_rejects_non_string_value(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Alice"] = {
+            "description": "old",
+            "character_sheet": "",
+            "voice_style": "",
+            "reference_image": "",
+        }
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/demo/characters/Alice",
+                json={"reference_image": {"foo": "bar"}},
+            )
+            assert resp.status_code == 422
+            # entry 未被污染
+            assert fake_pm.projects["demo"]["characters"]["Alice"]["reference_image"] == ""
+
     def test_unknown_asset_type_raises(self):
         from server.routers._asset_router_factory import build_asset_router
 
