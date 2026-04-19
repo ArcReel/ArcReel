@@ -26,12 +26,16 @@ class StatusCalculator:
     @classmethod
     def _select_content_mode_and_items(cls, script: dict) -> tuple[str, list[dict]]:
         content_mode = script.get("content_mode")
+        if content_mode == "reference_video" and isinstance(script.get("video_units"), list):
+            return "reference_video", script.get("video_units", [])
         if content_mode in {"narration", "drama"}:
             if content_mode == "narration" and isinstance(script.get("segments"), list):
                 return "narration", script.get("segments", [])
             if content_mode == "drama" and isinstance(script.get("scenes"), list):
                 return "drama", script.get("scenes", [])
 
+        if isinstance(script.get("video_units"), list):
+            return "reference_video", script.get("video_units", [])
         if isinstance(script.get("segments"), list):
             return "narration", script.get("segments", [])
         if isinstance(script.get("scenes"), list):
@@ -40,25 +44,17 @@ class StatusCalculator:
         return ("narration" if content_mode not in {"narration", "drama"} else content_mode), []
 
     def calculate_episode_stats(self, project_name: str, script: dict) -> dict:
-        """
-        计算单个剧集的统计信息
-
-        Args:
-            project_name: 项目名称
-            script: 剧本数据
-
-        Returns:
-            统计信息字典
-        """
+        """计算单集的统计信息 — 按 content_mode 分派。"""
         content_mode, items = self._select_content_mode_and_items(script)
-        default_duration = 4 if content_mode == "narration" else 8
 
-        # 统计资源完成情况
+        if content_mode == "reference_video":
+            return self._calculate_reference_video_stats(items)
+
+        default_duration = 4 if content_mode == "narration" else 8
         storyboard_done = sum(1 for i in items if i.get("generated_assets", {}).get("storyboard_image"))
         video_done = sum(1 for i in items if i.get("generated_assets", {}).get("video_clip"))
         total = len(items)
 
-        # 计算状态
         if video_done == total and total > 0:
             status = "completed"
         elif storyboard_done > 0 or video_done > 0:
@@ -71,6 +67,30 @@ class StatusCalculator:
             "status": status,
             "duration_seconds": sum(i.get("duration_seconds", default_duration) for i in items),
             "storyboards": {"total": total, "completed": storyboard_done},
+            "videos": {"total": total, "completed": video_done},
+        }
+
+    @staticmethod
+    def _calculate_reference_video_stats(units: list[dict]) -> dict:
+        """Reference-video scripts are scored by video_units[].generated_assets.video_clip."""
+        total = len(units)
+        video_done = sum(1 for u in units if u.get("generated_assets", {}).get("video_clip"))
+
+        if total == 0:
+            status = "draft"
+        elif video_done == total:
+            status = "completed"
+        elif video_done > 0:
+            status = "in_production"
+        else:
+            status = "draft"
+
+        return {
+            "scenes_count": total,
+            "units_count": total,
+            "status": status,
+            "duration_seconds": sum(u.get("duration_seconds", 0) for u in units),
+            "storyboards": {"total": total, "completed": 0},
             "videos": {"total": total, "completed": video_done},
         }
 
