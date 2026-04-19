@@ -11,9 +11,10 @@ user-invocable: false
 ## 前置条件
 
 1. 项目目录下存在 `project.json`（包含 style、overview、characters、scenes、props）
-2. 已完成 Step 1 预处理：
-   - narration：`drafts/episode_N/step1_segments.md`
-   - drama：`drafts/episode_N/step1_normalized_script.md`
+2. 已完成 Step 1 预处理（按 `effective_mode` 选择一种中间文件）：
+   - narration（图生视频/宫格生视频 + 说书）：`drafts/episode_N/step1_segments.md`
+   - drama（图生视频/宫格生视频 + 剧集动画）：`drafts/episode_N/step1_normalized_script.md`
+   - reference_video（参考生视频）：`drafts/episode_N/step1_reference_units.md`
 
 ## 用法
 
@@ -36,7 +37,10 @@ python .claude/skills/generate-script/scripts/generate_script.py --episode {N} -
 2. **加载 Step 1 中间文件** — 根据 content_mode 选择 `step1_segments.md`（narration）或 `step1_normalized_script.md`（drama）
 3. **构建 Prompt** — 将项目概述、风格、角色、场景、道具和中间文件内容组合成完整 prompt
 4. **调用 Gemini API** — 使用 `gemini-3-flash-preview` 模型，传入 Pydantic schema 作为 `response_schema` 约束输出格式
-5. **Pydantic 验证** — 用 `NarrationEpisodeScript`（narration）或 `DramaEpisodeScript`（drama）校验返回 JSON
+5. **Pydantic 验证** — 按 effective_mode 选 schema：
+   - reference_video → `ReferenceVideoScript`（含 `video_units[]`）
+   - narration → `NarrationEpisodeScript`
+   - drama → `DramaEpisodeScript`
 6. **补充元数据** — 写入 episode、content_mode、统计信息（片段/场景数、总时长）、时间戳
 
 ## 输出格式
@@ -46,6 +50,7 @@ python .claude/skills/generate-script/scripts/generate_script.py --episode {N} -
 - `episode`、`content_mode`、`novel`（title、chapter、source_file）
 - narration 模式：`segments` 数组（每个片段包含 visual、novel_text、duration_seconds 等）
 - drama 模式：`scenes` 数组（每个场景包含 visual、dialogue、action、duration_seconds 等）
+- reference_video 模式：`video_units` 数组（每个 unit 含 `shots[]`、`references[]`、`duration_seconds` 等），`metadata.total_units`
 - `metadata`：total_segments/total_scenes、created_at、generator
 - `duration_seconds`：全集总时长（秒）
 
@@ -53,4 +58,4 @@ python .claude/skills/generate-script/scripts/generate_script.py --episode {N} -
 
 打印将发送给 Gemini 的完整 prompt 文本，不调用 API、不写文件。用于检查 prompt 质量和长度。
 
-> 支持的两种模式规格详见 `.claude/references/content-modes.md`。
+> 三种生成模式的数据路径、预处理 subagent、schema 选择详见 `.claude/references/generation-modes.md`。
