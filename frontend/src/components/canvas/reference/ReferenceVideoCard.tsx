@@ -196,7 +196,10 @@ export function ReferenceVideoCard({
           {unit.unit_id}
         </span>
         <span className="tabular-nums text-gray-500">
-          {unit.duration_seconds}s · {unit.shots.length} shot(s)
+          {t("reference_editor_unit_meta", {
+            duration: unit.duration_seconds,
+            count: unit.shots.length,
+          })}
         </span>
       </div>
 

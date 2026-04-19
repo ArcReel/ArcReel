@@ -72,7 +72,7 @@ function Pill({ refItem, index, projectName, onRemove }: PillProps) {
         aria-label={t("reference_panel_drag_aria", { name: refItem.name })}
         className="cursor-grab font-mono text-[10px] text-gray-500 hover:text-gray-300"
       >
-        [图{index + 1}]
+        {t("reference_panel_pill_index", { n: index + 1 })}
       </button>
       {thumbUrl && (
         <img src={thumbUrl} alt="" className="h-5 w-5 rounded object-cover" />
