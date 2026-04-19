@@ -20,7 +20,10 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   const generate = useReferenceVideoStore((s) => s.generate);
   const select = useReferenceVideoStore((s) => s.select);
   const unitsByEpisode = useReferenceVideoStore((s) => s.unitsByEpisode);
-  const units = unitsByEpisode[String(episode)] ?? [];
+  const units = useMemo(
+    () => unitsByEpisode[String(episode)] ?? [],
+    [unitsByEpisode, episode],
+  );
   const selectedUnitId = useReferenceVideoStore((s) => s.selectedUnitId);
   const error = useReferenceVideoStore((s) => s.error);
 

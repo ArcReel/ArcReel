@@ -30,7 +30,8 @@ export function UnitPreviewPanel({ unit, projectName, onGenerate, generating }: 
     <div className="flex h-full flex-col gap-3 p-3">
       <div className="aspect-video w-full overflow-hidden rounded-lg border border-gray-800 bg-black">
         {videoUrl ? (
-          <video src={videoUrl} controls className="h-full w-full object-contain" aria-label={unit.unit_id} />
+          // eslint-disable-next-line jsx-a11y/media-has-caption -- AI-generated video clips have no caption track
+          <video src={videoUrl} aria-label={unit.unit_id} controls className="h-full w-full object-contain" />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-gray-600">
             {t("reference_preview_empty")}
