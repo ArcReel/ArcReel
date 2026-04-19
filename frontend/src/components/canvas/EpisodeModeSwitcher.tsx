@@ -17,14 +17,14 @@ export function EpisodeModeSwitcher({ projectMode, episodeMode, onChange }: Epis
 
   return (
     <div className="flex items-center gap-2 text-xs text-gray-500">
-      <span aria-label={t("episode_mode_switcher_label")}>{t("episode_mode_switcher_label")}:</span>
+      <span>{t("episode_mode_switcher_label")}:</span>
       <GenerationModeSelector
         value={effective}
         onChange={onChange}
         size="sm"
         name="episodeMode"
       />
-      {!episodeMode && (
+      {episodeMode === undefined && (
         <span className="text-gray-600">({t("episode_mode_inherit_from_project")})</span>
       )}
     </div>
