@@ -114,9 +114,6 @@ def test_generate_episode_video_reference_enqueues_reference_tasks(tmp_path, mon
 
     monkeypatch.setattr(gv, "batch_enqueue_and_wait_sync", fake_batch)
 
-    # 让 ordered_paths 检查找到已存在的 mp4（实际 batch 已回报成功）
-    (project_dir / "reference_videos" / "E1U1.mp4").write_bytes(b"stub")
-
     gv.generate_episode_video("episode_1.json")
 
     assert captured == [
@@ -126,3 +123,31 @@ def test_generate_episode_video_reference_enqueues_reference_tasks(tmp_path, mon
             "payload": {"script_file": "episode_1.json"},
         }
     ]
+
+
+def test_generate_episode_video_reference_skips_units_with_existing_mp4(tmp_path, monkeypatch):
+    """第二次运行默认命令：磁盘上已有 {unit_id}.mp4 时应跳过提交且 final 非空。
+
+    回归测试：之前 _build_reference_specs 依赖 generated_assets.video_clip 跳过，
+    但 _generate_reference_episode 仅通过 checkpoint 预填 ordered_paths，导致
+    双重跳过下 final 为空、抛 "没有生成任何 video_unit"。
+    """
+    project_dir, _ = _make_reference_project(tmp_path)
+    monkeypatch.chdir(project_dir)
+
+    # 预放 E1U1.mp4：模拟之前运行已生成过
+    (project_dir / "reference_videos" / "E1U1.mp4").write_bytes(b"stub")
+
+    call_count = {"n": 0}
+
+    def fake_batch(*, project_name, specs, on_success, on_failure):
+        call_count["n"] += 1
+        return [], []
+
+    monkeypatch.setattr(gv, "batch_enqueue_and_wait_sync", fake_batch)
+
+    result = gv.generate_episode_video("episode_1.json")
+
+    assert call_count["n"] == 0, "已存在 mp4 时不应提交任务"
+    assert len(result) == 1, "final 应包含已存在的 unit 路径"
+    assert result[0].name == "E1U1.mp4"

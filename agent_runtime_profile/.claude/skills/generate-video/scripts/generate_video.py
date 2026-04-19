@@ -328,18 +328,19 @@ def _build_reference_specs(
 ) -> tuple[list[BatchTaskSpec], dict[str, int]]:
     """reference_video 模式的 unit → BatchTaskSpec 映射。
 
-    与 storyboard/grid 不同：不需要 storyboard_image；payload 仅传 script_file + unit_id。
-    executor 侧（reference_video_tasks.py）会自己渲染 prompt + 压缩参考图。
+    skip_ids 是唯一的跳过信号（与 narration/drama 的 _build_video_specs 对齐）；
+    "已生成"的判定由 caller（_generate_reference_episode）基于 checkpoint + 文件存在
+    决定，本函数不读 generated_assets.video_clip。
+
+    payload 只含 script_file；executor 侧以 resource_id 为 unit 主键，自行加载
+    unit.references 并渲染 prompt、压缩参考图。
     """
     skip_set = set(skip_ids or [])
     specs: list[BatchTaskSpec] = []
     order_map: dict[str, int] = {}
     for idx, unit in enumerate(units):
-        unit_id = unit.get("unit_id") or f"U{idx}"
+        unit_id = unit["unit_id"]  # Pydantic 已校验必填
         if unit_id in skip_set:
-            continue
-        if (unit.get("generated_assets") or {}).get("video_clip"):
-            print(f"  ✅ {unit_id} 已生成，跳过")
             continue
         if not unit.get("shots"):
             print(f"⚠️  {unit_id} 没有 shots，跳过")
@@ -349,9 +350,7 @@ def _build_reference_specs(
                 task_type="reference_video",
                 media_type="video",
                 resource_id=unit_id,
-                payload={
-                    "script_file": script_filename,
-                },
+                payload={"script_file": script_filename},
                 script_file=script_filename,
             )
         )
@@ -451,18 +450,21 @@ def _generate_reference_episode(
     output_dir = project_dir / "reference_videos"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # 已完成的判定：磁盘上存在 {unit_id}.mp4 即视为 done（与 checkpoint 解耦，
+    # 避免二次运行默认命令时因无 checkpoint 而把已生成的 unit 重做）。
     ordered_paths: list[Path | None] = [None] * len(units)
     already_done: list[str] = []
     for idx, unit in enumerate(units):
-        unit_id = unit.get("unit_id")
+        unit_id = unit["unit_id"]  # Pydantic 已校验必填
         candidate = output_dir / f"{unit_id}.mp4"
-        if unit_id in completed:
-            if candidate.exists():
-                ordered_paths[idx] = candidate
-                already_done.append(unit_id)
-            else:
-                # checkpoint 记录为完成但文件丢失 → 清掉幽灵记录，允许重生成
-                completed.remove(unit_id)
+        if candidate.exists():
+            ordered_paths[idx] = candidate
+            already_done.append(unit_id)
+            if unit_id not in completed:
+                completed.append(unit_id)
+        elif unit_id in completed:
+            # checkpoint 记录为完成但文件丢失 → 清掉幽灵记录，允许重生成
+            completed.remove(unit_id)
 
     specs, order_map = _build_reference_specs(
         units=units,

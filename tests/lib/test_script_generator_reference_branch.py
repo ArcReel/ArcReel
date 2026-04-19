@@ -124,3 +124,42 @@ def test_resolve_max_refs_by_provider(tmp_path: Path, video_backend, expected):
 
     gen = ScriptGenerator(project_dir)
     assert gen._resolve_max_refs() == expected
+
+
+def test_effective_generation_mode_honors_episode_override(tmp_path: Path):
+    """当 project=storyboard 但 episode=reference_video 时，build_prompt 必须走 reference 分支。
+
+    Spec §4.6：`effective_mode(project, episode) = episode.generation_mode or project.generation_mode or "storyboard"`
+    """
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    import json as _j
+
+    (project_dir / "project.json").write_text(
+        _j.dumps(
+            {
+                "title": "t",
+                "content_mode": "narration",
+                "generation_mode": "storyboard",  # 项目级是 storyboard
+                "overview": {"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
+                "style": "s",
+                "style_description": "d",
+                "characters": {"A": {"description": "d"}},
+                "scenes": {},
+                "props": {},
+                "episodes": [
+                    {"episode": 1, "generation_mode": "reference_video"},  # 集级覆盖为 reference
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    drafts = project_dir / "drafts" / "episode_1"
+    drafts.mkdir(parents=True)
+    (drafts / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
+
+    gen = ScriptGenerator(project_dir)
+    prompt = gen.build_prompt(episode=1)
+    # 走 reference 分支
+    assert "video_units" in prompt
+    assert "@名称" in prompt
