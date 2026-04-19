@@ -275,7 +275,7 @@ async def generate_unit(
     _user: CurrentUser,
 ) -> dict[str, Any]:
     _project, script, script_file = _load_episode_script(project_name, episode)
-    _unit = _find_unit(script, unit_id)  # raises 404 if missing
+    _find_unit(script, unit_id)  # raises 404 if missing
 
     queue = get_generation_queue()
     result = await queue.enqueue_task(

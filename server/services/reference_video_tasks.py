@@ -92,19 +92,27 @@ def _compress_references_to_tempfiles(
     调用方须在 finally 里对每个返回 Path 调用 .unlink(missing_ok=True)。
     """
     temp_paths: list[Path] = []
-    for src in source_paths:
-        raw = src.read_bytes()
-        compressed = compress_image_bytes(raw, max_long_edge=long_edge, quality=quality)
-        tmp = tempfile.NamedTemporaryFile(
-            prefix="refvid-",
-            suffix=".jpg",
-            delete=False,
-        )
-        try:
-            tmp.write(compressed)
-        finally:
-            tmp.close()
-        temp_paths.append(Path(tmp.name))
+    try:
+        for src in source_paths:
+            tmp = tempfile.NamedTemporaryFile(
+                prefix="refvid-",
+                suffix=".jpg",
+                delete=False,
+            )
+            tmp_path = Path(tmp.name)
+            temp_paths.append(tmp_path)
+            try:
+                raw = src.read_bytes()
+                compressed = compress_image_bytes(raw, max_long_edge=long_edge, quality=quality)
+                tmp.write(compressed)
+            finally:
+                tmp.close()
+    except Exception:
+        # 任何阶段失败都立刻清理已创建的 temp files，避免磁盘泄露
+        for p in temp_paths:
+            with contextlib.suppress(Exception):
+                p.unlink(missing_ok=True)
+        raise
     return temp_paths
 
 
@@ -284,9 +292,14 @@ async def execute_reference_video_task(
 
     await asyncio.to_thread(_update_unit_assets)
 
-    created_at = await asyncio.to_thread(
-        lambda: generator.versions.get_versions("reference_videos", resource_id)["versions"][-1]["created_at"]
-    )
+    def _latest_created_at() -> str | None:
+        history = generator.versions.get_versions("reference_videos", resource_id) or {}
+        versions = history.get("versions") or []
+        if not versions:
+            return None
+        return versions[-1].get("created_at")
+
+    created_at = await asyncio.to_thread(_latest_created_at)
 
     return {
         "version": version,
