@@ -15,13 +15,13 @@ class _FakePM:
             }
         }
 
-    def add_prop(self, project_name, name, description):
+    def _add_asset(self, asset_type, project_name, name, entry):
         if project_name not in self.projects:
             raise FileNotFoundError(project_name)
-        props_dict = self.projects[project_name].setdefault("props", {})
-        if name in props_dict:
+        bucket = self.projects[project_name].setdefault("props", {})
+        if name in bucket:
             return False
-        props_dict[name] = {"description": description, "prop_sheet": ""}
+        bucket[name] = entry
         return True
 
     def load_project(self, project_name):

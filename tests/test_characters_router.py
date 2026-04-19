@@ -20,14 +20,14 @@ class _FakePM:
             }
         }
 
-    def add_project_character(self, project_name, name, description, voice_style):
+    def _add_asset(self, asset_type, project_name, name, entry):
         if project_name not in self.projects:
             raise FileNotFoundError(project_name)
-        self.projects[project_name]["characters"][name] = {
-            "description": description,
-            "voice_style": voice_style,
-        }
-        return self.projects[project_name]
+        bucket = self.projects[project_name].setdefault("characters", {})
+        if name in bucket:
+            return False
+        bucket[name] = entry
+        return True
 
     def load_project(self, project_name):
         if project_name not in self.projects:

@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from lib import PROJECT_ROOT
+from lib.asset_types import ASSET_SPECS
 from lib.generation_queue import get_generation_queue
 from lib.i18n import Translator
 from lib.project_manager import ProjectManager
@@ -246,7 +247,54 @@ async def generate_video(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ==================== 角色设计图生成 ====================
+# ==================== 资产设计图生成（character / scene / prop 共用） ====================
+
+
+# i18n key 命名差异：scene 用历史前缀 "project_scene_*"
+_ASSET_GENERATE_I18N: dict[str, dict[str, str]] = {
+    "character": {"not_found": "character_not_found", "submitted": "character_task_submitted"},
+    "scene": {"not_found": "project_scene_not_found", "submitted": "scene_task_submitted"},
+    "prop": {"not_found": "prop_not_found", "submitted": "prop_task_submitted"},
+}
+
+
+async def _enqueue_asset_generation(
+    *,
+    asset_type: str,
+    project_name: str,
+    resource_name: str,
+    prompt: str,
+    user_id: str,
+    _t: Translator,
+) -> dict:
+    """三类资产（character / scene / prop）设计图生成共用入队逻辑。"""
+    spec = ASSET_SPECS[asset_type]
+    keys = _ASSET_GENERATE_I18N[asset_type]
+
+    def _sync():
+        project = get_project_manager().load_project(project_name)
+        if resource_name not in project.get(spec.bucket_key, {}):
+            raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=resource_name))
+        return _snapshot_image_backend(project_name)
+
+    image_snapshot = await asyncio.to_thread(_sync)
+
+    queue = get_generation_queue()
+    result = await queue.enqueue_task(
+        project_name=project_name,
+        task_type=asset_type,
+        media_type="image",
+        resource_id=resource_name,
+        payload={"prompt": prompt, **image_snapshot},
+        source="webui",
+        user_id=user_id,
+    )
+
+    return {
+        "success": True,
+        "task_id": result["task_id"],
+        "message": _t(keys["submitted"], name=resource_name),
+    }
 
 
 @router.post("/projects/{project_name}/generate/character/{char_name}")
@@ -257,40 +305,16 @@ async def generate_character(
     _user: CurrentUser,
     _t: Translator,
 ):
-    """
-    提交角色设计图生成任务到队列，立即返回 task_id。
-    """
+    """提交角色设计图生成任务到队列，立即返回 task_id。"""
     try:
-
-        def _sync():
-            project = get_project_manager().load_project(project_name)
-            if char_name not in project.get("characters", {}):
-                raise HTTPException(status_code=404, detail=_t("character_not_found", char_name=char_name))
-            return _snapshot_image_backend(project_name)
-
-        image_snapshot = await asyncio.to_thread(_sync)
-
-        # 入队
-        queue = get_generation_queue()
-        result = await queue.enqueue_task(
+        return await _enqueue_asset_generation(
+            asset_type="character",
             project_name=project_name,
-            task_type="character",
-            media_type="image",
-            resource_id=char_name,
-            payload={
-                "prompt": req.prompt,
-                **image_snapshot,
-            },
-            source="webui",
+            resource_name=char_name,
+            prompt=req.prompt,
             user_id=_user.id,
+            _t=_t,
         )
-
-        return {
-            "success": True,
-            "task_id": result["task_id"],
-            "message": _t("character_task_submitted", char_name=char_name),
-        }
-
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
@@ -298,9 +322,6 @@ async def generate_character(
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ==================== 场景设计图生成 ====================
 
 
 @router.post("/projects/{project_name}/generate/scene/{scene_name}")
@@ -313,32 +334,14 @@ async def generate_scene(
 ):
     """提交场景设计图生成任务到队列，立即返回 task_id。"""
     try:
-
-        def _sync():
-            project = get_project_manager().load_project(project_name)
-            if scene_name not in project.get("scenes", {}):
-                raise HTTPException(status_code=404, detail=_t("project_scene_not_found", name=scene_name))
-            return _snapshot_image_backend(project_name)
-
-        image_snapshot = await asyncio.to_thread(_sync)
-
-        queue = get_generation_queue()
-        result = await queue.enqueue_task(
+        return await _enqueue_asset_generation(
+            asset_type="scene",
             project_name=project_name,
-            task_type="scene",
-            media_type="image",
-            resource_id=scene_name,
-            payload={"prompt": req.prompt, **image_snapshot},
-            source="webui",
+            resource_name=scene_name,
+            prompt=req.prompt,
             user_id=_user.id,
+            _t=_t,
         )
-
-        return {
-            "success": True,
-            "task_id": result["task_id"],
-            "message": _t("scene_task_submitted", name=scene_name),
-        }
-
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
@@ -346,9 +349,6 @@ async def generate_scene(
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ==================== 道具设计图生成 ====================
 
 
 @router.post("/projects/{project_name}/generate/prop/{prop_name}")
@@ -361,32 +361,14 @@ async def generate_prop(
 ):
     """提交道具设计图生成任务到队列，立即返回 task_id。"""
     try:
-
-        def _sync():
-            project = get_project_manager().load_project(project_name)
-            if prop_name not in project.get("props", {}):
-                raise HTTPException(status_code=404, detail=_t("prop_not_found", name=prop_name))
-            return _snapshot_image_backend(project_name)
-
-        image_snapshot = await asyncio.to_thread(_sync)
-
-        queue = get_generation_queue()
-        result = await queue.enqueue_task(
+        return await _enqueue_asset_generation(
+            asset_type="prop",
             project_name=project_name,
-            task_type="prop",
-            media_type="image",
-            resource_id=prop_name,
-            payload={"prompt": req.prompt, **image_snapshot},
-            source="webui",
+            resource_name=prop_name,
+            prompt=req.prompt,
             user_id=_user.id,
+            _t=_t,
         )
-
-        return {
-            "success": True,
-            "task_id": result["task_id"],
-            "message": _t("prop_task_submitted", name=prop_name),
-        }
-
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:

@@ -19,6 +19,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from lib.asset_types import ASSET_SPECS
 from lib.json_io import atomic_write_json
 from lib.project_change_hints import emit_project_change_hint
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
@@ -931,7 +932,7 @@ class ProjectManager:
 
     def get_character_path(self, project_name: str, filename: str) -> Path:
         """获取角色设计图路径"""
-        return self.get_project_path(project_name) / "characters" / filename
+        return self._get_asset_path("character", project_name, filename)
 
     def get_storyboard_path(self, project_name: str, filename: str) -> Path:
         """获取分镜图片路径"""
@@ -1242,6 +1243,80 @@ class ProjectManager:
         # 仅返回项目数据，不执行任何写入
         return self.load_project(project_name)
 
+    # ==================== 项目级资产统一 API（character / scene / prop） ====================
+    #
+    # 这一节的 6 个私有方法按 lib.asset_types.ASSET_SPECS 驱动，统一处理 character /
+    # scene / prop 三类项目级资产的桶级读写。下方的 public 方法（add_project_scene /
+    # add_prop / get_scene / update_*_sheet 等）全部委托给这些私有方法，签名与异常
+    # 100% 兼容旧调用方。
+
+    def _add_asset(self, asset_type: str, project_name: str, name: str, entry: dict) -> bool:
+        """新增 entry 到 project[bucket][name]。冲突时返回 False。"""
+        spec = ASSET_SPECS[asset_type]
+        project = self.load_project(project_name)
+        bucket = project.setdefault(spec.bucket_key, {})
+        if name in bucket:
+            logger.debug("%s '%s' 已存在于 project.json，跳过", spec.label_zh, name)
+            return False
+        bucket[name] = entry
+        self.save_project(project_name, project)
+        logger.info("添加%s: %s", spec.label_zh, name)
+        return True
+
+    def _add_assets_batch(self, asset_type: str, project_name: str, entries: dict[str, dict]) -> int:
+        """批量新增 entries。已存在的 name 跳过，返回新增数量。"""
+        spec = ASSET_SPECS[asset_type]
+        project = self.load_project(project_name)
+        bucket = project.setdefault(spec.bucket_key, {})
+        added = 0
+        for name, entry in entries.items():
+            if name in bucket:
+                logger.debug("%s '%s' 已存在，跳过", spec.label_zh, name)
+                continue
+            bucket[name] = entry
+            added += 1
+            logger.info("添加%s: %s", spec.label_zh, name)
+        if added > 0:
+            self.save_project(project_name, project)
+        return added
+
+    def _update_asset_sheet(self, asset_type: str, project_name: str, name: str, sheet_path: str) -> dict:
+        """更新资产 sheet 字段路径。资产不存在抛 KeyError。"""
+        spec = ASSET_SPECS[asset_type]
+        project = self.load_project(project_name)
+        bucket = project.get(spec.bucket_key) or {}
+        if name not in bucket:
+            raise KeyError(f"{spec.label_zh} '{name}' 不存在")
+        bucket[name][spec.sheet_field] = sheet_path
+        self.save_project(project_name, project)
+        return project
+
+    def _get_asset(self, asset_type: str, project_name: str, name: str) -> dict:
+        """获取资产定义。不存在抛 KeyError。"""
+        spec = ASSET_SPECS[asset_type]
+        project = self.load_project(project_name)
+        bucket = project.get(spec.bucket_key) or {}
+        if name not in bucket:
+            raise KeyError(f"{spec.label_zh} '{name}' 不存在")
+        return bucket[name]
+
+    def _get_pending_assets(self, asset_type: str, project_name: str) -> list[dict]:
+        """无 sheet 字段或 sheet 文件不存在的资产列表。"""
+        spec = ASSET_SPECS[asset_type]
+        project = self.load_project(project_name)
+        project_dir = self.get_project_path(project_name)
+        pending = []
+        for name, entry in (project.get(spec.bucket_key) or {}).items():
+            sheet = entry.get(spec.sheet_field)
+            if not sheet or not (project_dir / sheet).exists():
+                pending.append({"name": name, **entry})
+        return pending
+
+    def _get_asset_path(self, asset_type: str, project_name: str, filename: str) -> Path:
+        """获取资产文件在项目目录下的绝对路径。"""
+        spec = ASSET_SPECS[asset_type]
+        return self.get_project_path(project_name) / spec.subdir / filename
+
     # ==================== 项目级角色管理 ====================
 
     def add_project_character(
@@ -1278,14 +1353,7 @@ class ProjectManager:
 
     def update_project_character_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
         """更新项目级角色设计图路径"""
-        project = self.load_project(project_name)
-
-        if name not in project["characters"]:
-            raise KeyError(f"角色 '{name}' 不存在")
-
-        project["characters"][name]["character_sheet"] = sheet_path
-        self.save_project(project_name, project)
-        return project
+        return self._update_asset_sheet("character", project_name, name, sheet_path)
 
     def update_character_reference_image(self, project_name: str, char_name: str, ref_path: str) -> dict:
         """
@@ -1310,235 +1378,110 @@ class ProjectManager:
 
     def get_project_character(self, project_name: str, name: str) -> dict:
         """获取项目级角色定义"""
-        project = self.load_project(project_name)
-
-        if name not in project["characters"]:
-            raise KeyError(f"角色 '{name}' 不存在")
-
-        return project["characters"][name]
+        return self._get_asset("character", project_name, name)
 
     # ==================== 场景管理（scene） ====================
 
     def update_scene_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
         """更新场景设计图路径"""
-        project = self.load_project(project_name)
-        if name not in project.get("scenes", {}):
-            raise KeyError(f"场景 '{name}' 不存在")
-        project["scenes"][name]["scene_sheet"] = sheet_path
-        self.save_project(project_name, project)
-        return project
+        return self._update_asset_sheet("scene", project_name, name, sheet_path)
 
     def get_scene(self, project_name: str, name: str) -> dict:
         """获取场景定义"""
-        project = self.load_project(project_name)
-        if name not in project.get("scenes", {}):
-            raise KeyError(f"场景 '{name}' 不存在")
-        return project["scenes"][name]
+        return self._get_asset("scene", project_name, name)
 
     def get_pending_project_scenes(self, project_name: str) -> list[dict]:
         """无 scene_sheet 或文件不存在的场景。"""
-        project = self.load_project(project_name)
-        project_dir = self.get_project_path(project_name)
-        pending = []
-        for name, scene in (project.get("scenes") or {}).items():
-            sheet = scene.get("scene_sheet")
-            if not sheet or not (project_dir / sheet).exists():
-                pending.append({"name": name, **scene})
-        return pending
+        return self._get_pending_assets("scene", project_name)
 
     def get_scene_path(self, project_name: str, filename: str) -> Path:
         """获取场景设计图路径"""
-        return self.get_project_path(project_name) / "scenes" / filename
+        return self._get_asset_path("scene", project_name, filename)
 
     # ==================== 道具管理（prop） ====================
 
     def update_prop_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
         """更新道具设计图路径"""
-        project = self.load_project(project_name)
-        if name not in project.get("props", {}):
-            raise KeyError(f"道具 '{name}' 不存在")
-        project["props"][name]["prop_sheet"] = sheet_path
-        self.save_project(project_name, project)
-        return project
+        return self._update_asset_sheet("prop", project_name, name, sheet_path)
 
     def get_prop(self, project_name: str, name: str) -> dict:
         """获取道具定义"""
-        project = self.load_project(project_name)
-        if name not in project.get("props", {}):
-            raise KeyError(f"道具 '{name}' 不存在")
-        return project["props"][name]
+        return self._get_asset("prop", project_name, name)
 
     def get_pending_project_props(self, project_name: str) -> list[dict]:
         """无 prop_sheet 或文件不存在的道具。"""
-        project = self.load_project(project_name)
-        project_dir = self.get_project_path(project_name)
-        pending = []
-        for name, prop in (project.get("props") or {}).items():
-            sheet = prop.get("prop_sheet")
-            if not sheet or not (project_dir / sheet).exists():
-                pending.append({"name": name, **prop})
-        return pending
+        return self._get_pending_assets("prop", project_name)
 
     def get_prop_path(self, project_name: str, filename: str) -> Path:
         """获取道具设计图路径"""
-        return self.get_project_path(project_name) / "props" / filename
+        return self._get_asset_path("prop", project_name, filename)
 
     def get_pending_characters(self, project_name: str) -> list[dict]:
-        """
-        获取待生成设计图的角色列表
-
-        Args:
-            project_name: 项目名称
-
-        Returns:
-            待处理角色列表（无 character_sheet 或文件不存在）
-        """
-        project = self.load_project(project_name)
-        project_dir = self.get_project_path(project_name)
-
-        pending = []
-        for name, char in project.get("characters", {}).items():
-            sheet = char.get("character_sheet")
-            if not sheet or not (project_dir / sheet).exists():
-                pending.append({"name": name, **char})
-
-        return pending
+        """获取待生成设计图的角色列表（无 character_sheet 或文件不存在）"""
+        return self._get_pending_assets("character", project_name)
 
     # ==================== 角色/场景/道具直接写入工具 ====================
 
     def add_character(self, project_name: str, name: str, description: str, voice_style: str = "") -> bool:
-        """
-        直接添加角色到 project.json
-
-        如果角色已存在，跳过不覆盖。
-
-        Args:
-            project_name: 项目名称
-            name: 角色名称
-            description: 角色描述
-            voice_style: 声音风格（可选）
-
-        Returns:
-            True 如果新增成功，False 如果已存在
-        """
-        project = self.load_project(project_name)
-
-        if name in project.get("characters", {}):
-            logger.debug("角色 '%s' 已存在于 project.json，跳过", name)
-            return False
-
-        if "characters" not in project:
-            project["characters"] = {}
-
-        project["characters"][name] = {
-            "description": description,
-            "character_sheet": "",
-            "voice_style": voice_style,
-        }
-
-        self.save_project(project_name, project)
-        logger.info("添加角色: %s", name)
-        return True
+        """直接添加角色到 project.json。已存在返回 False。"""
+        return self._add_asset(
+            "character",
+            project_name,
+            name,
+            {"description": description, "character_sheet": "", "voice_style": voice_style},
+        )
 
     def add_project_scene(self, project_name: str, name: str, description: str) -> bool:
         """直接添加场景到 project.json。已存在返回 False。"""
-        project = self.load_project(project_name)
-        if name in project.get("scenes", {}):
-            logger.debug("场景 '%s' 已存在于 project.json，跳过", name)
-            return False
-        if "scenes" not in project:
-            project["scenes"] = {}
-        project["scenes"][name] = {"description": description, "scene_sheet": ""}
-        self.save_project(project_name, project)
-        logger.info("添加场景: %s", name)
-        return True
+        return self._add_asset(
+            "scene",
+            project_name,
+            name,
+            {"description": description, "scene_sheet": ""},
+        )
 
     def add_prop(self, project_name: str, name: str, description: str) -> bool:
         """直接添加道具到 project.json。已存在返回 False。"""
-        project = self.load_project(project_name)
-        if name in project.get("props", {}):
-            logger.debug("道具 '%s' 已存在于 project.json，跳过", name)
-            return False
-        if "props" not in project:
-            project["props"] = {}
-        project["props"][name] = {"description": description, "prop_sheet": ""}
-        self.save_project(project_name, project)
-        logger.info("添加道具: %s", name)
-        return True
+        return self._add_asset(
+            "prop",
+            project_name,
+            name,
+            {"description": description, "prop_sheet": ""},
+        )
 
     def add_characters_batch(self, project_name: str, characters: dict[str, dict]) -> int:
-        """
-        批量添加角色到 project.json
-
-        Args:
-            project_name: 项目名称
-            characters: 角色字典 {name: {description, voice_style}}
-
-        Returns:
-            新增的角色数量
-        """
-        project = self.load_project(project_name)
-
-        if "characters" not in project:
-            project["characters"] = {}
-
-        added = 0
-        for name, data in characters.items():
-            if name not in project["characters"]:
-                project["characters"][name] = {
-                    "description": data.get("description", ""),
-                    "character_sheet": data.get("character_sheet", ""),
-                    "voice_style": data.get("voice_style", ""),
-                }
-                added += 1
-                logger.info("添加角色: %s", name)
-            else:
-                logger.debug("角色 '%s' 已存在，跳过", name)
-
-        if added > 0:
-            self.save_project(project_name, project)
-
-        return added
+        """批量添加角色到 project.json。已存在的跳过，返回新增数量。"""
+        entries = {
+            name: {
+                "description": data.get("description", ""),
+                "character_sheet": data.get("character_sheet", ""),
+                "voice_style": data.get("voice_style", ""),
+            }
+            for name, data in characters.items()
+        }
+        return self._add_assets_batch("character", project_name, entries)
 
     def add_scenes_batch(self, project_name: str, scenes: dict[str, dict]) -> int:
         """批量添加场景到 project.json。已存在的跳过，返回新增数量。"""
-        project = self.load_project(project_name)
-        if "scenes" not in project:
-            project["scenes"] = {}
-        added = 0
-        for name, data in scenes.items():
-            if name not in project["scenes"]:
-                project["scenes"][name] = {
-                    "description": data.get("description", ""),
-                    "scene_sheet": data.get("scene_sheet", ""),
-                }
-                added += 1
-                logger.info("添加场景: %s", name)
-            else:
-                logger.debug("场景 '%s' 已存在，跳过", name)
-        if added > 0:
-            self.save_project(project_name, project)
-        return added
+        entries = {
+            name: {
+                "description": data.get("description", ""),
+                "scene_sheet": data.get("scene_sheet", ""),
+            }
+            for name, data in scenes.items()
+        }
+        return self._add_assets_batch("scene", project_name, entries)
 
     def add_props_batch(self, project_name: str, props: dict[str, dict]) -> int:
         """批量添加道具到 project.json。已存在的跳过，返回新增数量。"""
-        project = self.load_project(project_name)
-        if "props" not in project:
-            project["props"] = {}
-        added = 0
-        for name, data in props.items():
-            if name not in project["props"]:
-                project["props"][name] = {
-                    "description": data.get("description", ""),
-                    "prop_sheet": data.get("prop_sheet", ""),
-                }
-                added += 1
-                logger.info("添加道具: %s", name)
-            else:
-                logger.debug("道具 '%s' 已存在，跳过", name)
-        if added > 0:
-            self.save_project(project_name, project)
-        return added
+        entries = {
+            name: {
+                "description": data.get("description", ""),
+                "prop_sheet": data.get("prop_sheet", ""),
+            }
+            for name, data in props.items()
+        }
+        return self._add_assets_batch("prop", project_name, entries)
 
     # ==================== 参考图收集工具 ====================
 

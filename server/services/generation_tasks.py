@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver
 
 from lib import PROJECT_ROOT
+from lib.asset_types import ASSET_SPECS
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.custom_provider import is_custom_provider
 from lib.db.base import DEFAULT_USER_ID
@@ -587,14 +588,13 @@ def _compute_affected_fingerprints(project_name: str, task_type: str, resource_i
 
 
 # (entity_type, action, label_tpl, include_script_episode)
+# 三类项目级资产（character / scene / prop）的 spec 由 lib.asset_types.ASSET_SPECS 派生。
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "storyboard": ("segment", "storyboard_ready", "分镜「{}」", True),
     "video": ("segment", "video_ready", "分镜「{}」", True),
-    "character": ("character", "updated", "角色「{}」设计图", False),
-    "scene": ("scene", "updated", "场景「{}」设计图", False),
-    "prop": ("prop", "updated", "道具「{}」设计图", False),
     "grid": ("grid", "grid_ready", "宫格「{}」", True),
     "reference_video": ("reference_video_unit", "reference_video_ready", "参考视频「{}」", True),
+    **{atype: (atype, "updated", f"{spec.label_zh}「{{}}」设计图", False) for atype, spec in ASSET_SPECS.items()},
 }
 
 
@@ -906,17 +906,11 @@ async def execute_character_task(
     }
 
 
-_DESIGN_TASK_SPECS: dict[str, dict[str, Any]] = {
-    "scene": {
-        "bucket_key": "scenes",
-        "prompt_builder": build_scene_prompt,
-        "update_sheet": lambda pm, proj, rid, path: pm.update_scene_sheet(proj, rid, path),
-    },
-    "prop": {
-        "bucket_key": "props",
-        "prompt_builder": build_prop_prompt,
-        "update_sheet": lambda pm, proj, rid, path: pm.update_prop_sheet(proj, rid, path),
-    },
+# 仅保留 design 任务的「prompt 构造器」差异；bucket_key 与 sheet 写入由 ASSET_SPECS 与
+# ProjectManager._update_asset_sheet 统一派发。
+_DESIGN_PROMPT_BUILDERS: dict[str, Any] = {
+    "scene": build_scene_prompt,
+    "prop": build_prop_prompt,
 }
 
 
@@ -929,10 +923,9 @@ async def execute_design_task(
     user_id: str = DEFAULT_USER_ID,
 ) -> dict[str, Any]:
     """合并 execute_scene_task / execute_prop_task：按 kind 查表派发。"""
-    spec = _DESIGN_TASK_SPECS[kind]
-    bucket_key = spec["bucket_key"]
-    prompt_builder = spec["prompt_builder"]
-    update_sheet = spec["update_sheet"]
+    spec = ASSET_SPECS[kind]
+    bucket_key = spec.bucket_key
+    prompt_builder = _DESIGN_PROMPT_BUILDERS[kind]
 
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
@@ -963,7 +956,7 @@ async def execute_design_task(
     sheet_path = f"{bucket_key}/{resource_id}.png"
 
     def _finalize():
-        update_sheet(get_project_manager(), project_name, resource_id, sheet_path)
+        get_project_manager()._update_asset_sheet(kind, project_name, resource_id, sheet_path)
         return generator.versions.get_versions(bucket_key, resource_id)["versions"][-1]["created_at"]
 
     created_at = await asyncio.to_thread(_finalize)

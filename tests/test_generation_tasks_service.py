@@ -99,12 +99,11 @@ class _FakePM:
     def project_exists(self, project_name: str) -> bool:
         return True
 
-    def update_scene_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
-        self.project.setdefault("scenes", {}).setdefault(name, {})["scene_sheet"] = sheet_path
-        return self.project
+    def _update_asset_sheet(self, asset_type: str, project_name: str, name: str, sheet_path: str) -> dict:
+        from lib.asset_types import ASSET_SPECS
 
-    def update_prop_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
-        self.project.setdefault("props", {}).setdefault(name, {})["prop_sheet"] = sheet_path
+        spec = ASSET_SPECS[asset_type]
+        self.project.setdefault(spec.bucket_key, {}).setdefault(name, {})[spec.sheet_field] = sheet_path
         return self.project
 
     def update_project_character_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:

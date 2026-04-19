@@ -15,13 +15,13 @@ class _FakePM:
             }
         }
 
-    def add_project_scene(self, project_name, name, description):
+    def _add_asset(self, asset_type, project_name, name, entry):
         if project_name not in self.projects:
             raise FileNotFoundError(project_name)
-        scenes_dict = self.projects[project_name].setdefault("scenes", {})
-        if name in scenes_dict:
+        bucket = self.projects[project_name].setdefault("scenes", {})
+        if name in bucket:
             return False
-        scenes_dict[name] = {"description": description, "scene_sheet": ""}
+        bucket[name] = entry
         return True
 
     def load_project(self, project_name):

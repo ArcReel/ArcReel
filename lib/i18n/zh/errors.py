@@ -31,8 +31,8 @@ MESSAGES = {
     "video_prompt_action_empty": "prompt.action 不能为空",
     "video_prompt_dialogue_array": "prompt.dialogue 必须是数组",
     "video_task_submitted": "视频「{segment_id}」生成任务已提交",
-    "character_not_found": "角色 '{char_name}' 不存在",
-    "character_task_submitted": "角色「{char_name}」设计图生成任务已提交",
+    "character_not_found": "角色「{name}」不存在",
+    "character_task_submitted": "角色「{name}」设计图生成任务已提交",
     "scene_task_submitted": "场景「{name}」设计图生成任务已提交",
     "prop_task_submitted": "道具「{name}」设计图生成任务已提交",
     # Files
@@ -82,7 +82,8 @@ MESSAGES = {
     "scene_updated": "场景 '{scene_id}' 已更新",
     "segment_updated": "片段 '{segment_id}' 已更新",
     # Characters / Scenes / Props
-    "character_deleted": "角色 '{char_name}' 已删除",
+    "character_already_exists": "角色「{name}」已存在",
+    "character_deleted": "角色「{name}」已删除",
     "project_scene_already_exists": "场景「{name}」已存在",
     "project_scene_not_found": "场景「{name}」不存在",
     "project_scene_deleted": "场景「{name}」已删除",

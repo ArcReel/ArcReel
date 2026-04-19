@@ -31,8 +31,8 @@ MESSAGES = {
     "video_prompt_action_empty": "prompt.action cannot be empty",
     "video_prompt_dialogue_array": "prompt.dialogue must be an array",
     "video_task_submitted": "Video generation task for '{segment_id}' submitted",
-    "character_not_found": "Character '{char_name}' does not exist",
-    "character_task_submitted": "Character design generation task for '{char_name}' submitted",
+    "character_not_found": "Character '{name}' does not exist",
+    "character_task_submitted": "Character design generation task for '{name}' submitted",
     "scene_task_submitted": "Scene design generation task for '{name}' submitted",
     "prop_task_submitted": "Prop design generation task for '{name}' submitted",
     # Files
@@ -82,7 +82,8 @@ MESSAGES = {
     "scene_updated": "Scene '{scene_id}' updated",
     "segment_updated": "Segment '{segment_id}' updated",
     # Characters / Scenes / Props
-    "character_deleted": "Character '{char_name}' deleted",
+    "character_already_exists": "Character '{name}' already exists",
+    "character_deleted": "Character '{name}' deleted",
     "project_scene_already_exists": "Scene '{name}' already exists",
     "project_scene_not_found": "Scene '{name}' not found",
     "project_scene_deleted": "Scene '{name}' deleted",

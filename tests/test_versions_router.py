@@ -14,14 +14,8 @@ class _FakePM:
 
         return Path("/tmp") / project_name
 
-    def update_project_character_sheet(self, *args):
-        self.updated.append(("character", args))
-
-    def update_scene_sheet(self, *args):
-        self.updated.append(("scene", args))
-
-    def update_prop_sheet(self, *args):
-        self.updated.append(("prop", args))
+    def _update_asset_sheet(self, asset_type, *args):
+        self.updated.append((asset_type, args))
 
     def update_scene_asset(self, *args, **kwargs):
         self.updated.append(("storyboard", args, kwargs))

@@ -85,6 +85,14 @@ def _sync_storyboard_metadata(
             continue
 
 
+# resource_type（复数，URL 段）→ asset_type（单数，ASSET_SPECS 键）
+_RESOURCE_TO_ASSET_TYPE: dict[str, str] = {
+    "characters": "character",
+    "scenes": "scene",
+    "props": "prop",
+}
+
+
 def _sync_metadata(
     resource_type: str,
     project_name: str,
@@ -93,24 +101,13 @@ def _sync_metadata(
     project_path: Path,
 ) -> None:
     """还原后同步元数据，确保引用指向统一文件路径。"""
-    if resource_type == "characters":
+    asset_type = _RESOURCE_TO_ASSET_TYPE.get(resource_type)
+    if asset_type is not None:
         try:
             with project_change_source("webui"):
-                get_project_manager().update_project_character_sheet(project_name, resource_id, file_path)
+                get_project_manager()._update_asset_sheet(asset_type, project_name, resource_id, file_path)
         except KeyError:
-            pass  # 角色条目可能已从 project.json 删除，跳过元数据同步
-    elif resource_type == "scenes":
-        try:
-            with project_change_source("webui"):
-                get_project_manager().update_scene_sheet(project_name, resource_id, file_path)
-        except KeyError:
-            pass  # 场景条目可能已从 project.json 删除，跳过元数据同步
-    elif resource_type == "props":
-        try:
-            with project_change_source("webui"):
-                get_project_manager().update_prop_sheet(project_name, resource_id, file_path)
-        except KeyError:
-            pass  # 道具条目可能已从 project.json 删除，跳过元数据同步
+            pass  # 资产条目可能已从 project.json 删除，跳过元数据同步
     elif resource_type == "storyboards":
         _sync_storyboard_metadata(project_name, resource_id, file_path, project_path)
 
