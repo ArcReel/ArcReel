@@ -65,6 +65,14 @@ const _pendingPayload = new Map<string, { prompt: string }>();
 
 const DEBOUNCE_MS = 500;
 
+function _clearUnitDebounce(unitId: string): void {
+  const t = _timers.get(unitId);
+  if (t) clearTimeout(t);
+  _timers.delete(unitId);
+  _fetchIds.delete(unitId);
+  _pendingPayload.delete(unitId);
+}
+
 /** Internal: reset debounce state; only call from tests. */
 export function _resetDebounceState(): void {
   _timers.forEach((t) => clearTimeout(t));
@@ -121,6 +129,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
   },
 
   deleteUnit: async (projectName, episode, unitId) => {
+    _clearUnitDebounce(unitId);
     await API.deleteReferenceVideoUnit(projectName, episode, unitId);
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);

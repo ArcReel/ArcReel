@@ -1,15 +1,16 @@
 import type { ProjectData } from "@/types";
 import type { AssetKind, ReferenceResource } from "@/types/reference-video";
 
-const MENTION_RE = /@([\w\u4e00-\u9fff]+)/g;
+/**
+ * Mention regex shared across frontend tokenizers. Mirrors backend
+ * `lib/reference_video/shot_parser.py:_MENTION_RE` — keep in sync.
+ */
+export const MENTION_RE = /@([\w\u4e00-\u9fff]+)/g;
 
 export function extractMentions(text: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  MENTION_RE.lastIndex = 0;
-  for (;;) {
-    const m = MENTION_RE.exec(text);
-    if (!m) break;
+  for (const m of text.matchAll(MENTION_RE)) {
     const name = m[1];
     if (!seen.has(name)) {
       seen.add(name);

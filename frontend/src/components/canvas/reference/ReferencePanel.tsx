@@ -56,7 +56,8 @@ function Pill({ refItem, index, projectName, onRemove }: PillProps) {
   } else if (refItem.type === "prop") {
     imagePath = (project?.props?.[refItem.name] as { prop_sheet?: string } | undefined)?.prop_sheet ?? null;
   }
-  const thumbUrl = imagePath ? API.getFileUrl(projectName, imagePath) : null;
+  const thumbFp = useProjectsStore((s) => (imagePath ? s.getAssetFingerprint(imagePath) : null));
+  const thumbUrl = imagePath ? API.getFileUrl(projectName, imagePath, thumbFp) : null;
 
   return (
     <div
