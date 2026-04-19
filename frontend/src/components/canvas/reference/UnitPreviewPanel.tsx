@@ -31,7 +31,12 @@ export function UnitPreviewPanel({ unit, projectName, onGenerate, generating }: 
       <div className="aspect-video w-full overflow-hidden rounded-lg border border-gray-800 bg-black">
         {videoUrl ? (
           // eslint-disable-next-line jsx-a11y/media-has-caption -- AI-generated video clips have no caption track
-          <video src={videoUrl} aria-label={unit.unit_id} controls className="h-full w-full object-contain" />
+          <video
+            src={videoUrl}
+            aria-label={t("reference_preview_video_aria", { id: unit.unit_id })}
+            controls
+            className="h-full w-full object-contain"
+          />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-gray-600">
             {t("reference_preview_empty")}
@@ -41,7 +46,7 @@ export function UnitPreviewPanel({ unit, projectName, onGenerate, generating }: 
 
       <dl className="grid grid-cols-2 gap-1 text-xs text-gray-500">
         <dt>{t("reference_meta_unit")}</dt>
-        <dd className="font-mono text-gray-300">{unit.unit_id}</dd>
+        <dd className="font-mono text-gray-300" translate="no">{unit.unit_id}</dd>
         <dt>{t("reference_meta_duration")}</dt>
         <dd className="tabular-nums text-gray-300">{unit.duration_seconds}s</dd>
         <dt>{t("reference_meta_shots")}</dt>
@@ -60,7 +65,7 @@ export function UnitPreviewPanel({ unit, projectName, onGenerate, generating }: 
             : "border-blue-600 text-blue-400 hover:bg-blue-600/10"
         }`}
       >
-        {busy ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Sparkles aria-hidden="true" className="h-4 w-4" />}
+        {busy ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Sparkles aria-hidden="true" className="h-4 w-4" />}
         {busy ? t("reference_preview_generating") : t("reference_preview_generate")}
       </button>
     </div>

@@ -488,6 +488,7 @@ export default {
   'reference_meta_shots': 'Shots',
   'reference_meta_references': 'References',
   'reference_units_count': '{{count}} units',
+  'reference_preview_video_aria': 'Preview video for unit {{id}}',
   // Reference video unit UI status labels — derived from task queue state.
   'reference_status_pending': 'Pending',
   'reference_status_running': 'Running',

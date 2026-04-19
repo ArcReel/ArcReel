@@ -315,7 +315,7 @@ export function ProjectSettingsPage() {
                 disabled={isStyleSaveDisabled}
                 className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
               >
-                {savingStyle && <Loader2 className="h-4 w-4 animate-spin" />}
+                {savingStyle && <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
                 {savingStyle ? t("style_saving") : t("style_save")}
               </button>
               {hasInitialStyle && !isStyleCleared && !savingStyle && (

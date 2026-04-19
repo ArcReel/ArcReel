@@ -489,6 +489,7 @@ export default {
   'reference_meta_shots': '镜头数',
   'reference_meta_references': '参考图',
   'reference_units_count': '{{count}} 个 Unit',
+  'reference_preview_video_aria': 'Unit {{id}} 的预览视频',
   // Reference video unit UI status labels — derived from task queue state.
   'reference_status_pending': '未生成',
   'reference_status_running': '生成中',

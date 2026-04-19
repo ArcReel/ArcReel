@@ -16,6 +16,12 @@ const STATUS_DOT: Record<UnitPersistedStatus, string> = {
   completed: "bg-emerald-500",
 };
 
+const STATUS_I18N_KEY: Record<UnitPersistedStatus, string> = {
+  pending: "reference_status_pending",
+  storyboard_ready: "reference_status_ready",
+  completed: "reference_status_ready",
+};
+
 function promptPreview(unit: ReferenceVideoUnit): string {
   const text = unit.shots.map((s) => s.text).join("\n");
   const lines = text.split("\n").slice(0, 2);
@@ -44,7 +50,11 @@ export function UnitList({ units, selectedId, onSelect, onAdd }: UnitListProps) 
           {t("reference_canvas_empty")}
         </div>
       ) : (
-        <ul className="flex-1 overflow-y-auto">
+        <ul
+          role="listbox"
+          aria-label={t("reference_unit_list_title")}
+          className="flex-1 overflow-y-auto"
+        >
           {units.map((u) => {
             const status = u.generated_assets.status;
             const selected = u.unit_id === selectedId;
@@ -63,15 +73,15 @@ export function UnitList({ units, selectedId, onSelect, onAdd }: UnitListProps) 
                   }
                 }}
                 className={`cursor-pointer border-b border-gray-900 px-3 py-2 text-sm transition-colors focus-ring ${
-                  selected ? "bg-indigo-500/15 text-indigo-200" : "text-gray-300 hover:bg-gray-900"
+                  selected ? "bg-indigo-500/15 text-indigo-200" : "text-gray-300 hover:bg-gray-800"
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <span
-                    aria-label={status}
+                    aria-label={t(STATUS_I18N_KEY[status])}
                     className={`h-2 w-2 rounded-full ${STATUS_DOT[status]}`}
                   />
-                  <span className="font-mono text-xs text-gray-400">{u.unit_id}</span>
+                  <span className="font-mono text-xs text-gray-400" translate="no">{u.unit_id}</span>
                   <span className="ml-auto text-xs text-gray-500 tabular-nums">{u.duration_seconds}s</span>
                 </div>
                 <p className="mt-1 line-clamp-2 text-xs text-gray-500">{promptPreview(u)}</p>
