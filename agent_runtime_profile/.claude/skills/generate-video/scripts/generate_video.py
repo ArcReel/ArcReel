@@ -351,7 +351,6 @@ def _build_reference_specs(
                 resource_id=unit_id,
                 payload={
                     "script_file": script_filename,
-                    "unit_id": unit_id,
                 },
                 script_file=script_filename,
             )
@@ -611,6 +610,10 @@ def generate_scene_video(script_filename: str, scene_id: str) -> Path:
 
     if is_reference_video_script(script):
         # reference 模式暂不支持单 unit 模式，回退到整集生成（skip/checkpoint 会跳过已完成的 unit）
+        print(
+            f"⚠️  reference_video 模式暂不支持单 unit 精确选择；"
+            f"--scene {scene_id} 被忽略，将生成整集中所有未完成的 video_units。"
+        )
         return _generate_reference_episode(
             project_name=project_name,
             project_dir=project_dir,
@@ -690,6 +693,7 @@ def generate_all_videos(script_filename: str) -> list:
     script = pm.load_script(project_name, script_filename)
 
     if is_reference_video_script(script):
+        print("ℹ️  reference_video 模式：按 video_units 生成（--all 等价于默认整集模式）。")
         return _generate_reference_episode(
             project_name=project_name,
             project_dir=project_dir,
@@ -780,6 +784,10 @@ def generate_selected_videos(
     script = pm.load_script(project_name, script_filename)
 
     if is_reference_video_script(script):
+        print(
+            f"⚠️  reference_video 模式暂不支持多 unit 精确选择；"
+            f"--scenes {','.join(scene_ids)} 被忽略，将生成整集中所有未完成的 video_units。"
+        )
         return _generate_reference_episode(
             project_name=project_name,
             project_dir=project_dir,

@@ -123,6 +123,6 @@ def test_generate_episode_video_reference_enqueues_reference_tasks(tmp_path, mon
         {
             "task_type": "reference_video",
             "resource_id": "E1U1",
-            "payload": {"script_file": "episode_1.json", "unit_id": "E1U1"},
+            "payload": {"script_file": "episode_1.json"},
         }
     ]
