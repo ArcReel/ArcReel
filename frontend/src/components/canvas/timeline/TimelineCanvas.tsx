@@ -11,6 +11,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { formatCost, totalBreakdown } from "@/utils/cost-format";
 import { API } from "@/api";
+import { effectiveMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
 import type {
   EpisodeScript,
@@ -185,7 +186,8 @@ export function TimelineCanvas({
 
   // Grid mode state
   const gridsRevision = useAppStore((s) => s.gridsRevision);
-  const isGridMode = projectData?.generation_mode === "grid";
+  const currentEpisodeMeta = projectData?.episodes?.find((e) => e.episode === episode);
+  const isGridMode = effectiveMode(projectData, currentEpisodeMeta) === "grid";
   const segmentGroups = useMemo(
     () => (isGridMode ? groupBySegmentBreak(segments) : []),
     [isGridMode, segments],

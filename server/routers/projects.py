@@ -91,6 +91,7 @@ class UpdateProjectRequest(BaseModel):
     text_backend_style: str | None = None
     style_template_id: str | None = None
     clear_style_image: bool | None = None
+    episodes: list[dict] | None = None
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -587,6 +588,20 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                 # 显式清除自定义参考图，用于"取消风格"流程
                 project.pop("style_image", None)
                 project.pop("style_description", None)
+
+            if "episodes" in req.model_fields_set and req.episodes is not None:
+                # 合并 episodes：保留现有 episode 的完整数据，仅更新请求中提供的字段
+                existing = {e.get("episode"): e for e in project.get("episodes", [])}
+                merged = []
+                for ep in req.episodes:
+                    ep_num = ep.get("episode")
+                    if ep_num is not None and ep_num in existing:
+                        merged_ep = dict(existing[ep_num])
+                        merged_ep.update({k: v for k, v in ep.items() if k != "episode"})
+                        merged.append(merged_ep)
+                    else:
+                        merged.append(ep)
+                project["episodes"] = merged
 
             with project_change_source("webui"):
                 manager.save_project(name, project)
