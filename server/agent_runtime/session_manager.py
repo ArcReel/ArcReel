@@ -1930,10 +1930,9 @@ class SessionManager:
         if isinstance(value, (list, tuple)):
             return [self._serialize_value(item) for item in value]
 
-        # Pydantic models
+        # Pydantic models — mode="json" 一次产出 JSON 安全结构，避免再次递归
         if hasattr(value, "model_dump"):
-            dumped = value.model_dump()
-            return self._serialize_value(dumped)
+            return value.model_dump(mode="json")
 
         # Dataclasses or objects with __dict__
         if hasattr(value, "__dict__"):
