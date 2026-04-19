@@ -498,13 +498,9 @@ export default {
   'episode_mode_inherit_from_project': 'Inherit from project',
   // ========== PR5 reference-video editor ==========
   'reference_editor_placeholder': 'Type a prompt. Use "Shot 1 (3s): ..." markers and @mentions for characters/scenes/props.',
-  'reference_editor_saving': 'Saving…',
-  'reference_editor_saved': 'Saved',
-  'reference_editor_save_failed': 'Save failed: {{message}}',
   'reference_editor_unknown_mention': 'Unregistered: @{{name}} (not found in characters/scenes/props)',
   'reference_picker_title': 'Insert reference',
   'reference_picker_empty': 'No matches',
-  'reference_picker_filter_placeholder': 'Search by name…',
   'reference_picker_group_character': 'Characters',
   'reference_picker_group_scene': 'Scenes',
   'reference_picker_group_prop': 'Props',

@@ -499,13 +499,9 @@ export default {
   'episode_mode_inherit_from_project': '继承项目设置',
   // ========== PR5 reference-video editor ==========
   'reference_editor_placeholder': '输入 prompt，支持 "Shot 1 (3s): ..."，用 @ 引用角色/场景/道具',
-  'reference_editor_saving': '保存中…',
-  'reference_editor_saved': '已保存',
-  'reference_editor_save_failed': '保存失败: {{message}}',
   'reference_editor_unknown_mention': '未注册：@{{name}}（角色/场景/道具中都未找到）',
   'reference_picker_title': '插入引用',
   'reference_picker_empty': '无匹配项',
-  'reference_picker_filter_placeholder': '搜索名称…',
   'reference_picker_group_character': '角色',
   'reference_picker_group_scene': '场景',
   'reference_picker_group_prop': '道具',

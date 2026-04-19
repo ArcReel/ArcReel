@@ -119,7 +119,7 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   const handleRemoveRef = useCallback(
     (ref: ReferenceResource) => {
       if (!selected) return;
-      const next = selected.references.filter((r) => r.name !== ref.name);
+      const next = selected.references.filter((r) => !(r.name === ref.name && r.type === ref.type));
       void patchUnit(projectName, episode, selected.unit_id, { references: next }).catch((e) => {
         useAppStore.getState().pushToast(e instanceof Error ? e.message : String(e), "error");
       });

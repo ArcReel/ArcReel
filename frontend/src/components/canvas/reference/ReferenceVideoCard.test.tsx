@@ -122,6 +122,27 @@ describe("ReferenceVideoCard", () => {
     expect(lastCall[0]).toMatch(/@主角\s$/);
   });
 
+  it("closes the picker when the textarea loses focus", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReferenceVideoCard
+        unit={mkUnit()}
+        projectName="proj"
+        episode={1}
+        onChangePrompt={vi.fn()}
+      />,
+    );
+    const ta = screen.getByRole("textbox");
+    await user.clear(ta);
+    await user.type(ta, "@");
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+    // Blur the textarea
+    ta.blur();
+    // setTimeout(150) — wait for the delayed close
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
   it("renders an unknown-mention chip for names not in project", () => {
     render(
       <ReferenceVideoCard

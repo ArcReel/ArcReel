@@ -20,8 +20,8 @@ function unitPromptText(unit: ReferenceVideoUnit): string {
 
 export function ReferenceVideoCard({
   unit,
-  projectName,
-  episode,
+  projectName: _projectName,
+  episode: _episode,
   onChangePrompt,
 }: ReferenceVideoCardProps) {
   const { t } = useTranslation("dashboard");
@@ -144,6 +144,17 @@ export function ReferenceVideoCard({
     updatePickerFromCursor(ta.value, ta.selectionStart ?? ta.value.length);
   };
 
+  const handleTextareaBlur = useCallback(() => {
+    // Delay the close so clicks on MentionPicker options fire first.
+    // Without this delay, the textarea loses focus before the picker's onClick
+    // handler runs, causing the selection click to be swallowed.
+    setTimeout(() => {
+      setPickerOpen(false);
+      setPickerQuery("");
+      atStartRef.current = null;
+    }, 150);
+  }, []);
+
   const handlePickerSelect = useCallback(
     (ref: { type: AssetKind; name: string }) => {
       const ta = taRef.current;
@@ -222,8 +233,10 @@ export function ReferenceVideoCard({
           onChange={handleChange}
           onKeyUp={handleCursorUpdate}
           onClick={handleCursorUpdate}
+          onBlur={handleTextareaBlur}
           onScroll={onScroll}
           placeholder={t("reference_editor_placeholder")}
+          aria-label={t("reference_editor_placeholder")}
           spellCheck={false}
           className="absolute inset-0 h-full w-full resize-none bg-transparent p-3 font-mono text-sm leading-6 text-transparent caret-gray-200 placeholder:text-gray-600 focus:outline-none"
         />
@@ -261,7 +274,6 @@ export function ReferenceVideoCard({
           })}
         </div>
       )}
-      <span data-debug-project={projectName} data-debug-episode={episode} className="sr-only" />
     </div>
   );
 }
