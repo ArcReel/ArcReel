@@ -38,7 +38,7 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-export const useReferenceVideoStore = create<ReferenceVideoStore>((set, get) => ({
+export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
   unitsByEpisode: {},
   selectedUnitId: null,
   loading: false,
