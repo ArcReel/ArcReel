@@ -80,7 +80,10 @@ export interface EpisodeMeta {
   videos?: ProgressCategory;
   /** Injected by StatusCalculator at read time (reference_video mode only) */
   units_count?: number;
-  /** Optional episode-level override; falls back to project.generation_mode */
+  /**
+   * Optional episode-level override; falls back to project.generation_mode.
+   * Never "single" — legacy value only exists at project level.
+   */
   generation_mode?: "storyboard" | "grid" | "reference_video";
 }
 

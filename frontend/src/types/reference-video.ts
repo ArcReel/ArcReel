@@ -19,6 +19,19 @@ export interface ReferenceResource {
   name: string;
 }
 
+/**
+ * Raw persisted status value returned by the backend in `generated_assets.status`.
+ * Mirrors lib/script_models.py:GeneratedAssets.status Pydantic Literal exactly.
+ * Note: "storyboard_ready" never appears for reference_video units — it's a legacy
+ * storyboard-mode value retained in the shared GeneratedAssets model.
+ */
+export type UnitPersistedStatus = "pending" | "storyboard_ready" | "completed";
+
+/**
+ * UI-derived status shown in the UnitList status dot and preview panel.
+ * Composed from (persisted status + task-queue state + error signals) by UI code.
+ * Not sent to or received from the backend.
+ */
 export type UnitStatus = "pending" | "running" | "ready" | "failed";
 
 export interface UnitGeneratedAssets {
@@ -28,7 +41,8 @@ export interface UnitGeneratedAssets {
   grid_cell_index: number | null;
   video_clip: string | null;
   video_uri: string | null;
-  status: UnitStatus;
+  /** Raw backend status — use `UnitStatus` for UI display. */
+  status: UnitPersistedStatus;
 }
 
 export interface ReferenceVideoUnit {
