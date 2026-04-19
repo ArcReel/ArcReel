@@ -8,3 +8,4 @@ export * from "./api-key";
 export * from "./provider";
 export * from "./custom-provider";
 export * from "./cost";
+export * from "./reference-video";
