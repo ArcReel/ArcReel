@@ -146,7 +146,11 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
           <span translate="no">E{episode}</span>
           {episodeTitle ? `: ${episodeTitle}` : ""} · {t("reference_units_count", { count: units.length })}
         </h2>
-        {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+        {error && (
+          <p role="alert" className="mt-1 text-xs text-red-400">
+            {error}
+          </p>
+        )}
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,20%)_1fr_minmax(280px,24%)] overflow-hidden">
         <UnitList

@@ -140,7 +140,7 @@ export function MentionPicker({
                     }`}
                   >
                     <span className={`h-2 w-2 shrink-0 rounded-full ${palette.bgClass} ${palette.borderClass} border`} />
-                    <span className="truncate">{item.name}</span>
+                    <span className="truncate" title={item.name}>{item.name}</span>
                   </button>
                 );
               })}

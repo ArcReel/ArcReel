@@ -262,14 +262,13 @@ export function ReferenceVideoCard({
       </div>
 
       {unknownMentions.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
+        <div className="mt-2 flex flex-wrap gap-1" role="status" aria-live="polite">
           {unknownMentions.map((name) => {
             const palette = ASSET_COLORS.unknown;
             return (
               <span
                 key={name}
                 className={`rounded border px-2 py-0.5 text-[11px] ${palette.textClass} ${palette.bgClass} ${palette.borderClass}`}
-                role="status"
               >
                 {t("reference_editor_unknown_mention", { name })}
               </span>

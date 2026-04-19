@@ -24,6 +24,8 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { AssetKind, ReferenceResource } from "@/types/reference-video";
 
+const PICKER_ID = "reference-panel-mention-picker";
+
 export interface ReferencePanelProps {
   references: ReferenceResource[];
   projectName: string;
@@ -77,7 +79,7 @@ function Pill({ refItem, index, projectName, onRemove }: PillProps) {
       {thumbUrl && (
         <img src={thumbUrl} alt="" className="h-5 w-5 rounded object-cover" />
       )}
-      <span className="truncate max-w-[120px]">@{refItem.name}</span>
+      <span className="truncate max-w-[120px]" title={refItem.name}>@{refItem.name}</span>
       <button
         type="button"
         onClick={onRemove}
@@ -149,6 +151,8 @@ export function ReferencePanel({
           type="button"
           onClick={handleAddClick}
           aria-label={t("reference_panel_add")}
+          aria-expanded={pickerOpen}
+          aria-controls={PICKER_ID}
           className="inline-flex items-center gap-1 rounded border border-gray-700 bg-gray-800 px-2 py-0.5 text-[11px] text-gray-300 hover:border-indigo-500 hover:text-indigo-300"
         >
           <Plus className="h-3 w-3" />
@@ -178,7 +182,7 @@ export function ReferencePanel({
         </DndContext>
       )}
       {pickerOpen && (
-        <div className="absolute right-2 top-8 z-30">
+        <div id={PICKER_ID} className="absolute right-2 top-8 z-30">
           <MentionPicker
             open
             query=""
