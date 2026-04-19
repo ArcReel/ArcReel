@@ -88,3 +88,39 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     # 确认生成时用了 ReferenceVideoScript schema
     call_kwargs = fake_generator.generate.await_args.args[0]
     assert call_kwargs.response_schema is ReferenceVideoScript
+
+
+@pytest.mark.parametrize(
+    "video_backend, expected",
+    [
+        ("gemini-aistudio/veo-3.1-generate-preview", 3),
+        ("gemini-vertex/veo-3.1", 3),
+        ("openai/sora-2", 1),
+        ("grok/grok-imagine-video", 7),
+        ("ark/seedance-2.0", 9),
+        (None, 9),
+        ("unknown/xyz", 9),
+    ],
+)
+def test_resolve_max_refs_by_provider(tmp_path: Path, video_backend, expected):
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    import json as _j
+
+    project = {
+        "title": "t",
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
+        "overview": {},
+        "style": "",
+        "style_description": "",
+        "characters": {},
+        "scenes": {},
+        "props": {},
+    }
+    if video_backend is not None:
+        project["video_backend"] = video_backend
+    (project_dir / "project.json").write_text(_j.dumps(project), encoding="utf-8")
+
+    gen = ScriptGenerator(project_dir)
+    assert gen._resolve_max_refs() == expected

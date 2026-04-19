@@ -253,7 +253,11 @@ class ScriptGenerator:
                 max_refs = getattr(model_info, "max_reference_images", None) if model_info else None
                 if isinstance(max_refs, int) and max_refs > 0:
                     return max_refs
-        provider_id = (video_backend or "").split("/", 1)[0].lower() if video_backend else ""
+        # Provider-ID normalization: PROVIDER_REGISTRY uses "gemini-aistudio" / "gemini-vertex",
+        # but _PROVIDER_LIMITS in server/services/reference_video_tasks.py keys by backend.name
+        # ("gemini"). Fold all gemini variants to "gemini" to match.
+        raw_provider = (video_backend or "").split("/", 1)[0].lower() if video_backend else ""
+        provider_id = "gemini" if raw_provider.startswith("gemini") else raw_provider
         # 与 server/services/reference_video_tasks.py._PROVIDER_LIMITS 对齐
         return {"gemini": 3, "openai": 1, "grok": 7, "ark": 9}.get(provider_id, 9)
 
