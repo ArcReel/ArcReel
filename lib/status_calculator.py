@@ -305,12 +305,25 @@ class StatusCalculator:
         scenes_set = set()
         props_set = set()
 
-        char_field = "characters_in_segment" if content_mode == "narration" else "characters_in_scene"
-
-        for item in items:
-            chars_set.update(item.get(char_field, []))
-            scenes_set.update(item.get("scenes", []))
-            props_set.update(item.get("props", []))
+        if content_mode == "reference_video":
+            for item in items:
+                for ref in item.get("references", []):
+                    kind = ref.get("type")
+                    name = ref.get("name")
+                    if not name:
+                        continue
+                    if kind == "character":
+                        chars_set.add(name)
+                    elif kind == "scene":
+                        scenes_set.add(name)
+                    elif kind == "prop":
+                        props_set.add(name)
+        else:
+            char_field = "characters_in_segment" if content_mode == "narration" else "characters_in_scene"
+            for item in items:
+                chars_set.update(item.get(char_field, []))
+                scenes_set.update(item.get("scenes", []))
+                props_set.update(item.get("props", []))
 
         script["characters_in_episode"] = sorted(chars_set)
         script["scenes_in_episode"] = sorted(scenes_set)

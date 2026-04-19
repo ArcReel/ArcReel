@@ -74,3 +74,65 @@ def test_calculate_episode_stats_reference_video_empty_draft(pm: ProjectManager)
     assert stats["status"] == "draft"
     assert stats["units_count"] == 0
     assert stats["duration_seconds"] == 0
+
+
+def test_enrich_script_reference_video_aggregates_references(pm: ProjectManager) -> None:
+    """enrich_script must collect @character/@scene/@prop references from units."""
+    calc = StatusCalculator(pm)
+    script = {
+        "episode": 1,
+        "title": "E1",
+        "content_mode": "reference_video",
+        "duration_seconds": 0,
+        "summary": "",
+        "novel": {"title": "t", "chapter": "c"},
+        "video_units": [
+            {
+                "unit_id": "E1U1",
+                "shots": [{"duration": 3, "text": "Shot 1 (3s): x"}],
+                "references": [
+                    {"type": "character", "name": "张三"},
+                    {"type": "scene", "name": "酒馆"},
+                ],
+                "duration_seconds": 3,
+                "duration_override": False,
+                "transition_to_next": "cut",
+                "note": None,
+                "generated_assets": {
+                    "storyboard_image": None,
+                    "storyboard_last_image": None,
+                    "grid_id": None,
+                    "grid_cell_index": None,
+                    "video_clip": None,
+                    "video_uri": None,
+                    "status": "pending",
+                },
+            },
+            {
+                "unit_id": "E1U2",
+                "shots": [{"duration": 5, "text": "Shot 1 (5s): y"}],
+                "references": [
+                    {"type": "character", "name": "张三"},  # duplicate — should dedupe
+                    {"type": "prop", "name": "长剑"},
+                ],
+                "duration_seconds": 5,
+                "duration_override": False,
+                "transition_to_next": "cut",
+                "note": None,
+                "generated_assets": {
+                    "storyboard_image": None,
+                    "storyboard_last_image": None,
+                    "grid_id": None,
+                    "grid_cell_index": None,
+                    "video_clip": None,
+                    "video_uri": None,
+                    "status": "pending",
+                },
+            },
+        ],
+    }
+    enriched = calc.enrich_script(script)
+    assert enriched["characters_in_episode"] == ["张三"]
+    assert enriched["scenes_in_episode"] == ["酒馆"]
+    assert enriched["props_in_episode"] == ["长剑"]
+    assert enriched["duration_seconds"] == 8
