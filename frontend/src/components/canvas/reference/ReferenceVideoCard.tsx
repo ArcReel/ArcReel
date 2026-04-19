@@ -1,0 +1,267 @@
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { MentionPicker, type MentionCandidate } from "./MentionPicker";
+import { ASSET_COLORS, assetColor } from "./asset-colors";
+import { useShotPromptHighlight, type MentionLookup } from "@/hooks/useShotPromptHighlight";
+import { mergeReferences } from "@/utils/reference-mentions";
+import { useProjectsStore } from "@/stores/projects-store";
+import type { AssetKind, ReferenceResource, ReferenceVideoUnit } from "@/types/reference-video";
+
+export interface ReferenceVideoCardProps {
+  unit: ReferenceVideoUnit;
+  projectName: string;
+  episode: number;
+  onChangePrompt: (prompt: string, references: ReferenceResource[]) => void;
+}
+
+function unitPromptText(unit: ReferenceVideoUnit): string {
+  return unit.shots.map((s) => s.text).join("\n");
+}
+
+export function ReferenceVideoCard({
+  unit,
+  projectName,
+  episode,
+  onChangePrompt,
+}: ReferenceVideoCardProps) {
+  const { t } = useTranslation("dashboard");
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  // Store { value, syncedUnitId } together so we can reset value inline during render
+  // when the unit identity changes — this is the React-recommended "derived state" pattern
+  // and avoids both useEffect-based setState and ref-during-render lint errors.
+  const [valueState, setValueState] = useState(() => ({
+    text: unitPromptText(unit),
+    syncedUnitId: unit.unit_id,
+  }));
+
+  // Derive the effective text: if unit changed, compute the new text synchronously.
+  // Calling setValueState here triggers a re-render immediately after this one with
+  // the new state, while currentText is used for this render to avoid a blank flash.
+  let currentText = valueState.text;
+  if (valueState.syncedUnitId !== unit.unit_id) {
+    const resetText = unitPromptText(unit);
+    setValueState({ text: resetText, syncedUnitId: unit.unit_id });
+    currentText = resetText;
+  }
+
+  const project = useProjectsStore((s) => s.currentProjectData);
+
+  const lookup: MentionLookup = useMemo(() => {
+    const out: MentionLookup = {};
+    for (const name of Object.keys(project?.characters ?? {})) out[name] = "character";
+    for (const name of Object.keys(project?.scenes ?? {})) out[name] = "scene";
+    for (const name of Object.keys(project?.props ?? {})) out[name] = "prop";
+    return out;
+  }, [project?.characters, project?.scenes, project?.props]);
+
+  const tokens = useShotPromptHighlight(currentText, lookup);
+
+  const unknownMentions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const tk of tokens) {
+      if (tk.kind === "mention" && tk.assetKind === "unknown" && !seen.has(tk.name)) {
+        seen.add(tk.name);
+        out.push(tk.name);
+      }
+    }
+    return out;
+  }, [tokens]);
+
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState("");
+  const atStartRef = useRef<number | null>(null);
+
+  const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
+    function toCandidates(
+      bucket: Record<string, { character_sheet?: string; scene_sheet?: string; prop_sheet?: string }> | undefined,
+      sheetKey: "character_sheet" | "scene_sheet" | "prop_sheet",
+    ): MentionCandidate[] {
+      if (!bucket) return [];
+      return Object.entries(bucket).map(([name, data]) => ({
+        name,
+        imagePath: data[sheetKey] ?? null,
+      }));
+    }
+    return {
+      character: toCandidates(project?.characters, "character_sheet"),
+      scene: toCandidates(project?.scenes, "scene_sheet"),
+      prop: toCandidates(project?.props, "prop_sheet"),
+    };
+  }, [project?.characters, project?.scenes, project?.props]);
+
+  const setText = useCallback(
+    (next: string) => {
+      setValueState({ text: next, syncedUnitId: unit.unit_id });
+    },
+    [unit.unit_id],
+  );
+
+  const emitChange = useCallback(
+    (nextValue: string) => {
+      const refs = mergeReferences(nextValue, unit.references, project ?? null);
+      onChangePrompt(nextValue, refs);
+    },
+    [onChangePrompt, unit.references, project],
+  );
+
+  const updatePickerFromCursor = useCallback((nextValue: string, cursor: number) => {
+    let i = cursor - 1;
+    while (i >= 0) {
+      const ch = nextValue[i];
+      if (ch === "@") {
+        const prev = nextValue[i - 1];
+        // Only open the picker when the '@' is at a mention boundary:
+        // start-of-string or preceded by whitespace. This avoids triggering on
+        // `a@b` (email-like) or `@@foo` (double-@ typos).
+        if (i === 0 || /\s/.test(prev ?? "")) {
+          atStartRef.current = i;
+          setPickerQuery(nextValue.slice(i + 1, cursor));
+          setPickerOpen(true);
+          return;
+        }
+        break;
+      }
+      if (/\s/.test(ch)) break;
+      i--;
+    }
+    atStartRef.current = null;
+    setPickerOpen(false);
+    setPickerQuery("");
+  }, []);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const next = e.target.value;
+    setText(next);
+    emitChange(next);
+    updatePickerFromCursor(next, e.target.selectionStart ?? next.length);
+  };
+
+  const handleCursorUpdate = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const ta = e.currentTarget;
+    updatePickerFromCursor(ta.value, ta.selectionStart ?? ta.value.length);
+  };
+
+  const handlePickerSelect = useCallback(
+    (ref: { type: AssetKind; name: string }) => {
+      const ta = taRef.current;
+      const start = atStartRef.current;
+      if (!ta || start === null) {
+        setPickerOpen(false);
+        return;
+      }
+      const before = currentText.slice(0, start);
+      const cursor = ta.selectionStart ?? currentText.length;
+      const after = currentText.slice(cursor);
+      const insert = `@${ref.name} `;
+      const next = before + insert + after;
+      setText(next);
+      emitChange(next);
+      setPickerOpen(false);
+      setPickerQuery("");
+      atStartRef.current = null;
+      requestAnimationFrame(() => {
+        ta.focus();
+        const pos = before.length + insert.length;
+        ta.setSelectionRange(pos, pos);
+      });
+    },
+    [currentText, setText, emitChange],
+  );
+
+  const onScroll = () => {
+    if (preRef.current && taRef.current) {
+      preRef.current.scrollTop = taRef.current.scrollTop;
+      preRef.current.scrollLeft = taRef.current.scrollLeft;
+    }
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="mb-1 flex items-center justify-between text-[11px] text-gray-500">
+        <span className="font-mono text-gray-400" translate="no">
+          {unit.unit_id}
+        </span>
+        <span className="tabular-nums text-gray-500">
+          {unit.duration_seconds}s · {unit.shots.length} shot(s)
+        </span>
+      </div>
+
+      <div className="relative min-h-0 flex-1 rounded-md border border-gray-800 bg-gray-950/60">
+        <pre
+          ref={preRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words p-3 font-mono text-sm leading-6"
+        >
+          {tokens.map((tk, i) => {
+            if (tk.kind === "shot_header") {
+              return (
+                <span key={i} className="font-semibold text-indigo-300">
+                  {tk.text}
+                </span>
+              );
+            }
+            if (tk.kind === "mention") {
+              const palette = assetColor(tk.assetKind);
+              return (
+                <span key={i} className={`rounded px-0.5 ${palette.textClass} ${palette.bgClass}`}>
+                  {tk.text}
+                </span>
+              );
+            }
+            return <span key={i}>{tk.text}</span>;
+          })}
+          {currentText.endsWith("\n") ? "\u200b" : null}
+        </pre>
+
+        <textarea
+          ref={taRef}
+          value={currentText}
+          onChange={handleChange}
+          onKeyUp={handleCursorUpdate}
+          onClick={handleCursorUpdate}
+          onScroll={onScroll}
+          placeholder={t("reference_editor_placeholder")}
+          spellCheck={false}
+          className="absolute inset-0 h-full w-full resize-none bg-transparent p-3 font-mono text-sm leading-6 text-transparent caret-gray-200 placeholder:text-gray-600 focus:outline-none"
+        />
+
+        {pickerOpen && (
+          <div className="absolute bottom-1 left-3 z-20">
+            <MentionPicker
+              open
+              query={pickerQuery}
+              candidates={candidates}
+              onSelect={handlePickerSelect}
+              onClose={() => {
+                setPickerOpen(false);
+                setPickerQuery("");
+                atStartRef.current = null;
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      {unknownMentions.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {unknownMentions.map((name) => {
+            const palette = ASSET_COLORS.unknown;
+            return (
+              <span
+                key={name}
+                className={`rounded border px-2 py-0.5 text-[11px] ${palette.textClass} ${palette.bgClass} ${palette.borderClass}`}
+                role="status"
+              >
+                {t("reference_editor_unknown_mention", { name })}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      <span data-debug-project={projectName} data-debug-episode={episode} className="sr-only" />
+    </div>
+  );
+}
