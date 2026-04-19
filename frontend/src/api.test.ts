@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import type { TaskItem } from "@/types";
 
@@ -764,5 +764,78 @@ describe("API", () => {
     it("returns null for non-global path", () => {
       expect(API.getGlobalAssetUrl("regular/path.png")).toBeNull();
     });
+  });
+});
+
+import type { ReferenceVideoUnit } from "@/types";
+
+describe("API.referenceVideos", () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let fetchMock: ReturnType<typeof vi.fn> & { mock: { calls: any[] } };
+
+  beforeEach(() => {
+    fetchMock = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterAll(() => {
+    vi.restoreAllMocks();
+  });
+
+  const mkUnit = (id: string): ReferenceVideoUnit => ({
+    unit_id: id,
+    shots: [{ duration: 3, text: "Shot 1 (3s): test" }],
+    references: [],
+    duration_seconds: 3,
+    duration_override: false,
+    transition_to_next: "cut",
+    note: null,
+    generated_assets: {
+      storyboard_image: null,
+      storyboard_last_image: null,
+      grid_id: null,
+      grid_cell_index: null,
+      video_clip: null,
+      video_uri: null,
+      status: "pending",
+    },
+  });
+
+  it("listReferenceVideoUnits calls GET /reference-videos/episodes/:ep/units", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ units: [mkUnit("E1U1")] }), { status: 200 }));
+    const res = await API.listReferenceVideoUnits("proj", 1);
+    expect(res.units).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/projects/proj/reference-videos/episodes/1/units",
+      expect.not.objectContaining({ method: expect.stringMatching(/./) }),
+    );
+  });
+
+  it("addReferenceVideoUnit posts the prompt payload", async () => {
+    const unit = mkUnit("E1U2");
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ unit }), { status: 201 }));
+    const res = await API.addReferenceVideoUnit("proj", 1, { prompt: "Shot 1 (3s): hi", references: [] });
+    expect(res.unit.unit_id).toBe("E1U2");
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(init!.method).toBe("POST");
+    const body = JSON.parse(init!.body as string) as { prompt: string };
+    expect(body.prompt).toBe("Shot 1 (3s): hi");
+  });
+
+  it("reorderReferenceVideoUnits sends ordered ids", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ units: [] }), { status: 200 }));
+    await API.reorderReferenceVideoUnits("proj", 1, ["E1U2", "E1U1"]);
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as { unit_ids: string[] };
+    expect(body.unit_ids).toEqual(["E1U2", "E1U1"]);
+  });
+
+  it("generateReferenceVideoUnit returns task id", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ task_id: "t-1", deduped: false }), { status: 202 }));
+    const res = await API.generateReferenceVideoUnit("proj", 1, "E1U1");
+    expect(res.task_id).toBe("t-1");
+  });
+
+  it("deleteReferenceVideoUnit returns void on 204", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(API.deleteReferenceVideoUnit("proj", 1, "E1U1")).resolves.toBeUndefined();
   });
 });

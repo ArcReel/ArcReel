@@ -1647,6 +1647,91 @@ class API {
     const qs = fp ? `?fp=${encodeURIComponent(fp)}` : "";
     return `${API_BASE}/global-assets/${type}/${filename}${qs}`;
   }
+
+  // ==================== Reference-to-Video API ====================
+
+  /** List reference-video units for an episode. */
+  static async listReferenceVideoUnits(
+    projectName: string,
+    episode: number,
+  ): Promise<{ units: import("@/types").ReferenceVideoUnit[] }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units`,
+    );
+  }
+
+  /** Create a new reference-video unit. */
+  static async addReferenceVideoUnit(
+    projectName: string,
+    episode: number,
+    payload: {
+      prompt: string;
+      references: import("@/types").ReferenceResource[];
+      duration_seconds?: number;
+      transition_to_next?: "cut" | "fade" | "dissolve";
+      note?: string | null;
+    },
+  ): Promise<{ unit: import("@/types").ReferenceVideoUnit }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  }
+
+  /** Patch prompt/references/duration/transition/note on an existing unit. */
+  static async patchReferenceVideoUnit(
+    projectName: string,
+    episode: number,
+    unitId: string,
+    patch: {
+      prompt?: string;
+      references?: import("@/types").ReferenceResource[];
+      duration_seconds?: number;
+      transition_to_next?: "cut" | "fade" | "dissolve";
+      note?: string | null;
+    },
+  ): Promise<{ unit: import("@/types").ReferenceVideoUnit }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}`,
+      { method: "PATCH", body: JSON.stringify(patch) },
+    );
+  }
+
+  /** Delete a unit. Returns void on 204. */
+  static async deleteReferenceVideoUnit(
+    projectName: string,
+    episode: number,
+    unitId: string,
+  ): Promise<void> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  /** Reorder units by providing the full ordered unit_id list. */
+  static async reorderReferenceVideoUnits(
+    projectName: string,
+    episode: number,
+    unitIds: string[],
+  ): Promise<{ units: import("@/types").ReferenceVideoUnit[] }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/reorder`,
+      { method: "POST", body: JSON.stringify({ unit_ids: unitIds }) },
+    );
+  }
+
+  /** Enqueue generation; returns 202 with task_id. */
+  static async generateReferenceVideoUnit(
+    projectName: string,
+    episode: number,
+    unitId: string,
+  ): Promise<{ task_id: string; deduped: boolean }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/generate`,
+      { method: "POST" },
+    );
+  }
 }
 
 export { API };
