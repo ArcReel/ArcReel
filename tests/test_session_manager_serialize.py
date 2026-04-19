@@ -1,6 +1,7 @@
 """Unit tests for SessionManager._serialize_value method."""
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
@@ -71,6 +72,16 @@ class TestSerializeValue:
         block = DataclassBlock(kind="text", value="content")
         result = session_manager._serialize_value(block)
         assert result == {"kind": "text", "value": "content"}
+
+    def test_serialize_pydantic_with_json_mode_types(self, session_manager):
+        """Pydantic dump must go through mode='json' (datetime → ISO string)."""
+
+        class Event(BaseModel):
+            ts: datetime
+
+        ts = datetime(2026, 4, 19, 12, 0, 0, tzinfo=UTC)
+        result = session_manager._serialize_value(Event(ts=ts))
+        assert result == {"ts": "2026-04-19T12:00:00Z"}
 
     def test_serialize_unknown_object_to_string(self, session_manager):
         """Objects without model_dump or __dict__ are converted to string."""
