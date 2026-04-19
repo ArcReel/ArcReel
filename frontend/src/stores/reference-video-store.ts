@@ -1,3 +1,4 @@
+// frontend/src/stores/reference-video-store.ts
 import { create } from "zustand";
 import { API } from "@/api";
 import type { ReferenceResource, ReferenceVideoUnit, TransitionType } from "@/types";
@@ -38,10 +39,39 @@ interface ReferenceVideoStore {
   reorderUnits: (projectName: string, episode: number, unitIds: string[]) => Promise<void>;
   generate: (projectName: string, episode: number, unitId: string) => Promise<{ task_id: string; deduped: boolean }>;
   select: (unitId: string | null) => void;
+  /**
+   * Debounced prompt save. Coalesces rapid edits into a single PATCH per unitId
+   * with a 500ms delay. Stale responses (from a superseded in-flight request)
+   * are discarded based on a per-unit fetch id counter.
+   */
+  updatePromptDebounced: (
+    projectName: string,
+    episode: number,
+    unitId: string,
+    prompt: string,
+    references: ReferenceResource[],
+  ) => void;
 }
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+// Per-unit debounce timers — module-scoped so zustand state stays serializable.
+const _timers = new Map<string, ReturnType<typeof setTimeout>>();
+// Per-unit fetch id; latest wins.
+const _fetchIds = new Map<string, number>();
+// Last pending payload keyed by unitId.
+const _pendingPayload = new Map<string, { prompt: string; references: ReferenceResource[] }>();
+
+const DEBOUNCE_MS = 500;
+
+/** Internal: reset debounce state; only call from tests. */
+export function _resetDebounceState(): void {
+  _timers.forEach((t) => clearTimeout(t));
+  _timers.clear();
+  _fetchIds.clear();
+  _pendingPayload.clear();
 }
 
 export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
@@ -115,4 +145,42 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
   },
 
   select: (unitId) => set({ selectedUnitId: unitId }),
+
+  updatePromptDebounced: (projectName, episode, unitId, prompt, references) => {
+    _pendingPayload.set(unitId, { prompt, references });
+    const existing = _timers.get(unitId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      _timers.delete(unitId);
+      const payload = _pendingPayload.get(unitId);
+      _pendingPayload.delete(unitId);
+      if (!payload) return;
+
+      const myFetchId = (_fetchIds.get(unitId) ?? 0) + 1;
+      _fetchIds.set(unitId, myFetchId);
+
+      void API.patchReferenceVideoUnit(projectName, episode, unitId, {
+        prompt: payload.prompt,
+        references: payload.references,
+      })
+        .then(({ unit }) => {
+          if (_fetchIds.get(unitId) !== myFetchId) return; // stale
+          set((s) => {
+            const key = referenceVideoCacheKey(projectName, episode);
+            const list = s.unitsByEpisode[key] ?? [];
+            return {
+              unitsByEpisode: {
+                ...s.unitsByEpisode,
+                [key]: list.map((u) => (u.unit_id === unitId ? unit : u)),
+              },
+            };
+          });
+        })
+        .catch((e) => {
+          if (_fetchIds.get(unitId) !== myFetchId) return;
+          set({ error: errMsg(e) });
+        });
+    }, DEBOUNCE_MS);
+    _timers.set(unitId, timer);
+  },
 }));

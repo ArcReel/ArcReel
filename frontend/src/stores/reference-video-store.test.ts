@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { act } from "@testing-library/react";
-import { useReferenceVideoStore } from "./reference-video-store";
+import { _resetDebounceState, useReferenceVideoStore } from "./reference-video-store";
 import { API } from "@/api";
 import type { ReferenceVideoUnit } from "@/types";
 
@@ -150,5 +150,123 @@ describe("reference-video-store", () => {
     const state = useReferenceVideoStore.getState();
     expect(state.unitsByEpisode["projA::1"].map((u) => u.unit_id)).toEqual(["A-E1-U1"]);
     expect(state.unitsByEpisode["projB::1"].map((u) => u.unit_id)).toEqual(["B-E1-U1"]);
+  });
+});
+
+describe("reference-video-store · updatePromptDebounced", () => {
+  beforeEach(() => {
+    useReferenceVideoStore.setState({
+      unitsByEpisode: {},
+      selectedUnitId: null,
+      loading: false,
+      error: null,
+    });
+    _resetDebounceState();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("delays network call and writes server response to store", async () => {
+    useReferenceVideoStore.setState({
+      unitsByEpisode: { "proj::1": [mkUnit("E1U1")] },
+      selectedUnitId: "E1U1",
+      loading: false,
+      error: null,
+    });
+    const serverUnit = mkUnit("E1U1", { note: "saved" });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValueOnce({ unit: serverUnit });
+
+    useReferenceVideoStore.getState().updatePromptDebounced("proj", 1, "E1U1", "Shot 1 (3s): x", []);
+    expect(patchSpy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(patchSpy).toHaveBeenCalledTimes(1);
+    expect(useReferenceVideoStore.getState().unitsByEpisode["proj::1"][0].note).toBe("saved");
+  });
+
+  it("coalesces rapid edits into a single network call", async () => {
+    useReferenceVideoStore.setState({
+      unitsByEpisode: { "proj::1": [mkUnit("E1U1")] },
+      selectedUnitId: "E1U1",
+      loading: false,
+      error: null,
+    });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValue({ unit: mkUnit("E1U1") });
+
+    const store = useReferenceVideoStore.getState();
+    store.updatePromptDebounced("proj", 1, "E1U1", "a", []);
+    store.updatePromptDebounced("proj", 1, "E1U1", "ab", []);
+    store.updatePromptDebounced("proj", 1, "E1U1", "abc", []);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(patchSpy).toHaveBeenCalledTimes(1);
+    const [, , , body] = patchSpy.mock.calls[0]!;
+    expect(body).toEqual({ prompt: "abc", references: [] });
+  });
+
+  it("discards stale responses when a newer edit races in", async () => {
+    useReferenceVideoStore.setState({
+      unitsByEpisode: { "proj::1": [mkUnit("E1U1", { note: "original" })] },
+      selectedUnitId: "E1U1",
+      loading: false,
+      error: null,
+    });
+    let resolveFirst!: (v: { unit: ReferenceVideoUnit }) => void;
+    const firstPromise = new Promise<{ unit: ReferenceVideoUnit }>((r) => {
+      resolveFirst = r;
+    });
+    const patchSpy = vi.spyOn(API, "patchReferenceVideoUnit");
+    patchSpy.mockReturnValueOnce(firstPromise);
+    patchSpy.mockResolvedValueOnce({ unit: mkUnit("E1U1", { note: "v2" }) });
+
+    const store = useReferenceVideoStore.getState();
+    store.updatePromptDebounced("proj", 1, "E1U1", "first", []);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    // first in-flight; now enqueue a second, then let first resolve late
+    store.updatePromptDebounced("proj", 1, "E1U1", "second", []);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    await act(async () => {
+      resolveFirst({ unit: mkUnit("E1U1", { note: "v1-late" }) });
+      await Promise.resolve();
+    });
+    expect(useReferenceVideoStore.getState().unitsByEpisode["proj::1"][0].note).toBe("v2");
+  });
+
+  it("keeps per-unit timers isolated", async () => {
+    useReferenceVideoStore.setState({
+      unitsByEpisode: { "proj::1": [mkUnit("E1U1"), mkUnit("E1U2")] },
+      selectedUnitId: "E1U1",
+      loading: false,
+      error: null,
+    });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValueOnce({ unit: mkUnit("E1U1") })
+      .mockResolvedValueOnce({ unit: mkUnit("E1U2") });
+
+    const store = useReferenceVideoStore.getState();
+    store.updatePromptDebounced("proj", 1, "E1U1", "draft1", []);
+    store.updatePromptDebounced("proj", 1, "E1U2", "draft2", []);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    // Both timers should have fired independently (one per unitId)
+    expect(patchSpy).toHaveBeenCalledTimes(2);
   });
 });
