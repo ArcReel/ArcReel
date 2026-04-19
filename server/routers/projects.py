@@ -46,6 +46,11 @@ router = APIRouter()
 pm = ProjectManager(PROJECT_ROOT / "projects")
 calc = StatusCalculator(pm)
 
+# episode 字段白名单：只允许持久化合法的 on-disk 字段。
+# StatusCalculator 注入的统计字段（scenes_count / status / storyboards / videos 等）
+# 是读时计算值，禁止写回 project.json。
+EPISODE_PERSIST_FIELDS = {"title", "script_file", "generation_mode"}
+
 
 def get_project_manager() -> ProjectManager:
     return pm
@@ -590,17 +595,21 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                 project.pop("style_description", None)
 
             if "episodes" in req.model_fields_set and req.episodes is not None:
-                # 合并 episodes：保留现有 episode 的完整数据，仅更新请求中提供的字段
-                existing = {e.get("episode"): e for e in project.get("episodes", [])}
-                merged = []
+                # 合并 episodes：保留现有 episode 的完整数据，仅更新请求中提供的字段。
+                # 仅接受白名单字段，丢弃 StatusCalculator 注入的统计字段（scenes_count /
+                # status / storyboards / videos 等），防止计算值写回 project.json。
+                existing_list = project.get("episodes", [])
+                existing = {e.get("episode"): e for e in existing_list}
+                merged = list(existing_list)  # 保留原始顺序，仅更新匹配条目
                 for ep in req.episodes:
                     ep_num = ep.get("episode")
-                    if ep_num is not None and ep_num in existing:
-                        merged_ep = dict(existing[ep_num])
-                        merged_ep.update({k: v for k, v in ep.items() if k != "episode"})
-                        merged.append(merged_ep)
-                    else:
-                        merged.append(ep)
+                    ep_num_int = int(ep_num) if ep_num is not None else None
+                    if ep_num_int is None or not any(e.get("episode") == ep_num_int for e in existing_list):
+                        logger.warning("Skipping patch for unknown episode %s", ep_num_int)
+                        continue
+                    merged_ep = dict(existing[ep_num_int])
+                    merged_ep.update({k: v for k, v in ep.items() if k in EPISODE_PERSIST_FIELDS})
+                    merged = [merged_ep if e.get("episode") == ep_num_int else e for e in merged]
                 project["episodes"] = merged
 
             with project_change_source("webui"):

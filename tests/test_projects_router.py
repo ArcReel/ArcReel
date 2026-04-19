@@ -511,3 +511,90 @@ class TestProjectsRouter:
             assert data["style"] == ""
             assert "style_image" not in data
             assert "style_description" not in data
+
+    # ---------------------------------------------------------------------------
+    # Episodes PATCH tests (Task 12 — reference-video mode)
+    # ---------------------------------------------------------------------------
+
+    def test_patch_project_episodes_updates_generation_mode(self, tmp_path, monkeypatch):
+        """PATCH /projects/{name} with episodes[] updates generation_mode for matched episode."""
+        fake_pm = _FakePM(tmp_path)
+        # 项目初始有 2 集，均无 generation_mode 字段
+        fake_pm.project_data["ready"]["episodes"] = [
+            {"episode": 1, "title": "第一集", "script_file": "scripts/ep1.json"},
+            {"episode": 2, "title": "第二集", "script_file": "scripts/ep2.json"},
+        ]
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"episodes": [{"episode": 1, "generation_mode": "reference_video"}]},
+            )
+            assert resp.status_code == 200
+            episodes = fake_pm.project_data["ready"]["episodes"]
+            ep1 = next(e for e in episodes if e["episode"] == 1)
+            ep2 = next(e for e in episodes if e["episode"] == 2)
+            assert ep1["generation_mode"] == "reference_video"
+            # 第二集不受影响
+            assert "generation_mode" not in ep2
+
+    def test_patch_project_episodes_strips_computed_fields(self, tmp_path, monkeypatch):
+        """PATCH 不得将 StatusCalculator 注入的计算字段写回 project.json。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["episodes"] = [
+            {"episode": 1, "title": "原标题", "script_file": "scripts/ep1.json"},
+        ]
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={
+                    "episodes": [
+                        {
+                            "episode": 1,
+                            "title": "新标题",
+                            # 以下为 StatusCalculator 注入的计算字段，不应写入磁盘
+                            "scenes_count": 999,
+                            "status": "completed",
+                            "storyboards": {"total": 5, "completed": 3},
+                            "videos": {"total": 5, "completed": 5},
+                            "script_status": "segmented",
+                            "duration_seconds": 120,
+                        }
+                    ]
+                },
+            )
+            assert resp.status_code == 200
+            ep1 = fake_pm.project_data["ready"]["episodes"][0]
+            # 合法字段应被写入
+            assert ep1["title"] == "新标题"
+            # 计算字段不得写入
+            assert "scenes_count" not in ep1
+            assert "status" not in ep1
+            assert "storyboards" not in ep1
+            assert "videos" not in ep1
+            assert "script_status" not in ep1
+            assert "duration_seconds" not in ep1
+
+    def test_patch_project_episodes_skips_unknown_episode(self, tmp_path, monkeypatch):
+        """PATCH 传入未知 episode 编号时，静默跳过，不改变已有 episodes。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["episodes"] = [
+            {"episode": 1, "title": "第一集", "script_file": "scripts/ep1.json"},
+            {"episode": 2, "title": "第二集", "script_file": "scripts/ep2.json"},
+        ]
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"episodes": [{"episode": 999, "generation_mode": "grid"}]},
+            )
+            assert resp.status_code == 200
+            episodes = fake_pm.project_data["ready"]["episodes"]
+            # 集数不变
+            assert len(episodes) == 2
+            # 已有字段不受影响
+            assert all("generation_mode" not in e for e in episodes)

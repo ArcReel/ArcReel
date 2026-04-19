@@ -357,15 +357,19 @@ export function StudioCanvasRouter() {
   const handleEpisodeModeChange = useCallback(
     async (epNum: number, next: GenerationMode) => {
       if (!currentProjectName || !currentProjectData) return;
-      const episodes = (currentProjectData.episodes ?? []).map((e) =>
-        e.episode === epNum ? { ...e, generation_mode: next } : e,
-      );
+      // Send minimal patch shape: only episode + the changed field.
+      // Casting to EpisodeMeta[] because the backend whitelist accepts partial dicts;
+      // sending the full enriched object would persist StatusCalculator-computed fields.
+      const episodes = (currentProjectData.episodes ?? []).map((e) => ({
+        episode: e.episode,
+        ...(e.episode === epNum ? { generation_mode: next } : {}),
+      })) as import("@/types/project").EpisodeMeta[];
       try {
         await API.updateProject(currentProjectName, { episodes });
         await refreshProject();
       } catch (err) {
         useAppStore.getState().pushToast(
-          tRef.current("update_failed") + (err as Error).message,
+          tRef.current("update_failed", { message: (err as Error).message }),
           "error",
         );
       }
