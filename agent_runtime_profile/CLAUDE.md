@@ -33,7 +33,7 @@
 
 系统支持两种内容模式（说书+画面 / 剧集动画），通过 `project.json` 的 `content_mode` 字段切换。
 
-> 详细规格（画面比例、时长、数据结构、预处理 Agent 等）见 `.claude/references/content-modes.md`。
+> 详细规格（画面比例、时长、数据结构、预处理 Agent 等）见 `.claude/references/generation-modes.md`。
 
 ---
 
