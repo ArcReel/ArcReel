@@ -37,6 +37,22 @@
 
 ---
 
+## 生成模式
+
+系统支持三种**生成模式**（`generation_mode`），通过 `project.json` 顶层字段 + 集级 `episodes[i].generation_mode` 指定：
+
+| generation_mode | 名称（UI） | 数据主结构 | 视觉参考来源 |
+|---|---|---|---|
+| `storyboard`（默认） | 图生视频 | `segments[]` 或 `scenes[]` + 分镜图 | 每片段一张分镜图作起始帧 |
+| `grid` | 宫格生视频 | `segments[]` 或 `scenes[]` + 宫格分组 | 宫格图切块 |
+| `reference_video` | 参考生视频 | `video_units[]` | 角色/场景/道具 sheet 图作为参考 |
+
+解析规则：`effective_mode(project, episode) = episode.generation_mode or project.generation_mode or "storyboard"`。
+
+> 完整模式矩阵与阶段分支详见 `.claude/references/generation-modes.md`。
+
+---
+
 ## 项目结构
 
 - `projects/{项目名}` - 视频项目的工作空间
@@ -53,6 +69,7 @@
   ├─ dispatch → analyze-assets               全局角色/场景/道具提取
   ├─ dispatch → split-narration-segments     说书模式片段拆分
   ├─ dispatch → normalize-drama-script       剧集模式规范化剧本
+  ├─ dispatch → split-reference-video-units  参考模式 video_unit 拆分
   ├─ dispatch → create-episode-script        JSON 剧本生成（预加载 generate-script skill）
   └─ dispatch → generate-assets              资产生成（角色/场景/道具/分镜/视频）
 ```
@@ -95,14 +112,17 @@
 
 `/manga-workflow` 编排 skill 按以下阶段自动推进（每个阶段完成后等待用户确认）：
 
-1. **项目设置**：创建项目、上传小说、生成项目概述
+1. **项目设置**：创建项目、选择 `content_mode` + `generation_mode`、上传小说、生成项目概述
 2. **全局角色/场景/道具提取** → dispatch `analyze-assets` subagent
 3. **分集规划** → 主 agent 直接执行 peek+split 切分（manage-project 工具集）
-4. **单集预处理** → dispatch `split-narration-segments`（narration）或 `normalize-drama-script`（drama）
+4. **单集预处理** → 按 `effective_mode` 选：
+   - reference_video → `split-reference-video-units`
+   - narration → `split-narration-segments`
+   - drama → `normalize-drama-script`
 5. **JSON 剧本生成** → dispatch `create-episode-script` subagent
 6. **资产设计（character/scene/prop 三类并行）** → dispatch `generate-assets` subagent
-7. **分镜图生成** → dispatch `generate-assets` subagent
-8. **视频生成** → dispatch `generate-assets` subagent
+7. **分镜图生成**：仅 `storyboard` / `grid` 模式；`reference_video` 跳过 → dispatch `generate-assets` subagent
+8. **视频生成** → dispatch `generate-assets` subagent（脚本自动按 video_units/segments/scenes 分派）
 
 工作流支持**灵活入口**：状态检测自动定位到第一个未完成的阶段，支持中断后恢复。
 视频生成完成后，用户可在 Web 端导出为剪映草稿。
@@ -121,20 +141,24 @@ projects/{项目名}/
 ├── project.json       # 项目元数据（角色、场景、道具、剧集、风格）
 ├── source/            # 原始小说内容
 ├── scripts/           # 分镜剧本 (JSON)
+├── drafts/            # Step 1 中间文件
 ├── characters/        # 角色设计图
 ├── scenes/            # 场景设计图
 ├── props/             # 道具设计图
-├── storyboards/       # 分镜图片
-├── videos/            # 生成的视频
+├── storyboards/       # 分镜图片（storyboard / grid 模式）
+├── grids/             # 宫格图（grid 模式）
+├── videos/            # 生成的视频片段（storyboard / grid 模式）
+├── reference_videos/  # 生成的 video_unit（reference_video 模式）
+├── thumbnails/        # 首帧缩略图
 └── output/            # 最终输出
 ```
 
 ### project.json 核心字段
 
 - `schema_version`：项目数据格式版本（当前 1）
-- `title`、`content_mode`（`narration`/`drama`）、`style`、`style_description`
+- `title`、`content_mode`（`narration`/`drama`）、`generation_mode`（`storyboard`/`grid`/`reference_video`）、`style`、`style_description`
 - `overview`：项目概述（synopsis、genre、theme、world_setting）
-- `episodes`：剧集核心元数据（episode、title、script_file）
+- `episodes`：剧集核心元数据（episode、title、script_file、可选 `generation_mode` 覆盖）
 - `characters`：角色完整定义（description、voice_style、character_sheet）
 - `scenes`：场景完整定义（description、scene_sheet）
 - `props`：道具完整定义（description、prop_sheet）
