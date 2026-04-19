@@ -50,7 +50,7 @@ describe("reference-video-store", () => {
     });
 
     const state = useReferenceVideoStore.getState();
-    expect(state.unitsByEpisode["1"]).toHaveLength(2);
+    expect(state.unitsByEpisode["proj::1"]).toHaveLength(2);
     expect(state.loading).toBe(false);
     expect(state.error).toBeNull();
   });
@@ -78,13 +78,13 @@ describe("reference-video-store", () => {
     });
 
     const state = useReferenceVideoStore.getState();
-    expect(state.unitsByEpisode["1"]).toEqual([expect.objectContaining({ unit_id: "E1U3" })]);
+    expect(state.unitsByEpisode["proj::1"]).toEqual([expect.objectContaining({ unit_id: "E1U3" })]);
     expect(state.selectedUnitId).toBe("E1U3");
   });
 
   it("patchUnit replaces the unit returned by server", async () => {
     useReferenceVideoStore.setState({
-      unitsByEpisode: { "1": [mkUnit("E1U1")] },
+      unitsByEpisode: { "proj::1": [mkUnit("E1U1")] },
       selectedUnitId: "E1U1",
       loading: false,
       error: null,
@@ -97,12 +97,12 @@ describe("reference-video-store", () => {
       await useReferenceVideoStore.getState().patchUnit("proj", 1, "E1U1", { note: "updated" });
     });
 
-    expect(useReferenceVideoStore.getState().unitsByEpisode["1"][0].note).toBe("updated");
+    expect(useReferenceVideoStore.getState().unitsByEpisode["proj::1"][0].note).toBe("updated");
   });
 
   it("deleteUnit removes unit and clears selection if it was selected", async () => {
     useReferenceVideoStore.setState({
-      unitsByEpisode: { "1": [mkUnit("E1U1"), mkUnit("E1U2")] },
+      unitsByEpisode: { "proj::1": [mkUnit("E1U1"), mkUnit("E1U2")] },
       selectedUnitId: "E1U1",
       loading: false,
       error: null,
@@ -114,7 +114,7 @@ describe("reference-video-store", () => {
     });
 
     const state = useReferenceVideoStore.getState();
-    expect(state.unitsByEpisode["1"].map((u) => u.unit_id)).toEqual(["E1U2"]);
+    expect(state.unitsByEpisode["proj::1"].map((u) => u.unit_id)).toEqual(["E1U2"]);
     expect(state.selectedUnitId).toBeNull();
   });
 
@@ -126,12 +126,29 @@ describe("reference-video-store", () => {
       await useReferenceVideoStore.getState().reorderUnits("proj", 1, ["E1U2", "E1U1"]);
     });
 
-    expect(useReferenceVideoStore.getState().unitsByEpisode["1"].map((u) => u.unit_id))
+    expect(useReferenceVideoStore.getState().unitsByEpisode["proj::1"].map((u) => u.unit_id))
       .toEqual(["E1U2", "E1U1"]);
   });
 
   it("select sets selectedUnitId", () => {
     useReferenceVideoStore.getState().select("E1U7");
     expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U7");
+  });
+
+  it("isolates cache across projects with the same episode number", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits")
+      .mockResolvedValueOnce({ units: [mkUnit("A-E1-U1")] })
+      .mockResolvedValueOnce({ units: [mkUnit("B-E1-U1")] });
+
+    await act(async () => {
+      await useReferenceVideoStore.getState().loadUnits("projA", 1);
+    });
+    await act(async () => {
+      await useReferenceVideoStore.getState().loadUnits("projB", 1);
+    });
+
+    const state = useReferenceVideoStore.getState();
+    expect(state.unitsByEpisode["projA::1"].map((u) => u.unit_id)).toEqual(["A-E1-U1"]);
+    expect(state.unitsByEpisode["projB::1"].map((u) => u.unit_id)).toEqual(["B-E1-U1"]);
   });
 });

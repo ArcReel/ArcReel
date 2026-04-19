@@ -3,7 +3,7 @@ import { useShallow } from "zustand/shallow";
 import { useTranslation } from "react-i18next";
 import { UnitList } from "./UnitList";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
-import { useReferenceVideoStore } from "@/stores/reference-video-store";
+import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/reference-video-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import type { ReferenceVideoUnit } from "@/types";
@@ -23,10 +23,10 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   const addUnit = useReferenceVideoStore((s) => s.addUnit);
   const generate = useReferenceVideoStore((s) => s.generate);
   const select = useReferenceVideoStore((s) => s.select);
-  // Narrow selector: only rerender when this episode's slice changes, not
-  // sibling episodes' mutations.
+  // Narrow selector: only rerender when this (project, episode) slice changes,
+  // not sibling episodes' mutations or units from other projects.
   const units =
-    useReferenceVideoStore((s) => s.unitsByEpisode[String(episode)]) ??
+    useReferenceVideoStore((s) => s.unitsByEpisode[referenceVideoCacheKey(projectName, episode)]) ??
     (EMPTY_UNITS as ReferenceVideoUnit[]);
   const selectedUnitId = useReferenceVideoStore((s) => s.selectedUnitId);
   const error = useReferenceVideoStore((s) => s.error);

@@ -609,24 +609,38 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                 project.pop("style_description", None)
 
             if "episodes" in req.model_fields_set and req.episodes is not None:
-                # 合并 episodes：保留现有 episode 的完整数据，仅更新请求中提供的字段。
-                # 仅接受白名单字段，丢弃 StatusCalculator 注入的统计字段（scenes_count /
-                # status / storyboards / videos 等），防止计算值写回 project.json。
+                # 合并 episodes：保留现有 episode 的完整数据，仅更新请求中显式提供的字段。
+                # 使用 model_fields_set（而非 exclude_none）判断字段是否显式出现，使得
+                # `generation_mode: null` 可用于清空集级覆盖、回退到项目级模式继承。
+                # 白名单同时拦截 StatusCalculator 注入的计算字段（scenes_count / status
+                # / storyboards / videos 等），防止写回 project.json。
                 existing_list = project.get("episodes", [])
-                existing = {e.get("episode"): e for e in existing_list}
-                merged = list(existing_list)  # 保留原始顺序，仅更新匹配条目
+                patch_map: dict[int, EpisodePatch] = {}
                 for ep in req.episodes:
-                    ep_num_int = ep.episode
-                    # Validation already stripped unknown fields; this whitelist stays as defense-in-depth.
-                    existing_ep = next((e for e in existing_list if e.get("episode") == ep_num_int), None)
-                    if existing_ep is None:
-                        logger.warning("Skipping patch for unknown episode %s", ep_num_int)
+                    patch_map[ep.episode] = ep  # 重复编号：后者覆盖前者
+
+                new_episodes: list[dict] = []
+                for existing_ep in existing_list:
+                    ep_num = existing_ep.get("episode")
+                    patch = patch_map.pop(ep_num, None)
+                    if patch is None:
+                        new_episodes.append(existing_ep)
                         continue
-                    merged_ep = dict(existing[ep_num_int])
-                    patch_fields = ep.model_dump(exclude_none=True, exclude={"episode"})
-                    merged_ep.update({k: v for k, v in patch_fields.items() if k in EPISODE_PERSIST_FIELDS})
-                    merged = [merged_ep if e.get("episode") == ep_num_int else e for e in merged]
-                project["episodes"] = merged
+                    updated = dict(existing_ep)
+                    for field_name in EPISODE_PERSIST_FIELDS:
+                        if field_name not in patch.model_fields_set:
+                            continue
+                        value = getattr(patch, field_name)
+                        if value is None:
+                            updated.pop(field_name, None)
+                        else:
+                            updated[field_name] = value
+                    new_episodes.append(updated)
+
+                for unknown_ep in patch_map:
+                    logger.warning("Skipping patch for unknown episode %s", unknown_ep)
+
+                project["episodes"] = new_episodes
 
             with project_change_source("webui"):
                 manager.save_project(name, project)

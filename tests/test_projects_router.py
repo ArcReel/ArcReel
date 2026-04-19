@@ -598,3 +598,29 @@ class TestProjectsRouter:
             assert len(episodes) == 2
             # 已有字段不受影响
             assert all("generation_mode" not in e for e in episodes)
+
+    def test_patch_project_episodes_clears_generation_mode_with_null(self, tmp_path, monkeypatch):
+        """PATCH 传入 generation_mode=null 时，清除集级覆盖以回退项目级继承。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["episodes"] = [
+            {
+                "episode": 1,
+                "title": "第一集",
+                "script_file": "scripts/ep1.json",
+                "generation_mode": "reference_video",
+            },
+        ]
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"episodes": [{"episode": 1, "generation_mode": None}]},
+            )
+            assert resp.status_code == 200
+            ep1 = fake_pm.project_data["ready"]["episodes"][0]
+            # 显式 null 清除覆盖，回退项目级继承
+            assert "generation_mode" not in ep1
+            # 其他字段保持不变
+            assert ep1["title"] == "第一集"
+            assert ep1["script_file"] == "scripts/ep1.json"
