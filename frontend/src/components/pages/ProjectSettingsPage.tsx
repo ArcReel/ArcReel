@@ -11,6 +11,8 @@ import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
 import type { CustomProviderInfo, ProviderInfo } from "@/types";
+import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
+import { normalizeMode, type GenerationMode } from "@/utils/generation-mode";
 
 function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
   const styleImage = project.style_image as string | undefined;
@@ -69,7 +71,7 @@ export function ProjectSettingsPage() {
   const [textOverview, setTextOverview] = useState<string>("");
   const [textStyle, setTextStyle] = useState<string>("");
   const [aspectRatio, setAspectRatio] = useState<string>("");
-  const [generationMode, setGenerationMode] = useState<"single" | "grid">("single");
+  const [generationMode, setGenerationMode] = useState<GenerationMode>("storyboard");
   const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
@@ -81,7 +83,7 @@ export function ProjectSettingsPage() {
   const initialRef = useRef({
     videoBackend: "", imageBackend: "", audioOverride: null as boolean | null,
     textScript: "", textOverview: "", textStyle: "",
-    aspectRatio: "", generationMode: "single" as "single" | "grid",
+    aspectRatio: "", generationMode: "storyboard" as GenerationMode,
     defaultDuration: null as number | null,
   });
   // 风格区独立保存，但"未保存就离开"也需被 isDirty 拦截。
@@ -127,7 +129,7 @@ export function ProjectSettingsPage() {
       // Backend's get_aspect_ratio() falls back to "9:16" when unset (generation_tasks.py).
       // Mirror that here so the UI reflects the actually-effective ratio.
       const ar = rawAr || "9:16";
-      const gm = (project.generation_mode as "single" | "grid" | undefined) ?? "single";
+      const gm = normalizeMode(project.generation_mode);
       const dd = project.default_duration != null ? (project.default_duration as number) : null;
 
       setVideoBackend(vb);
@@ -410,34 +412,10 @@ export function ProjectSettingsPage() {
             <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
               <fieldset>
                 <legend className="mb-1 text-sm font-medium text-gray-100">{t("generation_mode")}</legend>
-                <p className="mb-3 text-xs text-gray-500">
-                  {t("generation_mode_desc")}
-                </p>
-                <div className="flex gap-3">
-                  {([
-                    { value: "single" as const, labelKey: "single_generation" },
-                    { value: "grid" as const, labelKey: "grid_generation" },
-                  ]).map((opt) => (
-                    <label
-                      key={opt.value}
-                      className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-indigo-500 ${
-                        generationMode === opt.value
-                          ? "border-indigo-500 bg-indigo-500/10 text-indigo-300"
-                          : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="generationMode"
-                        value={opt.value}
-                        checked={generationMode === opt.value}
-                        onChange={() => setGenerationMode(opt.value)}
-                        className="sr-only"
-                      />
-                      {t(opt.labelKey)}
-                    </label>
-                  ))}
-                </div>
+                <GenerationModeSelector
+                  value={generationMode}
+                  onChange={setGenerationMode}
+                />
               </fieldset>
             </div>
 

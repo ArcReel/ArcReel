@@ -239,4 +239,36 @@ describe("ProjectSettingsPage – style picker", () => {
       expect(updateSpy).toHaveBeenCalledWith("demo", { style_template_id: "live_zhang_yimou" });
     });
   });
+
+  it("switches generation_mode to reference_video and marks the save button enabled", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        generation_mode: "storyboard",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    // Wait for the generation mode selector to appear (3 radios total)
+    const referenceVideoRadio = await screen.findByRole("radio", { name: /参考生视频|Reference-to-Video/i });
+    expect(referenceVideoRadio).not.toBeChecked();
+
+    fireEvent.click(referenceVideoRadio);
+
+    // After switching to reference_video the radio should be checked (dirty state)
+    expect(referenceVideoRadio).toBeChecked();
+
+    // The main save button should be enabled (it is never disabled except while saving)
+    const saveBtn = screen.getByRole("button", { name: /^(保存|Save)$/i });
+    expect(saveBtn).not.toBeDisabled();
+  });
 });
