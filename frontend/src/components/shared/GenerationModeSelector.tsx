@@ -12,12 +12,14 @@ export interface GenerationModeSelectorProps {
   name?: string;
 }
 
+const EMPTY_DISABLED: readonly GenerationMode[] = Object.freeze([]);
+
 const MODES: GenerationMode[] = ["storyboard", "grid", "reference_video"];
 
 export function GenerationModeSelector({
   value,
   onChange,
-  disabledModes = [],
+  disabledModes = EMPTY_DISABLED as GenerationMode[],
   size = "lg",
   name = "generationMode",
 }: GenerationModeSelectorProps) {
@@ -64,7 +66,7 @@ export function GenerationModeSelector({
                 value={m}
                 checked={selected}
                 disabled={disabled}
-                onChange={() => onChange(m)}
+                onChange={() => { if (!disabled) onChange(m); }}
                 className="sr-only"
               />
               {labelFor(m)}
