@@ -37,6 +37,14 @@ export function MentionPicker({
 }: MentionPickerProps) {
   const { t } = useTranslation("dashboard");
   const [activeIndex, setActiveIndex] = useState(0);
+  // Reset highlight to the first option whenever the filter query changes —
+  // render-phase state sync (React-recommended alternative to the
+  // `react-hooks/set-state-in-effect` pattern).
+  const [syncedQuery, setSyncedQuery] = useState(query);
+  if (syncedQuery !== query) {
+    setSyncedQuery(query);
+    setActiveIndex(0);
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

@@ -125,6 +125,35 @@ describe("MentionPicker", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("resets active highlight to the first option when query changes", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const { rerender } = render(
+      <MentionPicker
+        open
+        query=""
+        candidates={CANDIDATES}
+        onSelect={onSelect}
+        onClose={vi.fn()}
+      />,
+    );
+    // Move highlight down twice (主角 → 张三 → 酒馆) then narrow the filter.
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    rerender(
+      <MentionPicker
+        open
+        query="主"
+        candidates={CANDIDATES}
+        onSelect={onSelect}
+        onClose={vi.fn()}
+      />,
+    );
+    // After the filter change, Enter must pick the first item in the filtered
+    // list (主角), not whatever was highlighted before.
+    await user.keyboard("{Enter}");
+    expect(onSelect).toHaveBeenCalledWith({ type: "character", name: "主角" });
+  });
+
   it("renders nothing when open=false", () => {
     const { container } = render(
       <MentionPicker

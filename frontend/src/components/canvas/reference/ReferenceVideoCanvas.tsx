@@ -86,24 +86,12 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   const handlePromptChange = useCallback(
     (prompt: string, references: ReferenceResource[]) => {
       if (!selected) return;
-      // If the prompt introduces or removes @mentions that resolve to new
-      // references, push the change immediately — references PATCH is never
-      // debounced to avoid racing with reorder/remove/add from ReferencePanel.
-      const same =
-        references.length === selected.references.length &&
-        references.every(
-          (r, i) =>
-            selected.references[i]?.type === r.type &&
-            selected.references[i]?.name === r.name,
-        );
-      if (!same) {
-        void patchUnit(projectName, episode, selected.unit_id, { references }).catch((e) => {
-          useAppStore.getState().pushToast(e instanceof Error ? e.message : String(e), "error");
-        });
-      }
-      updatePromptDebounced(projectName, episode, selected.unit_id, prompt);
+      // prompt + references coalesce into one debounced PATCH — latest payload
+      // wins, so rapid add-then-remove of an @mention cannot leak the stale
+      // version to the server.
+      updatePromptDebounced(projectName, episode, selected.unit_id, prompt, references);
     },
-    [patchUnit, updatePromptDebounced, projectName, episode, selected],
+    [updatePromptDebounced, projectName, episode, selected],
   );
 
   const handleReorderRefs = useCallback(

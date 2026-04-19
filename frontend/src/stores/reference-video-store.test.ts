@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { act } from "@testing-library/react";
 import { _resetDebounceState, useReferenceVideoStore } from "./reference-video-store";
 import { API } from "@/api";
-import type { ReferenceVideoUnit } from "@/types";
+import type { ReferenceResource, ReferenceVideoUnit } from "@/types";
 
 function mkUnit(id: string, overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
   return {
@@ -170,6 +170,12 @@ describe("reference-video-store · updatePromptDebounced", () => {
     vi.restoreAllMocks();
   });
 
+  const REFS_A: ReferenceResource[] = [{ type: "character", name: "主角" }];
+  const REFS_B: ReferenceResource[] = [
+    { type: "character", name: "主角" },
+    { type: "scene", name: "酒馆" },
+  ];
+
   it("delays network call and writes server response to store", async () => {
     useReferenceVideoStore.setState({
       unitsByEpisode: { "proj::1": [mkUnit("E1U1")] },
@@ -182,17 +188,19 @@ describe("reference-video-store · updatePromptDebounced", () => {
       .spyOn(API, "patchReferenceVideoUnit")
       .mockResolvedValueOnce({ unit: serverUnit });
 
-    useReferenceVideoStore.getState().updatePromptDebounced("proj", 1, "E1U1", "Shot 1 (3s): x");
+    useReferenceVideoStore.getState().updatePromptDebounced("proj", 1, "E1U1", "Shot 1 (3s): x", REFS_A);
     expect(patchSpy).not.toHaveBeenCalled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(600);
     });
     expect(patchSpy).toHaveBeenCalledTimes(1);
+    const [, , , body] = patchSpy.mock.calls[0]!;
+    expect(body).toEqual({ prompt: "Shot 1 (3s): x", references: REFS_A });
     expect(useReferenceVideoStore.getState().unitsByEpisode["proj::1"][0].note).toBe("saved");
   });
 
-  it("coalesces rapid edits into a single network call", async () => {
+  it("coalesces rapid edits — latest prompt and references win", async () => {
     useReferenceVideoStore.setState({
       unitsByEpisode: { "proj::1": [mkUnit("E1U1")] },
       selectedUnitId: "E1U1",
@@ -204,16 +212,39 @@ describe("reference-video-store · updatePromptDebounced", () => {
       .mockResolvedValue({ unit: mkUnit("E1U1") });
 
     const store = useReferenceVideoStore.getState();
-    store.updatePromptDebounced("proj", 1, "E1U1", "a");
-    store.updatePromptDebounced("proj", 1, "E1U1", "ab");
-    store.updatePromptDebounced("proj", 1, "E1U1", "abc");
+    store.updatePromptDebounced("proj", 1, "E1U1", "a", []);
+    store.updatePromptDebounced("proj", 1, "E1U1", "ab", REFS_A);
+    store.updatePromptDebounced("proj", 1, "E1U1", "abc", REFS_B);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(600);
     });
     expect(patchSpy).toHaveBeenCalledTimes(1);
     const [, , , body] = patchSpy.mock.calls[0]!;
-    expect(body).toEqual({ prompt: "abc" });
+    expect(body).toEqual({ prompt: "abc", references: REFS_B });
+  });
+
+  it("protects against add-then-remove mention races via latest-payload-wins", async () => {
+    useReferenceVideoStore.setState({
+      unitsByEpisode: { "proj::1": [mkUnit("E1U1")] },
+      selectedUnitId: "E1U1",
+      loading: false,
+      error: null,
+    });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValue({ unit: mkUnit("E1U1") });
+
+    const store = useReferenceVideoStore.getState();
+    store.updatePromptDebounced("proj", 1, "E1U1", "@主角", REFS_A);
+    store.updatePromptDebounced("proj", 1, "E1U1", "", []);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(patchSpy).toHaveBeenCalledTimes(1);
+    const [, , , body] = patchSpy.mock.calls[0]!;
+    expect(body).toEqual({ prompt: "", references: [] });
   });
 
   it("discards stale responses when a newer edit races in", async () => {
@@ -232,12 +263,12 @@ describe("reference-video-store · updatePromptDebounced", () => {
     patchSpy.mockResolvedValueOnce({ unit: mkUnit("E1U1", { note: "v2" }) });
 
     const store = useReferenceVideoStore.getState();
-    store.updatePromptDebounced("proj", 1, "E1U1", "first");
+    store.updatePromptDebounced("proj", 1, "E1U1", "first", []);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(600);
     });
     // first in-flight; now enqueue a second, then let first resolve late
-    store.updatePromptDebounced("proj", 1, "E1U1", "second");
+    store.updatePromptDebounced("proj", 1, "E1U1", "second", []);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(600);
     });
@@ -261,12 +292,63 @@ describe("reference-video-store · updatePromptDebounced", () => {
       .mockResolvedValueOnce({ unit: mkUnit("E1U2") });
 
     const store = useReferenceVideoStore.getState();
-    store.updatePromptDebounced("proj", 1, "E1U1", "draft1");
-    store.updatePromptDebounced("proj", 1, "E1U2", "draft2");
+    store.updatePromptDebounced("proj", 1, "E1U1", "draft1", []);
+    store.updatePromptDebounced("proj", 1, "E1U2", "draft2", []);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(600);
     });
     // Both timers should have fired independently (one per unitId)
     expect(patchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("isolates debounce state across projects with the same episode+unitId", async () => {
+    useReferenceVideoStore.setState({
+      unitsByEpisode: {
+        "projA::1": [mkUnit("E1U1", { note: "A-orig" })],
+        "projB::1": [mkUnit("E1U1", { note: "B-orig" })],
+      },
+      selectedUnitId: null,
+      loading: false,
+      error: null,
+    });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockImplementation(async (project, _episode, unitId) => ({
+        unit: mkUnit(unitId, { note: `${project}-saved` }),
+      }));
+
+    const store = useReferenceVideoStore.getState();
+    // Edits to projA/E1U1 and projB/E1U1 must not collapse into a single timer.
+    store.updatePromptDebounced("projA", 1, "E1U1", "draft-A", []);
+    store.updatePromptDebounced("projB", 1, "E1U1", "draft-B", []);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+
+    expect(patchSpy).toHaveBeenCalledTimes(2);
+    const state = useReferenceVideoStore.getState();
+    expect(state.unitsByEpisode["projA::1"][0].note).toBe("projA-saved");
+    expect(state.unitsByEpisode["projB::1"][0].note).toBe("projB-saved");
+  });
+
+  it("deleteUnit cancels pending debounce so no PATCH fires after delete", async () => {
+    useReferenceVideoStore.setState({
+      unitsByEpisode: { "proj::1": [mkUnit("E1U1")] },
+      selectedUnitId: "E1U1",
+      loading: false,
+      error: null,
+    });
+    const patchSpy = vi.spyOn(API, "patchReferenceVideoUnit");
+    const deleteSpy = vi.spyOn(API, "deleteReferenceVideoUnit").mockResolvedValue(undefined);
+
+    const store = useReferenceVideoStore.getState();
+    store.updatePromptDebounced("proj", 1, "E1U1", "pending-edit", []);
+    await act(async () => {
+      await store.deleteUnit("proj", 1, "E1U1");
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
+    expect(patchSpy).not.toHaveBeenCalled();
   });
 });
