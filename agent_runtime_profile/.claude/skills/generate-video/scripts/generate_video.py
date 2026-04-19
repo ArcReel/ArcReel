@@ -93,6 +93,13 @@ def get_items_from_script(script: dict) -> tuple:
     return (script.get("scenes", []), "scene_id", "characters_in_scene")
 
 
+def is_reference_video_script(script: dict) -> bool:
+    """检测脚本是否为参考生视频模式（看顶层 video_units / content_mode）。"""
+    if script.get("content_mode") == "reference_video":
+        return True
+    return bool(script.get("video_units"))
+
+
 def parse_scene_ids(scenes_arg: str) -> list:
     """解析逗号分隔的场景 ID 列表"""
     return [s.strip() for s in scenes_arg.split(",") if s.strip()]
@@ -313,6 +320,46 @@ def _build_video_specs(
     return specs, order_map
 
 
+def _build_reference_specs(
+    *,
+    units: list,
+    script_filename: str,
+    skip_ids: list[str] | None = None,
+) -> tuple[list[BatchTaskSpec], dict[str, int]]:
+    """reference_video 模式的 unit → BatchTaskSpec 映射。
+
+    与 storyboard/grid 不同：不需要 storyboard_image；payload 仅传 script_file + unit_id。
+    executor 侧（reference_video_tasks.py）会自己渲染 prompt + 压缩参考图。
+    """
+    skip_set = set(skip_ids or [])
+    specs: list[BatchTaskSpec] = []
+    order_map: dict[str, int] = {}
+    for idx, unit in enumerate(units):
+        unit_id = unit.get("unit_id") or f"U{idx}"
+        if unit_id in skip_set:
+            continue
+        if (unit.get("generated_assets") or {}).get("video_clip"):
+            print(f"  ✅ {unit_id} 已生成，跳过")
+            continue
+        if not unit.get("shots"):
+            print(f"⚠️  {unit_id} 没有 shots，跳过")
+            continue
+        specs.append(
+            BatchTaskSpec(
+                task_type="reference_video",
+                media_type="video",
+                resource_id=unit_id,
+                payload={
+                    "script_file": script_filename,
+                    "unit_id": unit_id,
+                },
+                script_file=script_filename,
+            )
+        )
+        order_map[unit_id] = idx
+    return specs, order_map
+
+
 def _scan_completed_items(
     items: list,
     id_field: str,
@@ -378,6 +425,69 @@ def _submit_and_wait_with_checkpoint(
     return failures
 
 
+def _generate_reference_episode(
+    *,
+    project_name: str,
+    project_dir: Path,
+    script: dict,
+    script_filename: str,
+    episode: int,
+    resume: bool,
+) -> list[Path]:
+    units = script.get("video_units") or []
+    if not units:
+        raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
+
+    print(f"📋 第 {episode} 集共 {len(units)} 个 video_unit")
+
+    completed: list[str] = []
+    started_at = datetime.now().isoformat()
+    if resume:
+        ckpt = load_checkpoint(project_dir, episode)
+        if ckpt:
+            completed = ckpt.get("completed_scenes", [])
+            started_at = ckpt.get("started_at", started_at)
+            print(f"🔄 从 checkpoint 恢复，已完成 {len(completed)} 个 unit")
+
+    output_dir = project_dir / "reference_videos"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    ordered_paths: list[Path | None] = [None] * len(units)
+    already_done: list[str] = []
+    for idx, unit in enumerate(units):
+        unit_id = unit.get("unit_id")
+        candidate = output_dir / f"{unit_id}.mp4"
+        if unit_id in completed and candidate.exists():
+            ordered_paths[idx] = candidate
+            already_done.append(unit_id)
+
+    specs, order_map = _build_reference_specs(
+        units=units,
+        script_filename=script_filename,
+        skip_ids=already_done,
+    )
+
+    if specs:
+        _submit_and_wait_with_checkpoint(
+            project_name=project_name,
+            project_dir=project_dir,
+            specs=specs,
+            order_map=order_map,
+            ordered_paths=ordered_paths,
+            completed_scenes=completed,
+            save_fn=lambda: save_checkpoint(project_dir, episode, completed, started_at),
+            item_type="unit",
+        )
+
+    final = [p for p in ordered_paths if p is not None]
+    if not final:
+        raise RuntimeError("没有生成任何 video_unit")
+
+    clear_checkpoint(project_dir, episode)
+    print(f"\n🎉 第 {episode} 集参考视频生成完成，共 {len(final)} 个 unit")
+    return final
+
+
 # ============================================================================
 # Episode 视频生成（每个场景独立生成）
 # ============================================================================
@@ -398,6 +508,17 @@ def generate_episode_video(
     project = pm.load_project(project_name)
     script = pm.load_script(project_name, script_filename)
     episode = ProjectManager.resolve_episode_from_script(script, script_filename)
+
+    if is_reference_video_script(script):
+        return _generate_reference_episode(
+            project_name=project_name,
+            project_dir=project_dir,
+            script=script,
+            script_filename=script_filename,
+            episode=episode,
+            resume=resume,
+        )
+
     content_mode = script.get("content_mode", "narration")
     all_items, id_field, _ = get_items_from_script(script)
 
@@ -487,6 +608,18 @@ def generate_scene_video(script_filename: str, scene_id: str) -> Path:
 
     # 加载剧本
     script = pm.load_script(project_name, script_filename)
+
+    if is_reference_video_script(script):
+        # reference 模式暂不支持单 unit 模式，回退到整集生成（skip/checkpoint 会跳过已完成的 unit）
+        return _generate_reference_episode(
+            project_name=project_name,
+            project_dir=project_dir,
+            script=script,
+            script_filename=script_filename,
+            episode=ProjectManager.resolve_episode_from_script(script, script_filename),
+            resume=False,
+        )
+
     content_mode = script.get("content_mode", "narration")
     all_items, id_field, _ = get_items_from_script(script)
 
@@ -555,6 +688,17 @@ def generate_all_videos(script_filename: str) -> list:
 
     # 加载剧本
     script = pm.load_script(project_name, script_filename)
+
+    if is_reference_video_script(script):
+        return _generate_reference_episode(
+            project_name=project_name,
+            project_dir=project_dir,
+            script=script,
+            script_filename=script_filename,
+            episode=ProjectManager.resolve_episode_from_script(script, script_filename),
+            resume=False,
+        )
+
     content_mode = script.get("content_mode", "narration")
     all_items, id_field, _ = get_items_from_script(script)
 
@@ -634,6 +778,17 @@ def generate_selected_videos(
     project_dir = pm.get_project_path(project_name)
     project = pm.load_project(project_name)
     script = pm.load_script(project_name, script_filename)
+
+    if is_reference_video_script(script):
+        return _generate_reference_episode(
+            project_name=project_name,
+            project_dir=project_dir,
+            script=script,
+            script_filename=script_filename,
+            episode=ProjectManager.resolve_episode_from_script(script, script_filename),
+            resume=resume,
+        )
+
     content_mode = script.get("content_mode", "narration")
     all_items, id_field, _ = get_items_from_script(script)
 
