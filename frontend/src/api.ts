@@ -36,6 +36,9 @@ import type {
   CustomProviderModelInput,
   DiscoveredModel,
   CostEstimateResponse,
+  ReferenceVideoUnit,
+  ReferenceResource,
+  TransitionType,
 } from "@/types";
 import type { GenerationMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
@@ -1655,7 +1658,7 @@ class API {
   static async listReferenceVideoUnits(
     projectName: string,
     episode: number,
-  ): Promise<{ units: import("@/types").ReferenceVideoUnit[] }> {
+  ): Promise<{ units: ReferenceVideoUnit[] }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units`,
     );
@@ -1667,12 +1670,12 @@ class API {
     episode: number,
     payload: {
       prompt: string;
-      references: import("@/types").ReferenceResource[];
+      references: ReferenceResource[];
       duration_seconds?: number;
-      transition_to_next?: "cut" | "fade" | "dissolve";
+      transition_to_next?: TransitionType;
       note?: string | null;
     },
-  ): Promise<{ unit: import("@/types").ReferenceVideoUnit }> {
+  ): Promise<{ unit: ReferenceVideoUnit }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units`,
       { method: "POST", body: JSON.stringify(payload) },
@@ -1686,12 +1689,12 @@ class API {
     unitId: string,
     patch: {
       prompt?: string;
-      references?: import("@/types").ReferenceResource[];
+      references?: ReferenceResource[];
       duration_seconds?: number;
-      transition_to_next?: "cut" | "fade" | "dissolve";
+      transition_to_next?: TransitionType;
       note?: string | null;
     },
-  ): Promise<{ unit: import("@/types").ReferenceVideoUnit }> {
+  ): Promise<{ unit: ReferenceVideoUnit }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}`,
       { method: "PATCH", body: JSON.stringify(patch) },
@@ -1715,7 +1718,7 @@ class API {
     projectName: string,
     episode: number,
     unitIds: string[],
-  ): Promise<{ units: import("@/types").ReferenceVideoUnit[] }> {
+  ): Promise<{ units: ReferenceVideoUnit[] }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/reorder`,
       { method: "POST", body: JSON.stringify({ unit_ids: unitIds }) },

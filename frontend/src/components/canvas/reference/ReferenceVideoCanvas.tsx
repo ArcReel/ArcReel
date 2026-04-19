@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { useShallow } from "zustand/shallow";
 import { useTranslation } from "react-i18next";
 import { UnitList } from "./UnitList";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
@@ -27,7 +28,13 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   const selectedUnitId = useReferenceVideoStore((s) => s.selectedUnitId);
   const error = useReferenceVideoStore((s) => s.error);
 
-  const tasks = useTasksStore((s) => s.tasks);
+  const relevantTasks = useTasksStore(
+    useShallow((s) =>
+      s.tasks.filter(
+        (tk) => tk.project_name === projectName && tk.task_type === "reference_video",
+      ),
+    ),
+  );
 
   useEffect(() => {
     void loadUnits(projectName, episode);
@@ -40,14 +47,12 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
 
   const generating = useMemo(() => {
     if (!selected) return false;
-    return tasks.some(
+    return relevantTasks.some(
       (tk) =>
-        tk.project_name === projectName &&
-        tk.task_type === "reference_video" &&
         tk.resource_id === selected.unit_id &&
         (tk.status === "queued" || tk.status === "running"),
     );
-  }, [tasks, projectName, selected]);
+  }, [relevantTasks, selected]);
 
   const handleAdd = async () => {
     try {
@@ -82,7 +87,6 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
           onAdd={() => void handleAdd()}
         />
         <div className="flex h-full items-center justify-center border-r border-gray-800 bg-gray-950/30 p-6 text-xs text-gray-600">
-          {/* PR5 will render the prompt editor + MentionPicker here. */}
           {selected
             ? selected.shots.map((s, i) => (
                 <pre key={i} className="whitespace-pre-wrap text-left text-gray-400">

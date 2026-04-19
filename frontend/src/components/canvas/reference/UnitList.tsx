@@ -9,11 +9,7 @@ export interface UnitListProps {
   onAdd: () => void;
 }
 
-/**
- * Map persisted status to dot color. PR4 only distinguishes pending (gray)
- * vs completed/storyboard_ready (green). PR5 will layer running/failed states
- * driven by the task queue.
- */
+/** Map persisted status to dot color. Running/failed states are layered by the task queue elsewhere. */
 const STATUS_DOT: Record<UnitPersistedStatus, string> = {
   pending: "bg-gray-500",
   storyboard_ready: "bg-emerald-500",

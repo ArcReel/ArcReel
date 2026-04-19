@@ -13,7 +13,7 @@ import shutil
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 
 if TYPE_CHECKING:
     from server.services.jianying_draft_service import JianyingDraftService
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
@@ -81,6 +81,20 @@ class CreateProjectRequest(BaseModel):
     text_backend_style: str | None = None
 
 
+class EpisodePatch(BaseModel):
+    """PATCH body entry for a single episode.
+
+    Only whitelisted fields persist; computed fields (scenes_count, status,
+    storyboards, etc.) are silently dropped via extra='ignore'.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+    episode: int
+    title: str | None = None
+    script_file: str | None = None
+    generation_mode: Literal["storyboard", "grid", "reference_video"] | None = None
+
+
 class UpdateProjectRequest(BaseModel):
     title: str | None = None
     style: str | None = None
@@ -96,7 +110,7 @@ class UpdateProjectRequest(BaseModel):
     text_backend_style: str | None = None
     style_template_id: str | None = None
     clear_style_image: bool | None = None
-    episodes: list[dict] | None = None
+    episodes: list[EpisodePatch] | None = None
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -602,13 +616,15 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                 existing = {e.get("episode"): e for e in existing_list}
                 merged = list(existing_list)  # 保留原始顺序，仅更新匹配条目
                 for ep in req.episodes:
-                    ep_num = ep.get("episode")
-                    ep_num_int = int(ep_num) if ep_num is not None else None
-                    if ep_num_int is None or not any(e.get("episode") == ep_num_int for e in existing_list):
+                    ep_num_int = ep.episode
+                    # Validation already stripped unknown fields; this whitelist stays as defense-in-depth.
+                    existing_ep = next((e for e in existing_list if e.get("episode") == ep_num_int), None)
+                    if existing_ep is None:
                         logger.warning("Skipping patch for unknown episode %s", ep_num_int)
                         continue
                     merged_ep = dict(existing[ep_num_int])
-                    merged_ep.update({k: v for k, v in ep.items() if k in EPISODE_PERSIST_FIELDS})
+                    patch_fields = ep.model_dump(exclude_none=True, exclude={"episode"})
+                    merged_ep.update({k: v for k, v in patch_fields.items() if k in EPISODE_PERSIST_FIELDS})
                     merged = [merged_ep if e.get("episode") == ep_num_int else e for e in merged]
                 project["episodes"] = merged
 

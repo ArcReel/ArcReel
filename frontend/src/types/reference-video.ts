@@ -4,6 +4,8 @@
  * One "unit" produces one rendered video clip. Each unit may contain 1-4 shots.
  */
 
+import type { TransitionType } from "./script";
+
 export type AssetKind = "character" | "scene" | "prop";
 
 export interface Shot {
@@ -55,7 +57,7 @@ export interface ReferenceVideoUnit {
   duration_seconds: number;
   /** True when prompt has no Shot markers and user set duration manually */
   duration_override: boolean;
-  transition_to_next: "cut" | "fade" | "dissolve";
+  transition_to_next: TransitionType;
   note: string | null;
   generated_assets: UnitGeneratedAssets;
 }

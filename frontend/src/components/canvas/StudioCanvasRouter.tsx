@@ -17,7 +17,7 @@ import { API } from "@/api";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
 import { getProviderModels, getCustomProviderModels, lookupSupportedDurations } from "@/utils/provider-models";
 import { effectiveMode, normalizeMode, type GenerationMode } from "@/utils/generation-mode";
-import type { Scene, Prop, CustomProviderInfo, ProviderInfo } from "@/types";
+import type { Scene, Prop, CustomProviderInfo, ProviderInfo, EpisodeMeta } from "@/types";
 import type { EpisodeScript } from "@/types/script";
 
 // ---------------------------------------------------------------------------
@@ -357,7 +357,7 @@ export function StudioCanvasRouter() {
   const handleEpisodeModeChange = useCallback(
     async (epNum: number, next: GenerationMode) => {
       if (!currentProjectName) return;
-      const episodes = [{ episode: epNum, generation_mode: next }] as import("@/types/project").EpisodeMeta[];
+      const episodes = [{ episode: epNum, generation_mode: next }] as EpisodeMeta[];
       try {
         await API.updateProject(currentProjectName, { episodes });
         await refreshProject();
