@@ -67,6 +67,7 @@ export function ReferenceVideoCard({
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
+  const [activeOptionId, setActiveOptionId] = useState<string | null>(null);
   const atStartRef = useRef<number | null>(null);
 
   const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
@@ -138,6 +139,7 @@ export function ReferenceVideoCard({
     setPickerOpen(false);
     setPickerQuery("");
     atStartRef.current = null;
+    setActiveOptionId(null);
   }, []);
 
   const handlePickerSelect = useCallback(
@@ -158,6 +160,7 @@ export function ReferenceVideoCard({
       setPickerOpen(false);
       setPickerQuery("");
       atStartRef.current = null;
+      setActiveOptionId(null);
       requestAnimationFrame(() => {
         ta.focus();
         const pos = before.length + insert.length;
@@ -223,8 +226,14 @@ export function ReferenceVideoCard({
           onClick={handleCursorUpdate}
           onBlur={handleTextareaBlur}
           onScroll={onScroll}
+          role="combobox"
+          aria-expanded={pickerOpen}
+          aria-controls="reference-editor-picker"
+          aria-autocomplete="list"
+          aria-activedescendant={pickerOpen && activeOptionId ? activeOptionId : undefined}
+          aria-describedby={unknownMentions.length > 0 ? "reference-editor-unknown-desc" : undefined}
           placeholder={t("reference_editor_placeholder")}
-          aria-label={t("reference_editor_placeholder")}
+          aria-label={t("reference_editor_aria_name")}
           spellCheck={false}
           className="absolute inset-0 h-full w-full resize-none bg-transparent p-3 font-mono text-sm leading-6 text-transparent caret-gray-200 placeholder:text-gray-600 focus:outline-none"
         />
@@ -240,14 +249,22 @@ export function ReferenceVideoCard({
                 setPickerOpen(false);
                 setPickerQuery("");
                 atStartRef.current = null;
+                setActiveOptionId(null);
               }}
+              onActiveChange={setActiveOptionId}
             />
           </div>
         )}
       </div>
 
       {unknownMentions.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1" role="status" aria-live="polite">
+        <div
+          id="reference-editor-unknown-desc"
+          role="status"
+          aria-live="polite"
+          className="mt-2 flex flex-wrap gap-1"
+        >
+          <span className="sr-only">{t("reference_editor_unknown_mentions_label")}: </span>
           {unknownMentions.map((name) => {
             const palette = ASSET_COLORS.unknown;
             return (

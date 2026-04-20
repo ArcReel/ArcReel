@@ -68,7 +68,7 @@ describe("ReferenceVideoCard", () => {
         onChangePrompt={vi.fn()}
       />,
     );
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
     expect(ta.value).toBe("Shot 1 (3s): line1\nShot 2 (5s): line2");
   });
 
@@ -86,7 +86,7 @@ describe("ReferenceVideoCard", () => {
         onChangePrompt={vi.fn()}
       />,
     );
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
     expect(ta.value).toBe("plain text with no header");
   });
 
@@ -101,7 +101,7 @@ describe("ReferenceVideoCard", () => {
         onChangePrompt={onChange}
       />,
     );
-    const ta = screen.getByRole("textbox");
+    const ta = screen.getByRole("combobox");
     await user.clear(ta);
     await user.type(ta, "Shot 1 (3s): @主角");
     const lastCall = onChange.mock.calls.at(-1)!;
@@ -119,7 +119,7 @@ describe("ReferenceVideoCard", () => {
         onChangePrompt={vi.fn()}
       />,
     );
-    const ta = screen.getByRole("textbox");
+    const ta = screen.getByRole("combobox");
     await user.clear(ta);
     await user.type(ta, "x @");
     expect(await screen.findByRole("listbox")).toBeInTheDocument();
@@ -136,7 +136,7 @@ describe("ReferenceVideoCard", () => {
         onChangePrompt={onChange}
       />,
     );
-    const ta = screen.getByRole("textbox");
+    const ta = screen.getByRole("combobox");
     await user.clear(ta);
     await user.type(ta, "@");
     fireEvent.click(await screen.findByRole("option", { name: /主角/ }));
@@ -155,7 +155,7 @@ describe("ReferenceVideoCard", () => {
         onChangePrompt={vi.fn()}
       />,
     );
-    const ta = screen.getByRole("textbox");
+    const ta = screen.getByRole("combobox");
     await user.clear(ta);
     await user.type(ta, "@");
     expect(await screen.findByRole("listbox")).toBeInTheDocument();
@@ -184,5 +184,61 @@ describe("ReferenceVideoCard", () => {
     const chip = screen.getByRole("status");
     expect(chip).toHaveTextContent(/路人/);
     expect(chip).toHaveTextContent(/未注册|Unregistered/);
+  });
+});
+
+describe("ReferenceVideoCard combobox ARIA (#343)", () => {
+  function renderCard(unit = mkUnit()) {
+    return render(
+      <ReferenceVideoCard
+        unit={unit}
+        projectName="proj"
+        episode={1}
+        onChangePrompt={vi.fn()}
+      />,
+    );
+  }
+
+  it("advertises combobox contract before and after picker opens", async () => {
+    const user = userEvent.setup();
+    renderCard();
+    const ta = screen.getByRole("combobox");
+    expect(ta).toHaveAttribute("aria-expanded", "false");
+    expect(ta).toHaveAttribute("aria-controls", "reference-editor-picker");
+    expect(ta).toHaveAttribute("aria-autocomplete", "list");
+    // aria-label 是短名，不是长 placeholder
+    expect(ta.getAttribute("aria-label")).toBe("Unit 提示词");
+
+    await user.clear(ta);
+    await user.type(ta, "@");
+    await waitFor(() => {
+      expect(ta).toHaveAttribute("aria-expanded", "true");
+    });
+    // activedescendant 指向第一个 option 的 id（初始 activeIndex=0）
+    const firstOption = screen.getAllByRole("option")[0];
+    expect(firstOption.id).toBeTruthy();
+    await waitFor(() => {
+      expect(ta).toHaveAttribute("aria-activedescendant", firstOption.id);
+    });
+  });
+
+  it("wires aria-describedby to unknown-mentions live region", () => {
+    const unit = mkUnit({
+      shots: [{ duration: 3, text: "@未知人 出现" }],
+      duration_override: false,
+    });
+    renderCard(unit);
+    const ta = screen.getByRole("combobox");
+    expect(ta).toHaveAttribute("aria-describedby", "reference-editor-unknown-desc");
+    const desc = document.getElementById("reference-editor-unknown-desc");
+    expect(desc).not.toBeNull();
+    expect(desc).toHaveAttribute("aria-live", "polite");
+    expect(desc?.textContent).toContain("未知人");
+  });
+
+  it("omits aria-describedby when there are no unknown mentions", () => {
+    renderCard(mkUnit()); // default: "hi"，无 mention
+    const ta = screen.getByRole("combobox");
+    expect(ta).not.toHaveAttribute("aria-describedby");
   });
 });

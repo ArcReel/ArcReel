@@ -16,6 +16,16 @@ export interface MentionPickerProps {
   onClose: () => void;
   /** Optional inline anchor style; when absent, picker renders in-flow below its parent. */
   className?: string;
+  /** Stable DOM id for the listbox; used by combobox aria-controls. Default: "reference-editor-picker". */
+  listboxId?: string;
+  /** Called whenever the keyboard-active option changes; receives the option's DOM id (null when empty). */
+  onActiveChange?: (optionId: string | null) => void;
+}
+
+function optionId(kind: AssetKind, name: string): string {
+  // 安全化：把 CSS 不友好字符替换，避免选择器查询出错
+  const safe = name.replace(/[^A-Za-z0-9_\u4e00-\u9fff-]/g, "_");
+  return `reference-option-${kind}-${safe}`;
 }
 
 interface FlatItem {
@@ -34,6 +44,8 @@ export function MentionPicker({
   onSelect,
   onClose,
   className,
+  listboxId,
+  onActiveChange,
 }: MentionPickerProps) {
   const { t } = useTranslation("dashboard");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -115,6 +127,15 @@ export function MentionPicker({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onSelect, onClose]);
 
+  // Report the keyboard-active option id up to the parent (used by combobox's
+  // aria-activedescendant). Re-runs on flat/clampedActive change; when flat is
+  // empty (e.g. after close or no matches), flat[0] is undefined → null.
+  useEffect(() => {
+    if (!onActiveChange) return;
+    const current = flat[clampedActive];
+    onActiveChange(current ? optionId(current.type, current.name) : null);
+  }, [flat, clampedActive, onActiveChange]);
+
   // Close on outside pointerdown (#345). Capture phase so we run before the
   // option's own `onMouseDown preventDefault` — the listbox root still gets
   // the event through `contains()`, and any event landing outside the listbox
@@ -139,6 +160,7 @@ export function MentionPicker({
   return (
     <div
       ref={listboxRef}
+      id={listboxId ?? "reference-editor-picker"}
       role="listbox"
       aria-label={t("reference_picker_title")}
       className={`z-30 max-h-64 w-64 overflow-y-auto rounded-md border border-gray-800 bg-gray-950 shadow-xl ${className ?? ""}`}
@@ -169,6 +191,7 @@ export function MentionPicker({
                 return (
                   <button
                     key={`${kind}:${item.name}`}
+                    id={optionId(kind, item.name)}
                     type="button"
                     role="option"
                     aria-selected={active}

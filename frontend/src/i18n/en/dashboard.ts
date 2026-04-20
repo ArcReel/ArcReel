@@ -501,6 +501,8 @@ export default {
   'episode_mode_switch_from_reference': 'Switched back to storyboard/grid. Reference-mode video_units are preserved for later.',
   // ========== PR5 reference-video editor ==========
   'reference_editor_placeholder': 'Type a prompt. Use "Shot 1 (3s): ..." markers and @mentions for characters/scenes/props.',
+  'reference_editor_aria_name': 'Unit prompt',
+  'reference_editor_unknown_mentions_label': 'Unregistered mentions',
   'reference_editor_unknown_mention': 'Unregistered: @{{name}} (not found in characters/scenes/props)',
   'reference_picker_title': 'Insert reference',
   'reference_picker_empty': 'No matches',

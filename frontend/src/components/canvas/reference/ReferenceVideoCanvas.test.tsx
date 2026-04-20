@@ -69,7 +69,7 @@ describe("ReferenceVideoCanvas", () => {
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByText("E1U1")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("unit-row-E1U1"));
-    const ta = await screen.findByRole("textbox");
+    const ta = await screen.findByRole("combobox");
     expect((ta as HTMLTextAreaElement).value).toContain("Shot 1 (3s): x");
   });
 
@@ -80,11 +80,11 @@ describe("ReferenceVideoCanvas", () => {
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByText("E1U1")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("unit-row-E1U1"));
-    const taA = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    const taA = (await screen.findByRole("combobox")) as HTMLTextAreaElement;
     expect(taA.value).toContain("hello from A");
     fireEvent.click(screen.getByTestId("unit-row-E1U2"));
     await waitFor(() => {
-      expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toContain("hello from B");
+      expect((screen.getByRole("combobox") as HTMLTextAreaElement).value).toContain("hello from B");
     });
   });
 
