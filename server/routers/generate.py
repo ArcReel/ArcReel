@@ -43,6 +43,7 @@ def get_project_manager() -> ProjectManager:
 class GenerateStoryboardRequest(BaseModel):
     prompt: str | dict
     script_file: str
+    extra_reference_images: list[str] | None = None
 
 
 class GenerateVideoRequest(BaseModel):
@@ -145,6 +146,7 @@ async def generate_storyboard(
             payload={
                 "prompt": req.prompt,
                 "script_file": req.script_file,
+                "extra_reference_images": req.extra_reference_images or [],
                 **image_snapshot,
             },
             source="webui",

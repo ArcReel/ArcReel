@@ -22,13 +22,35 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "wan2.7-image-pro"
 
-# aspect_ratio 到百炼 size 参数的映射
-_SIZE_MAP: dict[str, str] = {
-    "9:16": "720*1280",
-    "16:9": "1280*720",
-    "1:1": "1024*1024",
-    "3:4": "768*1152",
-    "4:3": "1152*768",
+# 百炼自定义 size 要求宽高都至少 768；文本生图时使用合法的纵横比预设。
+_TEXT_TO_IMAGE_SIZE_MAP: dict[str, dict[str, str]] = {
+    "1K": {
+        "9:16": "864*1536",
+        "16:9": "1536*864",
+        "1:1": "1024*1024",
+        "3:4": "960*1280",
+        "4:3": "1280*960",
+    },
+    "2K": {
+        "9:16": "1152*2048",
+        "16:9": "2048*1152",
+        "1:1": "2048*2048",
+        "3:4": "1536*2048",
+        "4:3": "2048*1536",
+    },
+    "4K": {
+        "9:16": "1728*3072",
+        "16:9": "3072*1728",
+        "1:1": "4096*4096",
+        "3:4": "2304*3072",
+        "4:3": "3072*2304",
+    },
+}
+
+_IMAGE_SIZE_FALLBACK = "1K"
+_SUPPORTED_SHORTCUT_SIZES: dict[str, tuple[str, ...]] = {
+    "wan2.7-image-pro": ("1K", "2K", "4K"),
+    "wan2.7-image": ("1K", "2K"),
 }
 
 
@@ -131,7 +153,7 @@ class BailianImageBackend:
                 ]
             },
             "parameters": {
-                "size": _SIZE_MAP.get(request.aspect_ratio, "1024*1024"),
+                "size": _resolve_size(self._model, request),
                 "n": 1,
                 "watermark": False,
             },
@@ -143,7 +165,11 @@ class BailianImageBackend:
                 headers["X-DashScope-OssResourceResolve"] = "enable"
 
             response = await client.post(url, headers=headers, json=payload, timeout=30.0)
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError:
+                logger.error("百炼图像提交失败: status=%s body=%s", response.status_code, response.text)
+                raise
             data = response.json()
 
         task_id = data["output"]["task_id"]
@@ -159,6 +185,24 @@ class BailianImageBackend:
             response = await client.get(url, headers=headers, timeout=30.0)
             response.raise_for_status()
             return response.json()
+
+
+def _resolve_size(model: str, request: ImageGenerationRequest) -> str:
+    """为百炼图像接口选择兼容的 size 参数。"""
+    requested_size = (request.image_size or _IMAGE_SIZE_FALLBACK).upper()
+    supported_shortcuts = _SUPPORTED_SHORTCUT_SIZES.get(model, _SUPPORTED_SHORTCUT_SIZES[DEFAULT_MODEL])
+
+    if request.reference_images:
+        if requested_size in supported_shortcuts:
+            return requested_size
+        return supported_shortcuts[-1] if requested_size == "4K" else _IMAGE_SIZE_FALLBACK
+
+    size_tier = requested_size if requested_size in _TEXT_TO_IMAGE_SIZE_MAP else _IMAGE_SIZE_FALLBACK
+    if size_tier == "4K" and "4K" not in supported_shortcuts:
+        size_tier = supported_shortcuts[-1]
+
+    ratio_sizes = _TEXT_TO_IMAGE_SIZE_MAP[size_tier]
+    return ratio_sizes.get(request.aspect_ratio, ratio_sizes["1:1"])
 
 
 def _extract_error(result_data: dict) -> str | None:

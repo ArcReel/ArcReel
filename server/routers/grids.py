@@ -39,6 +39,7 @@ def _build_grid_task_payload(
     prompt: str | None,
     script_file: str,
     scene_ids: list[str],
+    extra_reference_images: list[str] | None,
     grid_size: str,
     rows: int,
     cols: int,
@@ -51,6 +52,7 @@ def _build_grid_task_payload(
         "prompt": prompt,
         "script_file": script_file,
         "scene_ids": scene_ids,
+        "extra_reference_images": extra_reference_images or [],
         "grid_size": grid_size,
         "rows": rows,
         "cols": cols,
@@ -66,6 +68,7 @@ def _build_grid_task_payload(
 class GenerateGridRequest(BaseModel):
     script_file: str
     scene_ids: list[str] | None = None
+    extra_reference_images: list[str] | None = None
 
 
 class GenerateGridResponse(BaseModel):
@@ -186,6 +189,7 @@ async def generate_grid(
                         prompt=prompt,
                         script_file=req.script_file,
                         scene_ids=chunk_ids,
+                        extra_reference_images=req.extra_reference_images,
                         grid_size=chunk_layout.grid_size,
                         rows=chunk_layout.rows,
                         cols=chunk_layout.cols,
@@ -280,6 +284,9 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
         grid_aspect_ratio = layout.grid_aspect_ratio if layout else aspect_ratio
 
         backend_snapshot = _snapshot_image_backend(project_name)
+        extra_reference_images = [
+            ref.path for ref in (grid.reference_images or []) if getattr(ref, "ref_type", "") == "task"
+        ]
         queue = get_generation_queue()
         task = await queue.enqueue_task(
             project_name=project_name,
@@ -290,6 +297,7 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
                 prompt=grid.prompt,
                 script_file=grid.script_file,
                 scene_ids=grid.scene_ids,
+                extra_reference_images=extra_reference_images,
                 grid_size=grid.grid_size,
                 rows=grid.rows,
                 cols=grid.cols,

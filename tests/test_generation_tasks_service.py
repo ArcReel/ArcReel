@@ -46,6 +46,10 @@ class _FakePM:
                     "characters_in_segment": [],
                     "clues_in_segment": [],
                     "image_prompt": "首镜头",
+                    "generated_assets": {
+                        "storyboard_image": None,
+                        "storyboard_last_image": None,
+                    },
                 },
                 {
                     "segment_id": "E1S02",
@@ -61,6 +65,10 @@ class _FakePM:
                             "ambiance": "薄雾",
                         },
                     },
+                    "generated_assets": {
+                        "storyboard_image": None,
+                        "storyboard_last_image": None,
+                    },
                 },
                 {
                     "segment_id": "E1S03",
@@ -69,6 +77,10 @@ class _FakePM:
                     "characters_in_segment": ["Alice"],
                     "clues_in_segment": ["玉佩"],
                     "image_prompt": "切场后的镜头",
+                    "generated_assets": {
+                        "storyboard_image": None,
+                        "storyboard_last_image": None,
+                    },
                 },
             ],
         }
@@ -286,6 +298,48 @@ class TestGenerationTasks:
         asset_types = [call["asset_type"] for call in fake_pm.updated_assets]
         assert "video_thumbnail" in asset_types
         assert thumbnail_path.exists()
+
+    async def test_execute_video_task_passes_last_frame_when_available(self, monkeypatch, tmp_path):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        last_frame_path = project_path / "storyboards" / "scene_E1S01_last.png"
+        last_frame_path.write_bytes(b"png")
+        fake_pm.script["segments"][0]["generated_assets"]["storyboard_last_image"] = "storyboards/scene_E1S01_last.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+        )
+
+        assert fake_generator.video_calls[0]["end_image"] == last_frame_path
+
+    async def test_execute_video_task_ignores_missing_last_frame_file(self, monkeypatch, tmp_path):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        fake_pm.script["segments"][0]["generated_assets"]["storyboard_last_image"] = "storyboards/scene_E1S01_last.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "get_media_generator", _async_return(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+        )
+
+        assert fake_generator.video_calls[0]["end_image"] is None
 
     async def test_get_media_generator_skips_image_backend_for_video_tasks(self, monkeypatch, tmp_path):
         """视频任务只应初始化视频 backend，避免图片配置缺失导致提前失败。"""

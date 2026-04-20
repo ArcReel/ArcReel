@@ -777,13 +777,18 @@ class API {
     projectName: string,
     segmentId: string,
     prompt: string | Record<string, unknown>,
-    scriptFile: string
+    scriptFile: string,
+    extraReferenceImages?: string[]
   ): Promise<{ success: boolean; task_id: string; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/storyboard/${encodeURIComponent(segmentId)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt, script_file: scriptFile }),
+        body: JSON.stringify({
+          prompt,
+          script_file: scriptFile,
+          extra_reference_images: extraReferenceImages,
+        }),
       }
     );
   }
@@ -1476,11 +1481,19 @@ class API {
     projectName: string,
     episode: number,
     scriptFile: string,
-    sceneIds?: string[]
+    sceneIds?: string[],
+    extraReferenceImages?: string[]
   ): Promise<{ success: boolean; grid_ids: string[]; task_ids: string[]; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/grid/${episode}`,
-      { method: "POST", body: JSON.stringify({ script_file: scriptFile, scene_ids: sceneIds }) }
+      {
+        method: "POST",
+        body: JSON.stringify({
+          script_file: scriptFile,
+          scene_ids: sceneIds,
+          extra_reference_images: extraReferenceImages,
+        }),
+      }
     );
   }
 

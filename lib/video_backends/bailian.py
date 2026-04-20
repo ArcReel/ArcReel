@@ -34,7 +34,7 @@ _MODEL_CAPABILITIES: dict[str, set[VideoCapability]] = {
 }
 _MODEL_CAPS: dict[str, VideoCapabilities] = {
     "wan2.7-t2v": VideoCapabilities(),
-    "wan2.7-i2v": VideoCapabilities(first_frame=True),
+    "wan2.7-i2v": VideoCapabilities(first_frame=True, last_frame=True),
     "wan2.7-r2v": VideoCapabilities(reference_images=True, max_reference_images=5),
     "wan2.7-videoedit": VideoCapabilities(),
 }
@@ -139,6 +139,8 @@ class BailianVideoBackend:
             raise ValueError("wan2.7-t2v 不支持首帧图像输入")
         if self._model == "wan2.7-i2v" and request.start_image is None:
             raise ValueError("wan2.7-i2v 需要提供首帧图像")
+        if self._model != "wan2.7-i2v" and request.end_image is not None:
+            raise ValueError(f"模型 {self._model} 不支持尾帧图像输入")
 
     @with_retry_async(max_attempts=3, backoff_seconds=(2, 4, 8), retryable_errors=BAILIAN_RETRYABLE_ERRORS)
     async def _create_task(self, request: VideoGenerationRequest) -> dict[str, str | None]:
@@ -149,7 +151,12 @@ class BailianVideoBackend:
         }
         payload = await self._build_payload(request, headers)
         url = f"{self._base_url}{_CREATE_TASK_URL}"
-        logger.info("百炼视频创建任务请求: url=%s headers=%s payload=%s", url, {**headers, "Authorization": "Bearer ***"}, payload)
+        logger.info(
+            "百炼视频创建任务请求: url=%s headers=%s payload=%s",
+            url,
+            {**headers, "Authorization": "Bearer ***"},
+            payload,
+        )
         async with httpx.AsyncClient() as client:
             response = await client.post(url, headers=headers, json=payload, timeout=30.0)
             response.raise_for_status()
@@ -166,6 +173,10 @@ class BailianVideoBackend:
         if self._model == "wan2.7-i2v" and request.start_image:
             image_url = await self._resolve_media_url(Path(request.start_image), headers)
             media.append({"type": "first_frame", "url": image_url})
+
+        if self._model == "wan2.7-i2v" and request.end_image:
+            image_url = await self._resolve_media_url(Path(request.end_image), headers)
+            media.append({"type": "last_frame", "url": image_url})
 
         if media:
             input_payload["media"] = media

@@ -157,6 +157,23 @@ class TestCollectGridReferenceImages:
         assert len(paths) == 1  # Deduplicated
         assert len(metadata) == 1  # Deduplicated
 
+    def test_includes_extra_task_reference_images(self, project_with_script):
+        from server.services.generation_tasks import _collect_grid_reference_images
+
+        extra_ref = project_with_script / "source" / "mood-board.png"
+        extra_ref.parent.mkdir(parents=True, exist_ok=True)
+        extra_ref.write_bytes(b"fake-image")
+
+        paths, metadata = _collect_grid_reference_images(
+            project_with_script,
+            {"script_file": "episode_1.json", "extra_reference_images": ["source/mood-board.png"]},
+            ["E1S01"],
+        )
+
+        assert paths is not None
+        assert extra_ref in paths
+        assert any(item["path"] == "source/mood-board.png" and item["ref_type"] == "task" for item in metadata)
+
 
 class TestExecuteGridTask:
     @pytest.fixture

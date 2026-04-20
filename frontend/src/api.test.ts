@@ -184,8 +184,9 @@ describe("API", () => {
       await API.generateOverview("demo");
       await API.updateOverview("demo", { synopsis: "new" });
 
-      await API.generateStoryboard("demo", "seg-1", "img", "episode_1.json");
+      await API.generateStoryboard("demo", "seg-1", "img", "episode_1.json", ["source/ref.png"]);
       await API.generateVideo("demo", "seg-1", "vid", "episode_1.json");
+      await API.generateGrid("demo", 1, "episode_1.json", ["seg-1"], ["source/grid-ref.png"]);
       await API.generateCharacter("demo", "Hero", "prompt");
       await API.generateClue("demo", "Key", "prompt");
 
@@ -259,6 +260,22 @@ describe("API", () => {
           prompt: "vid",
           script_file: "episode_1.json",
           duration_seconds: 4,
+        }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/storyboard/seg-1", {
+        method: "POST",
+        body: JSON.stringify({
+          prompt: "img",
+          script_file: "episode_1.json",
+          extra_reference_images: ["source/ref.png"],
+        }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/grid/1", {
+        method: "POST",
+        body: JSON.stringify({
+          script_file: "episode_1.json",
+          scene_ids: ["seg-1"],
+          extra_reference_images: ["source/grid-ref.png"],
         }),
       });
     });

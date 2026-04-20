@@ -135,6 +135,26 @@ class TestGenerateRouter:
             assert call["resource_id"] == "E1S02"
             assert call["source"] == "webui"
 
+    def test_storyboard_enqueue_passes_extra_reference_images(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            sb = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S02",
+                json={
+                    "script_file": "episode_1.json",
+                    "prompt": "test prompt",
+                    "extra_reference_images": ["source/ref.png"],
+                },
+            )
+            assert sb.status_code == 200
+
+            call = fake_queue.calls[0]
+            assert call["payload"]["extra_reference_images"] == ["source/ref.png"]
+
     def test_video_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

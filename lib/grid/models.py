@@ -14,7 +14,7 @@ class ReferenceImage:
 
     path: str  # Relative path from project root (e.g. "characters/hero/sheet.png")
     name: str  # Display name (character or clue name)
-    ref_type: str  # "character" or "clue"
+    ref_type: str  # "character" or "clue" or "task"
 
     def to_dict(self) -> dict:
         return {"path": self.path, "name": self.name, "ref_type": self.ref_type}
