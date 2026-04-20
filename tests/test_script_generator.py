@@ -26,7 +26,6 @@ def _valid_narration_response() -> dict:
         "segments": [
             {
                 "segment_id": "E1S01",
-                "episode": 1,
                 "duration_seconds": 4,
                 "segment_break": False,
                 "novel_text": "原文",

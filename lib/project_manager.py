@@ -374,6 +374,10 @@ class ProjectManager:
             chapter = script["novel"].get("chapter", "chapter_01")
             filename = f"{chapter.replace(' ', '_')}_script.json"
 
+        # 先做 filename/内部 episode 一致性校验，避免写盘后才在 sync 阶段抛错，
+        # 造成"脚本文件已落盘、project.json 未同步"的部分提交（codex 指出的原子性缺口）。
+        self._require_filename_episode_consistency(script, filename)
+
         # 更新元数据（兼容旧脚本：可能缺少 metadata，或 narration 使用 segments）
         now = datetime.now().isoformat()
         metadata = script.get("metadata")
@@ -428,6 +432,26 @@ class ProjectManager:
         return output_path
 
     @staticmethod
+    def _require_filename_episode_consistency(script: dict, script_filename: str) -> None:
+        """校验脚本内 `episode` 字段与文件名隐含的集号一致；不一致则 raise ValueError。
+
+        filename 缺集号模式或脚本内无 `episode` int 时静默放行（兼容旧数据）。
+        """
+        base_name = script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
+        filename_match = re.search(r"episode[-_\s]*(\d+)", base_name, re.IGNORECASE)
+        if filename_match is None:
+            return
+        script_episode = script.get("episode")
+        if not isinstance(script_episode, int):
+            return
+        filename_episode = int(filename_match.group(1))
+        if script_episode != filename_episode:
+            raise ValueError(
+                f"脚本 {base_name} 内部 episode={script_episode} 与文件名隐含的 "
+                f"episode={filename_episode} 不一致，拒绝操作以避免污染 project.json"
+            )
+
+    @staticmethod
     def resolve_episode_from_script(script: dict, script_filename: str) -> int:
         """从剧本解析集号。
 
@@ -466,22 +490,15 @@ class ProjectManager:
         project = self.load_project(project_name)
 
         base_name = script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
-        filename_match = re.search(r"episode[-_\s]*(\d+)", base_name, re.IGNORECASE)
-        filename_episode = int(filename_match.group(1)) if filename_match else None
+        # 防御纵深：SSE 扫描路径直接调用此函数（不经 save_script），同样需要校验
+        self._require_filename_episode_consistency(script, base_name)
+
         script_episode = script.get("episode")
-
-        if filename_episode is not None and isinstance(script_episode, int) and script_episode != filename_episode:
-            raise ValueError(
-                f"脚本 {base_name} 内部 episode={script_episode} 与文件名隐含的 "
-                f"episode={filename_episode} 不一致，拒绝同步以避免污染 project.json"
-            )
-
         if isinstance(script_episode, int):
             episode_num = script_episode
-        elif filename_episode is not None:
-            episode_num = filename_episode
         else:
-            episode_num = 1
+            filename_match = re.search(r"episode[-_\s]*(\d+)", base_name, re.IGNORECASE)
+            episode_num = int(filename_match.group(1)) if filename_match else 1
         episode_title = script.get("title", "")
         script_file = f"scripts/{base_name}"
 

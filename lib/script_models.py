@@ -89,10 +89,14 @@ class GeneratedAssets(BaseModel):
 
 
 class NarrationSegment(BaseModel):
-    """说书模式的片段"""
+    """说书模式的片段
+
+    注意：不设独立 `episode` 字段。集号已经编码在 `segment_id`（格式 E{集}S{序号}）中，
+    与 `DramaScene.scene_id` / `ReferenceVideoUnit.unit_id` 保持一致。避免 AI 在每个
+    segment 上重复生成集号造成幻觉污染（详见 `NarrationEpisodeScript` docstring）。
+    """
 
     segment_id: str = Field(description="片段 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
-    episode: int = Field(description="所属剧集")
     duration_seconds: int = Field(ge=1, le=60, description="片段时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     novel_text: str = Field(description="小说原文（必须原样保留，用于后期配音）")

@@ -161,6 +161,29 @@ class TestProjectManagerMore:
         with pytest.raises(KeyError):
             pm.update_scene_asset("demo", "episode_1.json", "NOT_FOUND", "video_clip", "x.mp4")
 
+    def test_save_script_rejects_mismatch_before_write(self, tmp_path):
+        """save_script 在 filename/内部 episode 不一致时必须写盘前 fail-fast。
+
+        回归（codex 评审）：旧版把校验放在 sync_episode_from_script，会造成
+        脚本文件已原子写、project.json 未同步的部分提交状态。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        bad = {
+            "episode": 1,  # 与文件名 episode_10.json 错配
+            "title": "第十集错误标题",
+            "content_mode": "narration",
+            "segments": [],
+        }
+        with pytest.raises(ValueError, match="不一致"):
+            pm.save_script("demo", bad, "episode_10.json")
+
+        # 关键断言：文件不应被写入磁盘（原子性保持）
+        scripts_dir = pm.get_project_path("demo") / "scripts"
+        assert not (scripts_dir / "episode_10.json").exists()
+
     def test_sync_episode_rejects_filename_episode_mismatch(self, tmp_path):
         """文件名隐含集号与脚本内 episode 字段不一致时必须拒绝同步。
 
