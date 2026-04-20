@@ -161,6 +161,44 @@ class TestProjectManagerMore:
         with pytest.raises(KeyError):
             pm.update_scene_asset("demo", "episode_1.json", "NOT_FOUND", "video_clip", "x.mp4")
 
+    def test_sync_episode_rejects_filename_episode_mismatch(self, tmp_path):
+        """文件名隐含集号与脚本内 episode 字段不一致时必须拒绝同步。
+
+        回归：AI 生成 episode_10.json 但内部 episode=1 曾导致第 1 集条目被覆盖、
+        第 10 集丢失，并触发 SSE 循环不停 touch metadata.updated_at。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        ep1 = {
+            "episode": 1,
+            "title": "第一集原标题",
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
+        }
+        pm.save_script("demo", ep1, "episode_1.json")
+
+        # 伪造错误脚本：文件名是 episode_10.json，但内部 episode=1（AI 幻觉场景）
+        corrupted = {
+            "episode": 1,
+            "title": "第十集错误标题",
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E10S01", "duration_seconds": 4}],
+        }
+        # 绕过 save_script 的潜在未来校验，直接落盘模拟历史产物
+        scripts_dir = pm.get_project_path("demo") / "scripts"
+        (scripts_dir / "episode_10.json").write_text(json.dumps(corrupted, ensure_ascii=False), encoding="utf-8")
+
+        with pytest.raises(ValueError, match="不一致"):
+            pm.sync_episode_from_script("demo", "episode_10.json")
+
+        # project.json 中第 1 集条目必须保持不被污染
+        proj = pm.load_project("demo")
+        ep1_entry = next(ep for ep in proj["episodes"] if ep["episode"] == 1)
+        assert ep1_entry["title"] == "第一集原标题"
+        assert ep1_entry["script_file"] == "scripts/episode_1.json"
+
     def test_load_script_strips_scripts_prefix(self, tmp_path):
         """load_script / save_script / update_scene_asset 应兼容带 scripts/ 前缀的文件名"""
         pm = ProjectManager(tmp_path / "projects")

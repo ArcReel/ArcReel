@@ -171,6 +171,40 @@ class TestScriptGenerator:
         assert payload["metadata"]["generator"] == "fake-model"
         assert "created_at" in payload["metadata"]
 
+    async def test_generate_overrides_hallucinated_episode_field(self, tmp_path):
+        """AI 返回带错误 episode 字段时，CLI 参数 episode 必须胜出。
+
+        回归：AI 幻觉在 episode_10.json 内部写 episode=1，导致 project.json 第 1 集
+        条目被覆盖。修复后 schema 已移除 episode 字段，_add_metadata 强制盖章 CLI 值。
+        """
+        project_path = tmp_path / "demo"
+        _write_json(
+            project_path / "project.json",
+            {
+                "title": "项目",
+                "content_mode": "narration",
+                "overview": {},
+                "characters": {"姜月茴": {}},
+                "clues": {"玉佩": {}},
+                "style": "古风",
+                "style_description": "cinematic",
+            },
+        )
+        _write(project_path / "drafts" / "episode_10" / "step1_segments.md", "E10S01 | 片段")
+
+        # 模拟 AI 响应：内部错误地填了 episode=1
+        hallucinated = _valid_narration_response()
+        hallucinated["episode"] = 1
+        hallucinated["title"] = "第十集"
+        fake = _FakeTextGenerator(json.dumps(hallucinated, ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        output = await generator.generate(10)
+
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        assert output == project_path / "scripts" / "episode_10.json"
+        assert payload["episode"] == 10
+
     async def test_generate_passes_pydantic_class_as_schema(self, tmp_path):
         """generate 应传入 Pydantic 类而非 model_json_schema() dict。"""
         project_path = tmp_path / "demo"

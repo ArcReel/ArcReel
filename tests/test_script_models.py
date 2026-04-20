@@ -121,14 +121,12 @@ class TestScriptModels:
 
     def test_episode_models_build_successfully(self):
         narration = NarrationEpisodeScript(
-            episode=1,
             title="第一集",
             summary="摘要",
             novel={"title": "小说", "chapter": "1"},
             segments=[],
         )
         drama = DramaEpisodeScript(
-            episode=1,
             title="第一集",
             summary="摘要",
             novel={"title": "小说", "chapter": "1"},

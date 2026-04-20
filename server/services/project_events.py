@@ -370,8 +370,19 @@ class ProjectEventService:
             if existing and existing["title"] == title and existing["script_file"] == expected_script_file:
                 continue
 
-            with project_change_source("filesystem"):
-                self.pm.sync_episode_from_script(project_name, script_path.name)
+            try:
+                with project_change_source("filesystem"):
+                    self.pm.sync_episode_from_script(project_name, script_path.name)
+            except ValueError as exc:
+                # filename 与脚本内 episode 字段不一致：跳过同步避免污染 project.json，
+                # 同时避免 SSE 扫描循环无限重试导致 metadata.updated_at 抖动。
+                logger.warning(
+                    "剧集集号不一致，跳过同步 project=%s file=%s reason=%s",
+                    project_name,
+                    script_path.name,
+                    exc,
+                )
+                continue
             current_episodes[episode] = {
                 "title": title,
                 "script_file": expected_script_file,

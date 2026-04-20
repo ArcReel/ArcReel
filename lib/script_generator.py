@@ -348,8 +348,9 @@ class ScriptGenerator:
             补充元数据后的剧本数据
         """
         gen_mode = self._effective_generation_mode(episode)
-        # 确保基本字段存在
-        script_data.setdefault("episode", episode)
+        # CLI 参数 --episode 是集号唯一真相源。schema 已从 AI 输出中移除 episode 字段，
+        # 这里负责落盘前补上。
+        script_data["episode"] = int(episode)
         if gen_mode == "reference_video":
             script_data["content_mode"] = "reference_video"
         else:

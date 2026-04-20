@@ -456,13 +456,34 @@ class ProjectManager:
 
         Returns:
             更新后的 project 字典
+
+        Raises:
+            ValueError: 当文件名隐含的集号与脚本内 `episode` 字段不一致时抛出，
+                避免错误的脚本数据覆盖真实集号条目（例如 episode_10.json 内部
+                错写为 episode=1，会覆盖第 1 集）。
         """
         script = self.load_script(project_name, script_filename)
         project = self.load_project(project_name)
 
-        episode_num = script.get("episode", 1)
+        base_name = script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
+        filename_match = re.search(r"episode[-_\s]*(\d+)", base_name, re.IGNORECASE)
+        filename_episode = int(filename_match.group(1)) if filename_match else None
+        script_episode = script.get("episode")
+
+        if filename_episode is not None and isinstance(script_episode, int) and script_episode != filename_episode:
+            raise ValueError(
+                f"脚本 {base_name} 内部 episode={script_episode} 与文件名隐含的 "
+                f"episode={filename_episode} 不一致，拒绝同步以避免污染 project.json"
+            )
+
+        if isinstance(script_episode, int):
+            episode_num = script_episode
+        elif filename_episode is not None:
+            episode_num = filename_episode
+        else:
+            episode_num = 1
         episode_title = script.get("title", "")
-        script_file = f"scripts/{script_filename}"
+        script_file = f"scripts/{base_name}"
 
         # 查找或创建 episode 条目
         episodes = project.setdefault("episodes", [])

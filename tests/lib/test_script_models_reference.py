@@ -71,7 +71,6 @@ def test_reference_video_unit_transition_enum():
 
 def test_reference_video_script_valid():
     script = ReferenceVideoScript(
-        episode=1,
         title="江湖夜话",
         content_mode="reference_video",
         duration_seconds=8,
@@ -86,7 +85,6 @@ def test_reference_video_script_valid():
 def test_reference_video_script_rejects_wrong_content_mode():
     with pytest.raises(ValidationError):
         ReferenceVideoScript(
-            episode=1,
             title="x",
             content_mode="narration",
             summary="x",
