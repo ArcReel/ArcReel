@@ -1,6 +1,7 @@
 // frontend/src/stores/reference-video-store.ts
 import { create } from "zustand";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import type { ReferenceResource, ReferenceVideoUnit, TransitionType } from "@/types";
 
 interface AddUnitPayload {
@@ -206,7 +207,10 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
         })
         .catch((e) => {
           if (_fetchIds.get(dkey) !== myFetchId) return;
-          set({ error: errMsg(e) });
+          const msg = errMsg(e);
+          // #341：toast 走 user-visible 提示；store.error 留给页面级 banner，两者互补。
+          useAppStore.getState().pushToast(msg, "error");
+          set({ error: msg });
         });
     }, DEBOUNCE_MS);
     _timers.set(dkey, timer);

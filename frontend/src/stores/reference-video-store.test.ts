@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { act } from "@testing-library/react";
 import { _resetDebounceState, useReferenceVideoStore } from "./reference-video-store";
+import { useAppStore } from "./app-store";
 import { API } from "@/api";
 import type { ReferenceResource, ReferenceVideoUnit } from "@/types";
 
@@ -408,5 +409,46 @@ describe("reference-video-store · updatePromptDebounced", () => {
     });
     expect(deleteSpy).toHaveBeenCalledTimes(1);
     expect(patchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("updatePromptDebounced failure surfacing (#341)", () => {
+  beforeEach(() => {
+    useReferenceVideoStore.setState({
+      unitsByEpisode: {},
+      selectedUnitId: null,
+      loading: false,
+      error: null,
+    });
+    _resetDebounceState();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("pushes a toast when the debounced PATCH rejects", async () => {
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    vi.spyOn(API, "patchReferenceVideoUnit").mockRejectedValueOnce(
+      new Error("network down"),
+    );
+
+    useReferenceVideoStore
+      .getState()
+      .updatePromptDebounced("p", 1, "E1U1", "Shot 1 (3s): foo", []);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    // Flush rejection microtasks.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(pushToast).toHaveBeenCalledWith(
+      expect.stringContaining("network down"),
+      "error",
+    );
   });
 });
