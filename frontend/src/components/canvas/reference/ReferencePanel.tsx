@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   DndContext,
@@ -39,27 +39,25 @@ interface PillProps {
   refItem: ReferenceResource;
   index: number;
   projectName: string;
-  onRemove: () => void;
+  imagePath: string | null;
+  thumbFingerprint: number | null;
+  onRemove: (ref: ReferenceResource) => void;
 }
 
-function Pill({ refItem, index, projectName, onRemove }: PillProps) {
+const Pill = memo(function Pill({
+  refItem,
+  index,
+  projectName,
+  imagePath,
+  thumbFingerprint,
+  onRemove,
+}: PillProps) {
   const { t } = useTranslation("dashboard");
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `${refItem.type}:${refItem.name}`,
   });
   const palette = assetColor(refItem.type);
-  const project = useProjectsStore((s) => s.currentProjectData);
-
-  let imagePath: string | null = null;
-  if (refItem.type === "character") {
-    imagePath = (project?.characters?.[refItem.name] as { character_sheet?: string } | undefined)?.character_sheet ?? null;
-  } else if (refItem.type === "scene") {
-    imagePath = (project?.scenes?.[refItem.name] as { scene_sheet?: string } | undefined)?.scene_sheet ?? null;
-  } else if (refItem.type === "prop") {
-    imagePath = (project?.props?.[refItem.name] as { prop_sheet?: string } | undefined)?.prop_sheet ?? null;
-  }
-  const thumbFp = useProjectsStore((s) => (imagePath ? s.getAssetFingerprint(imagePath) : null));
-  const thumbUrl = imagePath ? API.getFileUrl(projectName, imagePath, thumbFp) : null;
+  const thumbUrl = imagePath ? API.getFileUrl(projectName, imagePath, thumbFingerprint) : null;
 
   return (
     <div
@@ -82,7 +80,7 @@ function Pill({ refItem, index, projectName, onRemove }: PillProps) {
       <span className="truncate max-w-[120px]" title={refItem.name}>@{refItem.name}</span>
       <button
         type="button"
-        onClick={onRemove}
+        onClick={() => onRemove(refItem)}
         aria-label={t("reference_panel_remove_aria", { name: refItem.name })}
         className="text-gray-500 hover:text-red-400"
       >
@@ -90,7 +88,7 @@ function Pill({ refItem, index, projectName, onRemove }: PillProps) {
       </button>
     </div>
   );
-}
+});
 
 export function ReferencePanel({
   references,
@@ -106,6 +104,7 @@ export function ReferencePanel({
   const characters = useProjectsStore((s) => s.currentProjectData?.characters);
   const scenes = useProjectsStore((s) => s.currentProjectData?.scenes);
   const props = useProjectsStore((s) => s.currentProjectData?.props);
+  const getFp = useProjectsStore((s) => s.getAssetFingerprint);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -139,6 +138,23 @@ export function ReferencePanel({
     }),
     [existingKeys, characters, scenes, props],
   );
+
+  // 一次性派生每个 pill 的 imagePath + fingerprint，避免 Pill 订阅 store。
+  const pillData = useMemo(() => {
+    return references.map((r) => {
+      let imagePath: string | null = null;
+      if (r.type === "character") {
+        imagePath =
+          (characters?.[r.name] as { character_sheet?: string } | undefined)?.character_sheet ?? null;
+      } else if (r.type === "scene") {
+        imagePath = (scenes?.[r.name] as { scene_sheet?: string } | undefined)?.scene_sheet ?? null;
+      } else if (r.type === "prop") {
+        imagePath = (props?.[r.name] as { prop_sheet?: string } | undefined)?.prop_sheet ?? null;
+      }
+      const fp = imagePath ? getFp(imagePath) : null;
+      return { ref: r, imagePath, fingerprint: fp };
+    });
+  }, [references, characters, scenes, props, getFp]);
 
   const handleAddClick = () => setPickerOpen((v) => !v);
 
@@ -178,13 +194,15 @@ export function ReferencePanel({
             strategy={horizontalListSortingStrategy}
           >
             <div className="flex flex-wrap gap-1.5">
-              {references.map((r, i) => (
+              {pillData.map((d, i) => (
                 <Pill
-                  key={`${r.type}:${r.name}`}
-                  refItem={r}
+                  key={`${d.ref.type}:${d.ref.name}`}
+                  refItem={d.ref}
                   index={i}
                   projectName={projectName}
-                  onRemove={() => onRemove(r)}
+                  imagePath={d.imagePath}
+                  thumbFingerprint={d.fingerprint}
+                  onRemove={onRemove}
                 />
               ))}
             </div>
