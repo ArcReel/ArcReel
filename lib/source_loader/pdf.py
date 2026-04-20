@@ -1,14 +1,11 @@
 """PDF 抽取：PyMuPDF 主线，扫描件检测后明确报错。"""
 
-import logging
 from pathlib import Path
 
 import fitz  # PyMuPDF
 
 from .base import ExtractedText
 from .errors import CorruptFileError
-
-logger = logging.getLogger(__name__)
 
 _SCANNED_CHARS_PER_PAGE = 50
 

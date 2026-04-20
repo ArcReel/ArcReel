@@ -86,10 +86,8 @@ export function WelcomeCanvas({
         return;
       }
 
-      setSourceFiles((prev) => {
-        const name = `source/${file.name}`;
-        return prev.includes(name) ? prev : [...prev, name];
-      });
+      // 不再乐观追加 file.name：backend 会将 .docx/.epub/.pdf 规范化为 .txt，
+      // 冲突时还会改名。触发 invalidate 让 useEffect 用服务端真实列表回填。
       useAppStore.getState().invalidateSourceFiles();
 
       if (wasIdle && onAnalyze) {

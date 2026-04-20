@@ -1,6 +1,5 @@
 """EPUB 抽取：按 spine 顺序遍历章节，注入 # 标题 标记。"""
 
-import logging
 from pathlib import Path
 
 import ebooklib
@@ -9,8 +8,6 @@ from ebooklib import epub
 
 from .base import ExtractedText
 from .errors import CorruptFileError
-
-logger = logging.getLogger(__name__)
 
 
 def _resolve_titles(book: epub.EpubBook, doc_items: list) -> list[str]:

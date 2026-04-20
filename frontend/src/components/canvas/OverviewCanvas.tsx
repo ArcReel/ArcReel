@@ -34,7 +34,6 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
 
   const [regenerating, setRegenerating] = useState(false);
   const [conflictPrompt, setConflictPrompt] = useState<{
-    file: File;
     existing: string;
     suggestedName: string;
     resolve: (d: ConflictResolution) => void;
@@ -89,7 +88,6 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
         if (err instanceof ConflictError) {
           const decision = await new Promise<ConflictResolution>((resolve) => {
             setConflictPrompt({
-              file,
               existing: err.existing,
               suggestedName: err.suggestedName,
               resolve,

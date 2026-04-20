@@ -1544,7 +1544,6 @@ class ProjectManager:
         文件，需显式报错而非"源目录为空"误导。
         """
         from .source_loader.errors import SourceDecodeError
-        from .source_loader.txt import decode_txt
 
         project_dir = self.get_project_path(project_name)
         source_dir = project_dir / "source"
@@ -1562,14 +1561,6 @@ class ProjectManager:
             try:
                 content = raw.decode("utf-8")
             except UnicodeDecodeError as exc:
-                # 走 SourceLoader 的解码诊断，把 tried_encodings 带回
-                try:
-                    decode_txt(raw)
-                except SourceDecodeError as decode_exc:
-                    raise SourceDecodeError(
-                        filename=file_path.name,
-                        tried_encodings=decode_exc.tried_encodings,
-                    ) from exc
                 raise SourceDecodeError(
                     filename=file_path.name,
                     tried_encodings=["utf-8"],

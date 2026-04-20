@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { useEscapeClose } from "@/hooks/useEscapeClose";
 
 export type ConflictResolution = "replace" | "rename" | "cancel";
 
@@ -10,6 +11,7 @@ interface ConflictModalProps {
 
 export function ConflictModal({ existing, suggestedName, onResolve }: ConflictModalProps) {
   const { t } = useTranslation("common");
+  useEscapeClose(() => onResolve("cancel"));
   return (
     <div
       role="dialog"

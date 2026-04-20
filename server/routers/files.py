@@ -7,6 +7,7 @@
 import asyncio
 import json
 import logging
+import shutil
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -303,31 +304,13 @@ async def _handle_source_upload(
     source_dir = project_dir / "source"
     source_dir.mkdir(parents=True, exist_ok=True)
 
-    # DoS 防线：Content-Length 头大于 SourceLoader 的 50MB 硬限时直接 413，
-    # 避免把几百 MB body 读入内存再落盘后才拒绝。
-    content_length = file.headers.get("content-length") if hasattr(file, "headers") else None
-    if content_length is not None:
-        try:
-            declared_size = int(content_length)
-        except ValueError:
-            declared_size = None
-        if declared_size is not None and declared_size > SourceLoader.DEFAULT_MAX_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=_t(
-                    "source_too_large",
-                    filename=file.filename,
-                    size_mb=round(declared_size / 1024 / 1024, 1),
-                    limit_mb=round(SourceLoader.DEFAULT_MAX_BYTES / 1024 / 1024, 1),
-                ),
-            )
-
-    content = await file.read()
     original_filename = file.filename
 
     def _sync() -> NormalizeResult:
+        # 流式写入 tmp，避免把上传 body 整体拉进 Python 堆；
+        # UploadFile.file 是 SpooledTemporaryFile，此处已是请求体完整到位状态。
         with tempfile.NamedTemporaryFile(suffix=Path(original_filename).suffix, delete=False) as tmp:
-            tmp.write(content)
+            shutil.copyfileobj(file.file, tmp)
             tmp_path = Path(tmp.name)
         try:
             return SourceLoader.load(
@@ -425,7 +408,8 @@ async def list_project_files(project_name: str, _user: CurrentUser, _t: Translat
                 if subdir == "source":
                     raw_dir = subdir_path / "raw"
                     if raw_dir.exists():
-                        for raw_f in raw_dir.iterdir():
+                        # sorted 保证多个 raw 同 stem 时的确定性（后者覆盖前者，字典序末位胜出）
+                        for raw_f in sorted(raw_dir.iterdir()):
                             if raw_f.is_file():
                                 raw_by_stem[raw_f.stem] = raw_f.name
                 for f in subdir_path.iterdir():
