@@ -101,3 +101,32 @@ describe("ReferencePanel", () => {
     expect(onAdd).toHaveBeenCalledWith({ type: "character", name: "主角" });
   });
 });
+
+describe("ReferencePanel drag a11y (#343)", () => {
+  const baseProject: ProjectData = {
+    title: "p",
+    content_mode: "narration",
+    style: "",
+    episodes: [],
+    characters: { 张三: { description: "" } },
+    scenes: { 酒馆: { description: "" } },
+    props: {},
+  };
+
+  it("renders sr-only drag instructions via DndContext accessibility", () => {
+    useProjectsStore.setState({ currentProjectName: "p", currentProjectData: baseProject });
+    render(
+      <ReferencePanel
+        references={[{ type: "character", name: "张三" }]}
+        projectName="p"
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onAdd={vi.fn()}
+      />,
+    );
+    // dnd-kit 会把 `screenReaderInstructions.draggable` 文本渲染为 sr-only 的段落，id 形如 "DndDescribedBy-..."
+    expect(
+      screen.getByText(/按 Space 键拿起|Press Space to pick up/i),
+    ).toBeInTheDocument();
+  });
+});

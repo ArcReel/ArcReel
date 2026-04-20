@@ -8,7 +8,7 @@ import {
   PointerSensor,
   KeyboardSensor,
 } from "@dnd-kit/core";
-import type { DragEndEvent } from "@dnd-kit/core";
+import type { Announcements, DragEndEvent, ScreenReaderInstructions } from "@dnd-kit/core";
 import {
   SortableContext,
   arrayMove,
@@ -167,6 +167,47 @@ export function ReferencePanel({
     onReorder(arrayMove(references, fromIndex, toIndex));
   };
 
+  // Keyboard drag announcements for screen readers. dnd-kit fires these on
+  // Space pickup / arrow-key move / Space drop / Esc cancel. The `id` is
+  // `${type}:${name}` — split on the first ":" so CJK names survive.
+  const announcements = useMemo<Announcements>(
+    () => ({
+      onDragStart: ({ active }) => {
+        const id = String(active.id);
+        const name = id.slice(id.indexOf(":") + 1);
+        const index = references.findIndex((r) => `${r.type}:${r.name}` === id);
+        return t("reference_panel_announce_pick_up", { name, index: index + 1 });
+      },
+      onDragOver: ({ active, over }) => {
+        if (!over) return undefined;
+        const id = String(active.id);
+        const name = id.slice(id.indexOf(":") + 1);
+        const overId = String(over.id);
+        const index = references.findIndex((r) => `${r.type}:${r.name}` === overId);
+        return t("reference_panel_announce_move", { name, index: index + 1 });
+      },
+      onDragEnd: ({ active, over }) => {
+        if (!over) return undefined;
+        const id = String(active.id);
+        const name = id.slice(id.indexOf(":") + 1);
+        const overId = String(over.id);
+        const index = references.findIndex((r) => `${r.type}:${r.name}` === overId);
+        return t("reference_panel_announce_drop", { name, index: index + 1 });
+      },
+      onDragCancel: ({ active }) => {
+        const id = String(active.id);
+        const name = id.slice(id.indexOf(":") + 1);
+        return t("reference_panel_announce_cancel", { name });
+      },
+    }),
+    [t, references],
+  );
+
+  const screenReaderInstructions = useMemo<ScreenReaderInstructions>(
+    () => ({ draggable: t("reference_panel_sr_instructions") }),
+    [t],
+  );
+
   return (
     <div className="relative border-t border-gray-800 bg-gray-950/40 p-2">
       <div className="mb-1 flex items-center justify-between">
@@ -188,7 +229,12 @@ export function ReferencePanel({
       {references.length === 0 ? (
         <p className="text-xs text-gray-500">{t("reference_panel_empty")}</p>
       ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={onDragEnd}
+          accessibility={{ announcements, screenReaderInstructions }}
+        >
           <SortableContext
             items={references.map((r) => `${r.type}:${r.name}`)}
             strategy={horizontalListSortingStrategy}
