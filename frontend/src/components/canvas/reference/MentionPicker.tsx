@@ -84,6 +84,7 @@ export function MentionPicker({
 
   const flatRef = useRef(flat);
   const clampedRef = useRef(clampedActive);
+  const listboxRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     flatRef.current = flat;
@@ -114,12 +115,30 @@ export function MentionPicker({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onSelect, onClose]);
 
+  // Close on outside pointerdown (#345). Capture phase so we run before the
+  // option's own `onMouseDown preventDefault` — the listbox root still gets
+  // the event through `contains()`, and any event landing outside the listbox
+  // tree (including the anchoring textarea) closes the picker.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const el = listboxRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && !el.contains(e.target)) {
+        onClose();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const empty = flat.length === 0;
 
   return (
     <div
+      ref={listboxRef}
       role="listbox"
       aria-label={t("reference_picker_title")}
       className={`z-30 max-h-64 w-64 overflow-y-auto rounded-md border border-gray-800 bg-gray-950 shadow-xl ${className ?? ""}`}
@@ -153,14 +172,19 @@ export function MentionPicker({
                     type="button"
                     role="option"
                     aria-selected={active}
-                    onMouseEnter={() => setActiveIndex(globalIndex)}
+                    // Only react to real pointer movement (not synthetic
+                    // mouseenter from list scroll under a stationary cursor),
+                    // so keyboard selection is never stolen by passive hover.
+                    onMouseMove={() => {
+                      if (clampedActive !== globalIndex) setActiveIndex(globalIndex);
+                    }}
                     // Suppress focus transfer on mousedown so the textarea keeps
                     // focus long enough for the click to fire on this option —
                     // avoids the "blur closes picker before click" race without
                     // relying on a setTimeout hack in the parent.
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => onSelect({ type: kind, name: item.name })}
-                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors focus-visible:ring-1 focus-visible:ring-indigo-400 focus-visible:outline-none ${
                       active ? "bg-indigo-500/15 text-indigo-200" : "text-gray-300 hover:bg-gray-900"
                     }`}
                   >

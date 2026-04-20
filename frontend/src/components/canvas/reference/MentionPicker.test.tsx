@@ -166,4 +166,83 @@ describe("MentionPicker", () => {
     );
     expect(container.firstChild).toBeNull();
   });
+
+  it("closes on outside pointerdown (#345)", () => {
+    const onClose = vi.fn();
+    render(
+      <div>
+        <button data-testid="outside">outside</button>
+        <MentionPicker
+          open
+          query=""
+          candidates={{ character: [{ name: "a", imagePath: null }], scene: [], prop: [] }}
+          onSelect={vi.fn()}
+          onClose={onClose}
+        />
+      </div>,
+    );
+    fireEvent.pointerDown(screen.getByTestId("outside"));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("does not close when pointerdown happens inside the listbox (#345)", () => {
+    const onClose = vi.fn();
+    render(
+      <MentionPicker
+        open
+        query=""
+        candidates={{ character: [{ name: "a", imagePath: null }], scene: [], prop: [] }}
+        onSelect={vi.fn()}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.pointerDown(screen.getByRole("option", { name: /a/ }));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("option has focus-visible ring class (#345)", () => {
+    render(
+      <MentionPicker
+        open
+        query=""
+        candidates={{ character: [{ name: "a", imagePath: null }], scene: [], prop: [] }}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const option = screen.getByRole("option", { name: /a/ });
+    expect(option.className).toMatch(/focus-visible:ring/);
+  });
+
+  it("pointermove on option updates activeIndex; mouseenter without movement does not (#345)", () => {
+    render(
+      <MentionPicker
+        open
+        query=""
+        candidates={{
+          character: [
+            { name: "alice", imagePath: null },
+            { name: "bob", imagePath: null },
+          ],
+          scene: [],
+          prop: [],
+        }}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const alice = screen.getByRole("option", { name: /alice/ });
+    const bob = screen.getByRole("option", { name: /bob/ });
+
+    // Default activeIndex=0 → alice selected; mouseEnter alone (list scrolled under
+    // a stationary cursor) must NOT steal the keyboard selection.
+    fireEvent.mouseEnter(bob);
+    expect(alice.getAttribute("aria-selected")).toBe("true");
+    expect(bob.getAttribute("aria-selected")).toBe("false");
+
+    // Real pointer movement → active moves to bob.
+    fireEvent.mouseMove(bob, { clientX: 10, clientY: 10 });
+    expect(bob.getAttribute("aria-selected")).toBe("true");
+    expect(alice.getAttribute("aria-selected")).toBe("false");
+  });
 });
