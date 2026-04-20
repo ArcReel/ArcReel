@@ -441,15 +441,18 @@ python scripts/verify_reference_video_sdks.py --provider {ark|grok|veo|sora} --r
 | M5 Agent 工作流 | split-reference-video-units subagent、generate-script / generate-video 扩展、manga-workflow 分支、CLAUDE.md 更新 |
 | M6 联调 + 发版 | 端到端跑通、i18n 校验、覆盖率达标、合并 |
 
-## 11. 未决 / 留给实施计划
+## 11. 已决议（PR7 M6 结论，取代原"未决"段）
 
-- 预处理 subagent 的 LLM prompt 模板细节（v1 通过 M5 阶段设计）。
-- Sora 真实能力验证结果决定是否完全隐藏 Sora 参考模式选项或降级为单图（M1 产出）。
-- **切换集级 generation_mode 的处理策略**：从 `storyboard/grid` 切到 `reference_video` 时，是否清空旧 segments 并提示重跑预处理；反向切换是否保留 `video_units`。v1 默认：切换时仅修改字段，**不主动删除** 旧数据；Canvas 按 effective_mode 渲染对应视图；实施计划需给出 UI 提示文案。
-- 视频生成 `generate_audio` 的默认值在 `project.video_model_settings` 不存在时的 fallback（推荐 `true`，但需要实施阶段与现有 storyboard 行为对齐确认）。
-- **schema_version 升级策略**：main 当前 `CURRENT_SCHEMA_VERSION = 1`（v0→v1 拆 clues）。新增顶层 `generation_mode` + 新脚本形态 `content_mode == "reference_video"` + 新目录 `reference_videos/` 是否需要 bump 到 v2 并提供 `v1_to_v2` 迁移器？
-  - 倾向：**不 bump**。`generation_mode` 缺省按 `effective_mode()` 回退 `"storyboard"`，`video_units` 仅在新模式下写入，对旧项目零影响。
-  - 若决定 bump：实施阶段需新增 `lib/project_migrations/v1_to_v2_*.py`，内容仅限"补 `generation_mode: "storyboard"` 默认字段"。此为实施 M2/M3 阶段要拍板的点。
+> PR7（2026-04-20）把原 M6 里遗留的 4 个决策点逐条落地如下。所有项都已反映到代码与 i18n 文案。原 subagent prompt 模板的细节已在 PR6（#337）落地。
+
+- **`generate_audio` 默认值**：改为 `True`（`lib/config/resolver.py:71 _DEFAULT_VIDEO_GENERATE_AUDIO = True`；`lib/media_generator.py` `_config is None` 的 fallback 同步改 `True`；`server/routers/system_config.py` GET 响应默认值一并对齐 `"true"`，避免 UI 与 pipeline 分歧）。理由：与 Seedance / Grok 默认开启一致，storyboard 用户期望亦如此。
+- **集级 `generation_mode` 切换策略**：**不清空** 旧数据；`EpisodeModeSwitcher` 改为在切换时弹 `"info"` kind 的 toast，明示"旧数据保留，可随时切回继续"（对应 i18n key：`episode_mode_switch_to_reference` / `episode_mode_switch_from_reference` / `episode_mode_switch_keep_data`）。Canvas 继续按 `effective_mode` 渲染对应视图，不做数据迁移。
+- **`schema_version`**：**不 bump**，继续 v1。新增的 `generation_mode` 顶层字段与 `video_units[]` 子树对旧项目缺省不可见；`effective_mode()` 缺省回退 `storyboard`，所以 v0→v1 迁移器无需改动、不新增 v1→v2 迁移器。
+- **Sora 参考模式可见性**：保守方案——**保留可选，走 `_apply_provider_constraints` 的 `ref_sora_single_ref` 单图降级分支**。
+  - 依据：PR7 Task 14 在 CI 环境无 API key 运行 `scripts/verify_reference_video_sdks.py` 失败，live 验证 pending（详见 `docs/verification-reports/reference-video-sdks-2026-04-20.md`）。
+  - `lib/reference_video/limits.py` 将 Sora `max_refs=1`，executor 会自动截断 `references[:1]` + 回传 `ref_sora_single_ref` warning；UI 透明展示给用户。
+  - 若 live 验证后确认 Sora 多图完全不可用，升级为"前端 `GenerationModeSelector` 在 Sora 路径隐藏参考生视频选项"——本次不隐藏。
+  - 若升级为支持 ≥ 2 图，调整 `PROVIDER_MAX_REFS["openai"]` 即可放宽。
 
 ## 附录 A：关键文件改动清单
 
