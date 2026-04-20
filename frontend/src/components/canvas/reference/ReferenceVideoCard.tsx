@@ -122,10 +122,9 @@ export function ReferenceVideoCard({
       const ch = nextValue[i];
       if (ch === "@") {
         const prev = nextValue[i - 1];
-        // Only open the picker when the '@' is at a mention boundary:
-        // start-of-string or preceded by whitespace. This avoids triggering on
-        // `a@b` (email-like) or `@@foo` (double-@ typos).
-        if (i === 0 || /\s/.test(prev ?? "")) {
+        // 与 MENTION_RE (?<!\w) 对齐：@ 的左侧不能是词字符，否则视为 email/id 残片。
+        // 中文标点、空白、CJK 字符、行首都满足"非 \w"，不会误拦截。
+        if (i === 0 || !/\w/.test(prev ?? "")) {
           atStartRef.current = i;
           setPickerQuery(nextValue.slice(i + 1, cursor));
           setPickerOpen(true);

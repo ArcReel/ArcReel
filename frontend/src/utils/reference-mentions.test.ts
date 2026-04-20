@@ -80,3 +80,39 @@ describe("mergeReferences", () => {
     expect(mergeReferences("Shot 1 (3s): plain", [], project)).toEqual([]);
   });
 });
+
+describe("MENTION_RE prefix boundary (#346)", () => {
+  it("ignores email-like prefix", () => {
+    expect(extractMentions("contact a@张三")).toEqual([]);
+    expect(extractMentions("test@domain.com")).toEqual([]);
+    expect(extractMentions("alice@example.com 和 bob@foo.io")).toEqual([]);
+    expect(extractMentions("room9@张三")).toEqual([]);
+    expect(extractMentions("user123@李四")).toEqual([]);
+  });
+
+  it("accepts Chinese prefix", () => {
+    expect(extractMentions("你好@张三")).toEqual(["张三"]);
+    expect(extractMentions("（对面）@李四")).toEqual(["李四"]);
+  });
+
+  it("accepts whitespace / line-start / punctuation prefix", () => {
+    expect(extractMentions("@张三")).toEqual(["张三"]);
+    expect(extractMentions("之后 @张三")).toEqual(["张三"]);
+    expect(extractMentions("Shot 1 (3s):\n@张三")).toEqual(["张三"]);
+    expect(extractMentions("台词：@张三")).toEqual(["张三"]);
+  });
+
+  it("rejects underscore prefix", () => {
+    expect(extractMentions("prefix_@张三")).toEqual([]);
+  });
+
+  it("mergeReferences drops email-shape references", () => {
+    const project = {
+      characters: { 张三: { character_sheet: "c/1.png" } },
+      scenes: {},
+      props: {},
+    } as const;
+    const refs = mergeReferences("contact a@张三", [], project as never);
+    expect(refs).toEqual([]);
+  });
+});

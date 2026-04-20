@@ -64,11 +64,11 @@ describe("tokenizePrompt", () => {
     expect(only.map((x) => x.text).join("")).toBe("   ");
   });
 
-  it("does not treat '@' without a following word char as a mention", () => {
+  it("rejects '@' following a word character (mirrors backend MENTION_RE boundary, #346)", () => {
+    // `price@5`: `e` 是 \w 前缀 → `@5` 不算 mention
+    // `email a@b`: `a` 是 \w 前缀 → `@b` 不算 mention
     const t = tokenizePrompt("price@5, email a@b", LOOKUP);
-    // @5 has a digit (\w) so IS a mention (unknown); @b is a mention (unknown).
-    // This mirrors the backend regex behaviour intentionally.
     const mentions = t.filter((x) => x.kind === "mention");
-    expect(mentions.length).toBeGreaterThanOrEqual(1);
+    expect(mentions).toHaveLength(0);
   });
 });
