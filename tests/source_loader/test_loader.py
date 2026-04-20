@@ -137,3 +137,39 @@ def test_load_chapter_count_propagates_from_epub(tmp_path: Path, epub_factory):
     src = epub_factory([("第一章", "正文1"), ("第二章", "正文2")])
     result = SourceLoader.load(src, project_source, original_filename=src.name)
     assert result.chapter_count == 2
+
+
+def test_detect_conflict_skips_occupied_indices(tmp_path: Path):
+    """stem_1 已占用时 suggested_stem 递增到 stem_2，锁 Task 11 预期的递增语义。"""
+    src = tmp_path / "source"
+    src.mkdir()
+    (src / "novel.txt").write_text("", encoding="utf-8")
+    (src / "novel_1.txt").write_text("", encoding="utf-8")
+    has_conflict, suggested = SourceLoader.detect_conflict("novel.epub", src)
+    assert has_conflict is True
+    assert suggested == "novel_2"
+
+
+def test_load_raw_backup_failure_leaves_orphan_normalized(tmp_path: Path, monkeypatch):
+    """锁定 Task 8 "非原子" 契约：raw 备份失败时 normalized .txt 仍留在磁盘。
+
+    此语义被 docstring 明确声明；Task 11 路由必须在 except 分支清理孤儿 .txt。
+    """
+    project_source = tmp_path / "source"
+    project_source.mkdir()
+    src = tmp_path / "old.txt"
+    src.write_bytes(("第一章\n" * 30).encode("gbk"))  # 触发 raw 备份分支
+
+    import lib.source_loader.loader as loader_mod
+
+    def _boom(*_a, **_k):
+        raise OSError("simulated disk full")
+
+    monkeypatch.setattr(loader_mod.shutil, "copyfile", _boom)
+
+    with pytest.raises(OSError):
+        SourceLoader.load(src, project_source, original_filename="old.txt")
+
+    # 半成功证据：normalized .txt 已落盘；raw/ 为空
+    assert (project_source / "old.txt").exists()
+    assert not (project_source / "raw" / "old.txt").exists()
