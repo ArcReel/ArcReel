@@ -293,7 +293,7 @@ async def _handle_source_upload(
 ):
     """Source 分支：通过 SourceLoader 规范化为 UTF-8 .txt，并按需备份原始字节。"""
     if on_conflict not in {"fail", "replace", "rename"}:
-        raise HTTPException(status_code=400, detail="on_conflict must be fail/replace/rename")
+        raise HTTPException(status_code=400, detail=_t("invalid_on_conflict"))
 
     try:
         project_dir = get_project_manager().get_project_path(project_name)
@@ -302,6 +302,25 @@ async def _handle_source_upload(
 
     source_dir = project_dir / "source"
     source_dir.mkdir(parents=True, exist_ok=True)
+
+    # DoS 防线：Content-Length 头大于 SourceLoader 的 50MB 硬限时直接 413，
+    # 避免把几百 MB body 读入内存再落盘后才拒绝。
+    content_length = file.headers.get("content-length") if hasattr(file, "headers") else None
+    if content_length is not None:
+        try:
+            declared_size = int(content_length)
+        except ValueError:
+            declared_size = None
+        if declared_size is not None and declared_size > SourceLoader.DEFAULT_MAX_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=_t(
+                    "source_too_large",
+                    filename=file.filename,
+                    size_mb=round(declared_size / 1024 / 1024, 1),
+                    limit_mb=round(SourceLoader.DEFAULT_MAX_BYTES / 1024 / 1024, 1),
+                ),
+            )
 
     content = await file.read()
     original_filename = file.filename

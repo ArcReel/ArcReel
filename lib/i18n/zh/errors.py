@@ -54,6 +54,7 @@ MESSAGES = {
     "source_corrupt_file": "源文件「{filename}」无法解析：{reason}",
     "source_too_large": "源文件「{filename}」过大（{size_mb} MB > {limit_mb} MB）",
     "source_conflict": "源文件「{existing}」已存在，建议改名为「{suggested}」",
+    "invalid_on_conflict": "on_conflict 参数无效，必须为 fail / replace / rename",
     # Providers
     "unknown_provider": "未知供应商: {provider_id}",
     "credentials_not_found": "凭证不存在",

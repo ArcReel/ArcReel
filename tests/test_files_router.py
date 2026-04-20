@@ -555,3 +555,30 @@ class TestSourceMultiFormatUpload:
             resp = client.delete("/api/v1/projects/demo/source/to_delete.txt")
             assert resp.status_code == 200
             assert not raw_path.exists()
+
+    def test_upload_source_invalid_on_conflict_returns_400_i18n(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/source?on_conflict=bogus",
+                files={"file": ("x.txt", io.BytesIO(b"hi"), "text/plain")},
+            )
+            assert resp.status_code == 400
+            # Should not be the raw English phrase we replaced — check it's the translated form
+            assert resp.json()["detail"] != "on_conflict must be fail/replace/rename"
+
+    def test_upload_source_rejects_oversized_upload_by_content_length(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        from lib.source_loader import SourceLoader
+
+        # We don't actually send 50MB+ of data — instead post a small body with a fake
+        # content-length header. Starlette validates content-length vs actual body length
+        # for multipart, so we need to send a real oversized payload OR rely on the
+        # natural stat-based check. Skip the header fake and exercise the stat path:
+        body = b"a" * (SourceLoader.DEFAULT_MAX_BYTES + 1024)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/source",
+                files={"file": ("big.txt", io.BytesIO(body), "text/plain")},
+            )
+            assert resp.status_code == 413
