@@ -1,3 +1,5 @@
+import random
+
 import pytest
 
 from lib.source_loader.errors import SourceDecodeError
@@ -50,7 +52,10 @@ def test_decode_big5_via_charset_normalizer():
 
 
 def test_decode_random_bytes_raises():
-    raw = bytes(range(256)) * 200
+    # 使用固定种子的伪随机字节：charset-normalizer 无法给出可信结果，
+    # gb18030 errors='replace' 兜底也会产生远高于 5% 阈值的 \ufffd，触发 SourceDecodeError。
+    rng = random.Random(42)
+    raw = bytes(rng.randint(0, 255) for _ in range(4000))
     with pytest.raises(SourceDecodeError) as exc_info:
         decode_txt(raw)
     assert "utf-8" in exc_info.value.tried_encodings
@@ -59,7 +64,8 @@ def test_decode_random_bytes_raises():
 
 def test_extractor_writes_via_decode(tmp_path):
     src = tmp_path / "novel.txt"
-    src.write_bytes("内容".encode("gbk"))
+    # 样本需足够长且具备真实中文分布，charset-normalizer 才能稳定识别为 gbk 系列
+    src.write_bytes(("第一章 内容起点。" * 50).encode("gbk"))
     result = TxtExtractor().extract(src)
     assert "内容" in result.text
     assert result.used_encoding and result.used_encoding.lower() in {"gbk", "gb18030", "cp936"}
