@@ -102,6 +102,10 @@ describe("MENTION_RE prefix boundary (#346)", () => {
     expect(extractMentions("台词：@张三")).toEqual(["张三"]);
   });
 
+  it("preserves valid mention next to email-shape prefix", () => {
+    expect(extractMentions("contact a@张三 then @李四 shows up")).toEqual(["李四"]);
+  });
+
   it("rejects underscore prefix", () => {
     expect(extractMentions("prefix_@张三")).toEqual([]);
   });
