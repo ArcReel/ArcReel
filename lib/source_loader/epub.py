@@ -52,8 +52,10 @@ class EpubExtractor:
         items_by_id = {it.id: it for it in book.get_items_of_type(ebooklib.ITEM_DOCUMENT)}
         doc_items = [items_by_id[sid] for sid in spine_ids if sid in items_by_id]
 
-        # 跳过 nav 项（idref="nav"）
-        doc_items = [it for it in doc_items if it.id != "nav"]
+        # 按类型排除导航文档（适配任意 nav id；ebooklib 默认 id="nav" 仅是其一，
+        # 现实中 Calibre/Sigil 会使用其他 id 如 "id.xhtml"、"toc" 等）。
+        # 读回时 ebooklib 依据 OPF manifest 的 properties="nav" 识别为 EpubNav 实例。
+        doc_items = [it for it in doc_items if not isinstance(it, epub.EpubNav)]
         if not doc_items:
             raise CorruptFileError(filename=path.name, reason="EPUB 不含正文章节")
 
@@ -66,7 +68,7 @@ class EpubExtractor:
             parts.append(f"\n\n# {title}\n\n{body_text}")
 
         return ExtractedText(
-            text="\n".join(parts).lstrip(),
+            text="".join(parts).lstrip(),
             used_encoding=None,
             chapter_count=len(doc_items),
         )

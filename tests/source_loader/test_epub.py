@@ -1,3 +1,5 @@
+import pytest
+
 from lib.source_loader.epub import EpubExtractor
 
 
@@ -34,3 +36,35 @@ def test_epub_falls_back_to_index_when_no_toc(epub_factory):
     # 没有 toc → 标题降级为 "第 N 章"
     assert "# 第 1 章" in result.text
     assert "# 第 2 章" in result.text
+
+
+def test_epub_excludes_nav_with_nonstandard_id(tmp_path):
+    """Nav filter must work regardless of nav item id (some tools use 'navdoc' / 'toc')."""
+    pytest.importorskip("ebooklib")
+    from ebooklib import epub as ebook_epub
+
+    book = ebook_epub.EpubBook()
+    book.set_identifier("test-nav-id")
+    book.set_title("Nav ID Test")
+    book.set_language("zh")
+
+    ch = ebook_epub.EpubHtml(title="Ch1", file_name="c1.xhtml", lang="zh")
+    ch.content = "<html><body><p>真实正文。</p></body></html>"
+    book.add_item(ch)
+
+    # Nav with a non-standard id
+    nav = ebook_epub.EpubNav(uid="navdoc")
+    book.add_item(nav)
+    book.add_item(ebook_epub.EpubNcx())
+
+    book.toc = (ch,)
+    book.spine = [nav, ch]  # nav referenced in spine
+
+    out = tmp_path / "nav_id.epub"
+    ebook_epub.write_epub(out, book)
+
+    result = EpubExtractor().extract(out)
+    assert result.chapter_count == 1
+    assert "真实正文" in result.text
+    # Nav document HTML must not appear
+    assert "<nav" not in result.text
