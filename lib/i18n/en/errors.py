@@ -48,6 +48,12 @@ MESSAGES = {
     "draft_event_label": "Episode {episode} {label_prefix}",
     "normalized_script": "Normalized Script",
     "segment_splitting": "Segment Splitting",
+    # Source loader
+    "source_unsupported_format": "Unsupported source format: {ext} (supported: .txt / .md / .docx / .epub / .pdf)",
+    "source_decode_failed": "Failed to decode source file '{filename}' (tried: {tried})",
+    "source_corrupt_file": "Source file '{filename}' is not parseable: {reason}",
+    "source_too_large": "Source file '{filename}' is too large ({size_mb} MB > {limit_mb} MB)",
+    "source_conflict": "Source file '{existing}' already exists; suggested rename: '{suggested}'",
     # Providers
     "unknown_provider": "Unknown provider: {provider_id}",
     "credentials_not_found": "Credentials not found",
