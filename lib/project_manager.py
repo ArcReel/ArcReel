@@ -1537,15 +1537,14 @@ class ProjectManager:
 
     def _read_source_files(self, project_name: str, max_chars: int = 50000) -> str:
         """
-        读取项目 source 目录下的所有文本文件内容
+        读取项目 source 目录下的所有 UTF-8 文本文件内容。
 
-        Args:
-            project_name: 项目名称
-            max_chars: 最大读取字符数（避免超出 API 限制）
-
-        Returns:
-            合并后的文本内容
+        非 UTF-8 文件会抛 SourceDecodeError —— 上传路径已统一规范化为 UTF-8，
+        启动迁移已修历史项目；这里若仍遇到非 UTF-8，说明用户绕过 API 直接拷贝
+        文件，需显式报错而非"源目录为空"误导。
         """
+        from .source_loader.errors import SourceDecodeError
+
         project_dir = self.get_project_path(project_name)
         source_dir = project_dir / "source"
 
@@ -1554,22 +1553,26 @@ class ProjectManager:
 
         contents = []
         total_chars = 0
-
-        # 按文件名排序，确保顺序一致
         for file_path in sorted(source_dir.glob("*")):
-            if file_path.is_file() and file_path.suffix.lower() in [".txt", ".md"]:
-                try:
-                    with open(file_path, encoding="utf-8") as f:
-                        content = f.read()
-                        remaining = max_chars - total_chars
-                        if remaining <= 0:
-                            break
-                        if len(content) > remaining:
-                            content = content[:remaining]
-                        contents.append(f"--- {file_path.name} ---\n{content}")
-                        total_chars += len(content)
-                except Exception as e:
-                    logger.error("读取文件失败 %s: %s", file_path.name, e)
+            if not (file_path.is_file() and file_path.suffix.lower() in [".txt", ".md"]):
+                continue
+
+            raw = file_path.read_bytes()
+            try:
+                content = raw.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise SourceDecodeError(
+                    filename=file_path.name,
+                    tried_encodings=["utf-8"],
+                ) from exc
+
+            remaining = max_chars - total_chars
+            if remaining <= 0:
+                break
+            if len(content) > remaining:
+                content = content[:remaining]
+            contents.append(f"--- {file_path.name} ---\n{content}")
+            total_chars += len(content)
 
         return "\n\n".join(contents)
 

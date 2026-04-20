@@ -48,6 +48,13 @@ MESSAGES = {
     "draft_event_label": "第 {episode} 集{label_prefix}",
     "normalized_script": "规范化剧本",
     "segment_splitting": "片段拆分",
+    # Source loader
+    "source_unsupported_format": "不支持的源文件格式：{ext}（支持 .txt / .md / .docx / .epub / .pdf）",
+    "source_decode_failed": "源文件「{filename}」解码失败（已尝试：{tried}）",
+    "source_corrupt_file": "源文件「{filename}」无法解析：{reason}",
+    "source_too_large": "源文件「{filename}」过大（{size_mb} MB > {limit_mb} MB）",
+    "source_conflict": "源文件「{existing}」已存在，建议改名为「{suggested}」",
+    "invalid_on_conflict": "on_conflict 参数无效，必须为 fail / replace / rename",
     # Providers
     "unknown_provider": "未知供应商: {provider_id}",
     "credentials_not_found": "凭证不存在",

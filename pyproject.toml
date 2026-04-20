@@ -27,6 +27,13 @@ dependencies = [
     "xai-sdk>=1.8.2",
     "pyjianyingdraft>=0.2.6",
     "instructor>=1.14.5",
+    "charset-normalizer>=3.4.6",
+    "docx2txt>=0.9",
+    "mammoth>=1.12.0",
+    "ebooklib>=0.20",
+    "beautifulsoup4>=4.14.3",
+    "lxml>=6.1.0",
+    "pymupdf>=1.27.2.2",
 ]
 
 [dependency-groups]
@@ -36,6 +43,7 @@ dev = [
     "pytest-cov>=7.0.0",
     "ruff>=0.15.0",
     "pre-commit>=4.0.0",
+    "python-docx>=1.2.0",
 ]
 
 [build-system]

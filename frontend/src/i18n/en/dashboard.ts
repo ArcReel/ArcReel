@@ -152,7 +152,6 @@ export default {
   'regenerating': 'Regenerating...',
   'total': 'Total',
   'per_episode': 'Per Episode',
-  'source_file_upload_success': 'Source file "{{name}}" uploaded successfully',
   'no_description': 'No description yet',
   'character_design': 'Character Design',
   'scene_design': 'Scene Design',
@@ -679,6 +678,13 @@ export default {
   'no_preprocessing_content': 'No preprocessing content',
   'segment_split_complete': 'Segment split complete',
   'script_normalized_complete': 'Script normalization complete',
+
+  // Source file normalization toasts
+  'source_normalized_toast': '"{{filename}}" normalized (source encoding: {{encoding}})',
+  'source_normalized_toast_with_chapters': '"{{filename}}" normalized ({{chapters}} chapters; source encoding: {{encoding}})',
+  'source_normalized_toast_native': '"{{filename}}" normalized',
+  'source_normalized_toast_native_with_chapters': '"{{filename}}" normalized ({{chapters}} chapters)',
+  'source_upload_conflict_toast': 'Source file "{{filename}}" already exists (suggested rename: "{{suggested}}"; retry from the main panel)',
 
   // GridSegmentGroup
   'grid_scene_count': '{{count}} scenes',

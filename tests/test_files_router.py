@@ -466,3 +466,139 @@ class TestFilesRouter:
         with client:
             r = client.get("/api/v1/global-assets/character/evil.png")
             assert r.status_code == 403
+
+
+# ==================== Source 多格式上传 ====================
+
+import io  # noqa: E402
+
+
+def _upload_source(client, project_name: str, filename: str, content: bytes, on_conflict: str | None = None):
+    url = f"/api/v1/projects/{project_name}/upload/source"
+    if on_conflict:
+        url += f"?on_conflict={on_conflict}"
+    return client.post(
+        url,
+        files={"file": (filename, io.BytesIO(content), "application/octet-stream")},
+    )
+
+
+class TestSourceMultiFormatUpload:
+    def test_upload_source_utf8_txt_normalized(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            resp = _upload_source(client, "demo", "novel.txt", "纯 UTF-8".encode())
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["normalized"] is True
+            assert body["used_encoding"] == "utf-8"
+            assert body["original_kept"] is False
+            assert body["chapter_count"] == 0
+
+    def test_upload_source_gbk_txt_normalized_and_raw_kept(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            raw = ("第一章\n" * 30).encode("gbk")
+            resp = _upload_source(client, "demo", "old.txt", raw)
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["normalized"] is True
+            assert body["used_encoding"] and body["used_encoding"].lower() != "utf-8"
+            assert body["original_kept"] is True
+
+    def test_upload_source_doc_rejected_with_400(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            resp = _upload_source(client, "demo", "x.doc", b"binary")
+            assert resp.status_code == 400
+
+    def test_upload_source_conflict_returns_409_with_suggestion(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            _upload_source(client, "demo", "novel.txt", "首次".encode())
+            resp = _upload_source(client, "demo", "novel.txt", "再次".encode())
+            assert resp.status_code == 409
+            body = resp.json()
+            assert body["detail"]["existing"] == "novel.txt"
+            assert body["detail"]["suggested_name"] == "novel_1"
+
+    def test_upload_source_on_conflict_replace(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            _upload_source(client, "demo", "novel.txt", "旧内容".encode())
+            resp = _upload_source(client, "demo", "novel.txt", "新内容".encode(), on_conflict="replace")
+            assert resp.status_code == 200, resp.text
+            # 通过 GET 拉文本验证已替换
+            get_resp = client.get("/api/v1/projects/demo/source/novel.txt")
+            assert get_resp.status_code == 200
+            assert get_resp.text == "新内容"
+
+    def test_upload_source_on_conflict_rename(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            _upload_source(client, "demo", "novel.txt", "首次".encode())
+            resp = _upload_source(client, "demo", "novel.txt", "新版".encode(), on_conflict="rename")
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["filename"] == "novel_1.txt"
+
+    def test_delete_source_cascades_raw(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            raw = ("第一章\n" * 30).encode("gbk")
+            _upload_source(client, "demo", "to_delete.txt", raw)
+            # 上传后应当存在 raw 备份
+            project_dir = pm.get_project_path("demo")
+            raw_path = project_dir / "source" / "raw" / "to_delete.txt"
+            assert raw_path.exists()
+
+            resp = client.delete("/api/v1/projects/demo/source/to_delete.txt")
+            assert resp.status_code == 200
+            assert not raw_path.exists()
+
+    def test_upload_source_invalid_on_conflict_returns_400_i18n(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/source?on_conflict=bogus",
+                files={"file": ("x.txt", io.BytesIO(b"hi"), "text/plain")},
+            )
+            assert resp.status_code == 400
+            # Should not be the raw English phrase we replaced — check it's the translated form
+            assert resp.json()["detail"] != "on_conflict must be fail/replace/rename"
+
+    def test_upload_source_rejects_oversized_upload_by_content_length(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        from lib.source_loader import SourceLoader
+
+        # We don't actually send 50MB+ of data — instead post a small body with a fake
+        # content-length header. Starlette validates content-length vs actual body length
+        # for multipart, so we need to send a real oversized payload OR rely on the
+        # natural stat-based check. Skip the header fake and exercise the stat path:
+        body = b"a" * (SourceLoader.DEFAULT_MAX_BYTES + 1024)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/source",
+                files={"file": ("big.txt", io.BytesIO(body), "text/plain")},
+            )
+            assert resp.status_code == 413
+
+    def test_list_files_source_includes_raw_filename(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            raw = ("第一章\n" * 30).encode("gbk")
+            _upload_source(client, "demo", "old.txt", raw)
+            resp = client.get("/api/v1/projects/demo/files")
+            body = resp.json()
+            source = body["files"]["source"]
+            entry = next(e for e in source if e["name"] == "old.txt")
+            assert entry["raw_filename"] == "old.txt"
+
+    def test_list_files_source_raw_filename_none_for_pure_utf8(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            _upload_source(client, "demo", "novel.txt", "纯 UTF-8".encode())
+            resp = client.get("/api/v1/projects/demo/files")
+            body = resp.json()
+            entry = next(e for e in body["files"]["source"] if e["name"] == "novel.txt")
+            assert entry["raw_filename"] is None

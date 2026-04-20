@@ -7,6 +7,8 @@
 import asyncio
 import json
 import logging
+import shutil
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -21,6 +23,15 @@ from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
+from lib.source_loader import (
+    ConflictError,
+    CorruptFileError,
+    FileSizeExceededError,
+    NormalizeResult,
+    SourceDecodeError,
+    SourceLoader,
+    UnsupportedFormatError,
+)
 from server.auth import CurrentUser
 
 router = APIRouter()
@@ -35,7 +46,7 @@ def get_project_manager() -> ProjectManager:
 
 # 允许的文件类型
 ALLOWED_EXTENSIONS = {
-    "source": [".txt", ".md", ".doc", ".docx"],
+    "source": [".txt", ".md", ".docx", ".epub", ".pdf"],
     "character": [".png", ".jpg", ".jpeg", ".webp"],
     "character_ref": [".png", ".jpg", ".jpeg", ".webp"],
     "scene": [".png", ".jpg", ".jpeg", ".webp"],
@@ -107,6 +118,7 @@ async def upload_file(
     _t: Translator,
     file: UploadFile = File(...),
     name: str = None,
+    on_conflict: str = "fail",
 ):
     """
     上传文件
@@ -116,6 +128,7 @@ async def upload_file(
         upload_type: 上传类型 (source/character/prop/storyboard)
         file: 上传的文件
         name: 可选，用于角色/道具名称，或分镜 ID（自动更新元数据）
+        on_conflict: source 类型独有 — fail / replace / rename
     """
     if upload_type not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=_t("invalid_upload_type", upload_type=upload_type))
@@ -126,6 +139,15 @@ async def upload_file(
         raise HTTPException(
             status_code=400,
             detail=_t("unsupported_image_type", ext=ext, allowed=", ".join(ALLOWED_EXTENSIONS[upload_type])),
+        )
+
+    # Source 分支早返 — 走 SourceLoader 规范化
+    if upload_type == "source":
+        return await _handle_source_upload(
+            project_name=project_name,
+            file=file,
+            on_conflict=on_conflict,
+            _t=_t,
         )
 
     try:
@@ -263,6 +285,105 @@ async def upload_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _handle_source_upload(
+    *,
+    project_name: str,
+    file: UploadFile,
+    on_conflict: str,
+    _t: Translator,
+):
+    """Source 分支：通过 SourceLoader 规范化为 UTF-8 .txt，并按需备份原始字节。"""
+    if on_conflict not in {"fail", "replace", "rename"}:
+        raise HTTPException(status_code=400, detail=_t("invalid_on_conflict"))
+
+    try:
+        project_dir = get_project_manager().get_project_path(project_name)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+
+    source_dir = project_dir / "source"
+    source_dir.mkdir(parents=True, exist_ok=True)
+
+    original_filename = file.filename
+
+    def _sync() -> NormalizeResult:
+        # 流式写入 tmp，避免把上传 body 整体拉进 Python 堆；
+        # UploadFile.file 是 SpooledTemporaryFile，此处已是请求体完整到位状态。
+        # 在 with 外包 try/finally：即使 copyfileobj 抛异常（如磁盘满），
+        # 也要清理已创建的 tmp 文件，避免 /tmp 泄漏（delete=False 不会自动清）。
+        with tempfile.NamedTemporaryFile(suffix=Path(original_filename).suffix, delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            with tmp_path.open("wb") as out:
+                shutil.copyfileobj(file.file, out)
+            return SourceLoader.load(
+                tmp_path,
+                source_dir,
+                original_filename=original_filename,
+                on_conflict=on_conflict,
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    try:
+        result = await asyncio.to_thread(_sync)
+    except UnsupportedFormatError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=_t("source_unsupported_format", ext=exc.ext),
+        )
+    except FileSizeExceededError as exc:
+        raise HTTPException(
+            status_code=413,
+            detail=_t(
+                "source_too_large",
+                filename=exc.filename,
+                size_mb=round(exc.size_bytes / 1024 / 1024, 1),
+                limit_mb=round(exc.limit_bytes / 1024 / 1024, 1),
+            ),
+        )
+    except SourceDecodeError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_t(
+                "source_decode_failed",
+                filename=exc.filename,
+                tried=", ".join(exc.tried_encodings),
+            ),
+        )
+    except CorruptFileError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_t("source_corrupt_file", filename=exc.filename, reason=exc.reason),
+        )
+    except ConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "existing": exc.existing,
+                "suggested_name": exc.suggested_name,
+                "message": _t(
+                    "source_conflict",
+                    existing=exc.existing,
+                    suggested=exc.suggested_name,
+                ),
+            },
+        )
+
+    relative_path = f"source/{result.normalized_path.name}"
+    return {
+        "success": True,
+        "filename": result.normalized_path.name,
+        "path": relative_path,
+        "url": f"/api/v1/files/{project_name}/{relative_path}",
+        "normalized": True,
+        "original_kept": result.raw_path is not None,
+        "original_filename": result.original_filename,
+        "used_encoding": result.used_encoding,
+        "chapter_count": result.chapter_count,
+    }
+
+
 @router.get("/projects/{project_name}/files")
 async def list_project_files(project_name: str, _user: CurrentUser, _t: Translator):
     """列出项目中的所有文件"""
@@ -283,16 +404,27 @@ async def list_project_files(project_name: str, _user: CurrentUser, _t: Translat
 
             for subdir, file_list in files.items():
                 subdir_path = project_dir / subdir
-                if subdir_path.exists():
-                    for f in subdir_path.iterdir():
-                        if f.is_file() and not f.name.startswith("."):
-                            file_list.append(
-                                {
-                                    "name": f.name,
-                                    "size": f.stat().st_size,
-                                    "url": f"/api/v1/files/{project_name}/{subdir}/{f.name}",
-                                }
-                            )
+                if not subdir_path.exists():
+                    continue
+                # source 子目录额外列出 raw 备份映射
+                raw_by_stem: dict[str, str] = {}
+                if subdir == "source":
+                    raw_dir = subdir_path / "raw"
+                    if raw_dir.exists():
+                        # sorted 保证多个 raw 同 stem 时的确定性（后者覆盖前者，字典序末位胜出）
+                        for raw_f in sorted(raw_dir.iterdir()):
+                            if raw_f.is_file():
+                                raw_by_stem[raw_f.stem] = raw_f.name
+                for f in subdir_path.iterdir():
+                    if f.is_file() and not f.name.startswith("."):
+                        entry = {
+                            "name": f.name,
+                            "size": f.stat().st_size,
+                            "url": f"/api/v1/files/{project_name}/{subdir}/{f.name}",
+                        }
+                        if subdir == "source":
+                            entry["raw_filename"] = raw_by_stem.get(Path(f.name).stem)
+                        file_list.append(entry)
 
             return {"files": files}
 
@@ -395,6 +527,13 @@ async def delete_source_file(project_name: str, filename: str, _user: CurrentUse
 
             if source_path.exists():
                 source_path.unlink()
+                # 级联删除原文件备份（同 stem，任意扩展名）
+                raw_dir = project_dir / "source" / "raw"
+                if raw_dir.exists():
+                    stem = source_path.stem
+                    for raw_file in raw_dir.iterdir():
+                        if raw_file.is_file() and raw_file.stem == stem:
+                            raw_file.unlink()
                 return {"success": True}
             else:
                 raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))

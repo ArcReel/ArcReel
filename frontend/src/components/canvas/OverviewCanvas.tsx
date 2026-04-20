@@ -3,13 +3,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { RefreshCw } from "lucide-react";
 import type { ProjectData } from "@/types";
-import { API } from "@/api";
+import { API, ConflictError } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { formatCost, totalBreakdown } from "@/utils/cost-format";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
+import { ConflictModal, type ConflictResolution } from "./ConflictModal";
 
 interface OverviewCanvasProps {
   projectName: string;
@@ -32,6 +33,11 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   }, [projectName, projectData?.episodes, debouncedFetch]);
 
   const [regenerating, setRegenerating] = useState(false);
+  const [conflictPrompt, setConflictPrompt] = useState<{
+    existing: string;
+    suggestedName: string;
+    resolve: (d: ConflictResolution) => void;
+  } | null>(null);
 
   const refreshProject = useCallback(
     async () => {
@@ -48,8 +54,52 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
 
   const handleUpload = useCallback(
     async (file: File) => {
-      await API.uploadFile(projectName, "source", file);
-      useAppStore.getState().pushToast(tRef.current("source_file_upload_success", { name: file.name }), "success");
+      const tryUpload = async (
+        onConflict?: "fail" | "replace" | "rename"
+      ): Promise<void> => {
+        const res = await API.uploadFile(projectName, "source", file, null, {
+          onConflict,
+        });
+        const filename = res.filename ?? file.name;
+        const enc = res.used_encoding ?? null;
+        const chapters = res.chapter_count ?? 0;
+        const hasEncoding = enc !== null;
+        let key: string;
+        if (hasEncoding && chapters > 0) {
+          key = "source_normalized_toast_with_chapters";
+        } else if (hasEncoding) {
+          key = "source_normalized_toast";
+        } else if (chapters > 0) {
+          key = "source_normalized_toast_native_with_chapters";
+        } else {
+          key = "source_normalized_toast_native";
+        }
+        useAppStore
+          .getState()
+          .pushToast(
+            tRef.current(key, { filename, encoding: enc, chapters }),
+            "success",
+          );
+      };
+
+      try {
+        await tryUpload();
+      } catch (err) {
+        if (err instanceof ConflictError) {
+          const decision = await new Promise<ConflictResolution>((resolve) => {
+            setConflictPrompt({
+              existing: err.existing,
+              suggestedName: err.suggestedName,
+              resolve,
+            });
+          });
+          setConflictPrompt(null);
+          if (decision === "cancel") return;
+          await tryUpload(decision);
+        } else {
+          throw err;
+        }
+      }
     },
     [projectName],
   );
@@ -280,6 +330,13 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
 
         <div className="h-8" />
       </div>
+      {conflictPrompt && (
+        <ConflictModal
+          existing={conflictPrompt.existing}
+          suggestedName={conflictPrompt.suggestedName}
+          onResolve={conflictPrompt.resolve}
+        />
+      )}
     </div>
   );
 }

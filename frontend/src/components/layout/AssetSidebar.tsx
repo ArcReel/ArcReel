@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { voidCall, voidPromise } from "@/utils/async";
+import { voidCall } from "@/utils/async";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import {
@@ -17,7 +17,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { API } from "@/api";
+import { API, ConflictError } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 // ---------------------------------------------------------------------------
@@ -176,7 +176,8 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   const projectName = currentProjectName ?? "";
 
   // 源文件列表
-  const [sourceFiles, setSourceFiles] = useState<string[]>([]);
+  type SourceItem = { name: string; rawFilename: string | null };
+  const [sourceFiles, setSourceFiles] = useState<SourceItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadSourceFiles = useCallback(() => {
@@ -186,13 +187,11 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
     }
     API.listFiles(projectName)
       .then((res) => {
-        const raw = res.files as unknown;
-        if (Array.isArray(raw)) {
-          setSourceFiles(raw);
-        } else if (raw && typeof raw === "object") {
-          const grouped = raw as Record<string, Array<{ name: string }>>;
-          setSourceFiles((grouped.source ?? []).map((f) => f.name));
-        }
+        const items: SourceItem[] = (res.files.source ?? []).map((f) => ({
+          name: f.name,
+          rawFilename: f.raw_filename ?? null,
+        }));
+        setSourceFiles(items);
       })
       .catch(() => {
         setSourceFiles([]);
@@ -211,8 +210,23 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       await API.uploadFile(projectName, "source", file);
       loadSourceFiles();
       useAppStore.getState().invalidateSourceFiles();
-    } catch {
-      // 静默失败
+    } catch (err) {
+      // 侧边栏只给即时反馈，不弹冲突决策框（那个走主面板 OverviewCanvas）；
+      // 同名冲突提示建议改名，其他错误复用通用 upload_failed 前缀
+      if (err instanceof ConflictError) {
+        useAppStore.getState().pushToast(
+          tRef.current("dashboard:source_upload_conflict_toast", {
+            filename: err.existing,
+            suggested: err.suggestedName,
+          }),
+          "error",
+        );
+      } else {
+        useAppStore.getState().pushToast(
+          `${tRef.current("dashboard:upload_failed")}${(err as Error).message}`,
+          "error",
+        );
+      }
     }
     // 重置 input 以允许再次选择同一文件
     e.target.value = "";
@@ -280,9 +294,9 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.md,.doc,.docx"
+              accept=".txt,.md,.docx,.epub,.pdf"
               aria-label={t("dashboard:upload_asset_file_aria")}
-              onChange={voidPromise(handleUpload)}
+              onChange={(e) => voidCall(handleUpload(e))}
               className="hidden"
             />
           </>
@@ -292,11 +306,11 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
           <EmptyState text={t("dashboard:no_files_yet")} />
         ) : (
           <ul>
-            {sourceFiles.map((name) => {
-              const filePath = `/source/${encodeURIComponent(name)}`;
+            {sourceFiles.map((item) => {
+              const filePath = `/source/${encodeURIComponent(item.name)}`;
               const active = isActive(filePath);
               return (
-                <li key={name}>
+                <li key={item.name}>
                   <div
                     className={`group flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors ${
                       active
@@ -310,11 +324,26 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                       className="flex flex-1 items-center gap-2 truncate text-left focus-ring rounded"
                     >
                       <FileText className="h-3.5 w-3.5 shrink-0 text-gray-500" />
-                      <span className="truncate">{name}</span>
+                      <span className="truncate">{item.name}</span>
                     </button>
+                    {item.rawFilename && (
+                      <a
+                        href={API.getFileUrl(
+                          projectName,
+                          `source/raw/${encodeURIComponent(item.rawFilename)}`,
+                        )}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={t("common:download_original")}
+                        onClick={(e) => e.stopPropagation()}
+                        className="shrink-0 rounded p-0.5 text-xs text-gray-500 opacity-60 transition-opacity hover:opacity-100 focus-ring"
+                      >
+                        📎
+                      </a>
+                    )}
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); voidCall(handleDeleteFile(name)); }}
+                      onClick={(e) => { e.stopPropagation(); voidCall(handleDeleteFile(item.name)); }}
                       className="shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100 focus-ring focus-visible:opacity-100"
                       title={t("dashboard:delete_file")}
                     >

@@ -75,7 +75,8 @@ export function WelcomeCanvas({
       setFileName(file.name);
       setError(null);
 
-      // Phase: Upload
+      const wasIdle = sourceFiles.length === 0;
+
       setPhase("uploading");
       try {
         await onUpload(file);
@@ -85,19 +86,26 @@ export function WelcomeCanvas({
         return;
       }
 
-      // Update source files list
-      setSourceFiles((prev) => {
-        const name = `source/${file.name}`;
-        return prev.includes(name) ? prev : [...prev, name];
-      });
-
-      // Notify sidebar to refresh
+      // 不再乐观追加 file.name：backend 会将 .docx/.epub/.pdf 规范化为 .txt，
+      // 冲突时还会改名。触发 invalidate 让 useEffect 用服务端真实列表回填。
       useAppStore.getState().invalidateSourceFiles();
 
-      // Transition to has_sources so user can review or add more
+      if (wasIdle && onAnalyze) {
+        // 首次上传：自动触发分析，跳过 has_sources 等待手动点击
+        setPhase("analyzing");
+        try {
+          await onAnalyze();
+          setPhase("done");
+        } catch (err) {
+          setError(`${t("analysis_failed")}${(err as Error).message}`);
+          setPhase("has_sources");
+        }
+        return;
+      }
+
       setPhase("has_sources");
     },
-    [onUpload, sourceFiles.length, t],
+    [onUpload, onAnalyze, sourceFiles.length, t],
   );
 
   const startAnalysis = useCallback(async () => {
@@ -118,7 +126,8 @@ export function WelcomeCanvas({
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
-      if (file && (file.name.endsWith(".txt") || file.name.endsWith(".md"))) {
+      const ALLOWED = [".txt", ".md", ".docx", ".epub", ".pdf"];
+      if (file && ALLOWED.some((ext) => file.name.toLowerCase().endsWith(ext))) {
         voidCall(processFile(file));
       }
     },
@@ -184,7 +193,7 @@ export function WelcomeCanvas({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.md"
+              accept=".txt,.md,.docx,.epub,.pdf"
               aria-label={t("upload_script_file_aria")}
               className="hidden"
               onChange={handleFileSelect}
@@ -220,7 +229,7 @@ export function WelcomeCanvas({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".txt,.md"
+                accept=".txt,.md,.docx,.epub,.pdf"
                 aria-label={t("upload_script_file_aria")}
                 className="hidden"
                 onChange={handleFileSelect}

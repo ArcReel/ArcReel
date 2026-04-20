@@ -543,3 +543,20 @@ class TestScenePropLifecycle:
         project = pm.load_project("demo")
         assert project["props"]["玉佩"]["description"] == "已有的玉佩"
         assert "宝剑" in project["props"]
+
+
+def test_read_source_files_raises_on_non_utf8(tmp_path):
+    import random
+
+    from lib.source_loader.errors import SourceDecodeError
+
+    pm = ProjectManager(tmp_path)
+    project_dir = tmp_path / "demo"
+    (project_dir / "source").mkdir(parents=True)
+    bad = project_dir / "source" / "broken.txt"
+    # 使用种子化 PRNG 生成高熵随机字节，确保触发 decode_txt 的 5% 乱码阈值
+    bad.write_bytes(random.Random(42).randbytes(4000))
+
+    with pytest.raises(SourceDecodeError) as exc_info:
+        pm._read_source_files("demo")
+    assert exc_info.value.filename == "broken.txt"

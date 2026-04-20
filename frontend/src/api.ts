@@ -59,6 +59,22 @@ export interface ErrorResponse {
   detail: string | { msg?: string }[];
 }
 
+/**
+ * Error thrown when uploading a source file conflicts with an existing file
+ * (HTTP 409). Carries the existing filename and a server-suggested alternative
+ * so callers can prompt the user to retry with `on_conflict=rename|replace`.
+ */
+export class ConflictError extends Error {
+  constructor(
+    public readonly existing: string,
+    public readonly suggestedName: string,
+    message: string
+  ) {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
+
 /** Error payload from the import project endpoint (extends ErrorResponse with import-specific fields). */
 interface ImportErrorPayload {
   detail?: string | { msg?: string }[];
@@ -617,29 +633,83 @@ class API {
     projectName: string,
     uploadType: string,
     file: File,
-    name: string | null = null
-  ): Promise<{ success: boolean; path: string; url: string }> {
+    name: string | null = null,
+    options: { onConflict?: "fail" | "replace" | "rename" } = {}
+  ): Promise<{
+    success: boolean;
+    path: string;
+    url: string;
+    filename?: string;
+    normalized?: boolean;
+    original_kept?: boolean;
+    original_filename?: string;
+    used_encoding?: string | null;
+    chapter_count?: number;
+  }> {
     const formData = new FormData();
     formData.append("file", file);
 
-    let url = `/projects/${encodeURIComponent(projectName)}/upload/${uploadType}`;
-    if (name) {
-      url += `?name=${encodeURIComponent(name)}`;
+    const qsParts: string[] = [];
+    if (name) qsParts.push(`name=${encodeURIComponent(name)}`);
+    if (uploadType === "source" && options.onConflict) {
+      qsParts.push(`on_conflict=${encodeURIComponent(options.onConflict)}`);
     }
+    const qs = qsParts.join("&");
+    const url = `/projects/${encodeURIComponent(projectName)}/upload/${uploadType}${qs ? "?" + qs : ""}`;
 
     const response = await fetch(`${API_BASE}${url}`, withAuth({
       method: "POST",
       body: formData,
     }));
 
-    await throwIfNotOk(response, "上传失败");
+    if (response.status === 409) {
+      let detail: { existing?: string; suggested_name?: string; message?: string } | null = null;
+      try {
+        const body = (await response.json()) as { detail?: { existing?: string; suggested_name?: string; message?: string } };
+        detail = body?.detail ?? null;
+      } catch {
+        /* ignore */
+      }
+      // 后端 SourceLoader 的 ConflictError 必然携带 existing + suggested_name；
+      // 若 detail 缺字段则视为协议异常，抛通用错误（带文件名标识）而非手搓 fallback —
+      // 避免前端"猜"一个可能与后端命名规则不一致的 suggested_name 误导用户
+      if (!detail?.existing || !detail?.suggested_name) {
+        throw new Error(`上传 "${file.name}" 失败：服务端返回 409 但 detail 字段不完整`);
+      }
+      throw new ConflictError(
+        detail.existing,
+        detail.suggested_name,
+        detail.message ?? "conflict",
+      );
+    }
 
-    return response.json() as Promise<{ success: boolean; path: string; url: string }>;
+    await throwIfNotOk(response, "上传失败");
+    return (await response.json()) as {
+      success: boolean;
+      path: string;
+      url: string;
+      filename?: string;
+      normalized?: boolean;
+      original_kept?: boolean;
+      original_filename?: string;
+      used_encoding?: string | null;
+      chapter_count?: number;
+    };
   }
 
   static async listFiles(
     projectName: string
-  ): Promise<{ files: Record<string, { name: string; size: number; url: string }[]> }> {
+  ): Promise<{
+    files: {
+      source?: { name: string; size: number; url: string; raw_filename?: string | null }[];
+      characters?: { name: string; size: number; url: string }[];
+      scenes?: { name: string; size: number; url: string }[];
+      props?: { name: string; size: number; url: string }[];
+      storyboards?: { name: string; size: number; url: string }[];
+      videos?: { name: string; size: number; url: string }[];
+      output?: { name: string; size: number; url: string }[];
+    };
+  }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/files`
     );
