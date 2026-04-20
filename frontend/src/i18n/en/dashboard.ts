@@ -496,6 +496,9 @@ export default {
   'reference_status_failed': 'Failed',
   'episode_mode_switcher_label': 'Episode generation mode',
   'episode_mode_inherit_from_project': 'Inherit from project',
+  'episode_mode_switch_keep_data': "Switching mode won't remove existing units / scenes — you can switch back anytime.",
+  'episode_mode_switch_to_reference': 'Switched to reference-to-video. Existing storyboard/grid data is preserved and will reappear when you switch back.',
+  'episode_mode_switch_from_reference': 'Switched back to storyboard/grid. Reference-mode video_units are preserved for later.',
   // ========== PR5 reference-video editor ==========
   'reference_editor_placeholder': 'Type a prompt. Use "Shot 1 (3s): ..." markers and @mentions for characters/scenes/props.',
   'reference_editor_unknown_mention': 'Unregistered: @{{name}} (not found in characters/scenes/props)',
