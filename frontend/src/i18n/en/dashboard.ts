@@ -680,6 +680,10 @@ export default {
   'segment_split_complete': 'Segment split complete',
   'script_normalized_complete': 'Script normalization complete',
 
+  // Source file normalization toasts
+  'source_normalized_toast': '"{{filename}}" normalized (source encoding: {{encoding}})',
+  'source_normalized_toast_with_chapters': '"{{filename}}" normalized ({{chapters}} chapters; source encoding: {{encoding}})',
+
   // GridSegmentGroup
   'grid_scene_count': '{{count}} scenes',
   'grid_batch_count': '{{count}} grids',

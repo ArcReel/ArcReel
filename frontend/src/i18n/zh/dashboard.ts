@@ -681,6 +681,10 @@ export default {
   'segment_split_complete': '片段拆分已完成',
   'script_normalized_complete': '规范化剧本已完成',
 
+  // Source file normalization toasts
+  'source_normalized_toast': '已规范化「{{filename}}」（来源编码：{{encoding}}）',
+  'source_normalized_toast_with_chapters': '已规范化「{{filename}}」（{{chapters}} 章 · 来源编码：{{encoding}}）',
+
   // GridSegmentGroup
   'grid_scene_count': '{{count}} 场景',
   'grid_batch_count': '{{count}} 个宫格',
