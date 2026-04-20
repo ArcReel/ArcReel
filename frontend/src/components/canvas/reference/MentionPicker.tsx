@@ -154,6 +154,11 @@ export function MentionPicker({
                     role="option"
                     aria-selected={active}
                     onMouseEnter={() => setActiveIndex(globalIndex)}
+                    // Suppress focus transfer on mousedown so the textarea keeps
+                    // focus long enough for the click to fire on this option —
+                    // avoids the "blur closes picker before click" race without
+                    // relying on a setTimeout hack in the parent.
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => onSelect({ type: kind, name: item.name })}
                     className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
                       active ? "bg-indigo-500/15 text-indigo-200" : "text-gray-300 hover:bg-gray-900"

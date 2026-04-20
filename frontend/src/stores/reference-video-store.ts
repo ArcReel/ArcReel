@@ -51,6 +51,19 @@ interface ReferenceVideoStore {
     prompt: string,
     references: ReferenceResource[],
   ) => void;
+  /**
+   * Atomically drain the pending debounce payload for one unit: cancels the
+   * timer, removes the pending entry, and returns the queued prompt (if any).
+   * Callers that need to PATCH `references` immediately (reorder/add/remove
+   * from the side panel) should consume first and fold the pending prompt
+   * into their own PATCH — otherwise the debounced PATCH would fire later and
+   * overwrite the panel's reference change.
+   */
+  consumePendingPrompt: (
+    projectName: string,
+    episode: number,
+    unitId: string,
+  ) => string | undefined;
 }
 
 function errMsg(e: unknown): string {
@@ -197,5 +210,16 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
         });
     }, DEBOUNCE_MS);
     _timers.set(dkey, timer);
+  },
+
+  consumePendingPrompt: (projectName, episode, unitId) => {
+    const dkey = _debounceKey(projectName, episode, unitId);
+    const payload = _pendingPayload.get(dkey);
+    // Always invalidate: cancels the queued timer and bumps the fetch-id
+    // generation so any in-flight PATCH response (carrying stale references)
+    // is discarded by the `!== myFetchId` check — the caller's PATCH is the
+    // authoritative update after this point.
+    _clearUnitDebounce(dkey);
+    return payload?.prompt;
   },
 }));

@@ -15,7 +15,16 @@ export interface ReferenceVideoCardProps {
 }
 
 function unitPromptText(unit: ReferenceVideoUnit): string {
-  return unit.shots.map((s) => s.text).join("\n");
+  // Backend `parse_prompt` strips `Shot N (Xs):` headers when persisting
+  // shots[].text, so editing the raw stored text would re-parse as a
+  // header-less single shot and collapse multi-shot units. Reconstruct the
+  // headers unless the unit was saved in header-less mode (duration_override).
+  if (unit.duration_override) {
+    return unit.shots[0]?.text ?? "";
+  }
+  return unit.shots
+    .map((s, i) => `Shot ${i + 1} (${s.duration}s): ${s.text}`)
+    .join("\n");
 }
 
 export function ReferenceVideoCard({
@@ -145,14 +154,12 @@ export function ReferenceVideoCard({
   };
 
   const handleTextareaBlur = useCallback(() => {
-    // Delay the close so clicks on MentionPicker options fire first.
-    // Without this delay, the textarea loses focus before the picker's onClick
-    // handler runs, causing the selection click to be swallowed.
-    setTimeout(() => {
-      setPickerOpen(false);
-      setPickerQuery("");
-      atStartRef.current = null;
-    }, 150);
+    // Picker options call `e.preventDefault()` on mousedown, so the textarea
+    // retains focus through the click and this handler only fires on genuine
+    // "focus left the editor" transitions — safe to close synchronously.
+    setPickerOpen(false);
+    setPickerQuery("");
+    atStartRef.current = null;
   }, []);
 
   const handlePickerSelect = useCallback(

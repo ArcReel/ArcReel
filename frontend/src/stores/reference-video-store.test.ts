@@ -332,6 +332,64 @@ describe("reference-video-store · updatePromptDebounced", () => {
     expect(state.unitsByEpisode["projB::1"][0].note).toBe("projB-saved");
   });
 
+  it("consumePendingPrompt returns and clears the queued prompt, canceling the timer", async () => {
+    useReferenceVideoStore.setState({
+      unitsByEpisode: { "proj::1": [mkUnit("E1U1")] },
+      selectedUnitId: "E1U1",
+      loading: false,
+      error: null,
+    });
+    const patchSpy = vi.spyOn(API, "patchReferenceVideoUnit");
+
+    const store = useReferenceVideoStore.getState();
+    store.updatePromptDebounced("proj", 1, "E1U1", "draft-in-progress", REFS_A);
+
+    const consumed = store.consumePendingPrompt("proj", 1, "E1U1");
+    expect(consumed).toBe("draft-in-progress");
+
+    // Second consume returns undefined because the queue was cleared.
+    expect(store.consumePendingPrompt("proj", 1, "E1U1")).toBeUndefined();
+
+    // No PATCH should fire from the canceled debounce.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(patchSpy).not.toHaveBeenCalled();
+  });
+
+  it("consumePendingPrompt invalidates in-flight PATCH so its response cannot overwrite later writes", async () => {
+    useReferenceVideoStore.setState({
+      unitsByEpisode: { "proj::1": [mkUnit("E1U1", { note: "initial" })] },
+      selectedUnitId: "E1U1",
+      loading: false,
+      error: null,
+    });
+    let resolveFlight!: (v: { unit: ReferenceVideoUnit }) => void;
+    const flightPromise = new Promise<{ unit: ReferenceVideoUnit }>((r) => {
+      resolveFlight = r;
+    });
+    vi.spyOn(API, "patchReferenceVideoUnit").mockReturnValueOnce(flightPromise);
+
+    const store = useReferenceVideoStore.getState();
+    store.updatePromptDebounced("proj", 1, "E1U1", "debounced", []);
+    // Let the timer fire — the PATCH is now in flight.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+
+    // Caller consumes (mimicking a Panel ref operation) and invalidates the
+    // in-flight generation. pendingPayload is already empty because the timer
+    // drained it, so undefined is returned.
+    expect(store.consumePendingPrompt("proj", 1, "E1U1")).toBeUndefined();
+
+    // Late-arriving response must NOT mutate store state.
+    await act(async () => {
+      resolveFlight({ unit: mkUnit("E1U1", { note: "stale-response" }) });
+      await Promise.resolve();
+    });
+    expect(useReferenceVideoStore.getState().unitsByEpisode["proj::1"][0].note).toBe("initial");
+  });
+
   it("deleteUnit cancels pending debounce so no PATCH fires after delete", async () => {
     useReferenceVideoStore.setState({
       unitsByEpisode: { "proj::1": [mkUnit("E1U1")] },

@@ -28,6 +28,7 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   const generate = useReferenceVideoStore((s) => s.generate);
   const select = useReferenceVideoStore((s) => s.select);
   const updatePromptDebounced = useReferenceVideoStore((s) => s.updatePromptDebounced);
+  const consumePendingPrompt = useReferenceVideoStore((s) => s.consumePendingPrompt);
 
   const units =
     useReferenceVideoStore((s) => s.unitsByEpisode[referenceVideoCacheKey(projectName, episode)]) ??
@@ -94,25 +95,38 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     [updatePromptDebounced, projectName, episode, selected],
   );
 
-  const handleReorderRefs = useCallback(
-    (next: ReferenceResource[]) => {
-      if (!selected) return;
-      void patchUnit(projectName, episode, selected.unit_id, { references: next }).catch((e) => {
+  // Panel actions must fold in any queued debounced prompt — otherwise the
+  // pending PATCH would fire ~500ms later and overwrite `references` back to
+  // their pre-panel-action value.
+  const patchReferencesAtomic = useCallback(
+    (unitId: string, nextRefs: ReferenceResource[]) => {
+      const pendingPrompt = consumePendingPrompt(projectName, episode, unitId);
+      const body =
+        pendingPrompt !== undefined
+          ? { prompt: pendingPrompt, references: nextRefs }
+          : { references: nextRefs };
+      void patchUnit(projectName, episode, unitId, body).catch((e) => {
         useAppStore.getState().pushToast(e instanceof Error ? e.message : String(e), "error");
       });
     },
-    [patchUnit, projectName, episode, selected],
+    [consumePendingPrompt, patchUnit, projectName, episode],
+  );
+
+  const handleReorderRefs = useCallback(
+    (next: ReferenceResource[]) => {
+      if (!selected) return;
+      patchReferencesAtomic(selected.unit_id, next);
+    },
+    [patchReferencesAtomic, selected],
   );
 
   const handleRemoveRef = useCallback(
     (ref: ReferenceResource) => {
       if (!selected) return;
       const next = selected.references.filter((r) => !(r.name === ref.name && r.type === ref.type));
-      void patchUnit(projectName, episode, selected.unit_id, { references: next }).catch((e) => {
-        useAppStore.getState().pushToast(e instanceof Error ? e.message : String(e), "error");
-      });
+      patchReferencesAtomic(selected.unit_id, next);
     },
-    [patchUnit, projectName, episode, selected],
+    [patchReferencesAtomic, selected],
   );
 
   const handleAddRef = useCallback(
@@ -120,11 +134,9 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
       if (!selected) return;
       if (selected.references.some((r) => r.type === ref.type && r.name === ref.name)) return;
       const next = [...selected.references, ref];
-      void patchUnit(projectName, episode, selected.unit_id, { references: next }).catch((e) => {
-        useAppStore.getState().pushToast(e instanceof Error ? e.message : String(e), "error");
-      });
+      patchReferencesAtomic(selected.unit_id, next);
     },
-    [patchUnit, projectName, episode, selected],
+    [patchReferencesAtomic, selected],
   );
 
   return (
