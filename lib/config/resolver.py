@@ -68,7 +68,7 @@ class ConfigResolver:
     """
 
     # ── 唯一的默认值定义点 ──
-    _DEFAULT_VIDEO_GENERATE_AUDIO = False
+    _DEFAULT_VIDEO_GENERATE_AUDIO = True
 
     def __init__(
         self,

@@ -67,12 +67,12 @@ class _FakeConfigService:
 class TestVideoGenerateAudio:
     """验证 video_generate_audio 的默认值、全局配置、项目级覆盖优先级。"""
 
-    async def test_default_is_false_when_db_empty(self, tmp_path):
-        """DB 无值时应返回 False（不是 True）。"""
+    async def test_default_is_true_when_db_empty(self, tmp_path):
+        """DB 无值时应返回 True（PR7 §11 决策：与 Seedance/Grok 默认开启一致）。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         result = await resolver._resolve_video_generate_audio(fake_svc, project_name=None)
-        assert result is False
+        assert result is True
 
     async def test_global_true(self, tmp_path):
         """DB 中值为 "true" 时返回 True。"""
@@ -91,7 +91,7 @@ class TestVideoGenerateAudio:
     async def test_bool_parsing_variants(self, tmp_path):
         """验证各种布尔字符串的解析。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
-        for val, expected in [("TRUE", True), ("1", True), ("yes", True), ("0", False), ("no", False), ("", False)]:
+        for val, expected in [("TRUE", True), ("1", True), ("yes", True), ("0", False), ("no", False), ("", True)]:
             fake_svc = _FakeConfigService(settings={"video_generate_audio": val} if val else {})
             result = await resolver._resolve_video_generate_audio(fake_svc, project_name=None)
             assert result is expected, f"Failed for {val!r}: got {result}"
