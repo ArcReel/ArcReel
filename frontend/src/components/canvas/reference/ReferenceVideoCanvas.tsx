@@ -152,7 +152,7 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
           </p>
         )}
       </div>
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,20%)_1fr_minmax(280px,24%)] overflow-hidden">
+      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[minmax(260px,20%)_1fr_minmax(280px,24%)]">
         <UnitList
           units={units}
           selectedId={selectedUnitId}
