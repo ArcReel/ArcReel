@@ -7,10 +7,10 @@ import { API } from "@/api";
 import type { ReferenceVideoUnit } from "@/types";
 import type { ProjectData } from "@/types";
 
-function mkUnit(id: string): ReferenceVideoUnit {
+function mkUnit(id: string, shotText = "x"): ReferenceVideoUnit {
   return {
     unit_id: id,
-    shots: [{ duration: 3, text: "Shot 1 (3s): x" }],
+    shots: [{ duration: 3, text: shotText }],
     references: [],
     duration_seconds: 3,
     duration_override: false,
@@ -71,6 +71,21 @@ describe("ReferenceVideoCanvas", () => {
     fireEvent.click(screen.getByTestId("unit-row-E1U1"));
     const ta = await screen.findByRole("textbox");
     expect((ta as HTMLTextAreaElement).value).toContain("Shot 1 (3s): x");
+  });
+
+  it("remounts the card so textarea shows the new unit's prompt when selection changes (#340)", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "hello from A"), mkUnit("E1U2", "hello from B")],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => expect(screen.getByText("E1U1")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("unit-row-E1U1"));
+    const taA = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    expect(taA.value).toContain("hello from A");
+    fireEvent.click(screen.getByTestId("unit-row-E1U2"));
+    await waitFor(() => {
+      expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toContain("hello from B");
+    });
   });
 
   it("adds a new unit via the store when the button is clicked", async () => {
