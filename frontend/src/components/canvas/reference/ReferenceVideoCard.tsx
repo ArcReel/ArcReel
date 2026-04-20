@@ -37,23 +37,9 @@ export function ReferenceVideoCard({
   const taRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
 
-  // Store { value, syncedUnitId } together so we can reset value inline during render
-  // when the unit identity changes — this is the React-recommended "derived state" pattern
-  // and avoids both useEffect-based setState and ref-during-render lint errors.
-  const [valueState, setValueState] = useState(() => ({
-    text: unitPromptText(unit),
-    syncedUnitId: unit.unit_id,
-  }));
-
-  // Derive the effective text: if unit changed, compute the new text synchronously.
-  // Calling setValueState here triggers a re-render immediately after this one with
-  // the new state, while currentText is used for this render to avoid a blank flash.
-  let currentText = valueState.text;
-  if (valueState.syncedUnitId !== unit.unit_id) {
-    const resetText = unitPromptText(unit);
-    setValueState({ text: resetText, syncedUnitId: unit.unit_id });
-    currentText = resetText;
-  }
+  // `ReferenceVideoCanvas` 已经用 key={unit.unit_id} 让 React 自动 remount 组件（见 #340），
+  // 所以这里只管当前 unit 的本地编辑态；切换 unit 时整个组件重建，initializer 会再跑。
+  const [currentText, setCurrentText] = useState(() => unitPromptText(unit));
 
   const project = useProjectsStore((s) => s.currentProjectData);
 
@@ -101,12 +87,7 @@ export function ReferenceVideoCard({
     };
   }, [project?.characters, project?.scenes, project?.props]);
 
-  const setText = useCallback(
-    (next: string) => {
-      setValueState({ text: next, syncedUnitId: unit.unit_id });
-    },
-    [unit.unit_id],
-  );
+  const setText = useCallback((next: string) => setCurrentText(next), []);
 
   const emitChange = useCallback(
     (nextValue: string) => {

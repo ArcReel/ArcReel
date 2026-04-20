@@ -164,6 +164,7 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
             <>
               <div className="flex min-h-0 flex-1 flex-col p-3">
                 <ReferenceVideoCard
+                  key={selected.unit_id}
                   unit={selected}
                   projectName={projectName}
                   episode={episode}
