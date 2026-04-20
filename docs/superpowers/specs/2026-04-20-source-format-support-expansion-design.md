@@ -336,22 +336,13 @@ frontend/src/components/canvas/
 
 ## 11. 依赖变更
 
-```toml
-# pyproject.toml
-[project]
-dependencies = [
-    # ... existing ...
-    "charset-normalizer>=3.3",
-    "docx2txt>=0.8",
-    "mammoth>=1.8",
-    "ebooklib>=0.18",
-    "beautifulsoup4>=4.12",
-    "lxml>=5.0",
-    "pymupdf>=1.24",
-]
+通过 `uv add` 一次性引入，自动写入 `pyproject.toml` 与 `uv.lock`，版本号取当时 PyPI 最新稳定版（不预先 pin minimum，避免人为下限与 lockfile 漂移）：
+
+```bash
+uv add charset-normalizer docx2txt mammoth ebooklib beautifulsoup4 lxml pymupdf
 ```
 
-合计 wheel ~50–60 MB，全部纯 Python / 预编译 wheel，**零系统依赖**。
+预期总体积 ~50–60 MB，全部纯 Python / 预编译 wheel，**零系统依赖**。引入后通过 `uv lock --check` 与本地 `uv run python -m pytest tests/source_loader/` 验证安装链路与导入。
 
 ## 12. 风险与缓解
 
