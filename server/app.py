@@ -10,6 +10,7 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +24,7 @@ from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
 from lib.logging_config import setup_logging
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
+from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password
 from server.routers import (
     agent_chat,
@@ -54,6 +56,52 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, dict]:
+    """对每个项目执行幂等编码迁移。失败被捕获并写日志，不阻塞启动。"""
+    summary: dict[str, dict] = {}
+    if not projects_root.exists():
+        return summary
+
+    def _run_one(project_dir: Path) -> dict:
+        marker_dir = project_dir / ".arcreel"
+        marker = marker_dir / "source_encoding_migrated"
+        if marker.exists():
+            return {"skipped": True}
+        try:
+            result = migrate_project_source_encoding(project_dir)
+            marker_dir.mkdir(exist_ok=True)
+            marker.touch()
+            if result.failed:
+                err_log = marker_dir / "migration_errors.log"
+                err_log.write_text(
+                    "\n".join(f"FAILED: {name}" for name in result.failed) + "\n",
+                    encoding="utf-8",
+                )
+            return {
+                "migrated": result.migrated,
+                "skipped": result.skipped,
+                "failed": result.failed,
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "源文件编码迁移失败 project=%s，已跳过，server 继续启动",
+                project_dir.name,
+            )
+            try:
+                marker_dir.mkdir(exist_ok=True)
+                (marker_dir / "migration_errors.log").write_text(f"FATAL: {exc}\n", encoding="utf-8")
+                marker.touch()
+            except Exception:  # noqa: BLE001
+                pass
+            return {"error": str(exc)}
+
+    for project_dir in projects_root.iterdir():
+        if not project_dir.is_dir() or project_dir.name.startswith("."):
+            continue
+        summary[project_dir.name] = await asyncio.to_thread(_run_one, project_dir)
+    return summary
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -76,6 +124,18 @@ async def lifespan(app: FastAPI):
             migration_summary.failed,
         )
     await asyncio.to_thread(cleanup_stale_backups, projects_root, 7)
+
+    # 源文件编码迁移（幂等；失败不阻塞启动）
+    source_migration_summary = await _migrate_source_encoding_on_startup(projects_root)
+    migrated_total = sum(len(s.get("migrated") or []) for s in source_migration_summary.values())
+    failed_total = sum(len(s.get("failed") or []) for s in source_migration_summary.values())
+    if migrated_total or failed_total:
+        logger.info(
+            "源文件编码迁移完成：migrated=%d failed=%d projects=%d",
+            migrated_total,
+            failed_total,
+            len(source_migration_summary),
+        )
 
     # Migrate legacy .system_config.json → DB (no-op if file doesn't exist or already migrated)
     try:
