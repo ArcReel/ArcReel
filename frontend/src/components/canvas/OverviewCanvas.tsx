@@ -62,11 +62,19 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
           onConflict,
         });
         const filename = res.filename ?? file.name;
-        const enc = res.used_encoding ?? "utf-8";
+        const enc = res.used_encoding ?? null;
         const chapters = res.chapter_count ?? 0;
-        const key = chapters > 0
-          ? "source_normalized_toast_with_chapters"
-          : "source_normalized_toast";
+        const hasEncoding = enc !== null;
+        let key: string;
+        if (hasEncoding && chapters > 0) {
+          key = "source_normalized_toast_with_chapters";
+        } else if (hasEncoding) {
+          key = "source_normalized_toast";
+        } else if (chapters > 0) {
+          key = "source_normalized_toast_native_with_chapters";
+        } else {
+          key = "source_normalized_toast_native";
+        }
         useAppStore
           .getState()
           .pushToast(

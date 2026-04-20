@@ -153,7 +153,6 @@ export default {
   'regenerating': '正在重新生成...',
   'total': '总计',
   'per_episode': '分集统计',
-  'source_file_upload_success': '源文件 "{{name}}" 上传成功',
   'no_description': '暂无描述',
   'character_design': '角色设计图',
   'scene_design': '场景设计图',
@@ -684,6 +683,8 @@ export default {
   // Source file normalization toasts
   'source_normalized_toast': '已规范化「{{filename}}」（来源编码：{{encoding}}）',
   'source_normalized_toast_with_chapters': '已规范化「{{filename}}」（{{chapters}} 章 · 来源编码：{{encoding}}）',
+  'source_normalized_toast_native': '已规范化「{{filename}}」',
+  'source_normalized_toast_native_with_chapters': '已规范化「{{filename}}」（{{chapters}} 章）',
 
   // GridSegmentGroup
   'grid_scene_count': '{{count}} 场景',
