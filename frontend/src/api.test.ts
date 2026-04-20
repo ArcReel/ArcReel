@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { API } from "@/api";
+import { API, ConflictError } from "@/api";
 import type { TaskItem } from "@/types";
 
 type JsonResponseOptions = {
@@ -837,5 +837,53 @@ describe("API.referenceVideos", () => {
   it("deleteReferenceVideoUnit returns void on 204", async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await expect(API.deleteReferenceVideoUnit("proj", 1, "E1U1")).resolves.toBeUndefined();
+  });
+});
+
+describe("uploadFile (source) onConflict", () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn();
+  });
+
+  it("passes on_conflict query when provided", async () => {
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, path: "source/a.txt", url: "/x" }), { status: 200 })
+    );
+    await API.uploadFile("p", "source", new File(["x"], "a.txt"), null, { onConflict: "replace" });
+    const url = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
+    expect(url).toContain("on_conflict=replace");
+  });
+
+  it("throws ConflictError on 409 with structured detail", async () => {
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          detail: { existing: "a.txt", suggested_name: "a_1", message: "conflict" },
+        }),
+        { status: 409 }
+      )
+    );
+    await expect(
+      API.uploadFile("p", "source", new File(["x"], "a.txt"))
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("ConflictError carries existing and suggestedName", async () => {
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          detail: { existing: "a.txt", suggested_name: "a_1", message: "conflict" },
+        }),
+        { status: 409 }
+      )
+    );
+    try {
+      await API.uploadFile("p", "source", new File(["x"], "a.txt"));
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(ConflictError);
+      expect((err as ConflictError).existing).toBe("a.txt");
+      expect((err as ConflictError).suggestedName).toBe("a_1");
+    }
   });
 });
