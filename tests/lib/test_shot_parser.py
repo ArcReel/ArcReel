@@ -162,6 +162,8 @@ def test_mention_ignores_email_like_prefix():
     assert _extract_mentions("contact a@张三 for help") == []
     assert _extract_mentions("email: test@domain.com") == []
     assert _extract_mentions("alice@example.com 和 bob@foo.io") == []
+    assert _extract_mentions("room9@张三") == []
+    assert _extract_mentions("user123@李四") == []
 
 
 def test_mention_accepts_chinese_prefix():
