@@ -43,6 +43,7 @@ dev = [
     "pytest-cov>=7.0.0",
     "ruff>=0.15.0",
     "pre-commit>=4.0.0",
+    "python-docx>=1.2.0",
 ]
 
 [build-system]
