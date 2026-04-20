@@ -503,12 +503,14 @@ agent_runtime_profile/.claude/references/content-modes.md  → generation-modes.
 - `server/routers/_bucket_router_factory.py`、`server/routers/{scenes,props,characters,assets}.py`——参考模式不改 bucket 路由；同构的 unit CRUD 可考虑复用该 factory 生成（可选优化）。
 - `frontend/src/stores/assets-store.ts` / `frontend/src/components/layout/AssetSidebar.tsx` / `frontend/src/i18n/{zh,en}/assets.ts`——MentionPicker 直接复用。
 
-## 附录 B：供应商能力矩阵（待 M1 SDK 验证后回填）
+## 附录 B：供应商能力矩阵
+
+> PR7 Task 14 在 CI 环境尝试运行 `scripts/verify_reference_video_sdks.py`，四家因 API key 缺失未能完成真实调用（live validation pending）。以下数值取自 `lib/reference_video/limits.py`（single source of truth）+ 供应商文档。详见 `docs/verification-reports/reference-video-sdks-2026-04-20.md`。
 
 | 供应商 | 最大参考图 | 最大时长 | multi-shot 可靠性 | generate_audio | 备注 |
 |---|---|---|---|---|---|
-| Ark Seedance 2.0 | 9 | 15s | 已验证（文档） | ✅ | 首推 |
-| Ark Seedance 2.0 fast | 9 | 15s | 已验证（文档） | ✅ | 快模式 |
-| Grok grok-imagine-video | 7 | 待验证 | 待验证 | ✅（默认） | 请求体大小待验证 |
-| Gemini Veo | 3 | 8s | 受限 | ✅（Vertex） | clamp duration |
-| OpenAI Sora | 1-3（待验证） | 12s | **重点验证项** | - | 可能降级为单图 |
+| Ark Seedance 2.0 | 9 | 15s | 文档声明支持 | ✅ | 首推；live 验证 pending (PR7) |
+| Ark Seedance 2.0 fast | 9 | 15s | 文档声明支持 | ✅ | 快模式；live 验证 pending (PR7) |
+| Grok grok-imagine-video | 7 | 15s | 文档声明支持 | ✅（默认） | 请求体大小待 live 验证 |
+| Gemini Veo | 3 | 8s | 受限 | ✅（Vertex） | executor 已 clamp；基于 SDK 文档 |
+| OpenAI Sora | 1（当前 limits.py） | 12s | **待 live 验证** | - | spec §11 第 4 项决策依赖；未 live 验证前按单图降级 |
