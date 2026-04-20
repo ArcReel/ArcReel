@@ -176,7 +176,8 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   const projectName = currentProjectName ?? "";
 
   // 源文件列表
-  const [sourceFiles, setSourceFiles] = useState<string[]>([]);
+  type SourceItem = { name: string; rawFilename: string | null };
+  const [sourceFiles, setSourceFiles] = useState<SourceItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadSourceFiles = useCallback(() => {
@@ -187,11 +188,18 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
     API.listFiles(projectName)
       .then((res) => {
         const raw = res.files as unknown;
-        if (Array.isArray(raw)) {
-          setSourceFiles(raw);
-        } else if (raw && typeof raw === "object") {
-          const grouped = raw as Record<string, Array<{ name: string }>>;
-          setSourceFiles((grouped.source ?? []).map((f) => f.name));
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+          const grouped = raw as Record<
+            string,
+            Array<{ name: string; raw_filename?: string | null }>
+          >;
+          const items: SourceItem[] = (grouped.source ?? []).map((f) => ({
+            name: f.name,
+            rawFilename: f.raw_filename ?? null,
+          }));
+          setSourceFiles(items);
+        } else {
+          setSourceFiles([]);
         }
       })
       .catch(() => {
@@ -292,11 +300,11 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
           <EmptyState text={t("dashboard:no_files_yet")} />
         ) : (
           <ul>
-            {sourceFiles.map((name) => {
-              const filePath = `/source/${encodeURIComponent(name)}`;
+            {sourceFiles.map((item) => {
+              const filePath = `/source/${encodeURIComponent(item.name)}`;
               const active = isActive(filePath);
               return (
-                <li key={name}>
+                <li key={item.name}>
                   <div
                     className={`group flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors ${
                       active
@@ -310,11 +318,26 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                       className="flex flex-1 items-center gap-2 truncate text-left focus-ring rounded"
                     >
                       <FileText className="h-3.5 w-3.5 shrink-0 text-gray-500" />
-                      <span className="truncate">{name}</span>
+                      <span className="truncate">{item.name}</span>
                     </button>
+                    {item.rawFilename && (
+                      <a
+                        href={API.getFileUrl(
+                          projectName,
+                          `source/raw/${encodeURIComponent(item.rawFilename)}`,
+                        )}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={t("common:download_original")}
+                        onClick={(e) => e.stopPropagation()}
+                        className="shrink-0 rounded p-0.5 text-xs text-gray-500 opacity-60 transition-opacity hover:opacity-100 focus-ring"
+                      >
+                        📎
+                      </a>
+                    )}
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); voidCall(handleDeleteFile(name)); }}
+                      onClick={(e) => { e.stopPropagation(); voidCall(handleDeleteFile(item.name)); }}
                       className="shrink-0 rounded p-0.5 text-gray-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100 focus-ring focus-visible:opacity-100"
                       title={t("dashboard:delete_file")}
                     >

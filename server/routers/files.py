@@ -418,16 +418,26 @@ async def list_project_files(project_name: str, _user: CurrentUser, _t: Translat
 
             for subdir, file_list in files.items():
                 subdir_path = project_dir / subdir
-                if subdir_path.exists():
-                    for f in subdir_path.iterdir():
-                        if f.is_file() and not f.name.startswith("."):
-                            file_list.append(
-                                {
-                                    "name": f.name,
-                                    "size": f.stat().st_size,
-                                    "url": f"/api/v1/files/{project_name}/{subdir}/{f.name}",
-                                }
-                            )
+                if not subdir_path.exists():
+                    continue
+                # source 子目录额外列出 raw 备份映射
+                raw_by_stem: dict[str, str] = {}
+                if subdir == "source":
+                    raw_dir = subdir_path / "raw"
+                    if raw_dir.exists():
+                        for raw_f in raw_dir.iterdir():
+                            if raw_f.is_file():
+                                raw_by_stem[raw_f.stem] = raw_f.name
+                for f in subdir_path.iterdir():
+                    if f.is_file() and not f.name.startswith("."):
+                        entry = {
+                            "name": f.name,
+                            "size": f.stat().st_size,
+                            "url": f"/api/v1/files/{project_name}/{subdir}/{f.name}",
+                        }
+                        if subdir == "source":
+                            entry["raw_filename"] = raw_by_stem.get(Path(f.name).stem)
+                        file_list.append(entry)
 
             return {"files": files}
 

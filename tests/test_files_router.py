@@ -582,3 +582,23 @@ class TestSourceMultiFormatUpload:
                 files={"file": ("big.txt", io.BytesIO(body), "text/plain")},
             )
             assert resp.status_code == 413
+
+    def test_list_files_source_includes_raw_filename(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            raw = ("第一章\n" * 30).encode("gbk")
+            _upload_source(client, "demo", "old.txt", raw)
+            resp = client.get("/api/v1/projects/demo/files")
+            body = resp.json()
+            source = body["files"]["source"]
+            entry = next(e for e in source if e["name"] == "old.txt")
+            assert entry["raw_filename"] == "old.txt"
+
+    def test_list_files_source_raw_filename_none_for_pure_utf8(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            _upload_source(client, "demo", "novel.txt", "纯 UTF-8".encode())
+            resp = client.get("/api/v1/projects/demo/files")
+            body = resp.json()
+            entry = next(e for e in body["files"]["source"] if e["name"] == "novel.txt")
+            assert entry["raw_filename"] is None
