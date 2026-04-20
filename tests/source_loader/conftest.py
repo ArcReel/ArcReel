@@ -21,3 +21,47 @@ def docx_factory(tmp_path: Path):
         return out
 
     return _make
+
+
+@pytest.fixture
+def epub_factory(tmp_path: Path):
+    """构造一个含 N 章 + toc 的 .epub。"""
+    pytest.importorskip("ebooklib", reason="需要 ebooklib")
+    from ebooklib import epub
+
+    def _make(
+        chapter_titles_and_bodies: list[tuple[str, str]],
+        filename: str = "sample.epub",
+        with_toc: bool = True,
+    ) -> Path:
+        book = epub.EpubBook()
+        book.set_identifier("test-id")
+        book.set_title("Test Book")
+        book.set_language("zh")
+
+        chapters = []
+        for idx, (title, body) in enumerate(chapter_titles_and_bodies, start=1):
+            ch = epub.EpubHtml(
+                title=title,
+                file_name=f"chap_{idx}.xhtml",
+                lang="zh",
+            )
+            ch.content = f"<html><body><h1>{title}</h1><p>{body}</p></body></html>"
+            book.add_item(ch)
+            chapters.append(ch)
+
+        if with_toc:
+            book.toc = tuple(chapters)
+            book.add_item(epub.EpubNcx())
+            book.add_item(epub.EpubNav())
+            book.spine = ["nav", *chapters]
+        else:
+            # 不设置 book.toc / 不加 nav；但仍需 NCX 才能被 ebooklib 读回
+            book.add_item(epub.EpubNcx())
+            book.spine = list(chapters)
+
+        out = tmp_path / filename
+        epub.write_epub(out, book)
+        return out
+
+    return _make
