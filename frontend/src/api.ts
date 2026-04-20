@@ -678,7 +678,17 @@ class API {
     }
 
     await throwIfNotOk(response, "上传失败");
-    return response.json();
+    return (await response.json()) as {
+      success: boolean;
+      path: string;
+      url: string;
+      filename?: string;
+      normalized?: boolean;
+      original_kept?: boolean;
+      original_filename?: string;
+      used_encoding?: string | null;
+      chapter_count?: number;
+    };
   }
 
   static async listFiles(
