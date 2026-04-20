@@ -886,4 +886,18 @@ describe("uploadFile (source) onConflict", () => {
       expect((err as ConflictError).suggestedName).toBe("a_1");
     }
   });
+
+  it("throws generic Error (not ConflictError) on 409 with malformed detail", async () => {
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: {} }), { status: 409 }),
+    );
+    try {
+      await API.uploadFile("p", "source", new File(["x"], "a.txt"));
+      expect.unreachable();
+    } catch (err) {
+      // 避免前端手搓 suggested_name 冒充后端语义：detail 不完整时应直接报协议异常
+      expect(err).not.toBeInstanceOf(ConflictError);
+      expect((err as Error).message).toContain("a.txt");
+    }
+  });
 });

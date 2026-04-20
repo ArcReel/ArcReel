@@ -670,10 +670,16 @@ class API {
       } catch {
         /* ignore */
       }
+      // 后端 SourceLoader 的 ConflictError 必然携带 existing + suggested_name；
+      // 若 detail 缺字段则视为协议异常，抛通用错误（带文件名标识）而非手搓 fallback —
+      // 避免前端"猜"一个可能与后端命名规则不一致的 suggested_name 误导用户
+      if (!detail?.existing || !detail?.suggested_name) {
+        throw new Error(`上传 "${file.name}" 失败：服务端返回 409 但 detail 字段不完整`);
+      }
       throw new ConflictError(
-        detail?.existing ?? file.name,
-        detail?.suggested_name ?? file.name.replace(/(\.[^.]+)?$/, "_1$1"),
-        detail?.message ?? "conflict"
+        detail.existing,
+        detail.suggested_name,
+        detail.message ?? "conflict",
       );
     }
 

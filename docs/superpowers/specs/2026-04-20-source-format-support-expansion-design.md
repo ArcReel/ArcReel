@@ -372,7 +372,7 @@ uv add charset-normalizer docx2txt mammoth ebooklib beautifulsoup4 lxml pymupdf
   - `frontend/src/components/canvas/WelcomeCanvas.tsx`：扩展 accept、首次上传自动分析、Toast 展示规范化结果
   - `frontend/src/components/layout/AssetSidebar.tsx`：原始格式下载按钮
   - `frontend/src/api.ts`：`onConflict` 参数与 409 错误结构化
-  - `frontend/src/i18n/{zh,en}/{common,errors}.json`：新 key
+  - `frontend/src/i18n/{zh,en}/{common,errors}.ts`：新 key
 - **不受影响**：下游 agent 脚本（`normalize_drama_script.py` / `peek_split_point.py` / `split_episode.py` / `_text_utils.py`）、subagent prompt、数据模型、项目结构
 
 ## 14. 能力声明（OpenSpec）

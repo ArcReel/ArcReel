@@ -30,5 +30,4 @@
 
 - 扫描版 PDF 不支持（明确返回 422 提示使用 OCR）
 - MOBI 不支持（引导用户用 Calibre 转 EPUB）
-- SourceLoader 非原子：若 raw 备份失败，normalized `.txt` 可能成为孤儿（需路由层或手动清理）
 - FATAL 级迁移失败项会打标"已完成"，需手动删除标记重试
