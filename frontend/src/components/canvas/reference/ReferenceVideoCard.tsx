@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { MentionPicker, type MentionCandidate } from "./MentionPicker";
+import { MENTION_PICKER_DEFAULT_ID, MentionPicker, type MentionCandidate } from "./MentionPicker";
 import { ASSET_COLORS, assetColor } from "./asset-colors";
 import { useShotPromptHighlight, type MentionLookup } from "@/hooks/useShotPromptHighlight";
 import { mergeReferences } from "@/utils/reference-mentions";
@@ -228,7 +228,7 @@ export function ReferenceVideoCard({
           onScroll={onScroll}
           role="combobox"
           aria-expanded={pickerOpen}
-          aria-controls="reference-editor-picker"
+          aria-controls={MENTION_PICKER_DEFAULT_ID}
           aria-autocomplete="list"
           aria-activedescendant={pickerOpen && activeOptionId ? activeOptionId : undefined}
           aria-describedby={unknownMentions.length > 0 ? "reference-editor-unknown-desc" : undefined}

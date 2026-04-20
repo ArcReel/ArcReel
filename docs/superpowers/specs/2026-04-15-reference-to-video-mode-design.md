@@ -445,7 +445,7 @@ python scripts/verify_reference_video_sdks.py --provider {ark|grok|veo|sora} --r
 
 > PR7（2026-04-20）把原 M6 里遗留的 4 个决策点逐条落地如下。所有项都已反映到代码与 i18n 文案。原 subagent prompt 模板的细节已在 PR6（#337）落地。
 
-- **`generate_audio` 默认值**：改为 `True`（`lib/config/resolver.py:71 _DEFAULT_VIDEO_GENERATE_AUDIO = True`；`lib/media_generator.py` `_config is None` 的 fallback 同步改 `True`；`server/routers/system_config.py` GET 响应默认值一并对齐 `"true"`，避免 UI 与 pipeline 分歧）。理由：与 Seedance / Grok 默认开启一致，storyboard 用户期望亦如此。
+- **`generate_audio` 默认值**：改为 `True`（`lib/config/resolver.py` 的 `_DEFAULT_VIDEO_GENERATE_AUDIO = True`；`lib/media_generator.py` `_config is None` 的 fallback 同步改 `True`；`server/routers/system_config.py` GET 响应默认值一并对齐 `"true"`，避免 UI 与 pipeline 分歧）。理由：与 Seedance / Grok 默认开启一致，storyboard 用户期望亦如此。
 - **集级 `generation_mode` 切换策略**：**不清空** 旧数据；`EpisodeModeSwitcher` 改为在切换时弹 `"info"` kind 的 toast，明示"旧数据保留，可随时切回继续"（对应 i18n key：`episode_mode_switch_to_reference` / `episode_mode_switch_from_reference` / `episode_mode_switch_keep_data`）。Canvas 继续按 `effective_mode` 渲染对应视图，不做数据迁移。
 - **`schema_version`**：**不 bump**，继续 v1。新增的 `generation_mode` 顶层字段与 `video_units[]` 子树对旧项目缺省不可见；`effective_mode()` 缺省回退 `storyboard`，所以 v0→v1 迁移器无需改动、不新增 v1→v2 迁移器。
 - **Sora 参考模式可见性**：保守方案——**保留可选，走 `_apply_provider_constraints` 的 `ref_sora_single_ref` 单图降级分支**。

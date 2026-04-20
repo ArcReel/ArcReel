@@ -3,6 +3,9 @@ import { useTranslation } from "react-i18next";
 import { assetColor } from "./asset-colors";
 import type { AssetKind } from "@/types/reference-video";
 
+/** Default DOM id for the listbox; paired with combobox aria-controls in ReferenceVideoCard. */
+export const MENTION_PICKER_DEFAULT_ID = "reference-editor-picker";
+
 export interface MentionCandidate {
   name: string;
   imagePath: string | null;
@@ -160,7 +163,7 @@ export function MentionPicker({
   return (
     <div
       ref={listboxRef}
-      id={listboxId ?? "reference-editor-picker"}
+      id={listboxId ?? MENTION_PICKER_DEFAULT_ID}
       role="listbox"
       aria-label={t("reference_picker_title")}
       className={`z-30 max-h-64 w-64 overflow-y-auto rounded-md border border-gray-800 bg-gray-950 shadow-xl ${className ?? ""}`}
