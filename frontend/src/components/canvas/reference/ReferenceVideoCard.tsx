@@ -87,8 +87,6 @@ export function ReferenceVideoCard({
     };
   }, [project?.characters, project?.scenes, project?.props]);
 
-  const setText = useCallback((next: string) => setCurrentText(next), []);
-
   const emitChange = useCallback(
     (nextValue: string) => {
       const refs = mergeReferences(nextValue, unit.references, project ?? null);
@@ -123,7 +121,7 @@ export function ReferenceVideoCard({
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const next = e.target.value;
-    setText(next);
+    setCurrentText(next);
     emitChange(next);
     updatePickerFromCursor(next, e.target.selectionStart ?? next.length);
   };
@@ -155,7 +153,7 @@ export function ReferenceVideoCard({
       const after = currentText.slice(cursor);
       const insert = `@${ref.name} `;
       const next = before + insert + after;
-      setText(next);
+      setCurrentText(next);
       emitChange(next);
       setPickerOpen(false);
       setPickerQuery("");
@@ -166,7 +164,7 @@ export function ReferenceVideoCard({
         ta.setSelectionRange(pos, pos);
       });
     },
-    [currentText, setText, emitChange],
+    [currentText, setCurrentText, emitChange],
   );
 
   const onScroll = () => {
