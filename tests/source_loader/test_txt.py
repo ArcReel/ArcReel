@@ -62,6 +62,21 @@ def test_decode_random_bytes_raises():
     assert "gb18030" in exc_info.value.tried_encodings
 
 
+def test_decode_clean_gb18030_without_replacements():
+    # Short, very few sinograms — charset-normalizer may not be confident
+    # (chaos >= 0.5 → falls through to gb18030 fallback). Decoding should
+    # still succeed cleanly (no \ufffd) and be labeled "gb18030" (not "-lossy").
+    # 使用 GB18030 4 字节序列（U+20000 "𠀀"），绕过 GBK/Big5 的误检，
+    # 要么被 charset-normalizer 正确识别为 gb18030，要么直接走 gb18030 干净兜底。
+    raw = "𠀀".encode("gb18030")
+    text, enc = decode_txt(raw)
+    assert text == "𠀀"
+    # Either charset-normalizer correctly identified it (any variant) OR
+    # the gb18030 clean path was taken. Both are acceptable; what's NOT
+    # acceptable is the "-lossy" label for clean output.
+    assert "lossy" not in enc
+
+
 def test_extractor_writes_via_decode(tmp_path):
     src = tmp_path / "novel.txt"
     # 样本需足够长且具备真实中文分布，charset-normalizer 才能稳定识别为 gbk 系列

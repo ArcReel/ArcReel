@@ -57,7 +57,8 @@ def decode_txt(raw: bytes) -> tuple[str, str]:
             decoded.count("\ufffd"),
             replace_ratio,
         )
-    return decoded, "gb18030-lossy"
+        return decoded, "gb18030-lossy"
+    return decoded, "gb18030"
 
 
 class TxtExtractor:
