@@ -309,10 +309,13 @@ async def _handle_source_upload(
     def _sync() -> NormalizeResult:
         # 流式写入 tmp，避免把上传 body 整体拉进 Python 堆；
         # UploadFile.file 是 SpooledTemporaryFile，此处已是请求体完整到位状态。
+        # 在 with 外包 try/finally：即使 copyfileobj 抛异常（如磁盘满），
+        # 也要清理已创建的 tmp 文件，避免 /tmp 泄漏（delete=False 不会自动清）。
         with tempfile.NamedTemporaryFile(suffix=Path(original_filename).suffix, delete=False) as tmp:
-            shutil.copyfileobj(file.file, tmp)
             tmp_path = Path(tmp.name)
         try:
+            with tmp_path.open("wb") as out:
+                shutil.copyfileobj(file.file, out)
             return SourceLoader.load(
                 tmp_path,
                 source_dir,

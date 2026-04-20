@@ -685,6 +685,7 @@ export default {
   'source_normalized_toast_with_chapters': '已规范化「{{filename}}」（{{chapters}} 章 · 来源编码：{{encoding}}）',
   'source_normalized_toast_native': '已规范化「{{filename}}」',
   'source_normalized_toast_native_with_chapters': '已规范化「{{filename}}」（{{chapters}} 章）',
+  'source_upload_conflict_toast': '源文件「{{filename}}」已存在（建议改名「{{suggested}}」，请在主面板重新上传）',
 
   // GridSegmentGroup
   'grid_scene_count': '{{count}} 场景',

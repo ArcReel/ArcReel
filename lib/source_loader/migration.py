@@ -43,6 +43,7 @@ def migrate_project_source_encoding(project_dir: Path) -> MigrationSummary:
             summary.skipped.append(file_path.name)
             continue
         except UnicodeDecodeError:
+            # 预期分支：文件不是纯 UTF-8，落到下面用 decode_txt 走多编码兜底
             pass
 
         try:

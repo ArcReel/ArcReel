@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { voidCall, voidPromise } from "@/utils/async";
+import { voidCall } from "@/utils/async";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import {
@@ -17,7 +17,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { API } from "@/api";
+import { API, ConflictError } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 // ---------------------------------------------------------------------------
@@ -210,8 +210,23 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       await API.uploadFile(projectName, "source", file);
       loadSourceFiles();
       useAppStore.getState().invalidateSourceFiles();
-    } catch {
-      // 静默失败
+    } catch (err) {
+      // 侧边栏只给即时反馈，不弹冲突决策框（那个走主面板 OverviewCanvas）；
+      // 同名冲突提示建议改名，其他错误复用通用 upload_failed 前缀
+      if (err instanceof ConflictError) {
+        useAppStore.getState().pushToast(
+          tRef.current("dashboard:source_upload_conflict_toast", {
+            filename: err.existing,
+            suggested: err.suggestedName,
+          }),
+          "error",
+        );
+      } else {
+        useAppStore.getState().pushToast(
+          `${tRef.current("dashboard:upload_failed")}${(err as Error).message}`,
+          "error",
+        );
+      }
     }
     // 重置 input 以允许再次选择同一文件
     e.target.value = "";
@@ -281,7 +296,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
               type="file"
               accept=".txt,.md,.docx,.epub,.pdf"
               aria-label={t("dashboard:upload_asset_file_aria")}
-              onChange={voidPromise(handleUpload)}
+              onChange={(e) => voidCall(handleUpload(e))}
               className="hidden"
             />
           </>

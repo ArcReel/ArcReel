@@ -684,6 +684,7 @@ export default {
   'source_normalized_toast_with_chapters': '"{{filename}}" normalized ({{chapters}} chapters; source encoding: {{encoding}})',
   'source_normalized_toast_native': '"{{filename}}" normalized',
   'source_normalized_toast_native_with_chapters': '"{{filename}}" normalized ({{chapters}} chapters)',
+  'source_upload_conflict_toast': 'Source file "{{filename}}" already exists (suggested rename: "{{suggested}}"; retry from the main panel)',
 
   // GridSegmentGroup
   'grid_scene_count': '{{count}} scenes',

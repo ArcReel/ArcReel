@@ -93,9 +93,8 @@ class SourceLoader:
             SourceDecodeError: 文本解码失败（HTTP 422）。
             CorruptFileError: DOCX/EPUB/PDF 损坏或为扫描件（HTTP 422）。
 
-        原子性：本函数不保证原子性。若 extract 成功、normalized .txt 已写入、随后
-        raw 备份失败，调用方（Task 11 路由）需在 except 分支清理 normalized_path，
-        否则下次同名上传的 detect_conflict 会给出误导性建议。
+        原子性：normalized .txt 写入后，raw 备份若失败（磁盘满 / IO 异常）会在此函数
+        内部回滚 normalized_path 并让原异常向上冒泡；调用方无需额外清理。
 
         并发：非线程/进程安全。多进程 uvicorn worker 下调用方需保证 dst_dir 互斥。
         """
@@ -124,15 +123,26 @@ class SourceLoader:
         extracted = _EXTRACTORS[ext]().extract(src)
         normalized_path = dst_dir / f"{target_stem}.txt"
         normalized_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # replace 场景：提前清理同 stem 的历史 raw 备份，避免前端"下载原始格式"
+        # 链接指向被覆盖前的陈旧内容；只匹配 {stem}.* 精确避免误删其他文件
+        if has_conflict and on_conflict == "replace":
+            cls._purge_stale_raw(dst_dir, target_stem)
+
         normalized_path.write_text(extracted.text, encoding="utf-8")
 
-        raw_path = cls._maybe_backup_raw(
-            src=src,
-            ext=ext,
-            extracted=extracted,
-            dst_dir=dst_dir,
-            effective_filename=effective_filename,
-        )
+        try:
+            raw_path = cls._maybe_backup_raw(
+                src=src,
+                ext=ext,
+                extracted=extracted,
+                dst_dir=dst_dir,
+                effective_filename=effective_filename,
+            )
+        except Exception:
+            # raw 备份失败：回滚已写入的 normalized，避免孤儿文件误导后续 detect_conflict
+            normalized_path.unlink(missing_ok=True)
+            raise
 
         return NormalizeResult(
             normalized_path=normalized_path,
@@ -161,3 +171,18 @@ class SourceLoader:
         raw_path = raw_dir / effective_filename
         shutil.copyfile(src, raw_path)
         return raw_path
+
+    @staticmethod
+    def _purge_stale_raw(dst_dir: Path, target_stem: str) -> None:
+        """replace 冲突策略下，清掉同 stem 的旧 raw 备份。
+
+        若不清理，当新上传为纯 UTF-8 .txt（不产生 raw）而旧上传留下
+        raw/{stem}.docx 等备份时，list_project_files 仍会按 stem 暴露 raw_filename，
+        前端的"下载原始格式"按钮会指向被覆盖前的陈旧内容。
+        """
+        raw_dir = dst_dir / "raw"
+        if not raw_dir.exists():
+            return
+        for stale in raw_dir.iterdir():
+            if stale.is_file() and stale.stem == target_stem:
+                stale.unlink(missing_ok=True)
