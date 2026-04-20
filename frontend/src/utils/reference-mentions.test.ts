@@ -81,7 +81,7 @@ describe("mergeReferences", () => {
   });
 });
 
-describe("MENTION_RE prefix boundary (#346)", () => {
+describe("MENTION_RE prefix boundary", () => {
   it("ignores email-like prefix", () => {
     expect(extractMentions("contact a@张三")).toEqual([]);
     expect(extractMentions("test@domain.com")).toEqual([]);

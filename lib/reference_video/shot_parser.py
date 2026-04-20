@@ -15,10 +15,10 @@ _SHOT_HEADER_RE = re.compile(
     re.IGNORECASE,
 )
 
-# @名称：左侧必须不是 ASCII 词字符（[A-Za-z0-9_]），否则视为 email/标识符残片而非
-# mention。注意 Python `re` 下默认 `\w` 是 Unicode-aware（会匹配 CJK），因此这里用
-# 显式 ASCII 字符类以保留 `你好@张三` 这类合法中文前缀场景。
-# 前后端共用约定，见 frontend/src/utils/reference-mentions.ts。
+# @名称：左侧必须不是 ASCII 词字符，否则视为 email/标识符残片而非 mention。
+# Python `re` 下 `\w` 默认 Unicode-aware（会匹配 CJK），因此这里用显式 ASCII 字符类，
+# 以保留 `你好@张三` 这类合法中文前缀场景。前后端共用约定，见
+# frontend/src/utils/reference-mentions.ts。
 _MENTION_RE = re.compile(r"(?<![A-Za-z0-9_])@([\w\u4e00-\u9fff]+)")
 
 

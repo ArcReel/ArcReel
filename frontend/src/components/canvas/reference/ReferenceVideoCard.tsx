@@ -5,7 +5,12 @@ import { ASSET_COLORS, assetColor } from "./asset-colors";
 import { useShotPromptHighlight, type MentionLookup } from "@/hooks/useShotPromptHighlight";
 import { mergeReferences } from "@/utils/reference-mentions";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { AssetKind, ReferenceResource, ReferenceVideoUnit } from "@/types/reference-video";
+import {
+  SHEET_FIELD,
+  type AssetKind,
+  type ReferenceResource,
+  type ReferenceVideoUnit,
+} from "@/types/reference-video";
 
 export interface ReferenceVideoCardProps {
   unit: ReferenceVideoUnit;
@@ -37,8 +42,8 @@ export function ReferenceVideoCard({
   const taRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
 
-  // `ReferenceVideoCanvas` 已经用 key={unit.unit_id} 让 React 自动 remount 组件（见 #340），
-  // 所以这里只管当前 unit 的本地编辑态；切换 unit 时整个组件重建，initializer 会再跑。
+  // 父层以 key={unit.unit_id} 让 React 自动 remount 本组件，所以这里只持有当前 unit
+  // 的本地编辑态；切换 unit 时组件重建，initializer 会重新跑。
   const [currentText, setCurrentText] = useState(() => unitPromptText(unit));
 
   const project = useProjectsStore((s) => s.currentProjectData);
@@ -71,21 +76,20 @@ export function ReferenceVideoCard({
   const atStartRef = useRef<number | null>(null);
 
   const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
-    function toCandidates(
-      bucket: Record<string, { character_sheet?: string; scene_sheet?: string; prop_sheet?: string }> | undefined,
-      sheetKey: "character_sheet" | "scene_sheet" | "prop_sheet",
-    ): MentionCandidate[] {
-      if (!bucket) return [];
-      return Object.entries(bucket).map(([name, data]) => ({
+    const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
+      character: project?.characters,
+      scene: project?.scenes,
+      prop: project?.props,
+    };
+    const out = {} as Record<AssetKind, MentionCandidate[]>;
+    for (const kind of ["character", "scene", "prop"] as const) {
+      const bucket = buckets[kind];
+      out[kind] = Object.entries(bucket ?? {}).map(([name, data]) => ({
         name,
-        imagePath: data[sheetKey] ?? null,
+        imagePath: (data as Partial<Record<(typeof SHEET_FIELD)[AssetKind], string>>)[SHEET_FIELD[kind]] ?? null,
       }));
     }
-    return {
-      character: toCandidates(project?.characters, "character_sheet"),
-      scene: toCandidates(project?.scenes, "scene_sheet"),
-      prop: toCandidates(project?.props, "prop_sheet"),
-    };
+    return out;
   }, [project?.characters, project?.scenes, project?.props]);
 
   const emitChange = useCallback(
@@ -102,8 +106,8 @@ export function ReferenceVideoCard({
       const ch = nextValue[i];
       if (ch === "@") {
         const prev = nextValue[i - 1];
-        // 与 MENTION_RE (?<!\w) 对齐：@ 的左侧不能是词字符，否则视为 email/id 残片。
-        // 中文标点、空白、CJK 字符、行首都满足"非 \w"，不会误拦截。
+        // 与 MENTION_RE `(?<!\w)` 对齐：@ 左侧不能是 ASCII 词字符，否则视为 email/id
+        // 残片。中文标点、空白、CJK、行首都满足"非 \w"，不会误拦截。
         if (i === 0 || !/\w/.test(prev ?? "")) {
           atStartRef.current = i;
           setPickerQuery(nextValue.slice(i + 1, cursor));

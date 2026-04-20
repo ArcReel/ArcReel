@@ -384,7 +384,9 @@ class MediaGenerator:
         if self._config is not None:
             configured_generate_audio = await self._config.video_generate_audio(self.project_name)
         else:
-            configured_generate_audio = True
+            from lib.config.resolver import ConfigResolver
+
+            configured_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
         effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
 
         call_id = await self.usage_tracker.start_call(

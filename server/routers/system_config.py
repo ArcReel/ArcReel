@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
+from lib.config.resolver import ConfigResolver
 from lib.config.service import (
     ConfigService,
     sync_anthropic_env,
@@ -136,8 +137,12 @@ async def get_system_config(
 ) -> dict[str, Any]:
     # Read all settings in a single query
     all_s = await svc.get_all_settings()
-    video_generate_audio_raw = all_s.get("video_generate_audio", "true")
-    video_generate_audio = video_generate_audio_raw.lower() in ("true", "1", "yes")
+    video_generate_audio_raw = all_s.get("video_generate_audio", "")
+    video_generate_audio = (
+        video_generate_audio_raw.lower() in ("true", "1", "yes")
+        if video_generate_audio_raw
+        else ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
+    )
     anthropic_key = all_s.get("anthropic_api_key", "")
 
     settings: dict[str, Any] = {

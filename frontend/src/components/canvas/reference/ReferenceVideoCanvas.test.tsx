@@ -73,7 +73,7 @@ describe("ReferenceVideoCanvas", () => {
     expect((ta as HTMLTextAreaElement).value).toContain("Shot 1 (3s): x");
   });
 
-  it("remounts the card so textarea shows the new unit's prompt when selection changes (#340)", async () => {
+  it("remounts the card so textarea shows the new unit's prompt when selection changes", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1", "hello from A"), mkUnit("E1U2", "hello from B")],
     });

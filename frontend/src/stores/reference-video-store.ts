@@ -208,7 +208,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
         .catch((e) => {
           if (_fetchIds.get(dkey) !== myFetchId) return;
           const msg = errMsg(e);
-          // #341：toast 走 user-visible 提示；store.error 留给页面级 banner，两者互补。
+          // Dual-surface: toast 走即时可见提示，store.error 留给页面级 banner，两者互补。
           useAppStore.getState().pushToast(msg, "error");
           set({ error: msg });
         });

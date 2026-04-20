@@ -102,7 +102,7 @@ describe("ReferencePanel", () => {
   });
 });
 
-describe("ReferencePanel drag a11y (#343)", () => {
+describe("ReferencePanel drag a11y", () => {
   const baseProject: ProjectData = {
     title: "p",
     content_mode: "narration",

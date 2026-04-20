@@ -22,9 +22,17 @@ import { assetColor } from "./asset-colors";
 import { MentionPicker, type MentionCandidate } from "./MentionPicker";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { AssetKind, ReferenceResource } from "@/types/reference-video";
+import { SHEET_FIELD, type AssetKind, type ReferenceResource } from "@/types/reference-video";
 
 const PICKER_ID = "reference-panel-mention-picker";
+
+// Drag id format: `${type}:${name}`. Split on the first ":" so CJK names survive.
+const refId = (r: ReferenceResource): string => `${r.type}:${r.name}`;
+const refNameFromId = (id: string): string => id.slice(id.indexOf(":") + 1);
+
+type BucketEntry = Partial<Record<"character_sheet" | "scene_sheet" | "prop_sheet", string>>;
+const sheetOf = (bucket: Record<string, unknown> | undefined, kind: AssetKind, name: string): string | null =>
+  (bucket?.[name] as BucketEntry | undefined)?.[SHEET_FIELD[kind]] ?? null;
 
 export interface ReferencePanelProps {
   references: ReferenceResource[];
@@ -54,7 +62,7 @@ const Pill = memo(function Pill({
 }: PillProps) {
   const { t } = useTranslation("dashboard");
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: `${refItem.type}:${refItem.name}`,
+    id: refId(refItem),
   });
   const palette = assetColor(refItem.type);
   const thumbUrl = imagePath ? API.getFileUrl(projectName, imagePath, thumbFingerprint) : null;
@@ -110,98 +118,72 @@ export function ReferencePanel({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const existingKeys = useMemo(
-    () => new Set(references.map((r) => `${r.type}:${r.name}`)),
-    [references],
-  );
+  const existingKeys = useMemo(() => new Set(references.map(refId)), [references]);
 
-  const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(
-    () => ({
-      character: Object.entries(characters ?? {})
-        .filter(([name]) => !existingKeys.has(`character:${name}`))
-        .map(([name, data]) => ({
-          name,
-          imagePath: (data as { character_sheet?: string }).character_sheet ?? null,
-        })),
-      scene: Object.entries(scenes ?? {})
-        .filter(([name]) => !existingKeys.has(`scene:${name}`))
-        .map(([name, data]) => ({
-          name,
-          imagePath: (data as { scene_sheet?: string }).scene_sheet ?? null,
-        })),
-      prop: Object.entries(props ?? {})
-        .filter(([name]) => !existingKeys.has(`prop:${name}`))
-        .map(([name, data]) => ({
-          name,
-          imagePath: (data as { prop_sheet?: string }).prop_sheet ?? null,
-        })),
-    }),
-    [existingKeys, characters, scenes, props],
-  );
+  const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
+    const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
+      character: characters,
+      scene: scenes,
+      prop: props,
+    };
+    const out = {} as Record<AssetKind, MentionCandidate[]>;
+    for (const kind of ["character", "scene", "prop"] as const) {
+      out[kind] = Object.keys(buckets[kind] ?? {})
+        .filter((name) => !existingKeys.has(`${kind}:${name}`))
+        .map((name) => ({ name, imagePath: sheetOf(buckets[kind], kind, name) }));
+    }
+    return out;
+  }, [existingKeys, characters, scenes, props]);
 
   // 一次性派生每个 pill 的 imagePath + fingerprint，避免 Pill 订阅 store。
   const pillData = useMemo(() => {
+    const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
+      character: characters,
+      scene: scenes,
+      prop: props,
+    };
     return references.map((r) => {
-      let imagePath: string | null = null;
-      if (r.type === "character") {
-        imagePath =
-          (characters?.[r.name] as { character_sheet?: string } | undefined)?.character_sheet ?? null;
-      } else if (r.type === "scene") {
-        imagePath = (scenes?.[r.name] as { scene_sheet?: string } | undefined)?.scene_sheet ?? null;
-      } else if (r.type === "prop") {
-        imagePath = (props?.[r.name] as { prop_sheet?: string } | undefined)?.prop_sheet ?? null;
-      }
-      const fp = imagePath ? getFp(imagePath) : null;
-      return { ref: r, imagePath, fingerprint: fp };
+      const imagePath = sheetOf(buckets[r.type], r.type, r.name);
+      return { ref: r, imagePath, fingerprint: imagePath ? getFp(imagePath) : null };
     });
   }, [references, characters, scenes, props, getFp]);
 
   const handleAddClick = () => setPickerOpen((v) => !v);
 
+  const indexOfId = (id: string): number => references.findIndex((r) => refId(r) === id);
+
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const fromIndex = references.findIndex((r) => `${r.type}:${r.name}` === active.id);
-    const toIndex = references.findIndex((r) => `${r.type}:${r.name}` === over.id);
+    const fromIndex = indexOfId(String(active.id));
+    const toIndex = indexOfId(String(over.id));
     if (fromIndex < 0 || toIndex < 0) return;
     onReorder(arrayMove(references, fromIndex, toIndex));
   };
 
   // Keyboard drag announcements for screen readers. dnd-kit fires these on
-  // Space pickup / arrow-key move / Space drop / Esc cancel. The `id` is
-  // `${type}:${name}` — split on the first ":" so CJK names survive.
-  const announcements = useMemo<Announcements>(
-    () => ({
-      onDragStart: ({ active }) => {
-        const id = String(active.id);
-        const name = id.slice(id.indexOf(":") + 1);
-        const index = references.findIndex((r) => `${r.type}:${r.name}` === id);
-        return t("reference_panel_announce_pick_up", { name, index: index + 1 });
-      },
+  // Space pickup / arrow-key move / Space drop / Esc cancel.
+  const announcements = useMemo<Announcements>(() => {
+    const locate = (id: string) => ({
+      name: refNameFromId(id),
+      index: references.findIndex((r) => refId(r) === id) + 1,
+    });
+    return {
+      onDragStart: ({ active }) => t("reference_panel_announce_pick_up", locate(String(active.id))),
       onDragOver: ({ active, over }) => {
         if (!over) return undefined;
-        const id = String(active.id);
-        const name = id.slice(id.indexOf(":") + 1);
-        const overId = String(over.id);
-        const index = references.findIndex((r) => `${r.type}:${r.name}` === overId);
-        return t("reference_panel_announce_move", { name, index: index + 1 });
+        const { index } = locate(String(over.id));
+        return t("reference_panel_announce_move", { name: refNameFromId(String(active.id)), index });
       },
       onDragEnd: ({ active, over }) => {
         if (!over) return undefined;
-        const id = String(active.id);
-        const name = id.slice(id.indexOf(":") + 1);
-        const overId = String(over.id);
-        const index = references.findIndex((r) => `${r.type}:${r.name}` === overId);
-        return t("reference_panel_announce_drop", { name, index: index + 1 });
+        const { index } = locate(String(over.id));
+        return t("reference_panel_announce_drop", { name: refNameFromId(String(active.id)), index });
       },
-      onDragCancel: ({ active }) => {
-        const id = String(active.id);
-        const name = id.slice(id.indexOf(":") + 1);
-        return t("reference_panel_announce_cancel", { name });
-      },
-    }),
-    [t, references],
-  );
+      onDragCancel: ({ active }) =>
+        t("reference_panel_announce_cancel", { name: refNameFromId(String(active.id)) }),
+    };
+  }, [t, references]);
 
   const screenReaderInstructions = useMemo<ScreenReaderInstructions>(
     () => ({ draggable: t("reference_panel_sr_instructions") }),
@@ -235,14 +217,11 @@ export function ReferencePanel({
           onDragEnd={onDragEnd}
           accessibility={{ announcements, screenReaderInstructions }}
         >
-          <SortableContext
-            items={references.map((r) => `${r.type}:${r.name}`)}
-            strategy={horizontalListSortingStrategy}
-          >
+          <SortableContext items={references.map(refId)} strategy={horizontalListSortingStrategy}>
             <div className="flex flex-wrap gap-1.5">
               {pillData.map((d, i) => (
                 <Pill
-                  key={`${d.ref.type}:${d.ref.name}`}
+                  key={refId(d.ref)}
                   refItem={d.ref}
                   index={i}
                   projectName={projectName}

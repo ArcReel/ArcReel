@@ -8,6 +8,20 @@ import type { TransitionType } from "./script";
 
 export type AssetKind = "character" | "scene" | "prop";
 
+/** Project.json sheet field for each asset kind. Mirrors lib/asset_types.py SHEET_KEY. */
+export const SHEET_FIELD: Record<AssetKind, "character_sheet" | "scene_sheet" | "prop_sheet"> = {
+  character: "character_sheet",
+  scene: "scene_sheet",
+  prop: "prop_sheet",
+};
+
+/** Project.json bucket for each asset kind. Mirrors lib/asset_types.py BUCKET_KEY. */
+export const BUCKET_FIELD: Record<AssetKind, "characters" | "scenes" | "props"> = {
+  character: "characters",
+  scene: "scenes",
+  prop: "props",
+};
+
 export interface Shot {
   /** 1-15s per shot */
   duration: number;

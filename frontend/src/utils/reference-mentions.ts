@@ -5,8 +5,6 @@ import type { AssetKind, ReferenceResource } from "@/types/reference-video";
  * Mention regex shared across frontend tokenizers. Mirrors backend
  * `lib/reference_video/shot_parser.py:_MENTION_RE` — keep in sync.
  *
- * `(?<!\w)` 拦截 email/标识符左侧的词字符（见 #346）。
- *
  * 前后端字面不同但语义等价：
  * - JS `\w` 永远是 ASCII-only，`(?<!\w)` 直接表达"左侧不是 ASCII 词字符"。
  * - Python `\w` 默认 Unicode-aware（中文属 `\w`），所以后端改用显式

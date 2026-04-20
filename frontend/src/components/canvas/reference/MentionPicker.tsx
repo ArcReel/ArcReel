@@ -139,10 +139,10 @@ export function MentionPicker({
     onActiveChange(current ? optionId(current.type, current.name) : null);
   }, [flat, clampedActive, onActiveChange]);
 
-  // Close on outside pointerdown (#345). Capture phase so we run before the
-  // option's own `onMouseDown preventDefault` — the listbox root still gets
-  // the event through `contains()`, and any event landing outside the listbox
-  // tree (including the anchoring textarea) closes the picker.
+  // Close on outside pointerdown. Capture phase so we run before the option's
+  // own `onMouseDown preventDefault` — the listbox root still gets the event
+  // through `contains()`, and any event landing outside the listbox tree
+  // (including the anchoring textarea) closes the picker.
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (e: PointerEvent) => {

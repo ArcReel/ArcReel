@@ -167,7 +167,7 @@ describe("MentionPicker", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("closes on outside pointerdown (#345)", () => {
+  it("closes on outside pointerdown", () => {
     const onClose = vi.fn();
     render(
       <div>
@@ -185,7 +185,7 @@ describe("MentionPicker", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("does not close when pointerdown happens inside the listbox (#345)", () => {
+  it("does not close when pointerdown happens inside the listbox", () => {
     const onClose = vi.fn();
     render(
       <MentionPicker
@@ -200,7 +200,7 @@ describe("MentionPicker", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("option has focus-visible ring class (#345)", () => {
+  it("option has focus-visible ring class", () => {
     render(
       <MentionPicker
         open
@@ -214,7 +214,7 @@ describe("MentionPicker", () => {
     expect(option.className).toMatch(/focus-visible:ring/);
   });
 
-  it("pointermove on option updates activeIndex; mouseenter without movement does not (#345)", () => {
+  it("pointermove on option updates activeIndex; mouseenter without movement does not", () => {
     render(
       <MentionPicker
         open

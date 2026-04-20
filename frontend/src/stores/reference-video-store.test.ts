@@ -412,7 +412,7 @@ describe("reference-video-store · updatePromptDebounced", () => {
   });
 });
 
-describe("updatePromptDebounced failure surfacing (#341)", () => {
+describe("updatePromptDebounced failure surfacing", () => {
   beforeEach(() => {
     useReferenceVideoStore.setState({
       unitsByEpisode: {},

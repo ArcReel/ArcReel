@@ -152,7 +152,7 @@ def test_parse_multi_shot_preserves_pre_header_text():
     assert shots[1].text == "近景，对面的张三抬眼。"
 
 
-# ── mention 前缀边界（issue #346） ────────────────────────────────────────
+# ── mention 前缀边界 ────────────────────────────────────────
 
 
 def test_mention_ignores_email_like_prefix():

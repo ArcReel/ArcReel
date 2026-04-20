@@ -16,8 +16,7 @@ export function EpisodeModeSwitcher({ projectMode, episodeMode, onChange }: Epis
   const { t } = useTranslation("dashboard");
   const effective = normalizeMode(episodeMode ?? projectMode);
 
-  // spec §11 拍板：切换生成模式不清空旧数据；toast 明确告诉用户"旧数据保留"。
-  // 文案分三种（进 reference / 出 reference / 同类互切），由 from→to 选定。
+  // 切换生成模式不清空旧数据；toast 按 from→to 三种文案之一告知用户"旧数据保留"。
   const handleChange = (next: GenerationMode) => {
     if (next === effective) return;
     onChange(next);

@@ -187,7 +187,7 @@ describe("ReferenceVideoCard", () => {
   });
 });
 
-describe("ReferenceVideoCard combobox ARIA (#343)", () => {
+describe("ReferenceVideoCard combobox ARIA", () => {
   function renderCard(unit = mkUnit()) {
     return render(
       <ReferenceVideoCard
