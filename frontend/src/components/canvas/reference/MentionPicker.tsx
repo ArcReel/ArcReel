@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { assetColor } from "./asset-colors";
 import type { AssetKind } from "@/types/reference-video";
@@ -23,6 +23,9 @@ export interface MentionPickerProps {
   listboxId?: string;
   /** Called whenever the keyboard-active option changes; receives the option's DOM id (null when empty). */
   onActiveChange?: (optionId: string | null) => void;
+  /** Optional trigger element excluded from outside-pointerdown close so the caller's
+   * toggle button (open ↔ close) round-trips cleanly without a capture-phase race. */
+  anchorRef?: RefObject<HTMLElement | null>;
 }
 
 function optionId(kind: AssetKind, name: string): string {
@@ -49,6 +52,7 @@ export function MentionPicker({
   className,
   listboxId,
   onActiveChange,
+  anchorRef,
 }: MentionPickerProps) {
   const { t } = useTranslation("dashboard");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -100,6 +104,9 @@ export function MentionPicker({
   const flatRef = useRef(flat);
   const clampedRef = useRef(clampedActive);
   const listboxRef = useRef<HTMLDivElement>(null);
+  // 真实鼠标坐标。浏览器可能在列表滚动（键盘方向键选中触发）导致元素移到静止光标下时
+  // 补发 mousemove/mouseenter；仅当 (x, y) 相对上一次记录变化才视作用户主动移动。
+  const lastPointerXY = useRef<{ x: number; y: number }>({ x: -1, y: -1 });
 
   useLayoutEffect(() => {
     flatRef.current = flat;
@@ -143,18 +150,23 @@ export function MentionPicker({
   // own `onMouseDown preventDefault` — the listbox root still gets the event
   // through `contains()`, and any event landing outside the listbox tree
   // (including the anchoring textarea) closes the picker.
+  //
+  // 例外：调用方传入的 anchorRef（如 toggle 按钮）需排除，否则同一按钮点一下会先在
+  // capture 阶段 onClose()，再在 click 的 toggle 里读取 queued false 并翻回 true，
+  // 结果用户无法用鼠标再按一次按钮关闭 picker。
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (e: PointerEvent) => {
       const el = listboxRef.current;
       if (!el) return;
-      if (e.target instanceof Node && !el.contains(e.target)) {
-        onClose();
-      }
+      if (!(e.target instanceof Node)) return;
+      if (el.contains(e.target)) return;
+      if (anchorRef?.current?.contains(e.target)) return;
+      onClose();
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [open, onClose]);
+  }, [open, onClose, anchorRef]);
 
   if (!open) return null;
 
@@ -198,10 +210,17 @@ export function MentionPicker({
                     type="button"
                     role="option"
                     aria-selected={active}
-                    // Only react to real pointer movement (not synthetic
-                    // mouseenter from list scroll under a stationary cursor),
-                    // so keyboard selection is never stolen by passive hover.
-                    onMouseMove={() => {
+                    // 仅在鼠标真实移动（坐标相对上次记录变化）时才覆盖 activeIndex，
+                    // 避免键盘选中导致列表滚动把元素移到静止光标下方时被浏览器补发的
+                    // mouseenter/mousemove 抢走高亮。mousemove 记坐标；mouseenter 对比。
+                    onMouseMove={(e) => {
+                      lastPointerXY.current = { x: e.clientX, y: e.clientY };
+                      if (clampedActive !== globalIndex) setActiveIndex(globalIndex);
+                    }}
+                    onMouseEnter={(e) => {
+                      const last = lastPointerXY.current;
+                      if (last.x === e.clientX && last.y === e.clientY) return;
+                      lastPointerXY.current = { x: e.clientX, y: e.clientY };
                       if (clampedActive !== globalIndex) setActiveIndex(globalIndex);
                     }}
                     // Suppress focus transfer on mousedown so the textarea keeps

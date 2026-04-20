@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -214,7 +215,7 @@ describe("MentionPicker", () => {
     expect(option.className).toMatch(/focus-visible:ring/);
   });
 
-  it("pointermove on option updates activeIndex; mouseenter without movement does not", () => {
+  it("pointermove on option updates activeIndex; mouseenter at same coords does not", () => {
     render(
       <MentionPicker
         open
@@ -234,15 +235,71 @@ describe("MentionPicker", () => {
     const alice = screen.getByRole("option", { name: /alice/ });
     const bob = screen.getByRole("option", { name: /bob/ });
 
-    // Default activeIndex=0 → alice selected; mouseEnter alone (list scrolled under
-    // a stationary cursor) must NOT steal the keyboard selection.
-    fireEvent.mouseEnter(bob);
+    // First establish a baseline pointer coordinate via real movement on alice.
+    fireEvent.mouseMove(alice, { clientX: 10, clientY: 10 });
+    expect(alice.getAttribute("aria-selected")).toBe("true");
+
+    // Simulate "list scrolls under stationary cursor → bob enters cursor at the
+    // same (10, 10) coords". mouseenter must NOT steal the keyboard selection.
+    fireEvent.mouseEnter(bob, { clientX: 10, clientY: 10 });
     expect(alice.getAttribute("aria-selected")).toBe("true");
     expect(bob.getAttribute("aria-selected")).toBe("false");
 
-    // Real pointer movement → active moves to bob.
-    fireEvent.mouseMove(bob, { clientX: 10, clientY: 10 });
+    // Real pointer movement to bob → active moves.
+    fireEvent.mouseMove(bob, { clientX: 20, clientY: 20 });
     expect(bob.getAttribute("aria-selected")).toBe("true");
     expect(alice.getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("mouseenter at different coords after movement still honors real user movement", () => {
+    render(
+      <MentionPicker
+        open
+        query=""
+        candidates={{
+          character: [
+            { name: "alice", imagePath: null },
+            { name: "bob", imagePath: null },
+          ],
+          scene: [],
+          prop: [],
+        }}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const alice = screen.getByRole("option", { name: /alice/ });
+    const bob = screen.getByRole("option", { name: /bob/ });
+
+    fireEvent.mouseMove(alice, { clientX: 10, clientY: 10 });
+    // User moves cursor into bob; browser fires mouseenter with new coords before
+    // subsequent mousemove. Coord diff vs last ⇒ honor the move.
+    fireEvent.mouseEnter(bob, { clientX: 30, clientY: 10 });
+    expect(bob.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("does not close when pointerdown hits the anchorRef element", () => {
+    function Host({ onClose }: { onClose: () => void }) {
+      const anchorRef = useRef<HTMLButtonElement>(null);
+      return (
+        <div>
+          <button ref={anchorRef} data-testid="anchor" type="button">
+            toggle
+          </button>
+          <MentionPicker
+            open
+            query=""
+            candidates={{ character: [{ name: "a", imagePath: null }], scene: [], prop: [] }}
+            anchorRef={anchorRef}
+            onSelect={vi.fn()}
+            onClose={onClose}
+          />
+        </div>
+      );
+    }
+    const onClose = vi.fn();
+    render(<Host onClose={onClose} />);
+    fireEvent.pointerDown(screen.getByTestId("anchor"));
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

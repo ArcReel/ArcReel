@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   DndContext,
@@ -107,6 +107,7 @@ export function ReferencePanel({
 }: ReferencePanelProps) {
   const { t } = useTranslation("dashboard");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
   // Fine-grained subscriptions: depend on the specific slices we actually read,
   // so unrelated changes to currentProjectData don't force candidates to rebuild.
   const characters = useProjectsStore((s) => s.currentProjectData?.characters);
@@ -197,6 +198,7 @@ export function ReferencePanel({
           {t("reference_panel_title")}
         </span>
         <button
+          ref={addButtonRef}
           type="button"
           onClick={handleAddClick}
           aria-label={t("reference_panel_add")}
@@ -240,6 +242,7 @@ export function ReferencePanel({
             open
             query=""
             candidates={candidates}
+            anchorRef={addButtonRef}
             onSelect={(ref) => {
               onAdd(ref);
               setPickerOpen(false);
