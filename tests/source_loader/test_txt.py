@@ -85,3 +85,37 @@ def test_extractor_writes_via_decode(tmp_path):
     assert "内容" in result.text
     assert result.used_encoding and result.used_encoding.lower() in {"gbk", "gb18030", "cp936"}
     assert result.chapter_count == 0
+
+
+def test_gb18030_fallback_clean_is_labeled_gb18030(monkeypatch):
+    """Force control into gb18030 fallback with clean GB18030 bytes; expect label 'gb18030' (not 'gb18030-lossy')."""
+    import lib.source_loader.txt as mod
+
+    class _NoBest:
+        def best(self):
+            return None
+
+    monkeypatch.setattr(mod.charset_normalizer, "from_bytes", lambda _raw: _NoBest())
+    # Valid GB18030 bytes — no decode replacements needed
+    raw = ("一二三四五" * 10).encode("gb18030")
+    text, enc = mod.decode_txt(raw)
+    assert "一二三四五" in text
+    assert enc == "gb18030"
+
+
+def test_gb18030_fallback_with_replacements_is_labeled_lossy(monkeypatch):
+    """Force gb18030 fallback with some invalid bytes; decode yields \\ufffd → label 'gb18030-lossy'."""
+    import lib.source_loader.txt as mod
+
+    class _NoBest:
+        def best(self):
+            return None
+
+    monkeypatch.setattr(mod.charset_normalizer, "from_bytes", lambda _raw: _NoBest())
+    # Mostly valid GB18030 mixed with a handful of illegal 0x80 lead bytes
+    # (0x80 is not a valid GB18030 lead byte → replacement char)
+    raw = ("一二三四" * 100).encode("gb18030") + b"\x80" * 5
+    text, enc = mod.decode_txt(raw)
+    # Replaces present but ratio < 5%, so no raise; labeled lossy
+    assert "\ufffd" in text
+    assert enc == "gb18030-lossy"
