@@ -68,6 +68,10 @@ class ConfigResolver:
     """
 
     # ── 唯一的默认值定义点 ──
+    # 默认值 True（PR7 §11 决策：与 Seedance/Grok 默认开启、storyboard 用户期望一致）
+    # 注意：此 default 在两处 fallback 中镜像对齐：
+    #   1. server/routers/system_config.py (GET /system/config)
+    #   2. lib/media_generator.py (self._config is None 路径)
     _DEFAULT_VIDEO_GENERATE_AUDIO = True
 
     def __init__(
@@ -104,7 +108,7 @@ class ConfigResolver:
     async def video_generate_audio(self, project_name: str | None = None) -> bool:
         """解析 video_generate_audio。
 
-        优先级：项目级覆盖 > 全局配置 > 默认值(False)。
+        优先级：项目级覆盖 > 全局配置 > 默认值(True)。（PR7 §11 决策）
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_generate_audio(svc, project_name)

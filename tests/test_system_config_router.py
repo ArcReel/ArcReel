@@ -216,6 +216,15 @@ class TestGetSystemConfig:
         assert settings["video_generate_audio"] is True
         assert settings["anthropic_base_url"] == "https://proxy.example.com"
 
+    def test_video_generate_audio_defaults_to_true_on_empty_db(self):
+        """新装系统 DB 为空时，GET /system/config 应返回 video_generate_audio=True，
+        与 ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO=True 保持一致（PR7 §11）。"""
+        mock_svc = _make_mock_svc(settings={})
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        settings = res.json()["settings"]
+        assert settings["video_generate_audio"] is True
+
 
 # ---------------------------------------------------------------------------
 # PATCH /system/config
