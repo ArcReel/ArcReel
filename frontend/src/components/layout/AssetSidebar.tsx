@@ -187,20 +187,11 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
     }
     API.listFiles(projectName)
       .then((res) => {
-        const raw = res.files as unknown;
-        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-          const grouped = raw as Record<
-            string,
-            Array<{ name: string; raw_filename?: string | null }>
-          >;
-          const items: SourceItem[] = (grouped.source ?? []).map((f) => ({
-            name: f.name,
-            rawFilename: f.raw_filename ?? null,
-          }));
-          setSourceFiles(items);
-        } else {
-          setSourceFiles([]);
-        }
+        const items: SourceItem[] = (res.files.source ?? []).map((f) => ({
+          name: f.name,
+          rawFilename: f.raw_filename ?? null,
+        }));
+        setSourceFiles(items);
       })
       .catch(() => {
         setSourceFiles([]);
@@ -288,7 +279,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.md,.doc,.docx"
+              accept=".txt,.md,.docx,.epub,.pdf"
               aria-label={t("dashboard:upload_asset_file_aria")}
               onChange={voidPromise(handleUpload)}
               className="hidden"

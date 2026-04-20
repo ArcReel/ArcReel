@@ -693,7 +693,17 @@ class API {
 
   static async listFiles(
     projectName: string
-  ): Promise<{ files: Record<string, { name: string; size: number; url: string }[]> }> {
+  ): Promise<{
+    files: {
+      source?: { name: string; size: number; url: string; raw_filename?: string | null }[];
+      characters?: { name: string; size: number; url: string }[];
+      scenes?: { name: string; size: number; url: string }[];
+      props?: { name: string; size: number; url: string }[];
+      storyboards?: { name: string; size: number; url: string }[];
+      videos?: { name: string; size: number; url: string }[];
+      output?: { name: string; size: number; url: string }[];
+    };
+  }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/files`
     );
