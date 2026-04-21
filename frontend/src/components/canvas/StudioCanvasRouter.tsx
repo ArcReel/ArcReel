@@ -468,7 +468,10 @@ export function StudioCanvasRouter() {
                   />
                 ) : (
                   <TimelineCanvas
-                    key={epNum}
+                    // 和 ReferenceVideoCanvas (上方) 同理：同 epNum 跨项目不 remount
+                    // 会让 TimelineCanvas 内部的 useState / useRef（选中 scene、草稿缓冲、
+                    // 滚动位置等）残留上一个项目的值。key 带上 projectName 天然按项目隔离。
+                    key={`${currentProjectName}::${epNum}`}
                     projectName={currentProjectName}
                     episode={epNum}
                     episodeTitle={episode?.title}

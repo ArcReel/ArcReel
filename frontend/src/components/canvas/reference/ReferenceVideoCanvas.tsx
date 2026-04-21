@@ -399,6 +399,8 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
             <button
               type="button"
               role="tab"
+              id="reference-tab-editor-btn"
+              aria-controls="reference-tab-editor"
               aria-selected={smallTab === "editor"}
               onClick={() => setSmallTab("editor")}
               className={`rounded-t border-b-2 px-3 py-2 text-xs transition-colors focus-ring ${
@@ -412,6 +414,8 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
             <button
               type="button"
               role="tab"
+              id="reference-tab-preview-btn"
+              aria-controls="reference-tab-preview"
               aria-selected={smallTab === "preview"}
               onClick={() => setSmallTab("preview")}
               className={`rounded-t border-b-2 px-3 py-2 text-xs transition-colors focus-ring ${
@@ -424,6 +428,9 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
             </button>
           </div>
           <div
+            role="tabpanel"
+            id="reference-tab-editor"
+            aria-labelledby="reference-tab-editor-btn"
             className={`min-h-0 flex-1 flex-col overflow-hidden border-r border-gray-800 bg-gray-950/30 @4xl:flex ${
               smallTab === "editor" ? "flex" : "hidden"
             }`}
@@ -454,6 +461,9 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
             )}
           </div>
           <div
+            role="tabpanel"
+            id="reference-tab-preview"
+            aria-labelledby="reference-tab-preview-btn"
             className={`min-h-0 overflow-hidden @4xl:block ${smallTab === "preview" ? "block" : "hidden"}`}
           >
             <UnitPreviewPanel
