@@ -1,5 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  FloatingPortal,
+  autoUpdate,
+  flip,
+  offset,
+  shift,
+  size,
+  useFloating,
+} from "@floating-ui/react";
 import { assetColor } from "./asset-colors";
 import { API } from "@/api";
 import type { AssetKind } from "@/types/reference-video";
@@ -31,11 +40,15 @@ export interface MentionPickerProps {
   /** Optional trigger element excluded from outside-pointerdown close so the caller's
    * toggle button (open ↔ close) round-trips cleanly without a capture-phase race. */
   anchorRef?: RefObject<HTMLElement | null>;
+  /** Element the picker should anchor to. The picker is rendered via FloatingPortal
+   * to document.body and uses floating-ui to flip/shift against this element — so
+   * ancestor overflow-hidden / stacking contexts cannot clip the popup. */
+  anchorElement?: HTMLElement | null;
 }
 
 function optionId(kind: AssetKind, name: string): string {
   // 安全化：把 CSS 不友好字符替换，避免选择器查询出错
-  const safe = name.replace(/[^A-Za-z0-9_\u4e00-\u9fff-]/g, "_");
+  const safe = name.replace(/[^A-Za-z0-9_一-鿿-]/g, "_");
   return `reference-option-${kind}-${safe}`;
 }
 
@@ -60,6 +73,7 @@ export function MentionPicker({
   listboxId,
   onActiveChange,
   anchorRef,
+  anchorElement,
 }: MentionPickerProps) {
   const { t } = useTranslation("dashboard");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -133,10 +147,36 @@ export function MentionPicker({
 
   const flatRef = useRef(flat);
   const clampedRef = useRef(clampedActive);
-  const listboxRef = useRef<HTMLDivElement>(null);
+  const listboxRef = useRef<HTMLDivElement | null>(null);
   // 真实鼠标坐标。浏览器可能在列表滚动（键盘方向键选中触发）导致元素移到静止光标下时
   // 补发 mousemove/mouseenter；仅当 (x, y) 相对上一次记录变化才视作用户主动移动。
   const lastPointerXY = useRef<{ x: number; y: number }>({ x: -1, y: -1 });
+
+  // Floating-ui placement: bottom-start below the anchor, offset 4px;
+  // `flip` pushes up when bottom overflows the viewport, `shift` keeps the
+  // popup fully visible horizontally with 8px viewport padding, `size` caps
+  // the floating panel so it never exceeds available vertical space (useful on
+  // the small-card layout where the editor occupies most of the viewport).
+  const { refs, floatingStyles } = useFloating<HTMLElement>({
+    open,
+    placement: "bottom-start",
+    whileElementsMounted: autoUpdate,
+    middleware: [
+      offset(4),
+      flip({ padding: 8 }),
+      shift({ padding: 8 }),
+      size({
+        padding: 8,
+        apply({ availableHeight, elements }) {
+          elements.floating.style.maxHeight = `${Math.min(288, Math.max(120, availableHeight))}px`;
+        },
+      }),
+    ],
+  });
+
+  useEffect(() => {
+    refs.setReference(anchorElement ?? null);
+  }, [refs, anchorElement]);
 
   useLayoutEffect(() => {
     flatRef.current = flat;
@@ -205,123 +245,129 @@ export function MentionPicker({
   const empty = flat.length === 0;
 
   return (
-    <div
-      ref={listboxRef}
-      id={listboxId ?? MENTION_PICKER_DEFAULT_ID}
-      role="listbox"
-      aria-label={t("reference_picker_title")}
-      className={`z-30 max-h-72 w-64 overflow-hidden rounded-md border border-gray-800 bg-gray-950 shadow-xl ${className ?? ""}`}
-    >
+    <FloatingPortal>
       <div
-        role="tablist"
+        ref={(el) => {
+          listboxRef.current = el;
+          refs.setFloating(el);
+        }}
+        id={listboxId ?? MENTION_PICKER_DEFAULT_ID}
+        role="listbox"
         aria-label={t("reference_picker_title")}
-        className="sticky top-0 z-10 flex gap-0 border-b border-gray-800 bg-gray-950 px-1"
+        style={floatingStyles}
+        className={`z-30 w-64 overflow-hidden rounded-md border border-gray-800 bg-gray-950 shadow-xl ${className ?? ""}`}
       >
-        {TAB_ORDER.map((tab) => {
-          const count =
-            tab === "all"
-              ? totalsByKind.character + totalsByKind.scene + totalsByKind.prop
-              : totalsByKind[tab];
-          const isActive = tab === activeTab;
-          return (
-            <button
-              key={tab}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setActiveTab(tab)}
-              className={`flex items-center gap-1 border-b-2 px-2 py-1.5 text-[11px] transition-colors focus-ring ${
-                isActive
-                  ? "border-indigo-500 font-medium text-indigo-300"
-                  : "border-transparent text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              <span>{t(`reference_picker_tab_${tab}`)}</span>
-              <span className="tabular-nums text-[10px] text-gray-600">{count}</span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="max-h-60 overflow-y-auto">
-        {empty && (
-          <div className="px-3 py-4 text-center text-xs text-gray-500">
-            {t("reference_picker_empty")}
-          </div>
-        )}
-        {!empty &&
-          GROUP_ORDER.map((kind) => {
-            const items = filtered[kind];
-            if (items.length === 0) return null;
-            const palette = assetColor(kind);
-            // activeTab==="all" 时保留分组小标题；选中单 tab 时把小标题去掉避免视觉重复。
-            const showGroupHeader = activeTab === "all";
+        <div
+          role="tablist"
+          aria-label={t("reference_picker_title")}
+          className="sticky top-0 z-10 flex gap-0 border-b border-gray-800 bg-gray-950 px-1"
+        >
+          {TAB_ORDER.map((tab) => {
+            const count =
+              tab === "all"
+                ? totalsByKind.character + totalsByKind.scene + totalsByKind.prop
+                : totalsByKind[tab];
+            const isActive = tab === activeTab;
             return (
-              <div key={kind}>
-                {showGroupHeader && (
-                  <div
-                    data-testid={`picker-group-${kind}`}
-                    className={`px-2 py-1 text-[10px] font-semibold uppercase ${palette.textClass}`}
-                  >
-                    {t(`reference_picker_group_${kind}`)}
-                  </div>
-                )}
-                {items.map((item) => {
-                  const globalIndex = indexByKey.get(`${kind}:${item.name}`) ?? -1;
-                  const active = globalIndex === clampedActive;
-                  // imagePath 是 project-relative 文件路径（如 "characters/foo.png"），用 API.getFileUrl
-                  // 转为可 fetch 的 URL；无 projectName 时回退圆点（测试环境常见）。
-                  const thumbUrl =
-                    item.imagePath && projectName
-                      ? API.getFileUrl(projectName, item.imagePath)
-                      : null;
-                  return (
-                    <button
-                      key={`${kind}:${item.name}`}
-                      id={optionId(kind, item.name)}
-                      type="button"
-                      role="option"
-                      aria-selected={active}
-                      onMouseMove={(e) => {
-                        lastPointerXY.current = { x: e.clientX, y: e.clientY };
-                        if (clampedActive !== globalIndex) setActiveIndex(globalIndex);
-                      }}
-                      onMouseEnter={(e) => {
-                        const last = lastPointerXY.current;
-                        if (last.x === e.clientX && last.y === e.clientY) return;
-                        lastPointerXY.current = { x: e.clientX, y: e.clientY };
-                        if (clampedActive !== globalIndex) setActiveIndex(globalIndex);
-                      }}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => onSelect({ type: kind, name: item.name })}
-                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors focus-visible:ring-1 focus-visible:ring-indigo-400 focus-visible:outline-none ${
-                        active ? "bg-indigo-500/15 text-indigo-200" : "text-gray-300 hover:bg-gray-900"
-                      }`}
-                    >
-                      {thumbUrl ? (
-                        <img
-                          src={thumbUrl}
-                          alt=""
-                          aria-hidden="true"
-                          loading="lazy"
-                          className={`h-7 w-7 shrink-0 rounded object-cover ${palette.borderClass} border`}
-                        />
-                      ) : (
-                        <span
-                          aria-hidden="true"
-                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded ${palette.bgClass} ${palette.borderClass} border`}
-                        >
-                          <span className={`h-2 w-2 rounded-full ${palette.bgClass} ${palette.borderClass} border`} />
-                        </span>
-                      )}
-                      <span className="truncate" title={item.name}>{item.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setActiveTab(tab)}
+                className={`flex items-center gap-1 border-b-2 px-2 py-1.5 text-[11px] transition-colors focus-ring ${
+                  isActive
+                    ? "border-indigo-500 font-medium text-indigo-300"
+                    : "border-transparent text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                <span>{t(`reference_picker_tab_${tab}`)}</span>
+                <span className="tabular-nums text-[10px] text-gray-600">{count}</span>
+              </button>
             );
           })}
+        </div>
+        <div className="max-h-60 overflow-y-auto">
+          {empty && (
+            <div className="px-3 py-4 text-center text-xs text-gray-500">
+              {t("reference_picker_empty")}
+            </div>
+          )}
+          {!empty &&
+            GROUP_ORDER.map((kind) => {
+              const items = filtered[kind];
+              if (items.length === 0) return null;
+              const palette = assetColor(kind);
+              // activeTab==="all" 时保留分组小标题；选中单 tab 时把小标题去掉避免视觉重复。
+              const showGroupHeader = activeTab === "all";
+              return (
+                <div key={kind}>
+                  {showGroupHeader && (
+                    <div
+                      data-testid={`picker-group-${kind}`}
+                      className={`px-2 py-1 text-[10px] font-semibold uppercase ${palette.textClass}`}
+                    >
+                      {t(`reference_picker_group_${kind}`)}
+                    </div>
+                  )}
+                  {items.map((item) => {
+                    const globalIndex = indexByKey.get(`${kind}:${item.name}`) ?? -1;
+                    const active = globalIndex === clampedActive;
+                    // imagePath 是 project-relative 文件路径（如 "characters/foo.png"），用 API.getFileUrl
+                    // 转为可 fetch 的 URL；无 projectName 时回退圆点（测试环境常见）。
+                    const thumbUrl =
+                      item.imagePath && projectName
+                        ? API.getFileUrl(projectName, item.imagePath)
+                        : null;
+                    return (
+                      <button
+                        key={`${kind}:${item.name}`}
+                        id={optionId(kind, item.name)}
+                        type="button"
+                        role="option"
+                        aria-selected={active}
+                        onMouseMove={(e) => {
+                          lastPointerXY.current = { x: e.clientX, y: e.clientY };
+                          if (clampedActive !== globalIndex) setActiveIndex(globalIndex);
+                        }}
+                        onMouseEnter={(e) => {
+                          const last = lastPointerXY.current;
+                          if (last.x === e.clientX && last.y === e.clientY) return;
+                          lastPointerXY.current = { x: e.clientX, y: e.clientY };
+                          if (clampedActive !== globalIndex) setActiveIndex(globalIndex);
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => onSelect({ type: kind, name: item.name })}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors focus-visible:ring-1 focus-visible:ring-indigo-400 focus-visible:outline-none ${
+                          active ? "bg-indigo-500/15 text-indigo-200" : "text-gray-300 hover:bg-gray-900"
+                        }`}
+                      >
+                        {thumbUrl ? (
+                          <img
+                            src={thumbUrl}
+                            alt=""
+                            aria-hidden="true"
+                            loading="lazy"
+                            className={`h-7 w-7 shrink-0 rounded object-cover ${palette.borderClass} border`}
+                          />
+                        ) : (
+                          <span
+                            aria-hidden="true"
+                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded ${palette.bgClass} ${palette.borderClass} border`}
+                          >
+                            <span className={`h-2 w-2 rounded-full ${palette.bgClass} ${palette.borderClass} border`} />
+                          </span>
+                        )}
+                        <span className="truncate" title={item.name}>{item.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+        </div>
       </div>
-    </div>
+    </FloatingPortal>
   );
 }

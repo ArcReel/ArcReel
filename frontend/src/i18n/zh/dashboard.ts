@@ -494,6 +494,11 @@ export default {
   'reference_status_running': '生成中',
   'reference_status_ready': '已就绪',
   'reference_status_failed': '失败',
+  // #370 生成按钮反馈：optimistic 入队 / dedup / POST 失败 / 任务完成失败四态
+  'reference_generate_queued': '已加入生成队列',
+  'reference_generate_deduped': '该 Unit 已在队列中',
+  'reference_generate_request_failed': '生成请求失败：{{error}}',
+  'reference_generation_task_failed': 'Unit {{unitId}} 生成失败：{{reason}}',
   'episode_mode_switcher_label': '集级生成模式',
   'episode_mode_inherit_from_project': '继承项目设置',
   'episode_mode_switch_keep_data': '切换模式不会删除已生成的 units / scenes，可随时切回原模式继续。',

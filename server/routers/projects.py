@@ -39,6 +39,7 @@ from server.services.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
 )
+from server.services.project_cover import resolve_project_cover
 
 router = APIRouter()
 
@@ -353,14 +354,10 @@ async def list_projects(_user: CurrentUser):
                 # 尝试加载项目元数据
                 if manager.project_exists(name):
                     project = manager.load_project(name)
-                    # 获取缩略图（第一个分镜图）
-                    project_dir = manager.get_project_path(name)
-                    storyboards_dir = project_dir / "storyboards"
-                    thumbnail = None
-                    if storyboards_dir.exists():
-                        scene_images = sorted(storyboards_dir.glob("scene_*.png"))
-                        if scene_images:
-                            thumbnail = f"/api/v1/files/{name}/storyboards/{scene_images[0].name}"
+                    # 封面走 resolve_project_cover fallback 链：
+                    # video_thumbnail → storyboard_image → scene_sheet → character_sheet
+                    # —— 兼顾 reference / grid / storyboard 三种生成模式。
+                    thumbnail = resolve_project_cover(manager, name, project)
 
                     # 使用 StatusCalculator 计算进度（读时计算）
                     status = calculator.calculate_project_status(name, project)

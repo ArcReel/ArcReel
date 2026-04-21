@@ -375,6 +375,26 @@ describe("MentionPicker", () => {
     expect(tabEvent.defaultPrevented).toBe(true);
   });
 
+  // #368: FloatingPortal should render the listbox as a direct descendant of
+  // document.body (rather than inside the component's render container) so
+  // that ancestor `overflow: hidden` / stacking contexts can never clip it.
+  it("portals the listbox to document.body", () => {
+    const { container } = render(
+      <MentionPicker
+        open
+        query=""
+        candidates={{ character: [{ name: "a", imagePath: null }], scene: [], prop: [] }}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const listbox = screen.getByRole("listbox");
+    // listbox 不应出现在 render() 返回的测试容器子树里
+    expect(container.contains(listbox)).toBe(false);
+    // 但必须在 document.body 子树里
+    expect(document.body.contains(listbox)).toBe(true);
+  });
+
   it("does not close when pointerdown hits the anchorRef element", () => {
     function Host({ onClose }: { onClose: () => void }) {
       const anchorRef = useRef<HTMLButtonElement>(null);

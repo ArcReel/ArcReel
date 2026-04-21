@@ -493,6 +493,11 @@ export default {
   'reference_status_running': 'Running',
   'reference_status_ready': 'Ready',
   'reference_status_failed': 'Failed',
+  // #370 generate button feedback: optimistic queued / dedup / POST-failed / task-failed
+  'reference_generate_queued': 'Queued for generation',
+  'reference_generate_deduped': 'Already in the queue',
+  'reference_generate_request_failed': 'Generation request failed: {{error}}',
+  'reference_generation_task_failed': 'Unit {{unitId}} generation failed: {{reason}}',
   'episode_mode_switcher_label': 'Episode generation mode',
   'episode_mode_inherit_from_project': 'Inherit from project',
   'episode_mode_switch_keep_data': "Switching mode won't remove existing units / scenes — you can switch back anytime.",

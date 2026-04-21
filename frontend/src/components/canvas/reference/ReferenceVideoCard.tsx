@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Fragment, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { MENTION_PICKER_DEFAULT_ID, MentionPicker, type MentionCandidate } from "./MentionPicker";
 import { ASSET_COLORS, assetColor } from "./asset-colors";
@@ -23,18 +23,20 @@ const MENTION_SPAN_CLASS = "rounded-sm";
  *
  * anchor 只在 pickerOpen 下被使用（调用方传 null 时跳过插入）。为避免 anchor 的
  * inline-block 影响行内 layout，用 `w-0 h-[1em] inline-block align-baseline`。
+ *
+ * anchor 元素通过 callback ref 回传给调用方，再交给 floating-ui 做 portal 定位。
  */
 function renderHighlightedTokens(
   tokens: Token[],
   caretOffset: number | null,
-  anchorRef: RefObject<HTMLSpanElement | null>,
+  setAnchorEl: (el: HTMLSpanElement | null) => void,
 ): ReactNode {
   const out: ReactNode[] = [];
   let acc = 0;
   const anchorEl = caretOffset !== null ? (
     <span
       key="__caret_anchor__"
-      ref={anchorRef}
+      ref={setAnchorEl}
       aria-hidden="true"
       className="inline-block h-[1em] w-0 align-baseline"
     />
@@ -105,8 +107,11 @@ export function ReferenceVideoCard({
   const { t } = useTranslation("dashboard");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
-  const editorRef = useRef<HTMLDivElement>(null);
-  const caretAnchorRef = useRef<HTMLSpanElement>(null);
+  // caret anchor 通过 callback ref 转成 state，供 MentionPicker 的 floating-ui
+  // 作为参考元素。使用 state 而非 ref：floating-ui 的 `refs.setReference` 必须
+  // 在 reference 元素变更时感知到（初次 null → 挂载后的 span），state 变更会触发
+  // Picker 的 effect 重新 setReference。
+  const [anchorEl, setAnchorEl] = useState<HTMLSpanElement | null>(null);
 
   // 父层以 key={unit.unit_id} 让 React 自动 remount 本组件，所以这里只持有当前 unit
   // 的本地编辑态；切换 unit 时组件重建，initializer 会重新跑。
@@ -139,10 +144,9 @@ export function ReferenceVideoCard({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [activeOptionId, setActiveOptionId] = useState<string | null>(null);
-  // atStart 既影响 picker 定位（通过 caretAnchorRef 的 rect），又在 picker-select 时
-  // 定位 @ 插入点。用 state 以便 re-render 时 pre 能在正确位置插 caretAnchor，从而定位 picker。
+  // atStart 既决定 caret anchor 何时插入（picker 定位用），又在 picker-select 时
+  // 定位 @ 插入点。用 state 以便 re-render 时 pre 能在正确位置插 caret anchor。
   const [atStart, setAtStart] = useState<number | null>(null);
-  const [pickerPos, setPickerPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
   const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
     const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
@@ -281,31 +285,6 @@ export function ReferenceVideoCard({
     }
   };
 
-  // picker 跟随光标：pre 与 textarea 同 font/padding/leading，caretAnchor 在 pre 里
-  // 位于 atStart 前一个字符位置，getBoundingClientRect 给出的是光标视觉位置。
-  // 依赖：pickerOpen/atStart/currentText 任一变化都重算；编辑器容器尺寸变化不重算
-  // （用户边调窗边打 @ 的场景不常见，收益 vs ResizeObserver 复杂度不划算）。
-  useLayoutEffect(() => {
-    if (!pickerOpen) return;
-    const anchor = caretAnchorRef.current;
-    const editor = editorRef.current;
-    if (!anchor || !editor) return;
-    const ar = anchor.getBoundingClientRect();
-    const er = editor.getBoundingClientRect();
-    const PICKER_W = 256; // w-64
-    const PICKER_H = 288; // max-h-72 上界，用于 overflow 钳制
-    let top = ar.bottom - er.top + 2;
-    let left = Math.max(0, ar.left - er.left);
-    // 右溢出：picker 右边界超出容器时左移；若 top 也溢出（底部贴边），翻到光标上方。
-    if (left + PICKER_W > er.width) left = Math.max(0, er.width - PICKER_W - 4);
-    if (top + PICKER_H > er.height && ar.top - er.top > PICKER_H) {
-      top = ar.top - er.top - PICKER_H - 2;
-    }
-    // Layout 测量必须在 commit 后读 anchor 的 getBoundingClientRect；函数式 setter
-    // 同时满足 react-hooks/set-state-in-effect 规则并跳过值等价的无谓重渲。
-    setPickerPos((prev) => (prev.top === top && prev.left === left ? prev : { top, left }));
-  }, [pickerOpen, atStart, currentText]);
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="mb-1 flex items-center justify-between text-[11px] text-gray-500">
@@ -320,13 +299,13 @@ export function ReferenceVideoCard({
         </span>
       </div>
 
-      <div ref={editorRef} className="relative min-h-0 flex-1 rounded-md border border-gray-800 bg-gray-950/60">
+      <div className="relative min-h-0 flex-1 rounded-md border border-gray-800 bg-gray-950/60">
         <pre
           ref={preRef}
           aria-hidden
           className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words p-3 font-mono text-sm leading-6"
         >
-          {renderHighlightedTokens(tokens, pickerOpen ? atStart : null, caretAnchorRef)}
+          {renderHighlightedTokens(tokens, pickerOpen ? atStart : null, setAnchorEl)}
           {currentText.endsWith("\n") ? "\u200b" : null}
         </pre>
 
@@ -351,26 +330,22 @@ export function ReferenceVideoCard({
           className="absolute inset-0 h-full w-full resize-none bg-transparent p-3 font-mono text-sm leading-6 text-transparent caret-gray-200 placeholder:text-gray-600 focus:outline-none"
         />
 
-        {pickerOpen && (
-          <div
-            className="absolute z-20"
-            style={{ top: pickerPos.top, left: pickerPos.left }}
-          >
-            <MentionPicker
-              open
-              query={pickerQuery}
-              candidates={candidates}
-              projectName={projectName}
-              onSelect={handlePickerSelect}
-              onClose={() => {
-                setPickerOpen(false);
-                setPickerQuery("");
-                setAtStart(null);
-                setActiveOptionId(null);
-              }}
-              onActiveChange={setActiveOptionId}
-            />
-          </div>
+        {pickerOpen && anchorEl && (
+          <MentionPicker
+            open
+            query={pickerQuery}
+            candidates={candidates}
+            projectName={projectName}
+            anchorElement={anchorEl}
+            onSelect={handlePickerSelect}
+            onClose={() => {
+              setPickerOpen(false);
+              setPickerQuery("");
+              setAtStart(null);
+              setActiveOptionId(null);
+            }}
+            onActiveChange={setActiveOptionId}
+          />
         )}
       </div>
 

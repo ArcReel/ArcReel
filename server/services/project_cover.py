@@ -1,0 +1,96 @@
+"""
+项目封面选择器（读时计算）。
+
+在项目大厅列出项目时，按偏好顺序挑一个可用作封面的相对资源路径：
+
+    1. 已生成视频的首帧 `video_thumbnail`
+       —— storyboard 模式写在 `segments[*].generated_assets.video_thumbnail`，
+          reference 模式写在 `video_units[*].generated_assets.video_thumbnail`，
+          均由 `lib/thumbnail.extract_video_thumbnail` 在生成完成后抽出并落盘。
+       最能代表"项目当前产出进度"的资产，优先级最高。
+
+    2. 已生成的分镜图 `storyboard_image`
+       —— storyboard 模式还没完成视频、但已出分镜图时的次优选择；
+          reference 模式该字段永远为 None，自然跳过。
+
+    3. 场景参考图 `scene_sheet`
+       —— reference 模式核心兜底：即使一次视频都没生成，也能用一张场景设计图
+          展现项目美术风格。scene > character 是因为环境/空间感更像"封面"。
+
+    4. 角色参考图 `character_sheet`
+       —— 最后兜底，仅剧情向项目才可能缺 scene 保留 character。
+
+    5. None —— 前端渲染占位 FolderOpen 图标。
+
+与 `lib/status_calculator.py` 同走"读时计算、不存冗余"的约定：不往 project.json
+里写 `cover_thumbnail` 字段，每次 list_projects 按当前磁盘真相重新解析。
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from lib.project_manager import ProjectManager
+
+logger = logging.getLogger(__name__)
+
+
+def resolve_project_cover(
+    manager: ProjectManager,
+    project_name: str,
+    project: dict,
+) -> str | None:
+    """按偏好顺序挑第一个可用的封面路径，返回 `/api/v1/files/...` URL；全无则 None。"""
+
+    def _url(rel: str) -> str:
+        # 统一走 files 静态路由，不直接拼盘路径；相对路径原样透传给 FileResponse。
+        return f"/api/v1/files/{project_name}/{rel.lstrip('/')}"
+
+    # 第一趟：遍历所有 episode 的 script，先整体扫 video_thumbnail，再整体扫
+    # storyboard_image。两趟分开而不是在同一 item 上并列判断，是为了保证
+    # "任何一集有视频首帧" 都胜过 "仅有分镜图"，而不是被 episode 顺序锁死。
+    scripts: list[dict] = []
+    for ep in project.get("episodes") or []:
+        script_file = ep.get("script_file")
+        if not script_file:
+            continue
+        try:
+            scripts.append(manager.load_script(project_name, script_file))
+        except (FileNotFoundError, OSError, json.JSONDecodeError) as e:
+            # 剧本文件缺失 / 损坏不阻塞项目列表；仅记 debug，继续尝试其他集。
+            logger.debug("加载剧本失败 project=%s script=%s err=%s", project_name, script_file, e)
+            continue
+
+    def _iter_items(script: dict):
+        # 兼容 storyboard 的 segments 与 reference 的 video_units 两种集级结构。
+        return script.get("video_units") or script.get("segments") or []
+
+    for script in scripts:
+        for item in _iter_items(script):
+            ga = (item or {}).get("generated_assets") or {}
+            thumb = ga.get("video_thumbnail")
+            if thumb:
+                return _url(thumb)
+
+    for script in scripts:
+        for item in _iter_items(script):
+            ga = (item or {}).get("generated_assets") or {}
+            sb = ga.get("storyboard_image")
+            if sb:
+                return _url(sb)
+
+    # 项目级资产：scene > character（见模块 docstring 的抉择）
+    for data in (project.get("scenes") or {}).values():
+        sheet = (data or {}).get("scene_sheet")
+        if sheet:
+            return _url(sheet)
+
+    for data in (project.get("characters") or {}).values():
+        sheet = (data or {}).get("character_sheet")
+        if sheet:
+            return _url(sheet)
+
+    return None
