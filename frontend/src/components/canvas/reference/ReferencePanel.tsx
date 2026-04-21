@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   DndContext,
@@ -137,15 +137,10 @@ export function ReferencePanel({
   const { t } = useTranslation("dashboard");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
-  // addButton 既要走 anchorRef（给 MentionPicker 的 outside-pointerdown 例外判断用
-  // `current` contains），又要作为 floating-ui 的 reference 元素参与定位——后者必须
-  // 在元素挂载后触发 re-render，因此用 callback ref 同时写入 ref 和 state。
-  const addButtonRef = useRef<HTMLButtonElement>(null);
+  // addButton 作为 floating-ui 的 reference 元素参与定位；用 state（而非 ref）
+  // 是因为挂载后必须触发 re-render，以便 MentionPicker 的 setReference effect
+  // 能感知元素变更。同一元素也作为 outside-pointerdown 的例外目标（anchorElement）。
   const [addButtonEl, setAddButtonEl] = useState<HTMLButtonElement | null>(null);
-  const setAddButton = useCallback((el: HTMLButtonElement | null) => {
-    addButtonRef.current = el;
-    setAddButtonEl(el);
-  }, []);
   // Fine-grained subscriptions: depend on the specific slices we actually read,
   // so unrelated changes to currentProjectData don't force candidates to rebuild.
   const characters = useProjectsStore((s) => s.currentProjectData?.characters);
@@ -244,7 +239,7 @@ export function ReferencePanel({
           {t("reference_panel_title")}
         </span>
         <button
-          ref={setAddButton}
+          ref={setAddButtonEl}
           type="button"
           onClick={handleAddClick}
           aria-label={t("reference_panel_add")}
@@ -289,7 +284,6 @@ export function ReferencePanel({
           candidates={candidates}
           projectName={projectName}
           listboxId={PICKER_ID}
-          anchorRef={addButtonRef}
           anchorElement={addButtonEl}
           onSelect={(ref) => {
             onAdd(ref);

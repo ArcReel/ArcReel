@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   FloatingPortal,
@@ -12,6 +12,14 @@ import {
 import { assetColor } from "./asset-colors";
 import { API } from "@/api";
 import type { AssetKind } from "@/types/reference-video";
+
+// 为何不复用 `components/ui/Popover` + `hooks/useAnchoredPopover`（仓库约定
+// "所有弹出面板必须使用此组件"）：
+// 1) ReferenceVideoCard 的 caret-tracking 场景需要 element-as-state 锚点——
+//    useAnchoredPopover 基于 ref，`ref.current` 变更不会重新触发定位 effect。
+// 2) 本 picker 需要 floating-ui 的 `size` middleware 做 max-height 夹紧，
+//    useAnchoredPopover 未暴露该扩展点。
+// 将 Popover/useAnchoredPopover 迁移为 floating-ui 壳层属于独立 follow-up PR。
 
 /** Default DOM id for the listbox; paired with combobox aria-controls in ReferenceVideoCard. */
 export const MENTION_PICKER_DEFAULT_ID = "reference-editor-picker";
@@ -37,18 +45,19 @@ export interface MentionPickerProps {
   listboxId?: string;
   /** Called whenever the keyboard-active option changes; receives the option's DOM id (null when empty). */
   onActiveChange?: (optionId: string | null) => void;
-  /** Optional trigger element excluded from outside-pointerdown close so the caller's
-   * toggle button (open ↔ close) round-trips cleanly without a capture-phase race. */
-  anchorRef?: RefObject<HTMLElement | null>;
   /** Element the picker should anchor to. The picker is rendered via FloatingPortal
    * to document.body and uses floating-ui to flip/shift against this element — so
-   * ancestor overflow-hidden / stacking contexts cannot clip the popup. */
+   * ancestor overflow-hidden / stacking contexts cannot clip the popup.
+   * Also doubles as the outside-pointerdown exclusion target so a toggle button
+   * (open ↔ close) round-trips cleanly without a capture-phase race. */
   anchorElement?: HTMLElement | null;
 }
 
 function optionId(kind: AssetKind, name: string): string {
-  // 安全化：把 CSS 不友好字符替换，避免选择器查询出错
-  const safe = name.replace(/[^A-Za-z0-9_一-鿿-]/g, "_");
+  // 安全化：把 CSS 不友好字符替换，避免选择器查询出错。
+  // CJK 范围用 `一-鿿` unicode escape，与 utils/reference-mentions.ts
+  // 的 MENTION_RE 保持字面一致，便于 grep。
+  const safe = name.replace(/[^A-Za-z0-9_\u4e00-\u9fff-]/g, "_");
   return `reference-option-${kind}-${safe}`;
 }
 
@@ -72,7 +81,6 @@ export function MentionPicker({
   className,
   listboxId,
   onActiveChange,
-  anchorRef,
   anchorElement,
 }: MentionPickerProps) {
   const { t } = useTranslation("dashboard");
@@ -223,7 +231,7 @@ export function MentionPicker({
   // through `contains()`, and any event landing outside the listbox tree
   // (including the anchoring textarea) closes the picker.
   //
-  // 例外：调用方传入的 anchorRef（如 toggle 按钮）需排除，否则同一按钮点一下会先在
+  // 例外：anchorElement（如 toggle 按钮）需排除，否则同一按钮点一下会先在
   // capture 阶段 onClose()，再在 click 的 toggle 里读取 queued false 并翻回 true，
   // 结果用户无法用鼠标再按一次按钮关闭 picker。
   useEffect(() => {
@@ -233,12 +241,23 @@ export function MentionPicker({
       if (!el) return;
       if (!(e.target instanceof Node)) return;
       if (el.contains(e.target)) return;
-      if (anchorRef?.current?.contains(e.target)) return;
+      if (anchorElement?.contains(e.target)) return;
       onClose();
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [open, onClose, anchorRef]);
+  }, [open, onClose, anchorElement]);
+
+  // 合并 ref：既要维护本地 listboxRef（outside-pointerdown 用 contains 判定），
+  // 又要把浮层 DOM 给 floating-ui。每渲染一次 new function 会导致 React 先 detach
+  // 再 reattach → floating-ui 重新计算一遍，useCallback 稳定下来就只挂一次。
+  const setListboxRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      listboxRef.current = el;
+      refs.setFloating(el);
+    },
+    [refs],
+  );
 
   if (!open) return null;
 
@@ -247,10 +266,7 @@ export function MentionPicker({
   return (
     <FloatingPortal>
       <div
-        ref={(el) => {
-          listboxRef.current = el;
-          refs.setFloating(el);
-        }}
+        ref={setListboxRef}
         id={listboxId ?? MENTION_PICKER_DEFAULT_ID}
         role="listbox"
         aria-label={t("reference_picker_title")}
