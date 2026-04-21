@@ -29,7 +29,7 @@ class VersionManager:
     """版本管理器"""
 
     # 支持的资源类型
-    RESOURCE_TYPES = ("storyboards", "videos", "characters", "scenes", "props", "grids")
+    RESOURCE_TYPES = ("storyboards", "videos", "characters", "scenes", "props", "grids", "reference_videos")
 
     # 资源类型对应的文件扩展名
     EXTENSIONS = {
@@ -39,6 +39,7 @@ class VersionManager:
         "scenes": ".png",
         "props": ".png",
         "grids": ".png",
+        "reference_videos": ".mp4",
     }
 
     def __init__(self, project_path: Path):

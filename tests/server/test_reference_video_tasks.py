@@ -283,6 +283,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     参见 issue #364。
     """
     from lib.media_generator import MediaGenerator
+    from lib.version_manager import VersionManager
     from lib.video_backends.base import VideoCapabilities, VideoGenerationResult
     from server.services import reference_video_tasks as rvt
 
@@ -296,7 +297,10 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     )
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
-    # --- 内联假依赖，避开真实 DB / VersionManager ---
+    # 只 mock 最外层：VideoBackend（唯一的真外部依赖）+ UsageTracker/ConfigResolver
+    # （这俩摸 DB，测试无 DB）。VersionManager 用真实实现 —— 这样 VersionManager
+    # 自己的白名单（RESOURCE_TYPES / EXTENSIONS）也被这条路径守住，
+    # 任何一处三张注册表漏登记都会在此爆 ValueError。
     captured_requests: list = []
 
     class _FakeVideoBackend:
@@ -322,16 +326,6 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
                 generate_audio=False,
             )
 
-    class _FakeVersions:
-        def ensure_current_tracked(self, **_kwargs):
-            pass
-
-        def add_version(self, **_kwargs):
-            return 1
-
-        def get_versions(self, _rtype, _rid):
-            return {"versions": [{"created_at": "2026-04-21T10:00:00"}]}
-
     class _FakeUsage:
         async def start_call(self, **_kwargs):
             return 1
@@ -343,7 +337,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
         async def video_generate_audio(self, _project_name=None):
             return False
 
-    # object.__new__ 绕过 MediaGenerator.__init__（避开真实 DB session / VersionManager 文件）
+    # object.__new__ 绕过 MediaGenerator.__init__（避开 __init__ 里的 UsageTracker 对 DB 的初始化）
     real_gen = object.__new__(MediaGenerator)
     real_gen.project_path = proj_dir
     real_gen.project_name = "demo"
@@ -352,7 +346,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     real_gen._video_backend = _FakeVideoBackend()
     real_gen._user_id = "u1"
     real_gen._config = _FakeConfigResolver()
-    real_gen.versions = _FakeVersions()
+    real_gen.versions = VersionManager(proj_dir)
     real_gen.usage_tracker = _FakeUsage()
 
     async def _fake_get_media_generator(*_a, **_kw):
@@ -380,6 +374,10 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     assert (proj_dir / "reference_videos" / "E1U1.mp4").exists()
     assert result["file_path"] == "reference_videos/E1U1.mp4"
     assert result["video_uri"] == "uri-x"
+    # 真实 VersionManager 闭环：版本文件落入 versions/reference_videos/
+    version_dir = proj_dir / "versions" / "reference_videos"
+    assert version_dir.exists()
+    assert any(p.suffix == ".mp4" for p in version_dir.iterdir())
 
 
 @pytest.mark.asyncio
