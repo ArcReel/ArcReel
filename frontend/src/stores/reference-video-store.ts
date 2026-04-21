@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { errMsg } from "@/utils/async";
 import type { ReferenceResource, ReferenceVideoUnit, TransitionType } from "@/types";
 
 interface AddUnitPayload {
@@ -65,10 +66,6 @@ interface ReferenceVideoStore {
     episode: number,
     unitId: string,
   ) => string | undefined;
-}
-
-function errMsg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }
 
 // Composite key isolates debounce state per (project, episode, unit) — unit_id

@@ -6,30 +6,9 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { API } from "@/api";
-import type { ReferenceVideoUnit, TaskItem } from "@/types";
+import { makeTask } from "@/test/factories";
+import type { ReferenceVideoUnit } from "@/types";
 import type { ProjectData } from "@/types";
-
-function mkTask(overrides: Partial<TaskItem> = {}): TaskItem {
-  return {
-    task_id: "t1",
-    project_name: "proj",
-    task_type: "reference_video",
-    media_type: "video",
-    resource_id: "E1U1",
-    script_file: null,
-    payload: {},
-    status: "queued",
-    result: null,
-    error_message: null,
-    cancelled_by: null,
-    source: "webui",
-    queued_at: "2026-04-20T00:00:00Z",
-    started_at: null,
-    finished_at: null,
-    updated_at: "2026-04-20T00:00:00Z",
-    ...overrides,
-  };
-}
 
 function mkUnit(id: string, shotText = "x"): ReferenceVideoUnit {
   return {
@@ -214,7 +193,7 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
     // 第一轮 poll：任务处于 queued
     useTasksStore.setState({
-      tasks: [mkTask({ status: "queued", resource_id: "E1U1", task_id: "t-fail-1" })],
+      tasks: [makeTask({ status: "queued", resource_id: "E1U1", task_id: "t-fail-1" })],
     });
     // 等一个 tick 让 transition effect 把 queued 记入 prevStatus
     await new Promise((r) => setTimeout(r, 20));
@@ -222,7 +201,7 @@ describe("ReferenceVideoCanvas", () => {
     // 第二轮 poll：worker 把任务标记为 failed
     useTasksStore.setState({
       tasks: [
-        mkTask({
+        makeTask({
           status: "failed",
           error_message: "boom",
           resource_id: "E1U1",
@@ -246,7 +225,7 @@ describe("ReferenceVideoCanvas", () => {
     // 就把 DB 里的历史失败全 dump 回来"
     useTasksStore.setState({
       tasks: [
-        mkTask({
+        makeTask({
           status: "failed",
           error_message: "不支持的资源类型: reference_videos",
           resource_id: "E1U1",
@@ -269,17 +248,17 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
     // queued → failed 触发一次 toast
     useTasksStore.setState({
-      tasks: [mkTask({ status: "queued", resource_id: "E1U1", task_id: "t-once" })],
+      tasks: [makeTask({ status: "queued", resource_id: "E1U1", task_id: "t-once" })],
     });
     await new Promise((r) => setTimeout(r, 20));
     useTasksStore.setState({
-      tasks: [mkTask({ status: "failed", error_message: "x", resource_id: "E1U1", task_id: "t-once" })],
+      tasks: [makeTask({ status: "failed", error_message: "x", resource_id: "E1U1", task_id: "t-once" })],
     });
     await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
     // 清掉第一条 toast，模拟用户关掉后下一轮 poll 又带回同一失败记录
     useAppStore.setState({ toast: null });
     useTasksStore.setState({
-      tasks: [mkTask({ status: "failed", error_message: "x", resource_id: "E1U1", task_id: "t-once" })],
+      tasks: [makeTask({ status: "failed", error_message: "x", resource_id: "E1U1", task_id: "t-once" })],
     });
     await new Promise((r) => setTimeout(r, 20));
     expect(useAppStore.getState().toast).toBeNull();
