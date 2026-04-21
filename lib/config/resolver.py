@@ -203,8 +203,16 @@ class ConfigResolver:
 
         模式对齐 `_resolve_text_backend`：项目级 > 系统设置 > 系统默认 / auto。
         """
-        if project_name:
-            project = get_project_manager().load_project(project_name)
+        project = get_project_manager().load_project(project_name) if project_name else None
+        return await self._resolve_video_backend_from_project(svc, session, project)
+
+    async def _resolve_video_backend_from_project(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        project: dict | None,
+    ) -> tuple[str, str]:
+        if project is not None:
             project_val = project.get("video_backend")
             if project_val and isinstance(project_val, str) and "/" in project_val:
                 return ConfigService._parse_backend(project_val, _DEFAULT_VIDEO_BACKEND)
@@ -217,7 +225,8 @@ class ConfigResolver:
         project_name: str | None,
     ) -> dict:
         """按两步解析：先选 model，再读 model 能力。"""
-        provider_id, model_id = await self._resolve_video_backend(svc, session, project_name)
+        project = get_project_manager().load_project(project_name) if project_name else None
+        provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
 
         if is_custom_provider(provider_id):
             source = "custom"
@@ -260,8 +269,7 @@ class ConfigResolver:
         default_duration: int | None = None
         content_mode: str | None = None
         generation_mode: str | None = None
-        if project_name:
-            project = get_project_manager().load_project(project_name)
+        if project is not None:
             raw_default = project.get("default_duration")
             if isinstance(raw_default, int):
                 default_duration = raw_default

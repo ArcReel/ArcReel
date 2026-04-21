@@ -94,4 +94,4 @@ def test_script_missing_project_exits_nonzero() -> None:
     result = _run(f"nonexistent-{uuid4().hex[:8]}")
     assert result.returncode != 0
     assert result.stdout == ""
-    assert "不存在" in result.stderr or "not found" in result.stderr
+    assert "未找到" in result.stderr

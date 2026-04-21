@@ -661,7 +661,7 @@ class TestGetVideoCapabilities:
             assert resp.json() == fake_caps
 
     def test_unknown_project_returns_404(self, tmp_path, monkeypatch):
-        self._patch_resolver(monkeypatch, return_value={})
+        self._patch_resolver(monkeypatch, side_effect=FileNotFoundError("项目 'nonexistent' 不存在"))
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
         with client:
             resp = client.get("/api/v1/projects/nonexistent/video-capabilities")

@@ -11,20 +11,29 @@ normalize_drama_script.py - 使用 Gemini Pro 生成规范化剧本
     python normalize_drama_script.py --episode <N> --dry-run
 """
 
+from __future__ import annotations
+
 import argparse
+import asyncio
+import logging
 import sys
 from pathlib import Path
 
-# 允许从仓库任意工作目录直接运行该脚本
-PROJECT_ROOT = Path(__file__).resolve().parents[4]  # .claude/skills/generate-script/scripts -> repo root
+# parents[4] 对应 repo root，相对路径 agent_runtime_profile/.claude/skills/generate-script/scripts/
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import asyncio
+from lib.config.resolver import ConfigResolver  # noqa: E402
+from lib.db import async_session_factory  # noqa: E402
+from lib.project_manager import ProjectManager  # noqa: E402
+from lib.text_backends.base import TextGenerationRequest, TextTaskType  # noqa: E402
+from lib.text_backends.factory import create_text_backend_for_task  # noqa: E402
 
-from lib.project_manager import ProjectManager
-from lib.text_backends.base import TextGenerationRequest, TextTaskType
-from lib.text_backends.factory import create_text_backend_for_task
+logger = logging.getLogger(__name__)
+
+# caps 查询失败时的安全 fallback；避免给 LLM 错误的秒数锚点。
+_FALLBACK_SUPPORTED_DURATIONS = [4, 6, 8]
 
 
 def build_normalize_prompt(
@@ -34,12 +43,35 @@ def build_normalize_prompt(
     characters: dict,
     scenes: dict,
     props: dict,
+    default_duration: int | None,
+    supported_durations: list[int],
 ) -> str:
-    """构建规范化剧本的 Prompt"""
+    """构建规范化剧本的 Prompt
 
+    Args:
+        default_duration: 用户项目偏好（project.json.default_duration），None 表示未设置
+        supported_durations: 当前视频模型允许的单场景时长取值集合
+    """
     char_list = "\n".join(f"- {name}" for name in characters.keys()) or "（暂无）"
     scene_list = "\n".join(f"- {name}" for name in scenes.keys()) or "（暂无）"
     prop_list = "\n".join(f"- {name}" for name in props.keys()) or "（暂无）"
+
+    durations_str = ", ".join(str(d) for d in supported_durations) if supported_durations else "—"
+    max_dur = max(supported_durations) if supported_durations else None
+
+    if default_duration is not None and max_dur is not None:
+        duration_rules = (
+            f"- 时长：只能取 {durations_str} 中的值（该视频模型支持的秒数集合）\n"
+            f"- 每场景默认 {default_duration} 秒；打斗、大场面、情绪铺陈等画面可取更长值至上限 {max_dur} 秒，"
+            "不要默认挑最短值"
+        )
+    elif max_dur is not None:
+        duration_rules = (
+            f"- 时长：只能取 {durations_str} 中的值（该视频模型支持的秒数集合）\n"
+            f"- 按画面内容复杂度匹配合适时长（最长 {max_dur} 秒），不强制默认值"
+        )
+    else:
+        duration_rules = f"- 时长：只能取 {durations_str} 中的值"
 
     return f"""你的任务是将小说原文改编为结构化的分镜场景表（Markdown 格式），用于后续 AI 视频生成。
 
@@ -81,13 +113,13 @@ def build_normalize_prompt(
 
 | 场景 ID | 场景描述 | 时长 | 场景类型 | segment_break |
 |---------|---------|------|---------|---------------|
-| E{{N}}S01 | 详细的场景描述... | 8 | 剧情 | 是 |
-| E{{N}}S02 | 详细的场景描述... | 8 | 对话 | 否 |
+| E{{N}}S01 | 详细的场景描述... | <duration> | 剧情 | 是 |
+| E{{N}}S02 | 详细的场景描述... | <duration> | 对话 | 否 |
 
 规则：
 - 场景 ID 格式：E{{集数}}S{{两位序号}}（如 E1S01, E1S02）
 - 场景描述：改编后的剧本化描述，包含角色动作、对话、环境，适合视觉化呈现
-- 时长：4、6 或 8 秒（默认 8 秒，简单画面可用 4 或 6 秒）
+{duration_rules}
 - 场景类型：剧情、动作、对话、过渡、空镜
 - segment_break：场景切换点标记"是"，同一连续场景标"否"
 - 每个场景应为一个独立的视觉画面，可以在指定时长内完成
@@ -97,7 +129,29 @@ def build_normalize_prompt(
 """
 
 
-def main():
+async def _fetch_video_caps(project_name: str) -> tuple[int | None, list[int]]:
+    """查 ConfigResolver 拿 (default_duration, supported_durations)。
+
+    查询失败（video_backend 未配置、model 找不到、DB 不可达等）时返回 fallback，
+    以便 dry-run / 无 backend 项目仍能跑通，只是秒数规则退化为通用值。
+    """
+    resolver = ConfigResolver(async_session_factory)
+    try:
+        caps = await resolver.video_capabilities(project_name)
+    except (FileNotFoundError, ValueError) as exc:
+        logger.info("video_capabilities 不可解析，使用 fallback [4,6,8]：%s", exc)
+        return None, list(_FALLBACK_SUPPORTED_DURATIONS)
+    except Exception as exc:  # noqa: BLE001 — DB/网络异常也降级，不阻塞 dry-run
+        logger.warning("video_capabilities 查询异常，使用 fallback [4,6,8]：%s", exc)
+        return None, list(_FALLBACK_SUPPORTED_DURATIONS)
+
+    durations = list(caps.get("supported_durations") or []) or list(_FALLBACK_SUPPORTED_DURATIONS)
+    default = caps.get("default_duration")
+    default_int = int(default) if isinstance(default, int) else None
+    return default_int, durations
+
+
+async def amain() -> None:
     parser = argparse.ArgumentParser(
         description="使用 Gemini Pro 生成规范化剧本",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -121,12 +175,10 @@ def main():
 
     args = parser.parse_args()
 
-    # 构建项目路径
     pm, project_name = ProjectManager.from_cwd()
     project_path = pm.get_project_path(project_name)
     project = pm.load_project(project_name)
 
-    # 读取小说原文
     if args.source:
         source_path = (project_path / args.source).resolve()
         if not source_path.is_relative_to(project_path.resolve()):
@@ -141,7 +193,6 @@ def main():
         if not source_dir.exists() or not any(source_dir.iterdir()):
             print(f"❌ source/ 目录为空或不存在: {source_dir}")
             sys.exit(1)
-        # 按文件名排序读取所有文本文件
         texts = []
         for f in sorted(source_dir.iterdir()):
             if f.suffix in (".txt", ".md", ".text"):
@@ -152,7 +203,8 @@ def main():
         print("❌ 小说原文为空")
         sys.exit(1)
 
-    # 构建 Prompt
+    default_duration, supported_durations = await _fetch_video_caps(project_name)
+
     prompt = build_normalize_prompt(
         novel_text=novel_text,
         project_overview=project.get("overview", {}),
@@ -160,6 +212,8 @@ def main():
         characters=project.get("characters", {}),
         scenes=project.get("scenes", {}),
         props=project.get("props", {}),
+        default_duration=default_duration,
+        supported_durations=supported_durations,
     )
 
     if args.dry_run:
@@ -171,16 +225,11 @@ def main():
         print(f"\nPrompt 长度: {len(prompt)} 字符")
         return
 
-    # 调用 TextBackend
-    async def _run():
-        backend = await create_text_backend_for_task(TextTaskType.SCRIPT)
-        print(f"正在使用 {backend.model} 生成规范化剧本...")
-        result = await backend.generate(TextGenerationRequest(prompt=prompt, max_output_tokens=16000))
-        return result.text
+    backend = await create_text_backend_for_task(TextTaskType.SCRIPT)
+    print(f"正在使用 {backend.model} 生成规范化剧本...")
+    result = await backend.generate(TextGenerationRequest(prompt=prompt, max_output_tokens=16000))
+    response = result.text
 
-    response = asyncio.run(_run())
-
-    # 保存文件
     drafts_dir = project_path / "drafts" / f"episode_{args.episode}"
     drafts_dir.mkdir(parents=True, exist_ok=True)
 
@@ -188,7 +237,6 @@ def main():
     step1_path.write_text(response.strip(), encoding="utf-8")
     print(f"✅ 规范化剧本已保存: {step1_path}")
 
-    # 简要统计
     lines = [
         line
         for line in response.split("\n")
@@ -199,4 +247,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(amain())

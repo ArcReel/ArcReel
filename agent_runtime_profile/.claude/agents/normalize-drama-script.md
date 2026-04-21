@@ -23,6 +23,24 @@ description: "剧集动画模式单集规范化剧本 subagent（drama 模式专
 
 ## 工作流程
 
+### Step 0: 查视频模型能力与用户偏好
+
+用 Bash 工具执行：
+
+```bash
+python .claude/skills/manage-project/scripts/get_video_capabilities.py --project {项目名}
+```
+
+解析 stdout JSON，记录：
+- `supported_durations`：单场景时长允许取值集合
+- `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
+- `max_duration`：当前视频模型单场景时长上限
+
+情况 A（首次生成）时由 `normalize_drama_script.py` 自行查询并注入 prompt，subagent 可不直接使用；
+情况 B（修改已有剧本调整时长）必须参考这些值决定新值。
+
+若脚本退出非 0，停止并把 stderr 报告给主 agent。
+
 ### 情况 A：首次生成规范化剧本
 
 如果 `drafts/episode_{N}/step1_normalized_script.md` 不存在：
@@ -91,13 +109,15 @@ python .claude/skills/generate-script/scripts/normalize_drama_script.py --episod
 ```markdown
 | 场景 ID | 场景描述 | 时长 | 场景类型 | segment_break |
 |---------|---------|------|---------|---------------|
-| E1S01 | 竹林深处，晨雾弥漫。青年剑客李明手持长剑，缓缓踏入林间，目光坚定。 | 8 | 剧情 | 是 |
-| E1S02 | 李明凝视着竹林深处，若有所思。"师父，我回来了。" | 6 | 对话 | 否 |
+| E1S01 | 竹林深处，晨雾弥漫。青年剑客李明手持长剑，缓缓踏入林间，目光坚定。 | <duration> | 剧情 | 是 |
+| E1S02 | 李明凝视着竹林深处，若有所思。"师父，我回来了。" | <duration> | 对话 | 否 |
 ```
+
+> 填值规则：`<duration>` 必须取自 Step 0 查得的 `supported_durations`。
 
 ## 注意事项
 
 - 场景 ID 格式：E{集数}S{两位序号}（如 E1S01）
 - 每个场景应为一个独立的视觉画面，可在指定时长内完成
-- 时长只取 4、6、8 秒三种值
+- 时长取自 Step 0 查得的 `supported_durations`；贴近 `default_duration`，复杂画面（打斗/大场面/情绪铺陈）可选更长值，不超过 `max_duration`
 - segment_break 标记真正的镜头切换点（场景、时间、地点的重大变化）

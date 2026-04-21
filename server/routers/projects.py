@@ -492,12 +492,11 @@ async def get_video_capabilities(
     并派生 `max_duration`；同时带回 `project.json.default_duration`（用户偏好）。
     所有 generation_mode（storyboard/grid/reference_video）都可复用。
     """
-    manager = get_project_manager()
-    if not manager.project_exists(name):
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
     resolver = ConfigResolver(async_session_factory)
     try:
         return await resolver.video_capabilities(name)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name)) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=422,

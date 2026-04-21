@@ -24,15 +24,16 @@ import json
 import sys
 from pathlib import Path
 
-# 允许从仓库任意工作目录直接运行该脚本
-# 文件路径：{repo_root}/agent_runtime_profile/.claude/skills/manage-project/scripts/get_video_capabilities.py
-# parents[5] 对应 repo root
+# parents[5] 对应 repo root，相对路径 agent_runtime_profile/.claude/skills/manage-project/scripts/
 PROJECT_ROOT = Path(__file__).resolve().parents[5]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from lib.config.resolver import ConfigResolver  # noqa: E402
 from lib.db import async_session_factory  # noqa: E402
+
+_EXIT_PROJECT_NOT_FOUND = 2
+_EXIT_CAPABILITY_UNRESOLVED = 3
 
 
 async def _resolve(project_name: str) -> dict:
@@ -49,10 +50,10 @@ def main() -> None:
         payload = asyncio.run(_resolve(args.project))
     except FileNotFoundError as exc:
         print(f"项目未找到或缺 project.json: {exc}", file=sys.stderr)
-        sys.exit(2)
+        sys.exit(_EXIT_PROJECT_NOT_FOUND)
     except ValueError as exc:
         print(f"无法解析视频模型能力: {exc}", file=sys.stderr)
-        sys.exit(3)
+        sys.exit(_EXIT_CAPABILITY_UNRESOLVED)
 
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
