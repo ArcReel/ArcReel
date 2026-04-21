@@ -1,9 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { MENTION_PICKER_DEFAULT_ID, MentionPicker, type MentionCandidate } from "./MentionPicker";
 import { ASSET_COLORS, assetColor } from "./asset-colors";
-import { useShotPromptHighlight, type MentionLookup } from "@/hooks/useShotPromptHighlight";
-import { mergeReferences } from "@/utils/reference-mentions";
+import { useShotPromptHighlight, type MentionLookup, type Token } from "@/hooks/useShotPromptHighlight";
+import { mergeReferences, MENTION_RE } from "@/utils/reference-mentions";
 import { useProjectsStore } from "@/stores/projects-store";
 import {
   SHEET_FIELD,
@@ -11,6 +11,70 @@ import {
   type ReferenceResource,
   type ReferenceVideoUnit,
 } from "@/types/reference-video";
+
+// mention 胶囊改用 inline box-shadow 伪描边 + 背景色，不额外占宽：以前用 `px-0.5`
+// 每遇到一个 mention 视觉层比 textarea 字符宽度多 4px，导致光标定位与可见字符偏移。
+// 该类只应用颜色/背景/圆角，不改变盒模型宽度。
+const MENTION_SPAN_CLASS = "rounded-sm";
+
+/**
+ * 渲染 pre 层的 token span 串；当 caretOffset 命中某个 token 内部或边界时，在该位置
+ * 切一刀并插入一个零尺寸 caret anchor（给 picker 定位用）。
+ *
+ * anchor 只在 pickerOpen 下被使用（调用方传 null 时跳过插入）。为避免 anchor 的
+ * inline-block 影响行内 layout，用 `w-0 h-[1em] inline-block align-baseline`。
+ */
+function renderHighlightedTokens(
+  tokens: Token[],
+  caretOffset: number | null,
+  anchorRef: RefObject<HTMLSpanElement | null>,
+): ReactNode {
+  const out: ReactNode[] = [];
+  let acc = 0;
+  const anchorEl = caretOffset !== null ? (
+    <span
+      key="__caret_anchor__"
+      ref={anchorRef}
+      aria-hidden="true"
+      className="inline-block h-[1em] w-0 align-baseline"
+    />
+  ) : null;
+
+  const renderPiece = (tk: Token, sliceText: string, key: string): ReactNode => {
+    if (sliceText.length === 0) return null;
+    if (tk.kind === "shot_header") {
+      return <span key={key} className="font-semibold text-indigo-300">{sliceText}</span>;
+    }
+    if (tk.kind === "mention") {
+      const palette = assetColor(tk.assetKind);
+      return (
+        <span key={key} className={`${MENTION_SPAN_CLASS} ${palette.textClass} ${palette.bgClass}`}>
+          {sliceText}
+        </span>
+      );
+    }
+    return <span key={key}>{sliceText}</span>;
+  };
+
+  let inserted = false;
+  tokens.forEach((tk, i) => {
+    const nextAcc = acc + tk.text.length;
+    if (!inserted && caretOffset !== null && caretOffset >= acc && caretOffset <= nextAcc) {
+      const local = caretOffset - acc;
+      out.push(<Fragment key={`pre-${i}`}>{renderPiece(tk, tk.text.slice(0, local), `pre-${i}`)}</Fragment>);
+      if (anchorEl) out.push(anchorEl);
+      out.push(<Fragment key={`post-${i}`}>{renderPiece(tk, tk.text.slice(local), `post-${i}`)}</Fragment>);
+      inserted = true;
+    } else {
+      out.push(<Fragment key={`t-${i}`}>{renderPiece(tk, tk.text, `t-${i}`)}</Fragment>);
+    }
+    acc = nextAcc;
+  });
+  if (!inserted && anchorEl && caretOffset !== null && caretOffset >= acc) {
+    out.push(anchorEl);
+  }
+  return out;
+}
 
 export interface ReferenceVideoCardProps {
   unit: ReferenceVideoUnit;
@@ -34,13 +98,15 @@ function unitPromptText(unit: ReferenceVideoUnit): string {
 
 export function ReferenceVideoCard({
   unit,
-  projectName: _projectName,
+  projectName,
   episode: _episode,
   onChangePrompt,
 }: ReferenceVideoCardProps) {
   const { t } = useTranslation("dashboard");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const caretAnchorRef = useRef<HTMLSpanElement>(null);
 
   // 父层以 key={unit.unit_id} 让 React 自动 remount 本组件，所以这里只持有当前 unit
   // 的本地编辑态；切换 unit 时组件重建，initializer 会重新跑。
@@ -73,7 +139,10 @@ export function ReferenceVideoCard({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [activeOptionId, setActiveOptionId] = useState<string | null>(null);
-  const atStartRef = useRef<number | null>(null);
+  // atStart 既影响 picker 定位（通过 caretAnchorRef 的 rect），又在 picker-select 时
+  // 定位 @ 插入点。用 state 以便 re-render 时 pre 能在正确位置插 caretAnchor，从而定位 picker。
+  const [atStart, setAtStart] = useState<number | null>(null);
+  const [pickerPos, setPickerPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
   const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
     const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
@@ -101,25 +170,30 @@ export function ReferenceVideoCard({
   );
 
   const updatePickerFromCursor = useCallback((nextValue: string, cursor: number) => {
+    // 向左扫描寻找 @ 触发符；仅当 @ 到 cursor 之间全是 mention 合法字符（`\w` + CJK，
+    // 即 MENTION_RE 中 `[\w一-鿿]+` 的字符集）时才算"正在输入的 mention"。
+    // 之前用 `/\s/` 判 break 漏掉了中文标点——"眼@。|" 会被当成 @ 起点、query="。"，
+    // 打开一个永远无匹配的空 picker。
     let i = cursor - 1;
     while (i >= 0) {
       const ch = nextValue[i];
       if (ch === "@") {
         const prev = nextValue[i - 1];
-        // 与 MENTION_RE `(?<!\w)` 对齐：@ 左侧不能是 ASCII 词字符，否则视为 email/id
-        // 残片。中文标点、空白、CJK、行首都满足"非 \w"，不会误拦截。
+        // 与 MENTION_RE `(?<!\w)` 对齐：@ 左侧不能是 ASCII 词字符，否则视为 email/id 残片。
         if (i === 0 || !/\w/.test(prev ?? "")) {
-          atStartRef.current = i;
+          setAtStart(i);
           setPickerQuery(nextValue.slice(i + 1, cursor));
           setPickerOpen(true);
           return;
         }
         break;
       }
-      if (/\s/.test(ch)) break;
+      // 非 mention-valid 字符（含空白、中英标点）一律视作分隔符，立即 break。
+      // `一-鿿` 基本 CJK 区；与 MENTION_RE 的字符集保持一致。
+      if (!/[\w一-鿿]/.test(ch)) break;
       i--;
     }
-    atStartRef.current = null;
+    setAtStart(null);
     setPickerOpen(false);
     setPickerQuery("");
   }, []);
@@ -142,14 +216,40 @@ export function ReferenceVideoCard({
     // "focus left the editor" transitions — safe to close synchronously.
     setPickerOpen(false);
     setPickerQuery("");
-    atStartRef.current = null;
+    setAtStart(null);
     setActiveOptionId(null);
+  }, []);
+
+  // Backspace 两次删除：当光标紧挨在一个完整 @mention 的末尾且无选区时，
+  // 第一次退格仅选中该 mention（让用户看到高亮），默认行为不删除；第二次按下时
+  // selectionStart !== selectionEnd，浏览器默认就会删除整个选区。
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== "Backspace") return;
+    const ta = e.currentTarget;
+    const start = ta.selectionStart ?? 0;
+    const end = ta.selectionEnd ?? 0;
+    if (start !== end) return;
+    const text = ta.value;
+    // 向左扫到最近的 @，用 MENTION_RE 判断它是否是一个完整 mention。
+    // 限制扫描范围（光标前 64 字符）避免长文本里 O(n) 扫每次 backspace。
+    const scanFrom = Math.max(0, start - 64);
+    const slice = text.slice(scanFrom, start);
+    for (const m of slice.matchAll(MENTION_RE)) {
+      const localIdx = m.index ?? 0;
+      const absoluteStart = scanFrom + localIdx;
+      const absoluteEnd = absoluteStart + m[0].length;
+      if (absoluteEnd === start) {
+        e.preventDefault();
+        ta.setSelectionRange(absoluteStart, absoluteEnd);
+        return;
+      }
+    }
   }, []);
 
   const handlePickerSelect = useCallback(
     (ref: { type: AssetKind; name: string }) => {
       const ta = taRef.current;
-      const start = atStartRef.current;
+      const start = atStart;
       if (!ta || start === null) {
         setPickerOpen(false);
         return;
@@ -163,7 +263,7 @@ export function ReferenceVideoCard({
       emitChange(next);
       setPickerOpen(false);
       setPickerQuery("");
-      atStartRef.current = null;
+      setAtStart(null);
       setActiveOptionId(null);
       requestAnimationFrame(() => {
         ta.focus();
@@ -171,7 +271,7 @@ export function ReferenceVideoCard({
         ta.setSelectionRange(pos, pos);
       });
     },
-    [currentText, setCurrentText, emitChange],
+    [currentText, atStart, setCurrentText, emitChange],
   );
 
   const onScroll = () => {
@@ -180,6 +280,31 @@ export function ReferenceVideoCard({
       preRef.current.scrollLeft = taRef.current.scrollLeft;
     }
   };
+
+  // picker 跟随光标：pre 与 textarea 同 font/padding/leading，caretAnchor 在 pre 里
+  // 位于 atStart 前一个字符位置，getBoundingClientRect 给出的是光标视觉位置。
+  // 依赖：pickerOpen/atStart/currentText 任一变化都重算；编辑器容器尺寸变化不重算
+  // （用户边调窗边打 @ 的场景不常见，收益 vs ResizeObserver 复杂度不划算）。
+  useLayoutEffect(() => {
+    if (!pickerOpen) return;
+    const anchor = caretAnchorRef.current;
+    const editor = editorRef.current;
+    if (!anchor || !editor) return;
+    const ar = anchor.getBoundingClientRect();
+    const er = editor.getBoundingClientRect();
+    const PICKER_W = 256; // w-64
+    const PICKER_H = 288; // max-h-72 上界，用于 overflow 钳制
+    let top = ar.bottom - er.top + 2;
+    let left = Math.max(0, ar.left - er.left);
+    // 右溢出：picker 右边界超出容器时左移；若 top 也溢出（底部贴边），翻到光标上方。
+    if (left + PICKER_W > er.width) left = Math.max(0, er.width - PICKER_W - 4);
+    if (top + PICKER_H > er.height && ar.top - er.top > PICKER_H) {
+      top = ar.top - er.top - PICKER_H - 2;
+    }
+    // Layout 测量必须在 commit 后读 anchor 的 getBoundingClientRect；函数式 setter
+    // 同时满足 react-hooks/set-state-in-effect 规则并跳过值等价的无谓重渲。
+    setPickerPos((prev) => (prev.top === top && prev.left === left ? prev : { top, left }));
+  }, [pickerOpen, atStart, currentText]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -195,30 +320,13 @@ export function ReferenceVideoCard({
         </span>
       </div>
 
-      <div className="relative min-h-0 flex-1 rounded-md border border-gray-800 bg-gray-950/60">
+      <div ref={editorRef} className="relative min-h-0 flex-1 rounded-md border border-gray-800 bg-gray-950/60">
         <pre
           ref={preRef}
           aria-hidden
           className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words p-3 font-mono text-sm leading-6"
         >
-          {tokens.map((tk, i) => {
-            if (tk.kind === "shot_header") {
-              return (
-                <span key={i} className="font-semibold text-indigo-300">
-                  {tk.text}
-                </span>
-              );
-            }
-            if (tk.kind === "mention") {
-              const palette = assetColor(tk.assetKind);
-              return (
-                <span key={i} className={`rounded px-0.5 ${palette.textClass} ${palette.bgClass}`}>
-                  {tk.text}
-                </span>
-              );
-            }
-            return <span key={i}>{tk.text}</span>;
-          })}
+          {renderHighlightedTokens(tokens, pickerOpen ? atStart : null, caretAnchorRef)}
           {currentText.endsWith("\n") ? "\u200b" : null}
         </pre>
 
@@ -227,6 +335,7 @@ export function ReferenceVideoCard({
           value={currentText}
           onChange={handleChange}
           onKeyUp={handleCursorUpdate}
+          onKeyDown={handleKeyDown}
           onClick={handleCursorUpdate}
           onBlur={handleTextareaBlur}
           onScroll={onScroll}
@@ -243,16 +352,20 @@ export function ReferenceVideoCard({
         />
 
         {pickerOpen && (
-          <div className="absolute bottom-1 left-3 z-20">
+          <div
+            className="absolute z-20"
+            style={{ top: pickerPos.top, left: pickerPos.left }}
+          >
             <MentionPicker
               open
               query={pickerQuery}
               candidates={candidates}
+              projectName={projectName}
               onSelect={handlePickerSelect}
               onClose={() => {
                 setPickerOpen(false);
                 setPickerQuery("");
-                atStartRef.current = null;
+                setAtStart(null);
                 setActiveOptionId(null);
               }}
               onActiveChange={setActiveOptionId}

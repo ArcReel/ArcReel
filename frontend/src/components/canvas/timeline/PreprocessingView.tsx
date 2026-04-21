@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useId } from "react";
+import { useState, useEffect, useCallback, useId, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Edit3, Save, X } from "lucide-react";
 import { API } from "@/api";
@@ -6,16 +6,37 @@ import { voidPromise } from "@/utils/async";
 import { useAppStore } from "@/stores/app-store";
 import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
 
+/** Editing 控制 + 状态，`renderToolbar` 用这个接口把 toolbar 渲染抬升给调用方。 */
+export interface PreprocessingToolbarContext {
+  editing: boolean;
+  saving: boolean;
+  startEdit: () => void;
+  save: () => void;
+  cancel: () => void;
+}
+
 interface PreprocessingViewProps {
   projectName: string;
   episode: number;
   contentMode: "narration" | "drama" | "reference_video";
+  /**
+   * 紧凑模式：隐藏"● {statusLabel}"辅助行（当上层已显示同等语义的 page header 时避免重复），
+   * 并用更克制的 markdown typography（h1/h2 字号下调、去除 h1 下划线）。
+   */
+  compact?: boolean;
+  /**
+   * 可选 render prop：把 edit/save/cancel 控件抬到调用方（比如页面 header 右侧），
+   * 组件内部就不再渲染默认 toolbar 行。narration/drama 不传走默认，行为不变。
+   */
+  renderToolbar?: (ctx: PreprocessingToolbarContext) => ReactNode;
 }
 
 export function PreprocessingView({
   projectName,
   episode,
   contentMode,
+  compact = false,
+  renderToolbar,
 }: PreprocessingViewProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -67,6 +88,11 @@ export function PreprocessingView({
     }
   }, [projectName, episode, editContent, pushToast, t]);
 
+  const cancelEdit = useCallback(() => {
+    setEditing(false);
+    setEditContent(content ?? "");
+  }, [content]);
+
   const statusLabel =
     contentMode === "narration"
       ? t("dashboard:segment_split_complete")
@@ -90,50 +116,69 @@ export function PreprocessingView({
     );
   }
 
-  return (
-    <div className="flex flex-col gap-3">
-      {/* Status bar */}
-      <div className="flex items-center justify-between">
+  // 当调用方接管 toolbar 时，仍把 statusLabel 以 sr-only 形式保留，供 textarea 的 aria-labelledby 引用
+  // （保持 a11y 结构稳定）。内置 toolbar 仅在没有 renderToolbar 时渲染。
+  const defaultToolbar = (
+    <div className="flex items-center justify-between">
+      {compact ? (
+        <span id={statusLabelId} className="sr-only">{statusLabel}</span>
+      ) : (
         <div className="flex items-center gap-2">
           <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
           <span id={statusLabelId} className="text-xs text-gray-500">{statusLabel}</span>
         </div>
-        <div className="flex items-center gap-1">
-          {editing ? (
-            <>
-              <button
-                type="button"
-                onClick={voidPromise(handleSave)}
-                disabled={saving}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-green-400 transition-colors hover:bg-gray-800 disabled:opacity-50"
-              >
-                <Save className="h-3.5 w-3.5" />
-                {saving ? t("common:saving") : t("common:save")}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditing(false);
-                  setEditContent(content);
-                }}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800"
-              >
-                <X className="h-3.5 w-3.5" />
-                {t("common:cancel")}
-              </button>
-            </>
-          ) : (
+      )}
+      <div className="flex items-center gap-1">
+        {editing ? (
+          <>
             <button
               type="button"
-              onClick={() => setEditing(true)}
-              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+              onClick={voidPromise(handleSave)}
+              disabled={saving}
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-green-400 transition-colors hover:bg-gray-800 disabled:opacity-50"
             >
-              <Edit3 className="h-3.5 w-3.5" />
-              {t("common:edit")}
+              <Save className="h-3.5 w-3.5" />
+              {saving ? t("common:saving") : t("common:save")}
             </button>
-          )}
-        </div>
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800"
+            >
+              <X className="h-3.5 w-3.5" />
+              {t("common:cancel")}
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+          >
+            <Edit3 className="h-3.5 w-3.5" />
+            {t("common:edit")}
+          </button>
+        )}
       </div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-3">
+      {renderToolbar ? (
+        <>
+          <span id={statusLabelId} className="sr-only">{statusLabel}</span>
+          {renderToolbar({
+            editing,
+            saving,
+            startEdit: () => setEditing(true),
+            save: voidPromise(handleSave),
+            cancel: cancelEdit,
+          })}
+        </>
+      ) : (
+        defaultToolbar
+      )}
 
       {/* Content */}
       {editing ? (
@@ -144,7 +189,9 @@ export function PreprocessingView({
           className="min-h-[400px] w-full resize-y rounded-lg border border-gray-700 bg-gray-800 p-4 font-mono text-sm leading-relaxed text-gray-200 outline-none focus-ring focus-visible:border-indigo-500"
         />
       ) : (
-        <div className="prose-invert max-w-none overflow-x-auto rounded-lg border border-gray-800 bg-gray-900/50 p-4 text-sm">
+        <div
+          className={`prose-invert max-w-none overflow-x-auto rounded-lg border border-gray-800 bg-gray-900/50 p-4 text-sm ${compact ? "markdown-compact" : ""}`}
+        >
           <StreamMarkdown content={content} />
         </div>
       )}

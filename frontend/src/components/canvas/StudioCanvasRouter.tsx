@@ -12,12 +12,11 @@ import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
-import { EpisodeModeSwitcher } from "./EpisodeModeSwitcher";
 import { API } from "@/api";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
 import { getProviderModels, getCustomProviderModels, lookupSupportedDurations } from "@/utils/provider-models";
-import { effectiveMode, normalizeMode, type GenerationMode } from "@/utils/generation-mode";
-import type { Scene, Prop, CustomProviderInfo, ProviderInfo, EpisodeMeta } from "@/types";
+import { effectiveMode } from "@/utils/generation-mode";
+import type { Scene, Prop, CustomProviderInfo, ProviderInfo } from "@/types";
 import type { EpisodeScript } from "@/types/script";
 
 // ---------------------------------------------------------------------------
@@ -354,23 +353,6 @@ export function StudioCanvasRouter() {
     await refreshProject();
   }, [refreshProject]);
 
-  const handleEpisodeModeChange = useCallback(
-    async (epNum: number, next: GenerationMode) => {
-      if (!currentProjectName) return;
-      const episodes = [{ episode: epNum, generation_mode: next }] as EpisodeMeta[];
-      try {
-        await API.updateProject(currentProjectName, { episodes });
-        await refreshProject();
-      } catch (err) {
-        useAppStore.getState().pushToast(
-          tRef.current("update_failed", { message: (err as Error).message }),
-          "error",
-        );
-      }
-    },
-    [currentProjectName, refreshProject],
-  );
-
   const handleGenerateCharacterVoid = useCallback((...args: Parameters<typeof handleGenerateCharacter>) => {
     void handleGenerateCharacter(...args).catch(console.error);
   }, [handleGenerateCharacter]);
@@ -467,22 +449,11 @@ export function StudioCanvasRouter() {
           const scriptFile = episode?.script_file?.replace(/^scripts\//, "");
           const script = scriptFile ? (currentScripts[scriptFile] ?? null) : null;
           const mode = effectiveMode(currentProjectData, episode);
-          const projectMode = normalizeMode(currentProjectData?.generation_mode);
-          const episodeOverride = episode?.generation_mode
-            ? normalizeMode(episode.generation_mode)
-            : undefined;
           const hasDraft =
             episode?.script_status === "segmented" || episode?.script_status === "generated";
 
           return (
             <div className="flex h-full flex-col">
-              <div className="border-b border-gray-800 px-4 py-2">
-                <EpisodeModeSwitcher
-                  projectMode={projectMode}
-                  episodeMode={episodeOverride}
-                  onChange={(next) => void handleEpisodeModeChange(epNum, next)}
-                />
-              </div>
               <div className="min-h-0 flex-1">
                 {mode === "reference_video" ? (
                   <ReferenceVideoCanvas

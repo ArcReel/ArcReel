@@ -131,15 +131,26 @@ describe("ReferenceVideoCanvas", () => {
     expect(ta.value).toContain("first");
   });
 
-  // #369: 预处理卡片常驻在 Canvas 顶部，折叠状态显示 unit 数。
-  it("renders the preprocessing card with unit count at the top", async () => {
+  // #369 + 后续优化：预处理入口是 title 行内的按钮（带 unit 数），点击后主内容区切到二级页面；
+  // 返回按钮可以切回编辑态。折叠卡片已废弃。
+  it("exposes a preproc button in the header that navigates to a dedicated preproc page", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1"), mkUnit("E1U2")],
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
-    const collapseToggle = screen.getByRole("button", { name: /Reference units split complete|Units 拆分已完成/ });
-    expect(collapseToggle).toHaveAttribute("aria-expanded", "false");
-    expect(collapseToggle.textContent).toMatch(/2/);
+    const enter = screen.getByRole("button", { name: /Reference units split complete|Units 拆分已完成/ });
+    expect(enter.textContent).toMatch(/2/);
+    // 初始状态：编辑 UI 可见，预处理二级页面的返回按钮不存在
+    expect(screen.queryByRole("button", { name: /Back to editor|返回编辑/ })).not.toBeInTheDocument();
+
+    fireEvent.click(enter);
+    const back = await screen.findByRole("button", { name: /Back to editor|返回编辑/ });
+    // 二级页面下 UnitList 被隐藏（row 不再渲染）
+    expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument();
+
+    fireEvent.click(back);
+    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /Back to editor|返回编辑/ })).not.toBeInTheDocument();
   });
 });

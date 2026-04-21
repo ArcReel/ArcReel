@@ -109,6 +109,32 @@ describe("ReferenceVideoCard", () => {
     expect(lastCall[1]).toEqual([{ type: "character", name: "主角" }]);
   });
 
+  // 回归：扫 @ 时遇到中文标点（"。"/"，"等）应 break，不能把"眼@。|"的光标误识为
+  // 正在输入的 mention，否则会弹出 query="。" 的永远空 picker。
+  it("does not open the picker when cursor sits after a punctuation following an orphan '@'", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReferenceVideoCard
+        unit={mkUnit({ shots: [{ duration: 1, text: "" }] })}
+        projectName="proj"
+        episode={1}
+        onChangePrompt={vi.fn()}
+      />,
+    );
+    const ta = screen.getByRole("combobox");
+    await user.clear(ta);
+    await user.type(ta, "眼@");
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+    // 放弃这次 mention，输入中文句号
+    await user.type(ta, "。");
+    await waitFor(() =>
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument(),
+    );
+    // 方向键左右移动光标，也不应"复活"那个悬挂的 @
+    await user.keyboard("{ArrowLeft}{ArrowRight}");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
   it("opens the MentionPicker when '@' is typed", async () => {
     const user = userEvent.setup();
     render(
@@ -166,6 +192,41 @@ describe("ReferenceVideoCard", () => {
     await waitFor(() =>
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument(),
     );
+  });
+
+  // Backspace 两次删除：第一次高亮整个 @mention，第二次由默认 delete-selection 完成删除。
+  it("first Backspace next to a mention selects it; second deletes the whole chip", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    const unit = mkUnit({
+      shots: [{ duration: 3, text: "hi @主角" }],
+      duration_override: false,
+    });
+    render(
+      <ReferenceVideoCard
+        unit={unit}
+        projectName="proj"
+        episode={1}
+        onChangePrompt={onChange}
+      />,
+    );
+    const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
+    // 初始值：同 unitPromptText 重构后的 "Shot 1 (3s): hi @主角"
+    expect(ta.value.endsWith("@主角")).toBe(true);
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+
+    // 第一次 Backspace：选中整个 @主角，不变更文本
+    await user.keyboard("{Backspace}");
+    expect(ta.value.endsWith("@主角")).toBe(true);
+    expect(ta.selectionStart).toBeLessThan(ta.selectionEnd);
+    const selected = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+    expect(selected).toBe("@主角");
+
+    // 第二次 Backspace：浏览器默认 delete-selection 行为删除整个选区
+    await user.keyboard("{Backspace}");
+    expect(ta.value.endsWith("@主角")).toBe(false);
+    expect(ta.value).toMatch(/hi\s*$/);
   });
 
   it("renders an unknown-mention chip for names not in project", () => {

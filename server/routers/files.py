@@ -22,7 +22,7 @@ from lib.asset_types import ASSET_TYPES
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, effective_mode
 from lib.source_loader import (
     ConflictError,
     CorruptFileError,
@@ -625,27 +625,38 @@ def _get_step_title(filename: str, _t: Callable[..., str]) -> str:
     return titles.get(filename, filename)
 
 
-def _get_content_mode(project_dir: Path) -> str:
-    """从 project.json 读取 content_mode"""
+def _load_project_modes(project_dir: Path, episode: int) -> tuple[str, str | None]:
+    """读一次 project.json，派生 (content_mode, generation_mode)。
+
+    generation_mode 的 episode→project→默认回退复用 lib.project_manager.effective_mode。
+    project.json 缺失时返回 ("drama", None)，由调用方走 content_mode-only 分支。
+    """
     project_json_path = project_dir / "project.json"
-    if project_json_path.exists():
+    try:
         with open(project_json_path, encoding="utf-8") as f:
-            project_data = json.load(f)
-            return project_data.get("content_mode", "drama")
-    return "drama"
+            data = json.load(f)
+    except FileNotFoundError:
+        return "drama", None
+    content_mode = data.get("content_mode", "drama")
+    ep_dict = next(
+        (ep for ep in (data.get("episodes") or []) if ep.get("episode") == episode),
+        {},
+    )
+    return content_mode, effective_mode(project=data, episode=ep_dict)
 
 
-def _get_effective_generation_mode(project_dir: Path, episode: int) -> str | None:
-    """读 project.json，返回集级 generation_mode（优先）或项目级 generation_mode"""
-    project_json_path = project_dir / "project.json"
-    if not project_json_path.exists():
-        return None
-    with open(project_json_path, encoding="utf-8") as f:
-        data = json.load(f)
-    for ep in data.get("episodes", []) or []:
-        if ep.get("episode") == episode and ep.get("generation_mode"):
-            return ep["generation_mode"]
-    return data.get("generation_mode")
+def _resolve_step1_path(drafts_dir: Path, step_num: int, primary: Path) -> Path:
+    """主路径不存在时在 _STEP1_CANDIDATES 里回落，兼容跨模式切换遗留文件。
+
+    step_num != 1 或主路径已存在：原样返回 primary；调用方自行 exists() 判定。
+    """
+    if step_num != 1 or primary.exists():
+        return primary
+    for candidate in _STEP1_CANDIDATES:
+        alt = drafts_dir / candidate
+        if alt.exists():
+            return alt
+    return primary
 
 
 @router.get("/projects/{project_name}/drafts/{episode}/step{step_num}")
@@ -655,24 +666,14 @@ async def get_draft_content(project_name: str, episode: int, step_num: int, _use
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            content_mode = _get_content_mode(project_dir)
-            generation_mode = _get_effective_generation_mode(project_dir, episode)
+            content_mode, generation_mode = _load_project_modes(project_dir, episode)
             step_files = _get_step_files(content_mode, generation_mode)
 
             if step_num not in step_files:
                 raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
             drafts_dir = project_dir / "drafts" / f"episode_{episode}"
-            draft_path = drafts_dir / step_files[step_num]
-
-            # 主路径不存在时按已知候选探测 —— 避免 content_mode / generation_mode
-            # 与实际文件脱节（历史项目或跨模式切换场景）
-            if not draft_path.exists() and step_num == 1:
-                for candidate in _STEP1_CANDIDATES:
-                    alt = drafts_dir / candidate
-                    if alt.exists():
-                        draft_path = alt
-                        break
+            draft_path = _resolve_step1_path(drafts_dir, step_num, drafts_dir / step_files[step_num])
 
             if not draft_path.exists():
                 raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
@@ -700,8 +701,7 @@ async def update_draft_content(
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            content_mode = _get_content_mode(project_dir)
-            generation_mode = _get_effective_generation_mode(project_dir, episode)
+            content_mode, generation_mode = _load_project_modes(project_dir, episode)
             step_files = _get_step_files(content_mode, generation_mode)
 
             if step_num not in step_files:
@@ -710,14 +710,7 @@ async def update_draft_content(
             drafts_dir = project_dir / "drafts" / f"episode_{episode}"
             drafts_dir.mkdir(parents=True, exist_ok=True)
 
-            draft_path = drafts_dir / step_files[step_num]
-            # 若主路径不存在但已有同 step 的其他候选文件（如历史模式切换），保存到现有文件避免孤儿
-            if not draft_path.exists() and step_num == 1:
-                for candidate in _STEP1_CANDIDATES:
-                    alt = drafts_dir / candidate
-                    if alt.exists():
-                        draft_path = alt
-                        break
+            draft_path = _resolve_step1_path(drafts_dir, step_num, drafts_dir / step_files[step_num])
             is_new = not draft_path.exists()
             draft_path.write_text(content, encoding="utf-8")
 
@@ -756,21 +749,14 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _user: Cu
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            content_mode = _get_content_mode(project_dir)
-            generation_mode = _get_effective_generation_mode(project_dir, episode)
+            content_mode, generation_mode = _load_project_modes(project_dir, episode)
             step_files = _get_step_files(content_mode, generation_mode)
 
             if step_num not in step_files:
                 raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
             drafts_dir = project_dir / "drafts" / f"episode_{episode}"
-            draft_path = drafts_dir / step_files[step_num]
-            if not draft_path.exists() and step_num == 1:
-                for candidate in _STEP1_CANDIDATES:
-                    alt = drafts_dir / candidate
-                    if alt.exists():
-                        draft_path = alt
-                        break
+            draft_path = _resolve_step1_path(drafts_dir, step_num, drafts_dir / step_files[step_num])
 
             if draft_path.exists():
                 draft_path.unlink()

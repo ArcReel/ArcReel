@@ -286,6 +286,38 @@
     margin: 0.5rem 0;
 }
 
+/* ---- Compact override ----
+ * 用于已有 page-level 标题的二级页面嵌入（PreprocessingView compact 模式）。
+ * selector specificity 高于上面的 .markdown-body 规则（两 class 同级 selector）。
+ */
+.markdown-compact .markdown-body h1 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+.markdown-compact .markdown-body h2 {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    margin: 0.75rem 0 0.25rem;
+}
+
+.markdown-compact .markdown-body h3 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin: 0.5rem 0 0.25rem;
+}
+
+.markdown-compact .markdown-body h4,
+.markdown-compact .markdown-body h5,
+.markdown-compact .markdown-body h6 {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    margin: 0.5rem 0 0.25rem;
+}
+
 .markdown-body table {
     width: 100%;
     border-collapse: collapse;

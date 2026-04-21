@@ -24,9 +24,9 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    expect(screen.getByText(/Characters|角色/)).toBeInTheDocument();
-    expect(screen.getByText(/Scenes|场景/)).toBeInTheDocument();
-    expect(screen.getByText(/Props|道具/)).toBeInTheDocument();
+    expect(screen.getByTestId("picker-group-character")).toBeInTheDocument();
+    expect(screen.getByTestId("picker-group-scene")).toBeInTheDocument();
+    expect(screen.getByTestId("picker-group-prop")).toBeInTheDocument();
   });
 
   it("hides a group when it has no items after filtering", () => {
@@ -39,8 +39,8 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    expect(screen.queryByText(/Scenes|场景/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Props|道具/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("picker-group-scene")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("picker-group-prop")).not.toBeInTheDocument();
     expect(screen.getByText("主角")).toBeInTheDocument();
   });
 
@@ -276,6 +276,78 @@ describe("MentionPicker", () => {
     // subsequent mousemove. Coord diff vs last ⇒ honor the move.
     fireEvent.mouseEnter(bob, { clientX: 30, clientY: 10 });
     expect(bob.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("renders four tabs (all/character/scene/prop) with counts", () => {
+    render(
+      <MentionPicker
+        open
+        query=""
+        candidates={CANDIDATES}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs).toHaveLength(4);
+    // 第一个 tab 是 "全部/All"，默认选中
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    // 全部 count = 2 (chars) + 1 (scene) + 1 (prop) = 4
+    expect(tabs[0].textContent).toMatch(/4/);
+  });
+
+  it("activating the scene tab restricts visible options to that kind", async () => {
+    const user = userEvent.setup();
+    render(
+      <MentionPicker
+        open
+        query=""
+        candidates={CANDIDATES}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const sceneTab = screen.getAllByRole("tab")[2]; // all/character/scene/prop
+    await user.click(sceneTab);
+    expect(sceneTab).toHaveAttribute("aria-selected", "true");
+    // 场景里的"酒馆"可见；角色里的"张三"被过滤掉
+    expect(screen.getByRole("option", { name: /酒馆/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /张三/ })).not.toBeInTheDocument();
+    // 单 tab 选中时 group 小标题被抑制（避免和 tab 语义重复）
+    expect(screen.queryByTestId("picker-group-scene")).not.toBeInTheDocument();
+  });
+
+  it("Tab key completes the active mention like Enter", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <MentionPicker
+        open
+        query=""
+        candidates={CANDIDATES}
+        onSelect={onSelect}
+        onClose={vi.fn()}
+      />,
+    );
+    await user.keyboard("{Tab}");
+    expect(onSelect).toHaveBeenCalledWith({ type: "character", name: "主角" });
+  });
+
+  it("renders an image thumbnail when imagePath + projectName are provided", () => {
+    render(
+      <MentionPicker
+        open
+        query="张三"
+        candidates={CANDIDATES}
+        projectName="proj"
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    // 张三 的 imagePath 在 fixture 里是 "/files/characters/zs.png"
+    const img = screen.getByRole("option", { name: /张三/ }).querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute("src")).toMatch(/zs\.png/);
   });
 
   it("does not close when pointerdown hits the anchorRef element", () => {

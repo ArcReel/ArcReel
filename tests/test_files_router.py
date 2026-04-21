@@ -419,10 +419,13 @@ class TestFilesRouter:
             assert update.status_code == 200
             assert update.json()["path"] == "drafts/episode_2/step1_reference_units.md"
 
-        assert files._get_content_mode(tmp_path) == "drama"
+        # _load_project_modes 缺少 project.json 时回退到 ("drama", None)
+        content_mode, _ = files._load_project_modes(tmp_path, 1)
+        assert content_mode == "drama"
         project_json = tmp_path / "project.json"
         project_json.write_text('{"content_mode":"narration"}', encoding="utf-8")
-        assert files._get_content_mode(tmp_path) == "narration"
+        content_mode, _ = files._load_project_modes(tmp_path, 1)
+        assert content_mode == "narration"
 
     def test_draft_event_emission(self, tmp_path, monkeypatch):
         """PUT drafts 端点应发射 draft:created/updated 事件"""

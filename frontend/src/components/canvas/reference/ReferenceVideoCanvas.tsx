@@ -2,11 +2,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { useTranslation } from "react-i18next";
+import { ArrowLeft, ChevronRight, Edit3, Loader2, Save, X as XIcon } from "lucide-react";
 import { UnitList } from "./UnitList";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import { ReferenceVideoCard } from "./ReferenceVideoCard";
 import { ReferencePanel } from "./ReferencePanel";
-import { ReferenceUnitsPreprocessingCard } from "./ReferenceUnitsPreprocessingCard";
+import { PreprocessingView } from "@/components/canvas/timeline/PreprocessingView";
 import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/reference-video-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
@@ -19,6 +20,15 @@ export interface ReferenceVideoCanvasProps {
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
+
+// 预处理状态小圆点颜色。纯静态映射提到模块顶层，避免每次 render 重建对象。
+type PreprocStatus = "loading" | "error" | "empty" | "ready";
+const PREPROC_DOT_CLASS: Record<PreprocStatus, string> = {
+  loading: "bg-gray-500",
+  error: "bg-red-500",
+  empty: "bg-gray-500",
+  ready: "bg-emerald-500",
+};
 
 export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
@@ -36,6 +46,7 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     (EMPTY_UNITS as ReferenceVideoUnit[]);
   const selectedUnitId = useReferenceVideoStore((s) => s.selectedUnitId);
   const error = useReferenceVideoStore((s) => s.error);
+  const loading = useReferenceVideoStore((s) => s.loading);
 
   const relevantTasks = useTasksStore(
     useShallow((s) =>
@@ -150,6 +161,113 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
 
   // 小屏（<@4xl，容器 <896px）时把 editor / preview 压成 tab。@4xl+ 三栏时此状态被 CSS 忽略。
   const [smallTab, setSmallTab] = useState<"editor" | "preview">("editor");
+  // 预处理二级页面：默认 false（主编辑视图）；true 时整个 Canvas 内容替换为 PreprocessingView。
+  // 切换 episode 时自动退回主视图——用 render-phase setState 对比而非 useEffect，
+  // 避免 react-hooks/set-state-in-effect lint 规则阻断。
+  const [showPreproc, setShowPreproc] = useState(false);
+  const [lastEpisode, setLastEpisode] = useState(episode);
+  if (lastEpisode !== episode) {
+    setLastEpisode(episode);
+    setShowPreproc(false);
+  }
+
+  // 预处理入口 / 二级页 header 上呈现的状态：loading / error / empty / ready。
+  // 用 store.loading + store.error + units.length 综合推导，集中在一处，入口和 header 共用。
+  const preprocStatus: PreprocStatus = loading
+    ? "loading"
+    : error
+      ? "error"
+      : units.length === 0
+        ? "empty"
+        : "ready";
+  const preprocLabel: Record<PreprocStatus, string> = useMemo(
+    () => ({
+      loading: t("reference_preproc_status_loading"),
+      error: t("reference_preproc_status_error"),
+      empty: t("reference_preproc_status_empty"),
+      ready: t("reference_units_split_complete", { count: units.length }),
+    }),
+    [t, units.length],
+  );
+
+  // 二级页 header（独占整个 Canvas）：顶部返回按钮一行 + page title 行（左 title / 右 toolbar）。
+  // edit/save/cancel toolbar 通过 PreprocessingView 的 renderToolbar slot 抬升到 header 右侧。
+  if (showPreproc) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="border-b border-gray-800 px-4 py-2">
+          <button
+            type="button"
+            onClick={() => setShowPreproc(false)}
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 focus-ring"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+            {t("reference_preproc_back")}
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-5">
+            <PreprocessingView
+              projectName={projectName}
+              episode={episode}
+              contentMode="reference_video"
+              compact
+              renderToolbar={({ editing, saving, startEdit, save, cancel }) => (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-lg font-semibold text-gray-100">
+                      {t("reference_preproc_page_title", { episode })}
+                      {episodeTitle ? <span className="text-gray-400">: {episodeTitle}</span> : null}
+                    </h2>
+                    <p className="mt-1 flex items-center gap-2 text-xs text-gray-500">
+                      <span className={`h-1.5 w-1.5 rounded-full ${PREPROC_DOT_CLASS[preprocStatus]}`} aria-hidden="true" />
+                      <span>{preprocLabel[preprocStatus]}</span>
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {editing ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={save}
+                          disabled={saving}
+                          className="inline-flex items-center gap-1 rounded border border-emerald-600/40 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300 transition hover:border-emerald-500 hover:text-emerald-200 disabled:opacity-50 focus-ring"
+                        >
+                          {saving ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <Save className="h-3.5 w-3.5" aria-hidden="true" />
+                          )}
+                          {saving ? t("common:saving") : t("common:save")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancel}
+                          className="inline-flex items-center gap-1 rounded border border-gray-800 bg-gray-900 px-2.5 py-1 text-xs text-gray-400 transition hover:text-gray-200 focus-ring"
+                        >
+                          <XIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                          {t("common:cancel")}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={startEdit}
+                        className="inline-flex items-center gap-1 rounded border border-gray-800 bg-gray-900 px-2.5 py-1 text-xs text-gray-300 transition hover:border-indigo-500 hover:text-indigo-300 focus-ring"
+                      >
+                        <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
+                        {t("common:edit")}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="@container flex h-full flex-col">
@@ -158,18 +276,31 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
           <span translate="no">E{episode}</span>
           {episodeTitle ? `: ${episodeTitle}` : ""}
         </h2>
-        <p className="text-xs text-gray-500">{t("reference_units_count", { count: units.length })}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+          <span>{t("reference_units_count", { count: units.length })}</span>
+          <span aria-hidden="true" className="text-gray-700">·</span>
+          {/* 预处理入口：inline link 风格而非独立 chip——降低视觉权重的同时把状态色 + 文案 + chevron
+              合到副标题行，点击进入二级页面。 */}
+          <button
+            type="button"
+            onClick={() => setShowPreproc(true)}
+            className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-gray-400 transition-colors hover:text-gray-200 focus-ring"
+          >
+            {preprocStatus === "loading" ? (
+              <Loader2 className="h-3 w-3 animate-spin text-gray-500" aria-hidden="true" />
+            ) : (
+              <span className={`h-1.5 w-1.5 rounded-full ${PREPROC_DOT_CLASS[preprocStatus]}`} aria-hidden="true" />
+            )}
+            <span>{preprocLabel[preprocStatus]}</span>
+            <ChevronRight className="h-3 w-3" aria-hidden="true" />
+          </button>
+        </div>
         {error && (
           <p role="alert" className="mt-1 text-xs text-red-400">
             {error}
           </p>
         )}
       </div>
-      <ReferenceUnitsPreprocessingCard
-        projectName={projectName}
-        episode={episode}
-        unitCount={units.length}
-      />
       {/* 外层 grid：<@md(448px) 单列；@md+ 双栏 (UnitList | 右侧 wrapper)。
           断点选 @md 是因为 agent chat 占右半屏时中栏常在 500-700px 区间，@2xl(672px) 错过太多场景。
           显式 grid-rows-1 + minmax(0,1fr) 防止隐式 row 被 UnitList 内容撑开破坏 min-h-0/overflow 链路。 */}
@@ -222,6 +353,13 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
           >
             {selected ? (
               <>
+                <ReferencePanel
+                  references={selected.references}
+                  projectName={projectName}
+                  onReorder={handleReorderRefs}
+                  onRemove={handleRemoveRef}
+                  onAdd={handleAddRef}
+                />
                 <div className="flex min-h-0 flex-1 flex-col p-3">
                   <ReferenceVideoCard
                     key={selected.unit_id}
@@ -231,13 +369,6 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
                     onChangePrompt={handlePromptChange}
                   />
                 </div>
-                <ReferencePanel
-                  references={selected.references}
-                  projectName={projectName}
-                  onReorder={handleReorderRefs}
-                  onRemove={handleRemoveRef}
-                  onAdd={handleAddRef}
-                />
               </>
             ) : (
               <div className="flex flex-1 items-center justify-center text-xs text-gray-600">
