@@ -306,3 +306,233 @@ class TestSessionReuse:
             assert sessions_seen[0] is not sessions_seen[1]
         finally:
             await engine.dispose()
+
+
+class TestVideoBackendThreeLevelPriority:
+    """验证 video_backend 三级优先级：项目设置 > 系统设置 > auto-resolve。"""
+
+    async def test_project_override_wins_over_system_setting(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={"default_video_backend": "grok/grok-imagine-video"},
+        )
+        with patch("lib.config.resolver.get_project_manager") as mock_pm:
+            mock_pm.return_value.load_project.return_value = {
+                "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            }
+            result = await resolver._resolve_video_backend(fake_svc, None, "demo")
+        assert result == ("gemini-aistudio", "veo-3.1-generate-preview")
+
+    async def test_project_empty_falls_back_to_system_setting(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={"default_video_backend": "grok/grok-imagine-video"},
+        )
+        with patch("lib.config.resolver.get_project_manager") as mock_pm:
+            mock_pm.return_value.load_project.return_value = {}
+            result = await resolver._resolve_video_backend(fake_svc, None, "demo")
+        assert result == ("grok", "grok-imagine-video")
+
+    async def test_no_project_name_uses_system_setting(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={"default_video_backend": "ark/doubao-seedance-2-0-260128"},
+        )
+        result = await resolver._resolve_video_backend(fake_svc, None, None)
+        assert result == ("ark", "doubao-seedance-2-0-260128")
+
+
+class TestVideoCapabilities:
+    """验证 video_capabilities：第一步模型选择 + 第二步 model 能力查询。"""
+
+    async def test_registry_grok(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={"default_video_backend": "grok/grok-imagine-video"},
+        )
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                    mock_pm.return_value.load_project.return_value = {}
+                    caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        finally:
+            await engine.dispose()
+        assert caps["provider_id"] == "grok"
+        assert caps["model"] == "grok-imagine-video"
+        assert caps["source"] == "registry"
+        assert caps["supported_durations"] == list(range(1, 16))
+        assert caps["max_duration"] == 15
+        assert caps["max_reference_images"] == 7
+
+    async def test_registry_veo(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                    mock_pm.return_value.load_project.return_value = {
+                        "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+                    }
+                    caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        finally:
+            await engine.dispose()
+        assert caps["provider_id"] == "gemini-aistudio"
+        assert caps["model"] == "veo-3.1-generate-preview"
+        assert caps["source"] == "registry"
+        assert caps["supported_durations"] == [4, 6, 8]
+        assert caps["max_duration"] == 8
+        # normalize("gemini-aistudio") -> "gemini"，查 PROVIDER_MAX_REFS["gemini"]
+        assert caps["max_reference_images"] == 3
+
+    async def test_reads_project_default_duration_and_modes(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                    mock_pm.return_value.load_project.return_value = {
+                        "video_backend": "grok/grok-imagine-video",
+                        "default_duration": 6,
+                        "content_mode": "narration",
+                        "generation_mode": "reference_video",
+                    }
+                    caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        finally:
+            await engine.dispose()
+        assert caps["default_duration"] == 6
+        assert caps["content_mode"] == "narration"
+        assert caps["generation_mode"] == "reference_video"
+
+    async def test_missing_default_duration_is_null(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                    mock_pm.return_value.load_project.return_value = {
+                        "video_backend": "grok/grok-imagine-video",
+                    }
+                    caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        finally:
+            await engine.dispose()
+        assert caps["default_duration"] is None
+
+    async def test_unknown_model_raises(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                    mock_pm.return_value.load_project.return_value = {
+                        "video_backend": "grok/nonexistent-model",
+                    }
+                    with pytest.raises(ValueError, match="model not found"):
+                        await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        finally:
+            await engine.dispose()
+
+    async def test_unknown_provider_raises(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                    mock_pm.return_value.load_project.return_value = {
+                        "video_backend": "bogus-provider/some-model",
+                    }
+                    with pytest.raises(ValueError, match="provider not in PROVIDER_REGISTRY"):
+                        await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        finally:
+            await engine.dispose()
+
+    async def test_video_capabilities_for_project_uses_passed_dict(self):
+        """video_capabilities_for_project(dict) 不调用 load_project；直接消费传入 dict。
+
+        防御 codex review 指出的"按目录名二次 load 可能读到同名错项目"风险。
+        """
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                caps = await resolver.video_capabilities_for_project(
+                    {
+                        "video_backend": "grok/grok-imagine-video",
+                        "default_duration": 9,
+                    }
+                )
+                # 关键断言：load_project 一次都不能被调到
+                mock_pm.return_value.load_project.assert_not_called()
+        finally:
+            await engine.dispose()
+        assert caps["provider_id"] == "grok"
+        assert caps["max_duration"] == 15
+        assert caps["default_duration"] == 9
+        assert caps["max_reference_images"] == 7
+
+    async def test_max_reference_images_falls_back_to_default_for_unlisted_provider(self):
+        """PROVIDER_MAX_REFS 未覆盖的 provider → resolver 返 DEFAULT_MAX_REFS，不返 None。
+
+        gemini 建议：下游消费者（subagent / 前端）不用处理 None 特例。
+        """
+        from lib.reference_video.limits import DEFAULT_MAX_REFS
+
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            with patch("lib.config.resolver.get_project_manager"):
+                # ark 在 PROVIDER_MAX_REFS 里登记（=9），这里借道 normalize_provider_id 不会剥离的串验证
+                # 使用一个 PROVIDER_MAX_REFS 明确未登记的 provider：不过所有注册 provider 都有入口，
+                # 本测试改为 patch normalize_provider_id 让它返回未登记字符串以触发 fallback
+                with patch(
+                    "lib.config.resolver.normalize_provider_id",
+                    return_value="___never_registered___",
+                ):
+                    caps = await resolver.video_capabilities_for_project({"video_backend": "grok/grok-imagine-video"})
+        finally:
+            await engine.dispose()
+        assert caps["max_reference_images"] == DEFAULT_MAX_REFS
+
+    async def test_custom_provider_reads_db_supported_durations(self):
+        """custom-<id>/<model> 走 DB 分支，返回 source='custom'。"""
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                provider = CustomProvider(
+                    display_name="Custom X",
+                    api_format="openai",
+                    base_url="https://example.com",
+                    api_key="xxx",
+                )
+                session.add(provider)
+                await session.flush()
+                model = CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="my-video-model",
+                    display_name="My Video",
+                    media_type="video",
+                    supported_durations="[5, 10]",
+                )
+                session.add(model)
+                await session.flush()
+
+                project_backend = f"custom-{provider.id}/my-video-model"
+                with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                    mock_pm.return_value.load_project.return_value = {
+                        "video_backend": project_backend,
+                    }
+                    caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        finally:
+            await engine.dispose()
+        assert caps["source"] == "custom"
+        assert caps["supported_durations"] == [5, 10]
+        assert caps["max_duration"] == 10

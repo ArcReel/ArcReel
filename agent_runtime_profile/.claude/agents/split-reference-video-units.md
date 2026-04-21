@@ -7,15 +7,14 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 
 ## 任务定义
 
-**输入**：主 agent 会在 prompt 中提供：
+**输入**：主 agent 只在 prompt 中提供：
 - 项目名称（如 `my_project`）
 - 集数（如 `1`）
 - 本集小说文件（如 `source/episode_1.txt`）
-- 可用角色列表（`project.json.characters` 的名字）
-- 可用场景列表（`project.json.scenes` 的名字）
-- 可用道具列表（`project.json.props` 的名字）
-- 单镜头支持时长列表（如 `[5, 8, 10]`）
-- 模型最大参考图数（如 `9`）
+
+**自查数据**：
+- 角色 / 场景 / 道具名称从 `projects/{项目名}/project.json` 的 `characters` / `scenes` / `props` 三张表读。
+- 视频模型能力（`supported_durations` / `max_duration` / `max_reference_images`）和用户偏好（`default_duration`）由本 subagent 在 Step 0 查得（见下方工作流）。
 
 **输出**：保存 `drafts/episode_{N}/step1_reference_units.md` 后，返回 unit 统计摘要。
 
@@ -23,10 +22,30 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 
 1. **跳过分镜**：不生成分镜图，直接按视频生成粒度（video_unit）拆分；每 unit = 一次生成调用。
 2. **参考图驱动**：每个 unit 的描述只用 `@角色/@场景/@道具` 引用**已注册**的资产名；不写外貌/服装/场景细节（由参考图承担视觉一致性）。
-3. **时长硬约束**：每 unit 所有 shot `duration` 之和不得超过**模型单次生成最大时长**（通常 8-15s）；总 references 数不得超过 `max_refs`。
+3. **时长硬约束**：每 unit 所有 shot `duration` 之和不得超过 Step 0 查得的 `max_duration`；总 references 数不得超过 `max_reference_images`。
 4. **完成即返回**：独立完成全部工作后返回，不在中间步骤等待用户确认。
 
 ## 工作流程
+
+### Step 0: 查视频模型能力与用户偏好
+
+用 Bash 工具执行：
+
+```bash
+python .claude/skills/manage-project/scripts/get_video_capabilities.py --project {项目名}
+```
+
+解析 stdout JSON，记录：
+- `supported_durations`：单 shot 允许的时长取值集合
+- `max_duration`：unit 总时长上限（reference_video 模式目标贴近此值）
+- `max_reference_images`：单 unit references 上限
+- `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
+
+**决策优先级**（后续 Step 2 拆分时遵循）：
+- `default_duration` 非 null → **优先采用**作为 shot 时长默认
+- `default_duration` 为 null，或**特殊情况**（一 unit 多 shot 组合需要贴近 `max_duration`、单 shot 不足以表达当前叙事）→ 从 `supported_durations` 自由选取，使 unit 总时长贴近 `max_duration`
+
+若脚本退出非 0，停止并把 stderr 报告给主 agent。
 
 ### Step 1: 读取项目信息和小说原文
 
@@ -40,9 +59,12 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 
 - 每个 unit 对应一个**连贯的视频生成片段**：同一时间、同一地点、主体动作连续。
 - 一个 unit 内可拆 1-4 个 shot；shot 表示镜头切换，但共享同一次生成调用。
-- 单 shot 时长从支持列表中挑（默认 5s 或 8s）。多 shot 时合理分配，确保总和落在模型最大时长内。
+- 单 shot 时长只能从 Step 0 查到的 `supported_durations` 中选取。
+  优先决策：若 `default_duration` 非 null，单 shot 默认取该值；
+  否则或特殊情况下，**使 unit 总时长贴近 `max_duration`**，不得超过上限。
+  不要挑最短/保守值作为默认。
 - 时间/空间/情节重大切换点 → 开一个新 unit。
-- 一个 unit 涉及的角色 / 场景 / 道具总数不得超过模型 `max_refs`；超出时将次要角色融入背景描述，不进入 references。
+- 一个 unit 涉及的角色 / 场景 / 道具总数不得超过 Step 0 查到的 `max_reference_images`；超出时将次要角色融入背景描述，不进入 references。
 
 **描述规则**：
 
@@ -59,27 +81,24 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 ### Step 3: 保存中间文件
 
 创建目录 `projects/{项目名}/drafts/episode_{N}/`（如不存在），
-将 unit 表保存为 `step1_reference_units.md`，推荐格式：
+将 unit 表保存为 `step1_reference_units.md`，文件结构（占位符 `<...>` 在你生成时用 Step 0 查到的真实值替换；模板本身不含具体秒数以免锚点污染）：
 
 ```markdown
 ## 参考视频单元拆分结果
 
 | unit_id | shots 数 | 总时长 | 涉及 references | shots 摘要 |
 |---------|----------|--------|------------------|------------|
-| E1U1 | 2 | 8s | character:主角, scene:酒馆 | Shot1(4s): @主角 推开酒馆门。Shot2(4s): 在 @酒馆 里环视。 |
-| E1U2 | 1 | 5s | character:张三, prop:长剑 | Shot1(5s): @张三 抽出 @长剑。 |
+| E<ep>U<idx> | <1-4> | <sum_of_shot_durations>s | <type:name, ...> | Shot1(<d1>s)...Shot<k>(<dk>s): <叙事文本> |
 
 ### 完整 shot 文本（供 Step 2 使用）
 
-#### E1U1
+#### E<ep>U<idx>
 
-Shot 1 (4s): @主角 推开木门，屋内光线透出。
-Shot 2 (4s): 他在 @酒馆 中央环视，目光停在对面。
-
-#### E1U2
-
-Shot 1 (5s): @张三 缓缓抽出 @长剑，剑刃映光。
+Shot 1 (<d1>s): @<已注册名> 动作描述（不写外貌/服装）。
+Shot 2 (<d2>s): ...
 ```
+
+> 填值规则：`<di>` 必须取自 Step 0 查到的 `supported_durations`；`<d1>+<d2>+...+<dk>` 的和应**贴近** `max_duration`（不得超过）；若用户设置了 `default_duration`，优先将单 shot 默认值定为该值，除非特殊情况（多 shot 组合贴近 `max_duration`、单 shot 不足以表达叙事）。
 
 使用 Write 工具写入文件。
 
@@ -98,7 +117,7 @@ Shot 1 (5s): @张三 缓缓抽出 @长剑，剑刃映光。
 | 涉及角色 | XX 个 |
 | 涉及场景 | XX 个 |
 | 涉及道具 | XX 个 |
-| references 最大数（单 unit） | XX / max_refs |
+| references 最大数（单 unit） | XX / max_reference_images |
 
 **文件已保存**: `drafts/episode_{N}/step1_reference_units.md`
 
@@ -108,6 +127,6 @@ Shot 1 (5s): @张三 缓缓抽出 @长剑，剑刃映光。
 ## 注意事项
 
 - unit_id 从 `E{集数}U1` 开始按顺序递增。
-- 每 unit shots 不超过 **4 个**；单 unit references 不超过 `max_refs`。
-- 凡是 `@名称` 中的「名称」必须在主 agent 告诉你的 characters / scenes / props 三张表之一，否则不要使用；若确实需要新资产，应报告给主 agent 要求补资产生成。
-- 时长的个位数选自主 agent 告知的 `supported_durations`；不要自己发明其它时长。
+- 每 unit shots 不超过 **4 个**；单 unit references 不超过 Step 0 查到的 `max_reference_images`。
+- 凡是 `@名称` 中的「名称」必须在 project.json 的 characters / scenes / props 三张表之一，否则不要使用；若确实需要新资产，应报告给主 agent 要求补资产生成。
+- 所有 shot 时长从 Step 0 查到的 `supported_durations` 中选；**优先组合使 unit 总时长贴近 `max_duration`**（若 `default_duration` 非 null，单 shot 默认取其值；特殊情况另议）；不要自己发明其它时长，也不要默认挑最短值。

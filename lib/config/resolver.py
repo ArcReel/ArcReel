@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
@@ -24,9 +25,12 @@ from lib.config.service import (
     _DEFAULT_VIDEO_BACKEND,
     ConfigService,
 )
+from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.repositories.credential_repository import CredentialRepository
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.env_init import PROJECT_ROOT
 from lib.project_manager import ProjectManager
+from lib.reference_video.limits import DEFAULT_MAX_REFS, PROVIDER_MAX_REFS, normalize_provider_id
 from lib.text_backends.base import TextTaskType
 
 _project_manager: ProjectManager | None = None
@@ -112,9 +116,50 @@ class ConfigResolver:
             return await self._resolve_video_generate_audio(svc, project_name)
 
     async def default_video_backend(self) -> tuple[str, str]:
-        """返回 (provider_id, model_id)。"""
+        """返回系统级默认 (provider_id, model_id)（不含项目级覆盖）。"""
         async with self._open_session() as (session, svc):
             return await self._resolve_default_video_backend(svc, session)
+
+    async def video_backend(self, project_name: str | None = None) -> tuple[str, str]:
+        """解析当前项目应使用的视频 (provider_id, model_id)。
+
+        优先级：项目级 `project.json.video_backend` > 系统设置 `default_video_backend` >
+        系统默认 `_DEFAULT_VIDEO_BACKEND` > auto-resolve（按 registry 顺序挑第一个 ready）。
+        """
+        async with self._open_session() as (session, svc):
+            return await self._resolve_video_backend(svc, session, project_name)
+
+    async def video_capabilities(self, project_name: str | None = None) -> dict:
+        """解析当前项目视频 model 的综合能力 + 用户项目偏好。
+
+        Returns:
+            {
+              "provider_id": str,
+              "model": str,
+              "supported_durations": list[int],    # 来自 model (单一真相源)
+              "max_duration": int,                 # max(supported_durations) 派生
+              "max_reference_images": int,         # 按归一化 provider 查 PROVIDER_MAX_REFS，缺省 DEFAULT_MAX_REFS
+              "source": "registry" | "custom",
+              "default_duration": int | None,      # 用户在 project.json 里设置的偏好
+              "content_mode": str | None,
+              "generation_mode": str | None,
+            }
+
+        Raises:
+            ValueError: 当 video_backend 解析失败 / model 找不到 / supported_durations 为空。
+        """
+        async with self._open_session() as (session, svc):
+            return await self._resolve_video_capabilities(svc, session, project_name)
+
+    async def video_capabilities_for_project(self, project: dict) -> dict:
+        """同 `video_capabilities`，但使用调用方已加载的 project dict。
+
+        优先用此变体，可避免按名称二次加载、也不依赖 `PROJECT_ROOT/projects/<name>` 目录结构
+        （例如 `ScriptGenerator` 在非标准路径实例化、或测试用 tmp_path 时，防止目录名
+        与全局项目碰撞读到错误能力）。
+        """
+        async with self._open_session() as (session, svc):
+            return await self._resolve_video_capabilities_from_project(svc, session, project)
 
     async def default_image_backend(self) -> tuple[str, str]:
         """返回 (provider_id, model_id)。"""
@@ -157,6 +202,115 @@ class ConfigResolver:
         if raw and "/" in raw:
             return ConfigService._parse_backend(raw, _DEFAULT_VIDEO_BACKEND)
         return await self._auto_resolve_backend(svc, session, "video")
+
+    async def _resolve_video_backend(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        project_name: str | None,
+    ) -> tuple[str, str]:
+        """三级解析当前项目应使用的 video backend。
+
+        模式对齐 `_resolve_text_backend`：项目级 > 系统设置 > 系统默认 / auto。
+        """
+        project = get_project_manager().load_project(project_name) if project_name else None
+        return await self._resolve_video_backend_from_project(svc, session, project)
+
+    async def _resolve_video_backend_from_project(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        project: dict | None,
+    ) -> tuple[str, str]:
+        if project is not None:
+            project_val = project.get("video_backend")
+            if project_val and isinstance(project_val, str) and "/" in project_val:
+                return ConfigService._parse_backend(project_val, _DEFAULT_VIDEO_BACKEND)
+        return await self._resolve_default_video_backend(svc, session)
+
+    async def _resolve_video_capabilities(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        project_name: str | None,
+    ) -> dict:
+        """按两步解析：先选 model，再读 model 能力。"""
+        project = get_project_manager().load_project(project_name) if project_name else None
+        return await self._resolve_video_capabilities_from_project(svc, session, project)
+
+    async def _resolve_video_capabilities_from_project(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        project: dict | None,
+    ) -> dict:
+        provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
+
+        if is_custom_provider(provider_id):
+            source = "custom"
+            try:
+                db_pid = parse_provider_id(provider_id)
+            except ValueError as exc:
+                raise ValueError(f"invalid custom provider_id: {provider_id}") from exc
+            repo = CustomProviderRepository(session)
+            model = await repo.get_model_by_ids(db_pid, model_id)
+            if model is None:
+                raise ValueError(f"custom model not found: {provider_id}/{model_id}")
+            raw_durations = model.supported_durations
+            supported_durations: list[int] = []
+            if raw_durations:
+                try:
+                    parsed = json.loads(raw_durations)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"invalid supported_durations JSON on custom model {provider_id}/{model_id}"
+                    ) from exc
+                if isinstance(parsed, list):
+                    supported_durations = [int(d) for d in parsed]
+        else:
+            source = "registry"
+            provider_meta = PROVIDER_REGISTRY.get(provider_id)
+            if provider_meta is None:
+                raise ValueError(f"provider not in PROVIDER_REGISTRY: {provider_id}")
+            model_info = provider_meta.models.get(model_id)
+            if model_info is None:
+                raise ValueError(f"model not found in registry: {provider_id}/{model_id}")
+            supported_durations = list(model_info.supported_durations or [])
+
+        if not supported_durations:
+            raise ValueError(f"supported_durations is empty for {provider_id}/{model_id}; cannot derive capabilities")
+
+        max_duration = max(supported_durations)
+        normalized_provider = normalize_provider_id(provider_id)
+        max_reference_images = PROVIDER_MAX_REFS.get(normalized_provider, DEFAULT_MAX_REFS)
+
+        default_duration: int | None = None
+        content_mode: str | None = None
+        generation_mode: str | None = None
+        if project is not None:
+            raw_default = project.get("default_duration")
+            if isinstance(raw_default, int):
+                default_duration = raw_default
+            elif isinstance(raw_default, str) and raw_default.strip().isdigit():
+                default_duration = int(raw_default.strip())
+            cm = project.get("content_mode")
+            if isinstance(cm, str) and cm:
+                content_mode = cm
+            gm = project.get("generation_mode")
+            if isinstance(gm, str) and gm:
+                generation_mode = gm
+
+        return {
+            "provider_id": provider_id,
+            "model": model_id,
+            "supported_durations": supported_durations,
+            "max_duration": max_duration,
+            "max_reference_images": max_reference_images,
+            "source": source,
+            "default_duration": default_duration,
+            "content_mode": content_mode,
+            "generation_mode": generation_mode,
+        }
 
     async def _resolve_default_image_backend(self, svc: ConfigService, session: AsyncSession) -> tuple[str, str]:
         raw = await svc.get_setting("default_image_backend", "")

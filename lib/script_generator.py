@@ -11,8 +11,11 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 
 from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.resolver import ConfigResolver
+from lib.db import async_session_factory
 from lib.project_manager import effective_mode
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
@@ -95,16 +98,14 @@ class ScriptGenerator:
             raise RuntimeError("TextGenerator 未初始化，请使用 ScriptGenerator.create() 工厂方法")
 
         gen_mode = self._effective_generation_mode(episode)
+        caps = await self._fetch_video_capabilities()
 
-        # 1. 加载中间文件
         step1_md = self._load_step1(episode)
 
-        # 2. 提取角色、场景、道具（从 project.json）
         characters = self.project_json.get("characters", {})
         scenes = self.project_json.get("scenes", {})
         props = self.project_json.get("props", {})
 
-        # 3. 构建 Prompt
         if gen_mode == "reference_video":
             prompt = build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
@@ -114,8 +115,9 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 units_md=step1_md,
-                supported_durations=self._resolve_supported_durations() or [4, 8],
-                max_refs=self._resolve_max_refs(),
+                supported_durations=self._resolve_supported_durations(caps) or [4, 8],
+                max_refs=self._resolve_max_refs(caps),
+                max_duration=self._resolve_max_duration(caps),
                 aspect_ratio=self._resolve_aspect_ratio(),
             )
             schema = ReferenceVideoScript
@@ -128,7 +130,7 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 segments_md=step1_md,
-                supported_durations=self._resolve_supported_durations(),
+                supported_durations=self._resolve_supported_durations(caps),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
             )
@@ -142,7 +144,7 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 scenes_md=step1_md,
-                supported_durations=self._resolve_supported_durations(),
+                supported_durations=self._resolve_supported_durations(caps),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
             )
@@ -203,8 +205,9 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 units_md=step1_md,
-                supported_durations=self._resolve_supported_durations() or [4, 8],
-                max_refs=self._resolve_max_refs(),
+                supported_durations=self._resolve_supported_durations(None) or [4, 8],
+                max_refs=self._resolve_max_refs(None),
+                max_duration=self._resolve_max_duration(None),
                 aspect_ratio=self._resolve_aspect_ratio(),
             )
         elif self.content_mode == "narration":
@@ -216,7 +219,7 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 segments_md=step1_md,
-                supported_durations=self._resolve_supported_durations(),
+                supported_durations=self._resolve_supported_durations(None),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
             )
@@ -229,13 +232,32 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 scenes_md=step1_md,
-                supported_durations=self._resolve_supported_durations(),
+                supported_durations=self._resolve_supported_durations(None),
                 default_duration=self.project_json.get("default_duration"),
                 aspect_ratio=self._resolve_aspect_ratio(),
             )
 
-    def _resolve_supported_durations(self) -> list[int] | None:
-        """从项目配置或 registry 解析当前视频模型支持的时长列表。"""
+    async def _fetch_video_capabilities(self) -> dict | None:
+        """从 ConfigResolver 解析视频模型能力；失败时返 None，由 _resolve_* fallback 到 project.json 直读。
+
+        使用 `video_capabilities_for_project` 传入已加载的 project.json，不再按 `self.project_path.name`
+        重新全局加载——避免 ScriptGenerator 在非标准路径（如测试 tmp_path）实例化时目录名与
+        全局项目碰撞读到错误能力。
+
+        宽松捕获：除 ValueError 外，DB 未 migration / 连接失败等 SQLAlchemy 异常也走 fallback，
+        保证在缺能力元数据的环境（如裸 CI 测试容器）中 generate() 仍能跑通。
+        """
+        resolver = ConfigResolver(async_session_factory)
+        try:
+            return await resolver.video_capabilities_for_project(self.project_json)
+        except (ValueError, SQLAlchemyError) as exc:
+            logger.info("video_capabilities 解析失败，将走 project.json fallback：%s", exc)
+            return None
+
+    def _resolve_supported_durations(self, caps: dict | None = None) -> list[int] | None:
+        """优先取 resolver caps；否则回落到 project.json → registry 直读。"""
+        if caps and caps.get("supported_durations"):
+            return list(caps["supported_durations"])
         durations = self.project_json.get("_supported_durations")
         if durations and isinstance(durations, list):
             return durations
@@ -249,14 +271,27 @@ class ScriptGenerator:
                     return list(model_info.supported_durations)
         return None
 
+    def _resolve_max_duration(self, caps: dict | None = None) -> int | None:
+        """单次视频生成最长秒数；派生自 max(supported_durations)。"""
+        if caps and caps.get("max_duration") is not None:
+            return int(caps["max_duration"])
+        durations = self._resolve_supported_durations(caps)
+        if durations:
+            return max(durations)
+        return None
+
     def _resolve_aspect_ratio(self) -> str:
         """解析项目的 aspect_ratio，向后兼容。"""
         if "aspect_ratio" in self.project_json and isinstance(self.project_json["aspect_ratio"], str):
             return self.project_json["aspect_ratio"]
         return "9:16" if self.content_mode == "narration" else "16:9"
 
-    def _resolve_max_refs(self) -> int:
+    def _resolve_max_refs(self, caps: dict | None = None) -> int:
         """按 provider 粗粒度解析最大参考图数。数值来源：`lib.reference_video.limits`。"""
+        if caps:
+            cached = caps.get("max_reference_images")
+            if cached is not None:
+                return int(cached)
         video_backend = self.project_json.get("video_backend") or ""
         raw_provider = video_backend.split("/", 1)[0] if "/" in video_backend else ""
         provider_id = normalize_provider_id(raw_provider)

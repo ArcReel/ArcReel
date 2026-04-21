@@ -25,6 +25,7 @@ def build_reference_video_prompt(
     units_md: str,
     supported_durations: list[int],
     max_refs: int,
+    max_duration: int | None = None,
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
 ) -> str:
@@ -37,12 +38,21 @@ def build_reference_video_prompt(
         units_md: `step1_reference_units.md` 内容（subagent 输出）。
         supported_durations: 当前视频模型支持的单镜头时长列表（秒）。
         max_refs: 当前视频模型支持的最大参考图数。
+        max_duration: 当前视频模型的单次生成时长上限（秒）。传入时 prompt 会显式
+            引导 LLM 让 unit 总时长贴近该值，避免默认挑最短值；为 None 时不插入该段。
     """
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
     prop_names = list(props.keys())
 
     durations_desc = "/".join(str(d) for d in supported_durations) + "s"
+    max_duration_line = (
+        f"\n   - **unit 内所有 Shot `duration` 之和应贴近 {max_duration} 秒**"
+        f"（当前视频模型上限），除非内容明显不需要这么长；"
+        f"不要刻意挑最短值，也不得超过 {max_duration}。"
+        if max_duration is not None
+        else ""
+    )
 
     return f"""你的任务是为短视频生成「参考生视频」模式的 JSON 剧本。请仔细遵循以下指示：
 
@@ -87,7 +97,7 @@ def build_reference_video_prompt(
 a. **unit_id**：保留 Step 1 中的 `E{{集数}}U{{序号}}`。
 
 b. **shots**：1-4 个 Shot。每个 Shot 含：
-   - `duration`：整数秒，取值必须在当前模型支持列表中：{durations_desc}
+   - `duration`：整数秒，取值必须在当前模型支持列表中：{durations_desc}{max_duration_line}
    - `text`：中文镜头描述，聚焦当下瞬间可见画面，**仅**用 `@名称` 引用角色/场景/道具——**不要**写外貌、服装、场景细节（这些由参考图提供）。
    - 每 unit 所有 Shot `duration` 之和即该 unit `duration_seconds`。
 
