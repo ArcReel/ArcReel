@@ -129,6 +129,14 @@ export function ReferenceVideoCard({
 
   const tokens = useShotPromptHighlight(currentText, lookup);
 
+  // pickerOpen=false 是绝对多数路径（打字时 picker 只在 @ 触发短暂打开）。
+  // tokens 已被 useShotPromptHighlight memo 化，这里再把 tokens→ReactNode 列表缓存一层，
+  // 父组件或其他 state 引起的 re-render 就不会重新跑 renderHighlightedTokens 的 forEach。
+  const staticHighlightedNodes = useMemo(
+    () => renderHighlightedTokens(tokens, null, () => {}),
+    [tokens],
+  );
+
   const unknownMentions = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -305,7 +313,9 @@ export function ReferenceVideoCard({
           aria-hidden
           className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words p-3 font-mono text-sm leading-6"
         >
-          {renderHighlightedTokens(tokens, pickerOpen ? atStart : null, setAnchorEl)}
+          {pickerOpen
+            ? renderHighlightedTokens(tokens, atStart, setAnchorEl)
+            : staticHighlightedNodes}
           {currentText.endsWith("\n") ? "\u200b" : null}
         </pre>
 

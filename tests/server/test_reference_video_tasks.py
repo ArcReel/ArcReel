@@ -157,10 +157,14 @@ def test_render_unit_prompt_replaces_mentions_in_order():
 
 
 def test_apply_provider_constraints_veo_clamps_duration_and_refs():
+    # caps 由调用方从 ConfigResolver.video_capabilities_for_project 取得；
+    # 这里直接提供 model 级上限模拟已 resolve 的结果。
     refs = [Path(f"/tmp/ref{i}.png") for i in range(5)]
     new_refs, new_duration, warnings = _apply_provider_constraints(
         provider="gemini",
         model="veo-3.1-generate-preview",
+        max_refs=3,
+        max_duration=8,
         references=refs,
         duration_seconds=12,
     )
@@ -175,6 +179,8 @@ def test_apply_provider_constraints_sora_single_ref():
     new_refs, _, warnings = _apply_provider_constraints(
         provider="openai",
         model="sora-2",
+        max_refs=1,
+        max_duration=12,
         references=refs,
         duration_seconds=8,
     )
@@ -187,12 +193,50 @@ def test_apply_provider_constraints_ark_keeps_nine():
     new_refs, new_duration, warnings = _apply_provider_constraints(
         provider="ark",
         model="doubao-seedance-2-0-260128",
+        max_refs=9,
+        max_duration=15,
         references=refs,
         duration_seconds=12,
     )
     assert len(new_refs) == 9
     assert new_duration == 12
     assert warnings == []
+
+
+def test_apply_provider_constraints_none_caps_skip_clamp():
+    """当 ConfigResolver 解析失败（例如无 DB 的 CI 环境），调用方传 None →
+    不裁剪任何维度，把决策推到 backend 自己去报错。"""
+    refs = [Path(f"/tmp/ref{i}.png") for i in range(5)]
+    new_refs, new_duration, warnings = _apply_provider_constraints(
+        provider="grok",
+        model="grok-imagine-video",
+        max_refs=None,
+        max_duration=None,
+        references=refs,
+        duration_seconds=30,
+    )
+    assert new_refs == refs
+    assert new_duration == 30
+    assert warnings == []
+
+
+def test_apply_provider_constraints_custom_provider_model_granular():
+    """Custom provider 场景：max_duration 由自定义 model.supported_durations 决定，
+    无需 PROVIDER_MAX_DURATION 常量查表。用 max_duration=10 模拟 `supported_durations=[4,8,10]`
+    的 custom model，传入 duration=18 应被裁到 10。"""
+    refs = [Path(f"/tmp/ref{i}.png") for i in range(2)]
+    new_refs, new_duration, warnings = _apply_provider_constraints(
+        provider="custom-openai",
+        model="my-custom-video",
+        max_refs=9,
+        max_duration=10,
+        references=refs,
+        duration_seconds=18,
+    )
+    assert new_refs == refs
+    assert new_duration == 10
+    assert any(w["key"] == "ref_duration_exceeded" for w in warnings)
+    assert not any(w["key"] == "ref_too_many_images" for w in warnings)
 
 
 @pytest.mark.asyncio
@@ -431,3 +475,89 @@ async def test_execute_reference_video_task_payload_too_large_retries(tmp_path: 
     )
     assert call_count["n"] == 2
     assert result["resource_id"] == "E1U1"
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_clamps_via_resolver(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """回归守门：executor 的 duration/refs clamp 必须走 ConfigResolver 的 model 粒度 caps，
+    不再走老的 PROVIDER_MAX_DURATION provider 级常量。
+
+    Monkeypatch `ConfigResolver.video_capabilities_for_project` 返自定义 caps
+    (max_duration=6, max_reference_images=1)，传入 duration_seconds=15 / 2 张 refs，
+    期望 generate_video_async 实际收到 duration=6 且 reference_images 只有 1 张。
+    """
+    proj_dir = _write_project(tmp_path)
+
+    # 改造 unit 让它有 2 张 refs + 15s duration，便于验证 clamp
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["duration_seconds"] = 15
+    # characters 已有 张三 sheet；scenes 已有 酒馆 sheet —— refs 已是 2 张
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    captured: dict = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    fake_video_backend = MagicMock()
+    fake_video_backend.name = "custom-openai"
+    fake_video_backend.model = "my-custom-video"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_a, **_kw):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    # 注入假 caps —— 模拟 "supported_durations=[2,4,6]", max_reference_images=1
+    # 的 custom model。用 AsyncMock 直接替换实例方法。
+    from lib.config.resolver import ConfigResolver
+
+    async def _fake_caps(self, project):
+        return {
+            "provider_id": "custom-openai",
+            "model": "my-custom-video",
+            "supported_durations": [2, 4, 6],
+            "max_duration": 6,
+            "max_reference_images": 1,
+            "source": "custom",
+            "default_duration": None,
+            "content_mode": "reference_video",
+            "generation_mode": "reference_video",
+        }
+
+    monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _fake_caps)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    assert captured["duration_seconds"] == 6
+    assert len(captured["reference_images"]) == 1

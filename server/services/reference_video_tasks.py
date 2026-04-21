@@ -12,12 +12,15 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from lib.asset_types import BUCKET_KEY, SHEET_KEY
+from lib.config.resolver import ConfigResolver
+from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.image_utils import compress_image_bytes
 from lib.reference_video import render_prompt_for_backend
 from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
-from lib.reference_video.limits import PROVIDER_MAX_DURATION, PROVIDER_MAX_REFS
 from lib.script_models import ReferenceResource
 from lib.thumbnail import extract_video_thumbnail
 from server.services.generation_tasks import get_media_generator, get_project_manager
@@ -58,29 +61,6 @@ def _resolve_unit_references(
     if missing:
         raise MissingReferenceError(missing=missing)
     return resolved
-
-
-# 供应商能力上限（数值来源：lib/reference_video/limits.py 单一真相源）。
-# 这里保留 (provider, model_prefix) 粒度是因为同一 provider 不同模型上限一致，
-# 单键即可命中；若未来出现 provider 内差异，再扩展 model_prefix。
-_PROVIDER_LIMITS: dict[tuple[str, str | None], dict[str, int]] = {
-    ("gemini", "veo"): {"max_refs": PROVIDER_MAX_REFS["gemini"], "max_duration": PROVIDER_MAX_DURATION["gemini"]},
-    ("openai", "sora"): {"max_refs": PROVIDER_MAX_REFS["openai"], "max_duration": PROVIDER_MAX_DURATION["openai"]},
-    ("grok", None): {"max_refs": PROVIDER_MAX_REFS["grok"], "max_duration": PROVIDER_MAX_DURATION["grok"]},
-    ("ark", None): {"max_refs": PROVIDER_MAX_REFS["ark"], "max_duration": PROVIDER_MAX_DURATION["ark"]},
-}
-
-
-def _lookup_provider_limits(provider: str, model: str | None) -> dict[str, int]:
-    """查找供应商 / 模型对应的参考图 + duration 上限。找不到返回空 dict（不裁剪）。"""
-    provider = (provider or "").lower()
-    model = (model or "").lower()
-    for (p, prefix), limits in _PROVIDER_LIMITS.items():
-        if p != provider:
-            continue
-        if prefix is None or model.startswith(prefix):
-            return limits
-    return {}
 
 
 def _compress_references_to_tempfiles(
@@ -130,15 +110,19 @@ def _apply_provider_constraints(
     *,
     provider: str,
     model: str | None,
+    max_refs: int | None,
+    max_duration: int | None,
     references: list[Path],
     duration_seconds: int,
 ) -> tuple[list[Path], int, list[dict]]:
-    """按供应商上限裁剪 references / duration；回传 warnings（i18n key + 参数）。"""
+    """按供应商上限裁剪 references / duration；回传 warnings（i18n key + 参数）。
+
+    `max_refs` / `max_duration` 由调用方从 `ConfigResolver.video_capabilities_for_project`
+    取得（model 粒度，单一真相源）；任意一项为 None 表示不做对应裁剪。
+    """
     warnings: list[dict] = []
-    limits = _lookup_provider_limits(provider, model)
 
     new_duration = duration_seconds
-    max_duration = limits.get("max_duration")
     if max_duration is not None and duration_seconds > max_duration:
         new_duration = max_duration
         warnings.append(
@@ -153,7 +137,6 @@ def _apply_provider_constraints(
         )
 
     new_refs = list(references)
-    max_refs = limits.get("max_refs")
     if max_refs is not None and len(references) > max_refs:
         new_refs = references[:max_refs]
         # Sora 单图走专门的 warning key，其他走通用
@@ -212,19 +195,34 @@ async def execute_reference_video_task(
     provider_name = getattr(backend, "name", "") if backend else ""
     model_name = getattr(backend, "model", "") if backend else ""
 
-    # 4. Provider 特判：裁 refs + duration
+    # 4. 解析 model 粒度能力上限（单一真相源：model.supported_durations）。
+    #    失败时 fallback 到 None（不裁剪，交由 backend 自行报错），与
+    #    ScriptGenerator._fetch_video_capabilities 的口径保持一致。
+    max_refs: int | None = None
+    max_duration: int | None = None
+    try:
+        resolver = ConfigResolver(async_session_factory)
+        caps = await resolver.video_capabilities_for_project(project)
+        max_refs = caps.get("max_reference_images")
+        max_duration = caps.get("max_duration")
+    except (ValueError, SQLAlchemyError) as exc:
+        logger.info("无法解析 video_capabilities，跳过 executor clamp：%s", exc)
+
+    # 5. Provider 特判：裁 refs + duration
     base_duration = int(unit.get("duration_seconds") or 8)
     constrained_refs, effective_duration, warnings = _apply_provider_constraints(
         provider=provider_name,
         model=model_name,
+        max_refs=max_refs,
+        max_duration=max_duration,
         references=source_refs,
         duration_seconds=base_duration,
     )
 
-    # 5. 渲染 prompt（@→[图N]）
+    # 6. 渲染 prompt（@→[图N]）
     rendered_prompt = _render_unit_prompt(unit)
 
-    # 6. 压缩到临时文件（2048px/q=85）→ 首次调用
+    # 7. 压缩到临时文件（2048px/q=85）→ 首次调用
     tmp_refs: list[Path] = await asyncio.to_thread(_compress_references_to_tempfiles, constrained_refs)
     output_path: Path | None = None
     version = 0
@@ -263,7 +261,7 @@ async def execute_reference_video_task(
             with contextlib.suppress(Exception):
                 p.unlink(missing_ok=True)
 
-    # 7. 首帧缩略图
+    # 8. 首帧缩略图
     if output_path is None:
         raise RuntimeError("generate_video_async returned None output_path")
     thumb_dir = project_path / "reference_videos" / "thumbnails"
@@ -275,7 +273,7 @@ async def execute_reference_video_task(
         thumb_path.unlink(missing_ok=True)
         thumb_rel = None
 
-    # 8. 更新 unit.generated_assets（简单读改写 episode script）
+    # 9. 更新 unit.generated_assets（简单读改写 episode script）
     def _update_unit_assets():
         pm = get_project_manager()
         script = pm.load_script(project_name, script_file)

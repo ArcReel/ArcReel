@@ -82,7 +82,7 @@ const Pill = memo(function Pill({
         {...attributes}
         {...listeners}
         aria-label={t("reference_panel_drag_aria", { name: refItem.name })}
-        className="absolute left-1 top-1 z-10 cursor-grab rounded bg-black/40 p-0.5 text-gray-200 opacity-0 transition group-hover/pill:opacity-100 focus-visible:opacity-100 focus-ring"
+        className="absolute left-1 top-1 z-10 cursor-grab rounded bg-black/40 p-0.5 text-gray-200 opacity-0 transition group-hover/pill:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 focus-ring"
       >
         <GripVertical className="h-3 w-3" aria-hidden="true" />
       </button>
@@ -90,7 +90,7 @@ const Pill = memo(function Pill({
         type="button"
         onClick={() => onRemove(refItem)}
         aria-label={t("reference_panel_remove_aria", { name: refItem.name })}
-        className="absolute right-1 top-1 z-10 rounded-full bg-black/50 p-0.5 text-gray-200 opacity-0 transition hover:text-red-400 group-hover/pill:opacity-100 focus-visible:opacity-100 focus-ring"
+        className="absolute right-1 top-1 z-10 rounded-full bg-black/50 p-0.5 text-gray-200 opacity-0 transition hover:text-red-400 group-hover/pill:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 focus-ring"
       >
         <X className="h-3 w-3" aria-hidden="true" />
       </button>
