@@ -1,9 +1,10 @@
 """ScriptGenerator reference_video 分支测试。"""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from lib.script_generator import ScriptGenerator
 
@@ -207,6 +208,20 @@ def test_build_prompt_no_video_backend_skips_max_duration_segment(tmp_path: Path
     assert "4/8s" in prompt
     # 但"模型上限 X 秒"段缺失（因为 _resolve_max_duration 返 None）
     assert "当前视频模型上限" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_fetch_video_capabilities_swallows_db_errors(reference_project: Path):
+    """CI 回归：裸测试容器缺 migration 时 ConfigResolver 会抛 OperationalError；
+    _fetch_video_capabilities 必须 fallback 返 None，不让 generate() 崩溃。
+    """
+    gen = ScriptGenerator(reference_project)
+    with patch(
+        "lib.script_generator.ConfigResolver.video_capabilities_for_project",
+        new=AsyncMock(side_effect=OperationalError("SELECT ...", {}, Exception("no such table: system_setting"))),
+    ):
+        caps = await gen._fetch_video_capabilities()
+    assert caps is None
 
 
 def test_effective_generation_mode_honors_episode_override(tmp_path: Path):

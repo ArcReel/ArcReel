@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
@@ -237,16 +238,19 @@ class ScriptGenerator:
             )
 
     async def _fetch_video_capabilities(self) -> dict | None:
-        """从 ConfigResolver 解析视频模型能力；失败（video_backend 未解析 / model 找不到）时返 None。
+        """从 ConfigResolver 解析视频模型能力；失败时返 None，由 _resolve_* fallback 到 project.json 直读。
 
         使用 `video_capabilities_for_project` 传入已加载的 project.json，不再按 `self.project_path.name`
         重新全局加载——避免 ScriptGenerator 在非标准路径（如测试 tmp_path）实例化时目录名与
         全局项目碰撞读到错误能力。
+
+        宽松捕获：除 ValueError 外，DB 未 migration / 连接失败等 SQLAlchemy 异常也走 fallback，
+        保证在缺能力元数据的环境（如裸 CI 测试容器）中 generate() 仍能跑通。
         """
         resolver = ConfigResolver(async_session_factory)
         try:
             return await resolver.video_capabilities_for_project(self.project_json)
-        except ValueError as exc:
+        except (ValueError, SQLAlchemyError) as exc:
             logger.info("video_capabilities 解析失败，将走 project.json fallback：%s", exc)
             return None
 
