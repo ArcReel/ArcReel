@@ -378,7 +378,7 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
       </div>
       {/* 外层 grid：<@md(448px) 单列；@md+ 双栏 (UnitList | 右侧 wrapper)。
           断点选 @md 是因为 agent chat 占右半屏时中栏常在 500-700px 区间，@2xl(672px) 错过太多场景。
-          单列模式显式两行：UnitList 固 40%（不超过，最少 140px），editor wrapper 拿剩余 1fr——
+          单列模式显式两行：UnitList 固 40%（不超过，最少 160px），editor wrapper 拿剩余 1fr——
           否则两个子元素只有 1 个定义行、第二个落进隐式 auto 行，flex-1 链塌到 0，
           textarea 在窄屏完全不可见（#368 后续回归）。@md+ 切回 2 列 × 1 行。 */}
       <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(160px,40%)_minmax(0,1fr)] overflow-hidden @md:grid-cols-[minmax(200px,30%)_1fr] @md:grid-rows-[minmax(0,1fr)]">
