@@ -561,3 +561,189 @@ async def test_execute_reference_video_task_clamps_via_resolver(
 
     assert captured["duration_seconds"] == 6
     assert len(captured["reference_images"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_prompt_matches_clipped_refs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """回归守门：prompt 里的 [图N] 索引必须与 backend 收到的 reference_images 对齐。
+
+    原实现用整条 `unit.references` 渲染 prompt，裁剪后 [图N] 会越界（例如 5 张裁到 1 张，
+    prompt 里仍出现 [图5]）。修复后应当按 `constrained_refs` 长度重新 slice references。
+    """
+    proj_dir = _write_project(tmp_path)
+
+    # 新增一个道具 sheet，让 unit 拥有 3 张 refs（1 character + 1 scene + 1 prop）。
+    (proj_dir / "props").mkdir()
+    (proj_dir / "props" / "瓶子.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
+        b"\x08\x02\x00\x00\x00&\x93\t)\x00\x00\x00\x13IDATx\x9cc<\x91b\xc4\x00"
+        b"\x03Lp\x16^\x0e\x00E\xf6\x01f\xac\xf5\x15\xfa\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    project_path = proj_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project["props"] = {"瓶子": {"description": "x", "prop_sheet": "props/瓶子.png"}}
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["shots"] = [{"duration": 3, "text": "Shot 1 (3s): @张三 在 @酒馆 拿起 @瓶子"}]
+    script["video_units"][0]["references"] = [
+        {"type": "character", "name": "张三"},
+        {"type": "scene", "name": "酒馆"},
+        {"type": "prop", "name": "瓶子"},
+    ]
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads(project_path.read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    captured: dict = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    fake_video_backend = MagicMock()
+    fake_video_backend.name = "openai"
+    fake_video_backend.model = "sora-2"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_a, **_kw):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    # Sora 上限 1 张（provider_id=openai, model=sora-2）
+    from lib.config.resolver import ConfigResolver
+
+    async def _fake_caps(self, project):
+        return {
+            "provider_id": "openai",
+            "model": "sora-2",
+            "supported_durations": [4, 8, 12],
+            "max_duration": 12,
+            "max_reference_images": 1,
+            "source": "registry",
+            "default_duration": None,
+            "content_mode": "reference_video",
+            "generation_mode": "reference_video",
+        }
+
+    monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _fake_caps)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    # 3 张裁到 1 张，prompt 里只能出现 [图1]，不能出现 [图2]/[图3]
+    assert len(captured["reference_images"]) == 1
+    prompt = captured["prompt"]
+    assert "[图1]" in prompt
+    assert "[图2]" not in prompt
+    assert "[图3]" not in prompt
+    # 被裁掉的 @酒馆 / @瓶子 按 render_prompt_for_backend 的 "未注册保留原样" fallback 保留
+    assert "@酒馆" in prompt or "@瓶子" in prompt
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_skips_clamp_when_backend_model_diverges(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """回归守门：caps 解析出的 model 与真实 backend.model 不一致时（自定义 provider
+    model 禁用回退的典型场景）必须 skip clamp，避免按错误模型的上限裁剪。
+    """
+    proj_dir = _write_project(tmp_path)
+
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["duration_seconds"] = 20
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    captured: dict = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    fake_video_backend = MagicMock()
+    # 模拟 fallback：project.json 记录的是 "禁用模型"，backend 实际回退到 "默认模型"
+    fake_video_backend.name = "custom-openai"
+    fake_video_backend.model = "active-default-video"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_a, **_kw):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    # caps 解析出来的 model 是 project.json 里那个（已禁用）的：与 backend.model 不一致
+    from lib.config.resolver import ConfigResolver
+
+    async def _fake_caps(self, project):
+        return {
+            "provider_id": "custom-openai",
+            "model": "disabled-old-video",  # ← 与 backend.model 不一致
+            "supported_durations": [2, 4],
+            "max_duration": 4,
+            "max_reference_images": 1,
+            "source": "custom",
+            "default_duration": None,
+            "content_mode": "reference_video",
+            "generation_mode": "reference_video",
+        }
+
+    monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _fake_caps)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    # skip clamp：duration 保持 20（未被 caps.max_duration=4 裁到 4）
+    assert captured["duration_seconds"] == 20
+    # refs 也保留原数（2 张，未被 caps.max_reference_images=1 裁到 1）
+    assert len(captured["reference_images"]) == 2

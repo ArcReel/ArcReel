@@ -198,13 +198,29 @@ async def execute_reference_video_task(
     # 4. 解析 model 粒度能力上限（单一真相源：model.supported_durations）。
     #    失败时 fallback 到 None（不裁剪，交由 backend 自行报错），与
     #    ScriptGenerator._fetch_video_capabilities 的口径保持一致。
+    #
+    #    注意：caps 基于 `project.json.video_backend` 解析；但自定义 provider 的 model
+    #    被禁用时，`_create_custom_backend` 会静默回退到默认启用 model（见
+    #    server/services/generation_tasks.py:99-122）。为避免"按旧模型 clamp、按新模型生成"
+    #    的错位，下面校验 caps.model 与 backend.model 是否一致；不一致就 skip clamp，
+    #    把决策推给 backend 自报错。根治需要 `VideoCapabilities` 协议暴露 `max_duration`，
+    #    本 PR 范围内先缓解。
     max_refs: int | None = None
     max_duration: int | None = None
     try:
         resolver = ConfigResolver(async_session_factory)
         caps = await resolver.video_capabilities_for_project(project)
-        max_refs = caps.get("max_reference_images")
-        max_duration = caps.get("max_duration")
+        caps_model = caps.get("model")
+        if model_name and caps_model and caps_model != model_name:
+            logger.warning(
+                "project.json video_backend model (%s) 与实际 backend model (%s) 不一致，"
+                "跳过 executor clamp 以避免按错误模型裁剪（常见于自定义模型禁用回退）。",
+                caps_model,
+                model_name,
+            )
+        else:
+            max_refs = caps.get("max_reference_images")
+            max_duration = caps.get("max_duration")
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video_capabilities，跳过 executor clamp：%s", exc)
 
@@ -219,8 +235,14 @@ async def execute_reference_video_task(
         duration_seconds=base_duration,
     )
 
-    # 6. 渲染 prompt（@→[图N]）
-    rendered_prompt = _render_unit_prompt(unit)
+    # 6. 渲染 prompt（@→[图N]）。必须按 `constrained_refs` 的长度裁 `unit.references`
+    #    再渲染，保证 [图N] 的 1-based 索引与 backend 实际收到的 reference_images
+    #    长度严格对齐；否则裁剪后的 `@clipped_name` 会被替成 `[图N]` 指向不存在的图。
+    unit_for_prompt = unit
+    unit_refs = unit.get("references") or []
+    if len(constrained_refs) < len(unit_refs):
+        unit_for_prompt = {**unit, "references": unit_refs[: len(constrained_refs)]}
+    rendered_prompt = _render_unit_prompt(unit_for_prompt)
 
     # 7. 压缩到临时文件（2048px/q=85）→ 首次调用
     tmp_refs: list[Path] = await asyncio.to_thread(_compress_references_to_tempfiles, constrained_refs)
