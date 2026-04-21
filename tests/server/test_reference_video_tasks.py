@@ -295,6 +295,127 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
 
 
 @pytest.mark.asyncio
+async def test_execute_reference_video_task_grok_uses_provider_default_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Regression: Grok 视频生成必须用 720p（xai_sdk 的 VideoResolutionMap 只接受 480p/720p；
+    参考视频 executor 若回退到 MediaGenerator 默认 1080p，会在 SDK 抛 `Invalid video resolution 1080p`）。
+    Executor 必须与生产分镜视频流一致，按 `DEFAULT_VIDEO_RESOLUTION[grok]=720p` 解析。
+    """
+    proj_dir = _write_project(tmp_path)
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    captured: dict = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-21T22:00:00"}]}
+    fake_video_backend = MagicMock()
+    fake_video_backend.name = "grok"
+    fake_video_backend.model = "grok-imagine-video"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_a, **_kw):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    assert captured.get("resolution") == "720p", (
+        f"Grok executor 必须显式传 720p，否则 MediaGenerator 默认 1080p 会被 xai_sdk 拒绝。"
+        f"实际收到: {captured.get('resolution')!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_respects_project_model_settings_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """project.video_model_settings[model].resolution 必须覆盖 provider 默认值，
+    与 generation_tasks.py 的分镜视频流保持一致的优先级。"""
+    proj_dir = _write_project(tmp_path)
+    project_path = proj_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project["video_model_settings"] = {"doubao-seedance-2-0-260128": {"resolution": "1080p"}}
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads(project_path.read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    captured: dict = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-21T22:00:00"}]}
+    fake_video_backend = MagicMock()
+    fake_video_backend.name = "ark"
+    fake_video_backend.model = "doubao-seedance-2-0-260128"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_a, **_kw):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    assert captured.get("resolution") == "1080p"
+
+
+@pytest.mark.asyncio
 async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     proj_dir = _write_project(tmp_path)
     (proj_dir / "characters" / "张三.png").unlink()

@@ -23,7 +23,7 @@ from lib.reference_video import render_prompt_for_backend
 from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
 from lib.script_models import ReferenceResource
 from lib.thumbnail import extract_video_thumbnail
-from server.services.generation_tasks import get_media_generator, get_project_manager
+from server.services.generation_tasks import DEFAULT_VIDEO_RESOLUTION, get_media_generator, get_project_manager
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +235,14 @@ async def execute_reference_video_task(
         duration_seconds=base_duration,
     )
 
+    # 5.1 解析 resolution（与分镜视频流 generation_tasks.py 保持同一优先级：
+    #     project.video_model_settings[model].resolution > DEFAULT_VIDEO_RESOLUTION[provider]）。
+    #     若直接回退到 MediaGenerator 的硬编码默认 "1080p"，会被 xai_sdk 拒绝
+    #     （VideoResolutionMap 仅支持 480p/720p）。
+    video_model_settings = project.get("video_model_settings") or {}
+    model_resolution_setting = video_model_settings.get(model_name, {}) if model_name else {}
+    resolution = model_resolution_setting.get("resolution") or DEFAULT_VIDEO_RESOLUTION.get(provider_name, "1080p")
+
     # 6. 渲染 prompt（@→[图N]）。必须按 `constrained_refs` 的长度裁 `unit.references`
     #    再渲染，保证 [图N] 的 1-based 索引与 backend 实际收到的 reference_images
     #    长度严格对齐；否则裁剪后的 `@clipped_name` 会被替成 `[图N]` 指向不存在的图。
@@ -258,6 +266,7 @@ async def execute_reference_video_task(
                 reference_images=tmp_refs,
                 aspect_ratio=project.get("aspect_ratio", "9:16"),
                 duration_seconds=effective_duration,
+                resolution=resolution,
             )
         except RequestPayloadTooLargeError:
             # 二次压缩重试（1024px/q=70）
@@ -277,6 +286,7 @@ async def execute_reference_video_task(
                 reference_images=tmp_refs,
                 aspect_ratio=project.get("aspect_ratio", "9:16"),
                 duration_seconds=effective_duration,
+                resolution=resolution,
             )
     finally:
         for p in tmp_refs:
