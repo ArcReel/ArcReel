@@ -28,7 +28,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -69,8 +68,11 @@ def resolve_project_cover(
             continue
         try:
             scripts.append(manager.load_script(project_name, script_file))
-        except (FileNotFoundError, OSError, json.JSONDecodeError) as e:
-            # 剧本文件缺失 / 损坏不阻塞项目列表；仅记 debug，继续尝试其他集。
+        except (OSError, ValueError) as e:
+            # 剧本文件缺失 / 损坏 / 路径越界不阻塞项目列表；仅记 debug，继续尝试其他集。
+            # OSError 覆盖 FileNotFoundError 等 I/O 失败；ValueError 覆盖 JSONDecodeError
+            # 与 ProjectManager._safe_subpath 的非法路径校验。与 list_projects 的外层
+            # preload except 口径保持一致。
             logger.debug("加载剧本失败 project=%s script=%s err=%s", project_name, script_file, e)
             continue
 

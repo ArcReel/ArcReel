@@ -457,7 +457,11 @@ export function StudioCanvasRouter() {
               <div className="min-h-0 flex-1">
                 {mode === "reference_video" ? (
                   <ReferenceVideoCanvas
-                    key={epNum}
+                    // 同一 epNum 跨项目不 remount 会让 optimisticUnitIds / prevTaskStatusRef
+                    // 残留上个项目的状态（例如 "E1U1" 长驻 set 里），切到同名 unit 的新项目
+                    // 时 "optimistic && !hasQueueRow" 会误判 busy。改 key 到 project::episode
+                    // 让实例天然按项目隔离，避免显式 pruning 逻辑。
+                    key={`${currentProjectName}::${epNum}`}
                     projectName={currentProjectName}
                     episode={epNum}
                     episodeTitle={episode?.title}

@@ -176,7 +176,9 @@ export function MentionPicker({
       size({
         padding: 8,
         apply({ availableHeight, elements }) {
-          elements.floating.style.maxHeight = `${Math.min(288, Math.max(120, availableHeight))}px`;
+          // 让 picker 自适应剩余空间，避免极窄视口下强制 floor 反而溢出；
+          // 288px 是设计期望的最大高度，bottom 真的不够时 `flip` 会翻到 top。
+          elements.floating.style.maxHeight = `${Math.min(288, availableHeight)}px`;
         },
       }),
     ],
