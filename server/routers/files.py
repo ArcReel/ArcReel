@@ -5,7 +5,6 @@
 """
 
 import asyncio
-import json
 import logging
 import shutil
 import tempfile
@@ -625,16 +624,15 @@ def _get_step_title(filename: str, _t: Callable[..., str]) -> str:
     return titles.get(filename, filename)
 
 
-def _load_project_modes(project_dir: Path, episode: int) -> tuple[str, str | None]:
-    """读一次 project.json，派生 (content_mode, generation_mode)。
+def _load_project_modes(project_name: str, episode: int) -> tuple[str, str | None]:
+    """走 ProjectManager.load_project，派生 (content_mode, generation_mode)。
 
-    generation_mode 的 episode→project→默认回退复用 lib.project_manager.effective_mode。
-    project.json 缺失时返回 ("drama", None)，由调用方走 content_mode-only 分支。
+    复用 load_project 以获得文件锁和 _migrate_legacy_style 迁移；generation_mode 的
+    episode→project→默认回退复用 lib.project_manager.effective_mode。
+    项目不存在时返回 ("drama", None)，由调用方走 content_mode-only 分支。
     """
-    project_json_path = project_dir / "project.json"
     try:
-        with open(project_json_path, encoding="utf-8") as f:
-            data = json.load(f)
+        data = get_project_manager().load_project(project_name)
     except FileNotFoundError:
         return "drama", None
     content_mode = data.get("content_mode", "drama")
@@ -666,7 +664,7 @@ async def get_draft_content(project_name: str, episode: int, step_num: int, _use
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            content_mode, generation_mode = _load_project_modes(project_dir, episode)
+            content_mode, generation_mode = _load_project_modes(project_name, episode)
             step_files = _get_step_files(content_mode, generation_mode)
 
             if step_num not in step_files:
@@ -701,7 +699,7 @@ async def update_draft_content(
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            content_mode, generation_mode = _load_project_modes(project_dir, episode)
+            content_mode, generation_mode = _load_project_modes(project_name, episode)
             step_files = _get_step_files(content_mode, generation_mode)
 
             if step_num not in step_files:
@@ -710,7 +708,10 @@ async def update_draft_content(
             drafts_dir = project_dir / "drafts" / f"episode_{episode}"
             drafts_dir.mkdir(parents=True, exist_ok=True)
 
-            draft_path = _resolve_step1_path(drafts_dir, step_num, drafts_dir / step_files[step_num])
+            # 写入始终落到当前模式的目标文件；fallback 仅用于读取/删除（兼容跨模式切换的旧 step1）。
+            # 若写入 fallback 到老文件，切模式后后续 subagent 读 step_files[step_num] 仍为空，
+            # 导致"前端保存成功但生成报缺少 step1"。
+            draft_path = drafts_dir / step_files[step_num]
             is_new = not draft_path.exists()
             draft_path.write_text(content, encoding="utf-8")
 
@@ -749,7 +750,7 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _user: Cu
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            content_mode, generation_mode = _load_project_modes(project_dir, episode)
+            content_mode, generation_mode = _load_project_modes(project_name, episode)
             step_files = _get_step_files(content_mode, generation_mode)
 
             if step_num not in step_files:

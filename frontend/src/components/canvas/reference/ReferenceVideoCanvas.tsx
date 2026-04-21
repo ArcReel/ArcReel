@@ -162,12 +162,15 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   // 小屏（<@4xl，容器 <896px）时把 editor / preview 压成 tab。@4xl+ 三栏时此状态被 CSS 忽略。
   const [smallTab, setSmallTab] = useState<"editor" | "preview">("editor");
   // 预处理二级页面：默认 false（主编辑视图）；true 时整个 Canvas 内容替换为 PreprocessingView。
-  // 切换 episode 时自动退回主视图——用 render-phase setState 对比而非 useEffect，
-  // 避免 react-hooks/set-state-in-effect lint 规则阻断。
+  // 切换 episode 或 project 时都自动退回主视图（切项目而 episode 号相同会复用组件实例，
+  // 残留在预处理页会被误解为新项目也在预处理中）——用 render-phase setState 对比而非
+  // useEffect，避免 react-hooks/set-state-in-effect lint 规则阻断。
   const [showPreproc, setShowPreproc] = useState(false);
   const [lastEpisode, setLastEpisode] = useState(episode);
-  if (lastEpisode !== episode) {
+  const [lastProject, setLastProject] = useState(projectName);
+  if (lastEpisode !== episode || lastProject !== projectName) {
     setLastEpisode(episode);
+    setLastProject(projectName);
     setShowPreproc(false);
   }
 

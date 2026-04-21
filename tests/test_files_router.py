@@ -419,13 +419,14 @@ class TestFilesRouter:
             assert update.status_code == 200
             assert update.json()["path"] == "drafts/episode_2/step1_reference_units.md"
 
-        # _load_project_modes 缺少 project.json 时回退到 ("drama", None)
-        content_mode, _ = files._load_project_modes(tmp_path, 1)
+        # _load_project_modes 走 load_project：不存在项目 → ("drama", None) 回退
+        content_mode, gen_mode = files._load_project_modes("no-such-project", 1)
         assert content_mode == "drama"
-        project_json = tmp_path / "project.json"
-        project_json.write_text('{"content_mode":"narration"}', encoding="utf-8")
-        content_mode, _ = files._load_project_modes(tmp_path, 1)
+        assert gen_mode is None
+        # demo 项目 content_mode=narration（fixture 默认），且项目级 storyboard + ep2 覆盖 reference_video
+        content_mode, gen_mode = files._load_project_modes("demo", 2)
         assert content_mode == "narration"
+        assert gen_mode == "reference_video"
 
     def test_draft_event_emission(self, tmp_path, monkeypatch):
         """PUT drafts 端点应发射 draft:created/updated 事件"""

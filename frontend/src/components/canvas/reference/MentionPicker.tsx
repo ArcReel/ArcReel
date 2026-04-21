@@ -157,8 +157,9 @@ export function MentionPicker({
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setActiveIndex(Math.max(0, active - 1));
-      } else if (e.key === "Enter" || e.key === "Tab") {
-        // Tab 补全：与 Enter 同义。阻止默认 tab-out 行为，把焦点留在编辑器里并插入当前 active 项。
+      } else if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
+        // Tab 补全（仅正向）：与 Enter 同义，阻止默认 tab-out。Shift+Tab 保留原生反向
+        // 焦点切换行为，避免 a11y 回退（picker 打开时仍能按 Shift+Tab 离开输入框）。
         e.preventDefault();
         const item = current[active];
         if (item) onSelect({ type: item.type, name: item.name });

@@ -350,6 +350,31 @@ describe("MentionPicker", () => {
     expect(img!.getAttribute("src")).toMatch(/zs\.png/);
   });
 
+  it("Shift+Tab does not trigger selection nor preventDefault (keeps a11y focus reversal)", () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <MentionPicker
+        open
+        query=""
+        candidates={CANDIDATES}
+        onSelect={onSelect}
+        onClose={onClose}
+      />,
+    );
+    // picker 以 window keydown 监听；Shift+Tab 应当是 no-op（不插入、不吞 preventDefault）
+    const event = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, cancelable: true });
+    window.dispatchEvent(event);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+
+    // 普通 Tab（无 shift）仍补全并阻止默认（保留原有行为，防回归）
+    const tabEvent = new KeyboardEvent("keydown", { key: "Tab", cancelable: true });
+    window.dispatchEvent(tabEvent);
+    expect(onSelect).toHaveBeenCalled();
+    expect(tabEvent.defaultPrevented).toBe(true);
+  });
+
   it("does not close when pointerdown hits the anchorRef element", () => {
     function Host({ onClose }: { onClose: () => void }) {
       const anchorRef = useRef<HTMLButtonElement>(null);
