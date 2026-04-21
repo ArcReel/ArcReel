@@ -106,11 +106,22 @@ class StatusCalculator:
             return False
 
     def _load_episode_script(
-        self, project_name: str, episode_num: int, script_file: str, *, content_mode: str = "narration"
+        self,
+        project_name: str,
+        episode_num: int,
+        script_file: str,
+        *,
+        content_mode: str = "narration",
+        preloaded_scripts: dict[str, dict] | None = None,
     ) -> tuple:
         """加载单集剧本，返回 (script_status, script|None)，避免重复读取文件。
         script_status: 'generated' | 'segmented' | 'none'
+
+        若 ``preloaded_scripts`` 提供且 ``script_file`` 命中其 key，则直接复用预加载
+        结果，跳过一次 JSON 解析。缺失时回退到 ``pm.load_script``，保持原兜底语义。
         """
+        if preloaded_scripts is not None and script_file in preloaded_scripts:
+            return "generated", preloaded_scripts[script_file]
         try:
             script = self.pm.load_script(project_name, script_file)
             return "generated", script
@@ -177,8 +188,18 @@ class StatusCalculator:
             "duration_seconds": 0,
         }
 
-    def _build_episodes_stats(self, project_name: str, project: dict) -> list[dict]:
-        """遍历所有集数，加载剧本并计算每集统计。"""
+    def _build_episodes_stats(
+        self,
+        project_name: str,
+        project: dict,
+        *,
+        preloaded_scripts: dict[str, dict] | None = None,
+    ) -> list[dict]:
+        """遍历所有集数，加载剧本并计算每集统计。
+
+        ``preloaded_scripts`` 按 ``episode['script_file']`` 原样作为 key，命中则
+        跳过 pm.load_script；未命中仍走磁盘加载 + 草稿探测的既有兜底路径。
+        """
         content_mode = project.get("content_mode", "narration")
         episodes_stats = []
         for ep in project.get("episodes", []):
@@ -187,7 +208,11 @@ class StatusCalculator:
 
             if script_file:
                 script_status, script = self._load_episode_script(
-                    project_name, episode_num, script_file, content_mode=content_mode
+                    project_name,
+                    episode_num,
+                    script_file,
+                    content_mode=content_mode,
+                    preloaded_scripts=preloaded_scripts,
                 )
             else:
                 script_status, script = "none", None
@@ -203,13 +228,21 @@ class StatusCalculator:
         return episodes_stats
 
     def calculate_project_status(
-        self, project_name: str, project: dict, *, _preloaded_episodes_stats: list[dict] | None = None
+        self,
+        project_name: str,
+        project: dict,
+        *,
+        _preloaded_episodes_stats: list[dict] | None = None,
+        preloaded_scripts: dict[str, dict] | None = None,
     ) -> dict:
         """
         计算项目整体状态（用于列表 API）。
 
         Args:
             _preloaded_episodes_stats: 若已由 enrich_project 预先计算，直接传入以避免重复 I/O。
+            preloaded_scripts: 调用方（如 list_projects）已加载的剧本字典，key 为
+                ``episode['script_file']`` 原值，value 为剧本 JSON。
+                命中即跳过 pm.load_script，避免与 resolve_project_cover 重复 I/O。
 
         Returns:
             ProjectStatus 字典：current_phase, phase_progress, characters, scenes, props, episodes_summary
@@ -235,7 +268,7 @@ class StatusCalculator:
         if _preloaded_episodes_stats is not None:
             episodes_stats = _preloaded_episodes_stats
         else:
-            episodes_stats = self._build_episodes_stats(project_name, project)
+            episodes_stats = self._build_episodes_stats(project_name, project, preloaded_scripts=preloaded_scripts)
 
         phase = self.calculate_current_phase(project, episodes_stats)
         phase_progress = self._calculate_phase_progress(project, phase, episodes_stats)

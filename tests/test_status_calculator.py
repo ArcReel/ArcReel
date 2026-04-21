@@ -285,3 +285,91 @@ class TestStatusCalculator:
         status, script = calc._load_episode_script("demo", 1, "scripts/episode_1.json")
         assert status == "generated"
         assert script is None
+
+    def test_calculate_project_status_preloaded_scripts_skips_pm_load(self, tmp_path):
+        """preloaded_scripts 覆盖所有集时，不应再调用 pm.load_script。
+
+        list_projects 的 hot-path 合同：与 resolve_project_cover 共用一份加载结果，
+        避免 cover + status 两次 JSON 解析。"""
+        project_root = tmp_path / "projects"
+        project_path = project_root / "demo"
+        project_path.mkdir(parents=True)
+
+        project = {
+            "overview": {"synopsis": "test"},
+            "characters": {},
+            "scenes": {},
+            "props": {},
+            "episodes": [
+                {"episode": 1, "script_file": "scripts/episode_1.json"},
+            ],
+        }
+
+        class _TrackingPM(_FakePM):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.load_calls: list[str] = []
+
+            def load_script(self, project_name, filename):
+                self.load_calls.append(filename)
+                return super().load_script(project_name, filename)
+
+        pm = _TrackingPM(project_root, project, {})  # 空 scripts：若走 pm.load_script 必抛
+        calc = StatusCalculator(pm)
+
+        preloaded = {
+            "scripts/episode_1.json": {
+                "content_mode": "narration",
+                "segments": [{"duration_seconds": 4, "generated_assets": {}}],
+            }
+        }
+        status = calc.calculate_project_status("demo", project, preloaded_scripts=preloaded)
+
+        assert pm.load_calls == []  # 预加载命中：未触发任何一次 pm.load_script
+        # 合理性断言：预加载的剧本被识别为 generated 且纳入统计
+        assert status["episodes_summary"]["total"] == 1
+        assert status["episodes_summary"]["scripted"] == 1
+
+    def test_calculate_project_status_preloaded_scripts_falls_back_for_missing(self, tmp_path):
+        """preloaded_scripts 未覆盖的集：回退 pm.load_script，保持"尽力而为"合同。"""
+        project_root = tmp_path / "projects"
+        project_path = project_root / "demo"
+        project_path.mkdir(parents=True)
+
+        project = {
+            "overview": {"synopsis": "test"},
+            "characters": {},
+            "scenes": {},
+            "props": {},
+            "episodes": [
+                {"episode": 1, "script_file": "scripts/episode_1.json"},
+                {"episode": 2, "script_file": "scripts/episode_2.json"},
+            ],
+        }
+
+        class _TrackingPM(_FakePM):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.load_calls: list[str] = []
+
+            def load_script(self, project_name, filename):
+                self.load_calls.append(filename)
+                return super().load_script(project_name, filename)
+
+        # pm 仅能加载 episode_2；preload 覆盖 episode_1。
+        pm = _TrackingPM(
+            project_root,
+            project,
+            {"episode_2.json": {"content_mode": "narration", "segments": [{"duration_seconds": 4}]}},
+        )
+        calc = StatusCalculator(pm)
+
+        preloaded = {
+            "scripts/episode_1.json": {"content_mode": "narration", "segments": [{"duration_seconds": 4}]},
+        }
+        status = calc.calculate_project_status("demo", project, preloaded_scripts=preloaded)
+
+        # 预加载命中 episode_1 (no load_script 调用)；episode_2 未预加载 → pm.load_script 一次。
+        assert pm.load_calls == ["scripts/episode_2.json"]
+        assert status["episodes_summary"]["total"] == 2
+        assert status["episodes_summary"]["scripted"] == 2

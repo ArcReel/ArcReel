@@ -122,7 +122,13 @@ class _FakePM:
 
 
 class _FakeCalc:
-    def calculate_project_status(self, name, project):
+    def __init__(self):
+        # 记录 list_projects 是否把一次性加载的 script map 传到 calculate_project_status，
+        # 让针对 Task 4 的集成测试能断言两路共享预加载。
+        self.last_preloaded_scripts: dict | None = None
+
+    def calculate_project_status(self, name, project, *, preloaded_scripts=None):
+        self.last_preloaded_scripts = preloaded_scripts
         return {
             "current_phase": "production",
             "phase_progress": 0.5,
@@ -474,6 +480,34 @@ class TestProjectsRouter:
             data = fake_pm.project_data["ready"]
             assert "style_image" not in data
             assert "style_description" not in data
+
+    def test_list_projects_shares_script_preload_with_status(self, tmp_path, monkeypatch):
+        """list_projects 一次性加载 episode scripts，传给 StatusCalculator，去除 cover + status 双重 I/O。"""
+        fake_pm = _FakePM(tmp_path)
+        # 统计 load_script 调用次数：共享预加载后，ready 项目应只触发一次。
+        orig_load_script = fake_pm.load_script
+        calls: list[tuple[str, str]] = []
+
+        def _counting_load(name, script_file):
+            calls.append((name, script_file))
+            return orig_load_script(name, script_file)
+
+        fake_pm.load_script = _counting_load  # type: ignore[method-assign]
+
+        fake_calc = _FakeCalc()
+        client = _client(monkeypatch, fake_pm, fake_calc)
+        with client:
+            resp = client.get("/api/v1/projects")
+            assert resp.status_code == 200
+
+        # ready 只有 1 集 script_file="scripts/episode_1.json"：预加载一次。
+        # 若 cover + status 各自独立加载，这里会是 2 次。
+        ready_calls = [c for c in calls if c[0] == "ready"]
+        assert len(ready_calls) == 1, f"expected 1 shared load, got {ready_calls}"
+
+        # 预加载 map 被传给 StatusCalculator
+        assert fake_calc.last_preloaded_scripts is not None
+        assert "scripts/episode_1.json" in fake_calc.last_preloaded_scripts
 
     def test_list_projects_returns_style_image_field(self, tmp_path, monkeypatch):
         """列表端点需返回 style_image：否则前端无法区分"自定义风格"与"未设置"。"""

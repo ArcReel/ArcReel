@@ -42,8 +42,15 @@ def resolve_project_cover(
     manager: ProjectManager,
     project_name: str,
     project: dict,
+    *,
+    preloaded_scripts: dict[str, dict] | None = None,
 ) -> str | None:
-    """按偏好顺序挑第一个可用的封面路径，返回 `/api/v1/files/...` URL；全无则 None。"""
+    """按偏好顺序挑第一个可用的封面路径，返回 `/api/v1/files/...` URL；全无则 None。
+
+    ``preloaded_scripts`` 允许调用方（如 list_projects）一次性加载剧本后同时喂给
+    ``calculate_project_status``，避免两路重复 JSON I/O。key 为 ``episode['script_file']``
+    原值，value 为剧本 JSON dict；缺失集 (key 不在 map) 回退到 ``manager.load_script``。
+    """
 
     def _url(rel: str) -> str:
         # 统一走 files 静态路由，不直接拼盘路径；相对路径原样透传给 FileResponse。
@@ -56,6 +63,9 @@ def resolve_project_cover(
     for ep in project.get("episodes") or []:
         script_file = ep.get("script_file")
         if not script_file:
+            continue
+        if preloaded_scripts is not None and script_file in preloaded_scripts:
+            scripts.append(preloaded_scripts[script_file])
             continue
         try:
             scripts.append(manager.load_script(project_name, script_file))
