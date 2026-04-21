@@ -1,5 +1,5 @@
 import { startTransition, useState, useEffect, useRef } from "react";
-import { voidPromise } from "@/utils/async";
+import { errMsg, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { ChevronLeft, Activity, Settings, Bell, Download, Loader2, Package } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -190,7 +190,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       setExportDialogOpen(false);
       useAppStore.getState().pushToast(t("dashboard:jianying_export_started"), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(t("dashboard:jianying_export_failed", { message: (err as Error).message }), "error");
+      useAppStore.getState().pushToast(t("dashboard:jianying_export_failed", { message: errMsg(err) }), "error");
     } finally {
       setJianyingExporting(false);
     }
@@ -219,7 +219,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(t("dashboard:export_failed", { message: (err as Error).message }), "error");
+        .pushToast(t("dashboard:export_failed", { message: errMsg(err) }), "error");
     } finally {
       setExportingProject(false);
     }

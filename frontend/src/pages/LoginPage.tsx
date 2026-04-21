@@ -1,7 +1,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useAutoFocus } from "@/hooks/useAutoFocus";
-import { voidPromise } from "@/utils/async";
+import { errMsg, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
@@ -46,7 +46,7 @@ export function LoginPage() {
       login(data.access_token, username);
       setLocation("/app/projects");
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("auth:login_failed"));
+      setError(errMsg(err, t("auth:login_failed")));
     } finally {
       setLoading(false);
     }

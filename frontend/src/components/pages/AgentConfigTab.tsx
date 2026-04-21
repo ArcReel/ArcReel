@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { voidCall } from "@/utils/async";
+import { errMsg, voidCall } from "@/utils/async";
 import { ChevronDown, Eye, EyeOff, Loader2, SlidersHorizontal, Terminal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
@@ -187,7 +187,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       savedRef.current = d;
       setDraft(d);
     } catch (err) {
-      setLoadError((err as Error).message);
+      setLoadError(errMsg(err));
     }
   }, []);
 
@@ -218,7 +218,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       voidCall(useConfigStatusStore.getState().refresh());
       useAppStore.getState().pushToast(t("agent_config_saved"), "success");
     } catch (err) {
-      setSaveError((err as Error).message);
+      setSaveError(errMsg(err));
     } finally {
       setSaving(false);
     }
@@ -242,7 +242,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         voidCall(useConfigStatusStore.getState().refresh());
         useAppStore.getState().pushToast(`${t(`dashboard:${label}`)} ${t("field_cleared")}`, "success");
       } catch (err) {
-        useAppStore.getState().pushToast(`${t("clear_failed")}${(err as Error).message}`, "error");
+        useAppStore.getState().pushToast(`${t("clear_failed")}${errMsg(err)}`, "error");
       } finally {
         setClearingField(null);
       }

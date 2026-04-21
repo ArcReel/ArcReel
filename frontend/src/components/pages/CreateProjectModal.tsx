@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { voidCall, voidPromise } from "@/utils/async";
+import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -136,7 +136,7 @@ export function CreateProjectModal() {
           },
         });
       } catch (err) {
-        if (!cancelled) setStep2Error((err as Error).message);
+        if (!cancelled) setStep2Error(errMsg(err));
       }
     })());
     return () => {
@@ -207,7 +207,7 @@ export function CreateProjectModal() {
       navigate(`/app/projects/${resp.name}`);
     } catch (err) {
       useAppStore.getState().pushToast(
-        `${t("dashboard:create_project_failed")}${(err as Error).message}`,
+        `${t("dashboard:create_project_failed")}${errMsg(err)}`,
         "error"
       );
     } finally {

@@ -5,6 +5,7 @@ import { API } from "@/api";
 import { AssetFormModal } from "./AssetFormModal";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { errMsg } from "@/utils/async";
 import type { Asset, AssetType } from "@/types/asset";
 
 interface Props {
@@ -56,7 +57,7 @@ export function AddToLibraryButton({
       });
       useAppStore.getState().pushToast(t("add_to_library_success", { name: payload.name }), "success");
     } catch (err) {
-      useAppStore.getState().pushToast((err as Error).message, "error");
+      useAppStore.getState().pushToast(errMsg(err), "error");
       throw err;
     }
   };

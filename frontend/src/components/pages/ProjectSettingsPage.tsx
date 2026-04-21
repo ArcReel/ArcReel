@@ -1,5 +1,5 @@
 import { useParams, useLocation } from "wouter";
-import { voidCall, voidPromise } from "@/utils/async";
+import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft, Loader2 } from "lucide-react";
@@ -237,7 +237,7 @@ export function ProjectSettingsPage() {
       initialStyleRef.current = nextStyle;
       useAppStore.getState().pushToast(t("saved"), "success");
     } catch (e: unknown) {
-      useAppStore.getState().pushToast(e instanceof Error ? e.message : t("save_failed"), "error");
+      useAppStore.getState().pushToast(errMsg(e, t("save_failed")), "error");
     } finally {
       setSavingStyle(false);
     }
@@ -274,7 +274,7 @@ export function ProjectSettingsPage() {
       };
       useAppStore.getState().pushToast(t("saved"), "success");
     } catch (e: unknown) {
-      useAppStore.getState().pushToast(e instanceof Error ? e.message : t("save_failed"), "error");
+      useAppStore.getState().pushToast(errMsg(e, t("save_failed")), "error");
     } finally {
       setSaving(false);
     }

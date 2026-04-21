@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { voidCall } from "@/utils/async";
+import { errMsg, voidCall } from "@/utils/async";
 import { API } from "@/api";
 import { uid } from "@/utils/id";
 import { useAssistantStore } from "@/stores/assistant-store";
@@ -477,7 +477,7 @@ export function useAssistantSession(projectName: string | null) {
         connectStream(sessionId);
       } catch (err) {
         if (pendingSendVersionRef.current !== sendVersion) return;
-        store.getState().setError((err as Error).message ?? "发送失败");
+        store.getState().setError(errMsg(err, "发送失败"));
         if (sessionId && optimisticUuid) {
           restoreFailedSend(sessionId, optimisticUuid, previousStatus);
         } else {
@@ -506,7 +506,7 @@ export function useAssistantSession(projectName: string | null) {
         await API.answerAssistantQuestion(projectName, sessionId, questionId, answers);
         store.getState().setPendingQuestion(null);
       } catch (err) {
-        store.getState().setError((err as Error).message ?? "回答失败");
+        store.getState().setError(errMsg(err, "回答失败"));
       } finally {
         store.getState().setAnsweringQuestion(false);
       }
@@ -523,7 +523,7 @@ export function useAssistantSession(projectName: string | null) {
     try {
       await API.interruptAssistantSession(projectName, sessionId);
     } catch (err) {
-      store.getState().setError((err as Error).message ?? "中断失败");
+      store.getState().setError(errMsg(err, "中断失败"));
       store.getState().setInterrupting(false);
     }
   }, [projectName, store]);

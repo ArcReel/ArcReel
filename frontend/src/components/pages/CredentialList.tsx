@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { useAutoFocus } from "@/hooks/useAutoFocus";
-import { voidPromise } from "@/utils/async";
+import { errMsg, voidPromise } from "@/utils/async";
 import {
   Check,
   Edit2,
@@ -52,7 +52,7 @@ const CredentialRow = memo(function CredentialRow({ cred, providerId, isVertex, 
       const result = await API.testProviderConnection(providerId, cred.id);
       setTestResult(result);
     } catch (e) {
-      setTestResult({ success: false, available_models: [], message: String(e) });
+      setTestResult({ success: false, available_models: [], message: errMsg(e) });
     }
     setTesting(false);
   }, [providerId, cred.id]);
@@ -323,7 +323,7 @@ function AddCredentialForm({ providerId, isVertex, onCreated, onCancel }: AddFor
       }
       onCreated();
     } catch (e) {
-      setError(String(e));
+      setError(errMsg(e));
     } finally {
       setSaving(false);
     }

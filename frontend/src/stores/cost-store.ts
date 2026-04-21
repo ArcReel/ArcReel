@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { API } from "@/api";
+import { errMsg } from "@/utils/async";
 import type { CostEstimateResponse, SegmentCost, EpisodeCost } from "@/types";
 
 interface CostState {
@@ -54,7 +55,7 @@ export const useCostStore = create<CostState>((set, get) => ({
       set({ costData: data, loading: false, ...buildIndexes(data) });
     } catch (err) {
       if (currentId !== _fetchId) return;
-      set({ error: (err as Error).message, loading: false });
+      set({ error: errMsg(err), loading: false });
     }
   },
 

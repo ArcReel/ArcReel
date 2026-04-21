@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { uid } from "@/utils/id";
+import { errMsg } from "@/utils/async";
 import type {
   CustomProviderInfo,
   CustomProviderModelInput,
@@ -178,7 +179,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       });
       setModelFilter("");
     } catch (e) {
-      showError(e instanceof Error ? e.message : t("fetch_models_failed"));
+      showError(errMsg(e, t("fetch_models_failed")));
     } finally {
       setDiscovering(false);
     }
@@ -196,7 +197,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       const res = await API.testCustomConnection({ api_format: apiFormat, base_url: baseUrl, api_key: apiKey });
       setTestResult(res);
     } catch (e) {
-      setTestResult({ success: false, message: e instanceof Error ? e.message : t("connection_test_failed") });
+      setTestResult({ success: false, message: errMsg(e, t("connection_test_failed")) });
     } finally {
       setTesting(false);
     }
@@ -248,7 +249,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       }
       onSaved();
     } catch (e) {
-      showError(e instanceof Error ? e.message : t("save_failed"));
+      showError(errMsg(e, t("save_failed")));
     } finally {
       setSaving(false);
     }

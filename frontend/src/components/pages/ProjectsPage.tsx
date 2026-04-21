@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { voidCall, voidPromise } from "@/utils/async";
+import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { Loader2, Plus, FolderOpen, Upload, AlertTriangle, Settings, EllipsisVertical, Trash2, Package } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -258,7 +258,7 @@ export function ProjectsPage() {
       await fetchProjects();
       useAppStore.getState().pushToast(t("common:deleted"), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`${t("dashboard:delete_failed")}[${deletingProject.title}] ${(err as Error).message}`, "warning");
+      useAppStore.getState().pushToast(`${t("dashboard:delete_failed")}[${deletingProject.title}] ${errMsg(err)}`, "warning");
     } finally {
       setDeleteLoading(false);
       setDeletingProject(null);

@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, History } from "lucide-react";
 import { API, type VersionInfo } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { errMsg } from "@/utils/async";
 
 interface VersionTimeMachineProps {
   projectName: string;
@@ -106,7 +107,7 @@ export function VersionTimeMachine({
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(t("switch_version_failed", { message: (err as Error).message }), "error");
+        .pushToast(t("switch_version_failed", { message: errMsg(err) }), "error");
     } finally {
       setRestoringVersion(null);
     }

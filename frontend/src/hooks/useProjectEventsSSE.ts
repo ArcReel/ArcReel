@@ -4,6 +4,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
+import { errMsg } from "@/utils/async";
 import type {
   ProjectChange,
   ProjectChangeBatchPayload,
@@ -170,7 +171,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
       const res = await API.getProject(projectName);
       setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
     } catch (err) {
-      pushToast(`同步项目变更失败: ${(err as Error).message}`, "warning");
+      pushToast(`同步项目变更失败: ${errMsg(err)}`, "warning");
     } finally {
       refreshingRef.current = false;
     }
