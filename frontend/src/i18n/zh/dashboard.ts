@@ -689,6 +689,13 @@ export default {
   'no_preprocessing_content': '暂无预处理内容',
   'segment_split_complete': '片段拆分已完成',
   'script_normalized_complete': '规范化剧本已完成',
+  'reference_units_split_complete': 'Units 拆分已完成（{{count}} units）',
+  'reference_units_split_complete_label': 'Units 拆分已完成',
+  'reference_preproc_expand': '展开查看',
+  'reference_preproc_collapse': '收起',
+  'reference_tab_editor': '编辑',
+  'reference_tab_preview': '预览',
+  'reference_tab_aria': '参考 Unit 面板切换',
 
   // Source file normalization toasts
   'source_normalized_toast': '已规范化「{{filename}}」（来源编码：{{encoding}}）',

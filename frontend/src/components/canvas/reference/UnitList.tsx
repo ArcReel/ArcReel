@@ -33,7 +33,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd }: UnitListProps) 
   const { t } = useTranslation("dashboard");
 
   return (
-    <div className="flex h-full flex-col border-r border-gray-800 bg-gray-950/50">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-gray-800 bg-gray-950/50">
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-800">
         <span className="text-sm font-medium text-gray-200">{t("reference_unit_list_title")}</span>
         <button
@@ -53,7 +53,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd }: UnitListProps) 
         <ul
           role="listbox"
           aria-label={t("reference_unit_list_title")}
-          className="flex-1 overflow-y-auto"
+          className="min-h-0 flex-1 overflow-y-auto"
         >
           {units.map((u) => {
             const status = u.generated_assets.status;

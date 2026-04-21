@@ -688,6 +688,13 @@ export default {
   'no_preprocessing_content': 'No preprocessing content',
   'segment_split_complete': 'Segment split complete',
   'script_normalized_complete': 'Script normalization complete',
+  'reference_units_split_complete': 'Reference units split complete ({{count}} units)',
+  'reference_units_split_complete_label': 'Reference units split complete',
+  'reference_preproc_expand': 'Show details',
+  'reference_preproc_collapse': 'Hide',
+  'reference_tab_editor': 'Editor',
+  'reference_tab_preview': 'Preview',
+  'reference_tab_aria': 'Reference unit panel tabs',
 
   // Source file normalization toasts
   'source_normalized_toast': '"{{filename}}" normalized (source encoding: {{encoding}})',

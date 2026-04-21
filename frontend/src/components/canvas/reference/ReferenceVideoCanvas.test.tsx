@@ -48,27 +48,23 @@ describe("ReferenceVideoCanvas", () => {
   it("loads units on mount and renders the list", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-    await waitFor(() => expect(screen.getByText("E1U1")).toBeInTheDocument());
-    expect(screen.getByText("E1U2")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
+    expect(screen.getByTestId("unit-row-E1U2")).toBeInTheDocument();
   });
 
-  it("selects a unit and shows it in preview panel", async () => {
+  it("auto-selects first unit on load and shows preview generate button", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-    await waitFor(() => expect(screen.getByText("E1U1")).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId("unit-row-E1U1"));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Generate video|生成视频/ })).toBeInTheDocument();
     });
   });
 
-  it("renders the ReferenceVideoCard textarea when a unit is selected", async () => {
+  it("renders the ReferenceVideoCard textarea once auto-selected", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1")],
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-    await waitFor(() => expect(screen.getByText("E1U1")).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId("unit-row-E1U1"));
     const ta = await screen.findByRole("combobox");
     expect((ta as HTMLTextAreaElement).value).toContain("Shot 1 (3s): x");
   });
@@ -78,8 +74,6 @@ describe("ReferenceVideoCanvas", () => {
       units: [mkUnit("E1U1", "hello from A"), mkUnit("E1U2", "hello from B")],
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-    await waitFor(() => expect(screen.getByText("E1U1")).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId("unit-row-E1U1"));
     const taA = (await screen.findByRole("combobox")) as HTMLTextAreaElement;
     expect(taA.value).toContain("hello from A");
     fireEvent.click(screen.getByTestId("unit-row-E1U2"));
@@ -97,5 +91,55 @@ describe("ReferenceVideoCanvas", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /New Unit|新建 Unit/ }));
     await waitFor(() => expect(addSpy).toHaveBeenCalled());
+  });
+
+  // #367: 容器宽度而非视口宽度驱动响应式布局；@4xl 以下出现 editor/preview tab。
+  it("renders with @container wrapper and editor/preview tabs for small containers", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    const { container } = render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
+    expect((container.firstChild as HTMLElement).className).toMatch(/@container/);
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true"); // default editor
+  });
+
+  it("switches small-screen tab between editor and preview", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
+    const [editorTab, previewTab] = screen.getAllByRole("tab");
+    fireEvent.click(previewTab);
+    expect(previewTab).toHaveAttribute("aria-selected", "true");
+    expect(editorTab).toHaveAttribute("aria-selected", "false");
+    fireEvent.click(editorTab);
+    expect(editorTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  // 默认选中第一个 unit，避免出现 "有 units 但 editor 区域显示占位" 的不一致状态。
+  it("resets a stale selectedUnitId (e.g. from a previous episode) to the first unit of current units", async () => {
+    // 模拟切换 episode 后残留的旧 selectedUnitId
+    useReferenceVideoStore.setState({ selectedUnitId: "E99U42" });
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "first"), mkUnit("E1U2", "second")],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => {
+      expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U1");
+    });
+    const ta = (await screen.findByRole("combobox")) as HTMLTextAreaElement;
+    expect(ta.value).toContain("first");
+  });
+
+  // #369: 预处理卡片常驻在 Canvas 顶部，折叠状态显示 unit 数。
+  it("renders the preprocessing card with unit count at the top", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1"), mkUnit("E1U2")],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
+    const collapseToggle = screen.getByRole("button", { name: /Reference units split complete|Units 拆分已完成/ });
+    expect(collapseToggle).toHaveAttribute("aria-expanded", "false");
+    expect(collapseToggle.textContent).toMatch(/2/);
   });
 });

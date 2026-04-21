@@ -75,4 +75,15 @@ describe("UnitList", () => {
     fireEvent.click(screen.getByRole("button", { name: /New Unit|新建 Unit/ }));
     expect(onAdd).toHaveBeenCalled();
   });
+
+  // Regression: 无 min-h-0 时 flex 子元素默认 min-height:auto 会被内容撑高，
+  // overflow-y-auto 失效并撑破页面高度。见 #367 问题 2。
+  it("scroll container has min-h-0 to keep overflow-y-auto effective", () => {
+    render(
+      <UnitList units={[mkUnit("U1")]} selectedId={null} onSelect={vi.fn()} onAdd={vi.fn()} />,
+    );
+    const list = screen.getByRole("listbox");
+    expect(list.className).toMatch(/\bmin-h-0\b/);
+    expect(list.className).toMatch(/\boverflow-y-auto\b/);
+  });
 });

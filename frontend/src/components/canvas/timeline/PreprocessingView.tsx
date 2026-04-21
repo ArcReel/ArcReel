@@ -9,7 +9,7 @@ import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
 interface PreprocessingViewProps {
   projectName: string;
   episode: number;
-  contentMode: "narration" | "drama";
+  contentMode: "narration" | "drama" | "reference_video";
 }
 
 export function PreprocessingView({
@@ -68,7 +68,11 @@ export function PreprocessingView({
   }, [projectName, episode, editContent, pushToast, t]);
 
   const statusLabel =
-    contentMode === "narration" ? t("dashboard:segment_split_complete") : t("dashboard:script_normalized_complete");
+    contentMode === "narration"
+      ? t("dashboard:segment_split_complete")
+      : contentMode === "drama"
+        ? t("dashboard:script_normalized_complete")
+        : t("dashboard:reference_units_split_complete_label");
 
   if (loading) {
     return (

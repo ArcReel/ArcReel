@@ -343,9 +343,81 @@ class TestFilesRouter:
         assert files._extract_step_number("not-match.md") == 0
         assert files._get_step_files("narration") == {1: "step1_segments.md"}
         assert files._get_step_files("drama") == {1: "step1_normalized_script.md"}
+        # reference_video 走独立的 step1 文件
+        assert files._get_step_files("drama", "reference_video") == {1: "step1_reference_units.md"}
+        assert files._get_step_files("narration", "reference_video") == {1: "step1_reference_units.md"}
+        # 其他 generation_mode 回落到 content_mode
+        assert files._get_step_files("narration", "storyboard") == {1: "step1_segments.md"}
         assert files._get_step_title("step1_segments.md", _t) == "片段拆分"
         assert files._get_step_title("step1_normalized_script.md", _t) == "规范化剧本"
+        assert files._get_step_title("step1_reference_units.md", _t) == "片段拆分"
         assert files._get_step_title("unknown.md", _t) == "unknown.md"
+
+    def test_draft_content_reference_video_mode(self, tmp_path, monkeypatch):
+        """参考生视频模式下读/写 step1_reference_units.md，避免被按 content_mode 错误路由"""
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+
+        # 设置项目为 reference_video 模式（content_mode 仍是 narration 测试正交性）
+        project_json = project_dir / "project.json"
+        payload = json.loads(project_json.read_text(encoding="utf-8"))
+        payload["generation_mode"] = "reference_video"
+        project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        drafts_dir = project_dir / "drafts" / "episode_1"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
+
+        with client:
+            resp = client.get("/api/v1/projects/demo/drafts/1/step1")
+            assert resp.status_code == 200
+            assert resp.text == "E1U1 stub"
+
+            # 写入时按 generation_mode 路由到 step1_reference_units.md
+            update = client.put(
+                "/api/v1/projects/demo/drafts/1/step1",
+                content="E1U1 edited",
+                headers={"content-type": "text/plain"},
+            )
+            assert update.status_code == 200
+            assert update.json()["path"] == "drafts/episode_1/step1_reference_units.md"
+
+    def test_draft_content_fallback_when_mode_mismatches_file(self, tmp_path, monkeypatch):
+        """content_mode=narration 但磁盘上只有 reference_units 文件（集级模式切换/历史项目）也能读到"""
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")  # narration by default
+
+        drafts_dir = project_dir / "drafts" / "episode_3"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / "step1_reference_units.md").write_text("fallback content", encoding="utf-8")
+
+        with client:
+            resp = client.get("/api/v1/projects/demo/drafts/3/step1")
+            assert resp.status_code == 200
+            assert resp.text == "fallback content"
+
+    def test_draft_content_episode_level_mode_override(self, tmp_path, monkeypatch):
+        """项目级 generation_mode=storyboard 但集级覆盖 reference_video，应按集级路由"""
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+
+        project_json = project_dir / "project.json"
+        payload = json.loads(project_json.read_text(encoding="utf-8"))
+        payload["generation_mode"] = "storyboard"
+        payload["episodes"] = [{"episode": 2, "generation_mode": "reference_video"}]
+        project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        drafts_dir = project_dir / "drafts" / "episode_2"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+
+        with client:
+            update = client.put(
+                "/api/v1/projects/demo/drafts/2/step1",
+                content="ep2 reference units",
+                headers={"content-type": "text/plain"},
+            )
+            assert update.status_code == 200
+            assert update.json()["path"] == "drafts/episode_2/step1_reference_units.md"
 
         assert files._get_content_mode(tmp_path) == "drama"
         project_json = tmp_path / "project.json"
