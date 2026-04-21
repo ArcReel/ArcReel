@@ -216,6 +216,17 @@ app.add_middleware(
 )
 
 
+# 前端每 3s 轮询下述接口获取任务状态；稳态下成功响应会把真正的错误/慢请求淹没，
+# 所以对 2xx + 快速响应降级到 DEBUG，异常/慢响应仍走 INFO 保证可观测。
+_QUIET_POLL_ENDPOINTS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("GET", "/api/v1/tasks"),
+        ("GET", "/api/v1/tasks/stats"),
+    }
+)
+_QUIET_SLOW_THRESHOLD_MS = 500.0
+
+
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     start = time.perf_counter()
@@ -235,7 +246,13 @@ async def request_logging_middleware(request: Request, call_next):
         raise
     if not _skip_log:
         elapsed_ms = (time.perf_counter() - start) * 1000
-        logger.info(
+        is_quiet = (
+            (request.method, path) in _QUIET_POLL_ENDPOINTS
+            and response.status_code < 400
+            and elapsed_ms < _QUIET_SLOW_THRESHOLD_MS
+        )
+        log = logger.debug if is_quiet else logger.info
+        log(
             "%s %s %d %.0fms",
             request.method,
             path,
