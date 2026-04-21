@@ -624,3 +624,53 @@ class TestProjectsRouter:
             # 其他字段保持不变
             assert ep1["title"] == "第一集"
             assert ep1["script_file"] == "scripts/ep1.json"
+
+
+class TestGetVideoCapabilities:
+    """GET /projects/{name}/video-capabilities"""
+
+    def _patch_resolver(self, monkeypatch, side_effect=None, return_value=None):
+        """用 MagicMock 替换 ConfigResolver 类，让其 instance.video_capabilities() 返回指定行为。"""
+        from unittest.mock import AsyncMock, MagicMock
+
+        resolver_instance = MagicMock()
+        if side_effect is not None:
+            resolver_instance.video_capabilities = AsyncMock(side_effect=side_effect)
+        else:
+            resolver_instance.video_capabilities = AsyncMock(return_value=return_value)
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+        return resolver_instance
+
+    def test_returns_capabilities_json(self, tmp_path, monkeypatch):
+        fake_caps = {
+            "provider_id": "grok",
+            "model": "grok-imagine-video",
+            "supported_durations": list(range(1, 16)),
+            "max_duration": 15,
+            "max_reference_images": 7,
+            "source": "registry",
+            "default_duration": None,
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+        }
+        self._patch_resolver(monkeypatch, return_value=fake_caps)
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.get("/api/v1/projects/ready/video-capabilities")
+            assert resp.status_code == 200
+            assert resp.json() == fake_caps
+
+    def test_unknown_project_returns_404(self, tmp_path, monkeypatch):
+        self._patch_resolver(monkeypatch, return_value={})
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.get("/api/v1/projects/nonexistent/video-capabilities")
+            assert resp.status_code == 404
+
+    def test_resolver_value_error_returns_422(self, tmp_path, monkeypatch):
+        self._patch_resolver(monkeypatch, side_effect=ValueError("model not found: grok/unknown"))
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.get("/api/v1/projects/ready/video-capabilities")
+            assert resp.status_code == 422
+            assert "model not found" in resp.json()["detail"]

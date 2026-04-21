@@ -81,3 +81,37 @@ def test_build_reference_video_prompt_lists_shot_max_count():
         max_refs=9,
     )
     assert "4" in prompt  # shot 数量上限
+
+
+def test_build_reference_video_prompt_injects_max_duration():
+    """传入 max_duration=15 时，prompt 含"贴近 15 秒"指示（对抗 8s 锚点污染）。"""
+    prompt = build_reference_video_prompt(
+        project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
+        style="s",
+        style_description="d",
+        characters={},
+        scenes={},
+        props={},
+        units_md="stub",
+        supported_durations=list(range(1, 16)),
+        max_refs=7,
+        max_duration=15,
+    )
+    assert "15 秒" in prompt
+    assert "当前视频模型上限" in prompt
+
+
+def test_build_reference_video_prompt_max_duration_none_skips_segment():
+    """未传 max_duration（None）时，prompt 不插入模型上限段（向后兼容）。"""
+    prompt = build_reference_video_prompt(
+        project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
+        style="s",
+        style_description="d",
+        characters={},
+        scenes={},
+        props={},
+        units_md="stub",
+        supported_durations=[4, 8],
+        max_refs=9,
+    )
+    assert "当前视频模型上限" not in prompt

@@ -126,6 +126,89 @@ def test_resolve_max_refs_by_provider(tmp_path: Path, video_backend, expected):
     assert gen._resolve_max_refs() == expected
 
 
+@pytest.mark.parametrize(
+    "video_backend, expected_max_duration_sec",
+    [
+        ("grok/grok-imagine-video", "15"),
+        ("gemini-aistudio/veo-3.1-generate-preview", "8"),
+        ("ark/doubao-seedance-2-0-260128", "15"),
+    ],
+)
+def test_build_prompt_injects_max_duration_from_registry(
+    tmp_path: Path, video_backend: str, expected_max_duration_sec: str
+):
+    """build_prompt 的 reference 分支应基于 project.json.video_backend 的 model 能力派生 max_duration。"""
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    import json as _j
+
+    (project_dir / "project.json").write_text(
+        _j.dumps(
+            {
+                "title": "t",
+                "content_mode": "narration",
+                "generation_mode": "reference_video",
+                "video_backend": video_backend,
+                "overview": {"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
+                "style": "s",
+                "style_description": "d",
+                "characters": {},
+                "scenes": {},
+                "props": {},
+                "episodes": [{"episode": 1, "generation_mode": "reference_video"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    drafts = project_dir / "drafts" / "episode_1"
+    drafts.mkdir(parents=True)
+    (drafts / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
+
+    gen = ScriptGenerator(project_dir)
+    prompt = gen.build_prompt(episode=1)
+    assert f"{expected_max_duration_sec} 秒" in prompt
+    assert "当前视频模型上限" in prompt
+
+
+def test_build_prompt_no_video_backend_skips_max_duration_segment(tmp_path: Path):
+    """project.json 缺 video_backend 时，_resolve_max_duration 返回 None，prompt 不插入"模型上限"段。
+
+    设计意图：真实能力未知时不强行给一个误导性上限；仅 supported_durations fallback [4,8]
+    作为允许列表继续展示。
+    """
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    import json as _j
+
+    (project_dir / "project.json").write_text(
+        _j.dumps(
+            {
+                "title": "t",
+                "content_mode": "narration",
+                "generation_mode": "reference_video",
+                "overview": {"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
+                "style": "s",
+                "style_description": "d",
+                "characters": {},
+                "scenes": {},
+                "props": {},
+                "episodes": [{"episode": 1, "generation_mode": "reference_video"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    drafts = project_dir / "drafts" / "episode_1"
+    drafts.mkdir(parents=True)
+    (drafts / "step1_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
+
+    gen = ScriptGenerator(project_dir)
+    prompt = gen.build_prompt(episode=1)
+    # supported_durations fallback 的 "4/8s" 允许列表仍展示
+    assert "4/8s" in prompt
+    # 但"模型上限 X 秒"段缺失（因为 _resolve_max_duration 返 None）
+    assert "当前视频模型上限" not in prompt
+
+
 def test_effective_generation_mode_honors_episode_override(tmp_path: Path):
     """当 project=storyboard 但 episode=reference_video 时，build_prompt 必须走 reference 分支。
 

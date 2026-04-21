@@ -1,5 +1,6 @@
 MESSAGES = {
     "project_not_found": "Project '{name}' does not exist or is not initialized",
+    "video_capabilities_unresolved": "Cannot resolve video model capabilities for project '{name}': {reason}",
     "scope_invalid": "scope must be full or current",
     "download_expired": "Download link expired, please re-export",
     "download_token_mismatch": "Download token does not match the target project",

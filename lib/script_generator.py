@@ -13,6 +13,8 @@ from typing import Optional
 from pydantic import ValidationError
 
 from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.resolver import ConfigResolver
+from lib.db import async_session_factory
 from lib.project_manager import effective_mode
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
@@ -61,6 +63,10 @@ class ScriptGenerator:
         self.project_json = self._load_project_json()
         self.content_mode = self.project_json.get("content_mode", "narration")
 
+        # 从 ConfigResolver 懒加载的视频能力缓存（generate() 里填充）。
+        # build_prompt() dry-run 路径不填充，仍走 project.json 直读 fallback。
+        self._video_capabilities: dict | None = None
+
     def _effective_generation_mode(self, episode: int) -> str:
         """按 Spec §4.6 解析集级 → 项目级 generation_mode，未知值回退 storyboard。"""
         episode_dict = next(
@@ -96,6 +102,9 @@ class ScriptGenerator:
 
         gen_mode = self._effective_generation_mode(episode)
 
+        # 0. 解析视频模型能力（通过 ConfigResolver 走三级模型选择 → model supported_durations）
+        await self._ensure_video_capabilities()
+
         # 1. 加载中间文件
         step1_md = self._load_step1(episode)
 
@@ -116,6 +125,7 @@ class ScriptGenerator:
                 units_md=step1_md,
                 supported_durations=self._resolve_supported_durations() or [4, 8],
                 max_refs=self._resolve_max_refs(),
+                max_duration=self._resolve_max_duration(),
                 aspect_ratio=self._resolve_aspect_ratio(),
             )
             schema = ReferenceVideoScript
@@ -205,6 +215,7 @@ class ScriptGenerator:
                 units_md=step1_md,
                 supported_durations=self._resolve_supported_durations() or [4, 8],
                 max_refs=self._resolve_max_refs(),
+                max_duration=self._resolve_max_duration(),
                 aspect_ratio=self._resolve_aspect_ratio(),
             )
         elif self.content_mode == "narration":
@@ -234,8 +245,25 @@ class ScriptGenerator:
                 aspect_ratio=self._resolve_aspect_ratio(),
             )
 
+    async def _ensure_video_capabilities(self) -> None:
+        """通过 ConfigResolver 解析视频模型能力并缓存。
+
+        失败（如 video_backend 无法解析、model 未找到）时保持 cache=None，
+        各 `_resolve_*` 方法仍可以走 project.json 直读 fallback。
+        """
+        if self._video_capabilities is not None:
+            return
+        resolver = ConfigResolver(async_session_factory)
+        try:
+            self._video_capabilities = await resolver.video_capabilities(self.project_path.name)
+        except (FileNotFoundError, ValueError) as exc:
+            logger.info("video_capabilities 解析失败，将走 project.json fallback：%s", exc)
+            self._video_capabilities = None
+
     def _resolve_supported_durations(self) -> list[int] | None:
         """从项目配置或 registry 解析当前视频模型支持的时长列表。"""
+        if self._video_capabilities and self._video_capabilities.get("supported_durations"):
+            return list(self._video_capabilities["supported_durations"])
         durations = self.project_json.get("_supported_durations")
         if durations and isinstance(durations, list):
             return durations
@@ -249,6 +277,15 @@ class ScriptGenerator:
                     return list(model_info.supported_durations)
         return None
 
+    def _resolve_max_duration(self) -> int | None:
+        """单次视频生成最长秒数；派生自 max(supported_durations)。"""
+        if self._video_capabilities and self._video_capabilities.get("max_duration") is not None:
+            return int(self._video_capabilities["max_duration"])
+        durations = self._resolve_supported_durations()
+        if durations:
+            return max(durations)
+        return None
+
     def _resolve_aspect_ratio(self) -> str:
         """解析项目的 aspect_ratio，向后兼容。"""
         if "aspect_ratio" in self.project_json and isinstance(self.project_json["aspect_ratio"], str):
@@ -257,6 +294,10 @@ class ScriptGenerator:
 
     def _resolve_max_refs(self) -> int:
         """按 provider 粗粒度解析最大参考图数。数值来源：`lib.reference_video.limits`。"""
+        if self._video_capabilities:
+            cached = self._video_capabilities.get("max_reference_images")
+            if cached is not None:
+                return int(cached)
         video_backend = self.project_json.get("video_backend") or ""
         raw_provider = video_backend.split("/", 1)[0] if "/" in video_backend else ""
         provider_id = normalize_provider_id(raw_provider)

@@ -11,8 +11,8 @@
   - 说书+画面模式默认：**9:16 竖屏**
   - 剧集动画模式默认：16:9 横屏
 - **单片段/场景时长**：由视频模型能力和项目 `default_duration` 配置决定
-  - 说书+画面模式默认：**4 秒**
-  - 剧集动画模式默认：8 秒
+  - 说书+画面 / 剧集动画模式（storyboard / grid）：由项目 `default_duration` 决定（项目创建时按 content_mode 写入 project.json）
+  - 参考生视频模式（reference_video）：由所选视频模型的 `supported_durations` 决定；subagent 运行时通过 `.claude/skills/manage-project/scripts/get_video_capabilities.py` 自查真值
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
 - **生成方式**：每个片段/场景独立生成，使用分镜图作为起始帧

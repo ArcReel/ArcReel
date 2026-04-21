@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 
 from lib import PROJECT_ROOT
 from lib.asset_fingerprints import compute_asset_fingerprints
+from lib.config.resolver import ConfigResolver
+from lib.db import async_session_factory
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
@@ -476,6 +478,31 @@ async def create_project(
     except Exception as e:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/projects/{name}/video-capabilities")
+async def get_video_capabilities(
+    name: str,
+    _user: CurrentUser,
+    _t: Translator,
+):
+    """解析当前项目视频模型能力 + 用户项目偏好。
+
+    三级模型选择（项目 > 系统设置 > 系统默认）后，读 model 的 `supported_durations`
+    并派生 `max_duration`；同时带回 `project.json.default_duration`（用户偏好）。
+    所有 generation_mode（storyboard/grid/reference_video）都可复用。
+    """
+    manager = get_project_manager()
+    if not manager.project_exists(name):
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+    resolver = ConfigResolver(async_session_factory)
+    try:
+        return await resolver.video_capabilities(name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_t("video_capabilities_unresolved", name=name, reason=str(exc)),
+        ) from exc
 
 
 @router.get("/projects/{name}")
