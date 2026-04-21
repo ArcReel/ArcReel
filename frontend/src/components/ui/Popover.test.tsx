@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Popover } from "./Popover";
 
 class MockResizeObserver {
@@ -17,6 +18,27 @@ function RefHarness({ onClose }: { onClose?: () => void }) {
         anchor
       </button>
       <Popover open anchorRef={anchorRef} onClose={onClose}>
+        <div data-testid="panel-content">hello</div>
+      </Popover>
+    </div>
+  );
+}
+
+/**
+ * Parent-as-anchor pattern (GlobalHeader / ProjectsPage 等业务实际用法):
+ * ref 挂在 Popover 的父节点上，而不是兄弟节点。
+ * 此模式下 Popover 作为子 fiber 的 layout effect 在父 fiber 的 ref attach 之前执行,
+ * 如果 effect 只跑一次，会读到 null 并导致 floating-ui 无 reference、定位到左上角。
+ */
+function ParentRefHarness() {
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  return (
+    <div ref={anchorRef} data-testid="parent-anchor">
+      <button type="button" onClick={() => setOpen(true)}>
+        open
+      </button>
+      <Popover open={open} anchorRef={anchorRef} onClose={() => setOpen(false)}>
         <div data-testid="panel-content">hello</div>
       </Popover>
     </div>
@@ -134,6 +156,38 @@ describe("Popover", () => {
     // floating-ui writes top/left to 0 and uses transform for position
     expect(panel.style.top).toBe("0px");
     expect(panel.style.left).toBe("0px");
+  });
+
+  it("binds reference when opening a Popover whose anchorRef is on a parent node (regression: left-top anchoring)", async () => {
+    // 业务里最常见的用法——ref 挂在父节点上，open 从 false 切到 true。
+    // 如果 Popover 的 layout effect 只跑一次，首次执行时父节点 ref 还没 attach
+    // (React commit phase post-order)，setReference(null) 就被锁死，
+    // floating-ui 没有 reference，面板停在左上角 (transform 为空)。
+    //
+    // jsdom 默认 getBoundingClientRect 全 0，绑定与否 transform 都是 translate(0,0)。
+    // 给 anchor 节点注入一个非零 rect，差异才能显现：绑定成功时 transform
+    // 按非零锚点计算；未绑定时 floating-ui 默认 translate(0,0)。
+    vi.spyOn(HTMLDivElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 300,
+      y: 400,
+      width: 80,
+      height: 40,
+      top: 400,
+      left: 300,
+      right: 380,
+      bottom: 440,
+      toJSON() {
+        return this;
+      },
+    } as DOMRect);
+
+    const user = userEvent.setup();
+    render(<ParentRefHarness />);
+    await user.click(screen.getByText("open"));
+    const panel = screen.getByTestId("panel-content").parentElement!;
+    // 绑定成功时 floating-ui 至少会输出非零 translate。
+    expect(panel.style.transform).not.toBe("translate(0px, 0px)");
+    expect(panel.style.transform).not.toBe("");
   });
 
   it("accepts maxHeight prop without throwing (size middleware opt-in)", () => {

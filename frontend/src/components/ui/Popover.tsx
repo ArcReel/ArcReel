@@ -104,14 +104,15 @@ export function Popover({
   const dismiss = useDismiss(context, { outsidePress: true, escapeKey: true });
   const { getFloatingProps } = useInteractions([dismiss]);
 
-  // 在布局阶段同步 reference——若放在 useEffect（paint 之后）里，open=true 首次
-  // 挂载的弹层会先以未绑定 reference 的 floating-ui 默认坐标渲染一帧再跳到正位。
-  // anchorRef 模式只在 mount 时读一次 .current（仓库所有现有消费方都是这种静态
-  // 引用）；动态 anchor（caret-tracking 等）走 anchorElement，是 state，变化会
-  // 触发本组件 re-render 从而同步。
+  // 在布局阶段同步 reference——paint 之前绑定避免首帧错位。
+  // 依赖里必须包含 open：常见用法是 <div ref={anchorRef}>…<Popover anchorRef={anchorRef}/></div>
+  // （ref 挂父节点），而 React commit phase 是 post-order，子 Popover 的 layout effect
+  // 早于父节点的 ref attach，首次执行时 anchorRef.current 仍是 null。若依赖只含
+  // 稳定引用，setReference(null) 就被锁死，floating-ui 无 reference 把面板钉在视窗
+  // 左上角。把 open 加进依赖后，open: false→true 时 effect 重跑，此时父 ref 早已 attach。
   useLayoutEffect(() => {
     refs.setReference(anchorElement ?? anchorRef?.current ?? null);
-  }, [anchorElement, anchorRef, refs]);
+  }, [open, anchorElement, anchorRef, refs]);
 
   if (!open) return null;
 
