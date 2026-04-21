@@ -108,6 +108,7 @@ class TestMediaGenerator:
         assert gen._get_output_path("storyboards", "E1S01").name == "scene_E1S01.png"
         assert gen._get_output_path("videos", "E1S01").name == "scene_E1S01.mp4"
         assert gen._get_output_path("characters", "Alice").name == "Alice.png"
+        assert gen._get_output_path("reference_videos", "E1U1").name == "E1U1.mp4"
         with pytest.raises(ValueError):
             gen._get_output_path("bad", "x")
 

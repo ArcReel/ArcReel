@@ -47,6 +47,7 @@ class MediaGenerator:
         "scenes": "scenes/{resource_id}.png",
         "props": "props/{resource_id}.png",
         "grids": "grids/{resource_id}.png",
+        "reference_videos": "reference_videos/{resource_id}.mp4",
     }
 
     def __init__(

@@ -275,6 +275,114 @@ async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """回归守门：executor 必须走真实 MediaGenerator._get_output_path 白名单。
+
+    只 mock 最外层的 VideoBackend.generate — 若未来哪次又漏注册新 resource_type
+    到 OUTPUT_PATTERNS，这条测试会立刻爆 ValueError。
+    参见 issue #364。
+    """
+    from lib.media_generator import MediaGenerator
+    from lib.video_backends.base import VideoCapabilities, VideoGenerationResult
+    from server.services import reference_video_tasks as rvt
+
+    proj_dir = _write_project(tmp_path)
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    # --- 内联假依赖，避开真实 DB / VersionManager ---
+    captured_requests: list = []
+
+    class _FakeVideoBackend:
+        name = "ark"
+        model = "doubao-seedance-2-0-260128"
+        capabilities: set = set()
+
+        @property
+        def video_capabilities(self):
+            return VideoCapabilities(reference_images=True, max_reference_images=9)
+
+        async def generate(self, request):
+            captured_requests.append(request)
+            request.output_path.parent.mkdir(parents=True, exist_ok=True)
+            request.output_path.write_bytes(b"\x00\x00\x00 ftypmp42")
+            return VideoGenerationResult(
+                video_path=request.output_path,
+                provider=self.name,
+                model=self.model,
+                duration_seconds=request.duration_seconds,
+                video_uri="uri-x",
+                usage_tokens=0,
+                generate_audio=False,
+            )
+
+    class _FakeVersions:
+        def ensure_current_tracked(self, **_kwargs):
+            pass
+
+        def add_version(self, **_kwargs):
+            return 1
+
+        def get_versions(self, _rtype, _rid):
+            return {"versions": [{"created_at": "2026-04-21T10:00:00"}]}
+
+    class _FakeUsage:
+        async def start_call(self, **_kwargs):
+            return 1
+
+        async def finish_call(self, **_kwargs):
+            pass
+
+    class _FakeConfigResolver:
+        async def video_generate_audio(self, _project_name=None):
+            return False
+
+    # object.__new__ 绕过 MediaGenerator.__init__（避开真实 DB session / VersionManager 文件）
+    real_gen = object.__new__(MediaGenerator)
+    real_gen.project_path = proj_dir
+    real_gen.project_name = "demo"
+    real_gen._rate_limiter = None
+    real_gen._image_backend = None
+    real_gen._video_backend = _FakeVideoBackend()
+    real_gen._user_id = "u1"
+    real_gen._config = _FakeConfigResolver()
+    real_gen.versions = _FakeVersions()
+    real_gen.usage_tracker = _FakeUsage()
+
+    async def _fake_get_media_generator(*_a, **_kw):
+        return real_gen
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    result = await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    # Backend 被真实调用一次，且 output_path 走 OUTPUT_PATTERNS["reference_videos"] 模板
+    assert len(captured_requests) == 1
+    req = captured_requests[0]
+    assert req.output_path == (proj_dir / "reference_videos" / "E1U1.mp4")
+    # 真实文件落盘
+    assert (proj_dir / "reference_videos" / "E1U1.mp4").exists()
+    assert result["file_path"] == "reference_videos/E1U1.mp4"
+    assert result["video_uri"] == "uri-x"
+
+
+@pytest.mark.asyncio
 async def test_execute_reference_video_task_payload_too_large_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     proj_dir = _write_project(tmp_path)
 
