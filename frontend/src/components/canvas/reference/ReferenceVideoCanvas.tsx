@@ -82,13 +82,13 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   }, [units, selected, select]);
 
   // #370 optimistic UI：任务队列走 3s 轮询（useTasksSSE.POLL_INTERVAL_MS=3000），
-  // 点击按钮到 `relevantTasks` 刷出队列记录之间存在最长 3 秒空窗期。POST 发起
-  // 前把 unit_id 登记到本地 set，按钮立即显示 busy；`generating` 派生逻辑把
-  // "optimistic 置位 且 队列尚无对应行" 作为真值——一旦队列接力就自动失效，
-  // 不需要额外的 render-phase pruning。set 里的遗留条目无害：已完成的任务在
-  // `relevantTasks`（pageSize 200、按 updated_at DESC）中以终态保留，hasQueueRow
-  // 保持 true，条件永远不再成立；且 set 只按点击过的 unique unit 增长，会话
-  // 维度有界。
+  // 点击按钮到 `relevantTasks` 刷出队列记录之间存在最长 3 秒空窗期。POST 前把
+  // unit_id 登记到本地 set，按钮立即显示 busy；`generating` 派生把"optimistic 置位
+  // 且队列无对应行"视为真值——happy path 下终态任务在 pageSize 200 窗口里按
+  // updated_at DESC 保留，hasQueueRow 持续为 true，set 遗留项永远不再激活。
+  // 边界：若任务量或其他类型 churn 把该行挤出 200 条窗口，hasQueueRow 回落到
+  // false，遗留项会重新激活，按钮卡在 busy 直到切换 unit 或刷新。对单会话
+  // 典型规模（十到数百 unit）可接受；相比显式 pruning，派生逻辑更简单。
   const [optimisticUnitIds, setOptimisticUnitIds] = useState<Set<string>>(() => new Set());
 
   // #370 任务失败 toast：转变驱动（transition detection），不是状态驱动。
