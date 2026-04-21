@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -365,7 +366,10 @@ async def list_projects(_user: CurrentUser):
                             continue
                         try:
                             preloaded_scripts[script_file] = manager.load_script(name, script_file)
-                        except Exception as load_err:  # noqa: BLE001 — 列表端点对单集加载失败需全兜底
+                        except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError) as load_err:
+                            # 与 resolve_project_cover / StatusCalculator._load_episode_script
+                            # 对齐：I/O 缺失 + JSON/schema 解析失败 → 跳过此集，继续预加载其他集；
+                            # 非预期异常（RuntimeError/MemoryError 等）让其冒泡到外层 try，走 basic info 兜底行。
                             logger.debug(
                                 "list_projects 预加载剧本失败 project=%s script=%s err=%s",
                                 name,
