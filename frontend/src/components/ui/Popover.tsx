@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import {
   FloatingPortal,
   autoUpdate,
@@ -104,9 +104,12 @@ export function Popover({
   const dismiss = useDismiss(context, { outsidePress: true, escapeKey: true });
   const { getFloatingProps } = useInteractions([dismiss]);
 
-  // anchorRef 只在 mount 后才有 .current，需要在 effect 里主动同步给 floating-ui；
-  // anchorElement 是 state，变化会触发本组件 re-render，同样由此 effect 回写。
-  useEffect(() => {
+  // 在布局阶段同步 reference——若放在 useEffect（paint 之后）里，open=true 首次
+  // 挂载的弹层会先以未绑定 reference 的 floating-ui 默认坐标渲染一帧再跳到正位。
+  // anchorRef 模式只在 mount 时读一次 .current（仓库所有现有消费方都是这种静态
+  // 引用）；动态 anchor（caret-tracking 等）走 anchorElement，是 state，变化会
+  // 触发本组件 re-render 从而同步。
+  useLayoutEffect(() => {
     refs.setReference(anchorElement ?? anchorRef?.current ?? null);
   }, [anchorElement, anchorRef, refs]);
 
