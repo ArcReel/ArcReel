@@ -451,6 +451,53 @@ class TestVideoCapabilities:
         finally:
             await engine.dispose()
 
+    async def test_video_capabilities_for_project_uses_passed_dict(self):
+        """video_capabilities_for_project(dict) 不调用 load_project；直接消费传入 dict。
+
+        防御 codex review 指出的"按目录名二次 load 可能读到同名错项目"风险。
+        """
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                caps = await resolver.video_capabilities_for_project(
+                    {
+                        "video_backend": "grok/grok-imagine-video",
+                        "default_duration": 9,
+                    }
+                )
+                # 关键断言：load_project 一次都不能被调到
+                mock_pm.return_value.load_project.assert_not_called()
+        finally:
+            await engine.dispose()
+        assert caps["provider_id"] == "grok"
+        assert caps["max_duration"] == 15
+        assert caps["default_duration"] == 9
+        assert caps["max_reference_images"] == 7
+
+    async def test_max_reference_images_falls_back_to_default_for_unlisted_provider(self):
+        """PROVIDER_MAX_REFS 未覆盖的 provider → resolver 返 DEFAULT_MAX_REFS，不返 None。
+
+        gemini 建议：下游消费者（subagent / 前端）不用处理 None 特例。
+        """
+        from lib.reference_video.limits import DEFAULT_MAX_REFS
+
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            with patch("lib.config.resolver.get_project_manager"):
+                # ark 在 PROVIDER_MAX_REFS 里登记（=9），这里借道 normalize_provider_id 不会剥离的串验证
+                # 使用一个 PROVIDER_MAX_REFS 明确未登记的 provider：不过所有注册 provider 都有入口，
+                # 本测试改为 patch normalize_provider_id 让它返回未登记字符串以触发 fallback
+                with patch(
+                    "lib.config.resolver.normalize_provider_id",
+                    return_value="___never_registered___",
+                ):
+                    caps = await resolver.video_capabilities_for_project({"video_backend": "grok/grok-imagine-video"})
+        finally:
+            await engine.dispose()
+        assert caps["max_reference_images"] == DEFAULT_MAX_REFS
+
     async def test_custom_provider_reads_db_supported_durations(self):
         """custom-<id>/<model> 走 DB 分支，返回 source='custom'。"""
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel

@@ -30,7 +30,7 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.env_init import PROJECT_ROOT
 from lib.project_manager import ProjectManager
-from lib.reference_video.limits import PROVIDER_MAX_REFS, normalize_provider_id
+from lib.reference_video.limits import DEFAULT_MAX_REFS, PROVIDER_MAX_REFS, normalize_provider_id
 from lib.text_backends.base import TextTaskType
 
 _project_manager: ProjectManager | None = None
@@ -138,7 +138,7 @@ class ConfigResolver:
               "model": str,
               "supported_durations": list[int],    # 来自 model (单一真相源)
               "max_duration": int,                 # max(supported_durations) 派生
-              "max_reference_images": int | None,  # 按归一化 provider 查 PROVIDER_MAX_REFS
+              "max_reference_images": int,         # 按归一化 provider 查 PROVIDER_MAX_REFS，缺省 DEFAULT_MAX_REFS
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
               "content_mode": str | None,
@@ -150,6 +150,16 @@ class ConfigResolver:
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_capabilities(svc, session, project_name)
+
+    async def video_capabilities_for_project(self, project: dict) -> dict:
+        """同 `video_capabilities`，但使用调用方已加载的 project dict。
+
+        优先用此变体，可避免按名称二次加载、也不依赖 `PROJECT_ROOT/projects/<name>` 目录结构
+        （例如 `ScriptGenerator` 在非标准路径实例化、或测试用 tmp_path 时，防止目录名
+        与全局项目碰撞读到错误能力）。
+        """
+        async with self._open_session() as (session, svc):
+            return await self._resolve_video_capabilities_from_project(svc, session, project)
 
     async def default_image_backend(self) -> tuple[str, str]:
         """返回 (provider_id, model_id)。"""
@@ -226,6 +236,14 @@ class ConfigResolver:
     ) -> dict:
         """按两步解析：先选 model，再读 model 能力。"""
         project = get_project_manager().load_project(project_name) if project_name else None
+        return await self._resolve_video_capabilities_from_project(svc, session, project)
+
+    async def _resolve_video_capabilities_from_project(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        project: dict | None,
+    ) -> dict:
         provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
 
         if is_custom_provider(provider_id):
@@ -264,7 +282,7 @@ class ConfigResolver:
 
         max_duration = max(supported_durations)
         normalized_provider = normalize_provider_id(provider_id)
-        max_reference_images = PROVIDER_MAX_REFS.get(normalized_provider)
+        max_reference_images = PROVIDER_MAX_REFS.get(normalized_provider, DEFAULT_MAX_REFS)
 
         default_duration: int | None = None
         content_mode: str | None = None
