@@ -8,6 +8,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { formatCost, totalBreakdown } from "@/utils/cost-format";
+import { errMsg } from "@/utils/async";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
 import { ConflictModal, type ConflictResolution } from "./ConflictModal";
@@ -118,7 +119,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(`${tRef.current("regenerate_failed")}${(err as Error).message}`, "error");
+        .pushToast(`${tRef.current("regenerate_failed")}${errMsg(err)}`, "error");
     } finally {
       setRegenerating(false);
     }

@@ -6,6 +6,7 @@ import { AssetFormModal } from "@/components/assets/AssetFormModal";
 import { AssetPickerModal } from "@/components/assets/AssetPickerModal";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { errMsg } from "@/utils/async";
 import type { Character } from "@/types";
 
 interface Props {
@@ -36,7 +37,7 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
       useAppStore.getState().pushToast(t("assets:import_count", { count: ids.length }), "success");
       await onRefreshProject?.();
     } catch (err) {
-      useAppStore.getState().pushToast((err as Error).message, "error");
+      useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
       setPicking(false);
     }

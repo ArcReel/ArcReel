@@ -3,6 +3,7 @@ import { Loader2, Pencil, Trash2, CheckCircle2, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { errMsg } from "@/utils/async";
 import type { CustomProviderInfo } from "@/types";
 import { CustomProviderForm } from "./CustomProviderForm";
 
@@ -60,7 +61,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
       await API.deleteCustomProvider(providerId);
       onDeleted();
     } catch (e) {
-      showError(e instanceof Error ? e.message : t("delete_failed"));
+      showError(errMsg(e, t("delete_failed")));
     } finally {
       setDeleting(false);
       setConfirmDelete(false);
@@ -75,7 +76,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
       const res = await API.testCustomConnectionById(provider.id);
       setTestResult(res);
     } catch (e) {
-      setTestResult({ success: false, message: e instanceof Error ? e.message : t("connection_test_failed") });
+      setTestResult({ success: false, message: errMsg(e, t("connection_test_failed")) });
     } finally {
       setTesting(false);
     }

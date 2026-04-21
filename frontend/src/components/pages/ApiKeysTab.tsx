@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { copyText } from "@/utils/clipboard";
+import { errMsg } from "@/utils/async";
 import type { ApiKeyInfo, CreateApiKeyResponse } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
         last_used_at: null,
       });
     } catch (err) {
-      useAppStore.getState().pushToast(`${t("create_failed")}${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`${t("create_failed")}${errMsg(err)}`, "error");
     } finally {
       setCreating(false);
     }
@@ -246,7 +247,7 @@ export function ApiKeysTab() {
       const res = await API.listApiKeys();
       setApiKeys(res);
     } catch (err) {
-      useAppStore.getState().pushToast(`${tRef.current("load_failed")}${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`${tRef.current("load_failed")}${errMsg(err)}`, "error");
     } finally {
       setLoading(false);
     }
@@ -267,7 +268,7 @@ export function ApiKeysTab() {
         setApiKeys((prev) => prev.filter((k) => k.id !== key.id));
         useAppStore.getState().pushToast(tRef.current("key_deleted_success"), "success");
       } catch (err) {
-        useAppStore.getState().pushToast(`${tRef.current("delete_failed")}${(err as Error).message}`, "error");
+        useAppStore.getState().pushToast(`${tRef.current("delete_failed")}${errMsg(err)}`, "error");
       } finally {
         setDeletingId(null);
       }

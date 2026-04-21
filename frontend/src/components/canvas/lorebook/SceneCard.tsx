@@ -9,6 +9,7 @@ import { GenerateButton } from "@/components/ui/GenerateButton";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { errMsg } from "@/utils/async";
 import type { Scene } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -60,7 +61,7 @@ export function SceneCard({
       await onReload?.();
       useAppStore.getState().pushToast(t("assets:upload_sheet_success", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushToast((err as Error).message, "error");
+      useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
       setUploadingSheet(false);
     }

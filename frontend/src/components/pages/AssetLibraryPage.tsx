@@ -8,6 +8,7 @@ import { useAssetsStore } from "@/stores/assets-store";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { errMsg } from "@/utils/async";
 import type { Asset, AssetType } from "@/types/asset";
 
 interface TabDef {
@@ -70,7 +71,7 @@ export function AssetLibraryPage() {
         addAsset(asset);
       }
     } catch (err) {
-      useAppStore.getState().pushToast((err as Error).message, "error");
+      useAppStore.getState().pushToast(errMsg(err), "error");
       throw err; // 让 modal 的 submit 感知失败并保留对话框，用户可修正后重试
     }
   };
@@ -82,7 +83,7 @@ export function AssetLibraryPage() {
     try {
       await deleteAssetLocal(asset.id, asset.type);
     } catch (err) {
-      useAppStore.getState().pushToast((err as Error).message, "error");
+      useAppStore.getState().pushToast(errMsg(err), "error");
     }
   };
 

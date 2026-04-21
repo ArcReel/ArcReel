@@ -15,6 +15,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { errMsg } from "@/utils/async";
 import type { GridGeneration, ReferenceImage } from "@/types/grid";
 
 // ---------------------------------------------------------------------------
@@ -190,7 +191,7 @@ export function GridPreviewPanel({
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : t("grid_load_failed"));
+          setError(errMsg(err, t("grid_load_failed")));
           setLoading(false);
         }
       });
@@ -327,7 +328,7 @@ export function GridPreviewPanel({
                             onRegenerated?.();
                           })
                           .catch((err: unknown) => {
-                            setError(err instanceof Error ? err.message : t("grid_regenerate_failed"));
+                            setError(errMsg(err, t("grid_regenerate_failed")));
                           })
                           .finally(() => setRegenerating(false));
                       }}

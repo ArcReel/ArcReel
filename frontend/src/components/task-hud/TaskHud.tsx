@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { activateOnEnterSpace } from "@/utils/a11y";
 import { voidPromise } from "@/utils/async";
-import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Image, Video, Check, X, Loader2, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useAnchoredPopover } from "@/hooks/useAnchoredPopover";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { API } from "@/api";
 import type { TaskItem } from "@/types";
-import { UI_LAYERS } from "@/utils/ui-layers";
-import { POPOVER_BG } from "@/components/ui/Popover";
+import { Popover } from "@/components/ui/Popover";
 
 // ---------------------------------------------------------------------------
 // Task status icon — visual indicator per task state
@@ -294,12 +291,6 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
   const { t } = useTranslation("dashboard");
   const { taskHudOpen, setTaskHudOpen } = useAppStore();
   const { tasks, stats } = useTasksStore();
-  const { panelRef, positionStyle } = useAnchoredPopover({
-    open: taskHudOpen,
-    anchorRef,
-    onClose: () => setTaskHudOpen(false),
-    sideOffset: 4,
-  });
 
   const [cancelConfirm, setCancelConfirm] = useState<{
     taskId?: string;
@@ -351,24 +342,21 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
   const imageTasks = tasks.filter((t) => t.media_type === "image");
   const videoTasks = tasks.filter((t) => t.media_type === "video");
 
-  if (typeof document === "undefined") return null;
-
-  return createPortal(
-    <AnimatePresence>
-      {taskHudOpen && (
-        <motion.div
-          ref={panelRef}
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.15 }}
-          className={`fixed w-80 isolate rounded-lg border border-gray-800 shadow-xl ${UI_LAYERS.workspacePopover}`}
-          style={{
-            ...positionStyle,
-            backgroundColor: POPOVER_BG,
-          }}
-        >
-          {/* 统计栏 */}
+  return (
+    <Popover
+      open={taskHudOpen}
+      onClose={() => setTaskHudOpen(false)}
+      anchorRef={anchorRef}
+      sideOffset={4}
+      width="w-80"
+      className="rounded-lg border border-gray-800 shadow-xl"
+    >
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.15 }}
+      >
+        {/* 统计栏 */}
           <div className="flex gap-3 border-b border-gray-800 px-3 py-2 text-xs text-gray-400">
             <span>
               {t("queued_label")}{" "}
@@ -445,9 +433,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
               </div>
             </div>
           )}
-        </motion.div>
-      )}
-    </AnimatePresence>,
-    document.body,
+      </motion.div>
+    </Popover>
   );
 }

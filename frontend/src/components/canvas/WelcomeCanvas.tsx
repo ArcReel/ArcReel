@@ -1,6 +1,6 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { voidCall, voidPromise } from "@/utils/async";
+import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { useTranslation } from "react-i18next";
 import { Upload, FileText, Sparkles, Loader2, CheckCircle2, Plus } from "lucide-react";
 import { API } from "@/api";
@@ -81,7 +81,7 @@ export function WelcomeCanvas({
       try {
         await onUpload(file);
       } catch (err) {
-        setError(`${t("upload_failed")}${(err as Error).message}`);
+        setError(`${t("upload_failed")}${errMsg(err)}`);
         setPhase(sourceFiles.length > 0 ? "has_sources" : "idle");
         return;
       }
@@ -97,7 +97,7 @@ export function WelcomeCanvas({
           await onAnalyze();
           setPhase("done");
         } catch (err) {
-          setError(`${t("analysis_failed")}${(err as Error).message}`);
+          setError(`${t("analysis_failed")}${errMsg(err)}`);
           setPhase("has_sources");
         }
         return;
@@ -116,7 +116,7 @@ export function WelcomeCanvas({
       await onAnalyze();
       setPhase("done");
     } catch (err) {
-      setError(`${t("analysis_failed")}${(err as Error).message}`);
+      setError(`${t("analysis_failed")}${errMsg(err)}`);
       setPhase("has_sources");
     }
   }, [onAnalyze, t]);

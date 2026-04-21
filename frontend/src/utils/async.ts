@@ -21,7 +21,10 @@ export function voidCall<T>(
   promise.catch(onError);
 }
 
-/** Normalize an unknown thrown value to a user-displayable string. */
-export function errMsg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+/** Normalize an unknown thrown value to a user-displayable string.
+ *  Pass `fallback` to override the non-Error branch (e.g. an i18n message)
+ *  instead of the noisy `String(e)` default. */
+export function errMsg(e: unknown, fallback?: string): string {
+  if (e instanceof Error) return e.message;
+  return fallback ?? String(e);
 }

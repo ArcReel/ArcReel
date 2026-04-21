@@ -1,25 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  FloatingPortal,
-  autoUpdate,
-  flip,
-  offset,
-  shift,
-  size,
-  useFloating,
-} from "@floating-ui/react";
 import { assetColor } from "./asset-colors";
+import { Popover } from "@/components/ui/Popover";
 import { API } from "@/api";
 import type { AssetKind } from "@/types/reference-video";
-
-// 为何不复用 `components/ui/Popover` + `hooks/useAnchoredPopover`（仓库约定
-// "所有弹出面板必须使用此组件"）：
-// 1) ReferenceVideoCard 的 caret-tracking 场景需要 element-as-state 锚点——
-//    useAnchoredPopover 基于 ref，`ref.current` 变更不会重新触发定位 effect。
-// 2) 本 picker 需要 floating-ui 的 `size` middleware 做 max-height 夹紧，
-//    useAnchoredPopover 未暴露该扩展点。
-// 将 Popover/useAnchoredPopover 迁移为 floating-ui 壳层属于独立 follow-up PR。
 
 /** Default DOM id for the listbox; paired with combobox aria-controls in ReferenceVideoCard. */
 export const MENTION_PICKER_DEFAULT_ID = "reference-editor-picker";
@@ -39,17 +23,16 @@ export interface MentionPickerProps {
   onClose: () => void;
   /** Project used to construct asset thumbnail URLs via API.getFileUrl. */
   projectName?: string;
-  /** Optional inline anchor style; when absent, picker renders in-flow below its parent. */
+  /** Optional extra className forwarded to the listbox root. */
   className?: string;
   /** Stable DOM id for the listbox; used by combobox aria-controls. Default: "reference-editor-picker". */
   listboxId?: string;
   /** Called whenever the keyboard-active option changes; receives the option's DOM id (null when empty). */
   onActiveChange?: (optionId: string | null) => void;
-  /** Element the picker should anchor to. The picker is rendered via FloatingPortal
-   * to document.body and uses floating-ui to flip/shift against this element — so
-   * ancestor overflow-hidden / stacking contexts cannot clip the popup.
-   * Also doubles as the outside-pointerdown exclusion target so a toggle button
-   * (open ↔ close) round-trips cleanly without a capture-phase race. */
+  /** Element the picker anchors to. The picker is portaled (via Popover) so
+   * ancestor overflow-hidden / stacking contexts cannot clip it. Also doubles
+   * as the outside-pointerdown exclusion target so a toggle button round-trips
+   * cleanly (floating-ui's useDismiss treats the reference element as "not outside"). */
   anchorElement?: HTMLElement | null;
 }
 
@@ -57,7 +40,7 @@ function optionId(kind: AssetKind, name: string): string {
   // 安全化：把 CSS 不友好字符替换，避免选择器查询出错。
   // CJK 范围用 `一-鿿` unicode escape，与 utils/reference-mentions.ts
   // 的 MENTION_RE 保持字面一致，便于 grep。
-  const safe = name.replace(/[^A-Za-z0-9_\u4e00-\u9fff-]/g, "_");
+  const safe = name.replace(/[^A-Za-z0-9_一-鿿-]/g, "_");
   return `reference-option-${kind}-${safe}`;
 }
 
@@ -155,53 +138,22 @@ export function MentionPicker({
 
   const flatRef = useRef(flat);
   const clampedRef = useRef(clampedActive);
-  const listboxRef = useRef<HTMLDivElement | null>(null);
   // 真实鼠标坐标。浏览器可能在列表滚动（键盘方向键选中触发）导致元素移到静止光标下时
   // 补发 mousemove/mouseenter；仅当 (x, y) 相对上一次记录变化才视作用户主动移动。
   const lastPointerXY = useRef<{ x: number; y: number }>({ x: -1, y: -1 });
-
-  // Floating-ui placement: bottom-start below the anchor, offset 4px;
-  // `flip` pushes up when bottom overflows the viewport, `shift` keeps the
-  // popup fully visible horizontally with 8px viewport padding, `size` caps
-  // the floating panel so it never exceeds available vertical space (useful on
-  // the small-card layout where the editor occupies most of the viewport).
-  const { refs, floatingStyles } = useFloating<HTMLElement>({
-    open,
-    placement: "bottom-start",
-    whileElementsMounted: autoUpdate,
-    middleware: [
-      offset(4),
-      flip({ padding: 8 }),
-      shift({ padding: 8 }),
-      size({
-        padding: 8,
-        apply({ availableHeight, elements }) {
-          // 让 picker 自适应剩余空间，避免极窄视口下强制 floor 反而溢出；
-          // 288px 是设计期望的最大高度，bottom 真的不够时 `flip` 会翻到 top。
-          elements.floating.style.maxHeight = `${Math.min(288, availableHeight)}px`;
-        },
-      }),
-    ],
-  });
-
-  useEffect(() => {
-    refs.setReference(anchorElement ?? null);
-  }, [refs, anchorElement]);
 
   useLayoutEffect(() => {
     flatRef.current = flat;
     clampedRef.current = clampedActive;
   });
 
+  // 仅处理导航/补全键；Esc + 外部点击由 Popover 的 useDismiss 统一接管。
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       const current = flatRef.current;
       const active = clampedRef.current;
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === "ArrowDown") {
+      if (e.key === "ArrowDown") {
         e.preventDefault();
         setActiveIndex(Math.min(current.length - 1, active + 1));
       } else if (e.key === "ArrowUp") {
@@ -217,7 +169,7 @@ export function MentionPicker({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onSelect, onClose]);
+  }, [open, onSelect]);
 
   // Report the keyboard-active option id up to the parent (used by combobox's
   // aria-activedescendant). Re-runs on flat/clampedActive change; when flat is
@@ -228,52 +180,25 @@ export function MentionPicker({
     onActiveChange(current ? optionId(current.type, current.name) : null);
   }, [flat, clampedActive, onActiveChange]);
 
-  // Close on outside pointerdown. Capture phase so we run before the option's
-  // own `onMouseDown preventDefault` — the listbox root still gets the event
-  // through `contains()`, and any event landing outside the listbox tree
-  // (including the anchoring textarea) closes the picker.
-  //
-  // 例外：anchorElement（如 toggle 按钮）需排除，否则同一按钮点一下会先在
-  // capture 阶段 onClose()，再在 click 的 toggle 里读取 queued false 并翻回 true，
-  // 结果用户无法用鼠标再按一次按钮关闭 picker。
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (e: PointerEvent) => {
-      const el = listboxRef.current;
-      if (!el) return;
-      if (!(e.target instanceof Node)) return;
-      if (el.contains(e.target)) return;
-      if (anchorElement?.contains(e.target)) return;
-      onClose();
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [open, onClose, anchorElement]);
-
-  // 合并 ref：既要维护本地 listboxRef（outside-pointerdown 用 contains 判定），
-  // 又要把浮层 DOM 给 floating-ui。每渲染一次 new function 会导致 React 先 detach
-  // 再 reattach → floating-ui 重新计算一遍，useCallback 稳定下来就只挂一次。
-  const setListboxRef = useCallback(
-    (el: HTMLDivElement | null) => {
-      listboxRef.current = el;
-      refs.setFloating(el);
-    },
-    [refs],
-  );
-
-  if (!open) return null;
-
   const empty = flat.length === 0;
 
   return (
-    <FloatingPortal>
+    <Popover
+      open={open}
+      onClose={onClose}
+      anchorElement={anchorElement ?? null}
+      align="start"
+      sideOffset={4}
+      maxHeight={288}
+      width="w-64"
+      backgroundColor="rgb(3 7 18)" // gray-950
+      className="overflow-hidden rounded-md border border-gray-800 shadow-xl"
+    >
       <div
-        ref={setListboxRef}
         id={listboxId ?? MENTION_PICKER_DEFAULT_ID}
         role="listbox"
         aria-label={t("reference_picker_title")}
-        style={floatingStyles}
-        className={`z-30 w-64 overflow-hidden rounded-md border border-gray-800 bg-gray-950 shadow-xl ${className ?? ""}`}
+        className={className}
       >
         <div
           role="tablist"
@@ -386,6 +311,6 @@ export function MentionPicker({
             })}
         </div>
       </div>
-    </FloatingPortal>
+    </Popover>
   );
 }

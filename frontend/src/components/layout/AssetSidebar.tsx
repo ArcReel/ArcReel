@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { voidCall } from "@/utils/async";
+import { errMsg, voidCall } from "@/utils/async";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import {
@@ -223,7 +223,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
         );
       } else {
         useAppStore.getState().pushToast(
-          `${tRef.current("dashboard:upload_failed")}${(err as Error).message}`,
+          `${tRef.current("dashboard:upload_failed")}${errMsg(err)}`,
           "error",
         );
       }

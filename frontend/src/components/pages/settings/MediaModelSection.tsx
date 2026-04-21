@@ -8,6 +8,7 @@ import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { errMsg } from "@/utils/async";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -55,7 +56,7 @@ export function MediaModelSection() {
       void useConfigStatusStore.getState().refresh();
       useAppStore.getState().pushToast(t("media_config_saved"), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`${t("save_failed")}${(err as Error).message}`, "error");
+      useAppStore.getState().pushToast(`${t("save_failed")}${errMsg(err)}`, "error");
     } finally {
       setSaving(false);
     }
