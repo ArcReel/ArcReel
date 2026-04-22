@@ -2,17 +2,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, ChevronRight, Edit3, Loader2, Save, X as XIcon } from "lucide-react";
+import { ArrowLeft, ChevronRight, Edit3, Loader2, Save, Sparkles, X as XIcon } from "lucide-react";
 import { UnitList } from "./UnitList";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
-import { ReferenceVideoCard } from "./ReferenceVideoCard";
+import { ReferenceVideoCard, unitPromptText } from "./ReferenceVideoCard";
 import { ReferencePanel } from "./ReferencePanel";
 import { PreprocessingView } from "@/components/canvas/timeline/PreprocessingView";
 import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/reference-video-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
-import type { ReferenceResource, ReferenceVideoUnit, TaskStatus } from "@/types";
+import { mergeReferences } from "@/utils/reference-mentions";
+import type { ReferenceResource, ReferenceVideoUnit, TaskStatus, UnitStatus } from "@/types";
 
 export interface ReferenceVideoCanvasProps {
   projectName: string;
@@ -31,6 +33,15 @@ const PREPROC_DOT_CLASS: Record<PreprocStatus, string> = {
   ready: "bg-emerald-500",
 };
 
+// 视频 Tab 标签旁的状态小圆点配色——和 UnitList 的 STATUS_DOT 约定一致：
+// 运行中的任务给一个显眼的暖色，完成为 emerald，失败红，未生成灰（等同 pending）。
+const VIDEO_DOT_CLASS: Record<UnitStatus, string> = {
+  pending: "bg-gray-500",
+  running: "bg-amber-400 animate-pulse",
+  ready: "bg-emerald-500",
+  failed: "bg-red-500",
+};
+
 /** Toast an error with tone="error". Optional `format` wraps the normalized
  *  message (e.g. an i18n template); without it the raw message is shown. */
 function toastError(e: unknown, format?: (msg: string) => string): void {
@@ -46,8 +57,6 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   const patchUnit = useReferenceVideoStore((s) => s.patchUnit);
   const generate = useReferenceVideoStore((s) => s.generate);
   const select = useReferenceVideoStore((s) => s.select);
-  const updatePromptDebounced = useReferenceVideoStore((s) => s.updatePromptDebounced);
-  const consumePendingPrompt = useReferenceVideoStore((s) => s.consumePendingPrompt);
 
   const units =
     useReferenceVideoStore((s) => s.unitsByEpisode[referenceVideoCacheKey(projectName, episode)]) ??
@@ -55,6 +64,12 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   const selectedUnitId = useReferenceVideoStore((s) => s.selectedUnitId);
   const error = useReferenceVideoStore((s) => s.error);
   const loading = useReferenceVideoStore((s) => s.loading);
+  const project = useProjectsStore((s) => s.currentProjectData);
+
+  // Draft prompts keyed by unit_id — 只在 textarea 内容偏离服务端值时保留一条 entry。
+  // 切换 unit 不清空，便于用户在多个 unit 间来回编辑而不丢失输入。
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
   const relevantTasks = useTasksStore(
     useShallow((s) =>
@@ -144,6 +159,9 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     }
   }, [addUnit, projectName, episode]);
 
+  // 小屏（<@4xl，容器 <896px）时把 editor / preview 压成 tab。@4xl+ 三栏时此状态被 CSS 忽略。
+  const [smallTab, setSmallTab] = useState<"editor" | "preview">("editor");
+
   const handleGenerate = useCallback(
     async (unitId: string) => {
       setOptimisticUnitIds((s) => {
@@ -152,6 +170,8 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
         next.add(unitId);
         return next;
       });
+      // 小屏模式下自动切到视频 Tab，让用户看到任务进入排队态；@4xl+ 下此 state 被 CSS 忽略。
+      setSmallTab("preview");
       try {
         const { deduped } = await generate(projectName, episode, unitId);
         useAppStore
@@ -176,32 +196,99 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
 
+  // Draft 管理：每次输入只更新本地 drafts，不触发网络请求。草稿与服务端值一致时
+  // 自动清除该条目，避免"回退到原值后仍显示未保存"的误判。
   const handlePromptChange = useCallback(
-    (prompt: string, references: ReferenceResource[]) => {
+    (next: string) => {
       if (!selected) return;
-      // prompt + references coalesce into one debounced PATCH — latest payload
-      // wins, so rapid add-then-remove of an @mention cannot leak the stale
-      // version to the server.
-      updatePromptDebounced(projectName, episode, selected.unit_id, prompt, references);
-    },
-    [updatePromptDebounced, projectName, episode, selected],
-  );
-
-  // Panel actions must fold in any queued debounced prompt — otherwise the
-  // pending PATCH would fire ~500ms later and overwrite `references` back to
-  // their pre-panel-action value.
-  const patchReferencesAtomic = useCallback(
-    (unitId: string, nextRefs: ReferenceResource[]) => {
-      const pendingPrompt = consumePendingPrompt(projectName, episode, unitId);
-      const body =
-        pendingPrompt !== undefined
-          ? { prompt: pendingPrompt, references: nextRefs }
-          : { references: nextRefs };
-      void patchUnit(projectName, episode, unitId, body).catch((e) => {
-        toastError(e);
+      const unitId = selected.unit_id;
+      const baseText = unitPromptText(selected);
+      setDrafts((d) => {
+        if (next === baseText) {
+          if (!(unitId in d)) return d;
+          const copy = { ...d };
+          delete copy[unitId];
+          return copy;
+        }
+        return { ...d, [unitId]: next };
       });
     },
-    [consumePendingPrompt, patchUnit, projectName, episode],
+    [selected],
+  );
+
+  const currentText = useMemo(() => {
+    if (!selected) return "";
+    const base = unitPromptText(selected);
+    return drafts[selected.unit_id] ?? base;
+  }, [selected, drafts]);
+
+  const isDirty = !!(
+    selected &&
+    drafts[selected.unit_id] !== undefined &&
+    drafts[selected.unit_id] !== unitPromptText(selected)
+  );
+
+  // 全局"是否有任何未保存草稿"——用于 beforeunload 保护。
+  const hasAnyDraft = useMemo(() => {
+    for (const [unitId, text] of Object.entries(drafts)) {
+      const u = units.find((x) => x.unit_id === unitId);
+      if (u && text !== unitPromptText(u)) return true;
+    }
+    return false;
+  }, [drafts, units]);
+
+  const handleSave = useCallback(async () => {
+    if (!selected) return;
+    const unitId = selected.unit_id;
+    const draftText = drafts[unitId];
+    if (draftText === undefined || draftText === unitPromptText(selected)) return;
+    const nextRefs = mergeReferences(draftText, selected.references, project ?? null);
+    setSaving(true);
+    try {
+      await patchUnit(projectName, episode, unitId, {
+        prompt: draftText,
+        references: nextRefs,
+      });
+      setDrafts((d) => {
+        if (!(unitId in d)) return d;
+        const copy = { ...d };
+        delete copy[unitId];
+        return copy;
+      });
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setSaving(false);
+    }
+  }, [selected, drafts, project, patchUnit, projectName, episode]);
+
+  // 引用增删/排序保持即时保存；但若当前 unit 有未保存的 prompt 草稿，把它一并带上，
+  // 让"调序顺便 persist 草稿"成为一种自然的存档路径，并避免后端 prompt 滞后于 refs。
+  const patchReferencesAtomic = useCallback(
+    (unitId: string, nextRefs: ReferenceResource[]) => {
+      const draftText = drafts[unitId];
+      const unit = units.find((u) => u.unit_id === unitId);
+      const hasDraft =
+        draftText !== undefined && unit !== undefined && draftText !== unitPromptText(unit);
+      const body: { prompt?: string; references: ReferenceResource[] } = hasDraft
+        ? { prompt: draftText, references: nextRefs }
+        : { references: nextRefs };
+      void patchUnit(projectName, episode, unitId, body)
+        .then(() => {
+          if (hasDraft) {
+            setDrafts((d) => {
+              if (!(unitId in d)) return d;
+              const copy = { ...d };
+              delete copy[unitId];
+              return copy;
+            });
+          }
+        })
+        .catch((e) => {
+          toastError(e);
+        });
+    },
+    [drafts, units, patchUnit, projectName, episode],
   );
 
   const handleReorderRefs = useCallback(
@@ -231,8 +318,6 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     [patchReferencesAtomic, selected],
   );
 
-  // 小屏（<@4xl，容器 <896px）时把 editor / preview 压成 tab。@4xl+ 三栏时此状态被 CSS 忽略。
-  const [smallTab, setSmallTab] = useState<"editor" | "preview">("editor");
   // 预处理二级页面：默认 false（主编辑视图）；true 时整个 Canvas 内容替换为 PreprocessingView。
   // 切换 episode 或 project 时都自动退回主视图（切项目而 episode 号相同会复用组件实例，
   // 残留在预处理页会被误解为新项目也在预处理中）——用 render-phase setState 对比而非
@@ -264,6 +349,29 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     }),
     [t, units.length],
   );
+
+  // 视频 Tab 状态圆点：综合 optimistic / 队列 / 视频产物 / 队列失败记录派生。
+  // pending ← 新建未生成；running ← 任意迹象（optimistic or queued/running task）；
+  // ready ← video_clip 已有；failed ← 当前 unit 最近一条任务是 failed。
+  const videoStatus: UnitStatus = useMemo(() => {
+    if (!selected) return "pending";
+    if (generating) return "running";
+    if (selected.generated_assets.video_clip) return "ready";
+    const latestTask = relevantTasks.find((tk) => tk.resource_id === selected.unit_id);
+    if (latestTask?.status === "failed") return "failed";
+    return "pending";
+  }, [selected, generating, relevantTasks]);
+
+  // 任一 unit 有未保存草稿时，离开页面需警告。用 browser 默认弹框（不支持自定义文案）。
+  useEffect(() => {
+    if (!hasAnyDraft) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hasAnyDraft]);
 
   // 二级页 header（独占整个 Canvas）：顶部返回按钮一行 + page title 行（左 title / 右 toolbar）。
   // edit/save/cancel toolbar 通过 PreprocessingView 的 renderToolbar slot 抬升到 header 右侧。
@@ -388,44 +496,97 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
           onSelect={select}
           onAdd={onAdd}
         />
-        {/* 右侧 wrapper：<@4xl 用 flex column (tab + active panel)；@4xl+ 转 grid 两列 (editor | preview)。
-            嵌套 grid 比 display:contents 更可靠，且避免浏览器对 contents + container query 变体的边缘行为。 */}
-        <div className="flex min-h-0 flex-col overflow-hidden @4xl:grid @4xl:grid-cols-[1fr_minmax(260px,32%)] @4xl:grid-rows-[minmax(0,1fr)]">
-          <div
-            role="tablist"
-            aria-label={t("reference_tab_aria")}
-            className="flex gap-0 border-b border-gray-800 px-2 @4xl:hidden"
-          >
-            <button
-              type="button"
-              role="tab"
-              id="reference-tab-editor-btn"
-              aria-controls="reference-tab-editor"
-              aria-selected={smallTab === "editor"}
-              onClick={() => setSmallTab("editor")}
-              className={`rounded-t border-b-2 px-3 py-2 text-xs transition-colors focus-ring ${
-                smallTab === "editor"
-                  ? "border-indigo-500 font-medium text-indigo-400"
-                  : "border-transparent text-gray-500 hover:text-gray-300"
-              }`}
+        {/* 右侧 wrapper：<@4xl 用 flex column (toolbar + active panel)；@4xl+ 转 grid：
+            顶部 toolbar 行跨两列，下一行是 editor | preview。`display:contents` 在容器查询
+            + grid 下浏览器支持不稳定，改用 grid-template-rows 让 toolbar 占自己一行。 */}
+        <div className="flex min-h-0 flex-col overflow-hidden @4xl:grid @4xl:grid-cols-[1fr_minmax(260px,32%)] @4xl:grid-rows-[auto_minmax(0,1fr)]">
+          {/* 统一工具条：左 = tab（仅 <@4xl）；右 = [保存(dirty 时)] + [生成视频]。
+              把操作按钮浮到 tab 栏后，用户在任一 tab、任一屏宽下都能触发生成。 */}
+          <div className="flex items-center gap-2 border-b border-gray-800 px-2 py-1 @4xl:col-span-2">
+            <div
+              role="tablist"
+              aria-label={t("reference_tab_aria")}
+              className="flex gap-0 @4xl:hidden"
             >
-              {t("reference_tab_editor")}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              id="reference-tab-preview-btn"
-              aria-controls="reference-tab-preview"
-              aria-selected={smallTab === "preview"}
-              onClick={() => setSmallTab("preview")}
-              className={`rounded-t border-b-2 px-3 py-2 text-xs transition-colors focus-ring ${
-                smallTab === "preview"
-                  ? "border-indigo-500 font-medium text-indigo-400"
-                  : "border-transparent text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              {t("reference_tab_preview")}
-            </button>
+              <button
+                type="button"
+                role="tab"
+                id="reference-tab-editor-btn"
+                aria-controls="reference-tab-editor"
+                aria-selected={smallTab === "editor"}
+                onClick={() => setSmallTab("editor")}
+                className={`relative rounded-t border-b-2 px-3 py-1.5 text-xs transition-colors focus-ring ${
+                  smallTab === "editor"
+                    ? "border-indigo-500 font-medium text-indigo-400"
+                    : "border-transparent text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                {t("reference_tab_editor")}
+                {isDirty && (
+                  <span
+                    aria-label={t("reference_tab_dirty_aria")}
+                    className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-400 align-middle"
+                  />
+                )}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                id="reference-tab-preview-btn"
+                aria-controls="reference-tab-preview"
+                aria-selected={smallTab === "preview"}
+                onClick={() => setSmallTab("preview")}
+                className={`relative rounded-t border-b-2 px-3 py-1.5 text-xs transition-colors focus-ring ${
+                  smallTab === "preview"
+                    ? "border-indigo-500 font-medium text-indigo-400"
+                    : "border-transparent text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  {t("reference_tab_preview")}
+                  <span
+                    aria-label={t(`reference_video_status_${videoStatus}`)}
+                    className={`inline-block h-1.5 w-1.5 rounded-full align-middle ${VIDEO_DOT_CLASS[videoStatus]}`}
+                  />
+                </span>
+              </button>
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              {isDirty && (
+                <button
+                  type="button"
+                  onClick={() => void handleSave()}
+                  disabled={saving}
+                  className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-indigo-600 bg-indigo-600/10 px-3 py-1 text-xs font-medium text-indigo-300 transition-colors hover:bg-indigo-600/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving ? (
+                    <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                  ) : (
+                    <Save aria-hidden="true" className="h-3.5 w-3.5" />
+                  )}
+                  {saving ? t("common:saving") : t("common:save")}
+                </button>
+              )}
+              {selected && (
+                <button
+                  type="button"
+                  onClick={() => onGenerateVoid(selected.unit_id)}
+                  disabled={generating}
+                  className={`focus-ring inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
+                    generating
+                      ? "border-blue-700 text-blue-400 opacity-70 cursor-not-allowed"
+                      : "border-blue-600 text-blue-400 hover:bg-blue-600/10"
+                  }`}
+                >
+                  {generating ? (
+                    <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                  ) : (
+                    <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
+                  )}
+                  {generating ? t("reference_preview_generating") : t("reference_preview_generate")}
+                </button>
+              )}
+            </div>
           </div>
           <div
             role="tabpanel"
@@ -450,7 +611,8 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
                     unit={selected}
                     projectName={projectName}
                     episode={episode}
-                    onChangePrompt={handlePromptChange}
+                    value={currentText}
+                    onChange={handlePromptChange}
                   />
                 </div>
               </>
@@ -466,12 +628,7 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
             aria-labelledby="reference-tab-preview-btn"
             className={`min-h-0 overflow-hidden @4xl:block ${smallTab === "preview" ? "block" : "hidden"}`}
           >
-            <UnitPreviewPanel
-              unit={selected}
-              projectName={projectName}
-              onGenerate={onGenerateVoid}
-              generating={generating}
-            />
+            <UnitPreviewPanel unit={selected} projectName={projectName} />
           </div>
         </div>
       </div>

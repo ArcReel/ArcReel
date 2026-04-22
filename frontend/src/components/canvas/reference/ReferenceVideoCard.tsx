@@ -3,12 +3,11 @@ import { useTranslation } from "react-i18next";
 import { MENTION_PICKER_DEFAULT_ID, MentionPicker, type MentionCandidate } from "./MentionPicker";
 import { ASSET_COLORS, assetColor } from "./asset-colors";
 import { useShotPromptHighlight, type MentionLookup, type Token } from "@/hooks/useShotPromptHighlight";
-import { mergeReferences, MENTION_RE } from "@/utils/reference-mentions";
+import { MENTION_RE } from "@/utils/reference-mentions";
 import { useProjectsStore } from "@/stores/projects-store";
 import {
   SHEET_FIELD,
   type AssetKind,
-  type ReferenceResource,
   type ReferenceVideoUnit,
 } from "@/types/reference-video";
 
@@ -82,14 +81,21 @@ export interface ReferenceVideoCardProps {
   unit: ReferenceVideoUnit;
   projectName: string;
   episode: number;
-  onChangePrompt: (prompt: string, references: ReferenceResource[]) => void;
+  /** Controlled value — parent owns the draft/saved state. */
+  value: string;
+  /** Fires on every edit; parent decides whether to debounce, persist, or queue. */
+  onChange: (next: string) => void;
 }
 
-function unitPromptText(unit: ReferenceVideoUnit): string {
-  // Backend `parse_prompt` strips `Shot N (Xs):` headers when persisting
-  // shots[].text, so editing the raw stored text would re-parse as a
-  // header-less single shot and collapse multi-shot units. Reconstruct the
-  // headers unless the unit was saved in header-less mode (duration_override).
+/**
+ * Reconstruct the textarea-visible prompt for a unit from persisted shots.
+ *
+ * Backend `parse_prompt` strips `Shot N (Xs):` headers when persisting
+ * `shots[].text`, so editing the raw stored text would re-parse as a
+ * header-less single shot and collapse multi-shot units. We re-synthesize the
+ * headers unless the unit was saved in header-less mode (duration_override).
+ */
+export function unitPromptText(unit: ReferenceVideoUnit): string {
   if (unit.duration_override) {
     return unit.shots[0]?.text ?? "";
   }
@@ -102,7 +108,8 @@ export function ReferenceVideoCard({
   unit,
   projectName,
   episode: _episode,
-  onChangePrompt,
+  value,
+  onChange,
 }: ReferenceVideoCardProps) {
   const { t } = useTranslation("dashboard");
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -113,9 +120,9 @@ export function ReferenceVideoCard({
   // Picker 的 effect 重新 setReference。
   const [anchorEl, setAnchorEl] = useState<HTMLSpanElement | null>(null);
 
-  // 父层以 key={unit.unit_id} 让 React 自动 remount 本组件，所以这里只持有当前 unit
-  // 的本地编辑态；切换 unit 时组件重建，initializer 会重新跑。
-  const [currentText, setCurrentText] = useState(() => unitPromptText(unit));
+  // 父组件把 prompt 当作受控值传入（可能是服务端原值，也可能是未保存的草稿）。
+  // 本地 state 仅保留 MentionPicker 相关的 UI 细节。
+  const currentText = value;
 
   const project = useProjectsStore((s) => s.currentProjectData);
 
@@ -173,14 +180,6 @@ export function ReferenceVideoCard({
     return out;
   }, [project?.characters, project?.scenes, project?.props]);
 
-  const emitChange = useCallback(
-    (nextValue: string) => {
-      const refs = mergeReferences(nextValue, unit.references, project ?? null);
-      onChangePrompt(nextValue, refs);
-    },
-    [onChangePrompt, unit.references, project],
-  );
-
   const updatePickerFromCursor = useCallback((nextValue: string, cursor: number) => {
     // 向左扫描寻找 @ 触发符；仅当 @ 到 cursor 之间全是 mention 合法字符（`\w` + CJK，
     // 即 MENTION_RE 中 `[\w一-鿿]+` 的字符集）时才算"正在输入的 mention"。
@@ -212,8 +211,7 @@ export function ReferenceVideoCard({
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const next = e.target.value;
-    setCurrentText(next);
-    emitChange(next);
+    onChange(next);
     updatePickerFromCursor(next, e.target.selectionStart ?? next.length);
   };
 
@@ -271,8 +269,7 @@ export function ReferenceVideoCard({
       const after = currentText.slice(cursor);
       const insert = `@${ref.name} `;
       const next = before + insert + after;
-      setCurrentText(next);
-      emitChange(next);
+      onChange(next);
       setPickerOpen(false);
       setPickerQuery("");
       setAtStart(null);
@@ -283,7 +280,7 @@ export function ReferenceVideoCard({
         ta.setSelectionRange(pos, pos);
       });
     },
-    [currentText, atStart, setCurrentText, emitChange],
+    [currentText, atStart, onChange],
   );
 
   const onScroll = () => {

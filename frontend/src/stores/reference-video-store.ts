@@ -1,7 +1,6 @@
 // frontend/src/stores/reference-video-store.ts
 import { create } from "zustand";
 import { API } from "@/api";
-import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import type { ReferenceResource, ReferenceVideoUnit, TransitionType } from "@/types";
 
@@ -41,61 +40,6 @@ interface ReferenceVideoStore {
   reorderUnits: (projectName: string, episode: number, unitIds: string[]) => Promise<void>;
   generate: (projectName: string, episode: number, unitId: string) => Promise<{ task_id: string; deduped: boolean }>;
   select: (unitId: string | null) => void;
-  /**
-   * Debounced unit save. Coalesces rapid prompt+references edits into a single
-   * PATCH per (project, episode, unitId) with a 500ms delay. Stale responses
-   * from superseded in-flight requests are discarded via a per-key fetch id.
-   */
-  updatePromptDebounced: (
-    projectName: string,
-    episode: number,
-    unitId: string,
-    prompt: string,
-    references: ReferenceResource[],
-  ) => void;
-  /**
-   * Atomically drain the pending debounce payload for one unit: cancels the
-   * timer, removes the pending entry, and returns the queued prompt (if any).
-   * Callers that need to PATCH `references` immediately (reorder/add/remove
-   * from the side panel) should consume first and fold the pending prompt
-   * into their own PATCH — otherwise the debounced PATCH would fire later and
-   * overwrite the panel's reference change.
-   */
-  consumePendingPrompt: (
-    projectName: string,
-    episode: number,
-    unitId: string,
-  ) => string | undefined;
-}
-
-// Composite key isolates debounce state per (project, episode, unit) — unit_id
-// format `E{episode}U{n}` is not globally unique, so two projects editing the
-// same-named unit must not share timers or pending payloads.
-function _debounceKey(projectName: string, episode: number, unitId: string): string {
-  return `${projectName}::${episode}::${unitId}`;
-}
-
-// Module-scoped so zustand state stays serializable.
-const _timers = new Map<string, ReturnType<typeof setTimeout>>();
-const _fetchIds = new Map<string, number>();
-const _pendingPayload = new Map<string, { prompt: string; references: ReferenceResource[] }>();
-
-const DEBOUNCE_MS = 500;
-
-function _clearUnitDebounce(key: string): void {
-  const t = _timers.get(key);
-  if (t) clearTimeout(t);
-  _timers.delete(key);
-  _fetchIds.delete(key);
-  _pendingPayload.delete(key);
-}
-
-/** Internal: reset debounce state; only call from tests. */
-export function _resetDebounceState(): void {
-  _timers.forEach((t) => clearTimeout(t));
-  _timers.clear();
-  _fetchIds.clear();
-  _pendingPayload.clear();
 }
 
 export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
@@ -146,7 +90,6 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
   },
 
   deleteUnit: async (projectName, episode, unitId) => {
-    _clearUnitDebounce(_debounceKey(projectName, episode, unitId));
     await API.deleteReferenceVideoUnit(projectName, episode, unitId);
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
@@ -170,57 +113,4 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
   },
 
   select: (unitId) => set({ selectedUnitId: unitId }),
-
-  updatePromptDebounced: (projectName, episode, unitId, prompt, references) => {
-    const dkey = _debounceKey(projectName, episode, unitId);
-    _pendingPayload.set(dkey, { prompt, references });
-    const existing = _timers.get(dkey);
-    if (existing) clearTimeout(existing);
-    const timer = setTimeout(() => {
-      _timers.delete(dkey);
-      const payload = _pendingPayload.get(dkey);
-      _pendingPayload.delete(dkey);
-      if (!payload) return;
-
-      const myFetchId = (_fetchIds.get(dkey) ?? 0) + 1;
-      _fetchIds.set(dkey, myFetchId);
-
-      void API.patchReferenceVideoUnit(projectName, episode, unitId, {
-        prompt: payload.prompt,
-        references: payload.references,
-      })
-        .then(({ unit }) => {
-          if (_fetchIds.get(dkey) !== myFetchId) return; // stale
-          set((s) => {
-            const ekey = referenceVideoCacheKey(projectName, episode);
-            const list = s.unitsByEpisode[ekey] ?? [];
-            return {
-              unitsByEpisode: {
-                ...s.unitsByEpisode,
-                [ekey]: list.map((u) => (u.unit_id === unitId ? unit : u)),
-              },
-            };
-          });
-        })
-        .catch((e) => {
-          if (_fetchIds.get(dkey) !== myFetchId) return;
-          const msg = errMsg(e);
-          // Dual-surface: toast 走即时可见提示，store.error 留给页面级 banner，两者互补。
-          useAppStore.getState().pushToast(msg, "error");
-          set({ error: msg });
-        });
-    }, DEBOUNCE_MS);
-    _timers.set(dkey, timer);
-  },
-
-  consumePendingPrompt: (projectName, episode, unitId) => {
-    const dkey = _debounceKey(projectName, episode, unitId);
-    const payload = _pendingPayload.get(dkey);
-    // Always invalidate: cancels the queued timer and bumps the fetch-id
-    // generation so any in-flight PATCH response (carrying stale references)
-    // is discarded by the `!== myFetchId` check — the caller's PATCH is the
-    // authoritative update after this point.
-    _clearUnitDebounce(dkey);
-    return payload?.prompt;
-  },
 }));

@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ReferenceVideoCard } from "./ReferenceVideoCard";
+import { ReferenceVideoCard, unitPromptText } from "./ReferenceVideoCard";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData } from "@/types";
 import type { ReferenceVideoUnit } from "@/types/reference-video";
@@ -32,6 +33,33 @@ function mkUnit(overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit
   };
 }
 
+// 父组件把 prompt 当作受控值传入；用一个轻量 wrapper 在测试中模拟 lifted 状态，
+// 这样 userEvent.type 产生的连续击键能在 textarea 上累计。否则 `value` prop 固定，
+// 每次 keystroke 都会被 React 回退到初值，`user.type` 的断言就不成立。
+function ControlledCard({
+  unit,
+  initial,
+  onChange,
+}: {
+  unit: ReferenceVideoUnit;
+  initial?: string;
+  onChange?: (next: string) => void;
+}) {
+  const [val, setVal] = useState(initial ?? unitPromptText(unit));
+  return (
+    <ReferenceVideoCard
+      unit={unit}
+      projectName="proj"
+      episode={1}
+      value={val}
+      onChange={(next) => {
+        setVal(next);
+        onChange?.(next);
+      }}
+    />
+  );
+}
+
 const PROJECT: ProjectData = {
   title: "p",
   content_mode: "narration",
@@ -60,14 +88,7 @@ describe("ReferenceVideoCard", () => {
       duration_seconds: 8,
       duration_override: false,
     });
-    render(
-      <ReferenceVideoCard
-        unit={unit}
-        projectName="proj"
-        episode={1}
-        onChangePrompt={vi.fn()}
-      />,
-    );
+    render(<ControlledCard unit={unit} />);
     const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
     expect(ta.value).toBe("Shot 1 (3s): line1\nShot 2 (5s): line2");
   });
@@ -78,35 +99,22 @@ describe("ReferenceVideoCard", () => {
       duration_seconds: 1,
       duration_override: true,
     });
-    render(
-      <ReferenceVideoCard
-        unit={unit}
-        projectName="proj"
-        episode={1}
-        onChangePrompt={vi.fn()}
-      />,
-    );
+    render(<ControlledCard unit={unit} />);
     const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
     expect(ta.value).toBe("plain text with no header");
   });
 
-  it("fires onChangePrompt with (prompt, merged references) on every edit", async () => {
+  it("fires onChange with the new prompt text on every edit", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
-    render(
-      <ReferenceVideoCard
-        unit={mkUnit()}
-        projectName="proj"
-        episode={1}
-        onChangePrompt={onChange}
-      />,
-    );
+    render(<ControlledCard unit={mkUnit()} onChange={onChange} />);
     const ta = screen.getByRole("combobox");
     await user.clear(ta);
     await user.type(ta, "Shot 1 (3s): @主角");
     const lastCall = onChange.mock.calls.at(-1)!;
     expect(lastCall[0]).toBe("Shot 1 (3s): @主角");
-    expect(lastCall[1]).toEqual([{ type: "character", name: "主角" }]);
+    // 新契约：Card 不再做 references 合并——那一步延后到保存时由父组件处理。
+    expect(lastCall).toHaveLength(1);
   });
 
   // 回归：扫 @ 时遇到中文标点（"。"/"，"等）应 break，不能把"眼@。|"的光标误识为
@@ -114,12 +122,7 @@ describe("ReferenceVideoCard", () => {
   it("does not open the picker when cursor sits after a punctuation following an orphan '@'", async () => {
     const user = userEvent.setup();
     render(
-      <ReferenceVideoCard
-        unit={mkUnit({ shots: [{ duration: 1, text: "" }] })}
-        projectName="proj"
-        episode={1}
-        onChangePrompt={vi.fn()}
-      />,
+      <ControlledCard unit={mkUnit({ shots: [{ duration: 1, text: "" }] })} />,
     );
     const ta = screen.getByRole("combobox");
     await user.clear(ta);
@@ -137,14 +140,7 @@ describe("ReferenceVideoCard", () => {
 
   it("opens the MentionPicker when '@' is typed", async () => {
     const user = userEvent.setup();
-    render(
-      <ReferenceVideoCard
-        unit={mkUnit()}
-        projectName="proj"
-        episode={1}
-        onChangePrompt={vi.fn()}
-      />,
-    );
+    render(<ControlledCard unit={mkUnit()} />);
     const ta = screen.getByRole("combobox");
     await user.clear(ta);
     await user.type(ta, "x @");
@@ -155,11 +151,9 @@ describe("ReferenceVideoCard", () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
-      <ReferenceVideoCard
+      <ControlledCard
         unit={mkUnit({ shots: [{ duration: 1, text: "" }] })}
-        projectName="proj"
-        episode={1}
-        onChangePrompt={onChange}
+        onChange={onChange}
       />,
     );
     const ta = screen.getByRole("combobox");
@@ -173,14 +167,7 @@ describe("ReferenceVideoCard", () => {
 
   it("closes the picker synchronously on textarea blur", async () => {
     const user = userEvent.setup();
-    render(
-      <ReferenceVideoCard
-        unit={mkUnit()}
-        projectName="proj"
-        episode={1}
-        onChangePrompt={vi.fn()}
-      />,
-    );
+    render(<ControlledCard unit={mkUnit()} />);
     const ta = screen.getByRole("combobox");
     await user.clear(ta);
     await user.type(ta, "@");
@@ -196,20 +183,12 @@ describe("ReferenceVideoCard", () => {
 
   // Backspace 两次删除：第一次高亮整个 @mention，第二次由默认 delete-selection 完成删除。
   it("first Backspace next to a mention selects it; second deletes the whole chip", async () => {
-    const onChange = vi.fn();
     const user = userEvent.setup();
     const unit = mkUnit({
       shots: [{ duration: 3, text: "hi @主角" }],
       duration_override: false,
     });
-    render(
-      <ReferenceVideoCard
-        unit={unit}
-        projectName="proj"
-        episode={1}
-        onChangePrompt={onChange}
-      />,
-    );
+    render(<ControlledCard unit={unit} />);
     const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
     // 初始值：同 unitPromptText 重构后的 "Shot 1 (3s): hi @主角"
     expect(ta.value.endsWith("@主角")).toBe(true);
@@ -231,15 +210,12 @@ describe("ReferenceVideoCard", () => {
 
   it("renders an unknown-mention chip for names not in project", () => {
     render(
-      <ReferenceVideoCard
+      <ControlledCard
         unit={mkUnit({
           shots: [{ duration: 3, text: "@路人" }],
           duration_seconds: 3,
           duration_override: false,
         })}
-        projectName="proj"
-        episode={1}
-        onChangePrompt={vi.fn()}
       />,
     );
     const chip = screen.getByRole("status");
@@ -250,14 +226,7 @@ describe("ReferenceVideoCard", () => {
 
 describe("ReferenceVideoCard combobox ARIA", () => {
   function renderCard(unit = mkUnit()) {
-    return render(
-      <ReferenceVideoCard
-        unit={unit}
-        projectName="proj"
-        episode={1}
-        onChangePrompt={vi.fn()}
-      />,
-    );
+    return render(<ControlledCard unit={unit} />);
   }
 
   it("advertises combobox contract before and after picker opens", async () => {

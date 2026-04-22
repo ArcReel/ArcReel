@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import type { ReferenceVideoUnit } from "@/types";
 
@@ -27,29 +27,13 @@ function mkUnit(overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit
 
 describe("UnitPreviewPanel", () => {
   it("shows placeholder when no unit is selected", () => {
-    render(<UnitPreviewPanel unit={null} onGenerate={vi.fn()} generating={false} />);
+    render(<UnitPreviewPanel unit={null} />);
     expect(screen.getByText(/Select a unit|选中左侧 Unit/)).toBeInTheDocument();
   });
 
-  it("shows generate button for pending unit", () => {
-    const onGenerate = vi.fn();
-    render(<UnitPreviewPanel unit={mkUnit()} onGenerate={onGenerate} generating={false} />);
-    const btn = screen.getByRole("button", { name: /Generate video|生成视频/ });
-    fireEvent.click(btn);
-    expect(onGenerate).toHaveBeenCalledWith("E1U1");
-  });
-
-  it("disables button and shows generating label while running", () => {
-    render(
-      <UnitPreviewPanel
-        unit={mkUnit()}
-        onGenerate={vi.fn()}
-        generating={true}
-      />,
-    );
-    const btn = screen.getByRole("button");
-    expect(btn).toBeDisabled();
-    expect(screen.getByText(/Generating|生成中/)).toBeInTheDocument();
+  it("shows empty-video placeholder when unit has no video_clip", () => {
+    render(<UnitPreviewPanel unit={mkUnit()} />);
+    expect(screen.getAllByText(/Select a unit|选中左侧 Unit/).length).toBeGreaterThan(0);
   });
 
   it("renders <video> when video_clip is present", () => {
@@ -61,7 +45,7 @@ describe("UnitPreviewPanel", () => {
       },
     });
     const { container } = render(
-      <UnitPreviewPanel unit={unit} onGenerate={vi.fn()} generating={false} projectName="proj" />,
+      <UnitPreviewPanel unit={unit} projectName="proj" />,
     );
     expect(container.querySelector("video")).toBeInTheDocument();
   });

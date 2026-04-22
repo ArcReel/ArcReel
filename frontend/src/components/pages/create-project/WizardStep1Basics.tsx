@@ -99,6 +99,11 @@ export function WizardStep1Basics({
             {t("dashboard:drama_animation")}
           </label>
         </div>
+        <p className="mt-2 text-xs text-gray-500">
+          {value.contentMode === "narration"
+            ? t("dashboard:content_mode_narration_desc")
+            : t("dashboard:content_mode_drama_desc")}
+        </p>
       </div>
 
       {/* Aspect Ratio */}

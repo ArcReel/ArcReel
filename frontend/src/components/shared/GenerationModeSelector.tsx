@@ -14,7 +14,7 @@ export interface GenerationModeSelectorProps {
 
 const EMPTY_DISABLED: readonly GenerationMode[] = Object.freeze([]);
 
-const MODES = ["storyboard", "grid", "reference_video"] as const satisfies readonly GenerationMode[];
+const MODES = ["storyboard", "reference_video", "grid"] as const satisfies readonly GenerationMode[];
 
 export function GenerationModeSelector({
   value,
