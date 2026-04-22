@@ -91,6 +91,8 @@ class ArkVideoBackend:
         # 1. Build content list
         content = [{"type": "text", "text": request.prompt}]
 
+        # Ark 视频 API 要求每个 image_url 条目在顶层带 `role` 字段
+        # （first_frame / last_frame / reference_image），否则 400 InvalidParameter。
         if request.start_image:
             from lib.image_backends.base import image_to_base64_data_uri
 
@@ -99,6 +101,7 @@ class ArkVideoBackend:
                 {
                     "type": "image_url",
                     "image_url": {"url": data_uri},
+                    "role": "first_frame",
                 }
             )
 
@@ -109,7 +112,8 @@ class ArkVideoBackend:
             content.append(
                 {
                     "type": "image_url",
-                    "image_url": {"url": data_uri, "position": "end"},
+                    "image_url": {"url": data_uri},
+                    "role": "last_frame",
                 }
             )
 
@@ -124,6 +128,7 @@ class ArkVideoBackend:
                         {
                             "type": "image_url",
                             "image_url": {"url": data_uri},
+                            "role": "reference_image",
                         }
                     )
 

@@ -107,7 +107,7 @@ class TestArkGenerate:
         assert result.task_id == "cgt-20250101-test"
 
     async def test_image_to_video(self, backend, tmp_path):
-        """图生视频：有 start_image。"""
+        """图生视频：有 start_image，必须带 role=first_frame。"""
         output = tmp_path / "out.mp4"
         frame = tmp_path / "scene_E1S01.png"
         frame.write_bytes(b"fake-png")
@@ -144,6 +144,86 @@ class TestArkGenerate:
         assert len(content_arg) == 2
         assert content_arg[1]["type"] == "image_url"
         assert content_arg[1]["image_url"]["url"].startswith("data:image/")
+        assert content_arg[1]["role"] == "first_frame"
+
+    async def test_first_last_frame_role_fields(self, backend, tmp_path):
+        """首尾帧：start_image/end_image 必须分别带 role=first_frame / role=last_frame，
+        且 image_url 对象不再使用 position（由 role 表达位置）。"""
+        output = tmp_path / "out.mp4"
+        first = tmp_path / "first.png"
+        first.write_bytes(b"fake-first")
+        last = tmp_path / "last.png"
+        last.write_bytes(b"fake-last")
+
+        create_result = MagicMock()
+        create_result.id = "cgt-fl-test"
+        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+
+        get_result = MagicMock()
+        get_result.status = "succeeded"
+        get_result.content = MagicMock()
+        get_result.content.video_url = "https://cdn.example.com/video.mp4"
+        get_result.seed = None
+        get_result.usage = None
+        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+
+        patcher = _mock_httpx_stream()
+        try:
+            request = VideoGenerationRequest(
+                prompt="morph",
+                output_path=output,
+                start_image=first,
+                end_image=last,
+            )
+            await backend.generate(request)
+        finally:
+            patcher.stop()
+
+        create_kwargs = backend._client.content_generation.tasks.create.call_args.kwargs
+        content_arg = create_kwargs["content"]
+        image_items = [c for c in content_arg if c["type"] == "image_url"]
+        assert len(image_items) == 2
+        assert image_items[0]["role"] == "first_frame"
+        assert image_items[1]["role"] == "last_frame"
+        # role 表达位置后，不应再塞 position 到 image_url
+        assert "position" not in image_items[1]["image_url"]
+
+    async def test_reference_images_role(self, backend, tmp_path):
+        """参考图：每张 reference_images 必须带 role=reference_image（Ark 多图触发条件）。"""
+        output = tmp_path / "out.mp4"
+        ref1 = tmp_path / "ref1.jpg"
+        ref1.write_bytes(b"fake-ref-1")
+        ref2 = tmp_path / "ref2.jpg"
+        ref2.write_bytes(b"fake-ref-2")
+
+        create_result = MagicMock()
+        create_result.id = "cgt-refs-test"
+        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+
+        get_result = MagicMock()
+        get_result.status = "succeeded"
+        get_result.content = MagicMock()
+        get_result.content.video_url = "https://cdn.example.com/video.mp4"
+        get_result.seed = None
+        get_result.usage = None
+        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+
+        patcher = _mock_httpx_stream()
+        try:
+            request = VideoGenerationRequest(
+                prompt="[图1] 与 [图2] 对话",
+                output_path=output,
+                reference_images=[ref1, ref2],
+            )
+            await backend.generate(request)
+        finally:
+            patcher.stop()
+
+        create_kwargs = backend._client.content_generation.tasks.create.call_args.kwargs
+        content_arg = create_kwargs["content"]
+        image_items = [c for c in content_arg if c["type"] == "image_url"]
+        assert len(image_items) == 2
+        assert all(item["role"] == "reference_image" for item in image_items)
 
     async def test_failed_task_raises(self, backend, tmp_path):
         output = tmp_path / "out.mp4"
