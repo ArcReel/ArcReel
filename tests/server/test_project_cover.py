@@ -177,6 +177,31 @@ def test_preloaded_scripts_falls_back_to_manager_for_missing_entries():
     assert called_files == {"scripts/episode_2.json"}
 
 
+def test_mixed_segments_and_video_units_do_not_shadow_each_other():
+    """回归：storyboard 模式 script 被误塞入空 video_units 时，不应让 segments 里的真实
+    video_thumbnail / storyboard_image 被跳过退到 scene_sheet。
+    暴君1.0 复现现场：segments 里 2 个 video_thumbnail + 49 个 storyboard_image，
+    video_units 里 7 个 status:pending 空壳；旧逻辑 `video_units or segments` 让后者整体丢弃。"""
+    project = {
+        "episodes": [{"script_file": "scripts/episode_1.json"}],
+        "scenes": {"选秀大殿": {"scene_sheet": "scenes/选秀大殿.png"}},
+    }
+    scripts = {
+        "scripts/episode_1.json": {
+            "segments": [
+                {"generated_assets": {"storyboard_image": "storyboards/scene_E1S1.png"}},
+                {"generated_assets": {"video_thumbnail": "thumbnails/scene_E1S1.jpg"}},
+            ],
+            "video_units": [
+                {"unit_id": "E1U1", "generated_assets": {"status": "pending"}},
+                {"unit_id": "E1U2", "generated_assets": {"status": "pending"}},
+            ],
+        }
+    }
+    url = resolve_project_cover(_mk_manager(scripts), "proj", project)
+    assert url == "/api/v1/files/proj/thumbnails/scene_E1S1.jpg"
+
+
 @pytest.mark.parametrize(
     "sheet_value",
     [None, "", 0],

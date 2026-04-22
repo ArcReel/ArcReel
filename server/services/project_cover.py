@@ -77,8 +77,12 @@ def resolve_project_cover(
             continue
 
     def _iter_items(script: dict):
-        # 兼容 storyboard 的 segments 与 reference 的 video_units 两种集级结构。
-        return script.get("video_units") or script.get("segments") or []
+        # 合并 segments（storyboard/grid）与 video_units（reference）两种集级结构。
+        # 旧实现 `video_units or segments` 在两者共存时会永久丢弃后者——
+        # storyboard 项目被误塞入空 video_units 时，segments 里的真实 video_thumbnail /
+        # storyboard_image 被整体跳过，封面退化到 scene_sheet（见回归测试）。
+        # 合并遍历 + `if thumb`/`if sb` 的 falsy 过滤，天然忽略空壳 item。
+        return [*(script.get("segments") or []), *(script.get("video_units") or [])]
 
     for script in scripts:
         for item in _iter_items(script):
