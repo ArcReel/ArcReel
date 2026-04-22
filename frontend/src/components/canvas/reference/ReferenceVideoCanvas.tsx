@@ -42,6 +42,13 @@ const VIDEO_DOT_CLASS: Record<UnitStatus, string> = {
   failed: "bg-red-500",
 };
 
+/** 草稿 map 的复合键：`unit_id` 格式 `E{episode}U{n}` 在不同项目下会重复，所以必须
+ *  把 project+episode 一同编入 key，否则切换项目会误把旧项目的未保存草稿应用到新项目
+ *  同名 unit 上，造成跨项目数据污染。与 store 侧的 `_debounceKey` 约定一致。 */
+function draftKey(projectName: string, episode: number, unitId: string): string {
+  return `${projectName}::${episode}::${unitId}`;
+}
+
 /** Toast an error with tone="error". Optional `format` wraps the normalized
  *  message (e.g. an i18n template); without it the raw message is shown. */
 function toastError(e: unknown, format?: (msg: string) => string): void {
@@ -201,46 +208,46 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
   const handlePromptChange = useCallback(
     (next: string) => {
       if (!selected) return;
-      const unitId = selected.unit_id;
+      const key = draftKey(projectName, episode, selected.unit_id);
       const baseText = unitPromptText(selected);
       setDrafts((d) => {
         if (next === baseText) {
-          if (!(unitId in d)) return d;
+          if (!(key in d)) return d;
           const copy = { ...d };
-          delete copy[unitId];
+          delete copy[key];
           return copy;
         }
-        return { ...d, [unitId]: next };
+        return { ...d, [key]: next };
       });
     },
-    [selected],
+    [selected, projectName, episode],
   );
 
   const currentText = useMemo(() => {
     if (!selected) return "";
     const base = unitPromptText(selected);
-    return drafts[selected.unit_id] ?? base;
-  }, [selected, drafts]);
+    return drafts[draftKey(projectName, episode, selected.unit_id)] ?? base;
+  }, [selected, drafts, projectName, episode]);
 
   const isDirty = !!(
     selected &&
-    drafts[selected.unit_id] !== undefined &&
-    drafts[selected.unit_id] !== unitPromptText(selected)
+    (() => {
+      const v = drafts[draftKey(projectName, episode, selected.unit_id)];
+      return v !== undefined && v !== unitPromptText(selected);
+    })()
   );
 
   // 全局"是否有任何未保存草稿"——用于 beforeunload 保护。
-  const hasAnyDraft = useMemo(() => {
-    for (const [unitId, text] of Object.entries(drafts)) {
-      const u = units.find((x) => x.unit_id === unitId);
-      if (u && text !== unitPromptText(u)) return true;
-    }
-    return false;
-  }, [drafts, units]);
+  // 复合键下无法再通过 units.find 精确匹配（跨 episode/project 的 entry 对当前 units
+  // 不可见），所以只要 drafts 非空就视作有未保存改动——reasonable upper bound：
+  // handlePromptChange 会在文本回到 baseText 时自动清除 entry，实际残留都是真正 dirty 的。
+  const hasAnyDraft = Object.keys(drafts).length > 0;
 
   const handleSave = useCallback(async () => {
     if (!selected) return;
     const unitId = selected.unit_id;
-    const draftText = drafts[unitId];
+    const key = draftKey(projectName, episode, unitId);
+    const draftText = drafts[key];
     if (draftText === undefined || draftText === unitPromptText(selected)) return;
     const nextRefs = mergeReferences(draftText, selected.references, project ?? null);
     setSaving(true);
@@ -249,10 +256,11 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
         prompt: draftText,
         references: nextRefs,
       });
+      // 仅当草稿未被进一步改动时才清除——否则保存期间继续输入的新文字会被一起丢弃。
       setDrafts((d) => {
-        if (!(unitId in d)) return d;
+        if (d[key] !== draftText) return d;
         const copy = { ...d };
-        delete copy[unitId];
+        delete copy[key];
         return copy;
       });
     } catch (e) {
@@ -264,9 +272,16 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
 
   // 引用增删/排序保持即时保存；但若当前 unit 有未保存的 prompt 草稿，把它一并带上，
   // 让"调序顺便 persist 草稿"成为一种自然的存档路径，并避免后端 prompt 滞后于 refs。
+  //
+  // 注：这里刻意不用 mergeReferences(draftText, nextRefs) 去派生 references：
+  //   - 与 main 分支既有契约一致（旧路径也是直发 `{prompt: pendingPrompt, references: nextRefs}`）；
+  //   - 用户在 panel 侧显式移除某个 ref 但 draft 中仍保留同名 @mention 时，merge 会把
+  //     该 ref 重新追加，等同于悄悄抹掉 panel 的移除意图。
+  //   - @mention 与 references 之间的最终一致性由 `handleSave` 负责。
   const patchReferencesAtomic = useCallback(
     (unitId: string, nextRefs: ReferenceResource[]) => {
-      const draftText = drafts[unitId];
+      const key = draftKey(projectName, episode, unitId);
+      const draftText = drafts[key];
       const unit = units.find((u) => u.unit_id === unitId);
       const hasDraft =
         draftText !== undefined && unit !== undefined && draftText !== unitPromptText(unit);
@@ -275,14 +290,15 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
         : { references: nextRefs };
       void patchUnit(projectName, episode, unitId, body)
         .then(() => {
-          if (hasDraft) {
-            setDrafts((d) => {
-              if (!(unitId in d)) return d;
-              const copy = { ...d };
-              delete copy[unitId];
-              return copy;
-            });
-          }
+          if (!hasDraft) return;
+          // 同 handleSave 的竞态守卫：draftText 是请求启动时的快照；若请求返回前用户继续
+          // 输入，d[key] 已改变，这里就不应清除——否则 textarea 回退到旧服务端值。
+          setDrafts((d) => {
+            if (d[key] !== draftText) return d;
+            const copy = { ...d };
+            delete copy[key];
+            return copy;
+          });
         })
         .catch((e) => {
           toastError(e);
