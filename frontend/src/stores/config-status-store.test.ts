@@ -60,6 +60,7 @@ describe("config-status-store", () => {
 
   it("reports anthropic and provider issues when both unconfigured", async () => {
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders());
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
 
     await useConfigStatusStore.getState().fetch();
@@ -78,6 +79,7 @@ describe("config-status-store", () => {
     vi.spyOn(API, "getProviders").mockResolvedValue(
       makeProviders([{ id: "gemini", display_name: "Google Gemini", status: "ready", media_types: ["image", "video", "text"], capabilities: [], configured_keys: ["api_key"], missing_keys: [], models: {} }]),
     );
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(
       makeConfigResponse({ anthropic_api_key: { is_set: true, masked: "sk-ant-***" } }),
     );
@@ -93,6 +95,7 @@ describe("config-status-store", () => {
     vi.spyOn(API, "getProviders")
       .mockRejectedValueOnce(new Error("temporary failure"))
       .mockResolvedValueOnce(makeProviders());
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
 
     await useConfigStatusStore.getState().fetch();

@@ -14,8 +14,9 @@ export interface ConfigIssue {
 async function getConfigIssues(): Promise<ConfigIssue[]> {
   const issues: ConfigIssue[] = [];
 
-  const [{ providers }, configRes] = await Promise.all([
+  const [{ providers }, { providers: customProviders }, configRes] = await Promise.all([
     API.getProviders(),
+    API.listCustomProviders(),
     API.getSystemConfig(),
   ]);
 
@@ -33,8 +34,16 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
   // 2. Check any provider supports each media type
   const readyProviders = providers.filter((p) => p.status === "ready");
 
-  const hasMediaType = (type: string) =>
-    readyProviders.some((p) => p.media_types.includes(type));
+  const hasMediaType = (type: string) => {
+    // Check preset providers
+    const hasPresetProvider = readyProviders.some((p) => p.media_types.includes(type));
+    if (hasPresetProvider) return true;
+
+    // Check custom providers for enabled models of this media type
+    return customProviders.some((cp) =>
+      cp.models.some((m) => m.media_type === type && m.is_enabled)
+    );
+  };
 
   if (!hasMediaType("video")) {
     issues.push({
