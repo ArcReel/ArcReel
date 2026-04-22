@@ -13,6 +13,7 @@ import { Popover } from "@/components/ui/Popover";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { OpenClawModal } from "./OpenClawModal";
+import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
 import type { ProjectStatus, ProjectSummary, ImportConflictPolicy, ImportFailureDiagnostics } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -294,7 +295,10 @@ export function ProjectsPage() {
             {/* Asset library pill */}
             <button
               type="button"
-              onClick={() => navigate("/app/assets")}
+              onClick={() => {
+                rememberAssetLibraryReturnTo(window.location.pathname);
+                navigate("/app/assets");
+              }}
               className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-3 py-1.5 text-sm text-indigo-200 transition-colors hover:border-indigo-400/40 hover:bg-indigo-500/15 hover:text-white"
               title={t("assets:library_title")}
             >

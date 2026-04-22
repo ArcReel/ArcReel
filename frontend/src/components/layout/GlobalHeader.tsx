@@ -15,6 +15,7 @@ import { ExportScopeDialog } from "./ExportScopeDialog";
 
 import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
+import { rememberAssetLibraryReturnTo } from "@/components/pages/AssetLibraryPage";
 import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
 
 /** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
@@ -375,7 +376,10 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
         {/* Asset library */}
         <button
           type="button"
-          onClick={() => setLocation("~/app/assets")}
+          onClick={() => {
+            rememberAssetLibraryReturnTo(window.location.pathname);
+            setLocation("~/app/assets");
+          }}
           className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
           title={t("assets:library_title")}
           aria-label={t("assets:library_title")}

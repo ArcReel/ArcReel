@@ -11,6 +11,15 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { errMsg } from "@/utils/async";
 import type { Asset, AssetType } from "@/types/asset";
 
+const ASSET_LIBRARY_RETURN_TO_KEY = "assetLibrary:returnTo";
+
+/** 入口按钮点击前调用，记录返回目标。只接受应用内部路径，避免 open redirect 风险。 */
+export function rememberAssetLibraryReturnTo(pathname: string) {
+  if (pathname.startsWith("/app/")) {
+    sessionStorage.setItem(ASSET_LIBRARY_RETURN_TO_KEY, pathname);
+  }
+}
+
 interface TabDef {
   type: AssetType;
   icon: React.ComponentType<{ className?: string }>;
@@ -101,7 +110,11 @@ export function AssetLibraryPage() {
           <div className="flex items-start gap-3">
             <button
               type="button"
-              onClick={() => navigate("/app/projects")}
+              onClick={() => {
+                const returnTo = sessionStorage.getItem(ASSET_LIBRARY_RETURN_TO_KEY);
+                sessionStorage.removeItem(ASSET_LIBRARY_RETURN_TO_KEY);
+                navigate(returnTo && returnTo.startsWith("/app/") ? returnTo : "/app/projects");
+              }}
               aria-label={t("back_to_projects")}
               title={t("back_to_projects")}
               className="mt-1 rounded-full border border-gray-800 bg-gray-900/60 p-1.5 text-gray-400 transition-colors hover:border-indigo-500/40 hover:text-indigo-200"
