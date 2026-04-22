@@ -60,7 +60,7 @@ class TestTextGenerator:
         assert item["input_tokens"] == 100
         assert item["output_tokens"] == 50
         assert item["provider"] == "gemini"
-        assert item["cost_amount"] == pytest.approx((100 * 0.10 + 50 * 0.40) / 1_000_000)
+        assert item["cost_amount"] == pytest.approx((100 * 0.50 + 50 * 3.00) / 1_000_000)
 
     async def test_generate_records_usage_on_failure(self, tracker):
         backend = _make_backend()

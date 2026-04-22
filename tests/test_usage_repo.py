@@ -192,8 +192,8 @@ class TestMultiProviderUsage:
         assert item["input_tokens"] == 1000
         assert item["output_tokens"] == 500
         assert item["currency"] == "USD"
-        # cost = (1000 * 0.10 + 500 * 0.40) / 1_000_000 = 0.0003
-        assert item["cost_amount"] == pytest.approx(0.0003)
+        # cost = (1000 * 0.50 + 500 * 3.00) / 1_000_000 = 0.002
+        assert item["cost_amount"] == pytest.approx((1000 * 0.50 + 500 * 3.00) / 1_000_000)
 
     async def test_text_call_ark_cost(self, db_session):
         repo = UsageRepository(db_session)
@@ -215,8 +215,8 @@ class TestMultiProviderUsage:
         calls = await repo.get_calls(project_name="demo")
         item = calls["items"][0]
         assert item["currency"] == "CNY"
-        # cost = (2000 * 0.30 + 1000 * 0.60) / 1_000_000 = 0.0012
-        assert item["cost_amount"] == pytest.approx(0.0012)
+        # cost = (2000 * 0.60 + 1000 * 3.60) / 1_000_000 = 0.0048
+        assert item["cost_amount"] == pytest.approx((2000 * 0.60 + 1000 * 3.60) / 1_000_000)
 
     async def test_text_call_failed_zero_cost(self, db_session):
         repo = UsageRepository(db_session)

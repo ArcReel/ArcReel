@@ -124,7 +124,7 @@ class TestUsageTracker:
         assert item["call_type"] == "text"
         assert item["input_tokens"] == 1000
         assert item["output_tokens"] == 500
-        assert item["cost_amount"] == pytest.approx(0.0003)
+        assert item["cost_amount"] == pytest.approx((1000 * 0.50 + 500 * 3.00) / 1_000_000)
 
         stats = await tracker.get_stats(project_name="demo")
         assert stats["text_count"] == 1
