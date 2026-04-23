@@ -191,7 +191,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       setExportDialogOpen(false);
       useAppStore.getState().pushToast(t("dashboard:jianying_export_started"), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(t("dashboard:jianying_export_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushNotification(t("dashboard:jianying_export_failed", { message: errMsg(err) }), "error");
     } finally {
       setJianyingExporting(false);
     }
@@ -220,7 +220,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(t("dashboard:export_failed", { message: errMsg(err) }), "error");
+        .pushNotification(t("dashboard:export_failed", { message: errMsg(err) }), "error");
     } finally {
       setExportingProject(false);
     }
