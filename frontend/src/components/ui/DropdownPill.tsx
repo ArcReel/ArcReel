@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 
@@ -12,6 +12,7 @@ interface DropdownPillProps<T extends string> {
   onChange: (value: T) => void;
   label?: string;
   className?: string;
+  renderOption?: (value: T) => ReactNode;
 }
 
 export function DropdownPill<T extends string>({
@@ -20,9 +21,11 @@ export function DropdownPill<T extends string>({
   onChange,
   label,
   className,
+  renderOption,
 }: DropdownPillProps<T>) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const display = (v: T): ReactNode => (renderOption ? renderOption(v) : v);
 
   return (
     <div ref={containerRef} className={`relative inline-block ${className ?? ""}`}>
@@ -33,7 +36,7 @@ export function DropdownPill<T extends string>({
         className="inline-flex items-center gap-1 rounded-full bg-gray-800 px-2.5 py-0.5 text-xs text-gray-300 transition-colors hover:bg-gray-700"
       >
         {label && <span className="text-gray-500">{label}</span>}
-        <span>{value}</span>
+        <span>{display(value)}</span>
         <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
@@ -61,7 +64,7 @@ export function DropdownPill<T extends string>({
                 : "text-gray-300 hover:bg-gray-800"
             }`}
           >
-            {opt}
+            {display(opt)}
           </button>
         ))}
       </Popover>

@@ -5,7 +5,7 @@ import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { CompactInput } from "@/components/ui/CompactInput";
 import { DropdownPill } from "@/components/ui/DropdownPill";
 import { DialogueListEditor } from "./DialogueListEditor";
-import { CAMERA_MOTIONS } from "@/types";
+import { CAMERA_MOTIONS, CAMERA_MOTION_I18N_KEYS } from "@/types";
 import type { VideoPrompt, CameraMotion, Dialogue } from "@/types";
 
 interface VideoPromptEditorProps {
@@ -47,6 +47,7 @@ export function VideoPromptEditor({
             label={t("camera_motion_label")}
             value={prompt.camera_motion}
             options={CAMERA_MOTIONS}
+            renderOption={(v: CameraMotion) => t(CAMERA_MOTION_I18N_KEYS[v])}
             onChange={(v: CameraMotion) => onUpdate({ camera_motion: v })}
           />
           <CompactInput

@@ -4,7 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { CompactInput } from "@/components/ui/CompactInput";
 import { DropdownPill } from "@/components/ui/DropdownPill";
-import { SHOT_TYPES } from "@/types";
+import { SHOT_TYPES, SHOT_TYPE_I18N_KEYS } from "@/types";
 import type { ImagePrompt, ShotType } from "@/types";
 
 interface ImagePromptEditorProps {
@@ -46,6 +46,7 @@ export function ImagePromptEditor({
             label={t("shot_label")}
             value={prompt.composition.shot_type}
             options={SHOT_TYPES}
+            renderOption={(v: ShotType) => t(SHOT_TYPE_I18N_KEYS[v])}
             onChange={(v: ShotType) =>
               onUpdate({
                 composition: { ...prompt.composition, shot_type: v },
