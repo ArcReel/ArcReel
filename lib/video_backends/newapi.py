@@ -52,7 +52,9 @@ _SIZE_MAP: dict[tuple[str, str], tuple[int, int]] = {
 _DEFAULT_SIZE: tuple[int, int] = (720, 1280)
 
 
-def _resolve_size(resolution: str, aspect_ratio: str) -> tuple[int, int]:
+def _resolve_size(resolution: str | None, aspect_ratio: str) -> tuple[int, int]:
+    if resolution is None:
+        return _DEFAULT_SIZE
     size = _SIZE_MAP.get((resolution, aspect_ratio))
     if size is None:
         logger.warning(
