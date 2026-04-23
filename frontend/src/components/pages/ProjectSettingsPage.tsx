@@ -87,6 +87,8 @@ export function ProjectSettingsPage() {
     textScript: "", textOverview: "", textStyle: "",
     aspectRatio: "", generationMode: "storyboard" as GenerationMode,
     defaultDuration: null as number | null,
+    videoResolution: null as string | null,
+    imageResolution: null as string | null,
   });
   // 风格区独立保存，但"未保存就离开"也需被 isDirty 拦截。
   const initialStyleRef = useRef<StylePickerValue | null>(null);
@@ -143,6 +145,14 @@ export function ProjectSettingsPage() {
       setAspectRatio(ar);
       setGenerationMode(gm);
       setDefaultDuration(dd);
+
+      // 加载已存在的 model_settings.resolution
+      const ms = (project.model_settings ?? {}) as Record<string, { resolution?: string | null }>;
+      const vRes = vb && ms[vb]?.resolution ? (ms[vb].resolution as string) : null;
+      const iRes = ib && ms[ib]?.resolution ? (ms[ib].resolution as string) : null;
+      setVideoResolution(vRes);
+      setImageResolution(iRes);
+
       const derivedStyle = deriveStyleValue(project, projectName);
       setStyleValue(derivedStyle);
       initialStyleRef.current = derivedStyle;
@@ -150,6 +160,7 @@ export function ProjectSettingsPage() {
         videoBackend: vb, imageBackend: ib, audioOverride: ao,
         textScript: ts, textOverview: to, textStyle: tst,
         aspectRatio: ar, generationMode: gm, defaultDuration: dd,
+        videoResolution: vRes, imageResolution: iRes,
       };
     }));
 
@@ -192,6 +203,8 @@ export function ProjectSettingsPage() {
     aspectRatio !== initialRef.current.aspectRatio ||
     generationMode !== initialRef.current.generationMode ||
     defaultDuration !== initialRef.current.defaultDuration ||
+    videoResolution !== initialRef.current.videoResolution ||
+    imageResolution !== initialRef.current.imageResolution ||
     styleIsDirty;
 
   useEffect(() => {
@@ -258,6 +271,19 @@ export function ProjectSettingsPage() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
+      // 构造 model_settings：在现有 project.model_settings 基础上，更新当前 backend 对应的 resolution
+      const existingProject = (await API.getProject(projectName)).project as unknown as Record<string, unknown>;
+      const existingModelSettings = (existingProject.model_settings ?? {}) as Record<string, { resolution: string | null }>;
+      const newModelSettings: Record<string, { resolution: string | null }> = {
+        ...existingModelSettings,
+      };
+      if (videoBackend) {
+        newModelSettings[videoBackend] = { resolution: videoResolution };
+      }
+      if (imageBackend) {
+        newModelSettings[imageBackend] = { resolution: imageResolution };
+      }
+
       await API.updateProject(projectName, {
         video_backend: videoBackend || null,
         image_backend: imageBackend || null,
@@ -268,11 +294,13 @@ export function ProjectSettingsPage() {
         aspect_ratio: aspectRatio || undefined,
         generation_mode: generationMode,
         default_duration: defaultDuration,
+        model_settings: newModelSettings,
       } as Record<string, unknown>);
       initialRef.current = {
         videoBackend, imageBackend, audioOverride,
         textScript, textOverview, textStyle,
         aspectRatio, generationMode, defaultDuration,
+        videoResolution, imageResolution,
       };
       useAppStore.getState().pushToast(t("saved"), "success");
     } catch (e: unknown) {
@@ -280,7 +308,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, projectName, t]);
+  }, [videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, videoResolution, imageResolution, projectName, t]);
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 overflow-y-auto">
