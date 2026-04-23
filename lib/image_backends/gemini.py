@@ -112,13 +112,14 @@ class GeminiImageBackend:
         # 2. 构建 contents（参考图 + prompt）
         contents = self._build_contents_with_labeled_refs(request.prompt, request.reference_images)
 
-        # 3. 构建配置
+        # 3. 构建配置（image_size 为 None 时不传）
+        image_config_kwargs: dict = {"aspect_ratio": request.aspect_ratio}
+        if request.image_size is not None:
+            image_config_kwargs["image_size"] = request.image_size
+
         config = self._types.GenerateContentConfig(
             response_modalities=["IMAGE"],
-            image_config=self._types.ImageConfig(
-                aspect_ratio=request.aspect_ratio,
-                image_size=request.image_size,
-            ),
+            image_config=self._types.ImageConfig(**image_config_kwargs),
         )
 
         # 4. 调用异步 API
