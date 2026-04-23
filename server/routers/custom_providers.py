@@ -54,6 +54,7 @@ class ModelInput(BaseModel):
     price_output: float | None = None
     currency: str | None = None
     supported_durations: list[int] | None = None
+    resolution: str | None = None
 
     @model_validator(mode="after")
     def _check_price_consistency(self):
@@ -115,6 +116,7 @@ class ModelResponse(BaseModel):
     price_output: float | None = None
     currency: str | None = None
     supported_durations: list[int] | None = None
+    resolution: str | None = None
 
 
 class ProviderResponse(BaseModel):
@@ -156,6 +158,7 @@ def _model_to_response(m) -> ModelResponse:
         price_output=m.price_output,
         currency=m.currency,
         supported_durations=durations,
+        resolution=m.resolution,
     )
 
 

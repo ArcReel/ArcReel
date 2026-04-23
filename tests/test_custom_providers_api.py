@@ -976,3 +976,108 @@ class TestPriceFieldConsistency:
             },
         )
         assert resp.status_code == 201
+
+
+class TestResolutionField:
+    """验证 ModelInput / ModelResponse 的 resolution 字段贯通读写。"""
+
+    def test_create_with_resolution_and_read_back(self, client: TestClient):
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "X",
+                "api_format": "openai",
+                "base_url": "https://api.example.com",
+                "api_key": "k",
+                "models": [
+                    {
+                        "model_id": "m1",
+                        "display_name": "M1",
+                        "media_type": "video",
+                        "is_default": True,
+                        "is_enabled": True,
+                        "resolution": "720p",
+                    },
+                ],
+            },
+        )
+        assert resp.status_code == 201
+        pid = resp.json()["id"]
+
+        # 读取，确认 resolution 返回
+        resp = client.get(f"/api/v1/custom-providers/{pid}")
+        assert resp.status_code == 200
+        models = resp.json()["models"]
+        assert len(models) == 1
+        assert models[0]["resolution"] == "720p"
+
+    def test_resolution_defaults_to_null_when_omitted(self, client: TestClient):
+        """未指定 resolution 时应返回 None。"""
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Y",
+                "api_format": "openai",
+                "base_url": "https://api.example.com",
+                "api_key": "k",
+                "models": [
+                    {
+                        "model_id": "m1",
+                        "display_name": "M1",
+                        "media_type": "video",
+                        "is_enabled": True,
+                    },
+                ],
+            },
+        )
+        assert resp.status_code == 201
+        pid = resp.json()["id"]
+
+        resp = client.get(f"/api/v1/custom-providers/{pid}")
+        assert resp.status_code == 200
+        assert resp.json()["models"][0]["resolution"] is None
+
+    def test_replace_models_updates_resolution_to_null(self, client: TestClient):
+        """通过 PUT /models 更新 resolution 为 null。"""
+        # 先创建带 resolution 的 provider
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Z",
+                "api_format": "openai",
+                "base_url": "https://api.example.com",
+                "api_key": "k",
+                "models": [
+                    {
+                        "model_id": "m1",
+                        "display_name": "M1",
+                        "media_type": "video",
+                        "is_enabled": True,
+                        "resolution": "1080p",
+                    },
+                ],
+            },
+        )
+        assert resp.status_code == 201
+        pid = resp.json()["id"]
+
+        # 替换模型列表，resolution 省略即为 null
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}/models",
+            json={
+                "models": [
+                    {
+                        "model_id": "m1",
+                        "display_name": "M1",
+                        "media_type": "video",
+                        "is_enabled": True,
+                    },
+                ],
+            },
+        )
+        assert resp.status_code == 200
+
+        # 读取验证为 null
+        resp = client.get(f"/api/v1/custom-providers/{pid}")
+        assert resp.status_code == 200
+        assert resp.json()["models"][0]["resolution"] is None
