@@ -16,6 +16,14 @@ logger = logging.getLogger(__name__)
 
 CostBreakdown = dict[str, float]
 
+# 成本预估默认分辨率保底（未配置时使用）——与 reference_video_tasks 局部 fallback 同构
+_COST_ESTIMATION_DEFAULT_RESOLUTION: dict[str, str] = {
+    "gemini": "1080p",
+    "ark": "720p",
+    "grok": "720p",
+    "openai": "720p",
+}
+
 
 def _add_cost(target: CostBreakdown, amount: float, currency: str) -> None:
     if amount <= 0:
@@ -75,9 +83,7 @@ class CostEstimationService:
         if project_image_provider:
             image_provider = project_image_provider
 
-        from server.services.generation_tasks import DEFAULT_VIDEO_RESOLUTION
-
-        video_resolution = DEFAULT_VIDEO_RESOLUTION.get(video_provider, "1080p")
+        video_resolution = _COST_ESTIMATION_DEFAULT_RESOLUTION.get(video_provider, "1080p")
 
         # Get actual costs
         actual_by_segment = await self._tracker.get_actual_costs_by_segment(project_name)
