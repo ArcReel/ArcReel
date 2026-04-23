@@ -235,15 +235,25 @@ async def execute_reference_video_task(
         duration_seconds=base_duration,
     )
 
-    # 5.1 解析 resolution（与分镜视频流 generation_tasks.py 保持同一优先级：
-    #     project.video_model_settings[model].resolution > provider 默认值）。
-    #     若直接回退到 MediaGenerator 的硬编码默认 "1080p"，会被 xai_sdk 拒绝
-    #     （VideoResolutionMap 仅支持 480p/720p）。
-    # TODO(T14): 改用 resolve_resolution() 替代此处的临时 fallback
+    # 5.1 解析 resolution：
+    #   - 优先 project.model_settings[provider/model].resolution (新)
+    #   - 回退 project.video_model_settings[model].resolution (legacy)
+    #   - 回退 custom provider 模型的默认 resolution
+    #   - 最后按 backend provider 名的成本/兼容性保底（#387 Grok 默认 1080p 会被 xai_sdk 拒绝）
+    from server.services.generation_tasks import _get_custom_resolution_default
+    from server.services.resolution_resolver import resolve_resolution
+
     _PROVIDER_DEFAULT_RESOLUTION = {"gemini": "1080p", "ark": "720p", "grok": "720p", "openai": "720p"}
-    video_model_settings = project.get("video_model_settings") or {}
-    model_resolution_setting = video_model_settings.get(model_name, {}) if model_name else {}
-    resolution = model_resolution_setting.get("resolution") or _PROVIDER_DEFAULT_RESOLUTION.get(provider_name, "1080p")
+
+    custom_default = await _get_custom_resolution_default(provider_name, model_name)
+    resolution = resolve_resolution(
+        project,
+        provider_name,
+        model_name or "",
+        custom_default=custom_default,
+    )
+    if resolution is None:
+        resolution = _PROVIDER_DEFAULT_RESOLUTION.get(provider_name, "1080p")
 
     # 6. 渲染 prompt（@→[图N]）。必须按 `constrained_refs` 的长度裁 `unit.references`
     #    再渲染，保证 [图N] 的 1-based 索引与 backend 实际收到的 reference_images
