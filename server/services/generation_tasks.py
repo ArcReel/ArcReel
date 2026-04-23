@@ -81,6 +81,7 @@ async def _resolve_effective_image_backend(project: dict, payload: dict | None) 
 
     返回 (provider_id, model_id)。供 resolve_resolution 构 key 使用，
     确保 payload 缺失 image_provider 时也能命中 project.model_settings。
+    全局默认失败（未配置供应商）时返回空串，调用方按 None 处理。
     """
     if payload:
         provider = payload.get("image_provider") or ""
@@ -93,8 +94,11 @@ async def _resolve_effective_image_backend(project: dict, payload: dict | None) 
     from lib.db import async_session_factory
 
     resolver = ConfigResolver(async_session_factory)
-    async with resolver.session() as r:
-        provider, model = await r.default_image_backend()
+    try:
+        async with resolver.session() as r:
+            provider, model = await r.default_image_backend()
+    except Exception:
+        return "", ""
     return provider or "", model or ""
 
 
