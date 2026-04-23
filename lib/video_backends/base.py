@@ -133,7 +133,7 @@ class VideoGenerationRequest:
     output_path: Path
     aspect_ratio: str = "9:16"
     duration_seconds: int = 5
-    resolution: str = "1080p"
+    resolution: str | None = None
     start_image: Path | None = None
     end_image: Path | None = None  # For first_last mode
     reference_images: list[Path] | None = None  # For multi-reference mode

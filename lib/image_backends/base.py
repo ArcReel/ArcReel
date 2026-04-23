@@ -43,7 +43,7 @@ class ImageGenerationRequest:
     output_path: Path
     reference_images: list[ReferenceImage] = field(default_factory=list)
     aspect_ratio: str = "9:16"
-    image_size: str = "1K"
+    image_size: str | None = None
     project_name: str | None = None
     seed: int | None = None
 
