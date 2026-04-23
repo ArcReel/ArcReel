@@ -22,7 +22,7 @@ def test_reference_image_defaults():
 def test_image_generation_request_defaults():
     req = ImageGenerationRequest(prompt="hello", output_path=Path("/tmp/out.png"))
     assert req.aspect_ratio == "9:16"
-    assert req.image_size == "1K"
+    assert req.image_size is None
     assert req.reference_images == []
     assert req.project_name is None
     assert req.seed is None

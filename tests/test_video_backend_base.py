@@ -30,7 +30,7 @@ class TestVideoGenerationRequest:
         req = VideoGenerationRequest(prompt="test", output_path=Path("/tmp/out.mp4"))
         assert req.aspect_ratio == "9:16"
         assert req.duration_seconds == 5
-        assert req.resolution == "1080p"
+        assert req.resolution is None
         assert req.start_image is None
         assert req.generate_audio is True
         assert req.negative_prompt is None
