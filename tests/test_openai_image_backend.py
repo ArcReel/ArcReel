@@ -106,7 +106,7 @@ class TestOpenAIImageBackend:
         mock_client.images.generate.assert_not_awaited()
 
     async def test_size_mapping(self, tmp_path: Path):
-        """验证 aspect_ratio → size 映射。"""
+        """验证 (image_size, aspect_ratio) → size 复合 key 映射。"""
         b64_data = base64.b64encode(b"img").decode()
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
@@ -116,19 +116,21 @@ class TestOpenAIImageBackend:
 
             backend = OpenAIImageBackend(api_key="test-key")
 
+            # image_size="1K" 下遍历不同 aspect_ratio
             for aspect, expected_size in [("16:9", "1792x1024"), ("1:1", "1024x1024"), ("9:16", "1024x1792")]:
                 output_path = tmp_path / f"output_{aspect.replace(':', '_')}.png"
                 request = ImageGenerationRequest(
                     prompt="test",
                     output_path=output_path,
                     aspect_ratio=aspect,
+                    image_size="1K",
                 )
                 await backend.generate(request)
                 call_kwargs = mock_client.images.generate.call_args[1]
                 assert call_kwargs["size"] == expected_size, f"aspect={aspect}"
 
     async def test_quality_mapping(self, tmp_path: Path):
-        """验证 image_size → quality 映射。"""
+        """验证 image_size → quality 映射（标准 token）。"""
         b64_data = base64.b64encode(b"img").decode()
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
@@ -138,11 +140,13 @@ class TestOpenAIImageBackend:
 
             backend = OpenAIImageBackend(api_key="test-key")
 
-            for img_size, expected_quality in [("512PX", "low"), ("1K", "medium"), ("2K", "high"), ("4K", "high")]:
+            # "4K" 未在 _SIZE_MAP 中，会走 passthrough 分支，quality 不会被设置，所以只测有映射的
+            for img_size, expected_quality in [("512px", "low"), ("1K", "medium"), ("2K", "high")]:
                 output_path = tmp_path / f"output_{img_size}.png"
                 request = ImageGenerationRequest(
                     prompt="test",
                     output_path=output_path,
+                    aspect_ratio="9:16",
                     image_size=img_size,
                 )
                 await backend.generate(request)

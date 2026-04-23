@@ -22,20 +22,56 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "gpt-image-1.5"
 _MAX_REFERENCE_IMAGES = 16
 
-_SIZE_MAP: dict[str, str] = {
-    "9:16": "1024x1792",
-    "16:9": "1792x1024",
-    "1:1": "1024x1024",
-    "3:4": "1024x1792",
-    "4:3": "1792x1024",
+_SIZE_MAP: dict[tuple[str, str], str] = {
+    # (image_size, aspect_ratio): "WxH"
+    ("512px", "1:1"): "512x512",
+    ("512px", "9:16"): "512x896",
+    ("512px", "16:9"): "896x512",
+    ("1K", "1:1"): "1024x1024",
+    ("1K", "9:16"): "1024x1792",
+    ("1K", "16:9"): "1792x1024",
+    ("1K", "3:4"): "1024x1792",
+    ("1K", "4:3"): "1792x1024",
+    ("2K", "1:1"): "2048x2048",
+    ("2K", "9:16"): "2048x3584",
+    ("2K", "16:9"): "3584x2048",
 }
 
 _QUALITY_MAP: dict[str, str] = {
-    "512PX": "low",
+    "512px": "low",
     "1K": "medium",
     "2K": "high",
     "4K": "high",
 }
+
+
+def _resolve_openai_params(
+    image_size: str | None,
+    aspect_ratio: str,
+) -> dict[str, str]:
+    """根据 image_size 返回 {size, quality} 子集。
+
+    - None → 空 dict（全不传，走 SDK 默认）
+    - 标准 token → 查 _SIZE_MAP 得 size，_QUALITY_MAP 得 quality
+    - 未知 token（例如 "1024x1024"）→ warning 后作为 size 透传，不传 quality
+    """
+    if image_size is None:
+        return {}
+
+    mapped_size = _SIZE_MAP.get((image_size, aspect_ratio))
+    if mapped_size is not None:
+        params: dict[str, str] = {"size": mapped_size}
+        quality = _QUALITY_MAP.get(image_size)
+        if quality:
+            params["quality"] = quality
+        return params
+
+    logger.warning(
+        "OpenAI image: 未知 image_size=%r (aspect=%r)，原样作为 size 透传",
+        image_size,
+        aspect_ratio,
+    )
+    return {"size": image_size}
 
 
 class OpenAIImageBackend:
@@ -68,14 +104,14 @@ class OpenAIImageBackend:
         return await self._generate_create(request)
 
     async def _generate_create(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        response = await self._client.images.generate(
-            model=self._model,
-            prompt=request.prompt,
-            size=_SIZE_MAP.get(request.aspect_ratio, "1024x1792"),
-            quality=_QUALITY_MAP.get(request.image_size, "medium"),
-            response_format="b64_json",
-            n=1,
-        )
+        kwargs = {
+            "model": self._model,
+            "prompt": request.prompt,
+            "response_format": "b64_json",
+            "n": 1,
+        }
+        kwargs.update(_resolve_openai_params(request.image_size, request.aspect_ratio))
+        response = await self._client.images.generate(**kwargs)
         return await asyncio.to_thread(self._save_and_return, response, request)
 
     async def _generate_edit(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -121,9 +157,10 @@ class OpenAIImageBackend:
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
         request.output_path.write_bytes(image_bytes)
         logger.info("OpenAI 图片生成完成: %s", request.output_path)
+        quality = _QUALITY_MAP.get(request.image_size) if request.image_size else None
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=PROVIDER_OPENAI,
             model=self._model,
-            quality=_QUALITY_MAP.get(request.image_size, "medium"),
+            quality=quality,
         )
