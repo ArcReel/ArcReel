@@ -76,6 +76,28 @@ def _parse_project_backend(raw: str | None) -> tuple[str | None, str | None]:
     return raw, None
 
 
+async def _resolve_effective_image_backend(project: dict, payload: dict | None) -> tuple[str, str]:
+    """payload 覆盖 > project.image_backend > resolver 全局默认。
+
+    返回 (provider_id, model_id)。供 resolve_resolution 构 key 使用，
+    确保 payload 缺失 image_provider 时也能命中 project.model_settings。
+    """
+    if payload:
+        provider = payload.get("image_provider") or ""
+        if provider:
+            return provider, payload.get("image_model") or ""
+    proj_provider, proj_model = _parse_project_backend(project.get("image_backend"))
+    if proj_provider:
+        return proj_provider, proj_model or ""
+    from lib.config.resolver import ConfigResolver
+    from lib.db import async_session_factory
+
+    resolver = ConfigResolver(async_session_factory)
+    async with resolver.session() as r:
+        provider, model = await r.default_image_backend()
+    return provider or "", model or ""
+
+
 async def _create_custom_backend(provider_name: str, model_id: str | None, media_type: str):
     """自定义供应商的 backend 创建路径。"""
     from lib.custom_provider import parse_provider_id
@@ -675,8 +697,7 @@ async def execute_storyboard_task(
     )
     aspect_ratio = get_aspect_ratio(project, "storyboards")
 
-    image_provider_id = payload.get("image_provider") or ""
-    image_model_id = payload.get("image_model") or ""
+    image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload)
     image_size = await resolve_resolution(project, image_provider_id, image_model_id)
 
     _, version = await generator.generate_image_async(
@@ -875,8 +896,7 @@ async def execute_character_task(
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
     aspect_ratio = get_aspect_ratio(project, "characters")
 
-    image_provider_id = payload.get("image_provider") or ""
-    image_model_id = payload.get("image_model") or ""
+    image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload)
     image_size = await resolve_resolution(project, image_provider_id, image_model_id)
 
     _, version = await generator.generate_image_async(
@@ -947,8 +967,7 @@ async def execute_design_task(
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
     aspect_ratio = get_aspect_ratio(project, bucket_key)
 
-    image_provider_id = payload.get("image_provider") or ""
-    image_model_id = payload.get("image_model") or ""
+    image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload)
     image_size = await resolve_resolution(project, image_provider_id, image_model_id)
 
     _, version = await generator.generate_image_async(
@@ -1127,8 +1146,7 @@ async def execute_grid_task(
         project = await asyncio.to_thread(get_project_manager().load_project, project_name)
         aspect_ratio = payload.get("grid_aspect_ratio") or get_aspect_ratio(project, "storyboards")
 
-        image_provider_id = payload.get("image_provider") or ""
-        image_model_id = payload.get("image_model") or ""
+        image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload)
         image_size = await resolve_resolution(project, image_provider_id, image_model_id) or "2K"  # 宫格图保底高分辨率
 
         image_path, version = await generator.generate_image_async(

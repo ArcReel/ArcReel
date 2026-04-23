@@ -237,14 +237,14 @@ async def execute_reference_video_task(
 
     # resolver key 必须是 registry provider_id（project.video_backend 的 "/" 前半段），
     # 而非 backend.name（如 "gemini"）——与 generation_tasks.execute_video_task 保持一致。
-    from server.services.resolution_resolver import PROVIDER_FALLBACK_RESOLUTION, resolve_resolution
+    from server.services.resolution_resolver import get_provider_fallback, resolve_resolution
 
     video_backend_raw = project.get("video_backend") or ""
     registry_provider_id = video_backend_raw.split("/", 1)[0] if "/" in video_backend_raw else provider_name
 
     resolution = await resolve_resolution(project, registry_provider_id or provider_name, model_name or "")
     if resolution is None:
-        resolution = PROVIDER_FALLBACK_RESOLUTION.get(provider_name, "1080p")
+        resolution = get_provider_fallback(provider_name)
 
     # 6. 渲染 prompt（@→[图N]）。必须按 `constrained_refs` 的长度裁 `unit.references`
     #    再渲染，保证 [图N] 的 1-based 索引与 backend 实际收到的 reference_images

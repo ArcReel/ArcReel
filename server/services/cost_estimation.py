@@ -11,7 +11,7 @@ from lib.cost_calculator import cost_calculator
 from lib.grid.layout import calculate_grid_layout
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.usage_tracker import UsageTracker
-from server.services.resolution_resolver import PROVIDER_FALLBACK_RESOLUTION, resolve_resolution
+from server.services.resolution_resolver import get_provider_fallback, resolve_resolution
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ class CostEstimationService:
 
         _resolve_pid = registry_video_provider_id or video_provider
         _resolved_resolution = await resolve_resolution(project_data, _resolve_pid, video_model or "")
-        video_resolution = _resolved_resolution or PROVIDER_FALLBACK_RESOLUTION.get(video_provider, "1080p")
+        video_resolution = _resolved_resolution or get_provider_fallback(video_provider)
 
         # Get actual costs
         actual_by_segment = await self._tracker.get_actual_costs_by_segment(project_name)

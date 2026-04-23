@@ -79,6 +79,14 @@ function ComboboxInput({ ariaLabel, listId, options, value, onChange, placeholde
           setLocal(raw);
           onChange(raw === "" ? null : raw);
         }}
+        onBlur={() => {
+          // 输入后可能带首尾空格，离焦时 normalize 避免脏值流入后端查找表
+          const trimmed = local.trim();
+          if (trimmed !== local) {
+            setLocal(trimmed);
+            onChange(trimmed === "" ? null : trimmed);
+          }
+        }}
       />
       <datalist id={listId}>
         {options.map((o) => (

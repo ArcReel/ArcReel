@@ -179,12 +179,16 @@ export function CreateProjectModal() {
   const handleCreate = async () => {
     setCreating(true);
     try {
+      // resolution 的 model_settings key 用 effective backend（项目覆盖 ‖ 全局默认），
+      // 否则用户在“跟随全局默认”路径下选的分辨率会丢失。
+      const effectiveVideo = models.videoBackend || step2Data?.globalDefaults.video || "";
+      const effectiveImage = models.imageBackend || step2Data?.globalDefaults.image || "";
       const modelSettings: Record<string, { resolution: string }> = {};
-      if (models.videoBackend && models.videoResolution) {
-        modelSettings[models.videoBackend] = { resolution: models.videoResolution };
+      if (effectiveVideo && models.videoResolution) {
+        modelSettings[effectiveVideo] = { resolution: models.videoResolution };
       }
-      if (models.imageBackend && models.imageResolution) {
-        modelSettings[models.imageBackend] = { resolution: models.imageResolution };
+      if (effectiveImage && models.imageResolution) {
+        modelSettings[effectiveImage] = { resolution: models.imageResolution };
       }
 
       const resp = await API.createProject({

@@ -12,6 +12,16 @@ PROVIDER_FALLBACK_RESOLUTION: dict[str, str] = {
 }
 
 
+def get_provider_fallback(provider_id: str | None, default: str = "1080p") -> str:
+    """对 registry ID（如 ``gemini-aistudio``）归一化到短前缀后查 fallback。"""
+    if not provider_id:
+        return default
+    if provider_id in PROVIDER_FALLBACK_RESOLUTION:
+        return PROVIDER_FALLBACK_RESOLUTION[provider_id]
+    short = provider_id.split("-", 1)[0]
+    return PROVIDER_FALLBACK_RESOLUTION.get(short, default)
+
+
 def _from_project(project: dict, provider_id: str, model_id: str) -> str | None:
     key = f"{provider_id}/{model_id}"
     override = (project.get("model_settings") or {}).get(key, {}).get("resolution")

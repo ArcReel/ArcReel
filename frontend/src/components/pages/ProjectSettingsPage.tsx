@@ -147,15 +147,20 @@ export function ProjectSettingsPage() {
       setGenerationMode(gm);
       setDefaultDuration(dd);
 
-      // legacy video_model_settings 作为旧项目兼容回退，与后端 resolver 优先级一致
+      // model_settings 的 key 以 effective backend（override ‖ global default）读写，
+      // 与 handleSave 保持一致；legacy video_model_settings 作为旧项目兼容回退。
+      const defaultVideo = configRes.settings?.default_video_backend ?? "";
+      const defaultImage = configRes.settings?.default_image_backend ?? "";
+      const effectiveVb = vb || defaultVideo;
+      const effectiveIb = ib || defaultImage;
       const ms = (project.model_settings ?? {}) as Record<string, { resolution: string | null }>;
       const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
-      const vModelId = vb && vb.includes("/") ? vb.split("/")[1] : vb;
+      const vModelId = effectiveVb && effectiveVb.includes("/") ? effectiveVb.split("/")[1] : effectiveVb;
       const vRes: string | null =
-        (vb ? (ms[vb]?.resolution ?? null) : null) ||
+        (effectiveVb ? (ms[effectiveVb]?.resolution ?? null) : null) ||
         (vModelId ? (legacyVideo[vModelId]?.resolution ?? null) : null) ||
         null;
-      const iRes = ib ? (ms[ib]?.resolution ?? null) : null;
+      const iRes = effectiveIb ? (ms[effectiveIb]?.resolution ?? null) : null;
       setVideoResolution(vRes);
       setImageResolution(iRes);
       setModelSettings(ms);
@@ -278,12 +283,16 @@ export function ProjectSettingsPage() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
+      // resolution 的 key 用 effective backend（override ‖ global default），
+      // 否则“跟随全局默认”路径下用户选的分辨率不会被写入。
+      const effectiveVideo = videoBackend || globalDefaults.video || "";
+      const effectiveImage = imageBackend || globalDefaults.image || "";
       const newModelSettings: Record<string, { resolution: string | null }> = { ...modelSettings };
-      if (videoBackend) {
-        newModelSettings[videoBackend] = { resolution: videoResolution };
+      if (effectiveVideo) {
+        newModelSettings[effectiveVideo] = { resolution: videoResolution };
       }
-      if (imageBackend) {
-        newModelSettings[imageBackend] = { resolution: imageResolution };
+      if (effectiveImage) {
+        newModelSettings[effectiveImage] = { resolution: imageResolution };
       }
 
       await API.updateProject(projectName, {
@@ -311,7 +320,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, videoResolution, imageResolution, projectName, t]);
+  }, [modelSettings, videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.image]);
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 overflow-y-auto">
