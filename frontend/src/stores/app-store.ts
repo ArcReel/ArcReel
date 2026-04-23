@@ -13,10 +13,6 @@ interface Toast {
   tone: "info" | "success" | "error" | "warning";
 }
 
-interface ToastOptions {
-  target?: WorkspaceNotificationTarget | null;
-}
-
 interface FocusedContext {
   type: "character" | "scene" | "prop" | "segment";
   id: string;
@@ -38,7 +34,12 @@ interface AppState {
 
   // Toast
   toast: Toast | null;
-  pushToast: (text: string, tone?: Toast["tone"], options?: ToastOptions) => void;
+  pushToast: (text: string, tone?: Toast["tone"]) => void;
+  pushNotification: (
+    text: string,
+    tone?: Toast["tone"],
+    options?: { target?: WorkspaceNotificationTarget | null },
+  ) => void;
   clearToast: () => void;
   workspaceNotifications: WorkspaceNotification[];
   pushWorkspaceNotification: (input: WorkspaceNotificationInput) => void;
@@ -69,6 +70,31 @@ interface AppState {
   getEntityRevision: (key: string) => number;
 }
 
+/**
+ * 通知系统分工规则（issue #351）：
+ *
+ * - pushToast(text, tone)
+ *     用于：用户主动操作的即时反馈。
+ *     典型：表单保存/校验、导入/删除/切换/上传成功、scroll target 未找到、
+ *          后台任务提交成功回执（task_submitted）、轻量错误提示。
+ *
+ * - pushWorkspaceNotification({ text, tone, target })
+ *     用于：后台异步产生的事件，用户可能不在当前页。
+ *     典型：SSE 单条事件留痕（如 agent_update_scene）。
+ *
+ * - pushNotification(text, tone, options?)
+ *     用于：用户需要后续回看的重要结果。
+ *     典型：后台任务失败（剪映/ZIP 导出失败、项目 regenerate 失败、
+ *          参考生视频失败、storyboard/video/character/scene/prop 生成失败）、
+ *          SSE grouped_notification。
+ *
+ * 判断口诀：
+ *   1. 用户现在不在场 → 需要持久
+ *   2. 后台任务"失败"需要留痕排查 → 需要持久
+ *   3. 其余 → 仅 toast
+ *
+ * pushToast 不接受 { persist: true } 之类逃生门，强制调用点三选一，意图显式。
+ */
 const MAX_WORKSPACE_NOTIFICATIONS = 40;
 
 function buildWorkspaceNotification(
@@ -113,18 +139,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ assistantToolActivitySuppressed: suppressed }),
 
   toast: null,
-  pushToast: (text, tone = "info", options) =>
-    set((s) => ({
+  pushToast: (text, tone = "info") =>
+    set({
       toast: { id: `${Date.now()}-${Math.random()}`, text, tone },
-      workspaceNotifications: [
-        buildWorkspaceNotification({
-          text,
-          tone,
-          target: options?.target ?? null,
-        }),
-        ...s.workspaceNotifications,
-      ].slice(0, MAX_WORKSPACE_NOTIFICATIONS),
-    })),
+    }),
+  pushNotification: (text, tone = "info", options) => {
+    get().pushToast(text, tone);
+    get().pushWorkspaceNotification({
+      text,
+      tone,
+      target: options?.target ?? null,
+    });
+  },
   clearToast: () => set({ toast: null }),
   workspaceNotifications: [],
   pushWorkspaceNotification: (input) =>
