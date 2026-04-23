@@ -87,6 +87,10 @@ export interface EpisodeMeta {
   generation_mode?: "storyboard" | "grid" | "reference_video";
 }
 
+export interface ModelSettingEntry {
+  resolution?: string | null;
+}
+
 export interface ProjectData {
   title: string;
   content_mode: "narration" | "drama";
@@ -112,6 +116,7 @@ export interface ProjectData {
   text_backend_script?: string | null;
   text_backend_overview?: string | null;
   text_backend_style?: string | null;
+  model_settings?: Record<string, ModelSettingEntry>;
   metadata?: {
     created_at: string;
     updated_at: string;

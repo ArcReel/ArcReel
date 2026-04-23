@@ -170,6 +170,7 @@ export interface CreateProjectPayload {
   text_backend_script?: string | null;
   text_backend_overview?: string | null;
   text_backend_style?: string | null;
+  model_settings?: Record<string, { resolution?: string | null }>;
 }
 
 /** Draft metadata returned by listDrafts. */

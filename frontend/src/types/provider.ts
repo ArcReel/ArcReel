@@ -5,6 +5,7 @@ export interface ModelInfoResponse {
   default: boolean;
   supported_durations: number[];
   duration_resolution_constraints: Record<string, number[]>;
+  resolutions: string[];
 }
 
 export interface ProviderInfo {
