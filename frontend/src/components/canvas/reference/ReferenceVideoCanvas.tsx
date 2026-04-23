@@ -131,7 +131,7 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     for (const tk of relevantTasks) {
       const before = prev.get(tk.task_id);
       if (tk.status === "failed" && before !== undefined && before !== "failed") {
-        useAppStore.getState().pushToast(
+        useAppStore.getState().pushNotification(
           t("reference_generation_task_failed", {
             unitId: tk.resource_id,
             reason: tk.error_message ?? t("reference_status_failed"),
