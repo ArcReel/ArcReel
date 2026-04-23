@@ -5,7 +5,7 @@ import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
-import type { GetSystemConfigResponse, ProviderInfo } from "@/types";
+import type { GetSystemConfigResponse, GetSystemVersionResponse, ProviderInfo } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -61,6 +61,24 @@ function makeProviders(overrides?: Partial<ProviderInfo>): { providers: Provider
   };
 }
 
+function makeVersionResponse(overrides?: Partial<GetSystemVersionResponse>): GetSystemVersionResponse {
+  return {
+    current: { version: "0.9.0" },
+    latest: {
+      version: "0.9.1",
+      tag_name: "v0.9.1",
+      name: "0.9.1",
+      body: "## What's Changed\n- add about tab",
+      html_url: "https://github.com/example/ArcReel/releases/tag/v0.9.1",
+      published_at: "2026-04-21T08:00:00Z",
+    },
+    has_update: true,
+    checked_at: "2026-04-21T09:00:00Z",
+    update_check_error: null,
+    ...overrides,
+  };
+}
+
 function renderPage(path = "/app/settings") {
   const location = memoryLocation({ path, record: true });
   return render(
@@ -83,6 +101,7 @@ describe("SystemConfigPage", () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders());
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getSystemVersion").mockResolvedValue(makeVersionResponse());
     vi.spyOn(API, "getProviderConfig").mockResolvedValue({
       id: "gemini",
       display_name: "Google Gemini",
@@ -101,13 +120,14 @@ describe("SystemConfigPage", () => {
     expect(screen.getByText("系统配置与 API 访问管理")).toBeInTheDocument();
   });
 
-  it("renders all 5 sidebar sections", () => {
+  it("renders all 6 sidebar sections", () => {
     renderPage();
     expect(screen.getByRole("button", { name: /智能体/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /供应商/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /模型选择/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /用量统计/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /API 管理/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /关于/ })).toBeInTheDocument();
   });
 
   it("defaults to the 智能体 section", () => {
@@ -177,5 +197,30 @@ describe("SystemConfigPage", () => {
     const link = screen.getByRole("link", { name: "返回" });
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute("href", "/app/projects");
+  });
+
+  it("loads version info when entering the about section", async () => {
+    renderPage("/app/settings?section=about");
+
+    expect(await screen.findByText("0.9.0")).toBeInTheDocument();
+    expect(await screen.findByText(/最新版本：0.9.1/)).toBeInTheDocument();
+    expect(await screen.findByText("发现新版本")).toBeInTheDocument();
+    expect(await screen.findByText("Release Notes")).toBeInTheDocument();
+    expect(await screen.findByText(/add about tab/)).toBeInTheDocument();
+  });
+
+  it("rechecks updates when clicking the refresh button", async () => {
+    const getSystemVersion = vi.spyOn(API, "getSystemVersion").mockResolvedValue(
+      makeVersionResponse({ latest: null, has_update: false, update_check_error: "boom" }),
+    );
+
+    renderPage("/app/settings?section=about");
+
+    const button = await screen.findByRole("button", { name: /检查更新/ });
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(getSystemVersion).toHaveBeenCalledTimes(2);
+    });
   });
 });
