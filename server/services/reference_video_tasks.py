@@ -23,7 +23,7 @@ from lib.reference_video import render_prompt_for_backend
 from lib.reference_video.errors import MissingReferenceError, RequestPayloadTooLargeError
 from lib.script_models import ReferenceResource
 from lib.thumbnail import extract_video_thumbnail
-from server.services.generation_tasks import DEFAULT_VIDEO_RESOLUTION, get_media_generator, get_project_manager
+from server.services.generation_tasks import get_media_generator, get_project_manager
 
 logger = logging.getLogger(__name__)
 
@@ -236,12 +236,14 @@ async def execute_reference_video_task(
     )
 
     # 5.1 解析 resolution（与分镜视频流 generation_tasks.py 保持同一优先级：
-    #     project.video_model_settings[model].resolution > DEFAULT_VIDEO_RESOLUTION[provider]）。
+    #     project.video_model_settings[model].resolution > provider 默认值）。
     #     若直接回退到 MediaGenerator 的硬编码默认 "1080p"，会被 xai_sdk 拒绝
     #     （VideoResolutionMap 仅支持 480p/720p）。
+    # TODO(T14): 改用 resolve_resolution() 替代此处的临时 fallback
+    _PROVIDER_DEFAULT_RESOLUTION = {"gemini": "1080p", "ark": "720p", "grok": "720p", "openai": "720p"}
     video_model_settings = project.get("video_model_settings") or {}
     model_resolution_setting = video_model_settings.get(model_name, {}) if model_name else {}
-    resolution = model_resolution_setting.get("resolution") or DEFAULT_VIDEO_RESOLUTION.get(provider_name, "1080p")
+    resolution = model_resolution_setting.get("resolution") or _PROVIDER_DEFAULT_RESOLUTION.get(provider_name, "1080p")
 
     # 6. 渲染 prompt（@→[图N]）。必须按 `constrained_refs` 的长度裁 `unit.references`
     #    再渲染，保证 [图N] 的 1-based 索引与 backend 实际收到的 reference_images
