@@ -110,6 +110,67 @@ class TestListProviders:
         assert second["status"] == "unconfigured"
         assert "api_key" in second["missing_keys"]
 
+    def _mock_svc_with_models(self) -> ConfigService:
+        """构造带 models 字段的 ProviderStatus，用于校验 ModelInfoResponse 透传。"""
+        svc = MagicMock(spec=ConfigService)
+        svc.get_all_providers_status = AsyncMock(
+            return_value=[
+                ProviderStatus(
+                    name="gemini-aistudio",
+                    display_name="AI Studio",
+                    description="Google AI Studio",
+                    status="ready",
+                    media_types=["video", "image"],
+                    capabilities=["text_to_video", "image_to_video"],
+                    required_keys=["api_key"],
+                    configured_keys=["api_key"],
+                    missing_keys=[],
+                    models={
+                        "veo-3.1-fast-generate-preview": {
+                            "display_name": "Veo 3.1 Fast",
+                            "media_type": "video",
+                            "capabilities": ["text_to_video"],
+                            "default": False,
+                            "supported_durations": [4, 6, 8],
+                            "duration_resolution_constraints": {},
+                            "resolutions": ["720p", "1080p"],
+                        },
+                        "imagen-4.0-generate-001": {
+                            "display_name": "Imagen 4",
+                            "media_type": "image",
+                            "capabilities": ["text_to_image"],
+                            "default": True,
+                            "supported_durations": [],
+                            "duration_resolution_constraints": {},
+                            "resolutions": [],
+                        },
+                    },
+                ),
+            ]
+        )
+        return svc
+
+    def test_models_expose_resolutions_field(self):
+        """ModelInfoResponse 必须包含 resolutions 字段（即便为空列表）。"""
+        with _make_client(self._mock_svc_with_models()) as client:
+            resp = client.get("/api/v1/providers")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["providers"]) == 1
+        models = body["providers"][0]["models"]
+        assert models, "providers[0].models should not be empty"
+        for _mid, minfo in models.items():
+            assert "resolutions" in minfo
+            assert isinstance(minfo["resolutions"], list)
+
+    def test_models_resolutions_values_passthrough(self):
+        """resolutions 的具体值应按原样透传到 response。"""
+        with _make_client(self._mock_svc_with_models()) as client:
+            resp = client.get("/api/v1/providers")
+        models = resp.json()["providers"][0]["models"]
+        assert models["veo-3.1-fast-generate-preview"]["resolutions"] == ["720p", "1080p"]
+        assert models["imagen-4.0-generate-001"]["resolutions"] == []
+
 
 # ---------------------------------------------------------------------------
 # GET /providers/{id}/config — 单个供应商配置

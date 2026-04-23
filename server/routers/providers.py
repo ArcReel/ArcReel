@@ -71,6 +71,7 @@ class ModelInfoResponse(BaseModel):
     default: bool
     supported_durations: list[int] = []
     duration_resolution_constraints: dict[str, list[int]] = {}
+    resolutions: list[str] = []
 
 
 class ProviderSummary(BaseModel):
