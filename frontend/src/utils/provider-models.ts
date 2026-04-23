@@ -109,8 +109,8 @@ export function lookupSupportedDurations(
 // Resolution lookup
 // ---------------------------------------------------------------------------
 
-const IMAGE_STANDARD_RESOLUTIONS = ["512px", "1K", "2K", "4K"];
-const VIDEO_STANDARD_RESOLUTIONS = ["480p", "720p", "1080p", "4K"];
+export const IMAGE_STANDARD_RESOLUTIONS = ["512px", "1K", "2K", "4K"];
+export const VIDEO_STANDARD_RESOLUTIONS = ["480p", "720p", "1080p", "4K"];
 
 /** 返回该 (provider, model) 下的分辨率候选 + 是否自定义供应商（决定 picker 模式）。 */
 export function lookupResolutions(
@@ -123,7 +123,6 @@ export function lookupResolutions(
   const providerId = backend.slice(0, slashIdx);
   const modelId = backend.slice(slashIdx + 1);
 
-  // 自定义供应商
   if (providerId.startsWith(CUSTOM_PREFIX) && customProviders) {
     const dbId = parseInt(providerId.slice(CUSTOM_PREFIX.length), 10);
     const cp = customProviders.find((p) => p.id === dbId);
@@ -138,7 +137,6 @@ export function lookupResolutions(
     return { options: standard, isCustom: true };
   }
 
-  // 预置供应商
   const provider = providers.find((p) => p.id === providerId);
   const model = provider?.models?.[modelId];
   return { options: model?.resolutions ?? [], isCustom: false };

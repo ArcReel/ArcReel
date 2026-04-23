@@ -75,6 +75,7 @@ export function ProjectSettingsPage() {
   const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
   const [videoResolution, setVideoResolution] = useState<string | null>(null);
   const [imageResolution, setImageResolution] = useState<string | null>(null);
+  const [modelSettings, setModelSettings] = useState<Record<string, { resolution: string | null }>>({});
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [saving, setSaving] = useState(false);
@@ -146,18 +147,18 @@ export function ProjectSettingsPage() {
       setGenerationMode(gm);
       setDefaultDuration(dd);
 
-      // 加载已存在的 model_settings.resolution
-      // I1: 同时读 legacy video_model_settings（旧项目兼容），与后端 resolver 优先级一致
-      const ms = (project.model_settings ?? {}) as Record<string, { resolution?: string | null }>;
+      // legacy video_model_settings 作为旧项目兼容回退，与后端 resolver 优先级一致
+      const ms = (project.model_settings ?? {}) as Record<string, { resolution: string | null }>;
       const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
       const vModelId = vb && vb.includes("/") ? vb.split("/")[1] : vb;
       const vRes: string | null =
         (vb ? (ms[vb]?.resolution ?? null) : null) ||
         (vModelId ? (legacyVideo[vModelId]?.resolution ?? null) : null) ||
         null;
-      const iRes = ib && ms[ib]?.resolution ? (ms[ib].resolution as string) : null;
+      const iRes = ib ? (ms[ib]?.resolution ?? null) : null;
       setVideoResolution(vRes);
       setImageResolution(iRes);
+      setModelSettings(ms);
 
       const derivedStyle = deriveStyleValue(project, projectName);
       setStyleValue(derivedStyle);
@@ -277,12 +278,7 @@ export function ProjectSettingsPage() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      // 构造 model_settings：在现有 project.model_settings 基础上，更新当前 backend 对应的 resolution
-      const existingProject = (await API.getProject(projectName)).project as unknown as Record<string, unknown>;
-      const existingModelSettings = (existingProject.model_settings ?? {}) as Record<string, { resolution: string | null }>;
-      const newModelSettings: Record<string, { resolution: string | null }> = {
-        ...existingModelSettings,
-      };
+      const newModelSettings: Record<string, { resolution: string | null }> = { ...modelSettings };
       if (videoBackend) {
         newModelSettings[videoBackend] = { resolution: videoResolution };
       }
@@ -302,6 +298,7 @@ export function ProjectSettingsPage() {
         default_duration: defaultDuration,
         model_settings: newModelSettings,
       } as Record<string, unknown>);
+      setModelSettings(newModelSettings);
       initialRef.current = {
         videoBackend, imageBackend, audioOverride,
         textScript, textOverview, textStyle,
@@ -314,7 +311,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, videoResolution, imageResolution, projectName, t]);
+  }, [modelSettings, videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, videoResolution, imageResolution, projectName, t]);
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 overflow-y-auto">

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 
 export interface ResolutionPickerProps {
   mode: "select" | "combobox";
@@ -41,18 +41,7 @@ export function ResolutionPicker({
     );
   }
 
-  // combobox：<input list=...>
-  return (
-    <ComboboxInput
-      ariaLabel={ariaLabel}
-      listId={listId}
-      options={options}
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      disabled={disabled}
-    />
-  );
+  return <ComboboxInput {...{ ariaLabel, listId, options, value, onChange, placeholder, disabled }} />;
 }
 
 interface ComboboxInputProps {
@@ -65,27 +54,20 @@ interface ComboboxInputProps {
   disabled?: boolean;
 }
 
-function ComboboxInput({
-  ariaLabel,
-  listId,
-  options,
-  value,
-  onChange,
-  placeholder,
-  disabled,
-}: ComboboxInputProps) {
-  // 本地编辑态：允许用户自由输入任何文本（包括清空），
-  // 与外部 value prop 仅在外部变更时同步，避免受控 reconciliation 吞事件。
+function ComboboxInput({ ariaLabel, listId, options, value, onChange, placeholder, disabled }: ComboboxInputProps) {
+  // 本地编辑态允许用户自由输入（含空格/清空）——外部 value 变化时通过 render-phase
+  // 判断同步（React 官方推荐的"派生 state from props"模式，非 effect）。
   const [local, setLocal] = useState<string>(value ?? "");
-  useEffect(() => {
+  const [lastSync, setLastSync] = useState<string | null>(value);
+  if (value !== lastSync) {
+    setLastSync(value);
     setLocal(value ?? "");
-  }, [value]);
+  }
 
   return (
     <>
       <input
         type="text"
-        role="textbox"
         aria-label={ariaLabel}
         className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-sm text-gray-100"
         value={local}
@@ -95,8 +77,7 @@ function ComboboxInput({
         onChange={(e) => {
           const raw = e.target.value;
           setLocal(raw);
-          const v = raw.trim();
-          onChange(v === "" ? null : v);
+          onChange(raw === "" ? null : raw);
         }}
       />
       <datalist id={listId}>

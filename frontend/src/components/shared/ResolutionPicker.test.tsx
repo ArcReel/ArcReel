@@ -46,7 +46,7 @@ describe("ResolutionPicker", () => {
         placeholder="默认（不传）"
       />
     );
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
     fireEvent.change(input, { target: { value: "1024x1024" } });
     expect(onChange).toHaveBeenCalledWith("1024x1024");
     fireEvent.change(input, { target: { value: "" } });

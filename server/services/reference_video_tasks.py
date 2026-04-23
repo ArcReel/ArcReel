@@ -235,32 +235,16 @@ async def execute_reference_video_task(
         duration_seconds=base_duration,
     )
 
-    # 5.1 解析 resolution：
-    #   - 优先 project.model_settings[provider/model].resolution (新)
-    #   - 回退 project.video_model_settings[model].resolution (legacy)
-    #   - 回退 custom provider 模型的默认 resolution
-    #   - 最后按 backend provider 名的成本/兼容性保底（#387 Grok 默认 1080p 会被 xai_sdk 拒绝）
-    from server.services.resolution_resolver import get_custom_resolution_default, resolve_resolution
+    # resolver key 必须是 registry provider_id（project.video_backend 的 "/" 前半段），
+    # 而非 backend.name（如 "gemini"）——与 generation_tasks.execute_video_task 保持一致。
+    from server.services.resolution_resolver import PROVIDER_FALLBACK_RESOLUTION, resolve_resolution
 
-    _PROVIDER_DEFAULT_RESOLUTION = {"gemini": "1080p", "ark": "720p", "grok": "720p", "openai": "720p"}
-
-    # C1 fix：用 registry_provider_id（project.video_backend 的 "/" 前半段）作为 resolver key，
-    #         而非 backend.name（如 "gemini"）——与 generation_tasks.execute_video_task 保持一致。
     video_backend_raw = project.get("video_backend") or ""
-    if "/" in video_backend_raw:
-        registry_provider_id = video_backend_raw.split("/", 1)[0]
-    else:
-        registry_provider_id = provider_name  # fallback：project 未配置时用 backend.name
+    registry_provider_id = video_backend_raw.split("/", 1)[0] if "/" in video_backend_raw else provider_name
 
-    custom_default = await get_custom_resolution_default(registry_provider_id, model_name)
-    resolution = resolve_resolution(
-        project,
-        registry_provider_id or provider_name,
-        model_name or "",
-        custom_default=custom_default,
-    )
+    resolution = await resolve_resolution(project, registry_provider_id or provider_name, model_name or "")
     if resolution is None:
-        resolution = _PROVIDER_DEFAULT_RESOLUTION.get(provider_name, "1080p")
+        resolution = PROVIDER_FALLBACK_RESOLUTION.get(provider_name, "1080p")
 
     # 6. 渲染 prompt（@→[图N]）。必须按 `constrained_refs` 的长度裁 `unit.references`
     #    再渲染，保证 [图N] 的 1-based 索引与 backend 实际收到的 reference_images

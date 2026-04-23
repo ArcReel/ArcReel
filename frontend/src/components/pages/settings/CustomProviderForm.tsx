@@ -11,6 +11,7 @@ import type {
   DiscoveredModel,
 } from "@/types";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
+import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS } from "@/utils/provider-models";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,9 +31,6 @@ const MEDIA_TYPE_OPTIONS: { value: MediaType; label: string }[] = [
   { value: "image", label: "media_type_image" },
   { value: "video", label: "media_type_video" },
 ];
-
-const IMAGE_RESOLUTIONS = ["512px", "1K", "2K", "4K"];
-const VIDEO_RESOLUTIONS = ["480p", "720p", "1080p", "4K"];
 
 interface ModelRow {
   key: string; // unique key for React
@@ -566,7 +564,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         <span className="text-sm text-gray-400 whitespace-nowrap">{t("resolution_label")}</span>
                         <ResolutionPicker
                           mode="combobox"
-                          options={m.media_type === "image" ? IMAGE_RESOLUTIONS : VIDEO_RESOLUTIONS}
+                          options={m.media_type === "image" ? IMAGE_STANDARD_RESOLUTIONS : VIDEO_STANDARD_RESOLUTIONS}
                           value={m.resolution || null}
                           onChange={(v) => updateModel(m.key, { resolution: v ?? "" })}
                           placeholder={t("resolution_default_placeholder")}

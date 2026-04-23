@@ -11,18 +11,11 @@ from lib.cost_calculator import cost_calculator
 from lib.grid.layout import calculate_grid_layout
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.usage_tracker import UsageTracker
+from server.services.resolution_resolver import PROVIDER_FALLBACK_RESOLUTION, resolve_resolution
 
 logger = logging.getLogger(__name__)
 
 CostBreakdown = dict[str, float]
-
-# 成本预估默认分辨率保底（未配置时使用）——与 reference_video_tasks 局部 fallback 同构
-_COST_ESTIMATION_DEFAULT_RESOLUTION: dict[str, str] = {
-    "gemini": "1080p",
-    "ark": "720p",
-    "grok": "720p",
-    "openai": "720p",
-}
 
 
 def _add_cost(target: CostBreakdown, amount: float, currency: str) -> None:
@@ -93,18 +86,9 @@ class CostEstimationService:
         if project_image_provider:
             image_provider = project_image_provider
 
-        # 分辨率：优先从 project.model_settings 读用户配置（resolver），回退保底表
-        from server.services.resolution_resolver import get_custom_resolution_default, resolve_resolution
-
         _resolve_pid = registry_video_provider_id or video_provider
-        custom_default = await get_custom_resolution_default(_resolve_pid, video_model)
-        _resolved_resolution = resolve_resolution(
-            project_data,
-            _resolve_pid,
-            video_model or "",
-            custom_default=custom_default,
-        )
-        video_resolution = _resolved_resolution or _COST_ESTIMATION_DEFAULT_RESOLUTION.get(video_provider, "1080p")
+        _resolved_resolution = await resolve_resolution(project_data, _resolve_pid, video_model or "")
+        video_resolution = _resolved_resolution or PROVIDER_FALLBACK_RESOLUTION.get(video_provider, "1080p")
 
         # Get actual costs
         actual_by_segment = await self._tracker.get_actual_costs_by_segment(project_name)

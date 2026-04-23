@@ -110,6 +110,24 @@ export function ModelConfigSection({
     onChange({ ...value, defaultDuration: d });
   };
 
+  const renderResolutionField = (backend: string, resolution: string | null, onResolutionChange: (v: string | null) => void) => {
+    const res = lookupResolutions(providers, backend, customProviders);
+    if (res.options.length === 0) return null;
+    return (
+      <div className="mt-3 flex items-center gap-2">
+        <span className="text-xs text-gray-400">{t("resolution_label")}</span>
+        <ResolutionPicker
+          mode={res.isCustom ? "combobox" : "select"}
+          options={res.options}
+          value={resolution}
+          onChange={onResolutionChange}
+          placeholder={t("resolution_default_placeholder")}
+          aria-label={t("resolution_label")}
+        />
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
       {/* Description */}
@@ -135,24 +153,9 @@ export function ModelConfigSection({
             aria-label={t("model_video")}
           />
 
-          {/* Resolution picker (video) */}
-          {(() => {
-            const res = lookupResolutions(providers, effectiveVideoBackend, customProviders);
-            if (res.options.length === 0) return null;
-            return (
-              <div className="mt-3 flex items-center gap-2">
-                <span className="text-xs text-gray-400">{t("resolution_label")}</span>
-                <ResolutionPicker
-                  mode={res.isCustom ? "combobox" : "select"}
-                  options={res.options}
-                  value={value.videoResolution}
-                  onChange={(v) => onChange({ ...value, videoResolution: v })}
-                  placeholder={t("resolution_default_placeholder")}
-                  aria-label={t("resolution_label")}
-                />
-              </div>
-            );
-          })()}
+          {renderResolutionField(effectiveVideoBackend, value.videoResolution, (v) =>
+            onChange({ ...value, videoResolution: v }),
+          )}
 
           {/* Duration picker (nested inside video card) */}
           {showDuration && (
@@ -221,25 +224,11 @@ export function ModelConfigSection({
             aria-label={t("model_image")}
           />
 
-          {/* Resolution picker (image) */}
-          {(() => {
-            const effectiveImageBackend = value.imageBackend || globalDefaults.image || "";
-            const res = lookupResolutions(providers, effectiveImageBackend, customProviders);
-            if (res.options.length === 0) return null;
-            return (
-              <div className="mt-3 flex items-center gap-2">
-                <span className="text-xs text-gray-400">{t("resolution_label")}</span>
-                <ResolutionPicker
-                  mode={res.isCustom ? "combobox" : "select"}
-                  options={res.options}
-                  value={value.imageResolution}
-                  onChange={(v) => onChange({ ...value, imageResolution: v })}
-                  placeholder={t("resolution_default_placeholder")}
-                  aria-label={t("resolution_label")}
-                />
-              </div>
-            );
-          })()}
+          {renderResolutionField(
+            value.imageBackend || globalDefaults.image || "",
+            value.imageResolution,
+            (v) => onChange({ ...value, imageResolution: v }),
+          )}
         </div>
       )}
 
