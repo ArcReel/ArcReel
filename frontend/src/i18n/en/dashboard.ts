@@ -365,7 +365,7 @@ export default {
   'actual_characters': 'Chars',
   'actual_scenes': 'Scenes',
   'actual_props': 'Props',
-  'regenerate_failed': 'Regeneration failed: ',
+  'regenerate_failed': 'Regeneration failed: {{message}}',
   'upload_failed': 'Upload failed: ',
   'delete_failed': 'Delete failed: ',
   'update_failed': 'Update failed: ',

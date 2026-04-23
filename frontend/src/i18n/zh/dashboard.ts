@@ -366,7 +366,7 @@ export default {
   'actual_characters': '角色',
   'actual_scenes': '场景',
   'actual_props': '道具',
-  'regenerate_failed': '重新生成失败: ',
+  'regenerate_failed': '重新生成失败: {{message}}',
   'upload_failed': '上传失败: ',
   'delete_failed': '删除失败: ',
   'update_failed': '更新失败: ',

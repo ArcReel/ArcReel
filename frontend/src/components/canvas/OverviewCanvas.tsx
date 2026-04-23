@@ -119,7 +119,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     } catch (err) {
       useAppStore
         .getState()
-        .pushNotification(`${tRef.current("regenerate_failed")}${errMsg(err)}`, "error");
+        .pushNotification(tRef.current("regenerate_failed", { message: errMsg(err) }), "error");
     } finally {
       setRegenerating(false);
     }
