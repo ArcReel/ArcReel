@@ -138,10 +138,11 @@ class ArkVideoBackend:
             "content": content,
             "ratio": request.aspect_ratio,
             "duration": request.duration_seconds,
-            "resolution": request.resolution,
             "generate_audio": request.generate_audio,
             "watermark": False,
         }
+        if request.resolution is not None:
+            create_params["resolution"] = request.resolution
         # seedance-2.0 等模型不接受 service_tier，仅在声明 FLEX_TIER 能力时传入
         if VideoCapability.FLEX_TIER in self._capabilities:
             create_params["service_tier"] = request.service_tier
