@@ -132,7 +132,7 @@ class MediaGenerator:
         resource_id: str,
         reference_images=None,
         aspect_ratio: str = "9:16",
-        image_size: str = "1K",
+        image_size: str | None = None,
         **version_metadata,
     ) -> tuple[Path, int]:
         """
@@ -144,7 +144,7 @@ class MediaGenerator:
             resource_id: 资源 ID (E1S01, 姜月茴, 玉佩)
             reference_images: 参考图片列表
             aspect_ratio: 宽高比，默认 9:16（竖屏）
-            image_size: 图片尺寸，默认 1K
+            image_size: 图片尺寸，默认不传（由 backend/SDK 决定）
             **version_metadata: 额外元数据
 
         Returns:
@@ -169,7 +169,7 @@ class MediaGenerator:
         resource_id: str,
         reference_images=None,
         aspect_ratio: str = "9:16",
-        image_size: str = "1K",
+        image_size: str | None = None,
         **version_metadata,
     ) -> tuple[Path, int]:
         """
@@ -181,7 +181,7 @@ class MediaGenerator:
             resource_id: 资源 ID (E1S01, 姜月茴, 玉佩)
             reference_images: 参考图片列表
             aspect_ratio: 宽高比，默认 9:16（竖屏）
-            image_size: 图片尺寸，默认 1K
+            image_size: 图片尺寸，默认不传（由 backend/SDK 决定）
             **version_metadata: 额外元数据
 
         Returns:
@@ -285,7 +285,7 @@ class MediaGenerator:
         reference_images: list[Path] | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str = "8",
-        resolution: str = "1080p",
+        resolution: str | None = None,
         negative_prompt: str = "background music, BGM, soundtrack, musical accompaniment",
         **version_metadata,
     ) -> tuple[Path, int, any, str | None]:
@@ -301,7 +301,7 @@ class MediaGenerator:
             reference_images: 参考图片列表（multi-reference 模式）
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
-            resolution: 分辨率，默认 "1080p"
+            resolution: 分辨率，默认不传（由 backend/SDK 决定）
             negative_prompt: 负面提示词
             **version_metadata: 额外元数据
 
@@ -334,7 +334,7 @@ class MediaGenerator:
         reference_images: list[Path] | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str = "8",
-        resolution: str = "1080p",
+        resolution: str | None = None,
         negative_prompt: str = "background music, BGM, soundtrack, musical accompaniment",
         **version_metadata,
     ) -> tuple[Path, int, any, str | None]:
@@ -350,7 +350,7 @@ class MediaGenerator:
             reference_images: 参考图片列表（multi-reference 模式）
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
-            resolution: 分辨率，默认 "1080p"
+            resolution: 分辨率，默认不传（由 backend/SDK 决定）
             negative_prompt: 负面提示词
             **version_metadata: 额外元数据
 
