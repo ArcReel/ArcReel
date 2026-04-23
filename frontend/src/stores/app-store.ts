@@ -143,14 +143,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       toast: { id: `${Date.now()}-${Math.random()}`, text, tone },
     }),
-  pushNotification: (text, tone = "info", options) => {
-    get().pushToast(text, tone);
-    get().pushWorkspaceNotification({
-      text,
-      tone,
-      target: options?.target ?? null,
-    });
-  },
+  pushNotification: (text, tone = "info", options) =>
+    set((s) => ({
+      toast: { id: `${Date.now()}-${Math.random()}`, text, tone },
+      workspaceNotifications: [
+        buildWorkspaceNotification({ text, tone, target: options?.target ?? null }),
+        ...s.workspaceNotifications,
+      ].slice(0, MAX_WORKSPACE_NOTIFICATIONS),
+    })),
   clearToast: () => set({ toast: null }),
   workspaceNotifications: [],
   pushWorkspaceNotification: (input) =>
