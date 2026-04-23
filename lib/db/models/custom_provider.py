@@ -49,4 +49,6 @@ class CustomProviderModel(TimestampMixin, Base):
     price_output: Mapped[float | None] = mapped_column(Float, nullable=True)  # only for text
     currency: Mapped[str | None] = mapped_column(String(8), nullable=True)  # "USD" | "CNY"
     supported_durations: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list[int]
-    resolution: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    resolution: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )  # standard token ("1080p"/"2K") or native "WxH"

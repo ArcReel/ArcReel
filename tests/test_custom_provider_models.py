@@ -102,6 +102,7 @@ class TestCustomProviderModelTable:
             "price_output",
             "currency",
             "supported_durations",
+            "resolution",
             "created_at",
             "updated_at",
         }
