@@ -49,6 +49,8 @@ const baseValue = {
   textBackendOverview: "",
   textBackendStyle: "",
   defaultDuration: null,
+  videoResolution: null,
+  imageResolution: null,
 };
 
 describe("WizardStep2Models", () => {

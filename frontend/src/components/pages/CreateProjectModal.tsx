@@ -91,6 +91,8 @@ export function CreateProjectModal() {
     textBackendOverview: "",
     textBackendStyle: "",
     defaultDuration: null,
+    videoResolution: null,
+    imageResolution: null,
   });
 
   const [style, setStyle] = useState<WizardStep3Value>({
@@ -177,6 +179,14 @@ export function CreateProjectModal() {
   const handleCreate = async () => {
     setCreating(true);
     try {
+      const modelSettings: Record<string, { resolution: string }> = {};
+      if (models.videoBackend && models.videoResolution) {
+        modelSettings[models.videoBackend] = { resolution: models.videoResolution };
+      }
+      if (models.imageBackend && models.imageResolution) {
+        modelSettings[models.imageBackend] = { resolution: models.imageResolution };
+      }
+
       const resp = await API.createProject({
         title: basics.title.trim(),
         content_mode: basics.contentMode,
@@ -189,6 +199,7 @@ export function CreateProjectModal() {
         text_backend_script: models.textBackendScript || null,
         text_backend_overview: models.textBackendOverview || null,
         text_backend_style: models.textBackendStyle || null,
+        ...(Object.keys(modelSettings).length > 0 ? { model_settings: modelSettings } : {}),
       });
 
       // Upload style image if in custom mode

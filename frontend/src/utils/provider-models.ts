@@ -104,3 +104,42 @@ export function lookupSupportedDurations(
     ? model.supported_durations
     : undefined;
 }
+
+// ---------------------------------------------------------------------------
+// Resolution lookup
+// ---------------------------------------------------------------------------
+
+const IMAGE_STANDARD_RESOLUTIONS = ["512px", "1K", "2K", "4K"];
+const VIDEO_STANDARD_RESOLUTIONS = ["480p", "720p", "1080p", "4K"];
+
+/** 返回该 (provider, model) 下的分辨率候选 + 是否自定义供应商（决定 picker 模式）。 */
+export function lookupResolutions(
+  providers: ProviderInfo[],
+  backend: string,
+  customProviders?: CustomProviderInfo[],
+): { options: string[]; isCustom: boolean } {
+  const slashIdx = backend.indexOf("/");
+  if (slashIdx === -1) return { options: [], isCustom: false };
+  const providerId = backend.slice(0, slashIdx);
+  const modelId = backend.slice(slashIdx + 1);
+
+  // 自定义供应商
+  if (providerId.startsWith(CUSTOM_PREFIX) && customProviders) {
+    const dbId = parseInt(providerId.slice(CUSTOM_PREFIX.length), 10);
+    const cp = customProviders.find((p) => p.id === dbId);
+    const model = cp?.models?.find((m) => m.model_id === modelId);
+    if (!model) return { options: [], isCustom: true };
+    const standard =
+      model.media_type === "image"
+        ? IMAGE_STANDARD_RESOLUTIONS
+        : model.media_type === "video"
+          ? VIDEO_STANDARD_RESOLUTIONS
+          : [];
+    return { options: standard, isCustom: true };
+  }
+
+  // 预置供应商
+  const provider = providers.find((p) => p.id === providerId);
+  const model = provider?.models?.[modelId];
+  return { options: model?.resolutions ?? [], isCustom: false };
+}

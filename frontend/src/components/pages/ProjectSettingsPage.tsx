@@ -73,6 +73,8 @@ export function ProjectSettingsPage() {
   const [aspectRatio, setAspectRatio] = useState<string>("");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("storyboard");
   const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
+  const [videoResolution, setVideoResolution] = useState<string | null>(null);
+  const [imageResolution, setImageResolution] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [saving, setSaving] = useState(false);
@@ -345,6 +347,8 @@ export function ProjectSettingsPage() {
                 textBackendOverview: textOverview,
                 textBackendStyle: textStyle,
                 defaultDuration,
+                videoResolution,
+                imageResolution,
               }}
               onChange={(next) => {
                 setVideoBackend(next.videoBackend);
@@ -353,6 +357,8 @@ export function ProjectSettingsPage() {
                 setTextOverview(next.textBackendOverview);
                 setTextStyle(next.textBackendStyle);
                 setDefaultDuration(next.defaultDuration);
+                setVideoResolution(next.videoResolution);
+                setImageResolution(next.imageResolution);
               }}
               providers={providers}
               customProviders={customProviders}

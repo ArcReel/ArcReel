@@ -90,6 +90,8 @@ export default {
   model_text_style: "Style analysis model",
   duration_label: "Default duration",
   duration_auto: "auto",
+  resolution_label: "Resolution",
+  resolution_default_placeholder: "Default (unset)",
   tab_custom_desc: "Upload a style reference image; AI will analyze it. Choosing this tab clears the template selection.",
   upload_reference: "Upload style reference",
   supported_formats: "PNG / JPG / WEBP",

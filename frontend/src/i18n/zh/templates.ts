@@ -90,6 +90,8 @@ export default {
   model_text_style: "风格分析模型",
   duration_label: "默认时长",
   duration_auto: "auto",
+  resolution_label: "分辨率",
+  resolution_default_placeholder: "默认（不传）",
   tab_custom_desc: "上传一张风格参考图，AI 会自动分析。选择此 tab 将清空模版选择。",
   upload_reference: "上传风格参考图",
   supported_formats: "PNG / JPG / WEBP",

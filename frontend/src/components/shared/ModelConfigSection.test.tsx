@@ -63,6 +63,8 @@ const EMPTY_VALUE = {
   textBackendOverview: "",
   textBackendStyle: "",
   defaultDuration: null,
+  videoResolution: null,
+  imageResolution: null,
 } as const;
 
 describe("ModelConfigSection", () => {
