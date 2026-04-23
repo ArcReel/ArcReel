@@ -23,11 +23,13 @@ def get_provider_fallback(provider_id: str | None, default: str = "1080p") -> st
 
 
 def _from_project(project: dict, provider_id: str, model_id: str) -> str | None:
+    # 内层也用 `or {}` 是因为 dict.get("k", {}) 在 value 显式为 None 时会返回 None，
+    # 导致后续链调 AttributeError；project.json 手编可能出现这种脏值。
     key = f"{provider_id}/{model_id}"
-    override = (project.get("model_settings") or {}).get(key, {}).get("resolution")
+    override = ((project.get("model_settings") or {}).get(key) or {}).get("resolution")
     if override:
         return override
-    legacy = (project.get("video_model_settings") or {}).get(model_id, {}).get("resolution")
+    legacy = ((project.get("video_model_settings") or {}).get(model_id) or {}).get("resolution")
     if legacy:
         return legacy
     return None

@@ -37,6 +37,16 @@ def test_from_project_composite_key_format_uses_slash():
     assert _from_project(project, "a-b", "") is None
 
 
+def test_from_project_tolerates_null_entries():
+    # project.json 可能被手编为 null 值；既不应崩也不应当作已配置。
+    project = {
+        "model_settings": {"a/b": None},
+        "video_model_settings": {"m": None},
+    }
+    assert _from_project(project, "a", "b") is None
+    assert _from_project(project, "x", "m") is None
+
+
 # --- 包含 custom default 的 async 集成路径 ---
 
 
