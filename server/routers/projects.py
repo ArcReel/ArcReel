@@ -83,6 +83,7 @@ class CreateProjectRequest(BaseModel):
     text_backend_script: str | None = None
     text_backend_overview: str | None = None
     text_backend_style: str | None = None
+    model_settings: dict[str, dict[str, str | None]] | None = None
 
 
 class EpisodePatch(BaseModel):
@@ -115,6 +116,7 @@ class UpdateProjectRequest(BaseModel):
     style_template_id: str | None = None
     clear_style_image: bool | None = None
     episodes: list[EpisodePatch] | None = None
+    model_settings: dict[str, dict[str, str | None]] | None = None
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -474,6 +476,8 @@ async def create_project(
                 )
                 if (value := getattr(req, field))
             }
+            if req.model_settings is not None:
+                extras["model_settings"] = req.model_settings
             with project_change_source("webui"):
                 project = manager.create_project_metadata(
                     project_name,
@@ -653,6 +657,12 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                 # 显式清除自定义参考图，用于"取消风格"流程
                 project.pop("style_image", None)
                 project.pop("style_description", None)
+
+            if "model_settings" in req.model_fields_set:
+                if req.model_settings is None:
+                    project.pop("model_settings", None)
+                else:
+                    project["model_settings"] = req.model_settings
 
             if "episodes" in req.model_fields_set and req.episodes is not None:
                 # 合并 episodes：保留现有 episode 的完整数据，仅更新请求中显式提供的字段。
