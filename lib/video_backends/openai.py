@@ -29,11 +29,21 @@ _SIZE_MAP: dict[tuple[str, str], str] = {
     ("1024p", "9:16"): "1024x1792",
     ("1024p", "16:9"): "1792x1024",
 }
-_DEFAULT_SIZE = "720x1280"
 
 
-def _resolve_size(resolution: str, aspect_ratio: str) -> str:
-    return _SIZE_MAP.get((resolution, aspect_ratio), _DEFAULT_SIZE)
+def _resolve_size(resolution: str | None, aspect_ratio: str) -> str | None:
+    """解析 size：None 不传；已知复合 key 映射；未知 → warning 后透传作为 size。"""
+    if resolution is None:
+        return None
+    mapped = _SIZE_MAP.get((resolution, aspect_ratio))
+    if mapped is not None:
+        return mapped
+    logger.warning(
+        "OpenAI video: 未知 (resolution=%r, aspect=%r)，原样作为 size 透传",
+        resolution,
+        aspect_ratio,
+    )
+    return resolution
 
 
 class OpenAIVideoBackend:
@@ -68,8 +78,10 @@ class OpenAIVideoBackend:
             "prompt": request.prompt,
             "model": self._model,
             "seconds": _map_duration(request.duration_seconds),
-            "size": _resolve_size(request.resolution, request.aspect_ratio),
         }
+        size = _resolve_size(request.resolution, request.aspect_ratio)
+        if size is not None:
+            kwargs["size"] = size
 
         # 收集所有参考图：start_image + reference_images
         refs = []
