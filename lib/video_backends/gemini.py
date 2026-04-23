@@ -137,10 +137,11 @@ class GeminiVideoBackend:
         # 3. 构建配置
         config_params: dict = {
             "aspect_ratio": request.aspect_ratio,
-            "resolution": request.resolution,
             "duration_seconds": duration_str,
             "negative_prompt": request.negative_prompt or "music, BGM, background music, subtitles, low quality",
         }
+        if request.resolution is not None:
+            config_params["resolution"] = request.resolution
         if self._backend_type == "vertex":
             config_params["generate_audio"] = request.generate_audio
 
