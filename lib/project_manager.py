@@ -1127,6 +1127,7 @@ class ProjectManager:
         """
         project_file = self._get_project_file_path(project_name)
 
+        self._migrate_legacy_resolution_on_save(project)
         self._touch_metadata(project)
 
         with self._project_lock(project_name):
@@ -1158,6 +1159,7 @@ class ProjectManager:
             with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
             mutate_fn(project)
+            self._migrate_legacy_resolution_on_save(project)
             self._touch_metadata(project)
             atomic_write_json(project_file, project)
 
@@ -1175,6 +1177,33 @@ class ProjectManager:
             project["metadata"] = {"created_at": now, "updated_at": now}
         else:
             project["metadata"]["updated_at"] = now
+
+    @staticmethod
+    def _migrate_legacy_resolution_on_save(project: dict) -> None:
+        """若 project.model_settings 含 resolution，清除 video_model_settings 中命中的 legacy 条目。
+
+        规则：对每个 new model_settings key（形如 "<provider>/<model>"），若其 resolution 已设置，
+        则从 video_model_settings[<model>] 中移除 resolution 字段；如该条目变空则删除该 key；
+        legacy dict 变空时整体删除 video_model_settings。
+        """
+        model_settings = project.get("model_settings") or {}
+        legacy = project.get("video_model_settings") or {}
+        if not model_settings or not legacy:
+            return
+        for composite_key, entry in model_settings.items():
+            if "/" not in composite_key:
+                continue
+            _, model_id = composite_key.split("/", 1)
+            if not entry.get("resolution"):
+                continue
+            legacy_entry = legacy.get(model_id)
+            if not legacy_entry:
+                continue
+            legacy_entry.pop("resolution", None)
+            if not legacy_entry:
+                legacy.pop(model_id, None)
+        if not legacy:
+            project.pop("video_model_settings", None)
 
     def create_project_metadata(
         self,
