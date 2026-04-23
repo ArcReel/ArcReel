@@ -146,6 +146,7 @@ export default {
   'ai_will_analyze_desc': 'AI 将分析您的小说，提取角色、场景、道具和世界观设定',
   'overview_gen_desc': '自动生成项目概述，然后您可以开始创建剧本和分镜',
   'project_overview_regenerated': '项目概述已重新生成',
+  'project_sync_failed': '同步项目变更失败: {{message}}',
   'synopsis': '故事梗概',
   'genre': '题材',
   'theme': '主题',

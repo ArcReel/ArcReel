@@ -1,4 +1,5 @@
 import { startTransition, useCallback, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -114,6 +115,9 @@ function isWorkspaceEditing(): boolean {
 }
 
 export function useProjectEventsSSE(projectName?: string | null): void {
+  const { t } = useTranslation("dashboard");
+  const tRef = useRef(t);
+  tRef.current = t;
   const [, setLocation] = useLocation();
   const setCurrentProject = useProjectsStore((s) => s.setCurrentProject);
   const invalidateEntities = useAppStore((s) => s.invalidateEntities);
@@ -171,7 +175,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
       const res = await API.getProject(projectName);
       setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
     } catch (err) {
-      pushNotification(`同步项目变更失败: ${errMsg(err)}`, "warning");
+      pushNotification(tRef.current("project_sync_failed", { message: errMsg(err) }), "warning");
     } finally {
       refreshingRef.current = false;
     }
