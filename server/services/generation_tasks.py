@@ -69,25 +69,14 @@ async def _get_custom_resolution_default(
     provider_name: str | None,
     model_id: str | None,
 ) -> str | None:
-    """若是自定义供应商，返回该模型的默认 resolution（CustomProviderModel.resolution）。"""
-    if not provider_name or not model_id or not is_custom_provider(provider_name):
-        return None
-    from lib.custom_provider import parse_provider_id
-    from lib.db import async_session_factory
-    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+    """若是自定义供应商，返回该模型的默认 resolution（CustomProviderModel.resolution）。
 
-    try:
-        db_id = parse_provider_id(provider_name)
-    except ValueError:
-        # 兜底：provider_name 虽以 "custom-" 开头但后缀不是整数（测试 mock 或脏数据）
-        return None
+    已迁移至 server.services.resolution_resolver.get_custom_resolution_default；
+    此别名保留向后兼容，内部直接委托。
+    """
+    from server.services.resolution_resolver import get_custom_resolution_default
 
-    async with async_session_factory() as session:
-        repo = CustomProviderRepository(session)
-        model = await repo.get_model_by_ids(db_id, model_id)
-        if model is None:
-            return None
-        return model.resolution
+    return await get_custom_resolution_default(provider_name, model_id)
 
 
 def _parse_project_backend(raw: str | None) -> tuple[str | None, str | None]:

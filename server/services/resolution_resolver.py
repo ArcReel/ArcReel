@@ -6,6 +6,33 @@
 from __future__ import annotations
 
 
+async def get_custom_resolution_default(
+    provider_name: str | None,
+    model_id: str | None,
+) -> str | None:
+    """若是自定义供应商，返回该模型的默认 resolution（CustomProviderModel.resolution）。"""
+    from lib.custom_provider import is_custom_provider
+
+    if not provider_name or not model_id or not is_custom_provider(provider_name):
+        return None
+    from lib.custom_provider import parse_provider_id
+    from lib.db import async_session_factory
+    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+    try:
+        db_id = parse_provider_id(provider_name)
+    except ValueError:
+        # 兜底：provider_name 虽以 "custom-" 开头但后缀不是整数（测试 mock 或脏数据）
+        return None
+
+    async with async_session_factory() as session:
+        repo = CustomProviderRepository(session)
+        model = await repo.get_model_by_ids(db_id, model_id)
+        if model is None:
+            return None
+        return model.resolution
+
+
 def resolve_resolution(
     project: dict,
     provider_id: str,
