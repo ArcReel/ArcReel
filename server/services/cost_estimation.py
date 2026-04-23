@@ -70,20 +70,41 @@ class CostEstimationService:
                 generate_audio = False
 
         # 项目级视频配置覆盖
-        project_video_provider = project_data.get("video_provider")
-        if project_video_provider:
-            video_provider = project_video_provider
-            # 项目级可能有自己的模型设置
-            project_video_settings = project_data.get("video_provider_settings", {}).get(project_video_provider, {})
-            if project_video_settings.get("model"):
-                video_model = project_video_settings["model"]
+        # 优先读新格式 video_backend（"provider_id/model_id"），兼容旧 video_provider 字段
+        project_video_backend = project_data.get("video_backend") or ""
+        registry_video_provider_id: str | None = None
+        if project_video_backend and "/" in project_video_backend:
+            _vb_provider, _vb_model = project_video_backend.split("/", 1)
+            registry_video_provider_id = _vb_provider
+            video_provider = _vb_provider
+            video_model = _vb_model
+        else:
+            project_video_provider = project_data.get("video_provider")
+            if project_video_provider:
+                video_provider = project_video_provider
+                registry_video_provider_id = project_video_provider
+                # 项目级可能有自己的模型设置
+                project_video_settings = project_data.get("video_provider_settings", {}).get(project_video_provider, {})
+                if project_video_settings.get("model"):
+                    video_model = project_video_settings["model"]
 
         # 项目级图片配置覆盖
         project_image_provider = project_data.get("image_provider")
         if project_image_provider:
             image_provider = project_image_provider
 
-        video_resolution = _COST_ESTIMATION_DEFAULT_RESOLUTION.get(video_provider, "1080p")
+        # 分辨率：优先从 project.model_settings 读用户配置（resolver），回退保底表
+        from server.services.resolution_resolver import get_custom_resolution_default, resolve_resolution
+
+        _resolve_pid = registry_video_provider_id or video_provider
+        custom_default = await get_custom_resolution_default(_resolve_pid, video_model)
+        _resolved_resolution = resolve_resolution(
+            project_data,
+            _resolve_pid,
+            video_model or "",
+            custom_default=custom_default,
+        )
+        video_resolution = _resolved_resolution or _COST_ESTIMATION_DEFAULT_RESOLUTION.get(video_provider, "1080p")
 
         # Get actual costs
         actual_by_segment = await self._tracker.get_actual_costs_by_segment(project_name)
