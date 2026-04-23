@@ -789,6 +789,77 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
 
 
 @pytest.mark.asyncio
+async def test_gemini_model_settings_read_via_composite_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """C1 回归：当 project.video_backend = "gemini-aistudio/veo-3.1-generate-preview" 且
+    project.model_settings["gemini-aistudio/veo-3.1-generate-preview"].resolution = "720p" 时，
+    executor 必须用 "gemini-aistudio" 作为 resolver 的 provider_id（而非 backend.name="gemini"），
+    才能命中正确 composite key，实际传出 resolution="720p"。
+    """
+    proj_dir = _write_project(tmp_path)
+
+    # 在 project.json 写入 video_backend 和 model_settings（composite key 格式）
+    project_path = proj_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project["video_backend"] = "gemini-aistudio/veo-3.1-generate-preview"
+    project["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads(project_path.read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    captured: dict = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-23T10:00:00"}]}
+    fake_video_backend = MagicMock()
+    # backend.name 是短名 "gemini"，与 registry provider_id "gemini-aistudio" 不同
+    fake_video_backend.name = "gemini"
+    fake_video_backend.model = "veo-3.1-generate-preview"
+    fake_generator._video_backend = fake_video_backend
+
+    async def _fake_get_media_generator(*_a, **_kw):
+        return fake_generator
+
+    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    assert captured.get("resolution") == "720p", (
+        f"C1: executor 必须用 registry provider_id 'gemini-aistudio' 作为 resolver key，"
+        f"而非 backend.name 'gemini'，才能命中 model_settings composite key。"
+        f"实际收到: {captured.get('resolution')!r}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_execute_reference_video_task_skips_clamp_when_backend_model_diverges(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

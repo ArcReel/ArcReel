@@ -240,15 +240,22 @@ async def execute_reference_video_task(
     #   - 回退 project.video_model_settings[model].resolution (legacy)
     #   - 回退 custom provider 模型的默认 resolution
     #   - 最后按 backend provider 名的成本/兼容性保底（#387 Grok 默认 1080p 会被 xai_sdk 拒绝）
-    from server.services.generation_tasks import _get_custom_resolution_default
-    from server.services.resolution_resolver import resolve_resolution
+    from server.services.resolution_resolver import get_custom_resolution_default, resolve_resolution
 
     _PROVIDER_DEFAULT_RESOLUTION = {"gemini": "1080p", "ark": "720p", "grok": "720p", "openai": "720p"}
 
-    custom_default = await _get_custom_resolution_default(provider_name, model_name)
+    # C1 fix：用 registry_provider_id（project.video_backend 的 "/" 前半段）作为 resolver key，
+    #         而非 backend.name（如 "gemini"）——与 generation_tasks.execute_video_task 保持一致。
+    video_backend_raw = project.get("video_backend") or ""
+    if "/" in video_backend_raw:
+        registry_provider_id = video_backend_raw.split("/", 1)[0]
+    else:
+        registry_provider_id = provider_name  # fallback：project 未配置时用 backend.name
+
+    custom_default = await get_custom_resolution_default(registry_provider_id, model_name)
     resolution = resolve_resolution(
         project,
-        provider_name,
+        registry_provider_id or provider_name,
         model_name or "",
         custom_default=custom_default,
     )
