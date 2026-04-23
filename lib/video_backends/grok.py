@@ -84,10 +84,11 @@ class GrokVideoBackend:
             "model": self._model,
             "duration": request.duration_seconds,
             "aspect_ratio": request.aspect_ratio,
-            "resolution": request.resolution,
             "timeout": timedelta(minutes=15),
             "interval": timedelta(seconds=5),
         }
+        if request.resolution is not None:
+            generate_kwargs["resolution"] = request.resolution
 
         def _encode_to_data_uri(path: Path) -> str:
             suffix = path.suffix.lower()
