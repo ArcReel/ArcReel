@@ -147,8 +147,14 @@ export function ProjectSettingsPage() {
       setDefaultDuration(dd);
 
       // 加载已存在的 model_settings.resolution
+      // I1: 同时读 legacy video_model_settings（旧项目兼容），与后端 resolver 优先级一致
       const ms = (project.model_settings ?? {}) as Record<string, { resolution?: string | null }>;
-      const vRes = vb && ms[vb]?.resolution ? (ms[vb].resolution as string) : null;
+      const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
+      const vModelId = vb && vb.includes("/") ? vb.split("/")[1] : vb;
+      const vRes: string | null =
+        (vb ? (ms[vb]?.resolution ?? null) : null) ||
+        (vModelId ? (legacyVideo[vModelId]?.resolution ?? null) : null) ||
+        null;
       const iRes = ib && ms[ib]?.resolution ? (ms[ib].resolution as string) : null;
       setVideoResolution(vRes);
       setImageResolution(iRes);
