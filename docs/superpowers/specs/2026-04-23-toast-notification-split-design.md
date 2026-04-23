@@ -74,21 +74,25 @@ pushNotification: (
 - L122 regenerate 失败
 - L80/L118 保持 `pushToast`
 
-**`frontend/src/components/canvas/StudioCanvasRouter.tsx`** — 所有 `_failed` 失败分支
-- L159 `update_prompt_failed`
-- L176 `generate_storyboard_failed`
-- L194 `generate_video_failed`
-- L230 `update_character_failed`
-- L246 `submit_failed`（character）
+**`frontend/src/components/canvas/StudioCanvasRouter.tsx`** — 仅**后台异步生成任务**失败分支（修正：同步 CRUD 失败属于即时反馈归 `pushToast`，详见下方）
+- L176 `generate_storyboard_failed`（async backend 任务）
+- L194 `generate_video_failed`（async backend 任务）
+- L246 `submit_failed`（character LLM 生成）
 - L271 `add_failed`（character）
-- L283 `update_scene_failed`
-- L293 `submit_failed`（scene）
-- L304 `add_failed`（scene）
-- L316 `update_prop_failed`
-- L326 `submit_failed`（prop）
-- L337 `add_failed`（prop）
+- L293 `submit_failed`（scene LLM 生成）
+- L326 `submit_failed`（prop LLM 生成）
 - L348 `grid_generation_failed`
-- task_submitted（L174/192/244/291/324）和 grid 成功（L346）保持 `pushToast`
+
+**修正说明（相对初稿）**：以下 7 处属于同步 CRUD（直接写 project.json 或 DB），按「用户主动操作的即时反馈」规则归 `pushToast` 而非 `pushNotification`：
+- L159 `update_prompt_failed`（`API.updateSegment` / `API.updateScene`）
+- L230 `update_character_failed`（`API.updateCharacter`）
+- L271 `add_failed`（character，`API.addCharacter`）
+- L283 `update_scene_failed`（`API.updateProjectScene`）
+- L304 `add_failed`（scene，`API.addProjectScene`）
+- L316 `update_prop_failed`（`API.updateProjectProp`）
+- L337 `add_failed`（prop，`API.addProjectProp`）
+
+task_submitted（L174/192/244/291/324）和 grid 成功（L346）保持 `pushToast`。
 
 **`frontend/src/components/canvas/reference/ReferenceVideoCanvas.tsx`**
 - L134 task-poll 检测到后台任务失败（`reference_generation_task_failed`）→ `pushNotification`

@@ -156,7 +156,7 @@ export function StudioCanvasRouter() {
       }
       await refreshProject();
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("update_prompt_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(tRef.current("update_prompt_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, currentProjectData, refreshProject]);
 
@@ -227,7 +227,7 @@ export function StudioCanvasRouter() {
       );
       useAppStore.getState().pushToast(tRef.current("character_updated_toast", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("update_character_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(tRef.current("update_character_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, refreshProject]);
 
@@ -268,7 +268,7 @@ export function StudioCanvasRouter() {
       );
       useAppStore.getState().pushToast(tRef.current("character_added_toast", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("add_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(tRef.current("add_failed", { message: errMsg(err) }), "error");
       throw err; // AssetFormModal onSubmit 消费：失败时阻止 setAdding(false) 关闭对话框
     }
   }, [currentProjectName, refreshProject]);
@@ -280,7 +280,7 @@ export function StudioCanvasRouter() {
       await API.updateProjectScene(currentProjectName, name, updates);
       await refreshProject();
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("update_scene_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(tRef.current("update_scene_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, refreshProject]);
 
@@ -301,7 +301,7 @@ export function StudioCanvasRouter() {
       await refreshProject();
       useAppStore.getState().pushToast(tRef.current("scene_added_toast", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("add_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(tRef.current("add_failed", { message: errMsg(err) }), "error");
       throw err; // AssetFormModal onSubmit 消费：失败时阻止 setAdding(false) 关闭对话框
     }
   }, [currentProjectName, refreshProject]);
@@ -313,7 +313,7 @@ export function StudioCanvasRouter() {
       await API.updateProjectProp(currentProjectName, name, updates);
       await refreshProject();
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("update_prop_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(tRef.current("update_prop_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, refreshProject]);
 
@@ -334,7 +334,7 @@ export function StudioCanvasRouter() {
       await refreshProject();
       useAppStore.getState().pushToast(tRef.current("prop_added_toast", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("add_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(tRef.current("add_failed", { message: errMsg(err) }), "error");
       throw err; // AssetFormModal onSubmit 消费：失败时阻止 setAdding(false) 关闭对话框
     }
   }, [currentProjectName, refreshProject]);
