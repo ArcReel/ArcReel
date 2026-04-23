@@ -1,11 +1,12 @@
 
 import { useEffect, useMemo } from "react";
 import { Link, useLocation, useSearch } from "wouter";
-import { AlertTriangle, BarChart3, Bot, ChevronLeft, Film, KeyRound, Languages, Plug } from "lucide-react";
+import { AlertTriangle, BarChart3, Bot, ChevronLeft, Film, Info, KeyRound, Languages, Plug } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { AgentConfigTab } from "./AgentConfigTab";
 import { ApiKeysTab } from "./ApiKeysTab";
+import { AboutSection } from "./settings/AboutSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { ProviderSection } from "./ProviderSection";
 import { UsageStatsSection } from "./settings/UsageStatsSection";
@@ -14,7 +15,7 @@ import { UsageStatsSection } from "./settings/UsageStatsSection";
 // Types
 // ---------------------------------------------------------------------------
 
-type SettingsSection = "agent" | "providers" | "media" | "usage" | "api-keys";
+type SettingsSection = "agent" | "providers" | "media" | "usage" | "api-keys" | "about";
 
 // ---------------------------------------------------------------------------
 // Sidebar navigation config
@@ -26,6 +27,7 @@ const SECTION_LIST: { id: SettingsSection; labelKey: string; Icon: React.Compone
   { id: "media", labelKey: "dashboard:models", Icon: Film },
   { id: "usage", labelKey: "dashboard:usage", Icon: BarChart3 },
   { id: "api-keys", labelKey: "dashboard:api_keys", Icon: KeyRound },
+  { id: "about", labelKey: "dashboard:about", Icon: Info },
 ];
 
 // ---------------------------------------------------------------------------
@@ -43,6 +45,7 @@ export function SystemConfigPage() {
     if (section === "media") return "media";
     if (section === "usage") return "usage";
     if (section === "api-keys") return "api-keys";
+    if (section === "about") return "about";
     return "agent";
   }, [search]);
 
@@ -160,6 +163,7 @@ export function SystemConfigPage() {
                 <ApiKeysTab />
               </div>
             )}
+            {activeSection === "about" && <AboutSection />}
           </div>
         </main>
       </div>

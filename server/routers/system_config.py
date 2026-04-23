@@ -9,8 +9,12 @@ is managed by the providers router.
 from __future__ import annotations
 
 import logging
+import tomllib
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +35,14 @@ from server.routers._validators import validate_backend_value
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PYPROJECT_PATH = _PROJECT_ROOT / "pyproject.toml"
+_GITHUB_RELEASE_LATEST_URL = "https://api.github.com/repos/ArcReel/ArcReel/releases/latest"
+_VERSION_CACHE_TTL_SECONDS = 300
+_latest_release_cache: dict[str, datetime | dict[str, str] | None] = {
+    "expires_at": None,
+    "payload": None,
+}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -42,6 +54,56 @@ class _OptionsDict(TypedDict):
     image_backends: list[str]
     text_backends: list[str]
     provider_names: dict[str, str]
+
+
+def _read_app_version() -> str:
+    with _PYPROJECT_PATH.open("rb") as f:
+        data = tomllib.load(f)
+
+    version = str(data["project"]["version"]).strip()
+    if not version:
+        raise RuntimeError("project.version is empty")
+    return version
+
+
+def _normalize_version(raw: str) -> tuple[int, ...]:
+    text = raw.strip().removeprefix("v")
+    parts = text.split(".")
+    if not text or not all(part.isdigit() for part in parts):
+        raise ValueError(f"invalid version: {raw}")
+    return tuple(int(part) for part in parts)
+
+
+def _build_latest_release_payload(data: dict[str, Any]) -> dict[str, str]:
+    raw_version = str(data.get("name") or data.get("tag_name") or "").strip()
+    return {
+        "version": raw_version.removeprefix("v"),
+        "tag_name": str(data.get("tag_name") or ""),
+        "name": str(data.get("name") or ""),
+        "body": str(data.get("body") or ""),
+        "html_url": str(data.get("html_url") or ""),
+        "published_at": str(data.get("published_at") or ""),
+    }
+
+
+async def _get_latest_release() -> dict[str, str]:
+    now = datetime.now(UTC)
+    expires_at = _latest_release_cache.get("expires_at")
+    payload = _latest_release_cache.get("payload")
+    if isinstance(expires_at, datetime) and expires_at > now and isinstance(payload, dict):
+        return payload
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        response = await client.get(
+            _GITHUB_RELEASE_LATEST_URL,
+            headers={"Accept": "application/vnd.github+json"},
+        )
+        response.raise_for_status()
+        payload = _build_latest_release_payload(response.json())
+
+    _latest_release_cache["payload"] = payload
+    _latest_release_cache["expires_at"] = now + timedelta(seconds=_VERSION_CACHE_TTL_SECONDS)
+    return payload
 
 
 async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsDict:
@@ -170,6 +232,36 @@ async def get_system_config(
     options = await _build_options(svc, session)
 
     return {"settings": settings, "options": options}
+
+
+@router.get("/system/version")
+async def get_system_version(
+    _user: CurrentUser,
+) -> dict[str, Any]:
+    try:
+        current_version = _read_app_version()
+    except Exception as exc:
+        logger.exception("Failed to read app version")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    latest: dict[str, str] | None = None
+    has_update = False
+    update_check_error: str | None = None
+    try:
+        latest_payload = await _get_latest_release()
+        latest = latest_payload if "version" in latest_payload else _build_latest_release_payload(latest_payload)
+        has_update = _normalize_version(latest["version"]) > _normalize_version(current_version)
+    except Exception as exc:
+        logger.warning("Failed to fetch latest release: %s", exc)
+        update_check_error = str(exc)
+
+    return {
+        "current": {"version": current_version},
+        "latest": latest,
+        "has_update": has_update,
+        "checked_at": datetime.now(UTC).isoformat(),
+        "update_check_error": update_check_error,
+    }
 
 
 # ---------------------------------------------------------------------------

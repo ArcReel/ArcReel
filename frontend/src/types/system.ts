@@ -29,6 +29,23 @@ export interface GetSystemConfigResponse {
   options: SystemConfigOptions;
 }
 
+export interface SystemVersionReleaseInfo {
+  version: string;
+  tag_name: string;
+  name: string;
+  body: string;
+  html_url: string;
+  published_at: string;
+}
+
+export interface GetSystemVersionResponse {
+  current: { version: string };
+  latest: SystemVersionReleaseInfo | null;
+  has_update: boolean;
+  checked_at: string;
+  update_check_error: string | null;
+}
+
 export interface SystemConfigPatch {
   default_video_backend?: string;
   default_image_backend?: string;
