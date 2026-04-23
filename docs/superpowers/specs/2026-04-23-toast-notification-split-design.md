@@ -91,8 +91,9 @@ pushNotification: (
 - task_submitted（L174/192/244/291/324）和 grid 成功（L346）保持 `pushToast`
 
 **`frontend/src/components/canvas/reference/ReferenceVideoCanvas.tsx`**
-- L56 统一 `showError` → `pushNotification`
-- L134 / L186 需逐条判断：失败分支用 `pushNotification`，成功分支用 `pushToast`（迁移时读取上下文决定）
+- L134 task-poll 检测到后台任务失败（`reference_generation_task_failed`）→ `pushNotification`
+- L56 `toastError` 工具 —— 仅用于 `handleAdd` / `handleGenerate` 的 POST 即时失败，属于用户操作即时反馈 → 保持 `pushToast`（不动）
+- L186 `reference_generate_queued` / `reference_generate_deduped` 属于用户操作成功反馈 → 保持 `pushToast`（不动）
 
 **`frontend/src/hooks/useProjectEventsSSE.ts`**
 - L174 同步项目变更失败 → `pushNotification`
