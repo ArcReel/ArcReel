@@ -111,12 +111,12 @@ class TestGenerateT2I:
             )
             result = await backend.generate(request)
 
-        # 验证 SDK 调用参数
+        # 验证 SDK 调用参数（image_size 透传，不再做小写映射）
         backend._client.image.sample.assert_awaited_once_with(
             prompt="A beautiful sunset",
             model="grok-imagine-image",
             aspect_ratio="16:9",
-            resolution="2k",
+            resolution="2K",
         )
         assert result.image_path == output
         assert result.provider == "grok"
@@ -258,17 +258,50 @@ class TestModeration:
 
 
 # ---------------------------------------------------------------------------
-# resolution 映射测试
+# resolution 透传测试
 # ---------------------------------------------------------------------------
 
 
-class TestResolutionMapping:
-    def test_map_image_size(self):
-        from lib.image_backends.grok import _map_image_size_to_resolution
+class TestResolutionPassthrough:
+    @pytest.mark.asyncio
+    async def test_image_size_none_omits_resolution_kwarg(self, backend, tmp_path):
+        captured: dict = {}
 
-        assert _map_image_size_to_resolution("1K") == "1k"
-        assert _map_image_size_to_resolution("2K") == "2k"
-        assert _map_image_size_to_resolution("unknown") == "1k"
+        async def fake_sample(**kwargs):
+            captured.update(kwargs)
+            raise RuntimeError("stop")
+
+        backend._client.image.sample = fake_sample
+        request = ImageGenerationRequest(
+            prompt="hi",
+            output_path=tmp_path / "o.png",
+            aspect_ratio="1:1",
+            image_size=None,
+        )
+        with pytest.raises(RuntimeError):
+            await backend.generate(request)
+
+        assert "resolution" not in captured
+
+    @pytest.mark.asyncio
+    async def test_image_size_passed_as_is(self, backend, tmp_path):
+        captured: dict = {}
+
+        async def fake_sample(**kwargs):
+            captured.update(kwargs)
+            raise RuntimeError("stop")
+
+        backend._client.image.sample = fake_sample
+        request = ImageGenerationRequest(
+            prompt="hi",
+            output_path=tmp_path / "o.png",
+            aspect_ratio="1:1",
+            image_size="2K",
+        )
+        with pytest.raises(RuntimeError):
+            await backend.generate(request)
+
+        assert captured["resolution"] == "2K"
 
 
 # ---------------------------------------------------------------------------

@@ -82,8 +82,9 @@ class GrokImageBackend:
             "prompt": request.prompt,
             "model": self._model,
             "aspect_ratio": _validate_aspect_ratio(request.aspect_ratio),
-            "resolution": _map_image_size_to_resolution(request.image_size),
         }
+        if request.image_size is not None:
+            generate_kwargs["resolution"] = request.image_size
 
         # I2I：将所有参考图转为 base64 data URI 列表
         if request.reference_images:
@@ -114,17 +115,6 @@ class GrokImageBackend:
             model=self._model,
             image_uri=response.url,
         )
-
-
-def _map_image_size_to_resolution(image_size: str) -> str:
-    """将通用 image_size（如 '1K', '2K'）映射为 Grok resolution 参数。"""
-    mapping = {
-        "1K": "1k",
-        "2K": "2k",
-        "1k": "1k",
-        "2k": "2k",
-    }
-    return mapping.get(image_size, "1k")
 
 
 async def _download_image(url: str, output_path: Path, *, timeout: int = 60) -> None:
