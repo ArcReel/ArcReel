@@ -249,7 +249,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       }
       onSaved();
     } catch (e) {
-      showError(errMsg(e, t("save_failed")));
+      showError(t("save_failed", { message: errMsg(e) }));
     } finally {
       setSaving(false);
     }

@@ -23,7 +23,7 @@ export default {
   'export_diagnostics': '导出诊断',
   'project_title_required': '项目标题不能为空',
   'style_upload_failed_hint': '风格参考图上传失败，可稍后在项目设置中重新上传',
-  'create_project_failed': '创建项目失败: ',
+  'create_project_failed': '创建项目失败: {{message}}',
   'project_id_auto_gen_hint': '系统会自动生成内部项目标识并用于 URL 与文件存储',
   'narration_visuals': '旁白模式',
   'drama_animation': '剧集模式',
@@ -368,15 +368,15 @@ export default {
   'actual_scenes': '场景',
   'actual_props': '道具',
   'regenerate_failed': '重新生成失败: {{message}}',
-  'upload_failed': '上传失败: ',
-  'delete_failed': '删除失败: ',
-  'update_failed': '更新失败: ',
+  'upload_failed': '上传失败: {{message}}',
+  'delete_failed': '删除失败: {{message}}',
+  'update_failed': '更新失败: {{message}}',
 
   // ApiKeysTab
-  'create_failed': '创建失败: ',
+  'create_failed': '创建失败: {{message}}',
   'save_key_warning': '请务必立即复制并安全保存此密钥',
   'key_not_viewable_again': '出于安全考虑，你将无法再次查看它。',
-  'load_failed': '加载失败: ',
+  'load_failed': '加载失败: {{message}}',
 
   // AgentConfigTab
   'api_credentials': 'API 凭证',
@@ -400,7 +400,7 @@ export default {
   'session_cleanup_delay_desc': '会话结束后等待此时间再释放资源，再次对话时会自动恢复',
   'max_concurrent_sessions_label': '最大并发会话数',
   'max_concurrent_sessions_desc': '同时保持活跃的智能体会话上限，超出时自动释放最久未使用的会话（清理的会话会持久化，下次对话时恢复）',
-  'clear_failed': '清除失败: ',
+  'clear_failed': '清除失败: {{message}}',
   'clear_input': '清除输入',
   'hide_key': '隐藏密钥',
   'show_key': '显示密钥',
@@ -408,14 +408,14 @@ export default {
   'clear_model_input': '清除模型配置输入',
 
   // WelcomeCanvas
-  'analysis_failed': '分析失败: ',
+  'analysis_failed': '分析失败: {{message}}',
   'uploaded_source_files': '已上传的源文件',
   'add_more_files': '添加更多文件',
   'drop_more_files_here': '或拖拽更多文件到此处',
   'uploading': '上传中...',
 
   // MediaModelSection
-  'save_failed': '保存失败: ',
+  'save_failed': '保存失败: {{message}}',
 
   // UsageStatsSection
   'last_7_days': '最近 7 天',
@@ -459,7 +459,7 @@ export default {
   'genre_prefix': '题材: ',
   'theme_prefix': '主题: ',
   'calculating_cost': '正在计算费用...',
-  'cost_estimate_failed': '费用估算失败: ',
+  'cost_estimate_failed': '费用估算失败: {{message}}',
   'episodes_title': '剧集',
   'no_episodes_ai_hint': '暂无剧集。使用 AI 助手生成剧本。',
   'segments_and_status': '{{count}} 片段 · {{status}}',

@@ -22,7 +22,7 @@ export default {
   'export_diagnostics': 'Export Diagnostics',
   'project_title_required': 'Project title cannot be empty',
   'style_upload_failed_hint': 'Style reference image upload failed, you can upload it later in project settings',
-  'create_project_failed': 'Failed to create project: ',
+  'create_project_failed': 'Failed to create project: {{message}}',
   'project_id_auto_gen_hint': 'The system will automatically generate an internal project ID used for URLs and storage',
   'narration_visuals': 'Narration Mode',
   'drama_animation': 'Drama Mode',
@@ -367,15 +367,15 @@ export default {
   'actual_scenes': 'Scenes',
   'actual_props': 'Props',
   'regenerate_failed': 'Regeneration failed: {{message}}',
-  'upload_failed': 'Upload failed: ',
-  'delete_failed': 'Delete failed: ',
-  'update_failed': 'Update failed: ',
+  'upload_failed': 'Upload failed: {{message}}',
+  'delete_failed': 'Delete failed: {{message}}',
+  'update_failed': 'Update failed: {{message}}',
 
   // ApiKeysTab
-  'create_failed': 'Creation failed: ',
+  'create_failed': 'Creation failed: {{message}}',
   'save_key_warning': 'Make sure to copy and save this key securely now.',
   'key_not_viewable_again': 'For security reasons, you will not be able to see it again.',
-  'load_failed': 'Failed to load: ',
+  'load_failed': 'Failed to load: {{message}}',
 
   // AgentConfigTab
   'api_credentials': 'API Credentials',
@@ -399,7 +399,7 @@ export default {
   'session_cleanup_delay_desc': 'Wait this long after session ends before releasing resources. Sessions auto-resume on next conversation.',
   'max_concurrent_sessions_label': 'Max Concurrent Sessions',
   'max_concurrent_sessions_desc': 'Maximum active agent sessions. Excess sessions auto-release the least recently used ones (cleaned sessions are persisted and resume on next conversation).',
-  'clear_failed': 'Failed to clear: ',
+  'clear_failed': 'Failed to clear: {{message}}',
   'clear_input': 'Clear input',
   'hide_key': 'Hide key',
   'show_key': 'Show key',
@@ -407,14 +407,14 @@ export default {
   'clear_model_input': 'Clear model configuration input',
 
   // WelcomeCanvas
-  'analysis_failed': 'Analysis failed: ',
+  'analysis_failed': 'Analysis failed: {{message}}',
   'uploaded_source_files': 'Uploaded Source Files',
   'add_more_files': 'Add more files',
   'drop_more_files_here': 'Or drag and drop more files here',
   'uploading': 'Uploading...',
 
   // MediaModelSection
-  'save_failed': 'Failed to save: ',
+  'save_failed': 'Failed to save: {{message}}',
 
   // UsageStatsSection
   'last_7_days': 'Last 7 days',
@@ -458,7 +458,7 @@ export default {
   'genre_prefix': 'Genre: ',
   'theme_prefix': 'Theme: ',
   'calculating_cost': 'Calculating cost...',
-  'cost_estimate_failed': 'Cost estimation failed: ',
+  'cost_estimate_failed': 'Cost estimation failed: {{message}}',
   'episodes_title': 'Episodes',
   'no_episodes_ai_hint': 'No episodes yet. Use the AI assistant to generate scripts.',
   'segments_and_status': '{{count}} segments · {{status}}',

@@ -56,7 +56,7 @@ export function MediaModelSection() {
       void useConfigStatusStore.getState().refresh();
       useAppStore.getState().pushToast(t("media_config_saved"), "success");
     } catch (err) {
-      useAppStore.getState().pushToast(`${t("save_failed")}${errMsg(err)}`, "error");
+      useAppStore.getState().pushToast(t("save_failed", { message: errMsg(err) }), "error");
     } finally {
       setSaving(false);
     }

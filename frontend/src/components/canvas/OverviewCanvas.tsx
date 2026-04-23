@@ -238,7 +238,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             )}
             {costError && (
               <div className="rounded-xl border border-red-900/50 bg-red-950/30 p-4">
-                <p className="text-sm text-red-400">{t("cost_estimate_failed")}{costError}</p>
+                <p className="text-sm text-red-400">{t("cost_estimate_failed", { message: costError })}</p>
               </div>
             )}
 

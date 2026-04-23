@@ -237,7 +237,7 @@ export function ProjectSettingsPage() {
       initialStyleRef.current = nextStyle;
       useAppStore.getState().pushToast(t("saved"), "success");
     } catch (e: unknown) {
-      useAppStore.getState().pushToast(errMsg(e, t("save_failed")), "error");
+      useAppStore.getState().pushToast(t("save_failed", { message: errMsg(e) }), "error");
     } finally {
       setSavingStyle(false);
     }
@@ -274,7 +274,7 @@ export function ProjectSettingsPage() {
       };
       useAppStore.getState().pushToast(t("saved"), "success");
     } catch (e: unknown) {
-      useAppStore.getState().pushToast(errMsg(e, t("save_failed")), "error");
+      useAppStore.getState().pushToast(t("save_failed", { message: errMsg(e) }), "error");
     } finally {
       setSaving(false);
     }

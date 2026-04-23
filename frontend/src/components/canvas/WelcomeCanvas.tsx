@@ -81,7 +81,7 @@ export function WelcomeCanvas({
       try {
         await onUpload(file);
       } catch (err) {
-        setError(`${t("upload_failed")}${errMsg(err)}`);
+        setError(t("upload_failed", { message: errMsg(err) }));
         setPhase(sourceFiles.length > 0 ? "has_sources" : "idle");
         return;
       }
@@ -97,7 +97,7 @@ export function WelcomeCanvas({
           await onAnalyze();
           setPhase("done");
         } catch (err) {
-          setError(`${t("analysis_failed")}${errMsg(err)}`);
+          setError(t("analysis_failed", { message: errMsg(err) }));
           setPhase("has_sources");
         }
         return;
@@ -116,7 +116,7 @@ export function WelcomeCanvas({
       await onAnalyze();
       setPhase("done");
     } catch (err) {
-      setError(`${t("analysis_failed")}${errMsg(err)}`);
+      setError(t("analysis_failed", { message: errMsg(err) }));
       setPhase("has_sources");
     }
   }, [onAnalyze, t]);

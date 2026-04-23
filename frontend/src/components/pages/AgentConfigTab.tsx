@@ -242,7 +242,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         voidCall(useConfigStatusStore.getState().refresh());
         useAppStore.getState().pushToast(`${t(`dashboard:${label}`)} ${t("field_cleared")}`, "success");
       } catch (err) {
-        useAppStore.getState().pushToast(`${t("clear_failed")}${errMsg(err)}`, "error");
+        useAppStore.getState().pushToast(t("clear_failed", { message: errMsg(err) }), "error");
       } finally {
         setClearingField(null);
       }
@@ -256,7 +256,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   if (loadError) {
     return (
       <div className={visible ? "px-6 py-8" : "hidden"}>
-        <div className="text-sm text-rose-400">{t("load_failed")}{loadError}</div>
+        <div className="text-sm text-rose-400">{t("load_failed", { message: loadError })}</div>
         <button
           type="button"
           onClick={() => void load()}

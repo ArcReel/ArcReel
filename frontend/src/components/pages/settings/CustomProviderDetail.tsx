@@ -61,7 +61,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
       await API.deleteCustomProvider(providerId);
       onDeleted();
     } catch (e) {
-      showError(errMsg(e, t("delete_failed")));
+      showError(t("delete_failed", { message: errMsg(e) }));
     } finally {
       setDeleting(false);
       setConfirmDelete(false);
