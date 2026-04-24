@@ -52,6 +52,6 @@ jobs:
           cache-to: type=gha,mode=max
 
       - if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
