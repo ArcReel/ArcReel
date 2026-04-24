@@ -26,10 +26,21 @@ dependencies = [
     "xai-sdk>=1.8.2",
     "pyjianyingdraft>=0.2.6",
     "instructor>=1.14.5",
+    "slowapi>=0.1.9",
 ]
 
 [dependency-groups]
 dev = ["pytest>=9.0.2", "pytest-asyncio>=1.3.0", "pytest-cov>=7.0.0", "ruff>=0.15.0"]
+observability = [
+    # Prometheus metrics — expose /metrics endpoint
+    "prometheus-client>=0.21.0",
+    # OpenTelemetry tracing (optional — only needed when OTLP_ENDPOINT is set)
+    "opentelemetry-api>=1.28.0",
+    "opentelemetry-sdk>=1.28.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.28.0",
+    "opentelemetry-instrumentation-fastapi>=0.49b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.49b0",
+]
 
 [build-system]
 requires = ["hatchling"]

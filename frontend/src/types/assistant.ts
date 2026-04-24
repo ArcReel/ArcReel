@@ -59,12 +59,26 @@ export interface PendingQuestion {
   }>;
 }
 
+export interface PendingApproval {
+  type: "tool_approval_request";
+  request_id: string;
+  tool_name: string;
+  input: Record<string, unknown>;
+  session_id: string;
+  timestamp: string;
+}
+
 export interface AssistantSnapshot {
   session_id: string;
   status: SessionStatus;
   turns: Turn[];
   draft_turn: Turn | null;
   pending_questions: PendingQuestion[];
+  pending_approvals: PendingApproval[];
+  /** Number of turns in the conversation (for context length display) */
+  turns_count?: number;
+  /** True when conversation is approaching context limit (~80+ turns) */
+  context_long?: boolean;
 }
 
 export interface SkillInfo {

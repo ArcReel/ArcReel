@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SessionMeta, Turn, PendingQuestion, SkillInfo, SessionStatus } from "@/types";
+import type { SessionMeta, Turn, PendingQuestion, PendingApproval, SkillInfo, SessionStatus } from "@/types";
 
 interface AssistantState {
   // Sessions
@@ -26,6 +26,10 @@ interface AssistantState {
   pendingQuestion: PendingQuestion | null;
   answeringQuestion: boolean;
 
+  // Approvals
+  pendingApproval: PendingApproval | null;
+  decidingApproval: boolean;
+
   // Skills
   skills: SkillInfo[];
   skillsLoading: boolean;
@@ -35,6 +39,10 @@ interface AssistantState {
 
   // Draft session (lazy creation)
   isDraftSession: boolean;
+
+  // Context length awareness
+  contextLong: boolean;
+  turnsCount: number;
 
   // Actions (basic setters -- full logic migrated later)
   setSessions: (sessions: SessionMeta[]) => void;
@@ -51,10 +59,14 @@ interface AssistantState {
   setSessionStatusDetail: (detail: string | null) => void;
   setPendingQuestion: (question: PendingQuestion | null) => void;
   setAnsweringQuestion: (answering: boolean) => void;
+  setPendingApproval: (approval: PendingApproval | null) => void;
+  setDecidingApproval: (deciding: boolean) => void;
   setSkills: (skills: SkillInfo[]) => void;
   setSkillsLoading: (loading: boolean) => void;
   setCurrentProject: (project: string | null) => void;
   setIsDraftSession: (draft: boolean) => void;
+  setContextLong: (long: boolean) => void;
+  setTurnsCount: (count: number) => void;
 }
 
 export const useAssistantStore = create<AssistantState>((set) => ({
@@ -72,9 +84,13 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   sessionStatusDetail: null,
   pendingQuestion: null,
   answeringQuestion: false,
+  pendingApproval: null,
+  decidingApproval: false,
   skills: [],
   skillsLoading: false,
   currentProject: null,
+  contextLong: false,
+  turnsCount: 0,
   isDraftSession: false,
 
   setSessions: (sessions) => set({ sessions }),
@@ -91,8 +107,12 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   setSessionStatusDetail: (detail) => set({ sessionStatusDetail: detail }),
   setPendingQuestion: (question) => set({ pendingQuestion: question }),
   setAnsweringQuestion: (answering) => set({ answeringQuestion: answering }),
+  setPendingApproval: (approval) => set({ pendingApproval: approval }),
+  setDecidingApproval: (deciding) => set({ decidingApproval: deciding }),
   setSkills: (skills) => set({ skills }),
   setSkillsLoading: (loading) => set({ skillsLoading: loading }),
   setCurrentProject: (project) => set({ currentProject: project }),
   setIsDraftSession: (draft) => set({ isDraftSession: draft }),
+  setContextLong: (long) => set({ contextLong: long }),
+  setTurnsCount: (count) => set({ turnsCount: count }),
 }));
