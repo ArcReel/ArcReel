@@ -37,6 +37,7 @@ dependencies = [
     "portalocker>=2.10.1",
     "pdf-oxide>=0.3.46",
     "socksio>=1.0.0",
+    "slowapi>=0.1.9",
 ]
 
 [dependency-groups]
@@ -48,6 +49,16 @@ dev = [
     "pre-commit>=4.0.0",
     "python-docx>=1.2.0",
     "basedpyright>=1.39.4",
+]
+observability = [
+    # Prometheus metrics — expose /metrics endpoint
+    "prometheus-client>=0.21.0",
+    # OpenTelemetry tracing (optional — only needed when OTLP_ENDPOINT is set)
+    "opentelemetry-api>=1.28.0",
+    "opentelemetry-sdk>=1.28.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.28.0",
+    "opentelemetry-instrumentation-fastapi>=0.49b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.49b0",
 ]
 
 [build-system]

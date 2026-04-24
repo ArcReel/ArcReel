@@ -67,6 +67,9 @@ class _FakeSessionManager:
         self.call_log.append(("get_pending_questions_snapshot", session_id))
         return list(self.pending_questions)
 
+    async def get_pending_approvals_snapshot(self, session_id: str):
+        return []
+
 
 def _parse_sse_event(sse_event: ServerSentEvent) -> tuple[str, dict]:
     event_name = sse_event.event or ""

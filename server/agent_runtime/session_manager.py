@@ -32,6 +32,13 @@ from server.agent_runtime.session_store import SessionMetaStore
 
 logger = logging.getLogger(__name__)
 
+# Lazy import observability to avoid circular deps — only active if prometheus_client installed
+try:
+    from server.observability import record_session_created, set_active_sessions
+    _OBS_AVAILABLE = True
+except Exception:
+    _OBS_AVAILABLE = False
+
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, tag_session
 from claude_agent_sdk.types import (
     HookMatcher,
@@ -1230,6 +1237,11 @@ class SessionManager:
         managed.last_activity = time.monotonic()
         self.sessions[temp_id] = managed
 
+        # Prometheus: track session creation and active count
+        if _OBS_AVAILABLE:
+            record_session_created()
+            set_active_sessions(len(self.sessions))
+
         try:
             await actor.start()
         except Exception:
@@ -1700,6 +1712,9 @@ class SessionManager:
             self.sessions.pop(session_id, None)
             self._connect_locks.pop(session_id, None)
             self._disconnecting.discard(session_id)
+            # Prometheus: update active session gauge after eviction
+            if _OBS_AVAILABLE:
+                set_active_sessions(len(self.sessions))
 
     async def _get_cleanup_delay(self) -> int:
         """返回会话清理延迟秒数，默认 300（5 分钟）。"""
