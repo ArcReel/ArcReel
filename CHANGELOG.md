@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.11.0](https://github.com/ArcReel/ArcReel/compare/v0.10.0...v0.11.0) (2026-04-24)
+
+
+### ✨ 新功能
+
+* 视频/图片 resolution 参数重构 (closes [#359](https://github.com/ArcReel/ArcReel/issues/359)) ([#402](https://github.com/ArcReel/ArcReel/issues/402)) ([9357973](https://github.com/ArcReel/ArcReel/commit/935797313fb13e0010b03c48f28f4986d24803f0))
+
+
+### 🐛 Bug 修复
+
+* **frontend:** 分镜枚举接入 i18n（镜头类型 / 运镜） ([#396](https://github.com/ArcReel/ArcReel/issues/396)) ([9c244db](https://github.com/ArcReel/ArcReel/commit/9c244dbb4f3268754c17b12f16b5b89335eda02f)), closes [#352](https://github.com/ArcReel/ArcReel/issues/352)
+* **image-backends:** OpenAI/Ark 图片响应按 b64_json/url 降级解析 ([#404](https://github.com/ArcReel/ArcReel/issues/404)) ([2523736](https://github.com/ArcReel/ArcReel/commit/252373695511d7ff982f0c19307031fe4f89df00))
+
+
+### ♻️ 重构
+
+* **notifications:** toast 与持久通知解耦 ([#351](https://github.com/ArcReel/ArcReel/issues/351)) ([#398](https://github.com/ArcReel/ArcReel/issues/398)) ([cdcb1d3](https://github.com/ArcReel/ArcReel/commit/cdcb1d315e1c5c9617a70008726a29a7edb3b325))
+
 ## [0.10.0](https://github.com/ArcReel/ArcReel/compare/v0.9.0...v0.10.0) (2026-04-22)
 
 
