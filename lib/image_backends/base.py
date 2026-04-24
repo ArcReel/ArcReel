@@ -25,11 +25,16 @@ def image_to_base64_data_uri(image_path: Path) -> str:
 
 async def download_image_to_path(url: str, output_path: Path, *, timeout: int = 60) -> None:
     """从 URL 异步下载图片到本地文件。"""
-    await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
     async with httpx.AsyncClient() as client:
         resp = await client.get(url, timeout=timeout)
         resp.raise_for_status()
-        await asyncio.to_thread(output_path.write_bytes, resp.content)
+        content = resp.content
+
+    def _save() -> None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(content)
+
+    await asyncio.to_thread(_save)
 
 
 async def save_image_from_response_item(item, output_path: Path) -> None:
@@ -39,9 +44,14 @@ async def save_image_from_response_item(item, output_path: Path) -> None:
     """
     b64 = getattr(item, "b64_json", None)
     if b64:
-        image_bytes = base64.b64decode(b64)
-        await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
-        await asyncio.to_thread(output_path.write_bytes, image_bytes)
+
+        def _decode_and_save() -> None:
+            # 解码 + 写盘统一 offload 到线程，避免在事件循环内做 CPU 密集 base64 解码
+            image_bytes = base64.b64decode(b64)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(image_bytes)
+
+        await asyncio.to_thread(_decode_and_save)
         return
     url = getattr(item, "url", None)
     if url:
