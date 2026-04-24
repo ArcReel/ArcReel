@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 from contextlib import ExitStack
 from pathlib import Path
@@ -12,6 +11,7 @@ from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
+    save_image_from_response_item,
 )
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
@@ -107,12 +107,11 @@ class OpenAIImageBackend:
         kwargs = {
             "model": self._model,
             "prompt": request.prompt,
-            "response_format": "b64_json",
             "n": 1,
         }
         kwargs.update(_resolve_openai_params(request.image_size, request.aspect_ratio))
         response = await self._client.images.generate(**kwargs)
-        return await asyncio.to_thread(self._save_and_return, response, request)
+        return await self._save_and_return(response, request)
 
     async def _generate_edit(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         refs = request.reference_images
@@ -146,16 +145,13 @@ class OpenAIImageBackend:
                 model=self._model,
                 image=image_files,
                 prompt=request.prompt,
-                response_format="b64_json",
             )
         finally:
             stack.close()
-        return await asyncio.to_thread(self._save_and_return, response, request)
+        return await self._save_and_return(response, request)
 
-    def _save_and_return(self, response, request: ImageGenerationRequest) -> ImageGenerationResult:
-        image_bytes = base64.b64decode(response.data[0].b64_json)
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        request.output_path.write_bytes(image_bytes)
+    async def _save_and_return(self, response, request: ImageGenerationRequest) -> ImageGenerationResult:
+        await save_image_from_response_item(response.data[0], request.output_path)
         logger.info("OpenAI 图片生成完成: %s", request.output_path)
         quality = _QUALITY_MAP.get(request.image_size) if request.image_size else None
         return ImageGenerationResult(

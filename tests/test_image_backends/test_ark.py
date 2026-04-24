@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -131,7 +131,8 @@ class TestArkImageBackendGenerate:
         call_kwargs = client.images.generate.call_args
         assert call_kwargs.kwargs["model"] == "doubao-seedream-5-0-lite-260128"
         assert call_kwargs.kwargs["prompt"] == "a cat"
-        assert call_kwargs.kwargs["response_format"] == "b64_json"
+        # 部分兼容网关即便吃 response_format 仍返回 url，所以请求端不再传该参数
+        assert "response_format" not in call_kwargs.kwargs
         assert "image" not in call_kwargs.kwargs
 
         # Result
@@ -205,3 +206,35 @@ class TestArkImageBackendGenerate:
         await backend.generate(request)
 
         assert output.exists()
+
+    async def test_t2i_url_fallback(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+        """网关只返回 url 时，应走 httpx 下载分支。"""
+        monkeypatch.delenv("ARK_API_KEY", raising=False)
+        client = MagicMock()
+        client.images.generate.return_value = _FakeImagesResponse(
+            data=[_FakeImageData(b64_json=None, url="https://gateway/img.png")]
+        )
+        downloaded = b"downloaded-from-gateway"
+
+        with patch("lib.image_backends.ark.create_ark_client", return_value=client):
+            from lib.image_backends.ark import ArkImageBackend
+
+            backend = ArkImageBackend(api_key="test-key")
+            output = tmp_path / "out.png"
+            request = ImageGenerationRequest(prompt="a cat", output_path=output)
+
+            with patch("lib.image_backends.base.httpx.AsyncClient") as MockHttpClient:
+                mock_http = AsyncMock()
+                MockHttpClient.return_value.__aenter__ = AsyncMock(return_value=mock_http)
+                MockHttpClient.return_value.__aexit__ = AsyncMock(return_value=False)
+                mock_resp = MagicMock()
+                mock_resp.content = downloaded
+                mock_resp.raise_for_status = MagicMock()
+                mock_http.get = AsyncMock(return_value=mock_resp)
+
+                result = await backend.generate(request)
+
+            mock_http.get.assert_awaited_once_with("https://gateway/img.png", timeout=60)
+
+        assert result.image_path == output
+        assert output.read_bytes() == downloaded

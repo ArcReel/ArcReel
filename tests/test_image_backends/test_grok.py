@@ -94,7 +94,7 @@ class TestGenerateT2I:
 
         fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 
-        with patch("lib.image_backends.grok.httpx.AsyncClient") as MockHttpClient:
+        with patch("lib.image_backends.base.httpx.AsyncClient") as MockHttpClient:
             mock_http = AsyncMock()
             MockHttpClient.return_value.__aenter__ = AsyncMock(return_value=mock_http)
             MockHttpClient.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -145,7 +145,7 @@ class TestGenerateI2I:
 
         fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
 
-        with patch("lib.image_backends.grok.httpx.AsyncClient") as MockHttpClient:
+        with patch("lib.image_backends.base.httpx.AsyncClient") as MockHttpClient:
             mock_http = AsyncMock()
             MockHttpClient.return_value.__aenter__ = AsyncMock(return_value=mock_http)
             MockHttpClient.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -183,7 +183,7 @@ class TestGenerateI2I:
 
         fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
 
-        with patch("lib.image_backends.grok.httpx.AsyncClient") as MockHttpClient:
+        with patch("lib.image_backends.base.httpx.AsyncClient") as MockHttpClient:
             mock_http = AsyncMock()
             MockHttpClient.return_value.__aenter__ = AsyncMock(return_value=mock_http)
             MockHttpClient.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -215,7 +215,7 @@ class TestGenerateI2I:
 
         fake_image_bytes = b"\x89PNG\r\n\x1a\n"
 
-        with patch("lib.image_backends.grok.httpx.AsyncClient") as MockHttpClient:
+        with patch("lib.image_backends.base.httpx.AsyncClient") as MockHttpClient:
             mock_http = AsyncMock()
             MockHttpClient.return_value.__aenter__ = AsyncMock(return_value=mock_http)
             MockHttpClient.return_value.__aexit__ = AsyncMock(return_value=False)

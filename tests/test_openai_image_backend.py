@@ -14,10 +14,11 @@ from lib.image_backends.base import (
 from lib.providers import PROVIDER_OPENAI
 
 
-def _make_mock_image_response(b64_data: str = "aW1hZ2VfZGF0YQ=="):
-    """构造 mock ImagesResponse。"""
+def _make_mock_image_response(b64_data: str | None = "aW1hZ2VfZGF0YQ==", url: str | None = None):
+    """构造 mock ImagesResponse。默认只含 b64_json；传 url 则模拟兼容网关的 URL 返回。"""
     datum = MagicMock()
     datum.b64_json = b64_data
+    datum.url = url
 
     response = MagicMock()
     response.data = [datum]
@@ -77,7 +78,8 @@ class TestOpenAIImageBackend:
         assert call_kwargs["model"] == "gpt-image-1.5"
         assert call_kwargs["size"] == "1024x1792"  # 9:16
         assert call_kwargs["quality"] == "medium"  # 1K
-        assert call_kwargs["response_format"] == "b64_json"
+        # gpt-image-1 家族不支持 response_format；严格兼容网关会 400，因此绝不能传
+        assert "response_format" not in call_kwargs
 
     async def test_image_to_image(self, tmp_path: Path):
         """I2I 路径应调用 images.edit()。"""
@@ -104,6 +106,45 @@ class TestOpenAIImageBackend:
         assert output_path.read_bytes() == b"edited-image"
         mock_client.images.edit.assert_awaited_once()
         mock_client.images.generate.assert_not_awaited()
+        edit_kwargs = mock_client.images.edit.call_args[1]
+        assert "response_format" not in edit_kwargs
+
+    async def test_text_to_image_url_fallback(self, tmp_path: Path):
+        """网关只返回 url 时，应走 httpx 下载分支。"""
+        mock_client = AsyncMock()
+        mock_client.images.generate = AsyncMock(
+            return_value=_make_mock_image_response(b64_data=None, url="https://gateway/img.png")
+        )
+
+        downloaded = b"downloaded-from-gateway"
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            backend = OpenAIImageBackend(api_key="test-key")
+            output_path = tmp_path / "output.png"
+            request = ImageGenerationRequest(
+                prompt="A beautiful sunset",
+                output_path=output_path,
+                aspect_ratio="9:16",
+                image_size="1K",
+            )
+
+            with patch("lib.image_backends.base.httpx.AsyncClient") as MockHttpClient:
+                mock_http = AsyncMock()
+                MockHttpClient.return_value.__aenter__ = AsyncMock(return_value=mock_http)
+                MockHttpClient.return_value.__aexit__ = AsyncMock(return_value=False)
+                mock_resp = MagicMock()
+                mock_resp.content = downloaded
+                mock_resp.raise_for_status = MagicMock()
+                mock_http.get = AsyncMock(return_value=mock_resp)
+
+                result = await backend.generate(request)
+
+            mock_http.get.assert_awaited_once_with("https://gateway/img.png", timeout=60)
+
+        assert result.image_path == output_path
+        assert output_path.read_bytes() == downloaded
 
     async def test_size_mapping(self, tmp_path: Path):
         """验证 (image_size, aspect_ratio) → size 复合 key 映射。"""

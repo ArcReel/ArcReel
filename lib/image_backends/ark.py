@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 from pathlib import Path
 
@@ -13,6 +12,7 @@ from lib.image_backends.base import (
     ImageGenerationRequest,
     ImageGenerationResult,
     image_to_base64_data_uri,
+    save_image_from_response_item,
 )
 from lib.providers import PROVIDER_ARK
 from lib.retry import with_retry_async
@@ -57,7 +57,6 @@ class ArkImageBackend:
         kwargs: dict = {
             "model": self._model,
             "prompt": request.prompt,
-            "response_format": "b64_json",
         }
 
         # I2I: 读取参考图并转为 base64 data URI
@@ -75,14 +74,7 @@ class ArkImageBackend:
             **kwargs,
         )
 
-        # 解码并保存（磁盘写入 offload 到线程）
-        image_data = base64.b64decode(response.data[0].b64_json)
-
-        def _write():
-            request.output_path.parent.mkdir(parents=True, exist_ok=True)
-            request.output_path.write_bytes(image_data)
-
-        await asyncio.to_thread(_write)
+        await save_image_from_response_item(response.data[0], request.output_path)
 
         return ImageGenerationResult(
             image_path=request.output_path,
