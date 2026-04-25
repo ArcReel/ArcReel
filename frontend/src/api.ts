@@ -22,6 +22,7 @@ import type {
   ProjectChangeBatchPayload,
   ProjectEventSnapshotPayload,
   GetSystemConfigResponse,
+  GetSystemVersionResponse,
   SystemConfigPatch,
   ApiKeyInfo,
   CreateApiKeyResponse,
@@ -306,6 +307,10 @@ class API {
 
   static async getSystemConfig(): Promise<GetSystemConfigResponse> {
     return this.request("/system/config");
+  }
+
+  static async getSystemVersion(): Promise<GetSystemVersionResponse> {
+    return this.request("/system/version");
   }
 
   static async updateSystemConfig(

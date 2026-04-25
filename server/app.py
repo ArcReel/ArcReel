@@ -22,6 +22,7 @@ from starlette.responses import Response
 from lib import PROJECT_ROOT
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
+from lib.httpx_shared import shutdown_http_client, startup_http_client
 from lib.logging_config import setup_logging
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
@@ -166,6 +167,9 @@ async def lifespan(app: FastAPI):
     if any(v > 0 for v in _symlink_stats.values()):
         logger.info("agent_runtime 软连接修复完成: %s", _symlink_stats)
 
+    # 启动共享 httpx 客户端（用于版本检查等外部 API 调用）
+    await startup_http_client()
+
     # Initialize async services
     await assistant.assistant_service.startup()
     assistant.assistant_service.session_manager.start_patrol()
@@ -195,6 +199,7 @@ async def lifespan(app: FastAPI):
         logger.info("正在停止 GenerationWorker...")
         await worker.stop()
         logger.info("GenerationWorker 已停止")
+    await shutdown_http_client()
     await close_db()
 
 

@@ -180,6 +180,7 @@ describe("API", () => {
       await API.updateSegment("demo", "segment-1", { y: 2 });
 
       await API.getSystemConfig();
+      await API.getSystemVersion();
       await API.updateSystemConfig({ default_image_backend: "vertex" });
       await API.listFiles("demo");
       await API.listDrafts("demo");
@@ -238,6 +239,7 @@ describe("API", () => {
         body: JSON.stringify({ y: 2 }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/system/config");
+      expect(requestSpy).toHaveBeenCalledWith("/system/version");
       expect(requestSpy).toHaveBeenCalledWith("/system/config", {
         method: "PATCH",
         body: JSON.stringify({ default_image_backend: "vertex" }),
@@ -770,8 +772,7 @@ describe("API", () => {
 import type { ReferenceVideoUnit } from "@/types";
 
 describe("API.referenceVideos", () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let fetchMock: ReturnType<typeof vi.fn> & { mock: { calls: any[] } };
+  let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     fetchMock = vi.spyOn(globalThis, "fetch");

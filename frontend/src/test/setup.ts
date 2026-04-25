@@ -17,6 +17,41 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   } as unknown as typeof ResizeObserver;
 }
 
+if (
+  typeof window !== "undefined"
+  && (
+    typeof window.localStorage?.getItem !== "function"
+    || typeof window.localStorage?.setItem !== "function"
+    || typeof window.localStorage?.clear !== "function"
+  )
+) {
+  const storage = new Map<string, string>();
+  const localStorageMock: Storage = {
+    get length() {
+      return storage.size;
+    },
+    clear() {
+      storage.clear();
+    },
+    getItem(key: string) {
+      return storage.has(key) ? storage.get(key)! : null;
+    },
+    key(index: number) {
+      return Array.from(storage.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      storage.delete(key);
+    },
+    setItem(key: string, value: string) {
+      storage.set(String(key), String(value));
+    },
+  };
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: localStorageMock,
+  });
+}
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
