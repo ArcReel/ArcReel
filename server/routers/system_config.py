@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import tomllib
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
@@ -39,10 +40,12 @@ router = APIRouter()
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _PYPROJECT_PATH = _PROJECT_ROOT / "pyproject.toml"
 _GITHUB_RELEASE_LATEST_URL = "https://api.github.com/repos/ArcReel/ArcReel/releases/latest"
+_GITHUB_USER_AGENT = "ArcReel"
 _VERSION_CACHE_TTL_SECONDS = 300
 _latest_release_cache: dict[str, datetime | dict[str, str] | None] = {
     "expires_at": None,
     "payload": None,
+    "fetched_at": None,
 }
 
 # ---------------------------------------------------------------------------
@@ -57,6 +60,7 @@ class _OptionsDict(TypedDict):
     provider_names: dict[str, str]
 
 
+@lru_cache(maxsize=1)
 def _read_app_version() -> str:
     with _PYPROJECT_PATH.open("rb") as f:
         data = tomllib.load(f)
@@ -89,24 +93,38 @@ def _build_latest_release_payload(data: dict[str, Any]) -> dict[str, str]:
     }
 
 
-async def _get_latest_release() -> dict[str, str]:
+async def _get_latest_release() -> tuple[dict[str, str], datetime]:
+    """Fetch latest GitHub release with a 5-minute cache.
+
+    Returns (payload, fetched_at) where fetched_at is the timestamp of the
+    actual successful HTTP fetch (not the current request time). This makes
+    the value safe to surface as `checked_at` to clients without misleading
+    them about cache freshness.
+    """
     now = datetime.now(UTC)
     expires_at = _latest_release_cache.get("expires_at")
     payload = _latest_release_cache.get("payload")
-    if isinstance(expires_at, datetime) and expires_at > now and isinstance(payload, dict):
-        return payload
+    fetched_at = _latest_release_cache.get("fetched_at")
+    if (
+        isinstance(expires_at, datetime)
+        and expires_at > now
+        and isinstance(payload, dict)
+        and isinstance(fetched_at, datetime)
+    ):
+        return payload, fetched_at
 
     response = await get_http_client().get(
         _GITHUB_RELEASE_LATEST_URL,
-        headers={"Accept": "application/vnd.github+json"},
+        headers={"Accept": "application/vnd.github+json", "User-Agent": _GITHUB_USER_AGENT},
         timeout=5.0,
     )
     response.raise_for_status()
     payload = _build_latest_release_payload(response.json())
 
     _latest_release_cache["payload"] = payload
+    _latest_release_cache["fetched_at"] = now
     _latest_release_cache["expires_at"] = now + timedelta(seconds=_VERSION_CACHE_TTL_SECONDS)
-    return payload
+    return payload, now
 
 
 async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsDict:
@@ -251,8 +269,9 @@ async def get_system_version(
     latest: dict[str, str] | None = None
     has_update = False
     update_check_error: str | None = None
+    checked_at: datetime = datetime.now(UTC)
     try:
-        latest = await _get_latest_release()
+        latest, checked_at = await _get_latest_release()
         latest_v = _parse_version(latest["version"])
         current_v = _parse_version(current_version)
         if latest_v is not None and current_v is not None:
@@ -265,7 +284,7 @@ async def get_system_version(
         "current": {"version": current_version},
         "latest": latest,
         "has_update": has_update,
-        "checked_at": datetime.now(UTC).isoformat(),
+        "checked_at": checked_at.isoformat(),
         "update_check_error": update_check_error,
     }
 

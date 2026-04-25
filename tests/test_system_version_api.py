@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,6 +13,8 @@ from server.dependencies import get_config_service
 from server.routers import system_config
 from server.routers.system_config import _parse_version
 from tests.conftest import make_translator
+
+_FIXED_FETCHED_AT = datetime(2026, 4, 21, 8, 5, 0, tzinfo=UTC)
 
 
 def _make_app() -> FastAPI:
@@ -35,12 +38,25 @@ def _release(version: str) -> dict[str, str]:
     }
 
 
+def _release_tuple(version: str) -> tuple[dict[str, str], datetime]:
+    return _release(version), _FIXED_FETCHED_AT
+
+
+def _reset_cache() -> None:
+    system_config._latest_release_cache["expires_at"] = None
+    system_config._latest_release_cache["payload"] = None
+    system_config._latest_release_cache["fetched_at"] = None
+
+
 class TestSystemVersionApi:
     def test_returns_current_and_latest_release(self):
         app = _make_app()
         with (
             patch("server.routers.system_config._read_app_version", return_value="0.9.0"),
-            patch("server.routers.system_config._get_latest_release", new=AsyncMock(return_value=_release("0.9.1"))),
+            patch(
+                "server.routers.system_config._get_latest_release",
+                new=AsyncMock(return_value=_release_tuple("0.9.1")),
+            ),
         ):
             with TestClient(app) as client:
                 resp = client.get("/api/v1/system/version")
@@ -51,6 +67,8 @@ class TestSystemVersionApi:
         assert body["latest"]["version"] == "0.9.1"
         assert body["has_update"] is True
         assert body["update_check_error"] is None
+        # checked_at 应反映实际 fetch 时间，而不是请求时间
+        assert body["checked_at"] == _FIXED_FETCHED_AT.isoformat()
 
     def test_returns_current_version_when_github_check_fails(self):
         app = _make_app()
@@ -74,7 +92,10 @@ class TestSystemVersionApi:
         app = _make_app()
         with (
             patch("server.routers.system_config._read_app_version", return_value="0.9.0"),
-            patch("server.routers.system_config._get_latest_release", new=AsyncMock(return_value=_release("0.9.0"))),
+            patch(
+                "server.routers.system_config._get_latest_release",
+                new=AsyncMock(return_value=_release_tuple("0.9.0")),
+            ),
         ):
             with TestClient(app) as client:
                 resp = client.get("/api/v1/system/version")
@@ -90,7 +111,8 @@ class TestSystemVersionApi:
         with (
             patch("server.routers.system_config._read_app_version", return_value="0.10.0"),
             patch(
-                "server.routers.system_config._get_latest_release", new=AsyncMock(return_value=_release("0.10.0-rc1"))
+                "server.routers.system_config._get_latest_release",
+                new=AsyncMock(return_value=_release_tuple("0.10.0-rc1")),
             ),
         ):
             with TestClient(app) as client:
@@ -115,7 +137,10 @@ class TestSystemVersionApi:
         }
         with (
             patch("server.routers.system_config._read_app_version", return_value="0.9.0"),
-            patch("server.routers.system_config._get_latest_release", new=AsyncMock(return_value=broken_payload)),
+            patch(
+                "server.routers.system_config._get_latest_release",
+                new=AsyncMock(return_value=(broken_payload, _FIXED_FETCHED_AT)),
+            ),
         ):
             with TestClient(app) as client:
                 resp = client.get("/api/v1/system/version")
@@ -127,6 +152,9 @@ class TestSystemVersionApi:
 
     def test_returns_500_when_local_version_cannot_be_read(self):
         app = _make_app()
+        # _read_app_version 被 lru_cache 装饰，patch 会替换整个属性
+        # 但需要保险起见 clear cache，避免之前测试 populate
+        system_config._read_app_version.cache_clear()
         with patch("server.routers.system_config._read_app_version", side_effect=RuntimeError("missing version")):
             with TestClient(app, raise_server_exceptions=False) as client:
                 resp = client.get("/api/v1/system/version")
@@ -140,9 +168,7 @@ class TestSystemVersionApi:
 class TestGetLatestReleaseCache:
     def test_cache_hit_within_ttl_skips_http_call(self):
         """5 分钟 TTL 内重复调用应只命中 HTTP 一次。"""
-        # 清缓存
-        system_config._latest_release_cache["expires_at"] = None
-        system_config._latest_release_cache["payload"] = None
+        _reset_cache()
 
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -166,8 +192,39 @@ class TestGetLatestReleaseCache:
         import asyncio
 
         a, b = asyncio.run(run())
+        # payload 与 fetched_at 都来自同一次 fetch
         assert a == b
+        assert a[1] == b[1]  # fetched_at 不变（关键：缓存命中不重置时间戳）
         assert mock_client.get.await_count == 1
+
+    def test_cached_endpoint_response_preserves_fetched_at(self):
+        """端到端：连续两次调用 /system/version 时 checked_at 不变（缓存命中）。"""
+        _reset_cache()
+        app = _make_app()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "tag_name": "v0.9.1",
+            "name": "0.9.1",
+            "body": "",
+            "html_url": "",
+            "published_at": "",
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with (
+            patch("server.routers.system_config._read_app_version", return_value="0.9.0"),
+            patch("server.routers.system_config.get_http_client", return_value=mock_client),
+        ):
+            with TestClient(app) as client:
+                first = client.get("/api/v1/system/version").json()
+                second = client.get("/api/v1/system/version").json()
+
+        assert mock_client.get.await_count == 1
+        assert first["checked_at"] == second["checked_at"]
 
 
 class TestParseVersion:
