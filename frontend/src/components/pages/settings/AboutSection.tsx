@@ -27,33 +27,26 @@ export function AboutSection() {
 
   useEffect(() => {
     let mounted = true;
-
-    async function loadVersionInfo() {
-      setError(null);
-      setRefreshing(true);
-      let nextData: GetSystemVersionResponse | null = null;
-      let nextError: string | null = null;
+    setRefreshing(true);
+    void (async () => {
       try {
-        nextData = await API.getSystemVersion();
+        const result = await API.getSystemVersion();
+        if (mounted) setData(result);
       } catch (err) {
-        nextError = err instanceof Error ? err.message : t("about_load_failed");
+        if (mounted) setError(err instanceof Error ? err.message : t("about_load_failed"));
+      } finally {
+        if (mounted) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
-      if (!mounted) return;
-      if (nextData) {
-        setData(nextData);
-      }
-      if (nextError) {
-        setError(nextError);
-      }
-      setLoading(false);
-      setRefreshing(false);
-    }
-
-    void loadVersionInfo();
+    })();
     return () => {
       mounted = false;
     };
-  }, [t]);
+    // 仅 mount 时拉一次；t 仅用于 fallback 错误文案，不应触发重新拉取 GitHub Release
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleRefresh() {
     setError(null);
@@ -96,8 +89,8 @@ export function AboutSection() {
               {data?.latest?.published_at && (
                 <p>{t("about_published_at", { date: formatDate(data.latest.published_at, i18n.language) })}</p>
               )}
-            <p>{t("about_checked_at", { date: formatDate(data?.checked_at ?? "", i18n.language) })}</p>
-          </div>
+              <p>{t("about_checked_at", { date: formatDate(data?.checked_at ?? "", i18n.language) })}</p>
+            </div>
           </div>
 
           <button

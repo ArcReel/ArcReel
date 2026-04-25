@@ -14,8 +14,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,7 @@ from lib.config.service import (
     sync_anthropic_env,
 )
 from lib.db import get_async_session
+from lib.httpx_shared import get_http_client
 from lib.i18n import Translator
 from server.auth import CurrentUser
 from server.dependencies import get_config_service
@@ -66,12 +67,14 @@ def _read_app_version() -> str:
     return version
 
 
-def _normalize_version(raw: str) -> tuple[int, ...]:
+def _parse_version(raw: str) -> Version | None:
     text = raw.strip().removeprefix("v")
-    parts = text.split(".")
-    if not text or not all(part.isdigit() for part in parts):
-        raise ValueError(f"invalid version: {raw}")
-    return tuple(int(part) for part in parts)
+    if not text:
+        return None
+    try:
+        return Version(text)
+    except InvalidVersion:
+        return None
 
 
 def _build_latest_release_payload(data: dict[str, Any]) -> dict[str, str]:
@@ -93,13 +96,13 @@ async def _get_latest_release() -> dict[str, str]:
     if isinstance(expires_at, datetime) and expires_at > now and isinstance(payload, dict):
         return payload
 
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        response = await client.get(
-            _GITHUB_RELEASE_LATEST_URL,
-            headers={"Accept": "application/vnd.github+json"},
-        )
-        response.raise_for_status()
-        payload = _build_latest_release_payload(response.json())
+    response = await get_http_client().get(
+        _GITHUB_RELEASE_LATEST_URL,
+        headers={"Accept": "application/vnd.github+json"},
+        timeout=5.0,
+    )
+    response.raise_for_status()
+    payload = _build_latest_release_payload(response.json())
 
     _latest_release_cache["payload"] = payload
     _latest_release_cache["expires_at"] = now + timedelta(seconds=_VERSION_CACHE_TTL_SECONDS)
@@ -237,23 +240,26 @@ async def get_system_config(
 @router.get("/system/version")
 async def get_system_version(
     _user: CurrentUser,
+    _t: Translator,
 ) -> dict[str, Any]:
     try:
         current_version = _read_app_version()
     except Exception as exc:
         logger.exception("Failed to read app version")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=_t("about_version_read_failed")) from exc
 
     latest: dict[str, str] | None = None
     has_update = False
     update_check_error: str | None = None
     try:
-        latest_payload = await _get_latest_release()
-        latest = latest_payload if "version" in latest_payload else _build_latest_release_payload(latest_payload)
-        has_update = _normalize_version(latest["version"]) > _normalize_version(current_version)
+        latest = await _get_latest_release()
+        latest_v = _parse_version(latest["version"])
+        current_v = _parse_version(current_version)
+        if latest_v is not None and current_v is not None:
+            has_update = latest_v > current_v
     except Exception as exc:
         logger.warning("Failed to fetch latest release: %s", exc)
-        update_check_error = str(exc)
+        update_check_error = _t("about_update_check_failed")
 
     return {
         "current": {"version": current_version},
