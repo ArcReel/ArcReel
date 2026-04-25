@@ -117,4 +117,6 @@ MESSAGES = {
     "ref_payload_too_large": "Reference image payload exceeded provider limits, retried with extra compression",
     "ref_sora_single_ref": "Sora reference mode does not currently support multiple images, downgraded to single image",
     "ref_shot_parse_fallback": "No Shot N (Xs) header detected, treated as a single shot",
+    "about_update_check_failed": "Failed to check for updates, please try again later",
+    "about_version_read_failed": "Failed to read app version",
 }

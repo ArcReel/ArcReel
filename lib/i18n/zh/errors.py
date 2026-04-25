@@ -117,4 +117,6 @@ MESSAGES = {
     "ref_payload_too_large": "参考图请求体超出供应商限制，已二次压缩重试",
     "ref_sora_single_ref": "Sora 参考模式暂不支持多图，已降级为单图",
     "ref_shot_parse_fallback": "未识别到 Shot N (Xs): 标记，按单镜头处理",
+    "about_update_check_failed": "检查更新失败，请稍后重试",
+    "about_version_read_failed": "读取应用版本失败",
 }
