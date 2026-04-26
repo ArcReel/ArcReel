@@ -9,34 +9,43 @@ import type {
   CustomProviderInfo,
   CustomProviderModelInput,
   DiscoveredModel,
+  EndpointKey,
+  MediaType,
 } from "@/types";
+import { ENDPOINT_TO_MEDIA_TYPE } from "@/types";
+import { priceLabel, urlPreviewFor, toggleDefaultReducer, type DiscoveryFormat } from "./customProviderHelpers";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS } from "@/utils/provider-models";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types & constants
 // ---------------------------------------------------------------------------
 
-type ApiFormat = "openai" | "google" | "newapi";
-type MediaType = "text" | "image" | "video";
-
-const API_FORMAT_OPTIONS: { value: ApiFormat; label: string }[] = [
-  { value: "openai", label: "OpenAI" },
-  { value: "google", label: "Google" },
-  { value: "newapi", label: "NewAPI" },
+const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; label: string }[] = [
+  { value: "openai", label: "OpenAI 兼容" },
+  { value: "google", label: "Google AI Studio" },
 ];
 
-const MEDIA_TYPE_OPTIONS: { value: MediaType; label: string }[] = [
-  { value: "text", label: "media_type_text" },
-  { value: "image", label: "media_type_image" },
-  { value: "video", label: "media_type_video" },
+interface EndpointOption {
+  value: EndpointKey;
+  labelKey: string;
+  mediaType: MediaType;
+}
+
+const ENDPOINT_OPTIONS: EndpointOption[] = [
+  { value: "openai-chat", labelKey: "endpoint_openai_chat_display", mediaType: "text" },
+  { value: "gemini-generate", labelKey: "endpoint_gemini_generate_display", mediaType: "text" },
+  { value: "openai-images", labelKey: "endpoint_openai_images_display", mediaType: "image" },
+  { value: "gemini-image", labelKey: "endpoint_gemini_image_display", mediaType: "image" },
+  { value: "openai-video", labelKey: "endpoint_openai_video_display", mediaType: "video" },
+  { value: "newapi-video", labelKey: "endpoint_newapi_video_display", mediaType: "video" },
 ];
 
 interface ModelRow {
   key: string; // unique key for React
   model_id: string;
   display_name: string;
-  media_type: MediaType;
+  endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
   price_unit: string;
@@ -51,7 +60,7 @@ function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     key: uid(),
     model_id: "",
     display_name: "",
-    media_type: "text",
+    endpoint: "openai-chat",
     is_default: false,
     is_enabled: true,
     price_unit: "",
@@ -67,7 +76,7 @@ function discoveredToRow(m: DiscoveredModel): ModelRow {
   return newModelRow({
     model_id: m.model_id,
     display_name: m.display_name,
-    media_type: m.media_type,
+    endpoint: m.endpoint,
     is_default: m.is_default,
     is_enabled: m.is_enabled,
   });
@@ -77,7 +86,7 @@ function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
   return newModelRow({
     model_id: m.model_id,
     display_name: m.display_name,
-    media_type: m.media_type,
+    endpoint: m.endpoint,
     is_default: m.is_default,
     is_enabled: m.is_enabled,
     price_unit: m.price_unit ?? "",
@@ -92,7 +101,7 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
   return {
     model_id: r.model_id,
     display_name: r.display_name || r.model_id,
-    media_type: r.media_type,
+    endpoint: r.endpoint,
     is_default: r.is_default,
     is_enabled: r.is_enabled,
     ...(r.price_unit ? { price_unit: r.price_unit } : {}),
@@ -101,16 +110,6 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
     ...(r.currency ? { currency: r.currency } : {}),
     ...(r.resolution ? { resolution: r.resolution } : { resolution: null }),
   };
-}
-
-// ---------------------------------------------------------------------------
-// Price label helper
-// ---------------------------------------------------------------------------
-
-function priceLabel(mediaType: MediaType, t: (key: string) => string): { input: string; output: string } {
-  if (mediaType === "video") return { input: t("price_per_second"), output: "" };
-  if (mediaType === "image") return { input: t("price_per_image"), output: "" };
-  return { input: t("price_per_m_input"), output: t("price_per_m_output") };
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +128,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
   // --- Form state ---
   const [displayName, setDisplayName] = useState(existing?.display_name ?? "");
-  const [apiFormat, setApiFormat] = useState<ApiFormat>(existing?.api_format ?? "openai");
+  const [discoveryFormat, setDiscoveryFormat] = useState<DiscoveryFormat>(existing?.discovery_format ?? "openai");
   const [baseUrl, setBaseUrl] = useState(existing?.base_url ?? "");
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
@@ -163,7 +162,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     }
     setDiscovering(true);
     try {
-      const res = await API.discoverModels({ api_format: apiFormat, base_url: baseUrl, api_key: apiKey });
+      const res = await API.discoverModels({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
       const discovered = res.models.map(discoveredToRow);
       setModels((prev) => {
         const existingIds = new Map(prev.map((r) => [r.model_id, r]));
@@ -189,7 +188,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setDiscovering(false);
     }
-  }, [apiFormat, baseUrl, apiKey, showError, t]);
+  }, [discoveryFormat, baseUrl, apiKey, showError, t]);
 
   // --- Test connection ---
   const handleTest = useCallback(async () => {
@@ -200,14 +199,14 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await API.testCustomConnection({ api_format: apiFormat, base_url: baseUrl, api_key: apiKey });
+      const res = await API.testCustomConnection({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
       setTestResult(res);
     } catch (e) {
       setTestResult({ success: false, message: errMsg(e, t("connection_test_failed")) });
     } finally {
       setTesting(false);
     }
-  }, [apiFormat, baseUrl, apiKey, showError, t]);
+  }, [discoveryFormat, baseUrl, apiKey, showError, t]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
@@ -247,7 +246,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       } else {
         await API.createCustomProvider({
           display_name: displayName,
-          api_format: apiFormat,
+          discovery_format: discoveryFormat,
           base_url: baseUrl,
           api_key: apiKey,
           models: models.map(rowToInput),
@@ -259,7 +258,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setSaving(false);
     }
-  }, [displayName, apiFormat, baseUrl, apiKey, models, isEdit, existing, onSaved, showError, t]);
+  }, [displayName, discoveryFormat, baseUrl, apiKey, models, isEdit, existing, onSaved, showError, t]);
 
   // --- Model row helpers ---
   const updateModel = (key: string, patch: Partial<ModelRow>) => {
@@ -280,15 +279,6 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     setModels((prev) => [...prev, newModelRow()]);
   };
 
-  const toggleDefault = (key: string, mediaType: MediaType) => {
-    setModels((prev) =>
-      prev.map((m) => {
-        if (m.media_type !== mediaType) return m;
-        return { ...m, is_default: m.key === key ? !m.is_default : false };
-      }),
-    );
-  };
-
   // --- Shared input classes ---
   const inputCls =
     "w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus-ring";
@@ -296,18 +286,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     "rounded-lg border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-gray-100 focus:border-indigo-500 focus-ring";
 
   // --- Base URL preview (effective models endpoint) ---
-  const urlPreview = (() => {
-    const trimmed = baseUrl.trim().replace(/\/+$/, "");
-    if (!trimmed) return null;
-    if (apiFormat === "openai") {
-      // OpenAI SDK 需要 /v1 后缀，后端自动补全
-      const base = trimmed.match(/\/v\d+$/) ? trimmed : `${trimmed}/v1`;
-      return `${base}/models`;
-    }
-    // Google SDK 自动拼接 /v1beta，后端会剥离用户误填的版本路径
-    const base = trimmed.replace(/\/v\d+\w*$/, "");
-    return `${base}/v1beta/models`;
-  })();
+  const urlPreview = urlPreviewFor(discoveryFormat, baseUrl);
 
   return (
     <div className="flex h-full flex-col">
@@ -332,26 +311,6 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             placeholder={t("cp_name_placeholder")}
             className={inputCls}
           />
-        </div>
-
-        {/* API Format */}
-        <div>
-          <label htmlFor="cp-format" className="mb-1.5 block text-sm text-gray-400">
-            {t("api_format_label")}
-          </label>
-          <select
-            id="cp-format"
-            value={apiFormat}
-            onChange={(e) => setApiFormat(e.target.value as ApiFormat)}
-            disabled={isEdit}
-            className={selectCls}
-          >
-            {API_FORMAT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
         </div>
 
         {/* Base URL */}
@@ -398,6 +357,25 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
               {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
+        </div>
+
+        {/* Discovery format (de-emphasized) */}
+        <div className="text-xs text-gray-500">
+          <label htmlFor="cp-discovery" className="mr-2">
+            {t("discovery_format_label")}：
+          </label>
+          <select
+            id="cp-discovery"
+            value={discoveryFormat}
+            onChange={(e) => setDiscoveryFormat(e.target.value as DiscoveryFormat)}
+            disabled={isEdit}
+            className="rounded border border-gray-700 bg-gray-900 px-2 py-0.5 text-xs text-gray-300"
+          >
+            {DISCOVERY_FORMAT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <span className="ml-2 text-gray-600">{t("discovery_format_help")}</span>
         </div>
 
         {/* Discover button */}
@@ -454,7 +432,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             )}
             <div className="space-y-2">
               {filteredModels.map((m) => {
-                const pl = priceLabel(m.media_type, t);
+                const pl = priceLabel(m.endpoint, t);
                 return (
                   <div
                     key={m.key}
@@ -482,24 +460,34 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-100 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
                       />
 
-                      {/* Media type */}
+                      {/* Endpoint select (grouped by media type) */}
                       <select
-                        value={m.media_type}
-                        onChange={(e) => updateModel(m.key, { media_type: e.target.value as MediaType })}
-                        aria-label={t("media_type_label")}
+                        value={m.endpoint}
+                        onChange={(e) => updateModel(m.key, { endpoint: e.target.value as EndpointKey, is_default: false })}
+                        aria-label={t("endpoint_label")}
                         className={selectCls}
                       >
-                        {MEDIA_TYPE_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {t(o.label)}
-                          </option>
-                        ))}
+                        <optgroup label={t("endpoint_text_group")}>
+                          {ENDPOINT_OPTIONS.filter((o) => o.mediaType === "text").map((o) => (
+                            <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
+                          ))}
+                        </optgroup>
+                        <optgroup label={t("endpoint_image_group")}>
+                          {ENDPOINT_OPTIONS.filter((o) => o.mediaType === "image").map((o) => (
+                            <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
+                          ))}
+                        </optgroup>
+                        <optgroup label={t("endpoint_video_group")}>
+                          {ENDPOINT_OPTIONS.filter((o) => o.mediaType === "video").map((o) => (
+                            <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
+                          ))}
+                        </optgroup>
                       </select>
 
                       {/* Default toggle */}
                       <button
                         type="button"
-                        onClick={() => toggleDefault(m.key, m.media_type)}
+                        onClick={() => setModels((prev) => toggleDefaultReducer(prev, m.key))}
                         className={`rounded-lg px-2 py-1 text-xs transition-colors ${
                           m.is_default
                             ? "bg-indigo-600 text-white"
@@ -559,12 +547,12 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                     </div>
 
                     {/* Resolution row */}
-                    {(m.media_type === "image" || m.media_type === "video") && (
+                    {ENDPOINT_TO_MEDIA_TYPE[m.endpoint] !== "text" && (
                       <div className="mt-2 flex items-center gap-2 pl-6">
                         <span className="text-sm text-gray-400 whitespace-nowrap">{t("resolution_label")}</span>
                         <ResolutionPicker
                           mode="combobox"
-                          options={m.media_type === "image" ? IMAGE_STANDARD_RESOLUTIONS : VIDEO_STANDARD_RESOLUTIONS}
+                          options={ENDPOINT_TO_MEDIA_TYPE[m.endpoint] === "image" ? IMAGE_STANDARD_RESOLUTIONS : VIDEO_STANDARD_RESOLUTIONS}
                           value={m.resolution || null}
                           onChange={(v) => updateModel(m.key, { resolution: v ?? "" })}
                           placeholder={t("resolution_default_placeholder")}
