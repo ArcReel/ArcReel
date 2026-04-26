@@ -18,6 +18,17 @@ def alembic_cfg(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     # env.py 通过 DATABASE_URL 环境变量获取 URL，必须用 aiosqlite 协议
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    # alembic env.py 调用 logging.config.fileConfig(...)，默认 disable_existing_loggers=True，
+    # 会禁掉测试进程已注册的 logger，导致后续 caplog 测试抓不到日志。
+    # patch 为 disable_existing_loggers=False 防止跨测试污染。
+    import logging.config
+
+    real_file_config = logging.config.fileConfig
+    monkeypatch.setattr(
+        logging.config,
+        "fileConfig",
+        lambda *args, **kwargs: real_file_config(*args, **{**kwargs, "disable_existing_loggers": False}),
+    )
     cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
     return cfg, db_path
