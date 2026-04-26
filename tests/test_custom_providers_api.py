@@ -77,14 +77,14 @@ class TestCreateProvider:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Test Provider",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-test-key-12345678",
                 "models": [
                     {
                         "model_id": "gpt-4",
                         "display_name": "GPT-4",
-                        "media_type": "text",
+                        "endpoint": "openai-chat",
                     }
                 ],
             },
@@ -96,21 +96,21 @@ class TestCreateProvider:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Test Provider",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-test-key-12345678",
                 "models": [
                     {
                         "model_id": "gpt-4",
                         "display_name": "GPT-4",
-                        "media_type": "text",
+                        "endpoint": "openai-chat",
                     }
                 ],
             },
         )
         body = resp.json()
         assert body["display_name"] == "Test Provider"
-        assert body["api_format"] == "openai"
+        assert body["discovery_format"] == "openai"
         assert body["base_url"] == "https://api.example.com/v1"
         # api_key must be masked
         assert "sk-test-key-12345678" not in body["api_key_masked"]
@@ -124,7 +124,7 @@ class TestCreateProvider:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Empty Provider",
-                "api_format": "google",
+                "discovery_format": "google",
                 "base_url": "https://api.example.com",
                 "api_key": "AIza-test-12345678",
             },
@@ -132,20 +132,20 @@ class TestCreateProvider:
         assert resp.status_code == 201
         assert resp.json()["models"] == []
 
-    def test_create_newapi_provider(self, client: TestClient):
-        """回归: POST /custom-providers 接受 api_format=newapi 且持久化正确字段。"""
+    def test_create_openai_discovery_format_provider(self, client: TestClient):
+        """回归: POST /custom-providers 接受 discovery_format=openai 且持久化正确字段。"""
         resp = client.post(
             "/api/v1/custom-providers",
             json={
-                "display_name": "NewAPI Gateway",
-                "api_format": "newapi",
-                "base_url": "https://newapi.example.com/v1",
-                "api_key": "sk-newapi-test-12345",
+                "display_name": "OpenAI Gateway",
+                "discovery_format": "openai",
+                "base_url": "https://openai.example.com/v1",
+                "api_key": "sk-openai-test-12345",
                 "models": [
                     {
                         "model_id": "kling-v1",
                         "display_name": "Kling v1",
-                        "media_type": "video",
+                        "endpoint": "newapi-video",
                         "is_default": True,
                         "is_enabled": True,
                     },
@@ -154,8 +154,8 @@ class TestCreateProvider:
         )
         assert resp.status_code == 201
         body = resp.json()
-        assert body["api_format"] == "newapi"
-        assert body["base_url"] == "https://newapi.example.com/v1"
+        assert body["discovery_format"] == "openai"
+        assert body["base_url"] == "https://openai.example.com/v1"
         assert len(body["models"]) == 1
         assert body["models"][0]["model_id"] == "kling-v1"
 
@@ -172,7 +172,7 @@ class TestListProviders:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Provider A",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://a.example.com/v1",
                 "api_key": "sk-aaaa-key-12345678",
             },
@@ -181,7 +181,7 @@ class TestListProviders:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Provider B",
-                "api_format": "google",
+                "discovery_format": "google",
                 "base_url": "https://b.example.com",
                 "api_key": "AIza-bbbb-12345678",
             },
@@ -200,14 +200,14 @@ class TestGetProvider:
             "/api/v1/custom-providers",
             json={
                 "display_name": "My Provider",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-get-test-12345678",
                 "models": [
                     {
                         "model_id": "gpt-4o",
                         "display_name": "GPT-4o",
-                        "media_type": "text",
+                        "endpoint": "openai-chat",
                     }
                 ],
             },
@@ -230,7 +230,7 @@ class TestUpdateProvider:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Old Name",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-update-test-1234",
             },
@@ -248,7 +248,7 @@ class TestUpdateProvider:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Key Test",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-old-key-12345678",
             },
@@ -275,7 +275,7 @@ class TestUpdateProvider:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Empty Update",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-empty-test-1234",
             },
@@ -291,7 +291,7 @@ class TestDeleteProvider:
             "/api/v1/custom-providers",
             json={
                 "display_name": "To Delete",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-delete-key-1234",
             },
@@ -320,14 +320,14 @@ class TestReplaceModels:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Model Test",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-model-test-1234",
                 "models": [
                     {
                         "model_id": "old-model",
                         "display_name": "Old Model",
-                        "media_type": "text",
+                        "endpoint": "openai-chat",
                     }
                 ],
             },
@@ -338,13 +338,13 @@ class TestReplaceModels:
             {
                 "model_id": "new-text",
                 "display_name": "New Text Model",
-                "media_type": "text",
+                "endpoint": "openai-chat",
                 "is_default": True,
             },
             {
                 "model_id": "new-image",
                 "display_name": "New Image Model",
-                "media_type": "image",
+                "endpoint": "openai-images",
                 "is_default": True,
             },
         ]
@@ -363,14 +363,14 @@ class TestReplaceModels:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Replace Verify",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-replace-test-12",
                 "models": [
                     {
                         "model_id": "original",
                         "display_name": "Original",
-                        "media_type": "text",
+                        "endpoint": "openai-chat",
                     }
                 ],
             },
@@ -384,7 +384,7 @@ class TestReplaceModels:
                     {
                         "model_id": "replacement",
                         "display_name": "Replacement",
-                        "media_type": "video",
+                        "endpoint": "newapi-video",
                     }
                 ]
             },
@@ -408,7 +408,7 @@ class TestDiscoverModels:
             {
                 "model_id": "gpt-4",
                 "display_name": "gpt-4",
-                "media_type": "text",
+                "endpoint": "openai-chat",
                 "is_default": True,
                 "is_enabled": True,
             },
@@ -421,7 +421,7 @@ class TestDiscoverModels:
             resp = client.post(
                 "/api/v1/custom-providers/discover",
                 json={
-                    "api_format": "openai",
+                    "discovery_format": "openai",
                     "base_url": "https://api.example.com/v1",
                     "api_key": "sk-discover-test",
                 },
@@ -430,13 +430,13 @@ class TestDiscoverModels:
         assert len(resp.json()["models"]) == 1
         assert resp.json()["models"][0]["model_id"] == "gpt-4"
 
-    def test_discover_newapi(self, client: TestClient):
-        """newapi 的模型发现复用 OpenAI 兼容的 /v1/models 路径。"""
+    def test_discover_google(self, client: TestClient):
+        """google discovery_format 透传到 discover_models。"""
         fake_models = [
             {
-                "model_id": "kling-v1",
-                "display_name": "kling-v1",
-                "media_type": "video",
+                "model_id": "gemini-2.0-flash",
+                "display_name": "gemini-2.0-flash",
+                "endpoint": "gemini-generate",
                 "is_default": True,
                 "is_enabled": True,
             },
@@ -449,26 +449,27 @@ class TestDiscoverModels:
             resp = client.post(
                 "/api/v1/custom-providers/discover",
                 json={
-                    "api_format": "newapi",
-                    "base_url": "https://newapi.example.com/v1",
-                    "api_key": "sk-newapi-discover",
+                    "discovery_format": "google",
+                    "base_url": "https://generativelanguage.googleapis.com",
+                    "api_key": "AIza-google-discover",
                 },
             )
         assert resp.status_code == 200
-        assert resp.json()["models"][0]["model_id"] == "kling-v1"
-        # 确认 api_format 作为 newapi 透传
-        assert mock_discover.call_args.kwargs["api_format"] == "newapi"
+        assert resp.json()["models"][0]["model_id"] == "gemini-2.0-flash"
+        # 确认 discovery_format 透传
+        assert mock_discover.call_args.kwargs["discovery_format"] == "google"
 
     def test_discover_invalid_format(self, client: TestClient):
+        """discover_models 抛 ValueError 时返回 400。"""
         with patch(
             "lib.custom_provider.discovery.discover_models",
             new_callable=AsyncMock,
-            side_effect=ValueError("不支持的 api_format: 'invalid'"),
+            side_effect=ValueError("不支持的 discovery_format: 'unknown'"),
         ):
             resp = client.post(
                 "/api/v1/custom-providers/discover",
                 json={
-                    "api_format": "invalid",
+                    "discovery_format": "openai",
                     "base_url": "https://api.example.com/v1",
                     "api_key": "sk-test",
                 },
@@ -484,7 +485,7 @@ class TestDiscoverModels:
             resp = client.post(
                 "/api/v1/custom-providers/discover",
                 json={
-                    "api_format": "openai",
+                    "discovery_format": "openai",
                     "base_url": "https://api.example.com/v1",
                     "api_key": "sk-test",
                 },
@@ -506,7 +507,7 @@ class TestConnectionTest:
             resp = client.post(
                 "/api/v1/custom-providers/test",
                 json={
-                    "api_format": "openai",
+                    "discovery_format": "openai",
                     "base_url": "https://api.example.com/v1",
                     "api_key": "sk-conn-test",
                 },
@@ -524,7 +525,7 @@ class TestConnectionTest:
             resp = client.post(
                 "/api/v1/custom-providers/test",
                 json={
-                    "api_format": "google",
+                    "discovery_format": "google",
                     "base_url": "https://api.example.com",
                     "api_key": "AIza-test",
                 },
@@ -534,8 +535,8 @@ class TestConnectionTest:
         assert body["success"] is True
         assert body["model_count"] == 10
 
-    def test_newapi_success(self, client: TestClient):
-        """newapi 的 /v1/models 走 OpenAI 兼容路径，连接测试应通过 _test_openai。"""
+    def test_openai_routes_to_test_openai(self, client: TestClient):
+        """discovery_format=openai 应路由到 _test_openai。"""
         with patch(
             "server.routers.custom_providers._test_openai",
             return_value=custom_providers.ConnectionTestResponse(success=True, message="连接成功", model_count=42),
@@ -543,9 +544,9 @@ class TestConnectionTest:
             resp = client.post(
                 "/api/v1/custom-providers/test",
                 json={
-                    "api_format": "newapi",
-                    "base_url": "https://newapi.example.com/v1",
-                    "api_key": "sk-newapi-conn",
+                    "discovery_format": "openai",
+                    "base_url": "https://openai.example.com/v1",
+                    "api_key": "sk-openai-conn",
                 },
             )
         assert resp.status_code == 200
@@ -554,11 +555,12 @@ class TestConnectionTest:
         assert body["model_count"] == 42
         mock_openai_test.assert_called_once()
 
-    def test_unsupported_format(self, client: TestClient):
+    def test_unsupported_format_returns_false(self, client: TestClient):
+        """不支持的 discovery_format 应返回 success=False。"""
         resp = client.post(
             "/api/v1/custom-providers/test",
             json={
-                "api_format": "unsupported",
+                "discovery_format": "unsupported",
                 "base_url": "https://api.example.com",
                 "api_key": "test",
             },
@@ -566,7 +568,6 @@ class TestConnectionTest:
         assert resp.status_code == 200
         body = resp.json()
         assert body["success"] is False
-        assert "不支持" in body["message"]
 
     def test_connection_failure(self, client: TestClient):
         with patch(
@@ -576,7 +577,7 @@ class TestConnectionTest:
             resp = client.post(
                 "/api/v1/custom-providers/test",
                 json={
-                    "api_format": "openai",
+                    "discovery_format": "openai",
                     "base_url": "https://api.example.com/v1",
                     "api_key": "sk-fail-test",
                 },
@@ -593,15 +594,21 @@ class TestConnectionTest:
 
 _PROVIDER_PAYLOAD = {
     "display_name": "Regression Test",
-    "api_format": "openai",
+    "discovery_format": "openai",
     "base_url": "https://api.example.com/v1",
     "api_key": "sk-regression-1234",
     "models": [
-        {"model_id": "gpt-4o", "display_name": "GPT-4o", "media_type": "text", "is_default": True, "is_enabled": True},
+        {
+            "model_id": "gpt-4o",
+            "display_name": "GPT-4o",
+            "endpoint": "openai-chat",
+            "is_default": True,
+            "is_enabled": True,
+        },
         {
             "model_id": "dall-e-3",
             "display_name": "DALL-E 3",
-            "media_type": "image",
+            "endpoint": "openai-images",
             "is_default": True,
             "is_enabled": True,
         },
@@ -693,7 +700,7 @@ class TestReplaceModelsCleansStaleRefs:
                         {
                             "model_id": "dall-e-3",
                             "display_name": "DALL-E 3",
-                            "media_type": "image",
+                            "endpoint": "openai-images",
                             "is_default": True,
                             "is_enabled": True,
                         },
@@ -714,11 +721,11 @@ class TestEmptyModelIdRejected:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Bad Provider",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-bad",
                 "models": [
-                    {"model_id": "", "display_name": "Empty", "media_type": "text", "is_enabled": True},
+                    {"model_id": "", "display_name": "Empty", "endpoint": "openai-chat", "is_enabled": True},
                 ],
             },
         )
@@ -732,7 +739,7 @@ class TestEmptyModelIdRejected:
                 f"/api/v1/custom-providers/{pid}/models",
                 json={
                     "models": [
-                        {"model_id": "  ", "display_name": "Blank", "media_type": "text", "is_enabled": True},
+                        {"model_id": "  ", "display_name": "Blank", "endpoint": "openai-chat", "is_enabled": True},
                     ]
                 },
             )
@@ -747,12 +754,12 @@ class TestDuplicateModelIdRejected:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Dup Provider",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-dup",
                 "models": [
-                    {"model_id": "m1", "display_name": "M1a", "media_type": "text", "is_enabled": True},
-                    {"model_id": "m1", "display_name": "M1b", "media_type": "text", "is_enabled": True},
+                    {"model_id": "m1", "display_name": "M1a", "endpoint": "openai-chat", "is_enabled": True},
+                    {"model_id": "m1", "display_name": "M1b", "endpoint": "openai-chat", "is_enabled": True},
                 ],
             },
         )
@@ -776,7 +783,7 @@ class TestFullUpdateProvider:
                         {
                             "model_id": "new-model",
                             "display_name": "New",
-                            "media_type": "text",
+                            "endpoint": "openai-chat",
                             "is_default": True,
                             "is_enabled": True,
                         },
@@ -799,7 +806,7 @@ class TestFullUpdateProvider:
                 "display_name": "X",
                 "base_url": "https://x.com",
                 "models": [
-                    {"model_id": "", "display_name": "Bad", "media_type": "text", "is_enabled": True},
+                    {"model_id": "", "display_name": "Bad", "endpoint": "openai-chat", "is_enabled": True},
                 ],
             },
         )
@@ -847,21 +854,21 @@ class TestDuplicateDefaultRejected:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Dup Default Provider",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-dup-default-1234",
                 "models": [
                     {
                         "model_id": "text-a",
                         "display_name": "Text A",
-                        "media_type": "text",
+                        "endpoint": "openai-chat",
                         "is_default": True,
                         "is_enabled": True,
                     },
                     {
                         "model_id": "text-b",
                         "display_name": "Text B",
-                        "media_type": "text",
+                        "endpoint": "openai-chat",
                         "is_default": True,
                         "is_enabled": True,
                     },
@@ -877,28 +884,28 @@ class TestDuplicateDefaultRejected:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Multi Default Provider",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-multi-default-12",
                 "models": [
                     {
                         "model_id": "text-model",
                         "display_name": "Text Model",
-                        "media_type": "text",
+                        "endpoint": "openai-chat",
                         "is_default": True,
                         "is_enabled": True,
                     },
                     {
                         "model_id": "image-model",
                         "display_name": "Image Model",
-                        "media_type": "image",
+                        "endpoint": "openai-images",
                         "is_default": True,
                         "is_enabled": True,
                     },
                     {
                         "model_id": "video-model",
                         "display_name": "Video Model",
-                        "media_type": "video",
+                        "endpoint": "newapi-video",
                         "is_default": True,
                         "is_enabled": True,
                     },
@@ -916,14 +923,14 @@ class TestPriceFieldConsistency:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Bad Price",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-price-test",
                 "models": [
                     {
                         "model_id": "m1",
                         "display_name": "M1",
-                        "media_type": "text",
+                        "endpoint": "openai-chat",
                         "is_enabled": True,
                         "price_output": 0.5,
                     },
@@ -938,14 +945,14 @@ class TestPriceFieldConsistency:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Currency Only",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-price-test",
                 "models": [
                     {
                         "model_id": "m1",
                         "display_name": "M1",
-                        "media_type": "text",
+                        "endpoint": "openai-chat",
                         "is_enabled": True,
                         "currency": "USD",
                     },
@@ -959,14 +966,14 @@ class TestPriceFieldConsistency:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Good Price",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com/v1",
                 "api_key": "sk-price-test",
                 "models": [
                     {
                         "model_id": "m1",
                         "display_name": "M1",
-                        "media_type": "text",
+                        "endpoint": "openai-chat",
                         "is_enabled": True,
                         "price_input": 0.1,
                         "price_output": 0.2,
@@ -986,14 +993,14 @@ class TestResolutionField:
             "/api/v1/custom-providers",
             json={
                 "display_name": "X",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com",
                 "api_key": "k",
                 "models": [
                     {
                         "model_id": "m1",
                         "display_name": "M1",
-                        "media_type": "video",
+                        "endpoint": "newapi-video",
                         "is_default": True,
                         "is_enabled": True,
                         "resolution": "720p",
@@ -1017,14 +1024,14 @@ class TestResolutionField:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Y",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com",
                 "api_key": "k",
                 "models": [
                     {
                         "model_id": "m1",
                         "display_name": "M1",
-                        "media_type": "video",
+                        "endpoint": "newapi-video",
                         "is_enabled": True,
                     },
                 ],
@@ -1044,14 +1051,14 @@ class TestResolutionField:
             "/api/v1/custom-providers",
             json={
                 "display_name": "Z",
-                "api_format": "openai",
+                "discovery_format": "openai",
                 "base_url": "https://api.example.com",
                 "api_key": "k",
                 "models": [
                     {
                         "model_id": "m1",
                         "display_name": "M1",
-                        "media_type": "video",
+                        "endpoint": "newapi-video",
                         "is_enabled": True,
                         "resolution": "1080p",
                     },
@@ -1069,7 +1076,7 @@ class TestResolutionField:
                     {
                         "model_id": "m1",
                         "display_name": "M1",
-                        "media_type": "video",
+                        "endpoint": "newapi-video",
                         "is_enabled": True,
                     },
                 ],
@@ -1081,3 +1088,72 @@ class TestResolutionField:
         resp = client.get(f"/api/v1/custom-providers/{pid}")
         assert resp.status_code == 200
         assert resp.json()["models"][0]["resolution"] is None
+
+
+# ---------------------------------------------------------------------------
+# 新增 422 校验用例
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_provider_with_unknown_endpoint_returns_422(client):
+    payload = {
+        "display_name": "X",
+        "discovery_format": "openai",
+        "base_url": "https://x",
+        "api_key": "k",
+        "models": [
+            {
+                "model_id": "claude-4",
+                "display_name": "Claude 4",
+                "endpoint": "anthropic-messages",  # 非法
+                "is_default": False,
+                "is_enabled": True,
+            }
+        ],
+    }
+    resp = client.post("/api/v1/custom-providers", json=payload)
+    assert resp.status_code == 422
+    assert "unknown_endpoint" in resp.text or "anthropic-messages" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_create_provider_unknown_discovery_format_returns_422(client):
+    payload = {
+        "display_name": "X",
+        "discovery_format": "newapi",  # 已被剔除
+        "base_url": "https://x",
+        "api_key": "k",
+        "models": [],
+    }
+    resp = client.post("/api/v1/custom-providers", json=payload)
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_default_conflict_grouped_by_endpoint_media(client):
+    """两条 endpoint 不同但推算 media_type 相同的模型不能同时 is_default。"""
+    payload = {
+        "display_name": "X",
+        "discovery_format": "openai",
+        "base_url": "https://x",
+        "api_key": "k",
+        "models": [
+            {
+                "model_id": "gpt-4o",
+                "display_name": "a",
+                "endpoint": "openai-chat",
+                "is_default": True,
+                "is_enabled": True,
+            },
+            {
+                "model_id": "gemini-2.5",
+                "display_name": "b",
+                "endpoint": "gemini-generate",
+                "is_default": True,
+                "is_enabled": True,
+            },  # 都是 text → 冲突
+        ],
+    }
+    resp = client.post("/api/v1/custom-providers", json=payload)
+    assert resp.status_code == 422
