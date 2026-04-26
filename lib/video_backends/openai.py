@@ -135,13 +135,6 @@ class OpenAIVideoBackend:
         不复用 SDK 的 client.videos.poll：它仅识别 in_progress/queued/completed/failed，
         对接返回非标状态（如 NOT_START）的 OpenAI 兼容网关时会提前退出，导致下载未就绪任务。
         """
-        # poll_with_retry 循环首轮也会先 sleep，已完成/缓存命中场景会被白等一轮——先查一次再决定
-        first = await self._client.videos.retrieve(video_id)
-        if first.status == "completed":
-            return first
-        if first.status == "failed":
-            raise RuntimeError(f"Sora 视频生成失败: {getattr(first, 'error', None)}")
-
         max_wait = max(_MIN_POLL_TIMEOUT_SECONDS, float(duration_seconds) * _POLL_TIMEOUT_PER_SECOND)
 
         return await poll_with_retry(

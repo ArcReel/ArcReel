@@ -53,30 +53,26 @@ async def poll_with_retry[T](
     start = time.monotonic()
     prefix = f"{label} " if label else ""
 
+    # 先查询再等待：已完成/缓存命中的任务立刻返回，不被 poll_interval 白等一轮。
     while True:
-        elapsed = time.monotonic() - start
-        if elapsed >= max_wait:
-            raise TimeoutError(f"{prefix}任务超时（{max_wait:.0f}秒）")
-
-        await asyncio.sleep(poll_interval)
-
         try:
             result = await poll_fn()
         except Exception as e:
-            if _should_retry(e, retryable_errors):
-                logger.warning("%s轮询异常（将重试）: %s - %s", prefix, type(e).__name__, str(e)[:200])
-                continue
-            raise
+            if not _should_retry(e, retryable_errors):
+                raise
+            logger.warning("%s轮询异常（将重试）: %s - %s", prefix, type(e).__name__, str(e)[:200])
+        else:
+            error_msg = is_failed(result)
+            if error_msg is not None:
+                raise RuntimeError(error_msg)
+            if is_done(result):
+                return result
+            if on_progress is not None:
+                on_progress(result, time.monotonic() - start)
 
-        error_msg = is_failed(result)
-        if error_msg is not None:
-            raise RuntimeError(error_msg)
-
-        if is_done(result):
-            return result
-
-        if on_progress is not None:
-            on_progress(result, time.monotonic() - start)
+        if time.monotonic() - start >= max_wait:
+            raise TimeoutError(f"{prefix}任务超时（{max_wait:.0f}秒）")
+        await asyncio.sleep(poll_interval)
 
 
 @with_retry_async()
