@@ -81,7 +81,6 @@ MESSAGES = {
     "default_model_conflict": "每个 media_type 最多只能有一个默认模型，冲突: {conflict}",
     "provider_not_found": "供应商不存在",
     "at_least_one_field_required": "至少需要提供一个更新字段",
-    "unsupported_format": "不支持的 api_format: {api_format}",
     "discovery_failed": "模型发现失败: {err_msg}",
     "unknown_endpoint": "未知 endpoint: {endpoint}",
     "unknown_discovery_format": "不支持的 discovery_format: {discovery_format}",

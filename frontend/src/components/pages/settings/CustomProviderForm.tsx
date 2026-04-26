@@ -21,9 +21,9 @@ import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS } from "@/utils/
 // Types & constants
 // ---------------------------------------------------------------------------
 
-const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; label: string }[] = [
-  { value: "openai", label: "OpenAI 兼容" },
-  { value: "google", label: "Google AI Studio" },
+const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] = [
+  { value: "openai", labelKey: "discovery_format_openai" },
+  { value: "google", labelKey: "discovery_format_google" },
 ];
 
 interface EndpointOption {
@@ -372,7 +372,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             className="rounded border border-gray-700 bg-gray-900 px-2 py-0.5 text-xs text-gray-300"
           >
             {DISCOVERY_FORMAT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
             ))}
           </select>
           <span className="ml-2 text-gray-600">{t("discovery_format_help")}</span>

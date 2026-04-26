@@ -598,7 +598,6 @@ export default {
   'add_custom_provider_title': 'Add Custom Provider',
   'cp_name_label': 'Name',
   'cp_name_placeholder': 'e.g., My NewAPI...',
-  'api_format': 'API Format',
   'base_url': 'Base URL',
   'api_key_label': 'API Key',
   'keep_existing_key_hint': 'Leave empty to keep existing key',
@@ -642,6 +641,8 @@ export default {
   // CustomProviderDetail
   'discovery_format_label': 'Model Discovery Protocol',
   'discovery_format_help': 'Only used for model discovery and connection testing; does not affect runtime calls',
+  'discovery_format_openai': 'OpenAI Compatible',
+  'discovery_format_google': 'Google AI Studio',
   'endpoint_label': 'Call Endpoint',
   'endpoint_text_group': '📝 Text',
   'endpoint_image_group': '🖼 Image',

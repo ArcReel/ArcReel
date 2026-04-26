@@ -81,7 +81,6 @@ MESSAGES = {
     "default_model_conflict": "Each media_type can have at most one default model. Conflict: {conflict}",
     "provider_not_found": "Provider does not exist",
     "at_least_one_field_required": "At least one field must be provided for update",
-    "unsupported_format": "Unsupported api_format: {api_format}",
     "discovery_failed": "Model discovery failed: {err_msg}",
     "unknown_endpoint": "Unknown endpoint: {endpoint}",
     "unknown_discovery_format": "Unsupported discovery_format: {discovery_format}",

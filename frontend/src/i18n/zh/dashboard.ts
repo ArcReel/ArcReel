@@ -599,7 +599,6 @@ export default {
   'add_custom_provider_title': '添加自定义供应商',
   'cp_name_label': '名称',
   'cp_name_placeholder': '例如：我的 NewAPI…',
-  'api_format': 'API 格式',
   'base_url': 'Base URL',
   'api_key_label': 'API Key',
   'keep_existing_key_hint': '留空则保留现有密钥',
@@ -643,6 +642,8 @@ export default {
   // CustomProviderDetail
   'discovery_format_label': '模型发现协议',
   'discovery_format_help': '仅用于"发现模型"和"连通测试"，不影响调用',
+  'discovery_format_openai': 'OpenAI 兼容',
+  'discovery_format_google': 'Google AI Studio',
   'endpoint_label': '调用端点',
   'endpoint_text_group': '📝 文本',
   'endpoint_image_group': '🖼 图片',
