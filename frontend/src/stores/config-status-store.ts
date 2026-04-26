@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { API } from "@/api";
+import { ENDPOINT_TO_MEDIA_TYPE } from "@/types";
 
 // ---------------------------------------------------------------------------
 // ConfigIssue
@@ -41,7 +42,7 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
 
     // Check custom providers for enabled models of this media type
     return customProviders.some((cp) =>
-      cp.models.some((m) => m.media_type === type && m.is_enabled)
+      cp.models.some((m) => ENDPOINT_TO_MEDIA_TYPE[m.endpoint] === type && m.is_enabled)
     );
   };
 

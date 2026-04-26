@@ -1,5 +1,6 @@
 import { API } from "@/api";
 import type { CustomProviderInfo, ProviderInfo } from "@/types";
+import { ENDPOINT_TO_MEDIA_TYPE } from "@/types";
 
 export const DEFAULT_DURATIONS: readonly number[] = [4, 6, 8];
 
@@ -128,10 +129,11 @@ export function lookupResolutions(
     const cp = customProviders.find((p) => p.id === dbId);
     const model = cp?.models?.find((m) => m.model_id === modelId);
     if (!model) return { options: [], isCustom: true };
+    const media = ENDPOINT_TO_MEDIA_TYPE[model.endpoint];
     const standard =
-      model.media_type === "image"
+      media === "image"
         ? IMAGE_STANDARD_RESOLUTIONS
-        : model.media_type === "video"
+        : media === "video"
           ? VIDEO_STANDARD_RESOLUTIONS
           : [];
     return { options: standard, isCustom: true };

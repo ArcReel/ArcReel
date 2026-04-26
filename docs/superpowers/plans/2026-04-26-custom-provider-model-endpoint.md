@@ -874,10 +874,11 @@ git commit -m "refactor(custom-provider): resolver derives media_type from endpo
 
 ---
 
-## Task 7: generation_tasks._create_custom_backend 简化
+## Task 7: generation_tasks 与 text_backends/factory 简化
 
 **Files:**
 - Modify: `server/services/generation_tasks.py`
+- Modify: `lib/text_backends/factory.py`（与上文 caller 同形态：line 51 查 `CustomProviderModel.media_type=="text"`、line 63 调 `create_custom_backend(media_type="text")` — 同步改为按 endpoint 推算 + 移除 media_type kwarg）
 
 - [ ] **Step 1：改 `server/services/generation_tasks.py:105-141`**
 
