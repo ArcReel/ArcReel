@@ -110,6 +110,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
 
 迁移逻辑：先 add column → SELECT join 计算回填 → drop old columns。任何无法映射的组合 → fail loud（不静默丢失）。
 
+> SQLite 不支持原生 `ALTER TABLE DROP COLUMN`（直到 3.35）；alembic op 用 `with op.batch_alter_table(...)` 重建表，PostgreSQL 自然支持原生 DDL。
+
 `downgrade()` 反向重建 `api_format` / `media_type` 两列；endpoint 含历史枚举外的值（不会发生）→ fail loud。
 
 ## §2 运行时：Backend Factory + Discovery
@@ -163,9 +165,10 @@ async def discover_models(
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 1) 视频家族（kling/wan/seedance/veo/pika/minimax/hailuo/jimeng/runway/sora/cog/mochi）
-    #    sora-* + discovery_format=openai → "openai-video"
-    #    veo-*  + discovery_format=google → "gemini-video"
-    #    其他视频 → "newapi-video"  (中转站最常见)
+    #    discovery_format=google → "gemini-video"  (Google AI Studio 直连只可能是 veo 系)
+    #    discovery_format=openai：
+    #       sora-* → "openai-video"
+    #       其他视频家族 → "newapi-video"  (中转站最常见)
     # 2) 图像（含 image/dall/img/imagen/flux）
     #    discovery_format=google → "gemini-image" 否则 "openai-images"
     # 3) 文本（默认）
