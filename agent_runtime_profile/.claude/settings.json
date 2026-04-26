@@ -22,6 +22,7 @@
       "Bash(python .claude/skills/generate-script/scripts/generate_script.py:*)",
       "Bash(python .claude/skills/generate-script/scripts/normalize_drama_script.py:*)",
       "Bash(python .claude/skills/manage-project/scripts/add_assets.py:*)",
+      "Bash(python .claude/skills/manage-project/scripts/get_video_capabilities.py:*)",
       "Bash(python .claude/skills/manage-project/scripts/peek_split_point.py:*)",
       "Bash(python .claude/skills/manage-project/scripts/split_episode.py:*)",
       "Bash(python .claude/skills/generate-grid/scripts/generate_grid.py:*)",
