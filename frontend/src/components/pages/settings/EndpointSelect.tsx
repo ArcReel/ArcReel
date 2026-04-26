@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useCallback } from "react";
 import { ChevronDown, Type, Image as ImageIcon, Film } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Popover } from "@/components/ui/Popover";
@@ -36,6 +36,14 @@ const MEDIA_META: Record<MediaType, { Icon: typeof Type; labelKey: string }> = {
 
 const MEDIA_ORDER: MediaType[] = ["text", "image", "video"];
 
+/** 把 EndpointKey 解析为 OPTIONS 索引；若 value 不在已知 OPTIONS 内（数据
+ *  漂移：后端推未知 endpoint 字符串），回退到 0，避免 `OPTIONS[-1]` 在键盘
+ *  选中（Enter/空格）时抛 TypeError 中断弹层交互。 */
+function indexOfValue(val: EndpointKey): number {
+  const idx = OPTIONS.findIndex((o) => o.value === val);
+  return idx >= 0 ? idx : 0;
+}
+
 interface EndpointSelectProps {
   value: EndpointKey;
   onChange: (next: EndpointKey) => void;
@@ -48,8 +56,16 @@ interface EndpointSelectProps {
 export function EndpointSelect({ value, onChange, ariaLabel, disabled }: EndpointSelectProps) {
   const { t } = useTranslation("dashboard");
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const listboxRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
   const [open, setOpen] = useState(false);
+
+  // 弹层打开时把焦点转到 listbox 接收键盘事件。用 useEffect 而非 inline
+  // ref callback —— 后者会因每次 render 重新创建 callback 闭包而被 React
+  // 反复调用 (null, el)，引发不必要的重复 focus 与 scroll-into-view 抖动。
+  useEffect(() => {
+    if (open) listboxRef.current?.focus();
+  }, [open]);
 
   const grouped = useMemo(() => {
     return MEDIA_ORDER.map((m) => ({
@@ -76,12 +92,10 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
   );
 
   // 键盘：弹层中支持上下键切换、Enter 选中、Escape 关闭。
-  const [activeIndex, setActiveIndex] = useState<number>(() =>
-    OPTIONS.findIndex((o) => o.value === value),
-  );
+  const [activeIndex, setActiveIndex] = useState<number>(() => indexOfValue(value));
 
   const openMenu = () => {
-    setActiveIndex(OPTIONS.findIndex((o) => o.value === value));
+    setActiveIndex(indexOfValue(value));
     setOpen(true);
   };
 
@@ -161,16 +175,13 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
         className="overflow-hidden rounded-xl border border-gray-800 shadow-2xl shadow-black/40"
       >
         <div
+          ref={listboxRef}
           id={listboxId}
           role="listbox"
           aria-label={ariaLabel}
           tabIndex={-1}
           onKeyDown={onListKeyDown}
           className="max-h-[420px] overflow-y-auto py-1.5 outline-none"
-          // 弹开后聚焦自身以接收键盘事件。
-          ref={(el) => {
-            if (el && open) el.focus();
-          }}
         >
           {grouped.map((group, gIdx) => {
             const meta = MEDIA_META[group.mediaType];
