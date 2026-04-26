@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.11.0](https://github.com/ArcReel/ArcReel/compare/v0.10.0...v0.11.0) (2026-04-26)
+
+
+### ✨ 新功能
+
+* **custom-provider:** 自定义供应商支持按照模型设置 API 端点 ([#415](https://github.com/ArcReel/ArcReel/issues/415)) ([8c7fa75](https://github.com/ArcReel/ArcReel/commit/8c7fa756ef4b370b44b33503c234509f5ddbcc94))
+* **settings:** 重设计自定义供应商端点选择器并打磨 UI ([#417](https://github.com/ArcReel/ArcReel/issues/417)) ([8244396](https://github.com/ArcReel/ArcReel/commit/82443964efe65e53e1d140572616ecdc4e648b1f))
+* 分镜卡片支持编辑角色/场景/道具引用 ([#416](https://github.com/ArcReel/ArcReel/issues/416)) ([7a3e62c](https://github.com/ArcReel/ArcReel/commit/7a3e62c0b8def13b1164f6f7c3b01d92f875edac))
+* 视频/图片 resolution 参数重构 (closes [#359](https://github.com/ArcReel/ArcReel/issues/359)) ([#402](https://github.com/ArcReel/ArcReel/issues/402)) ([9357973](https://github.com/ArcReel/ArcReel/commit/935797313fb13e0010b03c48f28f4986d24803f0))
+* 设置-关于页面，支持查看当前版本和检查更新 ([#403](https://github.com/ArcReel/ArcReel/issues/403)) ([c6809fb](https://github.com/ArcReel/ArcReel/commit/c6809fb29da4b2c520bf77c9222c7f6773d583a9))
+
+
+### 🐛 Bug 修复
+
+* **frontend:** 分镜枚举接入 i18n（镜头类型 / 运镜） ([#396](https://github.com/ArcReel/ArcReel/issues/396)) ([9c244db](https://github.com/ArcReel/ArcReel/commit/9c244dbb4f3268754c17b12f16b5b89335eda02f)), closes [#352](https://github.com/ArcReel/ArcReel/issues/352)
+* **frontend:** 项目设置页 header 与内容左对齐 ([#411](https://github.com/ArcReel/ArcReel/issues/411)) ([88b717b](https://github.com/ArcReel/ArcReel/commit/88b717b7b0efca456e4467a7c71949d5603259e6))
+* **grid-mode:** 修复宫格生视频报错并清理首尾帧命名遗留 ([#412](https://github.com/ArcReel/ArcReel/issues/412)) ([e0ea46c](https://github.com/ArcReel/ArcReel/commit/e0ea46c768aef844180e3526833d709df8f6e014))
+* **image-backends:** OpenAI/Ark 图片响应按 b64_json/url 降级解析 ([#404](https://github.com/ArcReel/ArcReel/issues/404)) ([2523736](https://github.com/ArcReel/ArcReel/commit/252373695511d7ff982f0c19307031fe4f89df00))
+* **video:** 修复自定义供应商生成视频立即报 400 "Task is not completed yet" 的问题 ([#410](https://github.com/ArcReel/ArcReel/issues/410)) ([fe10c81](https://github.com/ArcReel/ArcReel/commit/fe10c814660dc7912bff7f337a8326ddb601e896))
+
+
+### ♻️ 重构
+
+* **notifications:** toast 与持久通知解耦 ([#351](https://github.com/ArcReel/ArcReel/issues/351)) ([#398](https://github.com/ArcReel/ArcReel/issues/398)) ([cdcb1d3](https://github.com/ArcReel/ArcReel/commit/cdcb1d315e1c5c9617a70008726a29a7edb3b325))
+
 ## [0.10.0](https://github.com/ArcReel/ArcReel/compare/v0.9.0...v0.10.0) (2026-04-22)
 
 
