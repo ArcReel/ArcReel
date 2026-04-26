@@ -130,41 +130,46 @@ export function SystemConfigPage() {
           </button>
         </nav>
 
-        {/* Content area */}
-        <main className="min-w-0 flex-1 overflow-y-auto px-8 py-8">
-          <div className="mx-auto max-w-4xl">
-            {/* Quick alert for config issues */}
-            {configIssues.length > 0 && (
-              <div className="mb-8 rounded-xl border border-rose-500/20 bg-rose-500/5 p-4">
-                <div className="flex items-center gap-2 mb-2 text-rose-400">
-                  <AlertTriangle className="h-4 w-4" />
-                  <h2 className="text-sm font-semibold">{t("dashboard:config_issues")}</h2>
+        {/* Content area — main is the scroll container.
+            providers section bypasses the centered padded wrapper so its sticky bottom bar
+            can truly hug the viewport edge (and sidebar can sticky-top across full height). */}
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          {activeSection === "providers" ? (
+            <ProviderSection />
+          ) : (
+            <div className="mx-auto max-w-4xl px-8 py-8">
+              {/* Quick alert for config issues */}
+              {configIssues.length > 0 && (
+                <div className="mb-8 rounded-xl border border-rose-500/20 bg-rose-500/5 p-4">
+                  <div className="flex items-center gap-2 mb-2 text-rose-400">
+                    <AlertTriangle className="h-4 w-4" />
+                    <h2 className="text-sm font-semibold">{t("dashboard:config_issues")}</h2>
+                  </div>
+                  <p className="text-xs text-rose-200/70 mb-3">
+                    {t("dashboard:config_issues_hint")}
+                  </p>
+                  <ul className="space-y-1.5">
+                    {configIssues.map((issue, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-xs text-rose-200/60">
+                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-rose-500/40" />
+                        {t(`dashboard:${issue.label}`)}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <p className="text-xs text-rose-200/70 mb-3">
-                  {t("dashboard:config_issues_hint")}
-                </p>
-                <ul className="space-y-1.5">
-                  {configIssues.map((issue, idx) => (
-                    <li key={idx} className="flex items-start gap-2 text-xs text-rose-200/60">
-                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-rose-500/40" />
-                      {t(`dashboard:${issue.label}`)}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+              )}
 
-            {activeSection === "agent" && <AgentConfigTab visible />}
-            {activeSection === "providers" && <ProviderSection />}
-            {activeSection === "media" && <MediaModelSection />}
-            {activeSection === "usage" && <UsageStatsSection />}
-            {activeSection === "api-keys" && (
-              <div className="p-6">
-                <ApiKeysTab />
-              </div>
-            )}
-            {activeSection === "about" && <AboutSection />}
-          </div>
+              {activeSection === "agent" && <AgentConfigTab visible />}
+              {activeSection === "media" && <MediaModelSection />}
+              {activeSection === "usage" && <UsageStatsSection />}
+              {activeSection === "api-keys" && (
+                <div className="p-6">
+                  <ApiKeysTab />
+                </div>
+              )}
+              {activeSection === "about" && <AboutSection />}
+            </div>
+          )}
         </main>
       </div>
     </div>

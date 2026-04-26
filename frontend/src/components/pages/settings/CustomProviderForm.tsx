@@ -276,9 +276,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   const urlPreview = urlPreviewFor(discoveryFormat, baseUrl);
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto p-6">
+    <div>
+      {/* Form content (scroll handled by ancestor <main>) */}
+      <div className="p-6 pb-24">
       <div className="max-w-2xl">
       <h3 className="mb-6 text-lg font-semibold text-gray-100">
         {isEdit ? t("edit_custom_provider") : t("add_custom_provider_title")}
@@ -582,10 +582,11 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
       </div>
       </div>{/* end max-w-2xl */}
-      </div>{/* end scrollable content */}
+      </div>{/* end form content */}
 
-      {/* Fixed actions bar — outside scroll area */}
-      <div className="shrink-0 border-t border-gray-800 bg-gray-950 px-6 py-3">
+      {/* Sticky actions bar — pinned to <main> viewport bottom while form content scrolls.
+          Solid background to fully occlude the scrolling list underneath. */}
+      <div className="sticky bottom-0 z-10 border-t border-gray-800 bg-gray-950 px-6 py-3">
         <div className="flex items-center gap-3">
           <button
             type="button"

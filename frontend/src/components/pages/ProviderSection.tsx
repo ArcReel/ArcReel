@@ -114,9 +114,12 @@ export function ProviderSection() {
   }
 
   return (
-    <div className="flex h-full">
-      {/* Provider list sidebar */}
-      <nav aria-label={t("provider_list")} className="w-52 shrink-0 overflow-y-auto border-r border-gray-800 py-3">
+    <div className="flex">
+      {/* Provider list sidebar — sticky to top within the SystemConfigPage <main> scroll container */}
+      <nav
+        aria-label={t("provider_list")}
+        className="sticky top-0 max-h-screen w-52 shrink-0 self-start overflow-y-auto border-r border-gray-800 py-3"
+      >
         {/* Preset providers */}
         <div className="px-4 pb-2 text-xs uppercase tracking-wide text-gray-500">
           {t("preset_providers")}
@@ -147,10 +150,10 @@ export function ProviderSection() {
         />
       </nav>
 
-      {/* Detail panel — custom provider views manage their own scroll + fixed bottom bar */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Detail panel — content flows naturally; custom provider views render their own sticky bottom bar */}
+      <div className="flex-1 min-w-0">
         {selection?.kind === "preset" && (
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="p-6">
             <ProviderDetail providerId={selection.id} onSaved={() => void refreshPreset()} />
           </div>
         )}
@@ -193,7 +196,7 @@ export function ProviderSection() {
           />
         )}
         {!selection && (
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="p-6">
             <div className="text-sm text-gray-500">{t("select_provider")}</div>
           </div>
         )}

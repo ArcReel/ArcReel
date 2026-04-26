@@ -113,9 +113,9 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
   const ready = provider.base_url && provider.api_key_masked;
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto p-6">
+    <div>
+      {/* Detail content (scroll handled by ancestor <main>) */}
+      <div className="p-6 pb-24">
       <div className="max-w-xl">
       {/* Header */}
       <div className="mb-6 flex items-start gap-3">
@@ -220,10 +220,11 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
       )}
 
       </div>{/* end max-w-xl */}
-      </div>{/* end scrollable content */}
+      </div>{/* end detail content */}
 
-      {/* Fixed actions bar — outside scroll area */}
-      <div className="shrink-0 border-t border-gray-800 bg-gray-950 px-6 py-3">
+      {/* Sticky actions bar — pinned to <main> viewport bottom while detail content scrolls.
+          Solid background to fully occlude the scrolling list underneath. */}
+      <div className="sticky bottom-0 z-10 border-t border-gray-800 bg-gray-950 px-6 py-3">
         <div className="flex items-center gap-3">
           <button
             type="button"
