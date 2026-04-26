@@ -15,7 +15,12 @@ from lib.video_backends.base import (
     VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
+    poll_with_retry,
 )
+
+_POLL_INTERVAL_SECONDS = 5.0
+_MIN_POLL_TIMEOUT_SECONDS = 600.0
+_POLL_TIMEOUT_PER_SECOND = 30.0
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +104,9 @@ class OpenAIVideoBackend:
         logger.info("OpenAI 视频生成开始: model=%s, seconds=%s", self._model, kwargs["seconds"])
 
         video = await self._create_video(**kwargs)
+        final = await self._poll_until_complete(video.id, request.duration_seconds)
 
-        if video.status == "failed":
-            raise RuntimeError(f"Sora 视频生成失败: {video.error}")
-
-        content = await self._download_content_with_retry(video.id)
+        content = await self._download_content_with_retry(final.id)
 
         def _write():
             request.output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -117,14 +120,35 @@ class OpenAIVideoBackend:
             video_path=request.output_path,
             provider=PROVIDER_OPENAI,
             model=self._model,
-            duration_seconds=int(video.seconds if video.seconds is not None else kwargs["seconds"]),
-            task_id=video.id,
+            duration_seconds=int(final.seconds if final.seconds is not None else kwargs["seconds"]),
+            task_id=final.id,
         )
 
     @with_retry_async(retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def _create_video(self, **kwargs):
-        """视频生成（create_and_poll），带独立重试。"""
-        return await self._client.videos.create_and_poll(**kwargs)
+        """仅创建视频任务（带重试）；轮询交由 _poll_until_complete 自管。"""
+        return await self._client.videos.create(**kwargs)
+
+    async def _poll_until_complete(self, video_id: str, duration_seconds: int):
+        """轮询任务直到 status=='completed'。
+
+        不复用 SDK 的 client.videos.poll：它仅识别 in_progress/queued/completed/failed，
+        对接返回非标状态（如 NOT_START）的 OpenAI 兼容网关时会提前退出，导致下载未就绪任务。
+        """
+        max_wait = max(_MIN_POLL_TIMEOUT_SECONDS, float(duration_seconds) * _POLL_TIMEOUT_PER_SECOND)
+
+        return await poll_with_retry(
+            poll_fn=lambda: self._client.videos.retrieve(video_id),
+            is_done=lambda v: v.status == "completed",
+            is_failed=lambda v: f"Sora 视频生成失败: {getattr(v, 'error', None)}" if v.status == "failed" else None,
+            poll_interval=_POLL_INTERVAL_SECONDS,
+            max_wait=max_wait,
+            retryable_errors=OPENAI_RETRYABLE_ERRORS,
+            label="OpenAI",
+            on_progress=lambda v, elapsed: logger.info(
+                "OpenAI 视频生成中... 状态: %s, 已等待 %d 秒", v.status, int(elapsed)
+            ),
+        )
 
     @with_retry_async(
         max_attempts=DOWNLOAD_MAX_ATTEMPTS,

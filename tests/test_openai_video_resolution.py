@@ -25,7 +25,7 @@ async def test_resolution_none_omits_size(tmp_path):
         captured.update(kwargs)
         raise RuntimeError("stop")
 
-    backend._client.videos.create_and_poll = fake_create
+    backend._client.videos.create = fake_create
 
     req = VideoGenerationRequest(
         prompt="x",
@@ -49,7 +49,7 @@ async def test_resolution_token_maps_to_size(tmp_path):
         captured.update(kwargs)
         raise RuntimeError("stop")
 
-    backend._client.videos.create_and_poll = fake_create
+    backend._client.videos.create = fake_create
 
     req = VideoGenerationRequest(
         prompt="x",
@@ -73,7 +73,7 @@ async def test_unknown_resolution_passthrough(tmp_path):
         captured.update(kwargs)
         raise RuntimeError("stop")
 
-    backend._client.videos.create_and_poll = fake_create
+    backend._client.videos.create = fake_create
 
     req = VideoGenerationRequest(
         prompt="x",
