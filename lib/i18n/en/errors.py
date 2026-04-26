@@ -83,6 +83,12 @@ MESSAGES = {
     "at_least_one_field_required": "At least one field must be provided for update",
     "unsupported_format": "Unsupported api_format: {api_format}",
     "discovery_failed": "Model discovery failed: {err_msg}",
+    "unknown_endpoint": "Unknown endpoint: {endpoint}",
+    "unknown_discovery_format": "Unsupported discovery_format: {discovery_format}",
+    "endpoint_required": "Enabled models must specify endpoint",
+    "endpoint_media_type_mismatch": "Endpoint media_type mismatch: {detail}",
+    "backend_creation_failed": "Backend creation failed: {err_msg}",
+    "unsupported_discovery_format": "Connection test not supported for {discovery_format}",
     # Projects
     "unknown_style_template": "Unknown style template: {template_id}",
     "project_id_not_editable": "content_mode cannot be modified after project creation",

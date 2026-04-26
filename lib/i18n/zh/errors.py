@@ -83,6 +83,12 @@ MESSAGES = {
     "at_least_one_field_required": "至少需要提供一个更新字段",
     "unsupported_format": "不支持的 api_format: {api_format}",
     "discovery_failed": "模型发现失败: {err_msg}",
+    "unknown_endpoint": "未知 endpoint: {endpoint}",
+    "unknown_discovery_format": "不支持的 discovery_format: {discovery_format}",
+    "endpoint_required": "已启用的模型必须填写 endpoint",
+    "endpoint_media_type_mismatch": "模型 endpoint 与媒体类型不一致: {detail}",
+    "backend_creation_failed": "Backend 创建失败: {err_msg}",
+    "unsupported_discovery_format": "供应商 {discovery_format} 暂不支持连接测试",
     # Projects
     "unknown_style_template": "未知的风格模版: {template_id}",
     "project_id_not_editable": "项目创建后不支持修改 content_mode",
