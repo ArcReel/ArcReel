@@ -10,14 +10,27 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
 from lib.custom_provider import make_provider_id
-from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, endpoint_to_media_type
+from lib.custom_provider.endpoints import endpoint_to_media_type
+
+# Endpoint / discovery_format 字面量类型 —— Pydantic 自动按枚举校验，
+# 与 lib/custom_provider/endpoints.py:ENDPOINT_REGISTRY 的键集合保持同步。
+EndpointLiteral = Literal[
+    "openai-chat",
+    "gemini-generate",
+    "openai-images",
+    "gemini-image",
+    "openai-video",
+    "newapi-video",
+]
+DiscoveryFormatLiteral = Literal["openai", "google"]
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
@@ -47,9 +60,7 @@ _BACKEND_SETTING_KEYS = (
 class ModelInput(BaseModel):
     model_id: str
     display_name: str
-    endpoint: (
-        str  # "openai-chat" | "gemini-generate" | "openai-images" | "gemini-image" | "openai-video" | "newapi-video"
-    )
+    endpoint: EndpointLiteral
     is_default: bool = False
     is_enabled: bool = True
     price_unit: str | None = None
@@ -58,18 +69,6 @@ class ModelInput(BaseModel):
     currency: str | None = None
     supported_durations: list[int] | None = None
     resolution: str | None = None
-
-    @model_validator(mode="after")
-    def _check_endpoint(self):
-        if self.endpoint not in ENDPOINT_REGISTRY:
-            raise ValueError(f"unknown_endpoint:{self.endpoint}")
-        return self
-
-    @model_validator(mode="after")
-    def _check_price_consistency(self):
-        if self.price_output is not None and self.price_input is None:
-            raise ValueError("设置 price_output 时必须同时设置 price_input")
-        return self
 
     def to_db_dict(self) -> dict:
         """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。"""
@@ -82,16 +81,10 @@ class ModelInput(BaseModel):
 
 class CreateProviderRequest(BaseModel):
     display_name: str
-    discovery_format: str  # "openai" | "google"
+    discovery_format: DiscoveryFormatLiteral
     base_url: str
     api_key: str
     models: list[ModelInput] = []
-
-    @model_validator(mode="after")
-    def _check_discovery_format(self):
-        if self.discovery_format not in {"openai", "google"}:
-            raise ValueError(f"unknown_discovery_format:{self.discovery_format}")
-        return self
 
 
 class UpdateProviderRequest(BaseModel):
@@ -110,6 +103,7 @@ class FullUpdateProviderRequest(BaseModel):
 
 
 class ProviderConnectionRequest(BaseModel):
+    # 连接测试故意接受任意字符串，由 _run_connection_test 软失败返回 200 + success=False。
     discovery_format: str
     base_url: str
     api_key: str
@@ -209,13 +203,15 @@ def _cleanup_project_refs(prefix: str, setting_keys: tuple[str, ...]) -> None:
 
 
 def _check_duplicate_model_ids(models: list[ModelInput], _t: Callable[..., str]) -> None:
-    """校验模型列表中无重复 model_id 且启用模型有合法 model_id 和 endpoint。"""
+    """校验模型列表：无重复 model_id；启用模型有合法 model_id 和 endpoint；价格组合自洽。"""
     seen: set[str] = set()
     for m in models:
         if m.is_enabled and not m.model_id.strip():
             raise HTTPException(status_code=422, detail=_t("model_id_required"))
         if m.is_enabled and not m.endpoint:
             raise HTTPException(status_code=422, detail=_t("endpoint_required"))
+        if m.price_output is not None and m.price_input is None:
+            raise HTTPException(status_code=422, detail=_t("price_input_required"))
         if m.model_id in seen:
             raise HTTPException(status_code=422, detail=_t("duplicate_model_id", model_id=m.model_id))
         if m.model_id:

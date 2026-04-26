@@ -41,6 +41,12 @@ const ENDPOINT_OPTIONS: EndpointOption[] = [
   { value: "newapi-video", labelKey: "endpoint_newapi_video_display", mediaType: "video" },
 ];
 
+const ENDPOINT_GROUPS: { mediaType: MediaType; groupLabelKey: string; options: EndpointOption[] }[] = [
+  { mediaType: "text", groupLabelKey: "endpoint_text_group", options: ENDPOINT_OPTIONS.filter((o) => o.mediaType === "text") },
+  { mediaType: "image", groupLabelKey: "endpoint_image_group", options: ENDPOINT_OPTIONS.filter((o) => o.mediaType === "image") },
+  { mediaType: "video", groupLabelKey: "endpoint_video_group", options: ENDPOINT_OPTIONS.filter((o) => o.mediaType === "video") },
+];
+
 interface ModelRow {
   key: string; // unique key for React
   model_id: string;
@@ -149,6 +155,11 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     const q = modelFilter.toLowerCase();
     return models.filter((m) => m.model_id.toLowerCase().includes(q));
   }, [models, modelFilter]);
+
+  const allFilteredEnabled = useMemo(
+    () => filteredModels.length > 0 && filteredModels.every((m) => m.is_enabled),
+    [filteredModels],
+  );
 
   // --- Discover models ---
   const handleDiscover = useCallback(async () => {
@@ -262,13 +273,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
   // --- Model row helpers ---
   const updateModel = (key: string, patch: Partial<ModelRow>) => {
-    setModels((prev) =>
-      prev.map((m) => {
-        if (m.key !== key) return m;
-        const updated = { ...m, ...patch };
-        return updated;
-      }),
-    );
+    setModels((prev) => prev.map((m) => (m.key === key ? { ...m, ...patch } : m)));
   };
 
   const removeModel = (key: string) => {
@@ -407,14 +412,13 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                   type="button"
                   onClick={() => {
                     const targetKeys = new Set(filteredModels.map((m) => m.key));
-                    const allEnabled = filteredModels.every((m) => m.is_enabled);
                     setModels((prev) =>
-                      prev.map((m) => (targetKeys.has(m.key) ? { ...m, is_enabled: !allEnabled } : m)),
+                      prev.map((m) => (targetKeys.has(m.key) ? { ...m, is_enabled: !allFilteredEnabled } : m)),
                     );
                   }}
                   className="text-xs text-indigo-400 hover:text-indigo-300"
                 >
-                  {filteredModels.every((m) => m.is_enabled) ? t("deselect_all") : t("select_all")}
+                  {allFilteredEnabled ? t("deselect_all") : t("select_all")}
                 </button>
               )}
             </div>
@@ -433,6 +437,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             <div className="space-y-2">
               {filteredModels.map((m) => {
                 const pl = priceLabel(m.endpoint, t);
+                const media = ENDPOINT_TO_MEDIA_TYPE[m.endpoint];
                 return (
                   <div
                     key={m.key}
@@ -467,21 +472,13 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         aria-label={t("endpoint_label")}
                         className={selectCls}
                       >
-                        <optgroup label={t("endpoint_text_group")}>
-                          {ENDPOINT_OPTIONS.filter((o) => o.mediaType === "text").map((o) => (
-                            <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-                          ))}
-                        </optgroup>
-                        <optgroup label={t("endpoint_image_group")}>
-                          {ENDPOINT_OPTIONS.filter((o) => o.mediaType === "image").map((o) => (
-                            <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-                          ))}
-                        </optgroup>
-                        <optgroup label={t("endpoint_video_group")}>
-                          {ENDPOINT_OPTIONS.filter((o) => o.mediaType === "video").map((o) => (
-                            <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-                          ))}
-                        </optgroup>
+                        {ENDPOINT_GROUPS.map((g) => (
+                          <optgroup key={g.mediaType} label={t(g.groupLabelKey)}>
+                            {g.options.map((o) => (
+                              <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
+                            ))}
+                          </optgroup>
+                        ))}
                       </select>
 
                       {/* Default toggle */}
@@ -547,12 +544,12 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                     </div>
 
                     {/* Resolution row */}
-                    {ENDPOINT_TO_MEDIA_TYPE[m.endpoint] !== "text" && (
+                    {media !== "text" && (
                       <div className="mt-2 flex items-center gap-2 pl-6">
                         <span className="text-sm text-gray-400 whitespace-nowrap">{t("resolution_label")}</span>
                         <ResolutionPicker
                           mode="combobox"
-                          options={ENDPOINT_TO_MEDIA_TYPE[m.endpoint] === "image" ? IMAGE_STANDARD_RESOLUTIONS : VIDEO_STANDARD_RESOLUTIONS}
+                          options={media === "image" ? IMAGE_STANDARD_RESOLUTIONS : VIDEO_STANDARD_RESOLUTIONS}
                           value={m.resolution || null}
                           onChange={(v) => updateModel(m.key, { resolution: v ?? "" })}
                           placeholder={t("resolution_default_placeholder")}

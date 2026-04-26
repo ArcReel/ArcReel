@@ -51,42 +51,45 @@ _DOWNGRADE_MAP = {
 def upgrade() -> None:
     bind = op.get_bind()
 
-    # 1) provider 表：先 add 新列（先不 drop 旧列）
+    # 1) provider 表：add 新列
     with op.batch_alter_table("custom_provider", schema=None) as batch_op:
         batch_op.add_column(sa.Column("discovery_format", sa.String(length=32), nullable=True))
 
-    rows = bind.execute(sa.text("SELECT id, api_format FROM custom_provider")).fetchall()
-    for row in rows:
-        new_val = _UPGRADE_DISCOVERY_MAP.get(row.api_format)
-        if new_val is None:
-            raise RuntimeError(f"provider id={row.id} api_format={row.api_format!r} 不在映射中")
-        bind.execute(
-            sa.text("UPDATE custom_provider SET discovery_format = :v WHERE id = :id"),
-            {"v": new_val, "id": row.id},
+    # 2) provider 回填：每个 api_format 一条 UPDATE，最后 fail-loud 校验全量覆盖
+    provider_total = bind.execute(sa.text("SELECT COUNT(*) FROM custom_provider")).scalar() or 0
+    provider_mapped = 0
+    for src, dst in _UPGRADE_DISCOVERY_MAP.items():
+        result = bind.execute(
+            sa.text("UPDATE custom_provider SET discovery_format = :dst WHERE api_format = :src"),
+            {"src": src, "dst": dst},
         )
+        provider_mapped += result.rowcount or 0
+    if provider_mapped != provider_total:
+        raise RuntimeError(f"custom_provider: {provider_total - provider_mapped} 条记录的 api_format 不在迁移映射中")
 
-    # 2) model 表：add endpoint，回填（join provider 取 api_format）
+    # 3) model 表：add endpoint
     with op.batch_alter_table("custom_provider_model", schema=None) as batch_op:
         batch_op.add_column(sa.Column("endpoint", sa.String(length=32), nullable=True))
 
-    rows = bind.execute(
-        sa.text(
-            "SELECT m.id AS mid, m.media_type AS media_type, p.api_format AS api_format "
-            "FROM custom_provider_model m JOIN custom_provider p ON p.id = m.provider_id"
+    # 4) model 回填：按 (api_format, media_type) 组合 ≤9 条 UPDATE，fail-loud 校验
+    model_total = bind.execute(sa.text("SELECT COUNT(*) FROM custom_provider_model")).scalar() or 0
+    model_mapped = 0
+    for (api_format, media_type), endpoint in _UPGRADE_ENDPOINT_MAP.items():
+        result = bind.execute(
+            sa.text(
+                "UPDATE custom_provider_model SET endpoint = :ep "
+                "WHERE media_type = :media "
+                "AND provider_id IN (SELECT id FROM custom_provider WHERE api_format = :api_format)"
+            ),
+            {"ep": endpoint, "media": media_type, "api_format": api_format},
         )
-    ).fetchall()
-    for row in rows:
-        ep = _UPGRADE_ENDPOINT_MAP.get((row.api_format, row.media_type))
-        if ep is None:
-            raise RuntimeError(
-                f"model id={row.mid} (api_format={row.api_format!r}, media_type={row.media_type!r}) 不在迁移映射中"
-            )
-        bind.execute(
-            sa.text("UPDATE custom_provider_model SET endpoint = :v WHERE id = :id"),
-            {"v": ep, "id": row.mid},
+        model_mapped += result.rowcount or 0
+    if model_mapped != model_total:
+        raise RuntimeError(
+            f"custom_provider_model: {model_total - model_mapped} 条记录的 (api_format, media_type) 不在迁移映射中"
         )
 
-    # 3) drop 旧列
+    # 5) drop 旧列 + alter NOT NULL
     with op.batch_alter_table("custom_provider_model", schema=None) as batch_op:
         batch_op.alter_column("endpoint", nullable=False)
         batch_op.drop_column("media_type")
@@ -99,32 +102,28 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
 
-    # 1) provider 表：add api_format，回填
+    # 1) provider 表：add api_format，按 discovery_format 回填（NewAPI 信息已丢失，统一兜底为 openai）
     with op.batch_alter_table("custom_provider", schema=None) as batch_op:
         batch_op.add_column(sa.Column("api_format", sa.String(length=32), nullable=True))
 
-    rows = bind.execute(sa.text("SELECT id, discovery_format FROM custom_provider")).fetchall()
-    for row in rows:
-        # discovery_format=openai 反向回 openai（NewAPI 信息已丢失，无法精准还原；以 openai 兜底）
-        api_format_val = "google" if row.discovery_format == "google" else "openai"
-        bind.execute(
-            sa.text("UPDATE custom_provider SET api_format = :v WHERE id = :id"),
-            {"v": api_format_val, "id": row.id},
-        )
+    bind.execute(sa.text("UPDATE custom_provider SET api_format = 'google' WHERE discovery_format = 'google'"))
+    bind.execute(sa.text("UPDATE custom_provider SET api_format = 'openai' WHERE discovery_format != 'google'"))
 
-    # 2) model 表：add media_type，回填（按 endpoint 反查）
+    # 2) model 表：add media_type，按 endpoint → media_type 反查（每个 endpoint 一条 UPDATE，fail-loud）
     with op.batch_alter_table("custom_provider_model", schema=None) as batch_op:
         batch_op.add_column(sa.Column("media_type", sa.String(length=16), nullable=True))
 
-    rows = bind.execute(sa.text("SELECT id, endpoint FROM custom_provider_model")).fetchall()
-    for row in rows:
-        rev = _DOWNGRADE_MAP.get(row.endpoint)
-        if rev is None:
-            raise RuntimeError(f"model id={row.id} endpoint={row.endpoint!r} 不在 downgrade 映射中")
-        _, media = rev
-        bind.execute(
-            sa.text("UPDATE custom_provider_model SET media_type = :v WHERE id = :id"),
-            {"v": media, "id": row.id},
+    model_total = bind.execute(sa.text("SELECT COUNT(*) FROM custom_provider_model")).scalar() or 0
+    model_mapped = 0
+    for endpoint, (_api_format, media) in _DOWNGRADE_MAP.items():
+        result = bind.execute(
+            sa.text("UPDATE custom_provider_model SET media_type = :media WHERE endpoint = :ep"),
+            {"media": media, "ep": endpoint},
+        )
+        model_mapped += result.rowcount or 0
+    if model_mapped != model_total:
+        raise RuntimeError(
+            f"custom_provider_model: {model_total - model_mapped} 条记录的 endpoint 不在 downgrade 映射中"
         )
 
     # 3) drop 新列 + alter NOT NULL

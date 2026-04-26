@@ -137,11 +137,11 @@ class CustomProviderRepository(BaseRepository):
     async def list_enabled_models_by_media_type(self, media_type: str) -> list[CustomProviderModel]:
         """跨所有供应商获取指定媒体类型的已启用模型。
 
-        通过 ENDPOINT_REGISTRY 将 media_type 映射到对应的 endpoint 集合，再按 endpoint 过滤。
+        通过 ENDPOINT_KEYS_BY_MEDIA_TYPE 查表得到对应的 endpoint 集合，再按 endpoint 过滤。
         """
-        from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+        from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE
 
-        matching_endpoints = [key for key, spec in ENDPOINT_REGISTRY.items() if spec.media_type == media_type]
+        matching_endpoints = ENDPOINT_KEYS_BY_MEDIA_TYPE.get(media_type, ())
         if not matching_endpoints:
             return []
         stmt = (
@@ -167,11 +167,11 @@ class CustomProviderRepository(BaseRepository):
     async def get_default_model(self, provider_id: int, media_type: str) -> CustomProviderModel | None:
         """获取指定供应商 + 媒体类型的默认已启用模型。
 
-        通过 ENDPOINT_REGISTRY 将 media_type 映射到对应的 endpoint 集合，再按 endpoint 过滤。
+        通过 ENDPOINT_KEYS_BY_MEDIA_TYPE 查表得到对应的 endpoint 集合，再按 endpoint 过滤。
         """
-        from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+        from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE
 
-        matching_endpoints = [key for key, spec in ENDPOINT_REGISTRY.items() if spec.media_type == media_type]
+        matching_endpoints = ENDPOINT_KEYS_BY_MEDIA_TYPE.get(media_type, ())
         if not matching_endpoints:
             return None
         stmt = select(CustomProviderModel).where(

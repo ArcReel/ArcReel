@@ -126,6 +126,12 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
 }
 
 
+ENDPOINT_KEYS_BY_MEDIA_TYPE: dict[str, tuple[str, ...]] = {
+    media_type: tuple(k for k, s in ENDPOINT_REGISTRY.items() if s.media_type == media_type)
+    for media_type in {s.media_type for s in ENDPOINT_REGISTRY.values()}
+}
+
+
 # ── 工具函数 ───────────────────────────────────────────────────────
 
 
@@ -141,7 +147,7 @@ def endpoint_to_media_type(endpoint: str) -> str:
 
 
 def list_endpoints_by_media_type(media_type: str) -> list[EndpointSpec]:
-    return [s for s in ENDPOINT_REGISTRY.values() if s.media_type == media_type]
+    return [ENDPOINT_REGISTRY[k] for k in ENDPOINT_KEYS_BY_MEDIA_TYPE.get(media_type, ())]
 
 
 # ── 启发式：从 model_id + discovery_format 推默认 endpoint ─────────
