@@ -190,9 +190,30 @@ async def generate_video(
     try:
 
         def _sync():
-            get_project_manager().load_project(project_name)
-            project_path = get_project_manager().get_project_path(project_name)
-            storyboard_file = project_path / "storyboards" / f"scene_{segment_id}.png"
+            pm_local = get_project_manager()
+            pm_local.load_project(project_name)
+            project_path = pm_local.get_project_path(project_name)
+
+            # 与 worker 一致：优先读取 generated_assets.storyboard_image，回退默认路径。
+            # 旧宫格项目 storyboard_image 指向 scene_{id}_first.png，仍可正常解析。
+            storyboard_rel: str | None = None
+            try:
+                script = pm_local.load_script(project_name, req.script_file)
+                items, id_field, _, _, _ = get_storyboard_items(script)
+                resolved = find_storyboard_item(items, id_field, segment_id)
+                if resolved:
+                    assets = resolved[0].get("generated_assets") or {}
+                    if isinstance(assets, dict):
+                        storyboard_rel = assets.get("storyboard_image")
+            except FileNotFoundError:
+                # 脚本不存在交由后续流程报错；此处只负责存在性检查
+                pass
+
+            storyboard_file = (
+                project_path / storyboard_rel
+                if storyboard_rel
+                else project_path / "storyboards" / f"scene_{segment_id}.png"
+            )
             if not storyboard_file.exists():
                 raise HTTPException(status_code=400, detail=_t("generate_storyboard_first", segment_id=segment_id))
 

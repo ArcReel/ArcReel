@@ -758,7 +758,8 @@ async def execute_video_task(
     project, project_path, item = await asyncio.to_thread(_load)
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
 
-    # 优先从 generated_assets.storyboard_image 读取（宫格模式写 _first.png），回退到默认路径
+    # 优先读取 generated_assets.storyboard_image，回退默认路径。
+    # 旧宫格项目 storyboard_image 指向 scene_{id}_first.png，仍可正常解析。
     assets = item.get("generated_assets", {})
     storyboard_rel = assets.get("storyboard_image") if isinstance(assets, dict) else None
     if storyboard_rel:
@@ -1177,43 +1178,25 @@ async def execute_grid_task(
         storyboards_dir.mkdir(parents=True, exist_ok=True)
 
         def _assign_cells():
-            import shutil
-
             asset_updates: list[tuple[str, str, str]] = []
 
+            # 宫格已统一走普通图生视频（不再使用 first_last 模式），cell 仅作为
+            # next_scene_id 的起始分镜图，文件名与普通分镜对齐为 scene_{id}.png。
             for cell, frame in zip(cells, grid.frame_chain):
                 if frame.frame_type == "placeholder":
                     continue
+                if frame.frame_type not in ("first", "transition"):
+                    continue
+                if not frame.next_scene_id:
+                    continue
 
-                if frame.frame_type == "first" and frame.next_scene_id:
-                    # Save as first frame (storyboard_image) for next_scene_id
-                    cell_path = storyboards_dir / f"scene_{frame.next_scene_id}_first.png"
-                    cell.save(cell_path, format="PNG")
-                    frame.image_path = f"storyboards/scene_{frame.next_scene_id}_first.png"
-                    asset_updates.append((frame.next_scene_id, "storyboard_image", frame.image_path))
-                    # Write grid provenance
-                    asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
-                    asset_updates.append((frame.next_scene_id, "grid_cell_index", frame.index))
-
-                elif frame.frame_type == "transition":
-                    # Save as last frame of prev scene
-                    if frame.prev_scene_id:
-                        last_path = storyboards_dir / f"scene_{frame.prev_scene_id}_last.png"
-                        cell.save(last_path, format="PNG")
-                        last_rel = f"storyboards/scene_{frame.prev_scene_id}_last.png"
-                        asset_updates.append((frame.prev_scene_id, "storyboard_last_image", last_rel))
-                    # Copy as first frame of next scene (same image, avoid re-encoding)
-                    if frame.next_scene_id:
-                        first_path = storyboards_dir / f"scene_{frame.next_scene_id}_first.png"
-                        if frame.prev_scene_id:
-                            shutil.copy2(last_path, first_path)
-                        else:
-                            cell.save(first_path, format="PNG")
-                        frame.image_path = f"storyboards/scene_{frame.next_scene_id}_first.png"
-                        asset_updates.append((frame.next_scene_id, "storyboard_image", frame.image_path))
-                        # Write grid provenance
-                        asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
-                        asset_updates.append((frame.next_scene_id, "grid_cell_index", frame.index))
+                cell_rel = f"storyboards/scene_{frame.next_scene_id}.png"
+                cell_path = storyboards_dir / f"scene_{frame.next_scene_id}.png"
+                cell.save(cell_path, format="PNG")
+                frame.image_path = cell_rel
+                asset_updates.append((frame.next_scene_id, "storyboard_image", cell_rel))
+                asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
+                asset_updates.append((frame.next_scene_id, "grid_cell_index", frame.index))
 
             # Batch-write all asset updates in one script read+write pass
             if asset_updates:

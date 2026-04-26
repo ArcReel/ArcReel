@@ -225,6 +225,57 @@ class TestExecuteGridTask:
         assert updated_grid_data["status"] == "completed"
         assert updated_grid_data["grid_image_path"] == f"grids/{grid.id}.png"
 
+    async def test_execute_grid_task_writes_clean_filenames(self, project_with_script, grid_json):
+        """切割后 cell 文件名为 scene_{id}.png（无 _first/_last 后缀），且不再更新 storyboard_last_image。"""
+        from PIL import Image
+
+        from server.services.generation_tasks import execute_grid_task
+
+        grid = grid_json
+
+        fake_grid_image = Image.new("RGB", (400, 400), color=(0, 0, 0))
+        grid_image_path = project_with_script / "grids" / f"{grid.id}.png"
+        fake_grid_image.save(grid_image_path, format="PNG")
+
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 1))
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch("server.services.generation_tasks.get_media_generator", new_callable=AsyncMock) as mock_get_gen,
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm_fn.return_value = mock_pm
+            mock_get_gen.return_value = mock_generator
+
+            await execute_grid_task(
+                "test-project",
+                grid.id,
+                {"prompt": "p", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+        storyboards_dir = project_with_script / "storyboards"
+        # grid 由 fixture 配置 scene_ids=[E1S01,E1S02,E1S03]，rows=cols=2
+        for sid in ("E1S01", "E1S02", "E1S03"):
+            assert (storyboards_dir / f"scene_{sid}.png").exists(), f"missing scene_{sid}.png"
+            assert not (storyboards_dir / f"scene_{sid}_first.png").exists(), "legacy _first.png must not be written"
+            assert not (storyboards_dir / f"scene_{sid}_last.png").exists(), "legacy _last.png must not be written"
+
+        mock_pm.batch_update_scene_assets.assert_called_once()
+        updates = mock_pm.batch_update_scene_assets.call_args.kwargs["updates"]
+        asset_types = {asset_type for _, asset_type, _ in updates}
+        assert "storyboard_last_image" not in asset_types
+        # 每个有效 scene 应写入 storyboard_image / grid_id / grid_cell_index
+        sb_paths = {sid: path for sid, asset_type, path in updates if asset_type == "storyboard_image"}
+        assert sb_paths == {
+            "E1S01": "storyboards/scene_E1S01.png",
+            "E1S02": "storyboards/scene_E1S02.png",
+            "E1S03": "storyboards/scene_E1S03.png",
+        }
+
     async def test_execute_grid_task_not_found(self):
         from server.services.generation_tasks import execute_grid_task
 

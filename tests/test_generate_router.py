@@ -175,6 +175,29 @@ class TestGenerateRouter:
             assert call["media_type"] == "video"
             assert call["payload"]["duration_seconds"] == 5
 
+    def test_video_enqueue_grid_mode_uses_first_frame(self, tmp_path, monkeypatch):
+        """宫格模式：storyboard 写入 _first.png 并记录于 generated_assets，路由应识别该路径。"""
+        project_path = _prepare_files(tmp_path)
+        # 只保留宫格模式产物，删除默认路径
+        (project_path / "storyboards" / "scene_E1S01.png").unlink()
+        (project_path / "storyboards" / "scene_E1S02_first.png").write_bytes(b"png")
+
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][1]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S02_first.png"}
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            video = client.post(
+                "/api/v1/projects/demo/generate/video/E1S02",
+                json={
+                    "script_file": "episode_1.json",
+                    "prompt": "宫格切片后的动作",
+                },
+            )
+            assert video.status_code == 200, video.text
+            assert video.json()["success"] is True
+
     def test_character_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
