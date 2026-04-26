@@ -379,6 +379,64 @@ class TestOpenAIVideoBackend:
         assert mock_client.videos.download_content.call_count == 1
         assert result.video_path == output_path
 
+    async def test_first_retrieve_completed_skips_polling_sleep(self, tmp_path: Path):
+        """首次 retrieve 即返回 completed 时应 fast-path 直接返回，不进入 poll_with_retry 的固定 sleep。"""
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="completed", seconds="8"))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"v"))
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="test",
+                output_path=output_path,
+                duration_seconds=8,
+            )
+            await backend.generate(request)
+
+        # fast-path：只查一次，不进入 poll_with_retry → 不 sleep
+        assert mock_client.videos.retrieve.call_count == 1
+        mock_sleep.assert_not_awaited()
+
+    async def test_first_retrieve_failed_skips_polling(self, tmp_path: Path):
+        """首次 retrieve 即返回 failed 时应 fast-path 直接抛错，不进入 poll_with_retry 的 sleep。"""
+        err = MagicMock()
+        err.message = "moderation rejected"
+        failed = _make_mock_video(status="failed")
+        failed.error = err
+
+        mock_client = AsyncMock()
+        mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
+        mock_client.videos.retrieve = AsyncMock(return_value=failed)
+        mock_client.videos.download_content = AsyncMock()
+
+        with (
+            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
+            from lib.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key")
+            output_path = tmp_path / "output.mp4"
+            request = VideoGenerationRequest(
+                prompt="bad",
+                output_path=output_path,
+                duration_seconds=8,
+            )
+            with pytest.raises(RuntimeError, match="Sora 视频生成失败"):
+                await backend.generate(request)
+
+        assert mock_client.videos.retrieve.call_count == 1
+        mock_sleep.assert_not_awaited()
+        mock_client.videos.download_content.assert_not_called()
+
     async def test_polls_failed_status_raises_without_download(self, tmp_path: Path):
         """轮询期间出现 status='failed' 应直接抛错，不进入下载。"""
         err = MagicMock()
