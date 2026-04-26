@@ -103,8 +103,13 @@ async def _resolve_effective_image_backend(project: dict, payload: dict | None) 
 
 
 async def _create_custom_backend(provider_name: str, model_id: str | None, media_type: str):
-    """自定义供应商的 backend 创建路径。"""
+    """自定义供应商的 backend 创建路径。
+
+    media_type 仅用于回退到默认模型时分组（仍接收以兼容调用方调用语义）。
+    实际派发以 model.endpoint 为准；若 endpoint 推算 media_type 与 caller 传入不符 → 视为模型不存在并 fallback。
+    """
     from lib.custom_provider import parse_provider_id
+    from lib.custom_provider.endpoints import endpoint_to_media_type
     from lib.custom_provider.factory import create_custom_backend
     from lib.db import async_session_factory
     from lib.db.repositories.custom_provider_repo import CustomProviderRepository
@@ -115,8 +120,9 @@ async def _create_custom_backend(provider_name: str, model_id: str | None, media
         provider = await repo.get_provider(db_id)
         if provider is None:
             raise ValueError(f"自定义供应商 {provider_name} 不存在")
+
+        model = None
         if model_id:
-            # 校验 model_id 仍存在且已启用，否则回退到默认模型
             from sqlalchemy import select
 
             from lib.db.models.custom_provider import CustomProviderModel
@@ -124,21 +130,29 @@ async def _create_custom_backend(provider_name: str, model_id: str | None, media
             stmt = select(CustomProviderModel).where(
                 CustomProviderModel.provider_id == db_id,
                 CustomProviderModel.model_id == model_id,
-                CustomProviderModel.media_type == media_type,
                 CustomProviderModel.is_enabled == True,  # noqa: E712
             )
             result = await session.execute(stmt)
-            if result.scalar_one_or_none() is None:
-                logger.warning("自定义模型 %s/%s 已不存在或已禁用，回退到默认模型", provider_name, model_id)
+            candidate = result.scalar_one_or_none()
+            if candidate and endpoint_to_media_type(candidate.endpoint) == media_type:
+                model = candidate
+            else:
+                logger.warning(
+                    "自定义模型 %s/%s 已不存在 / 已禁用 / 媒体类型不符（期望 %s），回退到默认模型",
+                    provider_name,
+                    model_id,
+                    media_type,
+                )
                 model_id = None
 
-        if not model_id:
+        if model is None:
             default_model = await repo.get_default_model(db_id, media_type)
-            if default_model:
-                model_id = default_model.model_id
-            else:
+            if default_model is None:
                 raise ValueError(f"自定义供应商 {provider_name} 没有默认 {media_type} 模型")
-        return create_custom_backend(provider=provider, model_id=model_id, media_type=media_type)
+            model = default_model
+            model_id = default_model.model_id
+
+        return create_custom_backend(provider=provider, model_id=model_id, endpoint=model.endpoint)
 
 
 async def _get_or_create_video_backend(
