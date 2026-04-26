@@ -38,7 +38,7 @@ class TestCustomProviderTable:
             columns = await conn.run_sync(
                 lambda sync_conn: {c["name"] for c in inspect(sync_conn).get_columns("custom_provider")}
             )
-        expected = {"id", "display_name", "api_format", "base_url", "api_key", "created_at", "updated_at"}
+        expected = {"id", "display_name", "discovery_format", "base_url", "api_key", "created_at", "updated_at"}
         assert columns == expected
 
 
@@ -46,7 +46,7 @@ class TestCustomProviderRoundTrip:
     async def test_create_and_read_back(self, session):
         provider = CustomProvider(
             display_name="My Ollama",
-            api_format="openai",
+            discovery_format="openai",
             base_url="http://localhost:11434/v1",
             api_key="sk-local-test",
         )
@@ -56,7 +56,7 @@ class TestCustomProviderRoundTrip:
         result = await session.execute(select(CustomProvider).where(CustomProvider.display_name == "My Ollama"))
         loaded = result.scalar_one()
         assert loaded.display_name == "My Ollama"
-        assert loaded.api_format == "openai"
+        assert loaded.discovery_format == "openai"
         assert loaded.base_url == "http://localhost:11434/v1"
         assert loaded.api_key == "sk-local-test"
         assert loaded.id is not None
@@ -66,7 +66,7 @@ class TestCustomProviderRoundTrip:
     async def test_provider_id_property(self, session):
         provider = CustomProvider(
             display_name="Test Provider",
-            api_format="openai",
+            discovery_format="openai",
             base_url="http://example.com/v1",
             api_key="sk-test",
         )
@@ -94,7 +94,7 @@ class TestCustomProviderModelTable:
             "provider_id",
             "model_id",
             "display_name",
-            "media_type",
+            "endpoint",
             "is_default",
             "is_enabled",
             "price_unit",
@@ -114,7 +114,7 @@ class TestCustomProviderModelRoundTrip:
         """Create a CustomProviderModel linked to a provider and read back."""
         provider = CustomProvider(
             display_name="OpenRouter",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://openrouter.ai/api/v1",
             api_key="sk-or-xxx",
         )
@@ -125,7 +125,7 @@ class TestCustomProviderModelRoundTrip:
             provider_id=provider.id,
             model_id="anthropic/claude-sonnet-4",
             display_name="Claude Sonnet",
-            media_type="text",
+            endpoint="openai-chat",
             is_default=True,
             is_enabled=True,
             price_unit="token",
@@ -142,7 +142,7 @@ class TestCustomProviderModelRoundTrip:
         loaded = result.scalar_one()
         assert loaded.model_id == "anthropic/claude-sonnet-4"
         assert loaded.display_name == "Claude Sonnet"
-        assert loaded.media_type == "text"
+        assert loaded.endpoint == "openai-chat"
         assert loaded.is_default is True
         assert loaded.is_enabled is True
         assert loaded.price_unit == "token"
@@ -156,7 +156,7 @@ class TestCustomProviderModelRoundTrip:
         """Price fields should be nullable for local/free providers (e.g., Ollama)."""
         provider = CustomProvider(
             display_name="Local Ollama",
-            api_format="openai",
+            discovery_format="openai",
             base_url="http://localhost:11434/v1",
             api_key="ollama",
         )
@@ -167,7 +167,7 @@ class TestCustomProviderModelRoundTrip:
             provider_id=provider.id,
             model_id="llama3",
             display_name="Llama 3",
-            media_type="text",
+            endpoint="openai-chat",
         )
         session.add(model)
         await session.commit()
@@ -185,7 +185,7 @@ class TestCustomProviderModelRoundTrip:
         """UniqueConstraint on (provider_id, model_id) should prevent duplicates."""
         provider = CustomProvider(
             display_name="Dup Test",
-            api_format="openai",
+            discovery_format="openai",
             base_url="http://example.com/v1",
             api_key="sk-test",
         )
@@ -196,7 +196,7 @@ class TestCustomProviderModelRoundTrip:
             provider_id=provider.id,
             model_id="gpt-4o",
             display_name="GPT-4o",
-            media_type="text",
+            endpoint="openai-chat",
         )
         session.add(model1)
         await session.commit()
@@ -205,7 +205,7 @@ class TestCustomProviderModelRoundTrip:
             provider_id=provider.id,
             model_id="gpt-4o",
             display_name="GPT-4o Dup",
-            media_type="text",
+            endpoint="openai-chat",
         )
         session.add(model2)
         with pytest.raises(Exception):  # IntegrityError
