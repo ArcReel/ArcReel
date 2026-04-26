@@ -76,7 +76,7 @@ def test_upgrade_maps_all_nine_combos(alembic_cfg):
         "openai-video",
         "gemini-generate",
         "gemini-image",
-        "newapi-video",
+        "openai-video",  # (google, video) 兜底为 openai-video，比 newapi-video 在中转站生态更通用
         "openai-chat",
         "openai-images",
         "newapi-video",

@@ -24,7 +24,7 @@ _UPGRADE_ENDPOINT_MAP = {
     ("openai", "video"): "openai-video",
     ("google", "text"): "gemini-generate",
     ("google", "image"): "gemini-image",
-    ("google", "video"): "newapi-video",  # 兜底；google 直连本无视频
+    ("google", "video"): "openai-video",  # 兜底：用 OpenAI SDK 路径，比 newapi-video 在中转站生态更通用
     ("newapi", "text"): "openai-chat",
     ("newapi", "image"): "openai-images",
     ("newapi", "video"): "newapi-video",
