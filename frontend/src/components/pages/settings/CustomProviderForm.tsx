@@ -177,7 +177,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     setDiscovering(true);
     try {
       const res = useStoredCredential
-        ? await API.discoverModelsForProvider(existing!.id)
+        ? await API.discoverModelsForProvider(existing.id)
         : await API.discoverModels({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
       const discovered = res.models.map(discoveredToRow);
       setModels((prev) => {
