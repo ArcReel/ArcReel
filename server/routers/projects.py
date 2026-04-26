@@ -808,6 +808,9 @@ class UpdateSegmentRequest(BaseModel):
     video_prompt: dict | str | None = None
     transition_to_next: str | None = None
     note: str | None = None
+    characters_in_segment: list[str] | None = None
+    scenes: list[str] | None = None
+    props: list[str] | None = None
 
 
 class UpdateOverviewRequest(BaseModel):
@@ -847,6 +850,9 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                         segment["transition_to_next"] = req.transition_to_next
                     if "note" in req.model_fields_set:
                         segment["note"] = req.note
+                    for field in ("characters_in_segment", "scenes", "props"):
+                        if field in req.model_fields_set:
+                            segment[field] = getattr(req, field) or []
                     break
 
             if not segment_found:

@@ -302,6 +302,87 @@ class TestProjectsRouter:
             gen_overview_ok = client.post("/api/v1/projects/ready/generate-overview")
             assert gen_overview_ok.status_code == 200
 
+    def test_update_segment_writes_character_and_clue_refs(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "narration.json")] = {
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 4,
+                    "characters_in_segment": ["Alice"],
+                    "scenes": ["Forest"],
+                    "props": ["Sword"],
+                }
+            ],
+        }
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            # 写入新引用列表
+            patched = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={
+                    "script_file": "narration.json",
+                    "characters_in_segment": ["Bob", "Carol"],
+                    "scenes": ["Castle"],
+                    "props": [],
+                },
+            )
+            assert patched.status_code == 200
+            seg = patched.json()["segment"]
+            assert seg["characters_in_segment"] == ["Bob", "Carol"]
+            assert seg["scenes"] == ["Castle"]
+            assert seg["props"] == []
+
+            # 不传字段时不应改动现有值
+            untouched = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={"script_file": "narration.json", "duration_seconds": 7},
+            )
+            assert untouched.status_code == 200
+            seg2 = untouched.json()["segment"]
+            assert seg2["duration_seconds"] == 7
+            assert seg2["characters_in_segment"] == ["Bob", "Carol"]
+            assert seg2["scenes"] == ["Castle"]
+            assert seg2["props"] == []
+
+    def test_update_scene_supports_character_and_clue_refs(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "episode_1.json")] = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "001",
+                    "duration_seconds": 8,
+                    "characters_in_scene": ["Alice"],
+                    "scenes": [],
+                    "props": [],
+                }
+            ],
+        }
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            patched = client.patch(
+                "/api/v1/projects/ready/scenes/001",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {
+                        "characters_in_scene": ["Bob"],
+                        "scenes": ["Castle"],
+                        "props": ["Map"],
+                    },
+                },
+            )
+            assert patched.status_code == 200
+            scene = patched.json()["scene"]
+            assert scene["characters_in_scene"] == ["Bob"]
+            assert scene["scenes"] == ["Castle"]
+            assert scene["props"] == ["Map"]
+
             gen_overview_bad = client.post("/api/v1/projects/bad/generate-overview")
             assert gen_overview_bad.status_code == 400
 

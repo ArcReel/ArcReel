@@ -1,11 +1,16 @@
 import { useState, useRef, useEffect, useId } from "react";
+import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
-import { ImageIcon, Film, Clock } from "lucide-react";
+import { ImageIcon, Film, Clock, Edit3 } from "lucide-react";
 import { API } from "@/api";
 import { DEFAULT_DURATIONS } from "@/utils/provider-models";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AvatarStack } from "@/components/ui/AvatarStack";
 import { ClueStack } from "@/components/ui/ClueStack";
+import {
+  SegmentRefsEditModal,
+  type SegmentRefsChanges,
+} from "@/components/ui/SegmentRefsEditModal";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { GenerateButton } from "@/components/ui/GenerateButton";
@@ -43,6 +48,11 @@ const TRANSITION_LABELS: Record<TransitionType, string> = {
 // ---------------------------------------------------------------------------
 
 type Segment = NarrationSegment | DramaScene;
+type SegmentRefField =
+  | "characters_in_segment"
+  | "characters_in_scene"
+  | "scenes"
+  | "props";
 
 function getSegmentId(segment: Segment, mode: "narration" | "drama"): string {
   return mode === "narration"
@@ -713,12 +723,30 @@ export function SegmentCard({
   generatingVideo = false,
 }: SegmentCardProps) {
   const { t } = useTranslation("dashboard");
+  const [, setLocation] = useLocation();
   const segmentId = getSegmentId(segment, contentMode);
   const segCost = useCostStore((s) => s.getSegmentCost(segmentId));
   const charNames = getCharacterNames(segment, contentMode);
   const sceneNames = getSceneNames(segment, contentMode);
   const propNames = getPropNames(segment, contentMode);
-  const hasAssetNames = sceneNames.length > 0 || propNames.length > 0;
+  const charField: SegmentRefField =
+    contentMode === "drama" ? "characters_in_scene" : "characters_in_segment";
+  const editable = !!onUpdatePrompt;
+  const [refsModalOpen, setRefsModalOpen] = useState(false);
+
+  const handleSaveRefs = (changes: SegmentRefsChanges) => {
+    if (!onUpdatePrompt) return;
+    if (changes.characters !== undefined) {
+      onUpdatePrompt(segmentId, charField, changes.characters);
+    }
+    if (changes.scenes !== undefined) {
+      onUpdatePrompt(segmentId, "scenes", changes.scenes);
+    }
+    if (changes.props !== undefined) {
+      onUpdatePrompt(segmentId, "props", changes.props);
+    }
+    setRefsModalOpen(false);
+  };
 
   return (
     <div>
@@ -754,25 +782,51 @@ export function SegmentCard({
             )}
           </div>
 
-          {/* Right: AvatarStack + ClueStack */}
+          {/* Right: 只读引用缩略 + 编辑入口（弹模态框批量编辑） */}
           <div className="flex items-center gap-2">
-            <AvatarStack
-              names={charNames}
-              characters={characters}
-              projectName={projectName}
-            />
-            {charNames.length > 0 && hasAssetNames && (
-              <div className="border-l border-gray-700 self-stretch" />
+            <div className="flex items-center -space-x-1">
+              <AvatarStack
+                names={charNames}
+                characters={characters}
+                projectName={projectName}
+              />
+              <ClueStack
+                sceneNames={sceneNames}
+                propNames={propNames}
+                scenes={scenes}
+                props={props}
+                projectName={projectName}
+              />
+            </div>
+            {editable && (
+              <button
+                type="button"
+                onClick={() => setRefsModalOpen(true)}
+                aria-label={t("segment_refs_edit_button")}
+                title={t("segment_refs_edit_button")}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-gray-500 transition-colors hover:border-gray-700 hover:bg-gray-800 hover:text-indigo-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/40"
+              >
+                <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
             )}
-            <ClueStack
-              sceneNames={sceneNames}
-              propNames={propNames}
-              scenes={scenes}
-              props={props}
-              projectName={projectName}
-            />
           </div>
         </div>
+
+        {editable && refsModalOpen && (
+          <SegmentRefsEditModal
+            open
+            onClose={() => setRefsModalOpen(false)}
+            onSave={handleSaveRefs}
+            initialCharacters={charNames}
+            initialScenes={sceneNames}
+            initialProps={propNames}
+            characters={characters}
+            scenes={scenes}
+            props={props}
+            projectName={projectName}
+            onManageClick={(kind) => setLocation(`/${kind}s`)}
+          />
+        )}
 
         {/* ---- Content: three-column grid ---- */}
         <div className="grid grid-cols-3 gap-0 divide-x divide-gray-800">
