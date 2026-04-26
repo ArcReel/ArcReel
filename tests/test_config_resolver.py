@@ -509,7 +509,7 @@ class TestVideoCapabilities:
             async with factory() as session:
                 provider = CustomProvider(
                     display_name="Custom X",
-                    api_format="openai",
+                    discovery_format="openai",
                     base_url="https://example.com",
                     api_key="xxx",
                 )
@@ -519,7 +519,7 @@ class TestVideoCapabilities:
                     provider_id=provider.id,
                     model_id="my-video-model",
                     display_name="My Video",
-                    media_type="video",
+                    endpoint="newapi-video",
                     supported_durations="[5, 10]",
                 )
                 session.add(model)

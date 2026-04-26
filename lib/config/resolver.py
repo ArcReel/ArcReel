@@ -256,6 +256,15 @@ class ConfigResolver:
             model = await repo.get_model_by_ids(db_pid, model_id)
             if model is None:
                 raise ValueError(f"custom model not found: {provider_id}/{model_id}")
+
+            from lib.custom_provider.endpoints import endpoint_to_media_type
+
+            derived_media = endpoint_to_media_type(model.endpoint)
+            if derived_media != "video":
+                raise ValueError(
+                    f"endpoint media_type mismatch: {provider_id}/{model_id} endpoint={model.endpoint!r} "
+                    f"is {derived_media}, not video"
+                )
             raw_durations = model.supported_durations
             supported_durations: list[int] = []
             if raw_durations:
