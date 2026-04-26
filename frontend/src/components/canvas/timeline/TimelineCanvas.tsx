@@ -99,7 +99,12 @@ interface TimelineCanvasProps {
   episodeScript: EpisodeScript | null;
   scriptFile?: string;
   projectData: ProjectData | null;
-  onUpdatePrompt?: (segmentId: string, field: string, value: unknown, scriptFile?: string) => void;
+  onUpdatePrompt?: (
+    segmentId: string,
+    fieldOrPatch: string | Record<string, unknown>,
+    value?: unknown,
+    scriptFile?: string,
+  ) => void;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
   onGenerateGrid?: (episode: number, scriptFile: string, sceneIds?: string[]) => void;
@@ -462,7 +467,7 @@ export function TimelineCanvas({
                             projectName={projectName}
                             durationOptions={durationOptions}
                             isGridMode
-                            onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}
+                            onUpdatePrompt={onUpdatePrompt && ((id, fieldOrPatch, value) => onUpdatePrompt(id, fieldOrPatch, value, scriptFile))}
                             onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
                             onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
                             onRestoreStoryboard={onRestoreStoryboard}
@@ -505,7 +510,7 @@ export function TimelineCanvas({
                       props={projectData.props ?? {}}
                       projectName={projectName}
                       durationOptions={durationOptions}
-                      onUpdatePrompt={onUpdatePrompt && ((id, field, value) => onUpdatePrompt(id, field, value, scriptFile))}
+                      onUpdatePrompt={onUpdatePrompt && ((id, fieldOrPatch, value) => onUpdatePrompt(id, fieldOrPatch, value, scriptFile))}
                       onGenerateStoryboard={onGenerateStoryboard && ((id) => onGenerateStoryboard(id, scriptFile))}
                       onGenerateVideo={onGenerateVideo && ((id) => onGenerateVideo(id, scriptFile))}
                       onRestoreStoryboard={onRestoreStoryboard}

@@ -145,14 +145,23 @@ export function StudioCanvasRouter() {
 
   // ---- Timeline action callbacks ----
   // These receive scriptFile from TimelineCanvas so they always use the active episode's script.
-  const handleUpdatePrompt = useCallback(async (segmentId: string, field: string, value: unknown, scriptFile?: string) => {
+  const handleUpdatePrompt = useCallback(async (
+    segmentId: string,
+    fieldOrPatch: string | Record<string, unknown>,
+    value?: unknown,
+    scriptFile?: string,
+  ) => {
     if (!currentProjectName) return;
     const mode = currentProjectData?.content_mode ?? "narration";
+    const patch =
+      typeof fieldOrPatch === "string"
+        ? { [fieldOrPatch]: value }
+        : fieldOrPatch;
     try {
       if (mode === "drama") {
-        await API.updateScene(currentProjectName, segmentId, scriptFile ?? "", { [field]: value });
+        await API.updateScene(currentProjectName, segmentId, scriptFile ?? "", patch);
       } else {
-        await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, [field]: value });
+        await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, ...patch });
       }
       await refreshProject();
     } catch (err) {

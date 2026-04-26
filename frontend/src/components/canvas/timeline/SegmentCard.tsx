@@ -169,8 +169,8 @@ interface SegmentCardProps {
   isGridMode?: boolean;
   onUpdatePrompt?: (
     segmentId: string,
-    field: string,
-    value: unknown
+    fieldOrPatch: string | Record<string, unknown>,
+    value?: unknown,
   ) => void;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void;
@@ -736,14 +736,12 @@ export function SegmentCard({
 
   const handleSaveRefs = (changes: SegmentRefsChanges) => {
     if (!onUpdatePrompt) return;
-    if (changes.characters !== undefined) {
-      onUpdatePrompt(segmentId, charField, changes.characters);
-    }
-    if (changes.scenes !== undefined) {
-      onUpdatePrompt(segmentId, "scenes", changes.scenes);
-    }
-    if (changes.props !== undefined) {
-      onUpdatePrompt(segmentId, "props", changes.props);
+    const patch: Record<string, unknown> = {};
+    if (changes.characters !== undefined) patch[charField] = changes.characters;
+    if (changes.scenes !== undefined) patch.scenes = changes.scenes;
+    if (changes.props !== undefined) patch.props = changes.props;
+    if (Object.keys(patch).length > 0) {
+      onUpdatePrompt(segmentId, patch);
     }
     setRefsModalOpen(false);
   };

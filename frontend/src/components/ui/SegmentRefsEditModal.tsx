@@ -42,8 +42,9 @@ interface SegmentRefsEditModalProps {
 
 function arraysEqualUnordered(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
-  const setA = new Set(a);
-  return b.every((x) => setA.has(x));
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((v, i) => v === sb[i]);
 }
 
 function getSheetPath(kind: AssetKind, asset: Asset): string | undefined {
@@ -56,13 +57,15 @@ function buildRows<A extends Asset>(
   dict: Record<string, A>,
   selected: string[],
 ): RefRow[] {
-  const rows: RefRow[] = Object.entries(dict).map(([name, asset]) => ({
-    kind,
-    name,
-    thumbPath: getSheetPath(kind, asset),
-    description: asset.description,
-    isStale: false,
-  }));
+  const rows: RefRow[] = Object.entries(dict)
+    .map(([name, asset]) => ({
+      kind,
+      name,
+      thumbPath: getSheetPath(kind, asset),
+      description: asset.description,
+      isStale: false,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const stale = selected.filter((n) => !(n in dict)).sort();
   for (const name of stale) rows.push({ kind, name, isStale: true });
   return rows;

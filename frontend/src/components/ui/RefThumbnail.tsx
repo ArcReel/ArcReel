@@ -128,11 +128,12 @@ export function RefThumbnail({
   const sheetFp = useProjectsStore((s) =>
     sheetPath ? s.getAssetFingerprint(sheetPath) : null,
   );
-  const [errorPath, setErrorPath] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState<string | null>(null);
   const [hovered, setHovered] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const meta = KIND_META[kind];
-  const showImage = !!sheetPath && errorPath !== sheetPath;
+  const currentKey = sheetPath ? `${sheetPath}#${sheetFp ?? ""}` : null;
+  const showImage = !!sheetPath && errorKey !== currentKey;
 
   return (
     <>
@@ -147,7 +148,7 @@ export function RefThumbnail({
             src={API.getFileUrl(projectName, sheetPath, sheetFp)}
             alt={name}
             className={`h-7 w-7 border-2 border-gray-900 object-cover ${meta.shape}`}
-            onError={() => setErrorPath(sheetPath ?? null)}
+            onError={() => setErrorKey(currentKey)}
           />
         ) : (
           <span
