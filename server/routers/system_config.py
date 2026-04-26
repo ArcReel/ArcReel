@@ -149,6 +149,7 @@ async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsD
                 buckets[bucket].append(f"{provider_id}/{model_id}")
 
     from lib.custom_provider import make_provider_id
+    from lib.custom_provider.endpoints import endpoint_to_media_type
     from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
     try:
@@ -158,7 +159,8 @@ async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsD
         enabled_models = await repo.list_all_enabled_models()
         for model in enabled_models:
             pid = make_provider_id(model.provider_id)
-            bucket = _MEDIA_TO_BUCKET.get(model.media_type)
+            media_type = endpoint_to_media_type(model.endpoint)
+            bucket = _MEDIA_TO_BUCKET.get(media_type)
             if bucket:
                 buckets[bucket].append(f"{pid}/{model.model_id}")
             if pid not in provider_names and model.provider_id in provider_name_map:

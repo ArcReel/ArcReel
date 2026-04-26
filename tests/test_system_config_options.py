@@ -71,14 +71,14 @@ class TestBuildOptionsCustomModels:
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="My LLM",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://api.example.com/v1",
             api_key="sk-test",
             models=[
                 {
                     "model_id": "gpt-4o",
                     "display_name": "GPT-4o",
-                    "media_type": "text",
+                    "endpoint": "openai-chat",
                     "is_default": True,
                     "is_enabled": True,
                 }
@@ -99,14 +99,14 @@ class TestBuildOptionsCustomModels:
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="My Image Provider",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://api.example.com/v1",
             api_key="sk-test",
             models=[
                 {
                     "model_id": "dall-e-3",
                     "display_name": "DALL-E 3",
-                    "media_type": "image",
+                    "endpoint": "openai-images",
                     "is_default": True,
                     "is_enabled": True,
                 }
@@ -125,14 +125,14 @@ class TestBuildOptionsCustomModels:
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="My Video Provider",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://api.example.com/v1",
             api_key="sk-test",
             models=[
                 {
                     "model_id": "sora-preview",
                     "display_name": "Sora Preview",
-                    "media_type": "video",
+                    "endpoint": "newapi-video",
                     "is_default": True,
                     "is_enabled": True,
                 }
@@ -151,14 +151,14 @@ class TestBuildOptionsCustomModels:
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="My Provider",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://api.example.com/v1",
             api_key="sk-test",
             models=[
                 {
                     "model_id": "disabled-model",
                     "display_name": "Disabled",
-                    "media_type": "text",
+                    "endpoint": "openai-chat",
                     "is_default": False,
                     "is_enabled": False,
                 }
@@ -177,14 +177,14 @@ class TestBuildOptionsCustomModels:
         repo = CustomProviderRepository(db_session)
         p1 = await repo.create_provider(
             display_name="Provider A",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://a.example.com/v1",
             api_key="sk-a",
             models=[
                 {
                     "model_id": "model-text",
                     "display_name": "Text Model",
-                    "media_type": "text",
+                    "endpoint": "openai-chat",
                     "is_default": True,
                     "is_enabled": True,
                 }
@@ -192,21 +192,21 @@ class TestBuildOptionsCustomModels:
         )
         p2 = await repo.create_provider(
             display_name="Provider B",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://b.example.com/v1",
             api_key="sk-b",
             models=[
                 {
                     "model_id": "model-image",
                     "display_name": "Image Model",
-                    "media_type": "image",
+                    "endpoint": "openai-images",
                     "is_default": True,
                     "is_enabled": True,
                 },
                 {
                     "model_id": "model-disabled",
                     "display_name": "Disabled",
-                    "media_type": "image",
+                    "endpoint": "openai-images",
                     "is_default": False,
                     "is_enabled": False,
                 },
@@ -253,14 +253,14 @@ class TestBuildOptionsCustomModels:
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="Custom Text",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://api.example.com/v1",
             api_key="sk-test",
             models=[
                 {
                     "model_id": "my-text-model",
                     "display_name": "My Text Model",
-                    "media_type": "text",
+                    "endpoint": "openai-chat",
                     "is_default": True,
                     "is_enabled": True,
                 }
@@ -290,14 +290,14 @@ class TestBuildOptionsProviderNames:
         repo = CustomProviderRepository(db_session)
         provider = await repo.create_provider(
             display_name="我的 LLM 服务",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://api.example.com/v1",
             api_key="sk-test",
             models=[
                 {
                     "model_id": "gpt-4o",
                     "display_name": "GPT-4o",
-                    "media_type": "text",
+                    "endpoint": "openai-chat",
                     "is_default": True,
                     "is_enabled": True,
                 }
@@ -316,14 +316,14 @@ class TestBuildOptionsProviderNames:
         repo = CustomProviderRepository(db_session)
         p1 = await repo.create_provider(
             display_name="Provider A",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://a.example.com/v1",
             api_key="sk-a",
             models=[
                 {
                     "model_id": "model-a",
                     "display_name": "Model A",
-                    "media_type": "text",
+                    "endpoint": "openai-chat",
                     "is_default": True,
                     "is_enabled": True,
                 }
@@ -331,14 +331,14 @@ class TestBuildOptionsProviderNames:
         )
         p2 = await repo.create_provider(
             display_name="Provider B",
-            api_format="google",
+            discovery_format="google",
             base_url="https://b.example.com",
             api_key="sk-b",
             models=[
                 {
                     "model_id": "model-b",
                     "display_name": "Model B",
-                    "media_type": "image",
+                    "endpoint": "gemini-image",
                     "is_default": True,
                     "is_enabled": True,
                 }
@@ -365,14 +365,14 @@ class TestBuildOptionsProviderNames:
         repo = CustomProviderRepository(db_session)
         await repo.create_provider(
             display_name="All Disabled",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://api.example.com/v1",
             api_key="sk-test",
             models=[
                 {
                     "model_id": "disabled-model",
                     "display_name": "Disabled",
-                    "media_type": "text",
+                    "endpoint": "openai-chat",
                     "is_default": False,
                     "is_enabled": False,
                 }
