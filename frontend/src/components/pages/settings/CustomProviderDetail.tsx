@@ -5,6 +5,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import type { CustomProviderInfo } from "@/types";
+import { ENDPOINT_TO_MEDIA_TYPE } from "@/types";
 import { CustomProviderForm } from "./CustomProviderForm";
 
 // ---------------------------------------------------------------------------
@@ -135,7 +136,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
             </span>
           </div>
           <p className="mt-1 text-sm text-gray-500">
-            {provider.api_format === "openai" ? "OpenAI" : "Google"} &middot; {provider.base_url}
+            {provider.discovery_format === "openai" ? "OpenAI" : "Google"} &middot; {provider.base_url}
           </p>
         </div>
       </div>
@@ -144,9 +145,9 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
       <div className="mb-5 rounded-xl border border-gray-800 bg-gray-950/40 p-4">
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-gray-500">{t("api_format_label")}</span>
+            <span className="text-gray-500">{t("discovery_format_label")}</span>
             <span className="text-gray-300">
-              {provider.api_format === "openai" ? "OpenAI" : "Google"}
+              {provider.discovery_format === "openai" ? "OpenAI" : "Google"}
             </span>
           </div>
           <div className="flex justify-between">
@@ -180,7 +181,10 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
               >
                 <span className="min-w-0 flex-1 truncate font-mono text-xs">{m.model_id}</span>
                 <span className="rounded bg-gray-800 px-1.5 py-0.5 text-xs text-gray-400">
-                  {MEDIA_LABELS[m.media_type] ? t(MEDIA_LABELS[m.media_type]) : m.media_type}
+                  {(() => {
+                    const media = ENDPOINT_TO_MEDIA_TYPE[m.endpoint];
+                    return MEDIA_LABELS[media] ? t(MEDIA_LABELS[media]) : media;
+                  })()}
                 </span>
                 {m.is_default && (
                   <span className="rounded bg-indigo-600/30 px-1.5 py-0.5 text-xs text-indigo-300">
