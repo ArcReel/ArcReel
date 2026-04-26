@@ -1,7 +1,17 @@
+export type EndpointKey =
+  | "openai-chat"
+  | "gemini-generate"
+  | "openai-images"
+  | "gemini-image"
+  | "openai-video"
+  | "newapi-video";
+
+export type MediaType = "text" | "image" | "video";
+
 export interface CustomProviderInfo {
   id: number;
   display_name: string;
-  api_format: "openai" | "google" | "newapi";
+  discovery_format: "openai" | "google";
   base_url: string;
   api_key_masked: string;
   models: CustomProviderModelInfo[];
@@ -12,7 +22,7 @@ export interface CustomProviderModelInfo {
   id: number;
   model_id: string;
   display_name: string;
-  media_type: "text" | "image" | "video";
+  endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
   price_unit: string | null;
@@ -26,14 +36,14 @@ export interface CustomProviderModelInfo {
 export interface DiscoveredModel {
   model_id: string;
   display_name: string;
-  media_type: "text" | "image" | "video";
+  endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
 }
 
 export interface CustomProviderCreateRequest {
   display_name: string;
-  api_format: "openai" | "google" | "newapi";
+  discovery_format: "openai" | "google";
   base_url: string;
   api_key: string;
   models: CustomProviderModelInput[];
@@ -42,7 +52,7 @@ export interface CustomProviderCreateRequest {
 export interface CustomProviderModelInput {
   model_id: string;
   display_name: string;
-  media_type: "text" | "image" | "video";
+  endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
   price_unit?: string;
@@ -52,3 +62,12 @@ export interface CustomProviderModelInput {
   supported_durations?: number[] | null;
   resolution?: string | null;
 }
+
+export const ENDPOINT_TO_MEDIA_TYPE: Record<EndpointKey, MediaType> = {
+  "openai-chat": "text",
+  "gemini-generate": "text",
+  "openai-images": "image",
+  "gemini-image": "image",
+  "openai-video": "video",
+  "newapi-video": "video",
+};
