@@ -157,7 +157,9 @@ async def _load_pools_from_db() -> dict[str, ProviderPool]:
         repo = CustomProviderRepository(session)
         for provider, models in await repo.list_providers_with_models():
             pid = provider.provider_id  # "custom-{id}"
-            media_types = {m.media_type for m in models if m.is_enabled}
+            from lib.custom_provider.endpoints import endpoint_to_media_type
+
+            media_types = {endpoint_to_media_type(m.endpoint) for m in models if m.is_enabled}
             pools[pid] = ProviderPool(
                 provider_id=pid,
                 image_max=default_image if "image" in media_types else 0,
