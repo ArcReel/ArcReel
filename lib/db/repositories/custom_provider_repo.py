@@ -16,7 +16,7 @@ class CustomProviderRepository(BaseRepository):
     async def create_provider(
         self,
         display_name: str,
-        api_format: str,
+        discovery_format: str,
         base_url: str,
         api_key: str,
         models: list[dict] | None = None,
@@ -24,7 +24,7 @@ class CustomProviderRepository(BaseRepository):
         """创建供应商，可选同时创建模型列表。"""
         provider = CustomProvider(
             display_name=display_name,
-            api_format=api_format,
+            discovery_format=discovery_format,
             base_url=base_url,
             api_key=api_key,
         )
@@ -135,11 +135,19 @@ class CustomProviderRepository(BaseRepository):
         return [(p, models_by_provider.get(p.id, [])) for p in providers]
 
     async def list_enabled_models_by_media_type(self, media_type: str) -> list[CustomProviderModel]:
-        """跨所有供应商获取指定媒体类型的已启用模型。"""
+        """跨所有供应商获取指定媒体类型的已启用模型。
+
+        通过 ENDPOINT_REGISTRY 将 media_type 映射到对应的 endpoint 集合，再按 endpoint 过滤。
+        """
+        from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+
+        matching_endpoints = [key for key, spec in ENDPOINT_REGISTRY.items() if spec.media_type == media_type]
+        if not matching_endpoints:
+            return []
         stmt = (
             select(CustomProviderModel)
             .where(
-                CustomProviderModel.media_type == media_type,
+                CustomProviderModel.endpoint.in_(matching_endpoints),
                 CustomProviderModel.is_enabled == True,  # noqa: E712
             )
             .order_by(CustomProviderModel.id)
@@ -157,10 +165,18 @@ class CustomProviderRepository(BaseRepository):
         return result.scalar_one_or_none()
 
     async def get_default_model(self, provider_id: int, media_type: str) -> CustomProviderModel | None:
-        """获取指定供应商 + 媒体类型的默认已启用模型。"""
+        """获取指定供应商 + 媒体类型的默认已启用模型。
+
+        通过 ENDPOINT_REGISTRY 将 media_type 映射到对应的 endpoint 集合，再按 endpoint 过滤。
+        """
+        from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+
+        matching_endpoints = [key for key, spec in ENDPOINT_REGISTRY.items() if spec.media_type == media_type]
+        if not matching_endpoints:
+            return None
         stmt = select(CustomProviderModel).where(
             CustomProviderModel.provider_id == provider_id,
-            CustomProviderModel.media_type == media_type,
+            CustomProviderModel.endpoint.in_(matching_endpoints),
             CustomProviderModel.is_default == True,  # noqa: E712
             CustomProviderModel.is_enabled == True,  # noqa: E712
         )

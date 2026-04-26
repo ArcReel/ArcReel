@@ -25,14 +25,14 @@ class TestProviderCRUD:
         repo = CustomProviderRepository(session)
         provider = await repo.create_provider(
             display_name="My OpenAI",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://api.openai.com/v1",
             api_key="sk-test-123",
         )
         await session.flush()
         assert provider.id is not None
         assert provider.display_name == "My OpenAI"
-        assert provider.api_format == "openai"
+        assert provider.discovery_format == "openai"
         assert provider.base_url == "https://api.openai.com/v1"
         assert provider.api_key == "sk-test-123"
 
@@ -42,14 +42,14 @@ class TestProviderCRUD:
             {
                 "model_id": "gpt-4o",
                 "display_name": "GPT-4o",
-                "media_type": "text",
+                "endpoint": "openai-chat",
                 "is_default": True,
                 "is_enabled": True,
             },
             {
                 "model_id": "dall-e-3",
                 "display_name": "DALL-E 3",
-                "media_type": "image",
+                "endpoint": "openai-images",
                 "is_default": True,
                 "is_enabled": True,
                 "price_unit": "image",
@@ -59,7 +59,7 @@ class TestProviderCRUD:
         ]
         provider = await repo.create_provider(
             display_name="My OpenAI",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://api.openai.com/v1",
             api_key="sk-test-123",
             models=models,
@@ -77,7 +77,7 @@ class TestProviderCRUD:
         repo = CustomProviderRepository(session)
         created = await repo.create_provider(
             display_name="Test",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://example.com",
             api_key="key",
         )
@@ -94,13 +94,13 @@ class TestProviderCRUD:
         repo = CustomProviderRepository(session)
         await repo.create_provider(
             display_name="Provider A",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://a.com",
             api_key="key-a",
         )
         await repo.create_provider(
             display_name="Provider B",
-            api_format="google",
+            discovery_format="google",
             base_url="https://b.com",
             api_key="key-b",
         )
@@ -114,7 +114,7 @@ class TestProviderCRUD:
         repo = CustomProviderRepository(session)
         p = await repo.create_provider(
             display_name="Old Name",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://old.com",
             api_key="old-key",
         )
@@ -138,19 +138,19 @@ class TestProviderCRUD:
         repo = CustomProviderRepository(session)
         p = await repo.create_provider(
             display_name="ToDelete",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://del.com",
             api_key="key",
             models=[
                 {
                     "model_id": "m1",
                     "display_name": "Model 1",
-                    "media_type": "text",
+                    "endpoint": "openai-chat",
                 },
                 {
                     "model_id": "m2",
                     "display_name": "Model 2",
-                    "media_type": "image",
+                    "endpoint": "openai-images",
                 },
             ],
         )
@@ -172,7 +172,7 @@ class TestModelManagement:
     async def _make_provider(self, repo: CustomProviderRepository, session: AsyncSession) -> int:
         p = await repo.create_provider(
             display_name="TestProvider",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://example.com",
             api_key="key",
         )
@@ -188,18 +188,18 @@ class TestModelManagement:
         repo = CustomProviderRepository(session)
         p = await repo.create_provider(
             display_name="TestProvider",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://example.com",
             api_key="key",
             models=[
-                {"model_id": "old-model", "display_name": "Old", "media_type": "text"},
+                {"model_id": "old-model", "display_name": "Old", "endpoint": "openai-chat"},
             ],
         )
         await session.flush()
 
         new_models = [
-            {"model_id": "new-1", "display_name": "New 1", "media_type": "text", "is_default": True},
-            {"model_id": "new-2", "display_name": "New 2", "media_type": "image"},
+            {"model_id": "new-1", "display_name": "New 1", "endpoint": "openai-chat", "is_default": True},
+            {"model_id": "new-2", "display_name": "New 2", "endpoint": "openai-images"},
         ]
         await repo.replace_models(p.id, new_models)
         await session.flush()
@@ -215,11 +215,11 @@ class TestModelManagement:
         repo = CustomProviderRepository(session)
         p = await repo.create_provider(
             display_name="TestProvider",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://example.com",
             api_key="key",
             models=[
-                {"model_id": "m1", "display_name": "M1", "media_type": "text"},
+                {"model_id": "m1", "display_name": "M1", "endpoint": "openai-chat"},
             ],
         )
         await session.flush()
@@ -233,14 +233,14 @@ class TestModelManagement:
         repo = CustomProviderRepository(session)
         p = await repo.create_provider(
             display_name="TestProvider",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://example.com",
             api_key="key",
             models=[
                 {
                     "model_id": "gpt-4o",
                     "display_name": "GPT-4o",
-                    "media_type": "text",
+                    "endpoint": "openai-chat",
                     "price_unit": "token",
                     "price_input": 0.01,
                     "price_output": 0.03,
@@ -270,12 +270,12 @@ class TestModelManagement:
         repo = CustomProviderRepository(session)
         p = await repo.create_provider(
             display_name="TestProvider",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://example.com",
             api_key="key",
             models=[
-                {"model_id": "m1", "display_name": "M1", "media_type": "text"},
-                {"model_id": "m2", "display_name": "M2", "media_type": "text"},
+                {"model_id": "m1", "display_name": "M1", "endpoint": "openai-chat"},
+                {"model_id": "m2", "display_name": "M2", "endpoint": "openai-chat"},
             ],
         )
         await session.flush()
@@ -297,23 +297,23 @@ class TestModelManagement:
         repo = CustomProviderRepository(session)
         await repo.create_provider(
             display_name="Provider1",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://p1.com",
             api_key="key1",
             models=[
-                {"model_id": "text-1", "display_name": "Text 1", "media_type": "text", "is_enabled": True},
-                {"model_id": "img-1", "display_name": "Img 1", "media_type": "image", "is_enabled": True},
-                {"model_id": "text-off", "display_name": "Text Off", "media_type": "text", "is_enabled": False},
+                {"model_id": "text-1", "display_name": "Text 1", "endpoint": "openai-chat", "is_enabled": True},
+                {"model_id": "img-1", "display_name": "Img 1", "endpoint": "openai-images", "is_enabled": True},
+                {"model_id": "text-off", "display_name": "Text Off", "endpoint": "openai-chat", "is_enabled": False},
             ],
         )
         await repo.create_provider(
             display_name="Provider2",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://p2.com",
             api_key="key2",
             models=[
-                {"model_id": "text-2", "display_name": "Text 2", "media_type": "text", "is_enabled": True},
-                {"model_id": "vid-1", "display_name": "Vid 1", "media_type": "video", "is_enabled": True},
+                {"model_id": "text-2", "display_name": "Text 2", "endpoint": "openai-chat", "is_enabled": True},
+                {"model_id": "vid-1", "display_name": "Vid 1", "endpoint": "newapi-video", "is_enabled": True},
             ],
         )
         await session.flush()
@@ -340,13 +340,31 @@ class TestModelManagement:
         repo = CustomProviderRepository(session)
         p = await repo.create_provider(
             display_name="TestProvider",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://example.com",
             api_key="key",
             models=[
-                {"model_id": "m1", "display_name": "M1", "media_type": "text", "is_default": False, "is_enabled": True},
-                {"model_id": "m2", "display_name": "M2", "media_type": "text", "is_default": True, "is_enabled": True},
-                {"model_id": "m3", "display_name": "M3", "media_type": "image", "is_default": True, "is_enabled": True},
+                {
+                    "model_id": "m1",
+                    "display_name": "M1",
+                    "endpoint": "openai-chat",
+                    "is_default": False,
+                    "is_enabled": True,
+                },
+                {
+                    "model_id": "m2",
+                    "display_name": "M2",
+                    "endpoint": "openai-chat",
+                    "is_default": True,
+                    "is_enabled": True,
+                },
+                {
+                    "model_id": "m3",
+                    "display_name": "M3",
+                    "endpoint": "openai-images",
+                    "is_default": True,
+                    "is_enabled": True,
+                },
             ],
         )
         await session.flush()
@@ -363,11 +381,17 @@ class TestModelManagement:
         repo = CustomProviderRepository(session)
         p = await repo.create_provider(
             display_name="TestProvider",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://example.com",
             api_key="key",
             models=[
-                {"model_id": "m1", "display_name": "M1", "media_type": "text", "is_default": False, "is_enabled": True},
+                {
+                    "model_id": "m1",
+                    "display_name": "M1",
+                    "endpoint": "openai-chat",
+                    "is_default": False,
+                    "is_enabled": True,
+                },
             ],
         )
         await session.flush()
@@ -378,11 +402,17 @@ class TestModelManagement:
         repo = CustomProviderRepository(session)
         p = await repo.create_provider(
             display_name="TestProvider",
-            api_format="openai",
+            discovery_format="openai",
             base_url="https://example.com",
             api_key="key",
             models=[
-                {"model_id": "m1", "display_name": "M1", "media_type": "text", "is_default": True, "is_enabled": False},
+                {
+                    "model_id": "m1",
+                    "display_name": "M1",
+                    "endpoint": "openai-chat",
+                    "is_default": True,
+                    "is_enabled": False,
+                },
             ],
         )
         await session.flush()
@@ -392,3 +422,49 @@ class TestModelManagement:
     async def test_get_default_model_nonexistent_provider(self, session: AsyncSession):
         repo = CustomProviderRepository(session)
         assert await repo.get_default_model(999, "text") is None
+
+
+@pytest.mark.asyncio
+async def test_list_enabled_models_by_media_type_uses_endpoint(session):
+    """list_enabled_models_by_media_type 应按 endpoint 推算 media_type 过滤。"""
+    repo = CustomProviderRepository(session)
+    await repo.create_provider(
+        display_name="P",
+        discovery_format="openai",
+        base_url="https://x",
+        api_key="k",
+        models=[
+            {
+                "model_id": "gpt-4o",
+                "display_name": "gpt-4o",
+                "endpoint": "openai-chat",
+                "is_default": False,
+                "is_enabled": True,
+                "price_unit": None,
+                "price_input": None,
+                "price_output": None,
+                "currency": None,
+                "supported_durations": None,
+                "resolution": None,
+            },
+            {
+                "model_id": "kling-2",
+                "display_name": "kling-2",
+                "endpoint": "newapi-video",
+                "is_default": False,
+                "is_enabled": True,
+                "price_unit": None,
+                "price_input": None,
+                "price_output": None,
+                "currency": None,
+                "supported_durations": None,
+                "resolution": None,
+            },
+        ],
+    )
+    await session.commit()
+
+    text_models = await repo.list_enabled_models_by_media_type("text")
+    assert {m.model_id for m in text_models} == {"gpt-4o"}
+    video_models = await repo.list_enabled_models_by_media_type("video")
+    assert {m.model_id for m in video_models} == {"kling-2"}
