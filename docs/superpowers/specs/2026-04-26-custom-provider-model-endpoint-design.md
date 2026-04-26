@@ -24,7 +24,7 @@ ArcReel 的自定义供应商当前以 `CustomProvider.api_format ∈ {openai, g
 | 决策项 | 结论 |
 |---|---|
 | 重构范围 | 协议下沉到模型层 + 按媒体类型细分 endpoint |
-| Endpoint 阵容 | 现有 7 条；本轮**不引入** Anthropic Messages，留枚举位 |
+| Endpoint 阵容 | 现有 6 条（不含 `gemini-video`，NewAPI/中转站当前不暴露该端点）；本轮**不引入** Anthropic Messages，留枚举位 |
 | Provider 层 `api_format` | 改名 `discovery_format`，UI 弱化（仅用于 discovery / 连通测试） |
 | 模型层 `media_type` | 删除字段，由 `endpoint` 在运行时推导（单一真相源） |
 
@@ -78,7 +78,6 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
     "openai-images":   EndpointSpec(...),
     "gemini-image":    EndpointSpec(...),
     "openai-video":    EndpointSpec(...),
-    "gemini-video":    EndpointSpec(...),
     "newapi-video":    EndpointSpec(...),
 }
 ```
@@ -105,7 +104,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
 | `api_format` | `text` | `image` | `video` |
 |---|---|---|---|
 | `openai` | `openai-chat` | `openai-images` | `openai-video` |
-| `google` | `gemini-generate` | `gemini-image` | `gemini-video` |
+| `google` | `gemini-generate` | `gemini-image` | `newapi-video`（兜底；Google 直连本无视频端点，历史数据极少见） |
 | `newapi` | `openai-chat` | `openai-images` | `newapi-video` |
 
 迁移逻辑：先 add column → SELECT join 计算回填 → drop old columns。任何无法映射的组合 → fail loud（不静默丢失）。
@@ -165,10 +164,8 @@ async def discover_models(
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 1) 视频家族（kling/wan/seedance/veo/pika/minimax/hailuo/jimeng/runway/sora/cog/mochi）
-    #    discovery_format=google → "gemini-video"  (Google AI Studio 直连只可能是 veo 系)
-    #    discovery_format=openai：
-    #       sora-* → "openai-video"
-    #       其他视频家族 → "newapi-video"  (中转站最常见)
+    #    sora-* + discovery_format=openai → "openai-video"
+    #    其他视频家族 → "newapi-video"  (中转站最常见；google 直连本无视频，兜底也走 newapi-video)
     # 2) 图像（含 image/dall/img/imagen/flux）
     #    discovery_format=google → "gemini-image" 否则 "openai-images"
     # 3) 文本（默认）
@@ -208,7 +205,6 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
 | 🖼 图片 | Google Gemini Image | `gemini-image` |
 | 🎬 视频 | NewAPI Unified Video | `newapi-video` |
 | 🎬 视频 | OpenAI Video (Sora) | `openai-video` |
-| 🎬 视频 | Google Veo | `gemini-video` |
 
 `ModelRow` 类型改名 `media_type` → `endpoint`；`MEDIA_TYPE_OPTIONS` 改为 `ENDPOINT_OPTIONS`（按 group 排序）。
 
@@ -248,10 +244,10 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
 | 文件 | 覆盖点 |
 |---|---|
 | `tests/test_custom_provider_endpoints.py`（新） | ENDPOINT_REGISTRY 完整性、`endpoint_to_media_type`、`list_endpoints_by_media_type` |
-| `tests/test_custom_provider_factory.py` | 7 条 endpoint 都能 build_backend；未知 endpoint raise |
+| `tests/test_custom_provider_factory.py` | 6 条 endpoint 都能 build_backend；未知 endpoint raise |
 | `tests/test_custom_providers_api.py` | 422 校验；is_default 跨 endpoint 冲突；PUT 全量更新；新字段名 |
 | `tests/test_custom_provider_resolution.py` | discovery_format=google 全路径；video_capabilities 走 endpoint |
-| `tests/test_model_discovery.py` | `infer_endpoint` 启发式（kling / sora / veo / imagen / dall / 普通文本） |
+| `tests/test_model_discovery.py` | `infer_endpoint` 启发式（kling / sora / veo+openai 兜底 newapi / imagen / dall / 普通文本） |
 | `tests/test_alembic_custom_provider_endpoint.py`（新） | 9 种历史组合 → upgrade → endpoint 正确；downgrade → `(api_format, media_type)` 复原 |
 | `tests/test_custom_provider_repo.py` | `list_enabled_models_by_media_type` 改读 endpoint |
 
@@ -270,7 +266,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
 - `endpoint_label`、`endpoint_help_text`
 - `discovery_format_label`、`discovery_format_help`
 - `endpoint_text_group`、`endpoint_image_group`、`endpoint_video_group`
-- 7 条 endpoint 的展示名（`endpoint_openai_chat_display` 等）
+- 6 条 endpoint 的展示名（`endpoint_openai_chat_display` 等）
 - 旧 `api_format_label` / `media_type_label` 在所有引用点改造完后清理
 
 ### 向后兼容
