@@ -126,7 +126,7 @@ describe("SystemConfigPage", () => {
     expect(screen.getByRole("button", { name: /供应商/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /模型选择/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /用量统计/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /API 管理/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /API 令牌/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /关于/ })).toBeInTheDocument();
   });
 

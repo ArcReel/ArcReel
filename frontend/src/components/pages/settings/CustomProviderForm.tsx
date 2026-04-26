@@ -10,10 +10,10 @@ import type {
   CustomProviderModelInput,
   DiscoveredModel,
   EndpointKey,
-  MediaType,
 } from "@/types";
 import { ENDPOINT_TO_MEDIA_TYPE } from "@/types";
 import { priceLabel, urlPreviewFor, toggleDefaultReducer, type DiscoveryFormat } from "./customProviderHelpers";
+import { EndpointSelect } from "./EndpointSelect";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS } from "@/utils/provider-models";
 
@@ -24,27 +24,6 @@ import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS } from "@/utils/
 const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] = [
   { value: "openai", labelKey: "discovery_format_openai" },
   { value: "google", labelKey: "discovery_format_google" },
-];
-
-interface EndpointOption {
-  value: EndpointKey;
-  labelKey: string;
-  mediaType: MediaType;
-}
-
-const ENDPOINT_OPTIONS: EndpointOption[] = [
-  { value: "openai-chat", labelKey: "endpoint_openai_chat_display", mediaType: "text" },
-  { value: "gemini-generate", labelKey: "endpoint_gemini_generate_display", mediaType: "text" },
-  { value: "openai-images", labelKey: "endpoint_openai_images_display", mediaType: "image" },
-  { value: "gemini-image", labelKey: "endpoint_gemini_image_display", mediaType: "image" },
-  { value: "openai-video", labelKey: "endpoint_openai_video_display", mediaType: "video" },
-  { value: "newapi-video", labelKey: "endpoint_newapi_video_display", mediaType: "video" },
-];
-
-const ENDPOINT_GROUPS: { mediaType: MediaType; groupLabelKey: string; options: EndpointOption[] }[] = [
-  { mediaType: "text", groupLabelKey: "endpoint_text_group", options: ENDPOINT_OPTIONS.filter((o) => o.mediaType === "text") },
-  { mediaType: "image", groupLabelKey: "endpoint_image_group", options: ENDPOINT_OPTIONS.filter((o) => o.mediaType === "image") },
-  { mediaType: "video", groupLabelKey: "endpoint_video_group", options: ENDPOINT_OPTIONS.filter((o) => o.mediaType === "video") },
 ];
 
 interface ModelRow {
@@ -292,8 +271,6 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   // --- Shared input classes ---
   const inputCls =
     "w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-indigo-500 focus-ring";
-  const selectCls =
-    "rounded-lg border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-gray-100 focus:border-indigo-500 focus-ring";
 
   // --- Base URL preview (effective models endpoint) ---
   const urlPreview = urlPreviewFor(discoveryFormat, baseUrl);
@@ -470,21 +447,12 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-100 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
                       />
 
-                      {/* Endpoint select (grouped by media type) */}
-                      <select
+                      {/* Endpoint select (custom dropdown showing real API path) */}
+                      <EndpointSelect
                         value={m.endpoint}
-                        onChange={(e) => updateModel(m.key, { endpoint: e.target.value as EndpointKey, is_default: false })}
-                        aria-label={t("endpoint_label")}
-                        className={selectCls}
-                      >
-                        {ENDPOINT_GROUPS.map((g) => (
-                          <optgroup key={g.mediaType} label={t(g.groupLabelKey)}>
-                            {g.options.map((o) => (
-                              <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
+                        onChange={(next) => updateModel(m.key, { endpoint: next, is_default: false })}
+                        ariaLabel={t("endpoint_label")}
+                      />
 
                       {/* Default toggle */}
                       <button

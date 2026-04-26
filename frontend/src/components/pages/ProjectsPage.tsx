@@ -270,7 +270,7 @@ export function ProjectsPage() {
     <div className="relative min-h-screen bg-gray-950 text-gray-100">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_20%_0%,rgba(99,102,241,0.14),transparent_55%)]"
+        className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_20%_0%,rgba(99,102,241,0.14),transparent_55%)] [mask-image:linear-gradient(to_bottom,black_50%,transparent)]"
       />
 
       {/* Header */}
