@@ -325,15 +325,17 @@ export function ProjectSettingsPage() {
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 overflow-y-auto">
       {/* Header */}
-      <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-gray-800 bg-gray-950/95 px-6 py-4 backdrop-blur">
-        <button
-          onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
-          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-800 hover:text-gray-200 focus-ring"
-          aria-label={t("back_to_project")}
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <h1 className="text-lg font-semibold text-gray-100">{t("project_settings")}</h1>
+      <div className="sticky top-0 z-10 border-b border-gray-800 bg-gray-950/95 backdrop-blur">
+        <div className="mx-auto flex max-w-2xl items-center gap-3 px-6 py-4">
+          <button
+            onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
+            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-800 hover:text-gray-200 focus-ring"
+            aria-label={t("back_to_project")}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <h1 className="text-lg font-semibold text-gray-100">{t("project_settings")}</h1>
+        </div>
       </div>
 
       {/* Content */}
