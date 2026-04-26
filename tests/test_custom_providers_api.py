@@ -493,6 +493,62 @@ class TestDiscoverModels:
         assert resp.status_code == 502
 
 
+class TestDiscoverModelsByStoredProvider:
+    """回归: 编辑已保存供应商时，前端无法重新提交明文 api_key，需用 stored 凭证调用 by-id 端点。"""
+
+    def _create(self, client: TestClient) -> int:
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Stored Cred Provider",
+                "discovery_format": "openai",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "sk-stored-discover-1234",
+            },
+        )
+        return resp.json()["id"]
+
+    def test_uses_stored_credentials(self, client: TestClient):
+        """by-id discover 应把 stored discovery_format/base_url/api_key 透传到 discover_models。"""
+        pid = self._create(client)
+        fake_models = [
+            {
+                "model_id": "gpt-4",
+                "display_name": "gpt-4",
+                "endpoint": "openai-chat",
+                "is_default": True,
+                "is_enabled": True,
+            }
+        ]
+        with patch(
+            "lib.custom_provider.discovery.discover_models",
+            new_callable=AsyncMock,
+            return_value=fake_models,
+        ) as mock_discover:
+            resp = client.post(f"/api/v1/custom-providers/{pid}/discover")
+        assert resp.status_code == 200
+        assert resp.json()["models"][0]["model_id"] == "gpt-4"
+        # 验证 stored 凭证被透传（明文 api_key，不是 mask 后的）
+        kwargs = mock_discover.call_args.kwargs
+        assert kwargs["discovery_format"] == "openai"
+        assert kwargs["base_url"] == "https://api.example.com/v1"
+        assert kwargs["api_key"] == "sk-stored-discover-1234"
+
+    def test_returns_404_for_nonexistent(self, client: TestClient):
+        resp = client.post("/api/v1/custom-providers/9999/discover")
+        assert resp.status_code == 404
+
+    def test_upstream_failure_returns_502(self, client: TestClient):
+        pid = self._create(client)
+        with patch(
+            "lib.custom_provider.discovery.discover_models",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("Connection refused"),
+        ):
+            resp = client.post(f"/api/v1/custom-providers/{pid}/discover")
+        assert resp.status_code == 502
+
+
 # ---------------------------------------------------------------------------
 # Connection test (mock)
 # ---------------------------------------------------------------------------

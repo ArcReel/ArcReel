@@ -167,13 +167,18 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       showError(t("fill_base_url_first"));
       return;
     }
-    if (!apiKey) {
+    // 编辑模式下若用户未输入新 key，则用已存储凭证（by-id 端点）发现模型；
+    // 创建模式必须明文 api_key，无 by-id 路径可走。
+    const useStoredCredential = isEdit && !!existing && !apiKey;
+    if (!useStoredCredential && !apiKey) {
       showError(t("fill_api_key_first"));
       return;
     }
     setDiscovering(true);
     try {
-      const res = await API.discoverModels({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
+      const res = useStoredCredential
+        ? await API.discoverModelsForProvider(existing!.id)
+        : await API.discoverModels({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
       const discovered = res.models.map(discoveredToRow);
       setModels((prev) => {
         const existingIds = new Map(prev.map((r) => [r.model_id, r]));
@@ -199,7 +204,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setDiscovering(false);
     }
-  }, [discoveryFormat, baseUrl, apiKey, showError, t]);
+  }, [discoveryFormat, baseUrl, apiKey, isEdit, existing, showError, t]);
 
   // --- Test connection ---
   const handleTest = useCallback(async () => {

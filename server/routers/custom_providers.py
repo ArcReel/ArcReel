@@ -457,23 +457,22 @@ async def discover_models_endpoint(
     _t: Translator,
 ):
     """模型发现：根据 discovery_format + base_url + api_key 查询可用模型。"""
-    from lib.custom_provider.discovery import discover_models
+    return await _run_discover(body.discovery_format, body.base_url, body.api_key, _t)
 
-    try:
-        models = await discover_models(
-            discovery_format=body.discovery_format,
-            base_url=body.base_url or None,
-            api_key=body.api_key,
-        )
-        return DiscoverResponse(models=models)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        err_msg = str(exc)
-        if len(err_msg) > 200:
-            err_msg = err_msg[:200] + "..."
-        logger.warning("模型发现失败: %s", err_msg)
-        raise HTTPException(status_code=502, detail=_t("discovery_failed", err_msg=err_msg))
+
+@router.post("/{provider_id}/discover")
+async def discover_models_by_id(
+    provider_id: int,
+    _user: CurrentUser,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """使用已存储凭证发现指定供应商的可用模型。"""
+    repo = CustomProviderRepository(session)
+    provider = await repo.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
+    return await _run_discover(provider.discovery_format, provider.base_url, provider.api_key, _t)
 
 
 @router.post("/test")
@@ -496,6 +495,29 @@ async def test_connection_by_id(
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     return await _run_connection_test(provider.discovery_format, provider.base_url, provider.api_key, _t)
+
+
+async def _run_discover(
+    discovery_format: str, base_url: str | None, api_key: str, _t: Callable[..., str]
+) -> DiscoverResponse:
+    """共用的模型发现逻辑（明文凭证 / 已存储凭证两条入口共用）。"""
+    from lib.custom_provider.discovery import discover_models
+
+    try:
+        models = await discover_models(
+            discovery_format=discovery_format,
+            base_url=base_url or None,
+            api_key=api_key,
+        )
+        return DiscoverResponse(models=models)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        err_msg = str(exc)
+        if len(err_msg) > 200:
+            err_msg = err_msg[:200] + "..."
+        logger.warning("模型发现失败: %s", err_msg)
+        raise HTTPException(status_code=502, detail=_t("discovery_failed", err_msg=err_msg))
 
 
 async def _run_connection_test(

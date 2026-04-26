@@ -1539,6 +1539,10 @@ class API {
     return this.request("/custom-providers/discover", { method: "POST", body: JSON.stringify(data) });
   }
 
+  static async discoverModelsForProvider(id: number): Promise<{ models: DiscoveredModel[] }> {
+    return this.request(`/custom-providers/${id}/discover`, { method: "POST" });
+  }
+
   static async testCustomConnection(data: { discovery_format: string; base_url: string; api_key: string }): Promise<{ success: boolean; message: string }> {
     return this.request("/custom-providers/test", { method: "POST", body: JSON.stringify(data) });
   }
