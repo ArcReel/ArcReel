@@ -444,7 +444,7 @@ async def discover_models_endpoint(
 
     try:
         models = await discover_models(
-            api_format=body.api_format,
+            discovery_format=body.api_format,
             base_url=body.base_url or None,
             api_key=body.api_key,
         )
