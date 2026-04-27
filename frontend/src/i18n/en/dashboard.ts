@@ -648,6 +648,7 @@ export default {
   'fetch_models_failed': 'Failed to fetch model list',
   'fill_base_url_first': 'Please fill in Base URL first',
   'fill_api_key_first': 'Please fill in API Key first',
+  'base_url_changed_reenter_key': 'Base URL has changed — re-enter API Key to discover models',
   'fill_provider_name': 'Please fill in provider name',
   'fill_base_url': 'Please fill in Base URL',
   'fill_api_key': 'Please fill in API Key',

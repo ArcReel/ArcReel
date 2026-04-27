@@ -146,11 +146,14 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       showError(t("fill_base_url_first"));
       return;
     }
-    // 编辑模式下若用户未输入新 key，则用已存储凭证（by-id 端点）发现模型；
-    // 创建模式必须明文 api_key，无 by-id 路径可走。
-    const useStoredCredential = isEdit && !!existing && !apiKey;
+    // base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新 key 走明文路径，
+    // 否则 by-id 端点会用 DB 中的旧 base_url 发现模型，与保存的新地址错位。
+    const baseUrlChanged = isEdit && !!existing && baseUrl.trim() !== existing.base_url;
+    // 编辑模式下若用户未输入新 key 且 base_url 未变更，则用已存储凭证（by-id 端点）发现模型；
+    // 创建模式或 base_url 变更时必须明文 api_key。
+    const useStoredCredential = isEdit && !!existing && !apiKey && !baseUrlChanged;
     if (!useStoredCredential && !apiKey) {
-      showError(t("fill_api_key_first"));
+      showError(t(baseUrlChanged ? "base_url_changed_reenter_key" : "fill_api_key_first"));
       return;
     }
     setDiscovering(true);

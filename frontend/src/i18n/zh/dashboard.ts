@@ -649,6 +649,7 @@ export default {
   'fetch_models_failed': '获取模型列表失败',
   'fill_base_url_first': '请先填写 Base URL',
   'fill_api_key_first': '请先填写 API Key',
+  'base_url_changed_reenter_key': 'Base URL 已修改，请重新输入 API Key 后再发现模型',
   'fill_provider_name': '请填写供应商名称',
   'fill_base_url': '请填写 Base URL',
   'fill_api_key': '请填写 API Key',
