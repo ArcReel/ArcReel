@@ -15,7 +15,7 @@ updates:
     versioning-strategy: lockfile-only
     labels:
       - "dependencies"
-      - "python"
+      - "python:uv"
     commit-message:
       prefix: "chore(deps)"
     groups:
@@ -57,12 +57,9 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      minor-and-patch:
+      all-other:
         patterns:
           - "*"
-        update-types:
-          - "minor"
-          - "patch"
 
   # Frontend npm dependencies (pnpm)
   - package-ecosystem: "npm"
@@ -104,12 +101,9 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      minor-and-patch:
+      all-other:
         patterns:
           - "*"
-        update-types:
-          - "minor"
-          - "patch"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
