@@ -49,11 +49,21 @@ updates:
           - "Pillow"
           - "ffmpeg-python"
           - "pyjianyingdraft"
+      document-parsing:
+        patterns:
+          - "pymupdf"
+          - "mammoth"
+          - "docx2txt"
+          - "ebooklib"
+          - "beautifulsoup4"
+          - "lxml"
+          - "charset-normalizer"
       dev-dependencies:
         patterns:
           - "pytest*"
           - "ruff"
           - "pre-commit"
+          - "python-docx"
         update-types:
           - "minor"
           - "patch"
@@ -80,6 +90,22 @@ updates:
           - "react-dom"
           - "@types/react"
           - "@types/react-dom"
+      i18n:
+        patterns:
+          - "i18next"
+          - "i18next-*"
+          - "react-i18next"
+      dnd-kit:
+        patterns:
+          - "@dnd-kit/*"
+      ui-libs:
+        patterns:
+          - "framer-motion"
+          - "lucide-react"
+          - "@floating-ui/*"
+          - "@lobehub/*"
+          - "@tanstack/react-virtual"
+          - "streamdown"
       vite-tailwind:
         patterns:
           - "vite"
@@ -94,6 +120,13 @@ updates:
           - "@vitest/*"
           - "@testing-library/*"
           - "jsdom"
+      eslint-stack:
+        patterns:
+          - "eslint"
+          - "eslint-*"
+          - "@eslint/*"
+          - "typescript-eslint"
+          - "globals"
       dev-dependencies:
         dependency-type: "development"
         patterns:
