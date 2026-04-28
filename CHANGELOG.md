@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.1](https://github.com/ArcReel/ArcReel/compare/v0.11.0...v0.11.1) (2026-04-28)
+
+
+### 🐛 Bug 修复
+
+* **generate:** 补充 prompt str 分支的空字符串校验 ([#443](https://github.com/ArcReel/ArcReel/issues/443)) ([5c9a40a](https://github.com/ArcReel/ArcReel/commit/5c9a40af5643dc88c46ab4fbe33064d8f22761cd))
+* replace fcntl with portalocker for Windows compatibility ([#442](https://github.com/ArcReel/ArcReel/issues/442)) ([e5657b0](https://github.com/ArcReel/ArcReel/commit/e5657b0356846bb0b64b97f87e6b51e3d403ae52))
+* **settings:** 自定义供应商编辑时 base_url 变更需重输 API Key 才能发现模型 ([#440](https://github.com/ArcReel/ArcReel/issues/440)) ([972298e](https://github.com/ArcReel/ArcReel/commit/972298e4ff896afc110bab1620d12e040bbfce3f)), closes [#439](https://github.com/ArcReel/ArcReel/issues/439)
+
 ## [0.11.0](https://github.com/ArcReel/ArcReel/compare/v0.10.0...v0.11.0) (2026-04-26)
 
 
