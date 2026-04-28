@@ -26,6 +26,7 @@ MESSAGES = {
     "prompt_must_be_string_or_scene_object": "prompt 必须是字符串或包含 scene/composition 的对象",
     "prompt_scene_empty": "prompt.scene 不能为空",
     "prompt_must_be_string_or_object": "prompt 必须是字符串或对象",
+    "prompt_text_empty": "prompt 不能为空",
     "storyboard_task_submitted": "分镜「{segment_id}」生成任务已提交",
     "generate_storyboard_first": "请先生成分镜图 scene_{segment_id}.png",
     "video_prompt_must_be_string_or_action_object": "prompt 必须是字符串或包含 action/camera_motion 的对象",

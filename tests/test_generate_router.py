@@ -297,6 +297,22 @@ class TestGenerateRouter:
             )
             assert bad_video_prompt.status_code in (400, 500)
 
+            # Empty string prompt for storyboard route (segment exists, prompt is empty str)
+            empty_storyboard_prompt = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S02",
+                json={"script_file": "episode_1.json", "prompt": ""},
+            )
+            assert empty_storyboard_prompt.status_code == 400
+
+            # Whitespace-only string prompt for video route — ensure storyboard exists first
+            # so we hit the prompt check, not the missing-storyboard check
+            (project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
+            empty_video_prompt = client.post(
+                "/api/v1/projects/demo/generate/video/E1S02",
+                json={"script_file": "episode_1.json", "prompt": "   "},
+            )
+            assert empty_video_prompt.status_code == 400
+
             # Missing character
             fake_pm.project["characters"] = {}
             missing_char = client.post(

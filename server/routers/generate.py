@@ -136,7 +136,10 @@ async def generate_storyboard(
             scene_text = str(req.prompt.get("scene", "")).strip()
             if not scene_text:
                 raise HTTPException(status_code=400, detail=_t("prompt_scene_empty"))
-        elif not isinstance(req.prompt, str):
+        elif isinstance(req.prompt, str):
+            if not req.prompt.strip():
+                raise HTTPException(status_code=400, detail=_t("prompt_text_empty"))
+        else:
             raise HTTPException(status_code=400, detail=_t("prompt_must_be_string_or_object"))
 
         # 入队
@@ -232,7 +235,10 @@ async def generate_video(
             dialogue = req.prompt.get("dialogue", [])
             if dialogue is not None and not isinstance(dialogue, list):
                 raise HTTPException(status_code=400, detail=_t("video_prompt_dialogue_array"))
-        elif not isinstance(req.prompt, str):
+        elif isinstance(req.prompt, str):
+            if not req.prompt.strip():
+                raise HTTPException(status_code=400, detail=_t("prompt_text_empty"))
+        else:
             raise HTTPException(status_code=400, detail=_t("prompt_must_be_string_or_object"))
 
         # 入队（provider 由服务层根据配置自动解析，调用方无需传递）

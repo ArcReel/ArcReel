@@ -375,6 +375,8 @@ def get_aspect_ratio(project: dict, resource_type: str) -> str:
 
 def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
     if isinstance(prompt, str):
+        if not prompt.strip():
+            raise ValueError("prompt must not be empty")
         return prompt
 
     if not isinstance(prompt, dict):
@@ -401,6 +403,8 @@ def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
 
 def _normalize_video_prompt(prompt: str | dict) -> str:
     if isinstance(prompt, str):
+        if not prompt.strip():
+            raise ValueError("prompt must not be empty")
         return prompt
 
     if not isinstance(prompt, dict):

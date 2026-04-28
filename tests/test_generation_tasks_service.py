@@ -165,6 +165,12 @@ class TestGenerationTasks:
         with pytest.raises(ValueError):
             generation_tasks._normalize_storyboard_prompt({"scene": ""}, "Anime")
 
+        with pytest.raises(ValueError):
+            generation_tasks._normalize_storyboard_prompt("", "Anime")
+
+        with pytest.raises(ValueError):
+            generation_tasks._normalize_storyboard_prompt("   ", "Anime")
+
         video_yaml = generation_tasks._normalize_video_prompt(
             {
                 "action": "行走",
@@ -177,6 +183,12 @@ class TestGenerationTasks:
 
         with pytest.raises(ValueError):
             generation_tasks._normalize_video_prompt({"action": ""})
+
+        with pytest.raises(ValueError):
+            generation_tasks._normalize_video_prompt("")
+
+        with pytest.raises(ValueError):
+            generation_tasks._normalize_video_prompt("   ")
 
     async def test_execute_task_dispatch(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

@@ -26,6 +26,7 @@ MESSAGES = {
     "prompt_must_be_string_or_scene_object": "prompt must be a string or an object containing scene/composition",
     "prompt_scene_empty": "prompt.scene cannot be empty",
     "prompt_must_be_string_or_object": "prompt must be a string or an object",
+    "prompt_text_empty": "prompt must not be empty",
     "storyboard_task_submitted": "Storyboard generation task for '{segment_id}' submitted",
     "generate_storyboard_first": "Please generate storyboard scene_{segment_id}.png first",
     "video_prompt_must_be_string_or_action_object": "prompt must be a string or an object containing action/camera_motion",
