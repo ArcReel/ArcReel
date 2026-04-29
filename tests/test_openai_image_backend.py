@@ -32,7 +32,7 @@ class TestOpenAIImageBackend:
 
             backend = OpenAIImageBackend(api_key="test-key")
             assert backend.name == PROVIDER_OPENAI
-            assert backend.model == "gpt-image-1.5"
+            assert backend.model == "gpt-image-2"
 
     def test_custom_model(self):
         with patch("lib.openai_shared.AsyncOpenAI"):
@@ -69,16 +69,16 @@ class TestOpenAIImageBackend:
             result = await backend.generate(request)
 
         assert result.provider == PROVIDER_OPENAI
-        assert result.model == "gpt-image-1.5"
+        assert result.model == "gpt-image-2"
         assert result.image_path == output_path
         assert output_path.read_bytes() == b"fake-png-data"
 
         mock_client.images.generate.assert_awaited_once()
         call_kwargs = mock_client.images.generate.call_args[1]
-        assert call_kwargs["model"] == "gpt-image-1.5"
+        assert call_kwargs["model"] == "gpt-image-2"
         assert call_kwargs["size"] == "1024x1792"  # 9:16
         assert call_kwargs["quality"] == "medium"  # 1K
-        # gpt-image-1 家族不支持 response_format；严格兼容网关会 400，因此绝不能传
+        # GPT Image 模型族不支持 response_format；严格兼容网关会 400，因此绝不能传
         assert "response_format" not in call_kwargs
 
     async def test_image_to_image(self, tmp_path: Path):

@@ -156,6 +156,7 @@ class CostCalculator:
 
     # OpenAI 文本 token 费率（美元/百万 token）
     OPENAI_TEXT_COST = {
+        "gpt-5.5": {"input": 5.00, "output": 30.00},
         "gpt-5.4": {"input": 2.50, "output": 15.00},
         "gpt-5.4-mini": {"input": 0.75, "output": 4.50},
         "gpt-5.4-nano": {"input": 0.20, "output": 1.25},
@@ -163,6 +164,17 @@ class CostCalculator:
     # OpenAI 图片费用（美元/张），按 (quality, size) 二维查表
     # 来源：https://platform.openai.com/docs/pricing — GPT Image
     OPENAI_IMAGE_COST: dict[str, dict[tuple[str, str], float]] = {
+        "gpt-image-2": {
+            ("low", "1024x1024"): 0.006,
+            ("low", "1024x1792"): 0.012,
+            ("low", "1792x1024"): 0.012,
+            ("medium", "1024x1024"): 0.053,
+            ("medium", "1024x1792"): 0.106,
+            ("medium", "1792x1024"): 0.106,
+            ("high", "1024x1024"): 0.211,
+            ("high", "1024x1792"): 0.317,
+            ("high", "1792x1024"): 0.317,
+        },
         "gpt-image-1.5": {
             ("low", "1024x1024"): 0.009,
             ("low", "1024x1792"): 0.013,
@@ -186,7 +198,7 @@ class CostCalculator:
             ("high", "1792x1024"): 0.054,
         },
     }
-    DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-1.5"
+    DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-2"
     OPENAI_VIDEO_COST = {
         "sora-2": {"720p": 0.10},
         "sora-2-pro": {"720p": 0.30, "1024p": 0.50, "1080p": 0.70},

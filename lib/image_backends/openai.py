@@ -19,7 +19,7 @@ from lib.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-image-1.5"
+DEFAULT_MODEL = "gpt-image-2"
 _MAX_REFERENCE_IMAGES = 16
 
 _SIZE_MAP: dict[tuple[str, str], str] = {

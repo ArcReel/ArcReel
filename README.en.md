@@ -145,7 +145,7 @@ ArcReel supports multiple built-in and custom providers through unified `ImageBa
 | **Gemini** (Google) | Nano Banana 2, Nano Banana Pro | Text-to-image, Image-to-image (multi-reference) | Per-resolution lookup (USD) |
 | **Volcengine Ark** | Seedream 5.0, Seedream 5.0 Lite, Seedream 4.5, Seedream 4.0 | Text-to-image, Image-to-image | Per-image (CNY) |
 | **Grok** (xAI) | Grok Imagine Image, Grok Imagine Image Pro | Text-to-image, Image-to-image | Per-image (USD) |
-| **OpenAI** | GPT Image 1.5, GPT Image 1 Mini | Text-to-image, Image-to-image (multi-reference) | Per-image (USD) |
+| **OpenAI** | GPT Image 2, GPT Image 1.5, GPT Image 1 Mini | Text-to-image, Image-to-image (multi-reference) | Per-image (USD) |
 
 ### Video Providers
 
@@ -163,7 +163,7 @@ ArcReel supports multiple built-in and custom providers through unified `ImageBa
 | **Gemini** (Google) | Gemini 3.1 Flash, Gemini 3.1 Flash Lite, Gemini 3 Pro | Text generation, Structured output, Visual understanding | Per-token usage (USD) |
 | **Volcengine Ark** | Doubao Seed series | Text generation, Structured output, Visual understanding | Per-token usage (CNY) |
 | **Grok** (xAI) | Grok 4.20, Grok 4.1 Fast series | Text generation, Structured output, Visual understanding | Per-token usage (USD) |
-| **OpenAI** | GPT-5.4, GPT-5.4 Mini, GPT-5.4 Nano | Text generation, Structured output, Visual understanding | Per-token usage (USD) |
+| **OpenAI** | GPT-5.5, GPT-5.4, GPT-5.4 Mini, GPT-5.4 Nano | Text generation, Structured output, Visual understanding | Per-token usage (USD) |
 
 ### Custom Providers
 
