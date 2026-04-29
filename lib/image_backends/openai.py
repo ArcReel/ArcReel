@@ -147,18 +147,26 @@ class OpenAIImageBackend:
         if usage is not None:
             try:
                 in_details = getattr(usage, "input_tokens_details", None)
-                if in_details is not None:
-                    img_in = getattr(in_details, "image_tokens", None)
-                    txt_in = getattr(in_details, "text_tokens", None)
-                out_details = getattr(usage, "output_tokens_details", None)
-                if out_details is not None:
-                    img_out = getattr(out_details, "image_tokens", None)
-                    txt_out = getattr(out_details, "text_tokens", None)
-                if img_out is None:
-                    # 部分模型只在顶层暴露 output_tokens（输出全部为 image token）
-                    img_out = getattr(usage, "output_tokens", None)
+                # 必须拿到 input 拆分（image_tokens / text_tokens 至少一项有值），否则保留 None
+                # 让 cost_calculator 走静态 fallback，避免部分字段缺失场景下漏算 input 费用
+                in_image = getattr(in_details, "image_tokens", None) if in_details is not None else None
+                in_text = getattr(in_details, "text_tokens", None) if in_details is not None else None
+                if in_image is not None or in_text is not None:
+                    img_in = in_image
+                    txt_in = in_text
+                    out_details = getattr(usage, "output_tokens_details", None)
+                    if out_details is not None:
+                        img_out = getattr(out_details, "image_tokens", None)
+                        txt_out = getattr(out_details, "text_tokens", None)
+                    if img_out is None:
+                        # 部分模型只在顶层暴露 output_tokens（GPT Image 输出基本为 image token）
+                        img_out = getattr(usage, "output_tokens", None)
+                    # 输入拆分到手但输出完全拿不到 → 数据残缺，撤回让上层走静态 fallback
+                    if img_out is None and txt_out is None:
+                        img_in = txt_in = None
             except Exception:
                 logger.warning("OpenAI image usage 解析失败", exc_info=True)
+                img_in = img_out = txt_in = txt_out = None
 
         return ImageGenerationResult(
             image_path=request.output_path,

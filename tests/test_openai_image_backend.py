@@ -283,6 +283,105 @@ class TestOpenAIImageBackend:
         assert result.text_input_tokens is None
         assert result.text_output_tokens is None
 
+    async def test_partial_usage_no_input_details_falls_back(self, tmp_path: Path):
+        """usage 顶层 input_tokens 存在但 input_tokens_details 缺失：4 字段全 None，让 cost 走静态 fallback。
+
+        防御兼容网关或字段裁剪响应：缺 input 拆分时若仍走 token 路径会系统性漏算 input 成本。
+        """
+        b64_data = base64.b64encode(b"img").decode()
+        mock_client = AsyncMock()
+        mock_client.images.generate = AsyncMock(
+            return_value=_make_mock_image_response(
+                b64_data,
+                usage={
+                    "input_tokens": 500,  # 顶层有
+                    "output_tokens": 2200,
+                    "input_tokens_details": None,  # 但拆分缺失
+                },
+            )
+        )
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            backend = OpenAIImageBackend(api_key="test-key")
+            request = ImageGenerationRequest(
+                prompt="partial usage",
+                output_path=tmp_path / "out.png",
+                aspect_ratio="9:16",
+                image_size="1K",
+            )
+            result = await backend.generate(request)
+
+        assert result.image_input_tokens is None
+        assert result.image_output_tokens is None
+        assert result.text_input_tokens is None
+        assert result.text_output_tokens is None
+
+    async def test_input_details_empty_inner_fields_falls_back(self, tmp_path: Path):
+        """input_tokens_details 对象在但 image_tokens / text_tokens 都为 None：等同于无拆分，fallback。"""
+        b64_data = base64.b64encode(b"img").decode()
+        mock_client = AsyncMock()
+        mock_client.images.generate = AsyncMock(
+            return_value=_make_mock_image_response(
+                b64_data,
+                usage={
+                    "input_tokens": 500,
+                    "output_tokens": 2200,
+                    "input_tokens_details": {"image_tokens": None, "text_tokens": None},
+                },
+            )
+        )
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            backend = OpenAIImageBackend(api_key="test-key")
+            request = ImageGenerationRequest(
+                prompt="empty details",
+                output_path=tmp_path / "out.png",
+                aspect_ratio="9:16",
+                image_size="1K",
+            )
+            result = await backend.generate(request)
+
+        assert result.image_input_tokens is None
+        assert result.text_input_tokens is None
+        assert result.image_output_tokens is None
+        assert result.text_output_tokens is None
+
+    async def test_input_details_present_but_no_output_falls_back(self, tmp_path: Path):
+        """input 拆分到手但完全拿不到 output 信息：4 字段全部撤回，避免只算 input 漏算 output。"""
+        b64_data = base64.b64encode(b"img").decode()
+        mock_client = AsyncMock()
+        mock_client.images.generate = AsyncMock(
+            return_value=_make_mock_image_response(
+                b64_data,
+                usage={
+                    # 没有 output_tokens 顶层、没有 output_tokens_details
+                    "input_tokens": 500,
+                    "input_tokens_details": {"text_tokens": 500, "image_tokens": 0},
+                },
+            )
+        )
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            backend = OpenAIImageBackend(api_key="test-key")
+            request = ImageGenerationRequest(
+                prompt="no output info",
+                output_path=tmp_path / "out.png",
+                aspect_ratio="9:16",
+                image_size="1K",
+            )
+            result = await backend.generate(request)
+
+        assert result.image_input_tokens is None
+        assert result.image_output_tokens is None
+        assert result.text_input_tokens is None
+        assert result.text_output_tokens is None
+
     async def test_image_to_image_captures_image_input_tokens(self, tmp_path: Path):
         """I2I 路径应能解析 input_tokens_details.image_tokens（参考图 token）。"""
         b64_data = base64.b64encode(b"edited").decode()
