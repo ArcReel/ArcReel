@@ -157,6 +157,72 @@ class TestUsageTracker:
         item = result["items"][0]
         assert item["segment_id"] is None
 
+    async def test_openai_image_token_based_billing(self, tracker):
+        """OpenAI 图片 token-based：4 个 token 字段写入 DB，cost_amount 按费率计算。"""
+        call_id = await tracker.start_call(
+            project_name="demo",
+            call_type="image",
+            model="gpt-image-2",
+            resolution="1K",
+            aspect_ratio="9:16",
+            provider="openai",
+        )
+        await tracker.finish_call(
+            call_id,
+            status="success",
+            output_path="a.png",
+            quality="medium",
+            image_input_tokens=0,
+            image_output_tokens=2200,
+            text_input_tokens=350,
+            text_output_tokens=0,
+        )
+
+        item = (await tracker.get_calls(project_name="demo"))["items"][0]
+        assert item["image_input_tokens"] == 0
+        assert item["image_output_tokens"] == 2200
+        assert item["text_input_tokens"] == 350
+        assert item["text_output_tokens"] == 0
+        # input/output_tokens 总和列：image_in + text_in / image_out + text_out
+        assert item["input_tokens"] == 350
+        assert item["output_tokens"] == 2200
+        # cost = (2200 × 30 + 350 × 5) / 1e6
+        assert item["cost_amount"] == pytest.approx((2200 * 30 + 350 * 5) / 1_000_000)
+        assert item["currency"] == "USD"
+
+    async def test_openai_image_fallback_resolves_aspect_ratio(self, tracker):
+        """SDK 不返回 usage 时，cost 应按 (resolution, aspect_ratio) 反查正确 size — #401 端到端回归。"""
+        # 9:16 should yield $0.317 (high quality 1024x1792)
+        portrait_id = await tracker.start_call(
+            project_name="demo",
+            call_type="image",
+            model="gpt-image-2",
+            resolution="1K",
+            aspect_ratio="9:16",
+            provider="openai",
+        )
+        await tracker.finish_call(portrait_id, status="success", output_path="p.png", quality="high")
+
+        # 1:1 should yield $0.211 (high quality 1024x1024)
+        square_id = await tracker.start_call(
+            project_name="demo",
+            call_type="image",
+            model="gpt-image-2",
+            resolution="1K",
+            aspect_ratio="1:1",
+            provider="openai",
+        )
+        await tracker.finish_call(square_id, status="success", output_path="s.png", quality="high")
+
+        items = (await tracker.get_calls(project_name="demo"))["items"]
+        portrait = next(i for i in items if i["id"] == portrait_id)
+        square = next(i for i in items if i["id"] == square_id)
+        assert portrait["cost_amount"] == pytest.approx(0.317)
+        assert square["cost_amount"] == pytest.approx(0.211)
+        # token 拆分列在 fallback 路径下应为 None
+        assert portrait["image_input_tokens"] is None
+        assert square["image_output_tokens"] is None
+
 
 class TestActualCostsBySegment:
     async def test_aggregates_costs_by_segment_and_type(self, tracker):

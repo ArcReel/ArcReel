@@ -37,6 +37,10 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     usage_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    text_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    text_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     __table_args__ = (
         Index("idx_api_calls_project_name", "project_name"),
         Index("idx_api_calls_call_type", "call_type"),

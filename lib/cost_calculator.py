@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from lib.custom_provider import is_custom_provider
+from lib.openai_shared import OPENAI_IMAGE_SIZE_MAP
 from lib.providers import PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, CallType
 
 
@@ -161,8 +162,37 @@ class CostCalculator:
         "gpt-5.4-mini": {"input": 0.75, "output": 4.50},
         "gpt-5.4-nano": {"input": 0.20, "output": 1.25},
     }
-    # OpenAI 图片费用（美元/张），按 (quality, size) 二维查表
-    # 来源：https://platform.openai.com/docs/pricing — GPT Image
+    # OpenAI 图片 token 费率（美元/百万 token）— GPT Image 实际计费形式
+    # 来源：https://platform.openai.com/docs/pricing — GPT Image (April 2026)
+    # cached_in 字段当前版本不消费（SDK 不返回 cached token 拆分），保留以备后续切换
+    OPENAI_IMAGE_TOKEN_COST: dict[str, dict[str, float]] = {
+        "gpt-image-2": {
+            "image_in": 8.0,
+            "image_cached_in": 2.0,
+            "image_out": 30.0,
+            "text_in": 5.0,
+            "text_cached_in": 1.25,
+            "text_out": 0.0,
+        },
+        "gpt-image-1.5": {
+            "image_in": 8.0,
+            "image_cached_in": 2.0,
+            "image_out": 32.0,
+            "text_in": 5.0,
+            "text_cached_in": 1.25,
+            "text_out": 10.0,
+        },
+        "gpt-image-1-mini": {
+            "image_in": 2.5,
+            "image_cached_in": 0.25,
+            "image_out": 8.0,
+            "text_in": 2.0,
+            "text_cached_in": 0.20,
+            "text_out": 0.0,
+        },
+    }
+    # OpenAI 图片费用（美元/张），fallback 表：当 SDK 不返回 usage 时按 (quality, size) 二维查表估算
+    # 注：主路径已切换为 OPENAI_IMAGE_TOKEN_COST 的 token-based 计费
     OPENAI_IMAGE_COST: dict[str, dict[tuple[str, str], float]] = {
         "gpt-image-2": {
             ("low", "1024x1024"): 0.006,
@@ -323,17 +353,46 @@ class CostCalculator:
 
     def calculate_openai_image_cost(
         self,
+        *,
         model: str | None = None,
+        image_input_tokens: int | None = None,
+        image_output_tokens: int | None = None,
+        text_input_tokens: int | None = None,
+        text_output_tokens: int | None = None,
         quality: str | None = None,
+        resolution: str | None = None,
+        aspect_ratio: str | None = None,
         size: str | None = None,
     ) -> tuple[float, str]:
         """
-        OpenAI 图片按 (quality, size) 计费。
+        OpenAI 图片费用计算。
+
+        主路径（SDK 返回 usage）：按 image_in/image_out/text_in/text_out token × 对应费率/1M。
+        兜底路径（usage 全 None）：按 (quality, size) 静态表估算；
+            ``size`` 缺失时用 ``OPENAI_IMAGE_SIZE_MAP[(resolution, aspect_ratio)]`` 反查（解决 #401）。
 
         Returns:
             (amount, currency) — 金额和币种 (USD)
         """
         model = model or self.DEFAULT_OPENAI_IMAGE_MODEL
+        has_usage = any(
+            t is not None for t in (image_input_tokens, image_output_tokens, text_input_tokens, text_output_tokens)
+        )
+        if has_usage:
+            rates = self.OPENAI_IMAGE_TOKEN_COST.get(
+                model, self.OPENAI_IMAGE_TOKEN_COST[self.DEFAULT_OPENAI_IMAGE_MODEL]
+            )
+            amount = (
+                (image_input_tokens or 0) * rates["image_in"]
+                + (image_output_tokens or 0) * rates["image_out"]
+                + (text_input_tokens or 0) * rates["text_in"]
+                + (text_output_tokens or 0) * rates["text_out"]
+            ) / 1_000_000
+            return amount, "USD"
+
+        # fallback：(resolution, aspect_ratio) → "WxH"
+        if size is None and resolution is not None and aspect_ratio is not None:
+            size = OPENAI_IMAGE_SIZE_MAP.get((resolution, aspect_ratio))
         quality = quality or "medium"
         size = size or "1024x1024"
         model_costs = self.OPENAI_IMAGE_COST.get(model, self.OPENAI_IMAGE_COST[self.DEFAULT_OPENAI_IMAGE_MODEL])
@@ -390,6 +449,7 @@ class CostCalculator:
         *,
         model: str | None = None,
         resolution: str | None = None,
+        aspect_ratio: str | None = None,
         duration_seconds: int | None = None,
         generate_audio: bool = True,
         usage_tokens: int | None = None,
@@ -398,6 +458,10 @@ class CostCalculator:
         output_tokens: int | None = None,
         quality: str | None = None,
         size: str | None = None,
+        image_input_tokens: int | None = None,
+        image_output_tokens: int | None = None,
+        text_input_tokens: int | None = None,
+        text_output_tokens: int | None = None,
         custom_price_input: float | None = None,
         custom_price_output: float | None = None,
         custom_currency: str | None = None,
@@ -433,7 +497,17 @@ class CostCalculator:
             if provider == PROVIDER_GROK:
                 return self.calculate_grok_image_cost(model=model)
             if provider == PROVIDER_OPENAI:
-                return self.calculate_openai_image_cost(model=model, quality=quality, size=size)
+                return self.calculate_openai_image_cost(
+                    model=model,
+                    image_input_tokens=image_input_tokens,
+                    image_output_tokens=image_output_tokens,
+                    text_input_tokens=text_input_tokens,
+                    text_output_tokens=text_output_tokens,
+                    quality=quality,
+                    resolution=resolution,
+                    aspect_ratio=aspect_ratio,
+                    size=size,
+                )
             return self.calculate_image_cost(resolution or "1K", model=model), "USD"
 
         if call_type == "video":

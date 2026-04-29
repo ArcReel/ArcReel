@@ -348,3 +348,115 @@ class TestOpenAICost:
         assert amount == pytest.approx(0.200)
         amount, currency = calculator.calculate_cost("openai", "video", duration_seconds=12, model="sora-2")
         assert amount == pytest.approx(1.20)
+
+
+class TestOpenAIImageTokenCost:
+    """token-based 主路径与 fallback 兜底（#401 回归）。"""
+
+    def test_token_cost_gpt_image_2(self):
+        calculator = CostCalculator()
+        # image_in × 8 + image_out × 30 + text_in × 5 + text_out × 0
+        amount, currency = calculator.calculate_openai_image_cost(
+            model="gpt-image-2",
+            image_input_tokens=10_000,
+            image_output_tokens=2_000,
+            text_input_tokens=500,
+            text_output_tokens=100,  # gpt-image-2 text_out 费率 = 0
+        )
+        assert currency == "USD"
+        assert amount == pytest.approx((10_000 * 8 + 2_000 * 30 + 500 * 5 + 100 * 0) / 1_000_000)
+
+    def test_token_cost_gpt_image_1_5_text_output(self):
+        """gpt-image-1.5 text output 费率 $10/M，与 gpt-image-2 不同。"""
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_openai_image_cost(
+            model="gpt-image-1.5",
+            text_output_tokens=200,
+        )
+        assert currency == "USD"
+        assert amount == pytest.approx(200 * 10 / 1_000_000)
+
+    def test_token_cost_gpt_image_1_mini(self):
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_openai_image_cost(
+            model="gpt-image-1-mini",
+            image_input_tokens=5_000,
+            image_output_tokens=1_000,
+            text_input_tokens=300,
+        )
+        assert currency == "USD"
+        assert amount == pytest.approx((5_000 * 2.5 + 1_000 * 8 + 300 * 2) / 1_000_000)
+
+    def test_zero_tokens_still_uses_token_path(self):
+        """所有 token 至少有一个非 None 时走 token 主路径，即使全为 0。"""
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_openai_image_cost(
+            model="gpt-image-2",
+            image_input_tokens=0,
+            image_output_tokens=0,
+            text_input_tokens=0,
+            text_output_tokens=0,
+        )
+        assert amount == pytest.approx(0.0)
+
+    def test_fallback_resolves_size_from_resolution_aspect(self):
+        """所有 token 入参 None 时走 fallback；resolution+aspect_ratio 反查 _SIZE_MAP。"""
+        calculator = CostCalculator()
+        amount, _ = calculator.calculate_openai_image_cost(
+            model="gpt-image-2",
+            quality="high",
+            resolution="1K",
+            aspect_ratio="9:16",
+        )
+        # 1K + 9:16 → 1024x1792 → high 0.317
+        assert amount == pytest.approx(0.317)
+
+    def test_fallback_401_regression_aspect_dependent(self):
+        """#401 回归：相同 quality 不同 aspect_ratio 应得到不同金额（修复前一律按 1024x1024 0.211）。"""
+        calculator = CostCalculator()
+        common = {"model": "gpt-image-2", "quality": "high", "resolution": "1K"}
+        amount_1_1, _ = calculator.calculate_openai_image_cost(aspect_ratio="1:1", **common)
+        amount_9_16, _ = calculator.calculate_openai_image_cost(aspect_ratio="9:16", **common)
+        amount_16_9, _ = calculator.calculate_openai_image_cost(aspect_ratio="16:9", **common)
+        assert amount_1_1 == pytest.approx(0.211)  # 1024x1024
+        assert amount_9_16 == pytest.approx(0.317)  # 1024x1792
+        assert amount_16_9 == pytest.approx(0.317)  # 1792x1024
+        assert amount_1_1 != amount_9_16, "aspect 1:1 和 9:16 必须算出不同金额"
+
+    def test_fallback_explicit_size_overrides_resolution_aspect(self):
+        """size kwarg 优先于 resolution+aspect_ratio。"""
+        calculator = CostCalculator()
+        amount, _ = calculator.calculate_openai_image_cost(
+            model="gpt-image-2",
+            quality="medium",
+            resolution="1K",
+            aspect_ratio="1:1",  # 反查会得到 1024x1024
+            size="1024x1792",  # 显式 size 覆盖
+        )
+        assert amount == pytest.approx(0.106)  # gpt-image-2 medium 1024x1792
+
+    def test_unified_entry_token_path(self):
+        """calculate_cost 入口透传 token 字段到 token 主路径。"""
+        calculator = CostCalculator()
+        amount, currency = calculator.calculate_cost(
+            "openai",
+            "image",
+            model="gpt-image-2",
+            image_output_tokens=2_200,
+            text_input_tokens=350,
+        )
+        assert currency == "USD"
+        assert amount == pytest.approx((2_200 * 30 + 350 * 5) / 1_000_000)
+
+    def test_unified_entry_fallback_with_aspect_ratio(self):
+        """calculate_cost 不带 token 时透传 resolution + aspect_ratio 走 fallback；#401 在 unified 入口也修了。"""
+        calculator = CostCalculator()
+        amount_1_1, _ = calculator.calculate_cost(
+            "openai", "image", model="gpt-image-2", quality="high", resolution="1K", aspect_ratio="1:1"
+        )
+        amount_9_16, _ = calculator.calculate_cost(
+            "openai", "image", model="gpt-image-2", quality="high", resolution="1K", aspect_ratio="9:16"
+        )
+        assert amount_1_1 == pytest.approx(0.211)
+        assert amount_9_16 == pytest.approx(0.317)
+        assert amount_1_1 != amount_9_16

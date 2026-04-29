@@ -14,14 +14,47 @@ from lib.image_backends.base import (
 from lib.providers import PROVIDER_OPENAI
 
 
-def _make_mock_image_response(b64_data: str | None = "aW1hZ2VfZGF0YQ==", url: str | None = None):
-    """构造 mock ImagesResponse。默认只含 b64_json；传 url 则模拟兼容网关的 URL 返回。"""
+def _make_mock_image_response(
+    b64_data: str | None = "aW1hZ2VfZGF0YQ==",
+    url: str | None = None,
+    usage=None,
+):
+    """构造 mock ImagesResponse。
+
+    - usage=None 时显式不挂 usage 属性（模拟 SDK 不返回 usage 的情况）
+    - 传 dict {"input_tokens": ..., "output_tokens": ..., "input_tokens_details": {...}, "output_tokens_details": {...}}
+      则按 dict 键构造嵌套 MagicMock
+    """
     datum = MagicMock()
     datum.b64_json = b64_data
     datum.url = url
 
-    response = MagicMock()
+    # spec 限定属性集，避免 MagicMock 自动创造未知属性
+    response = MagicMock(spec=["data", "usage"])
     response.data = [datum]
+    if usage is None:
+        response.usage = None
+    else:
+        usage_obj = MagicMock()
+        usage_obj.input_tokens = usage.get("input_tokens")
+        usage_obj.output_tokens = usage.get("output_tokens")
+        in_d = usage.get("input_tokens_details")
+        if in_d is None:
+            usage_obj.input_tokens_details = None
+        else:
+            details = MagicMock()
+            details.image_tokens = in_d.get("image_tokens")
+            details.text_tokens = in_d.get("text_tokens")
+            usage_obj.input_tokens_details = details
+        out_d = usage.get("output_tokens_details")
+        if out_d is None:
+            usage_obj.output_tokens_details = None
+        else:
+            details = MagicMock()
+            details.image_tokens = out_d.get("image_tokens")
+            details.text_tokens = out_d.get("text_tokens")
+            usage_obj.output_tokens_details = details
+        response.usage = usage_obj
     return response
 
 
@@ -193,3 +226,94 @@ class TestOpenAIImageBackend:
                 await backend.generate(request)
                 call_kwargs = mock_client.images.generate.call_args[1]
                 assert call_kwargs["quality"] == expected_quality, f"size={img_size}"
+
+    async def test_text_to_image_captures_usage(self, tmp_path: Path):
+        """SDK 返回 usage 时，结果应携带 token 拆分字段。"""
+        b64_data = base64.b64encode(b"img").decode()
+        mock_client = AsyncMock()
+        mock_client.images.generate = AsyncMock(
+            return_value=_make_mock_image_response(
+                b64_data,
+                usage={
+                    "input_tokens": 500,
+                    "output_tokens": 2200,
+                    "input_tokens_details": {"text_tokens": 500, "image_tokens": 0},
+                    # 不返回 output_tokens_details；img_out 应回退到顶层 output_tokens
+                },
+            )
+        )
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            backend = OpenAIImageBackend(api_key="test-key")
+            request = ImageGenerationRequest(
+                prompt="usage capture",
+                output_path=tmp_path / "out.png",
+                aspect_ratio="9:16",
+                image_size="1K",
+            )
+            result = await backend.generate(request)
+
+        assert result.text_input_tokens == 500
+        assert result.image_input_tokens == 0
+        assert result.image_output_tokens == 2200  # 顶层 fallback
+        assert result.text_output_tokens is None
+
+    async def test_text_to_image_no_usage_returns_none(self, tmp_path: Path):
+        """SDK 不返回 usage 时，4 个 token 字段全部为 None。"""
+        b64_data = base64.b64encode(b"img").decode()
+        mock_client = AsyncMock()
+        mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            backend = OpenAIImageBackend(api_key="test-key")
+            request = ImageGenerationRequest(
+                prompt="no usage",
+                output_path=tmp_path / "out.png",
+                aspect_ratio="9:16",
+                image_size="1K",
+            )
+            result = await backend.generate(request)
+
+        assert result.image_input_tokens is None
+        assert result.image_output_tokens is None
+        assert result.text_input_tokens is None
+        assert result.text_output_tokens is None
+
+    async def test_image_to_image_captures_image_input_tokens(self, tmp_path: Path):
+        """I2I 路径应能解析 input_tokens_details.image_tokens（参考图 token）。"""
+        b64_data = base64.b64encode(b"edited").decode()
+        mock_client = AsyncMock()
+        mock_client.images.edit = AsyncMock(
+            return_value=_make_mock_image_response(
+                b64_data,
+                usage={
+                    "input_tokens": 12000,
+                    "output_tokens": 2200,
+                    "input_tokens_details": {"text_tokens": 200, "image_tokens": 11800},
+                    "output_tokens_details": {"image_tokens": 2200, "text_tokens": 0},
+                },
+            )
+        )
+
+        ref_path = tmp_path / "ref.png"
+        ref_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            backend = OpenAIImageBackend(api_key="test-key")
+            request = ImageGenerationRequest(
+                prompt="edit",
+                output_path=tmp_path / "out.png",
+                reference_images=[ReferenceImage(path=str(ref_path))],
+            )
+            result = await backend.generate(request)
+
+        assert result.image_input_tokens == 11800
+        assert result.text_input_tokens == 200
+        assert result.image_output_tokens == 2200
+        assert result.text_output_tokens == 0

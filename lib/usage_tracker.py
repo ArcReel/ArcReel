@@ -65,6 +65,10 @@ class UsageTracker:
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         quality: str | None = None,
+        image_input_tokens: int | None = None,
+        image_output_tokens: int | None = None,
+        text_input_tokens: int | None = None,
+        text_output_tokens: int | None = None,
     ) -> None:
 
         async with self._session_factory() as session:
@@ -81,6 +85,10 @@ class UsageTracker:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 quality=quality,
+                image_input_tokens=image_input_tokens,
+                image_output_tokens=image_output_tokens,
+                text_input_tokens=text_input_tokens,
+                text_output_tokens=text_output_tokens,
             )
 
     async def get_stats(

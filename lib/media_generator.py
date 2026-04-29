@@ -252,6 +252,10 @@ class MediaGenerator:
                 status="success",
                 output_path=str(output_path),
                 quality=getattr(result, "quality", None),
+                image_input_tokens=getattr(result, "image_input_tokens", None),
+                image_output_tokens=getattr(result, "image_output_tokens", None),
+                text_input_tokens=getattr(result, "text_input_tokens", None),
+                text_output_tokens=getattr(result, "text_output_tokens", None),
             )
         except Exception as e:
             # 记录调用失败
