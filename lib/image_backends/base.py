@@ -99,6 +99,11 @@ class ImageGenerationResult:
     seed: int | None = None
     usage_tokens: int | None = None
     quality: str | None = None
+    # OpenAI GPT Image 系列的 token 用量拆分（其它 backend 默认 None）
+    image_input_tokens: int | None = None
+    image_output_tokens: int | None = None
+    text_input_tokens: int | None = None
+    text_output_tokens: int | None = None
 
 
 class ImageBackend(Protocol):

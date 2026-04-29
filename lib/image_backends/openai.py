@@ -13,7 +13,16 @@ from lib.image_backends.base import (
     ImageGenerationResult,
     save_image_from_response_item,
 )
-from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
+from lib.openai_shared import (
+    OPENAI_IMAGE_QUALITY_MAP as _QUALITY_MAP,
+)
+from lib.openai_shared import (
+    OPENAI_IMAGE_SIZE_MAP as _SIZE_MAP,
+)
+from lib.openai_shared import (
+    OPENAI_RETRYABLE_ERRORS,
+    create_openai_client,
+)
 from lib.providers import PROVIDER_OPENAI
 from lib.retry import with_retry_async
 
@@ -21,28 +30,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gpt-image-2"
 _MAX_REFERENCE_IMAGES = 16
-
-_SIZE_MAP: dict[tuple[str, str], str] = {
-    # (image_size, aspect_ratio): "WxH"
-    ("512px", "1:1"): "512x512",
-    ("512px", "9:16"): "512x896",
-    ("512px", "16:9"): "896x512",
-    ("1K", "1:1"): "1024x1024",
-    ("1K", "9:16"): "1024x1792",
-    ("1K", "16:9"): "1792x1024",
-    ("1K", "3:4"): "1024x1792",
-    ("1K", "4:3"): "1792x1024",
-    ("2K", "1:1"): "2048x2048",
-    ("2K", "9:16"): "2048x3584",
-    ("2K", "16:9"): "3584x2048",
-}
-
-_QUALITY_MAP: dict[str, str] = {
-    "512px": "low",
-    "1K": "medium",
-    "2K": "high",
-    "4K": "high",
-}
 
 
 def _resolve_openai_params(
@@ -154,9 +141,40 @@ class OpenAIImageBackend:
         await save_image_from_response_item(response.data[0], request.output_path)
         logger.info("OpenAI 图片生成完成: %s", request.output_path)
         quality = _QUALITY_MAP.get(request.image_size) if request.image_size else None
+
+        img_in = img_out = txt_in = txt_out = None
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            try:
+                in_details = getattr(usage, "input_tokens_details", None)
+                # 必须拿到 input 拆分（image_tokens / text_tokens 至少一项有值），否则保留 None
+                # 让 cost_calculator 走静态 fallback，避免部分字段缺失场景下漏算 input 费用
+                in_image = getattr(in_details, "image_tokens", None) if in_details is not None else None
+                in_text = getattr(in_details, "text_tokens", None) if in_details is not None else None
+                if in_image is not None or in_text is not None:
+                    img_in = in_image
+                    txt_in = in_text
+                    out_details = getattr(usage, "output_tokens_details", None)
+                    if out_details is not None:
+                        img_out = getattr(out_details, "image_tokens", None)
+                        txt_out = getattr(out_details, "text_tokens", None)
+                    if img_out is None:
+                        # 部分模型只在顶层暴露 output_tokens（GPT Image 输出基本为 image token）
+                        img_out = getattr(usage, "output_tokens", None)
+                    # 输入拆分到手但输出完全拿不到 → 数据残缺，撤回让上层走静态 fallback
+                    if img_out is None and txt_out is None:
+                        img_in = txt_in = None
+            except Exception:
+                logger.warning("OpenAI image usage 解析失败", exc_info=True)
+                img_in = img_out = txt_in = txt_out = None
+
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=PROVIDER_OPENAI,
             model=self._model,
             quality=quality,
+            image_input_tokens=img_in,
+            image_output_tokens=img_out,
+            text_input_tokens=txt_in,
+            text_output_tokens=txt_out,
         )

@@ -58,6 +58,10 @@ def _row_to_dict(row: ApiCall) -> dict[str, Any]:
         "usage_tokens": row.usage_tokens,
         "input_tokens": row.input_tokens,
         "output_tokens": row.output_tokens,
+        "image_input_tokens": row.image_input_tokens,
+        "image_output_tokens": row.image_output_tokens,
+        "text_input_tokens": row.text_input_tokens,
+        "text_output_tokens": row.text_output_tokens,
         "created_at": dt_to_iso(row.created_at),
     }
 
@@ -115,6 +119,10 @@ class UsageRepository(BaseRepository):
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         quality: str | None = None,
+        image_input_tokens: int | None = None,
+        image_output_tokens: int | None = None,
+        text_input_tokens: int | None = None,
+        text_output_tokens: int | None = None,
     ) -> None:
         finished_at = utc_now()
 
@@ -152,12 +160,22 @@ class UsageRepository(BaseRepository):
                 custom_price_output = price_model.price_output
                 custom_currency = price_model.currency
 
+        # OpenAI 图片调用：input_tokens/output_tokens 列的"总和"语义
+        # = image_*_tokens + text_*_tokens（用于跨 call_type 聚合查询保持兼容）
+        has_image_tokens = any(
+            t is not None for t in (image_input_tokens, image_output_tokens, text_input_tokens, text_output_tokens)
+        )
+        if has_image_tokens:
+            input_tokens = (image_input_tokens or 0) + (text_input_tokens or 0)
+            output_tokens = (image_output_tokens or 0) + (text_output_tokens or 0)
+
         if status == "success":
             cost_amount, currency = cost_calculator.calculate_cost(
                 provider=effective_provider,
                 call_type=row.call_type,
                 model=row.model,
                 resolution=row.resolution,
+                aspect_ratio=row.aspect_ratio,
                 duration_seconds=row.duration_seconds,
                 generate_audio=bool(row.generate_audio),
                 usage_tokens=usage_tokens,
@@ -165,6 +183,10 @@ class UsageRepository(BaseRepository):
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 quality=quality,
+                image_input_tokens=image_input_tokens,
+                image_output_tokens=image_output_tokens,
+                text_input_tokens=text_input_tokens,
+                text_output_tokens=text_output_tokens,
                 custom_price_input=custom_price_input,
                 custom_price_output=custom_price_output,
                 custom_currency=custom_currency,
@@ -185,6 +207,10 @@ class UsageRepository(BaseRepository):
                 usage_tokens=usage_tokens,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                image_input_tokens=image_input_tokens,
+                image_output_tokens=image_output_tokens,
+                text_input_tokens=text_input_tokens,
+                text_output_tokens=text_output_tokens,
                 output_path=output_path,
                 error_message=error_truncated,
             )
