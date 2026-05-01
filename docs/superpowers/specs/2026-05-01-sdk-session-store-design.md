@@ -260,17 +260,29 @@ list_subkeys(key)
     WHERE project_key=? AND session_id=? AND subpath != ''
 ```
 
-### project_key 编码策略
+### project_key 来源
 
-ArcReel 当前是单部署、单用户为主，但已有 `UserOwnedMixin`。约定：
+**完全由 SDK 决定，不自定义。** SDK 在 live mirror 路径
+（`session_resume.py:130`）用 `project_key_for_directory(options.cwd)` 算 key，
+内部是 realpath + NFC + djb2 hashed `_sanitize_path`。如果我们在读取侧自创格式，
+helper 会查不到 SDK 写入的数据。
 
 ```python
-def make_project_key(project_name: str, user_id: str = DEFAULT_USER_ID) -> str:
-    return f"{user_id}::{project_name}"   # "::" 在 project_name 里禁用即可
+from claude_agent_sdk import project_key_for_directory   # 公开 API
+
+def make_project_key(project_cwd: Path | str) -> str:
+    return project_key_for_directory(str(project_cwd))
 ```
 
-放一个工具函数在 `lib/agent_session_store/__init__.py`，`session_manager` 在构造
-`ClaudeSDKClient` 时统一用它。
+放一个 thin wrapper 在 `lib/agent_session_store/__init__.py`，`session_manager`
+在构造调用 `*_from_store` helper 时统一用它（避免 SDK 这个 API 的 import 散落）。
+
+**多用户隔离不靠 project_key**：
+- ArcReel 当前每个项目独立 cwd（`projects/<project_name>/`），项目间天然隔离
+- `user_id` 字段保留在 `agent_session_entries` / `agent_session_summaries` 表里，作用
+  是 FK CASCADE 删账户级联；不参与 SessionKey
+- 若未来需要「同项目跨用户独立会话」，按用户分 cwd（如 `projects/<user_id>/<project_name>/`）
+  即可，对本设计零侵入
 
 ## §4 调用面改造与回滚开关
 
@@ -279,7 +291,7 @@ def make_project_key(project_name: str, user_id: str = DEFAULT_USER_ID) -> str:
 | 文件 | 改动 |
 |---|---|
 | `server/agent_runtime/session_manager.py` `_build_options` | 构造 `DbSessionStore`，传入 `ClaudeAgentOptions(session_store=...)` |
-| `server/agent_runtime/sdk_transcript_adapter.py` | `get_session_messages` → `get_session_messages_from_store(store, key)`；删除 `_load_timestamps()` 与 `_internal._read_session_file` import |
+| `server/agent_runtime/sdk_transcript_adapter.py` | `get_session_messages` → `get_session_messages_from_store(store, key)`；签名补充 `project_cwd` 参数用于 `make_project_key`；删除 `_load_timestamps()` 与 `_internal._read_session_file` import |
 | `server/agent_runtime/service.py` | `list_sessions` / `delete_session` 替换为 `list_sessions_from_store` / `delete_session_via_store` |
 | `lib/agent_session_store/` | 新增（store + models + key 工具 + import_local + conformance test） |
 | `alembic/versions/xxxx_add_session_store_tables.py` | 新增两表 |
@@ -361,16 +373,23 @@ async def lifespan(app: FastAPI):
 ```
 lib/agent_session_store/
   import_local.py
-    ├─ migrate_local_transcripts_to_store()   # 顶层入口
-    ├─ _enumerate_local_jsonl(cwd_root) -> list[Path]
-    ├─ _is_already_migrated(store, key) -> bool
-    └─ _migrate_one(store, key, jsonl_path)   # 调用 SDK 的 import_session_to_store
+    ├─ migrate_local_transcripts_to_store(store, projects_root) # 顶层入口
+    ├─ _enumerate_local_session_ids(project_cwd) -> Iterable[str]
+    │     # 内部仅调用 SDK 公开 list_sessions(directory=project_cwd)
+    ├─ _is_already_migrated(store, project_cwd, session_id) -> bool
+    │     # store.load(project_key_for_directory(cwd) + session_id) is not None
+    └─ _migrate_one(store, project_cwd, session_id) -> None
+          # await import_session_to_store(session_id, store, directory=str(project_cwd))
 ```
+
+**完全用 SDK 公开 API**（`list_sessions` / `import_session_to_store` /
+`project_key_for_directory`），不触碰任何 `_internal` 模块、不做路径硬编码、
+不复刻 `_sanitize_path` 算法、不假设 jsonl 文件命名。
 
 ### 5.3 流程
 
 ```
-migrate_local_transcripts_to_store()
+migrate_local_transcripts_to_store(store, projects_root)
   ├─ marker = data_dir / ".session_store_migration_done"
   ├─ if marker.exists(): return early   # 幂等，热路径零开销
   │
@@ -378,20 +397,26 @@ migrate_local_transcripts_to_store()
   │   ON CONFLICT DO NOTHING；未拿到锁直接 return
   │
   ├─ for project_cwd in projects_root.iterdir():
-  │   sanitized = _sanitize_path(str(project_cwd.resolve()))
-  │   sdk_dir   = Path.home() / ".claude" / "projects" / sanitized
-  │   if not sdk_dir.exists(): continue
+  │   if not project_cwd.is_dir(): continue
   │
-  │   for jsonl in sdk_dir.glob("*.jsonl"):
-  │     session_id = jsonl.stem
-  │     key = SessionKey(project_key=make_project_key(...), session_id=session_id)
+  │   # SDK 自己解析 ~/.claude/projects/<sanitized>/ 或 CLAUDE_CONFIG_DIR
+  │   # 自己处理 _sanitize_path、git worktree fallback 等细节
+  │   try:
+  │     sessions = list_sessions(directory=str(project_cwd))
+  │   except Exception:
+  │     logger.exception(...); continue
+  │
+  │   for info in sessions:
   │     try:
-  │       if await _is_already_migrated(store, key):
+  │       if await _is_already_migrated(store, project_cwd, info.session_id):
   │         skipped += 1; continue
-  │       await import_session_to_store(store, key, jsonl)   # SDK helper
+  │       # SDK 自己负责定位 jsonl + 流式批量 append + subagent + .meta.json sidecar
+  │       await import_session_to_store(
+  │           info.session_id, store, directory=str(project_cwd)
+  │       )
   │       imported += 1
   │     except Exception:
-  │       logger.exception("failed to migrate %s", jsonl)
+  │       logger.exception("failed to migrate session=%s", info.session_id)
   │       failed += 1
   │       # 不抛，单条失败不影响整体启动
   │
@@ -402,19 +427,22 @@ migrate_local_transcripts_to_store()
 
 ### 5.4 关键决策
 
-1. **Marker 放 `data_dir/.session_store_migration_done`** — 与 `agent_runtime` 数据
-   目录同侧，docker volume 自然带；不放 `~/.claude` 是因为那里是 SDK 私域，不该写。
-2. **幂等双保险** — Marker 阻挡重复扫描（热路径快）；`_is_already_migrated` 通过
-   `SELECT 1 FROM agent_session_entries WHERE session_id=? LIMIT 1` 兜底
-   （marker 误删时不会重复 import）。
-3. **单条失败不阻断启动** — 一条 jsonl 损坏不能让服务起不来；失败计数 + 日志。
-4. **per-user 扫描** — 多用户场景下，`make_project_key` 需要 user_id；启动时遍历所有
-   `agent_sessions.user_id` distinct 列表，对每个 user 走一遍。当前单部署常态下
-   user_id=`"default"`，开销忽略不计。
-5. **worker 并发** — uvicorn 多 worker 启动时多个进程同时跑 lifespan。`marker` 单独
+1. **零路径硬编码** — `~/.claude/projects/` 还是 `CLAUDE_CONFIG_DIR/projects/` 还是
+   docker 挂载点完全由 SDK 决定，迁移代码只传 ArcReel 的项目 cwd 给 SDK。
+2. **零文件名假设** — 不 `glob("*.jsonl")`、不 `.stem`、不假定 subagent 子目录结构。
+   `import_session_to_store` 自己处理（含 subagent transcripts + `.meta.json` sidecar）。
+3. **Marker 放 `data_dir/.session_store_migration_done`** — 与 `agent_runtime` 数据
+   目录同侧，docker volume 自然带；不写 SDK 私域。
+4. **幂等双保险** — Marker 阻挡重复扫描（热路径快）；`_is_already_migrated` 通过
+   `store.load(key) is not None` 兜底（marker 误删时不会重复 import）。`store.load`
+   走的是我们自己的 `agent_session_entries` 表，与 SDK 公开协议契约一致。
+5. **单条失败不阻断启动** — 一条 jsonl 损坏 / SDK 解析失败不能让服务起不来；失败
+   计数 + 日志。
+6. **worker 并发** — uvicorn 多 worker 启动时多个进程同时跑 lifespan。`marker` 单独
    不够（race condition），叠加 `config` 表的锁行（`ON CONFLICT DO NOTHING`）实现
    跨进程互斥。
-6. **零旧数据用户** — `sdk_dir` 不存在直接 return + 写 marker，下次启动连扫描都不做。
+7. **零旧数据用户** — `list_sessions(directory=project_cwd)` 返回空列表直接进入下个
+   项目；全部为空时写 marker，下次启动连 SDK 调用都省了。
 
 ### 5.5 验收标准
 
@@ -575,7 +603,7 @@ matrix:
 | 多 worker lifespan 并发跑迁移 | config 表锁 + marker 双重保护 |
 | DB 写入慢拖累 SDK turn 时延 | append 在后台 100ms 批量，子进程不阻塞；DB 慢只触发 mirror 重试 |
 | `fold_session_summary` 写 sidecar 时并发竞争 | summaries 表 `SELECT FOR UPDATE` 行锁串行化 |
-| 旧 jsonl 命名/路径与 SDK 0.1.71 算法变化 | 迁移走 SDK 自身 `_sanitize_path` 等内部一致性的 helper；若失败按 §5 单条容错 |
+| 旧 jsonl 命名/路径在 SDK 后续版本变化 | 迁移完全走 SDK 公开 API（`list_sessions` / `import_session_to_store` / `project_key_for_directory`），SDK 自己处理路径解析和 docker / `CLAUDE_CONFIG_DIR` 等部署差异 |
 
 ## Follow-up（不在本期范围）
 
