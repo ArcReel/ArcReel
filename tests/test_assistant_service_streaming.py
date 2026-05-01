@@ -25,7 +25,7 @@ class _FakeTranscriptAdapter:
         self.call_log = call_log
         self.history_raw = history_raw or []
 
-    def read_raw_messages(self, sdk_session_id=None):
+    async def read_raw_messages(self, sdk_session_id=None, project_cwd=None):
         self.call_log.append(("read_raw_messages", sdk_session_id))
         return list(self.history_raw)
 

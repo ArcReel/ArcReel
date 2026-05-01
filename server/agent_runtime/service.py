@@ -52,11 +52,17 @@ class AssistantService:
 
         self.pm = ProjectManager(self.projects_root)
         self.meta_store = SessionMetaStore()
-        self.transcript_adapter = SdkTranscriptAdapter()
         self.session_manager = SessionManager(
             project_root=self.project_root,
             data_dir=self.data_dir,
             meta_store=self.meta_store,
+        )
+        # Adapter shares the per-user store with SessionManager so reads land
+        # in the same per-user namespace that writes go to. When the env var
+        # disables the store, both paths fall back to the SDK's filesystem
+        # reader and the adapter never needs project_cwd.
+        self.transcript_adapter = SdkTranscriptAdapter(
+            store=self.session_manager._build_session_store(),
         )
         self._startup_lock = asyncio.Lock()
         self._startup_done = False
@@ -552,6 +558,22 @@ class AssistantService:
         """Build an SSE event for FastAPI's EventSourceResponse."""
         return ServerSentEvent(event=event, data=data)
 
+    def _resolve_project_cwd_safe(self, project_name: str) -> Path | None:
+        """Resolve the project's working directory, returning None on failure.
+
+        ``SdkTranscriptAdapter`` needs ``project_cwd`` to derive the
+        per-project key when reading from the SessionStore. If the project
+        directory is missing (deleted, never materialized in tests, etc.)
+        we fall back to None — the store helper / SDK defaults handle that.
+        """
+        resolver = getattr(self.session_manager, "_resolve_project_cwd", None)
+        if resolver is None:
+            return None
+        try:
+            return resolver(project_name)
+        except (FileNotFoundError, ValueError):
+            return None
+
     async def _build_projector(
         self,
         meta: SessionMeta,
@@ -559,7 +581,8 @@ class AssistantService:
         replayed_messages: list[dict[str, Any]] | None = None,
     ) -> AssistantStreamProjector:
         """Build projector state from transcript history + in-memory buffer."""
-        history_messages = await asyncio.to_thread(self.transcript_adapter.read_raw_messages, meta.id)
+        project_cwd = self._resolve_project_cwd_safe(meta.project_name)
+        history_messages = await self.transcript_adapter.read_raw_messages(meta.id, project_cwd)
         projector = AssistantStreamProjector(initial_messages=history_messages)
 
         # UUID set for primary dedup

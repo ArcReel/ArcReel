@@ -96,7 +96,7 @@ class _FakeTranscriptAdapter:
     def __init__(self, history=None):
         self.history = history or []
 
-    def read_raw_messages(self, sdk_session_id=None):
+    async def read_raw_messages(self, sdk_session_id=None, project_cwd=None):
         return list(self.history)
 
 
