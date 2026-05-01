@@ -22,6 +22,15 @@ try:
 except ImportError:
     sdk_delete_session = None
 
+try:
+    from claude_agent_sdk import (
+        delete_session_via_store,
+        list_sessions_from_store,
+    )
+except ImportError:
+    delete_session_via_store = None  # type: ignore[assignment]
+    list_sessions_from_store = None  # type: ignore[assignment]
+
 if TYPE_CHECKING:
     from server.routers.assistant import ImageAttachment
 
@@ -57,12 +66,16 @@ class AssistantService:
             data_dir=self.data_dir,
             meta_store=self.meta_store,
         )
+        # Build the SessionStore once and share with both the adapter and the
+        # *_via_store/_from_store helpers below. None when env disables it.
+        self._session_store = self.session_manager._build_session_store()
+
         # Adapter shares the per-user store with SessionManager so reads land
         # in the same per-user namespace that writes go to. When the env var
         # disables the store, both paths fall back to the SDK's filesystem
         # reader and the adapter never needs project_cwd.
         self.transcript_adapter = SdkTranscriptAdapter(
-            store=self.session_manager._build_session_store(),
+            store=self._session_store,
         )
         self._startup_lock = asyncio.Lock()
         self._startup_done = False
@@ -100,18 +113,33 @@ class AssistantService:
     ) -> list[SessionMeta]:
         """List sessions, injecting SDK summary as title when available."""
         sessions = await self.meta_store.list(project_name=project_name, status=status, limit=limit, offset=offset)
-        if not sessions or not project_name or sdk_list_sessions is None:
+        if not sessions or not project_name:
             return sessions
 
-        # Inject SDK summary as title
-        try:
-            project_cwd = str(self.projects_root / project_name)
-            sdk_sessions = await asyncio.to_thread(sdk_list_sessions, directory=project_cwd, include_worktrees=False)
-            summary_map = {s.session_id: s.summary for s in sdk_sessions}
-        except Exception:
-            logger.warning("SDK list_sessions failed, titles will be empty", exc_info=True)
+        project_cwd = str(self.projects_root / project_name)
+        sdk_sessions: list[Any] = []
+
+        if self._session_store is not None and list_sessions_from_store is not None:
+            try:
+                sdk_sessions = await list_sessions_from_store(self._session_store, directory=project_cwd)
+            except Exception:
+                logger.warning(
+                    "SDK list_sessions_from_store failed, titles will be empty",
+                    exc_info=True,
+                )
+                return sessions
+        elif sdk_list_sessions is not None:
+            try:
+                sdk_sessions = await asyncio.to_thread(
+                    sdk_list_sessions, directory=project_cwd, include_worktrees=False
+                )
+            except Exception:
+                logger.warning("SDK list_sessions failed, titles will be empty", exc_info=True)
+                return sessions
+        else:
             return sessions
 
+        summary_map = {s.session_id: s.summary for s in sdk_sessions}
         return [SessionMeta(**{**s.model_dump(), "title": summary_map.get(s.id, s.title)}) for s in sessions]
 
     async def get_session(self, session_id: str) -> SessionMeta | None:
@@ -132,8 +160,17 @@ class AssistantService:
                 reason="session deleted",
             )
 
-        # Clean up SDK-side session files
-        if sdk_delete_session is not None:
+        # Clean up SDK-side session entries
+        if self._session_store is not None and delete_session_via_store is not None:
+            try:
+                await delete_session_via_store(self._session_store, session_id)
+            except Exception:
+                logger.warning(
+                    "delete_session_via_store failed for %s",
+                    session_id,
+                    exc_info=True,
+                )
+        elif sdk_delete_session is not None:
             try:
                 await asyncio.to_thread(sdk_delete_session, session_id)
             except Exception:
