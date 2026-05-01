@@ -6,6 +6,7 @@ import pytest
 
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
+    endpoint_spec_to_dict,
     endpoint_to_media_type,
     get_endpoint_spec,
     infer_endpoint,
@@ -31,6 +32,21 @@ class TestRegistry:
             assert spec.family in {"openai", "google", "newapi"}
             assert spec.display_name_key.startswith("endpoint_")
             assert callable(spec.build_backend)
+            assert spec.request_method == "POST"
+            assert spec.request_path_template.startswith("/")
+
+    def test_endpoint_spec_to_dict_drops_closure(self):
+        spec = ENDPOINT_REGISTRY["openai-chat"]
+        d = endpoint_spec_to_dict(spec)
+        assert "build_backend" not in d
+        assert d == {
+            "key": "openai-chat",
+            "media_type": "text",
+            "family": "openai",
+            "display_name_key": "endpoint_openai_chat_display",
+            "request_method": "POST",
+            "request_path_template": "/v1/chat/completions",
+        }
 
     def test_media_type_groups(self):
         text_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "text"}

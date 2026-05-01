@@ -671,6 +671,7 @@ export default {
   'endpoint_gemini_image_display': 'Google Gemini Image',
   'endpoint_openai_video_display': 'OpenAI Video (Sora)',
   'endpoint_newapi_video_display': 'NewAPI Unified Video',
+  'endpoint_catalog_loading': '加载端点目录…',
   'api_key_not_set': '未设置',
   'model_disabled': '已禁用',
   'confirm_delete_provider': '确认删除',

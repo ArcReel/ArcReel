@@ -10,26 +10,27 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
 from lib.custom_provider import make_provider_id
-from lib.custom_provider.endpoints import endpoint_to_media_type
+from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, endpoint_spec_to_dict, endpoint_to_media_type
 
-# Endpoint / discovery_format 字面量类型 —— Pydantic 自动按枚举校验，
-# 与 lib/custom_provider/endpoints.py:ENDPOINT_REGISTRY 的键集合保持同步。
-EndpointLiteral = Literal[
-    "openai-chat",
-    "gemini-generate",
-    "openai-images",
-    "gemini-image",
-    "openai-video",
-    "newapi-video",
-]
+
+def _validate_endpoint(value: str) -> str:
+    """Endpoint 校验：值必须存在于 ENDPOINT_REGISTRY，避免硬编码 Literal 漂移。"""
+    if value not in ENDPOINT_REGISTRY:
+        raise ValueError(f"unknown endpoint: {value!r}")
+    return value
+
+
+# 写入路径上的 endpoint 字段统一走运行时校验，键集合自动跟随 ENDPOINT_REGISTRY；
+# 响应路径不需校验，直接 str。
+EndpointType = Annotated[str, AfterValidator(_validate_endpoint)]
 DiscoveryFormatLiteral = Literal["openai", "google"]
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
@@ -60,7 +61,7 @@ _BACKEND_SETTING_KEYS = (
 class ModelInput(BaseModel):
     model_id: str
     display_name: str
-    endpoint: EndpointLiteral
+    endpoint: EndpointType
     is_default: bool = False
     is_enabled: bool = True
     price_unit: str | None = None
@@ -146,6 +147,21 @@ class ConnectionTestResponse(BaseModel):
 
 class DiscoverResponse(BaseModel):
     models: list[dict]
+
+
+class EndpointDescriptor(BaseModel):
+    """前端从 catalog API 拿到的单条 endpoint 描述（与 lib.custom_provider.endpoints.EndpointSpec 对齐，去掉闭包）。"""
+
+    key: str
+    media_type: str
+    family: str
+    display_name_key: str
+    request_method: str
+    request_path_template: str
+
+
+class EndpointCatalogResponse(BaseModel):
+    endpoints: list[EndpointDescriptor]
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +277,15 @@ async def list_providers(
     repo = CustomProviderRepository(session)
     pairs = await repo.list_providers_with_models()
     return {"providers": [_provider_to_response(p, models) for p, models in pairs]}
+
+
+# /endpoints 必须先于 /{provider_id} 注册，否则 FastAPI 会把字符串 "endpoints" 当作 provider_id。
+@router.get("/endpoints", response_model=EndpointCatalogResponse)
+async def list_endpoint_catalog(_user: CurrentUser) -> EndpointCatalogResponse:
+    """暴露 ENDPOINT_REGISTRY 作为前端单一真相源：渲染下拉、显示路径与分组都派生自此返回值。"""
+    return EndpointCatalogResponse(
+        endpoints=[EndpointDescriptor(**endpoint_spec_to_dict(spec)) for spec in ENDPOINT_REGISTRY.values()],
+    )
 
 
 @router.post("", status_code=201)

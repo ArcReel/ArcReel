@@ -1,8 +1,9 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { uid } from "@/utils/id";
 import { errMsg } from "@/utils/async";
 import type {
@@ -11,7 +12,6 @@ import type {
   DiscoveredModel,
   EndpointKey,
 } from "@/types";
-import { ENDPOINT_TO_MEDIA_TYPE } from "@/types";
 import { priceLabel, urlPreviewFor, toggleDefaultReducer, type DiscoveryFormat } from "./customProviderHelpers";
 import { EndpointSelect } from "./EndpointSelect";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
@@ -110,6 +110,13 @@ interface CustomProviderFormProps {
 export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProviderFormProps) {
   const { t } = useTranslation("dashboard");
   const isEdit = !!existing;
+
+  // Endpoint catalog（后端单一真相源）：mediaType 推断、price/default 互斥分组都从这里读。
+  const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
+  const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
+  useEffect(() => {
+    void fetchEndpointCatalog();
+  }, [fetchEndpointCatalog]);
 
   // --- Form state ---
   const [displayName, setDisplayName] = useState(existing?.display_name ?? "");
@@ -421,8 +428,8 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             )}
             <div className="space-y-2">
               {filteredModels.map((m) => {
-                const pl = priceLabel(m.endpoint, t);
-                const media = ENDPOINT_TO_MEDIA_TYPE[m.endpoint];
+                const pl = priceLabel(m.endpoint, endpointToMediaType, t);
+                const media = endpointToMediaType[m.endpoint];
                 return (
                   <div
                     key={m.key}
@@ -460,7 +467,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       {/* Default toggle */}
                       <button
                         type="button"
-                        onClick={() => setModels((prev) => toggleDefaultReducer(prev, m.key))}
+                        onClick={() => setModels((prev) => toggleDefaultReducer(prev, m.key, endpointToMediaType))}
                         className={`rounded-lg px-2 py-1 text-xs transition-colors ${
                           m.is_default
                             ? "bg-indigo-600 text-white"

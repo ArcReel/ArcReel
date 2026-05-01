@@ -3,7 +3,7 @@ import { ChevronDown, Type, Image as ImageIcon, Film } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Popover } from "@/components/ui/Popover";
 import type { EndpointKey, MediaType } from "@/types";
-import { ENDPOINT_PATHS } from "./customProviderHelpers";
+import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 
 // ---------------------------------------------------------------------------
 // EndpointSelect — 自定义供应商「调用端点」选择器
@@ -11,22 +11,15 @@ import { ENDPOINT_PATHS } from "./customProviderHelpers";
 // 设计目标：
 //  * trigger 紧凑（适配 model row），右侧用 mono 字体显示路径前缀作为提示。
 //  * 弹层双行展示「显示名 + POST /path」让用户立刻识别具体接口。
-//  * 类型分组用纯排版徽章，无 emoji；保持 dark theme 一致。
+//  * 选项 / 路径 / 媒体类型分组 全部从 endpoint-catalog-store 派生（后端单一真相源）。
 
 interface EndpointOption {
   value: EndpointKey;
   labelKey: string;
   mediaType: MediaType;
+  method: string;
+  path: string;
 }
-
-const OPTIONS: EndpointOption[] = [
-  { value: "openai-chat", labelKey: "endpoint_openai_chat_display", mediaType: "text" },
-  { value: "gemini-generate", labelKey: "endpoint_gemini_generate_display", mediaType: "text" },
-  { value: "openai-images", labelKey: "endpoint_openai_images_display", mediaType: "image" },
-  { value: "gemini-image", labelKey: "endpoint_gemini_image_display", mediaType: "image" },
-  { value: "openai-video", labelKey: "endpoint_openai_video_display", mediaType: "video" },
-  { value: "newapi-video", labelKey: "endpoint_newapi_video_display", mediaType: "video" },
-];
 
 const MEDIA_META: Record<MediaType, { Icon: typeof Type; labelKey: string }> = {
   text: { Icon: Type, labelKey: "endpoint_text_group" },
@@ -35,14 +28,6 @@ const MEDIA_META: Record<MediaType, { Icon: typeof Type; labelKey: string }> = {
 };
 
 const MEDIA_ORDER: MediaType[] = ["text", "image", "video"];
-
-/** 把 EndpointKey 解析为 OPTIONS 索引；若 value 不在已知 OPTIONS 内（数据
- *  漂移：后端推未知 endpoint 字符串），回退到 0，避免 `OPTIONS[-1]` 在键盘
- *  选中（Enter/空格）时抛 TypeError 中断弹层交互。 */
-function indexOfValue(val: EndpointKey): number {
-  const idx = OPTIONS.findIndex((o) => o.value === val);
-  return idx >= 0 ? idx : 0;
-}
 
 interface EndpointSelectProps {
   value: EndpointKey;
@@ -60,26 +45,71 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
   const listboxId = useId();
   const [open, setOpen] = useState(false);
 
-  // 弹层打开时把焦点转到 listbox 接收键盘事件。用 useEffect 而非 inline
-  // ref callback —— 后者会因每次 render 重新创建 callback 闭包而被 React
-  // 反复调用 (null, el)，引发不必要的重复 focus 与 scroll-into-view 抖动。
+  const endpoints = useEndpointCatalogStore((s) => s.endpoints);
+  const initialized = useEndpointCatalogStore((s) => s.initialized);
+  const loading = useEndpointCatalogStore((s) => s.loading);
+  const fetchCatalog = useEndpointCatalogStore((s) => s.fetch);
+  const refreshCatalog = useEndpointCatalogStore((s) => s.refresh);
+
+  // catalog 未就绪时 trigger 一次 fetch；store 自身有 short-circuit，重复挂载安全。
   useEffect(() => {
-    if (open) listboxRef.current?.focus();
-  }, [open]);
+    if (!initialized) void fetchCatalog();
+  }, [initialized, fetchCatalog]);
+
+  // 把 catalog 数据投影成 EndpointOption[]，按 MEDIA_ORDER 顺序排列以获得稳定的键盘导航。
+  const options = useMemo<EndpointOption[]>(() => {
+    const ordered: EndpointOption[] = [];
+    for (const media of MEDIA_ORDER) {
+      for (const e of endpoints) {
+        if (e.media_type === media) {
+          ordered.push({
+            value: e.key,
+            labelKey: e.display_name_key,
+            mediaType: e.media_type,
+            method: e.request_method,
+            path: e.request_path_template,
+          });
+        }
+      }
+    }
+    return ordered;
+  }, [endpoints]);
 
   const grouped = useMemo(() => {
     return MEDIA_ORDER.map((m) => ({
       mediaType: m,
-      options: OPTIONS.filter((o) => o.mediaType === m),
+      options: options.filter((o) => o.mediaType === m),
     }));
-  }, []);
+  }, [options]);
 
-  const selected = OPTIONS.find((o) => o.value === value) ?? OPTIONS[0];
-  const selectedPath = ENDPOINT_PATHS[selected.value];
+  // catalog 未就绪：trigger 显示 placeholder，点击不展开（避免空 listbox 让键盘焦点卡死）。
+  const catalogReady = options.length > 0;
+
+  // 弹层打开时把焦点转到 listbox。
+  useEffect(() => {
+    if (open) listboxRef.current?.focus();
+  }, [open]);
+
+  /** 把 EndpointKey 解析为 options 索引；value 不在 catalog 内时回退到 0，避免
+   *  键盘选中（Enter/空格）时取 options[-1] 抛 TypeError 中断弹层交互。 */
+  const indexOfValue = useCallback(
+    (val: EndpointKey): number => {
+      const idx = options.findIndex((o) => o.value === val);
+      return idx >= 0 ? idx : 0;
+    },
+    [options],
+  );
+
+  // 不要 fallback 到 options[0]：value 不在 catalog 时（漂移 / 后端临时移除 / catalog 未加载）
+  // 必须显式 undefined，下方 triggerLabel 才能走原始 key 分支，否则用户会看到与已存值无关的
+  // 第一项 label，UI 严重误导。
+  const selected = options.find((o) => o.value === value);
   // trigger 中的简短路径提示：剥去前导 `/v1`、`/v1beta/models/`，更省宽。
-  const triggerHint = selectedPath.path
-    .replace(/^\/v1beta\/models\//, "/")
-    .replace(/^\/v1/, "");
+  const triggerHint = selected
+    ? selected.path.replace(/^\/v1beta\/models\//, "/").replace(/^\/v1/, "")
+    : "";
+  // 已选 endpoint 不在当前 catalog（数据漂移或后端临时移除）：用原始 key 兜底显示。
+  const triggerLabel = selected ? t(selected.labelKey) : value || t("endpoint_catalog_loading");
 
   const handleSelect = useCallback(
     (next: EndpointKey) => {
@@ -92,14 +122,23 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
   );
 
   // 键盘：弹层中支持上下键切换、Enter 选中、Escape 关闭。
-  const [activeIndex, setActiveIndex] = useState<number>(() => indexOfValue(value));
+  // 初始值是 0，正确值在 openMenu() 中按当前 value 设置；catalog 未就绪时
+  // catalogReady 为 false，trigger 是 disabled，listbox 永远打不开，0 不会被读到。
+  const [activeIndex, setActiveIndex] = useState<number>(0);
 
   const openMenu = () => {
+    if (!catalogReady) return;
     setActiveIndex(indexOfValue(value));
     setOpen(true);
   };
 
   const onTriggerClick = () => {
+    // catalog 未就绪：作为「重试加载」按钮使用，避免 fetch 失败后下拉永久禁用。
+    // store.refresh 内部对 loading 短路，连点不会重复发请求。
+    if (!catalogReady) {
+      void refreshCatalog();
+      return;
+    }
     if (open) setOpen(false);
     else openMenu();
   };
@@ -108,6 +147,10 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
     if (disabled) return;
     if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
       e.preventDefault();
+      if (!catalogReady) {
+        void refreshCatalog();
+        return;
+      }
       openMenu();
     }
   };
@@ -115,19 +158,19 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
   const onListKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIndex((i) => (i + 1) % OPTIONS.length);
+      setActiveIndex((i) => (i + 1) % options.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActiveIndex((i) => (i - 1 + OPTIONS.length) % OPTIONS.length);
+      setActiveIndex((i) => (i - 1 + options.length) % options.length);
     } else if (e.key === "Home") {
       e.preventDefault();
       setActiveIndex(0);
     } else if (e.key === "End") {
       e.preventDefault();
-      setActiveIndex(OPTIONS.length - 1);
+      setActiveIndex(options.length - 1);
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      handleSelect(OPTIONS[activeIndex].value);
+      handleSelect(options[activeIndex].value);
     }
   };
 
@@ -141,6 +184,7 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         disabled={disabled}
+        aria-busy={loading || undefined}
         onClick={onTriggerClick}
         onKeyDown={onTriggerKeyDown}
         className={[
@@ -151,13 +195,15 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
           "disabled:cursor-not-allowed disabled:opacity-50",
         ].join(" ")}
       >
-        <span className="truncate">{t(selected.labelKey)}</span>
-        <span
-          aria-hidden="true"
-          className="hidden font-mono text-[11px] tracking-tight text-emerald-400/70 sm:inline"
-        >
-          {triggerHint}
-        </span>
+        <span className="truncate">{triggerLabel}</span>
+        {triggerHint && (
+          <span
+            aria-hidden="true"
+            className="hidden font-mono text-[11px] tracking-tight text-emerald-400/70 sm:inline"
+          >
+            {triggerHint}
+          </span>
+        )}
         <ChevronDown
           aria-hidden="true"
           className={`h-3.5 w-3.5 shrink-0 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}
@@ -184,6 +230,7 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
           className="max-h-[420px] overflow-y-auto py-1.5 outline-none"
         >
           {grouped.map((group, gIdx) => {
+            if (group.options.length === 0) return null;
             const meta = MEDIA_META[group.mediaType];
             const Icon = meta.Icon;
             return (
@@ -201,9 +248,8 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
                 </div>
                 <ul className="px-1.5">
                   {group.options.map((opt) => {
-                    const path = ENDPOINT_PATHS[opt.value];
                     const isSelected = opt.value === value;
-                    const flatIdx = OPTIONS.findIndex((o) => o.value === opt.value);
+                    const flatIdx = options.findIndex((o) => o.value === opt.value);
                     const isActive = flatIdx === activeIndex;
                     return (
                       <li key={opt.value}>
@@ -228,10 +274,8 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
                             {t(opt.labelKey)}
                           </div>
                           <div className="mt-0.5 flex items-baseline gap-1.5 font-mono text-[11px] leading-none">
-                            <span className="text-gray-500">{path.method}</span>
-                            <span className="truncate text-emerald-400/80">
-                              {path.path}
-                            </span>
+                            <span className="text-gray-500">{opt.method}</span>
+                            <span className="truncate text-emerald-400/80">{opt.path}</span>
                           </div>
                         </button>
                       </li>

@@ -36,6 +36,7 @@ import type {
   CustomProviderCreateRequest,
   CustomProviderModelInput,
   DiscoveredModel,
+  EndpointDescriptor,
   CostEstimateResponse,
   ReferenceVideoUnit,
   ReferenceResource,
@@ -1509,6 +1510,10 @@ class API {
 
   static async listCustomProviders(): Promise<{ providers: CustomProviderInfo[] }> {
     return this.request("/custom-providers");
+  }
+
+  static async listEndpointCatalog(): Promise<{ endpoints: EndpointDescriptor[] }> {
+    return this.request("/custom-providers/endpoints");
   }
 
   static async createCustomProvider(data: CustomProviderCreateRequest): Promise<CustomProviderInfo> {

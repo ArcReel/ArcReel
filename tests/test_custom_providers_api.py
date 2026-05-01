@@ -194,6 +194,44 @@ class TestListProviders:
         assert body[1]["display_name"] == "Provider B"
 
 
+class TestEndpointCatalog:
+    """GET /endpoints 暴露 ENDPOINT_REGISTRY 作为前端单一真相源。"""
+
+    def test_lists_all_six_endpoints(self, client: TestClient):
+        resp = client.get("/api/v1/custom-providers/endpoints")
+        assert resp.status_code == 200
+        body = resp.json()
+        keys = {e["key"] for e in body["endpoints"]}
+        assert keys == {
+            "openai-chat",
+            "gemini-generate",
+            "openai-images",
+            "gemini-image",
+            "openai-video",
+            "newapi-video",
+        }
+
+    def test_descriptor_shape(self, client: TestClient):
+        resp = client.get("/api/v1/custom-providers/endpoints")
+        assert resp.status_code == 200
+        for entry in resp.json()["endpoints"]:
+            assert set(entry.keys()) == {
+                "key",
+                "media_type",
+                "family",
+                "display_name_key",
+                "request_method",
+                "request_path_template",
+            }
+            assert entry["request_method"] == "POST"
+            assert entry["request_path_template"].startswith("/")
+
+    def test_endpoint_route_not_shadowed_by_provider_id(self, client: TestClient):
+        """回归：/endpoints 必须先于 /{provider_id} 注册，不能被解析为整型 provider_id。"""
+        resp = client.get("/api/v1/custom-providers/endpoints")
+        assert resp.status_code == 200, resp.text
+
+
 class TestGetProvider:
     def test_returns_provider(self, client: TestClient):
         create_resp = client.post(
@@ -800,6 +838,31 @@ class TestEmptyModelIdRejected:
                 },
             )
         assert resp.status_code == 422
+
+
+class TestUnknownEndpointRejected:
+    """回归：写入路径用未注册 endpoint key 应被 AfterValidator 拦下，返回 422。"""
+
+    def test_create_with_unknown_endpoint(self, client: TestClient):
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Unknown Endpoint",
+                "discovery_format": "openai",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "sk-key",
+                "models": [
+                    {
+                        "model_id": "m1",
+                        "display_name": "M",
+                        "endpoint": "anthropic-messages",
+                        "is_enabled": True,
+                    },
+                ],
+            },
+        )
+        assert resp.status_code == 422
+        assert "unknown endpoint" in resp.text
 
 
 class TestDuplicateModelIdRejected:

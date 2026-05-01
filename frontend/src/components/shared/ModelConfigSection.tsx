@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { DEFAULT_DURATIONS, lookupSupportedDurations, lookupResolutions } from "@/utils/provider-models";
 import { ResolutionPicker } from "./ResolutionPicker";
+import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import type { ProviderInfo } from "@/types/provider";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 
@@ -72,6 +73,13 @@ export function ModelConfigSection({
 }: ModelConfigSectionProps) {
   const { t } = useTranslation("templates");
 
+  // 自定义 provider 的 resolution picker 需要从 endpoint 推 mediaType；catalog 即时拉取。
+  const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
+  const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
+  useEffect(() => {
+    if (customProviders.length > 0) void fetchEndpointCatalog();
+  }, [customProviders.length, fetchEndpointCatalog]);
+
   const showVideo = enable?.video !== false;
   const showImage = enable?.image !== false;
   const showText = enable?.text !== false;
@@ -111,7 +119,7 @@ export function ModelConfigSection({
   };
 
   const renderResolutionField = (backend: string, resolution: string | null, onResolutionChange: (v: string | null) => void) => {
-    const res = lookupResolutions(providers, backend, customProviders);
+    const res = lookupResolutions(providers, backend, customProviders, endpointToMediaType);
     if (res.options.length === 0) return null;
     return (
       <div className="mt-3 flex items-center gap-2">
