@@ -58,12 +58,22 @@ async def test_append_then_list_then_load_via_sdk_helpers(session_factory, tmp_p
     assert getattr(messages[1], "type", None) == "assistant"
     # SDK's SessionMessage dataclass (v0.1.71) does not expose a timestamp
     # field, so the helper-level pass-through can't be asserted directly.
-    # The adapter (sdk_transcript_adapter.py) tolerates this with
-    # ``getattr(msg, "timestamp", None)``. Verify the underlying contract
-    # we actually rely on: the timestamp survives the store round-trip and
-    # is available via ``store.load()`` for any future consumer.
+    # Verify the underlying contract: the timestamp survives the store
+    # round-trip and is available via ``store.load()`` for any future consumer.
     raw = await store.load(key)
     assert [e.get("timestamp") for e in raw] == [
         "2026-05-01T00:00:00Z",
         "2026-05-01T00:00:01Z",
     ], "timestamps must round-trip through DbSessionStore verbatim"
+
+    # Now exercise the production adapter path to verify timestamp backfill
+    # works: the SDK SessionMessage lacks ``timestamp``, but
+    # SdkTranscriptAdapter joins it back from store.load() on uuid so
+    # downstream consumers (turn_grouper) keep getting stable timestamps.
+    from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
+
+    adapter = SdkTranscriptAdapter(store=store)
+    raw_adapted = await adapter.read_raw_messages(sid, project_cwd=str(project_cwd))
+    assert len(raw_adapted) == 2
+    timestamps = sorted(r["timestamp"] for r in raw_adapted if r["timestamp"])
+    assert timestamps == ["2026-05-01T00:00:00Z", "2026-05-01T00:00:01Z"]

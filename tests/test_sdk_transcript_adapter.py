@@ -194,3 +194,60 @@ class TestSdkTranscriptAdapterStorePath:
         _, kwargs = helper.call_args
         assert kwargs.get("limit") == 1
         assert kwargs.get("directory") == "/tmp/proj"
+
+    @pytest.mark.asyncio
+    async def test_read_via_store_backfills_timestamp_from_store_payload(self):
+        """SessionMessage from SDK has no timestamp; adapter backfills via store.load()."""
+        mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
+        mock_msg.type = "user"
+        mock_msg.message = {"content": "Hello"}
+        mock_msg.uuid = "uuid-789"
+        mock_msg.parent_tool_use_id = None
+        # Note: do NOT set mock_msg.timestamp — to mimic real SDK that omits the field
+
+        fake_store = MagicMock()
+        fake_store.load = AsyncMock(
+            return_value=[
+                {
+                    "type": "user",
+                    "uuid": "uuid-789",
+                    "timestamp": "2026-05-01T01:00:00Z",
+                    "message": {"content": "Hello"},
+                },
+            ]
+        )
+
+        with patch(
+            "server.agent_runtime.sdk_transcript_adapter.get_session_messages_from_store",
+            new=AsyncMock(return_value=[mock_msg]),
+        ):
+            adapter = SdkTranscriptAdapter(store=fake_store)
+            result = await adapter.read_raw_messages("sdk-session", project_cwd="/tmp/proj")
+
+        assert result[0]["timestamp"] == "2026-05-01T01:00:00Z"
+        fake_store.load.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_read_via_store_handles_missing_payload_timestamp(self):
+        """When the store entry has no timestamp, output stays None — no crash."""
+        mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
+        mock_msg.type = "user"
+        mock_msg.message = {"content": "x"}
+        mock_msg.uuid = "uuid-xyz"
+        mock_msg.parent_tool_use_id = None
+
+        fake_store = MagicMock()
+        fake_store.load = AsyncMock(
+            return_value=[
+                {"type": "user", "uuid": "uuid-xyz", "message": {"content": "x"}},  # no timestamp
+            ]
+        )
+
+        with patch(
+            "server.agent_runtime.sdk_transcript_adapter.get_session_messages_from_store",
+            new=AsyncMock(return_value=[mock_msg]),
+        ):
+            adapter = SdkTranscriptAdapter(store=fake_store)
+            result = await adapter.read_raw_messages("sdk-session", project_cwd="/tmp/proj")
+
+        assert result[0]["timestamp"] is None

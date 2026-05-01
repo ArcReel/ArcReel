@@ -5,10 +5,11 @@ SessionStore is wired in, or falls back to ``get_session_messages``
 (filesystem) when ``ARCREEL_SDK_SESSION_STORE=off`` is set.
 
 The store path eliminates the previous dependency on the private
-``_internal._read_session_file`` symbol — SessionMessage objects served by
-the store helper carry their original ``payload.timestamp`` already
-(persisted verbatim by ``DbSessionStore`` in Task 4), so no transcript
-backfill is required to keep optimistic-turn dedup ordering stable.
+``_internal._read_session_file`` symbol. SDK 0.1.71's reconstructed
+``SessionMessage`` does not carry a ``timestamp`` field, so the adapter
+backfills timestamps by re-reading payloads via ``store.load(key)`` and
+joining on ``uuid`` — keeps optimistic-turn dedup stable across rounds
+without reaching into SDK internals.
 """
 
 from __future__ import annotations
@@ -115,7 +116,53 @@ class SdkTranscriptAdapter:
                 exc_info=True,
             )
             return []
-        return [self._adapt(msg) for msg in (messages or [])]
+
+        # SDK 0.1.71 SessionMessage has no timestamp field — backfill from the
+        # store payload we wrote in append() (preserves SDK's payload.timestamp
+        # verbatim). This keeps optimistic-turn dedup stable across rounds.
+        timestamp_by_uuid = await self._load_timestamps_from_store(sdk_session_id, project_cwd)
+        return [self._adapt(msg, timestamp_by_uuid) for msg in (messages or [])]
+
+    async def _load_timestamps_from_store(
+        self,
+        sdk_session_id: str,
+        project_cwd: Path | str | None,
+    ) -> dict[str, str]:
+        """Build uuid -> timestamp index by reading store payloads.
+
+        SDK's get_session_messages_from_store reconstructs SessionMessage objects
+        that lack the per-entry timestamp field. We re-fetch raw payloads via
+        store.load() and join on uuid so downstream consumers (turn_grouper)
+        keep getting stable timestamps without touching SDK private APIs.
+        """
+        if project_cwd is None:
+            return {}
+        try:
+            from lib.agent_session_store import make_project_key
+
+            key = {
+                "project_key": make_project_key(project_cwd),
+                "session_id": sdk_session_id,
+            }
+            payloads = await self._store.load(key)
+        except Exception:
+            logger.warning(
+                "Failed to load timestamps for session %s",
+                sdk_session_id,
+                exc_info=True,
+            )
+            return {}
+        if not payloads:
+            return {}
+        ts_map: dict[str, str] = {}
+        for entry in payloads:
+            if not isinstance(entry, dict):
+                continue
+            uuid = entry.get("uuid")
+            ts = entry.get("timestamp")
+            if isinstance(uuid, str) and uuid and isinstance(ts, str) and ts.strip():
+                ts_map[uuid] = ts.strip()
+        return ts_map
 
     def _read_via_legacy(self, sdk_session_id: str) -> list[dict[str, Any]]:
         """Filesystem fallback for ARCREEL_SDK_SESSION_STORE=off."""
@@ -130,6 +177,7 @@ class SdkTranscriptAdapter:
                 exc_info=True,
             )
             return []
+        # Legacy SDK messages may carry timestamps directly; no map needed.
         return [self._adapt(m) for m in sdk_messages]
 
     @staticmethod
@@ -138,7 +186,11 @@ class SdkTranscriptAdapter:
             return None
         return str(project_cwd)
 
-    def _adapt(self, msg: Any) -> dict[str, Any]:
+    def _adapt(
+        self,
+        msg: Any,
+        timestamp_by_uuid: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Convert SDK SessionMessage to internal dict format."""
         message_data = getattr(msg, "message", {}) or {}
         if isinstance(message_data, dict):
@@ -146,11 +198,16 @@ class SdkTranscriptAdapter:
         else:
             content = ""
 
+        uuid = getattr(msg, "uuid", None)
+        timestamp = getattr(msg, "timestamp", None)
+        if timestamp is None and isinstance(uuid, str) and timestamp_by_uuid:
+            timestamp = timestamp_by_uuid.get(uuid)
+
         result: dict[str, Any] = {
             "type": getattr(msg, "type", ""),
             "content": content,
-            "uuid": getattr(msg, "uuid", None),
-            "timestamp": getattr(msg, "timestamp", None),
+            "uuid": uuid,
+            "timestamp": timestamp,
         }
 
         parent_tool_use_id = getattr(msg, "parent_tool_use_id", None)
