@@ -11,6 +11,7 @@ from lib.agent_session_store import AgentSessionEntry
 from lib.agent_session_store.store import DbSessionStore
 
 
+@pytest.mark.sqlite_only
 @pytest.mark.asyncio
 async def test_concurrent_append_no_seq_collision(file_session_factory):
     store = DbSessionStore(file_session_factory, user_id="u1")

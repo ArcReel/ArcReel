@@ -31,6 +31,47 @@ jobs:
       - name: Run tests with coverage
         run: uv run python -m pytest -m "not e2e" --cov=lib --cov=server --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 
+  session-store-postgres:
+    runs-on: ubuntu-latest
+    needs: backend-tests
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: arcreel
+          POSTGRES_PASSWORD: arcreel
+          POSTGRES_DB: arcreel_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run alembic migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://arcreel:arcreel@localhost:5432/arcreel_test
+        run: uv run alembic upgrade head
+
+      - name: Run session-store tests against Postgres
+        env:
+          DATABASE_URL: postgresql+asyncpg://arcreel:arcreel@localhost:5432/arcreel_test
+        run: uv run python -m pytest tests/agent_session_store/ -v -m "not sqlite_only"
+
   frontend-tests:
     runs-on: ubuntu-latest
     steps:
