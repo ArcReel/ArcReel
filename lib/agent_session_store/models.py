@@ -9,6 +9,8 @@ from lib.db.base import Base, TimestampMixin, UserOwnedMixin
 
 
 class AgentSessionEntry(TimestampMixin, UserOwnedMixin, Base):
+    """SDK transcript mirror — one row per SessionStoreEntry."""
+
     __tablename__ = "agent_session_entries"
 
     project_key: Mapped[str] = mapped_column(String, nullable=False)
@@ -42,6 +44,8 @@ class AgentSessionEntry(TimestampMixin, UserOwnedMixin, Base):
 
 
 class AgentSessionSummary(TimestampMixin, UserOwnedMixin, Base):
+    """Per-session summary maintained by SDK fold_session_summary()."""
+
     __tablename__ = "agent_session_summaries"
 
     project_key: Mapped[str] = mapped_column(String, primary_key=True)
