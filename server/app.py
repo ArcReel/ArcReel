@@ -11,6 +11,7 @@ node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+
 
 import asyncio
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -145,15 +146,17 @@ async def lifespan(app: FastAPI):
 
     # Migrate any pre-existing local SDK jsonl transcripts into the DbSessionStore.
     # Runs once (marker-gated); failures are non-fatal and logged.
-    try:
-        store = DbSessionStore(async_session_factory)
-        await migrate_local_transcripts_to_store(
-            store,
-            projects_root=projects_root,
-            data_dir=projects_root,  # same place .arcreel.db lives, so docker volume catches it
-        )
-    except Exception:
-        logger.exception("session-store transcript migration failed (non-fatal)")
+    # Honors the same ARCREEL_SDK_SESSION_STORE kill switch as session_manager.
+    if os.getenv("ARCREEL_SDK_SESSION_STORE", "db").strip().lower() != "off":
+        try:
+            store = DbSessionStore(async_session_factory)
+            await migrate_local_transcripts_to_store(
+                store,
+                projects_root=projects_root,
+                data_dir=projects_root,  # same place .arcreel.db lives, so docker volume catches it
+            )
+        except Exception:
+            logger.exception("session-store transcript migration failed (non-fatal)")
 
     # Migrate legacy .system_config.json → DB (no-op if file doesn't exist or already migrated)
     try:
