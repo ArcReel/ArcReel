@@ -66,17 +66,11 @@ class AssistantService:
             data_dir=self.data_dir,
             meta_store=self.meta_store,
         )
-        # Build the SessionStore once and share with both the adapter and the
-        # *_via_store/_from_store helpers below. None when env disables it.
+        # Shared with SessionManager (lazy-cached there) so reads via the
+        # adapter and writes via SDK options use the same per-user namespace.
+        # None when ARCREEL_SDK_SESSION_STORE=off.
         self._session_store = self.session_manager._build_session_store()
-
-        # Adapter shares the per-user store with SessionManager so reads land
-        # in the same per-user namespace that writes go to. When the env var
-        # disables the store, both paths fall back to the SDK's filesystem
-        # reader and the adapter never needs project_cwd.
-        self.transcript_adapter = SdkTranscriptAdapter(
-            store=self._session_store,
-        )
+        self.transcript_adapter = SdkTranscriptAdapter(store=self._session_store)
         self._startup_lock = asyncio.Lock()
         self._startup_done = False
         self._snapshot_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -153,17 +147,20 @@ class AssistantService:
 
     async def delete_session(self, session_id: str) -> bool:
         """Delete session and cleanup."""
-        # Disconnect if active
         if session_id in self.session_manager.sessions:
             await self.session_manager.close_session(
                 session_id,
                 reason="session deleted",
             )
 
-        # Clean up SDK-side session entries
         if self._session_store is not None and delete_session_via_store is not None:
+            # SDK derives project_key from `directory`; without it the key is
+            # computed from server cwd and never matches inserted rows, so the
+            # delete becomes a silent no-op. Resolve project cwd from meta.
+            meta = await self.meta_store.get(session_id)
+            project_cwd = str(self.projects_root / meta.project_name) if meta else None
             try:
-                await delete_session_via_store(self._session_store, session_id)
+                await delete_session_via_store(self._session_store, session_id, directory=project_cwd)
             except Exception:
                 logger.warning(
                     "delete_session_via_store failed for %s",
@@ -603,11 +600,8 @@ class AssistantService:
         directory is missing (deleted, never materialized in tests, etc.)
         we fall back to None — the store helper / SDK defaults handle that.
         """
-        resolver = getattr(self.session_manager, "_resolve_project_cwd", None)
-        if resolver is None:
-            return None
         try:
-            return resolver(project_name)
+            return self.pm.get_project_path(project_name)
         except (FileNotFoundError, ValueError):
             return None
 

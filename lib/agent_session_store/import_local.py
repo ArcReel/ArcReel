@@ -7,6 +7,7 @@ resolution is delegated to the SDK and stays correct as SDK evolves.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -33,15 +34,12 @@ async def migrate_local_transcripts_to_store(
 ) -> dict[str, Any]:
     """Replay all on-disk SDK transcripts into ``store``.
 
-    Idempotent via:
-      1. ``data_dir / MARKER_FILENAME`` — fast-path skip on subsequent boots
-      2. ``store.load(key)``           — fallback when marker is absent
+    Idempotent via the marker file ``data_dir / MARKER_FILENAME`` (fast path)
+    plus per-project ``store.list_sessions`` membership checks (fallback when
+    the marker is absent).
 
     Single-process safe; for multi-worker uvicorn an outer config-table lock
-    must wrap this call (Task 17, conditional).
-
-    Returns stats dict ``{imported, skipped, failed}`` plus
-    ``skipped_via_marker: True`` when the marker fast-path triggered.
+    must wrap this call.
     """
     marker = data_dir / MARKER_FILENAME
     if marker.exists():
@@ -52,22 +50,30 @@ async def migrate_local_transcripts_to_store(
 
     if projects_root.exists():
         for project_cwd in sorted(projects_root.iterdir()):
-            if not project_cwd.is_dir() or project_cwd.name.startswith("."):
+            # Skip dotfiles and underscore-prefixed dirs (e.g. _global_assets)
+            # to match ProjectManager.list_projects semantics.
+            if not project_cwd.is_dir() or project_cwd.name.startswith((".", "_")):
                 continue
             try:
-                sessions = list_sessions(directory=str(project_cwd))
+                # list_sessions stat-walks SDK transcript dirs synchronously;
+                # offload so the lifespan doesn't block the event loop.
+                sessions = await asyncio.to_thread(list_sessions, directory=str(project_cwd))
             except Exception:
                 logger.exception("list_sessions failed for %s", project_cwd)
                 continue
 
             project_key = project_key_for_directory(str(project_cwd))
+            try:
+                already_imported = {row["session_id"] for row in await store.list_sessions(project_key)}
+            except Exception:
+                logger.exception("store.list_sessions failed for project_key=%s", project_key)
+                already_imported = set()
 
             for info in sessions:
-                key = {"project_key": project_key, "session_id": info.session_id}
+                if info.session_id in already_imported:
+                    skipped += 1
+                    continue
                 try:
-                    if await store.load(key) is not None:
-                        skipped += 1
-                        continue
                     await import_session_to_store(info.session_id, store, directory=str(project_cwd))
                     imported += 1
                 except Exception:
@@ -85,7 +91,6 @@ async def migrate_local_transcripts_to_store(
         failed,
     )
 
-    # Always write marker — even with zero data — so we don't rescan next boot.
     marker.write_text(
         json.dumps({"imported": imported, "skipped": skipped, "failed": failed}),
         encoding="utf-8",

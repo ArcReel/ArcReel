@@ -47,20 +47,6 @@ def _is_ask_user_question_block(block: Any) -> bool:
     return block.get("type") == "tool_use" and block.get("name") == "AskUserQuestion"
 
 
-def is_mirror_error_event(event: object) -> bool:
-    """True if event is an SDK SessionStore mirror failure system message.
-
-    Per design doc §6.2, surfacing this to the UI is REQUIRED — silently
-    dropping it means the user wouldn't know their mirrored history has a
-    gap. The existing system-message projector pipeline already passes the
-    raw event through; this helper exists so callers (logging hooks, future
-    differentiated rendering) can identify mirror_error events.
-    """
-    if not isinstance(event, dict):
-        return False
-    return event.get("type") == "system" and event.get("subtype") == "mirror_error"
-
-
 def _get_ask_user_question_signature(block: dict[str, Any]) -> str | None:
     """Build a stable signature for AskUserQuestion blocks."""
     block_id = block.get("id")

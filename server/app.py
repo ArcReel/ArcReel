@@ -11,7 +11,6 @@ node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+
 
 import asyncio
 import logging
-import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -24,6 +23,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from lib import PROJECT_ROOT
+from lib.agent_session_store import session_store_enabled
 from lib.agent_session_store.import_local import migrate_local_transcripts_to_store
 from lib.agent_session_store.store import DbSessionStore
 from lib.db import async_session_factory, close_db, init_db
@@ -146,8 +146,7 @@ async def lifespan(app: FastAPI):
 
     # Migrate any pre-existing local SDK jsonl transcripts into the DbSessionStore.
     # Runs once (marker-gated); failures are non-fatal and logged.
-    # Honors the same ARCREEL_SDK_SESSION_STORE kill switch as session_manager.
-    if os.getenv("ARCREEL_SDK_SESSION_STORE", "db").strip().lower() != "off":
+    if session_store_enabled():
         try:
             store = DbSessionStore(async_session_factory)
             await migrate_local_transcripts_to_store(

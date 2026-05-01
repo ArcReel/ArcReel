@@ -60,44 +60,6 @@ class SdkTranscriptAdapter:
             return await self._read_via_store(sdk_session_id, project_cwd)
         return self._read_via_legacy(sdk_session_id)
 
-    async def exists(
-        self,
-        sdk_session_id: str | None,
-        project_cwd: Path | str | None = None,
-    ) -> bool:
-        """True if the session has at least one entry."""
-        if not sdk_session_id or not SDK_AVAILABLE:
-            return False
-        if self._store is not None and get_session_messages_from_store is not None:
-            try:
-                messages = await get_session_messages_from_store(
-                    self._store,
-                    sdk_session_id,
-                    directory=self._coerce_cwd(project_cwd),
-                    limit=1,
-                )
-                return len(messages) > 0
-            except Exception:
-                logger.warning(
-                    "Failed to check existence (store) of SDK session %s",
-                    sdk_session_id,
-                    exc_info=True,
-                )
-                return False
-        # legacy path
-        if get_session_messages is None:
-            return False
-        try:
-            messages = get_session_messages(sdk_session_id, limit=1)
-            return len(messages) > 0
-        except Exception:
-            logger.warning(
-                "Failed to check existence of SDK session %s",
-                sdk_session_id,
-                exc_info=True,
-            )
-            return False
-
     async def _read_via_store(
         self,
         sdk_session_id: str,

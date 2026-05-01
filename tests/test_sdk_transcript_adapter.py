@@ -65,38 +65,6 @@ class TestSdkTranscriptAdapterLegacyPath:
 
         assert result[0]["parent_tool_use_id"] == "task-1"
 
-    async def test_exists_returns_true_when_messages_found(self):
-        """exists() returns True when session has messages."""
-        mock_msg = MagicMock()
-        with patch(
-            "server.agent_runtime.sdk_transcript_adapter.get_session_messages",
-            return_value=[mock_msg],
-        ):
-            adapter = SdkTranscriptAdapter()
-            assert await adapter.exists("sdk-session-123") is True
-
-    async def test_exists_returns_false_when_no_messages(self):
-        """exists() returns False for empty or missing sessions."""
-        with patch(
-            "server.agent_runtime.sdk_transcript_adapter.get_session_messages",
-            return_value=[],
-        ):
-            adapter = SdkTranscriptAdapter()
-            assert await adapter.exists("sdk-session-123") is False
-
-    async def test_exists_returns_false_on_empty_id(self):
-        adapter = SdkTranscriptAdapter()
-        assert await adapter.exists("") is False
-        assert await adapter.exists(None) is False
-
-    async def test_exists_returns_false_on_sdk_error(self):
-        with patch(
-            "server.agent_runtime.sdk_transcript_adapter.get_session_messages",
-            side_effect=RuntimeError("SDK error"),
-        ):
-            adapter = SdkTranscriptAdapter()
-            assert await adapter.exists("sdk-session-123") is False
-
     async def test_assistant_message_content_is_list(self):
         """Assistant messages preserve content as-is (list of blocks)."""
         mock_msg = MagicMock()
@@ -177,23 +145,6 @@ class TestSdkTranscriptAdapterStorePath:
             adapter = SdkTranscriptAdapter(store=fake_store)
             result = await adapter.read_raw_messages("sdk-session-x", project_cwd="/tmp/proj")
         assert result == []
-
-    @pytest.mark.asyncio
-    async def test_exists_via_store_uses_limit_one(self):
-        """exists() on the store path requests at most one message."""
-        fake_store = object()
-        mock_msg = MagicMock()
-        helper = AsyncMock(return_value=[mock_msg])
-        with patch(
-            "server.agent_runtime.sdk_transcript_adapter.get_session_messages_from_store",
-            new=helper,
-        ):
-            adapter = SdkTranscriptAdapter(store=fake_store)
-            assert await adapter.exists("sdk-session-x", project_cwd="/tmp/proj") is True
-        helper.assert_awaited_once()
-        _, kwargs = helper.call_args
-        assert kwargs.get("limit") == 1
-        assert kwargs.get("directory") == "/tmp/proj"
 
     @pytest.mark.asyncio
     async def test_read_via_store_backfills_timestamp_from_store_payload(self):
