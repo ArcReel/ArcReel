@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
+from lib.agent_session_store.store import DbSessionStore
+from lib.db.base import DEFAULT_USER_ID
+from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import LOCALE_LANGUAGE_MAP
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
@@ -477,6 +480,19 @@ class SessionManager:
         if world := overview.get("world_setting"):
             parts.append(f"- 世界观：{world}")
 
+    def _build_session_store(self) -> DbSessionStore | None:
+        """Create a per-user DbSessionStore, or None when env var disables it.
+
+        Set ARCREEL_SDK_SESSION_STORE=off to roll back to SDK's filesystem path.
+        Default is "db" (DbSessionStore enabled).
+        """
+        mode = os.getenv("ARCREEL_SDK_SESSION_STORE", "db")
+        if mode == "off":
+            return None
+        factory = getattr(self, "_session_factory", None) or default_async_session_factory
+        user_id = getattr(self, "_user_id", DEFAULT_USER_ID)
+        return DbSessionStore(factory, user_id=user_id)
+
     def _build_options(
         self,
         project_name: str,
@@ -544,6 +560,7 @@ class SessionManager:
             resume=resume_id,
             can_use_tool=can_use_tool,
             hooks=hooks,
+            session_store=self._build_session_store(),
         )
 
     @staticmethod
