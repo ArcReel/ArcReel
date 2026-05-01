@@ -8,12 +8,15 @@ import time
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from lib.agent_session_store.models import AgentSessionEntry
 from lib.db.base import DEFAULT_USER_ID, utc_now
 
 logger = logging.getLogger("arcreel.session_store")
+
+_MAX_APPEND_RETRY = 5
 
 
 def _normalize_key(key: dict) -> tuple[str, str, str]:
@@ -53,8 +56,37 @@ class DbSessionStore:
             return
         project_key, session_id, subpath = _normalize_key(key)
         now_ms = int(time.time() * 1000)
-        now_dt = utc_now()
 
+        for attempt in range(_MAX_APPEND_RETRY):
+            try:
+                await self._append_once(project_key, session_id, subpath, entries, now_ms)
+                return
+            except IntegrityError as exc:
+                # PK conflict on (project_key, session_id, subpath, seq) means
+                # a concurrent append took our seq slot. Retry with a fresh max.
+                if attempt == _MAX_APPEND_RETRY - 1:
+                    logger.error(
+                        "append: PK conflict after %d retries session=%s",
+                        _MAX_APPEND_RETRY,
+                        session_id,
+                    )
+                    raise
+                logger.warning(
+                    "append: seq race retry=%d session=%s err=%s",
+                    attempt + 1,
+                    session_id,
+                    exc,
+                )
+
+    async def _append_once(
+        self,
+        project_key: str,
+        session_id: str,
+        subpath: str,
+        entries: list[dict],
+        now_ms: int,
+    ) -> None:
+        now_dt = utc_now()
         async with self._session_factory() as session:
             seq_start_row = await session.execute(
                 select(func.coalesce(func.max(AgentSessionEntry.seq), -1) + 1).where(
