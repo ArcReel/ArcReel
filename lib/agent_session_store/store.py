@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 import time
 
 from sqlalchemy import func, select, text
@@ -16,7 +18,8 @@ from lib.db.base import DEFAULT_USER_ID, utc_now
 
 logger = logging.getLogger("arcreel.session_store")
 
-_MAX_APPEND_RETRY = 5
+_MAX_APPEND_RETRY = 16
+_APPEND_BACKOFF_CAP_S = 0.05
 
 
 def _normalize_key(key: dict) -> tuple[str, str, str]:
@@ -62,21 +65,36 @@ class DbSessionStore:
                 await self._append_once(project_key, session_id, subpath, entries, now_ms)
                 return
             except IntegrityError as exc:
-                # PK conflict on (project_key, session_id, subpath, seq) means
-                # a concurrent append took our seq slot. Retry with a fresh max.
+                # Narrow retry to the seq-PK race only. Both SQLite ("UNIQUE
+                # constraint failed: ... seq") and PostgreSQL ("duplicate key
+                # value violates unique constraint" with the seq column in the
+                # detail) include these tokens for this specific PK collision;
+                # other unique violations (e.g. uuid dedup) bubble up.
+                msg = str(exc.orig) if exc.orig else str(exc)
+                is_seq_race = "seq" in msg and ("UNIQUE" in msg or "duplicate key" in msg)
+                if not is_seq_race:
+                    raise
                 if attempt == _MAX_APPEND_RETRY - 1:
                     logger.error(
-                        "append: PK conflict after %d retries session=%s",
+                        "append: PK conflict after %d attempts session=%s subpath=%s entries=%d",
                         _MAX_APPEND_RETRY,
                         session_id,
+                        subpath or "<main>",
+                        len(entries),
                     )
                     raise
                 logger.warning(
-                    "append: seq race retry=%d session=%s err=%s",
+                    "append: seq race retry=%d session=%s subpath=%s err=%s",
                     attempt + 1,
                     session_id,
+                    subpath or "<main>",
                     exc,
                 )
+                # Jittered exponential backoff capped at ~50ms — keeps SQLite's
+                # writer-lock contention from amplifying under high concurrency
+                # while staying well below the busy_timeout.
+                delay = random.uniform(0, min(_APPEND_BACKOFF_CAP_S, 0.001 * (2**attempt)))
+                await asyncio.sleep(delay)
 
     async def _append_once(
         self,
