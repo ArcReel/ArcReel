@@ -1,0 +1,137 @@
+"""DbSessionStore — SQLAlchemy-backed SDK SessionStore implementation."""
+
+from __future__ import annotations
+
+import logging
+import time
+
+from sqlalchemy import func, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from lib.agent_session_store.models import AgentSessionEntry
+from lib.db.base import DEFAULT_USER_ID, utc_now
+
+logger = logging.getLogger("arcreel.session_store")
+
+
+def _normalize_key(key: dict) -> tuple[str, str, str]:
+    return key["project_key"], key["session_id"], key.get("subpath", "") or ""
+
+
+def _entry_type(entry: dict) -> str:
+    t = entry.get("type")
+    return t if isinstance(t, str) else ""
+
+
+def _entry_uuid(entry: dict) -> str | None:
+    u = entry.get("uuid")
+    return u if isinstance(u, str) and u else None
+
+
+class DbSessionStore:
+    """SDK SessionStore mirroring transcripts into the project database.
+
+    Bind one instance per logical user — appends carry ``user_id`` for
+    FK CASCADE on user deletion.
+    """
+
+    def __init__(
+        self,
+        session_factory: async_sessionmaker,
+        *,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> None:
+        self._session_factory = session_factory
+        self._user_id = user_id
+
+    # --- required: append + load ---------------------------------------------
+
+    async def append(self, key: dict, entries: list[dict]) -> None:
+        if not entries:
+            return
+        project_key, session_id, subpath = _normalize_key(key)
+        now_ms = int(time.time() * 1000)
+        now_dt = utc_now()
+
+        async with self._session_factory() as session:
+            seq_start_row = await session.execute(
+                select(func.coalesce(func.max(AgentSessionEntry.seq), -1) + 1).where(
+                    AgentSessionEntry.project_key == project_key,
+                    AgentSessionEntry.session_id == session_id,
+                    AgentSessionEntry.subpath == subpath,
+                )
+            )
+            seq_start = int(seq_start_row.scalar_one())
+
+            rows = [
+                {
+                    "project_key": project_key,
+                    "session_id": session_id,
+                    "subpath": subpath,
+                    "seq": seq_start + i,
+                    "uuid": _entry_uuid(entry),
+                    "entry_type": _entry_type(entry),
+                    "payload": entry,
+                    "mtime_ms": now_ms,
+                    "user_id": self._user_id,
+                    "created_at": now_dt,
+                    "updated_at": now_dt,
+                }
+                for i, entry in enumerate(entries)
+            ]
+
+            await self._insert_entries(session, rows)
+            await session.commit()
+
+        logger.info(
+            "append: session=%s subpath=%s entries=%d seq_start=%d",
+            session_id,
+            subpath or "<main>",
+            len(entries),
+            seq_start,
+        )
+
+    async def _insert_entries(self, session, rows: list[dict]) -> None:
+        """Dialect-aware INSERT ... ON CONFLICT (uuid) DO NOTHING.
+
+        Targets the partial unique index ``uq_agent_entries_uuid`` (WHERE
+        uuid IS NOT NULL); both PG and SQLite require ``index_where`` to
+        match a partial index inference target.
+        """
+        bind = session.bind
+        dialect = bind.dialect.name if bind is not None else "sqlite"
+        index_elements = ["project_key", "session_id", "subpath", "uuid"]
+        index_where = text("uuid IS NOT NULL")
+
+        if dialect == "postgresql":
+            stmt = pg_insert(AgentSessionEntry).values(rows)
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=index_elements,
+                index_where=index_where,
+            )
+        else:
+            stmt = sqlite_insert(AgentSessionEntry).values(rows)
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=index_elements,
+                index_where=index_where,
+            )
+        await session.execute(stmt)
+
+    async def load(self, key: dict) -> list[dict] | None:
+        project_key, session_id, subpath = _normalize_key(key)
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(AgentSessionEntry.payload)
+                .where(
+                    AgentSessionEntry.project_key == project_key,
+                    AgentSessionEntry.session_id == session_id,
+                    AgentSessionEntry.subpath == subpath,
+                )
+                .order_by(AgentSessionEntry.seq)
+            )
+            payloads = [row[0] for row in result.all()]
+        if not payloads:
+            return None
+        return payloads
