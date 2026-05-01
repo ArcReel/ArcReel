@@ -5,7 +5,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import type { CustomProviderInfo } from "@/types";
-import { ENDPOINT_TO_MEDIA_TYPE } from "@/types";
+import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { CustomProviderForm } from "./CustomProviderForm";
 
 // ---------------------------------------------------------------------------
@@ -30,6 +30,11 @@ interface CustomProviderDetailProps {
 
 export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomProviderDetailProps) {
   const { t } = useTranslation("dashboard");
+  const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
+  const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
+  useEffect(() => {
+    void fetchEndpointCatalog();
+  }, [fetchEndpointCatalog]);
   const [provider, setProvider] = useState<CustomProviderInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -182,7 +187,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
                 <span className="min-w-0 flex-1 truncate font-mono text-xs">{m.model_id}</span>
                 <span className="rounded bg-gray-800 px-1.5 py-0.5 text-xs text-gray-400">
                   {(() => {
-                    const media = ENDPOINT_TO_MEDIA_TYPE[m.endpoint];
+                    const media = endpointToMediaType[m.endpoint];
                     return MEDIA_LABELS[media] ? t(MEDIA_LABELS[media]) : media;
                   })()}
                 </span>

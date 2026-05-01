@@ -670,6 +670,7 @@ export default {
   'endpoint_gemini_image_display': 'Google Gemini Image',
   'endpoint_openai_video_display': 'OpenAI Video (Sora)',
   'endpoint_newapi_video_display': 'NewAPI Unified Video',
+  'endpoint_catalog_loading': 'Loading endpoint catalog…',
   'api_key_not_set': 'Not set',
   'model_disabled': 'Disabled',
   'confirm_delete_provider': 'Confirm Delete',

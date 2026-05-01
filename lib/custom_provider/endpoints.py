@@ -1,14 +1,16 @@
 """ENDPOINT_REGISTRY — 自定义供应商可用 endpoint 单一真相源。
 
-每条 endpoint 是一个 EndpointSpec，绑定 media_type、family 与 build_backend 闭包。
-factory.create_custom_backend 通过 endpoint 字符串查表派发。
+每条 endpoint 是一个 EndpointSpec，绑定 media_type、family、HTTP 调用形态与 build_backend 闭包。
+factory.create_custom_backend 通过 endpoint 字符串查表派发；
+server.routers.custom_providers 通过 GET /custom-providers/endpoints 把目录暴露给前端，
+让前端的下拉选项、路径展示完全派生自此真相源。
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING
 
 from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url
@@ -35,6 +37,8 @@ class EndpointSpec:
     media_type: str  # "text" | "image" | "video"
     family: str  # "openai" | "google" | "newapi"
     display_name_key: str  # 前端 i18n key（dashboard ns）
+    request_method: str  # "POST"
+    request_path_template: str  # "/v1/chat/completions"，可含 {model} 等占位
     build_backend: Callable[[CustomProvider, str], CustomTextBackend | CustomImageBackend | CustomVideoBackend]
 
 
@@ -86,6 +90,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         media_type="text",
         family="openai",
         display_name_key="endpoint_openai_chat_display",
+        request_method="POST",
+        request_path_template="/v1/chat/completions",
         build_backend=_build_openai_chat,
     ),
     "gemini-generate": EndpointSpec(
@@ -93,6 +99,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         media_type="text",
         family="google",
         display_name_key="endpoint_gemini_generate_display",
+        request_method="POST",
+        request_path_template="/v1beta/models/{model}:generateContent",
         build_backend=_build_gemini_generate,
     ),
     "openai-images": EndpointSpec(
@@ -100,6 +108,9 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         media_type="image",
         family="openai",
         display_name_key="endpoint_openai_images_display",
+        request_method="POST",
+        # /generations 与 /edits 由是否传参考图自动派发，brace 表达两条路径
+        request_path_template="/v1/images/{generations,edits}",
         build_backend=_build_openai_images,
     ),
     "gemini-image": EndpointSpec(
@@ -107,6 +118,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         media_type="image",
         family="google",
         display_name_key="endpoint_gemini_image_display",
+        request_method="POST",
+        request_path_template="/v1beta/models/{model}:generateContent",
         build_backend=_build_gemini_image,
     ),
     "openai-video": EndpointSpec(
@@ -114,6 +127,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         media_type="video",
         family="openai",
         display_name_key="endpoint_openai_video_display",
+        request_method="POST",
+        request_path_template="/v1/videos",
         build_backend=_build_openai_video,
     ),
     "newapi-video": EndpointSpec(
@@ -121,6 +136,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         media_type="video",
         family="newapi",
         display_name_key="endpoint_newapi_video_display",
+        request_method="POST",
+        request_path_template="/v1/video/generations",
         build_backend=_build_newapi_video,
     ),
 }
@@ -148,6 +165,13 @@ def endpoint_to_media_type(endpoint: str) -> str:
 
 def list_endpoints_by_media_type(media_type: str) -> list[EndpointSpec]:
     return [ENDPOINT_REGISTRY[k] for k in ENDPOINT_KEYS_BY_MEDIA_TYPE.get(media_type, ())]
+
+
+def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
+    """把 EndpointSpec 转成可序列化的纯数据 dict（剥掉不可 JSON 化的 build_backend 闭包）。"""
+    data = asdict(spec)
+    data.pop("build_backend", None)
+    return data
 
 
 # ── 启发式：从 model_id + discovery_format 推默认 endpoint ─────────

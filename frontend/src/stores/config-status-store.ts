@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { API } from "@/api";
-import { ENDPOINT_TO_MEDIA_TYPE } from "@/types";
+import { useEndpointCatalogStore } from "./endpoint-catalog-store";
 
 // ---------------------------------------------------------------------------
 // ConfigIssue
@@ -35,6 +35,13 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
   // 2. Check any provider supports each media type
   const readyProviders = providers.filter((p) => p.status === "ready");
 
+  // 自定义 provider 的 endpoint→mediaType 映射要从 catalog 派生：仅在有自定义 provider 时
+  // 才需要 fetch（否则空映射也不会被读到，避免给已运行的旧用户加一次无谓 HTTP）。
+  if (customProviders.length > 0) {
+    await useEndpointCatalogStore.getState().fetch();
+  }
+  const endpointToMediaType = useEndpointCatalogStore.getState().endpointToMediaType;
+
   const hasMediaType = (type: string) => {
     // Check preset providers
     const hasPresetProvider = readyProviders.some((p) => p.media_types.includes(type));
@@ -42,7 +49,7 @@ async function getConfigIssues(): Promise<ConfigIssue[]> {
 
     // Check custom providers for enabled models of this media type
     return customProviders.some((cp) =>
-      cp.models.some((m) => ENDPOINT_TO_MEDIA_TYPE[m.endpoint] === type && m.is_enabled)
+      cp.models.some((m) => endpointToMediaType[m.endpoint] === type && m.is_enabled)
     );
   };
 
