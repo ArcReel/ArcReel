@@ -23,6 +23,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from lib import PROJECT_ROOT
+from lib.agent_session_store.import_local import migrate_local_transcripts_to_store
+from lib.agent_session_store.store import DbSessionStore
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
 from lib.httpx_shared import shutdown_http_client, startup_http_client
@@ -140,6 +142,18 @@ async def lifespan(app: FastAPI):
             failed_total,
             len(source_migration_summary),
         )
+
+    # Migrate any pre-existing local SDK jsonl transcripts into the DbSessionStore.
+    # Runs once (marker-gated); failures are non-fatal and logged.
+    try:
+        store = DbSessionStore(async_session_factory)
+        await migrate_local_transcripts_to_store(
+            store,
+            projects_root=projects_root,
+            data_dir=projects_root,  # same place .arcreel.db lives, so docker volume catches it
+        )
+    except Exception:
+        logger.exception("session-store transcript migration failed (non-fatal)")
 
     # Migrate legacy .system_config.json → DB (no-op if file doesn't exist or already migrated)
     try:
