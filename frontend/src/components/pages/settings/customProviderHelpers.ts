@@ -28,7 +28,9 @@ export function urlPreviewFor(format: DiscoveryFormat, rawBaseUrl: string): stri
 }
 
 /** 切 default：仅同 media_type 内互斥；本行 toggle。
- *  endpointToMediaType 由调用方注入（来自 endpoint-catalog-store）。 */
+ *  endpointToMediaType 由调用方注入（来自 endpoint-catalog-store）。
+ *  catalog 未加载或 endpoint 不在映射内时降级为「单行 toggle」——避免所有 endpoint
+ *  都解析成 undefined 时被当作同组，误清掉其他媒体类型的默认项。 */
 export function toggleDefaultReducer<T extends ModelLike>(
   rows: T[],
   targetKey: string,
@@ -37,6 +39,9 @@ export function toggleDefaultReducer<T extends ModelLike>(
   const target = rows.find((r) => r.key === targetKey);
   if (!target) return rows;
   const targetMedia = endpointToMediaType[target.endpoint];
+  if (targetMedia === undefined) {
+    return rows.map((r) => (r.key === targetKey ? { ...r, is_default: !r.is_default } : r));
+  }
   return rows.map((r) => {
     if (endpointToMediaType[r.endpoint] !== targetMedia) return r;
     if (r.key === targetKey) return { ...r, is_default: !r.is_default };

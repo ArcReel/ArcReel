@@ -47,7 +47,9 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
 
   const endpoints = useEndpointCatalogStore((s) => s.endpoints);
   const initialized = useEndpointCatalogStore((s) => s.initialized);
+  const loading = useEndpointCatalogStore((s) => s.loading);
   const fetchCatalog = useEndpointCatalogStore((s) => s.fetch);
+  const refreshCatalog = useEndpointCatalogStore((s) => s.refresh);
 
   // catalog 未就绪时 trigger 一次 fetch；store 自身有 short-circuit，重复挂载安全。
   useEffect(() => {
@@ -98,7 +100,10 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
     [options],
   );
 
-  const selected = options.find((o) => o.value === value) ?? options[0];
+  // 不要 fallback 到 options[0]：value 不在 catalog 时（漂移 / 后端临时移除 / catalog 未加载）
+  // 必须显式 undefined，下方 triggerLabel 才能走原始 key 分支，否则用户会看到与已存值无关的
+  // 第一项 label，UI 严重误导。
+  const selected = options.find((o) => o.value === value);
   // trigger 中的简短路径提示：剥去前导 `/v1`、`/v1beta/models/`，更省宽。
   const triggerHint = selected
     ? selected.path.replace(/^\/v1beta\/models\//, "/").replace(/^\/v1/, "")
@@ -128,14 +133,24 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
   };
 
   const onTriggerClick = () => {
+    // catalog 未就绪：作为「重试加载」按钮使用，避免 fetch 失败后下拉永久禁用。
+    // store.refresh 内部对 loading 短路，连点不会重复发请求。
+    if (!catalogReady) {
+      void refreshCatalog();
+      return;
+    }
     if (open) setOpen(false);
     else openMenu();
   };
 
   const onTriggerKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (disabled || !catalogReady) return;
+    if (disabled) return;
     if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
       e.preventDefault();
+      if (!catalogReady) {
+        void refreshCatalog();
+        return;
+      }
       openMenu();
     }
   };
@@ -168,7 +183,8 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
-        disabled={disabled || !catalogReady}
+        disabled={disabled}
+        aria-busy={loading || undefined}
         onClick={onTriggerClick}
         onKeyDown={onTriggerKeyDown}
         className={[

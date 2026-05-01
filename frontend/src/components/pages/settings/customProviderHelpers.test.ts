@@ -82,4 +82,28 @@ describe("toggleDefaultReducer", () => {
     const rows = [{ key: "a", endpoint: "openai-chat", is_default: true }];
     expect(toggleDefaultReducer(rows, "a", ENDPOINT_TO_MEDIA)[0].is_default).toBe(false);
   });
+
+  it("falls back to single-row toggle when catalog map is empty (catalog not loaded)", () => {
+    // 回归：catalog 未加载时 endpointToMediaType={}，所有行 mediaType 都是 undefined。
+    // 必须降级为单行 toggle，不能因 undefined === undefined 把不同媒体类型行当作同组互斥。
+    const rows = [
+      { key: "a", endpoint: "openai-chat", is_default: true },
+      { key: "b", endpoint: "openai-images", is_default: true },
+      { key: "c", endpoint: "newapi-video", is_default: true },
+    ];
+    const result = toggleDefaultReducer(rows, "b", {});
+    expect(result.find((r) => r.key === "a")?.is_default).toBe(true);
+    expect(result.find((r) => r.key === "b")?.is_default).toBe(false);
+    expect(result.find((r) => r.key === "c")?.is_default).toBe(true);
+  });
+
+  it("falls back to single-row toggle when target endpoint is not in catalog", () => {
+    const rows = [
+      { key: "a", endpoint: "openai-chat", is_default: true },
+      { key: "b", endpoint: "anthropic-messages", is_default: false },
+    ];
+    const result = toggleDefaultReducer(rows, "b", ENDPOINT_TO_MEDIA);
+    expect(result.find((r) => r.key === "a")?.is_default).toBe(true);
+    expect(result.find((r) => r.key === "b")?.is_default).toBe(true);
+  });
 });
