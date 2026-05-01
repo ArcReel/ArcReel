@@ -486,9 +486,11 @@ class SessionManager:
         Set ARCREEL_SDK_SESSION_STORE=off to roll back to SDK's filesystem path.
         Default is "db" (DbSessionStore enabled).
         """
-        mode = os.getenv("ARCREEL_SDK_SESSION_STORE", "db")
+        mode = os.getenv("ARCREEL_SDK_SESSION_STORE", "db").strip().lower()
         if mode == "off":
             return None
+        if mode not in {"db", ""}:
+            logger.warning("Unknown ARCREEL_SDK_SESSION_STORE=%r; defaulting to db", mode)
         factory = getattr(self, "_session_factory", None) or default_async_session_factory
         user_id = getattr(self, "_user_id", DEFAULT_USER_ID)
         return DbSessionStore(factory, user_id=user_id)
