@@ -7,13 +7,14 @@ import logging
 import random
 import time
 
+from claude_agent_sdk import fold_session_summary
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from lib.agent_session_store.models import AgentSessionEntry
+from lib.agent_session_store.models import AgentSessionEntry, AgentSessionSummary
 from lib.db.base import DEFAULT_USER_ID, utc_now
 
 logger = logging.getLogger("arcreel.session_store")
@@ -133,6 +134,12 @@ class DbSessionStore:
             ]
 
             await self._insert_entries(session, rows)
+
+            # Maintain per-session summary for list_session_summaries fast path.
+            # Per SDK protocol: skip for subagent transcripts (subpath != "").
+            if subpath == "":
+                await self._fold_summary_locked(session, project_key, session_id, entries, now_ms, now_dt)
+
             await session.commit()
 
         logger.info(
@@ -142,6 +149,63 @@ class DbSessionStore:
             len(entries),
             seq_start,
         )
+
+    async def _fold_summary_locked(
+        self,
+        session,
+        project_key: str,
+        session_id: str,
+        entries: list[dict],
+        now_ms: int,
+        now_dt,
+    ) -> None:
+        """Read-fold-write the per-session summary inside the active transaction.
+
+        Acquires a row lock on PG (SELECT ... FOR UPDATE) so concurrent appends
+        can't lose folds. SQLite serializes writers via BEGIN IMMEDIATE.
+        """
+        bind = session.bind
+        dialect = bind.dialect.name if bind is not None else "sqlite"
+
+        stmt = select(AgentSessionSummary).where(
+            AgentSessionSummary.project_key == project_key,
+            AgentSessionSummary.session_id == session_id,
+        )
+        if dialect == "postgresql":
+            stmt = stmt.with_for_update()
+        prev_row = (await session.execute(stmt)).scalar_one_or_none()
+
+        if prev_row is None:
+            prev: dict | None = None
+        else:
+            prev = {
+                "session_id": session_id,
+                "mtime": int(prev_row.mtime_ms),
+                "data": prev_row.data,
+            }
+
+        # SDK signature is (prev, key, entries) — fold returns mtime=0 placeholder
+        # we overwrite with our own clock per SDK docstring guidance.
+        key_for_fold = {"project_key": project_key, "session_id": session_id}
+        folded = fold_session_summary(prev, key_for_fold, entries)
+        new_data = folded["data"] if folded else {}
+
+        if prev_row is None:
+            session.add(
+                AgentSessionSummary(
+                    project_key=project_key,
+                    session_id=session_id,
+                    mtime_ms=now_ms,
+                    data=new_data,
+                    user_id=self._user_id,
+                    created_at=now_dt,
+                    updated_at=now_dt,
+                )
+            )
+        else:
+            prev_row.mtime_ms = now_ms
+            prev_row.data = new_data
+            prev_row.updated_at = now_dt
 
     async def _insert_entries(self, session, rows: list[dict]) -> None:
         """Dialect-aware INSERT ... ON CONFLICT (uuid) DO NOTHING.
