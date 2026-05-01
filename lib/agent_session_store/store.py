@@ -8,6 +8,7 @@ import random
 import time
 
 from claude_agent_sdk import fold_session_summary
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -249,3 +250,78 @@ class DbSessionStore:
         if not payloads:
             return None
         return payloads
+
+    # --- optional: list_sessions / list_session_summaries -------------------
+
+    async def list_sessions(self, project_key: str) -> list[dict]:
+        async with self._session_factory() as session:
+            stmt = (
+                select(
+                    AgentSessionEntry.session_id,
+                    func.max(AgentSessionEntry.mtime_ms).label("mtime"),
+                )
+                .where(
+                    AgentSessionEntry.project_key == project_key,
+                    AgentSessionEntry.subpath == "",
+                )
+                .group_by(AgentSessionEntry.session_id)
+            )
+            result = await session.execute(stmt)
+            return [{"session_id": r.session_id, "mtime": int(r.mtime)} for r in result.all()]
+
+    async def list_session_summaries(self, project_key: str) -> list[dict]:
+        async with self._session_factory() as session:
+            stmt = select(AgentSessionSummary).where(
+                AgentSessionSummary.project_key == project_key,
+            )
+            result = await session.execute(stmt)
+            return [
+                {"session_id": r.session_id, "mtime": int(r.mtime_ms), "data": r.data} for r in result.scalars().all()
+            ]
+
+    # --- optional: delete + list_subkeys -----------------------------------
+
+    async def delete(self, key: dict) -> None:
+        project_key, session_id, subpath = _normalize_key(key)
+        async with self._session_factory() as session:
+            entry_stmt = sa_delete(AgentSessionEntry).where(
+                AgentSessionEntry.project_key == project_key,
+                AgentSessionEntry.session_id == session_id,
+            )
+            if "subpath" in key and key["subpath"] != "":
+                entry_stmt = entry_stmt.where(AgentSessionEntry.subpath == subpath)
+            entry_result = await session.execute(entry_stmt)
+
+            sum_rows = 0
+            if subpath == "" and "subpath" not in key:
+                # main delete cascades to summary
+                sum_result = await session.execute(
+                    sa_delete(AgentSessionSummary).where(
+                        AgentSessionSummary.project_key == project_key,
+                        AgentSessionSummary.session_id == session_id,
+                    )
+                )
+                sum_rows = sum_result.rowcount or 0
+
+            await session.commit()
+        logger.info(
+            "delete: session=%s subpath=%s entries=%d summaries=%d",
+            session_id,
+            subpath or "<main>",
+            entry_result.rowcount or 0,
+            sum_rows,
+        )
+
+    async def list_subkeys(self, key: dict) -> list[str]:
+        project_key, session_id, _subpath = _normalize_key(key)
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(AgentSessionEntry.subpath)
+                .where(
+                    AgentSessionEntry.project_key == project_key,
+                    AgentSessionEntry.session_id == session_id,
+                    AgentSessionEntry.subpath != "",
+                )
+                .distinct()
+            )
+            return [row[0] for row in result.all()]
