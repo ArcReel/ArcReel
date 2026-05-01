@@ -61,6 +61,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd }: UnitListProps) 
             return (
               <li
                 key={u.unit_id}
+                id={`reference_unit-${u.unit_id}`}
                 data-testid={`unit-row-${u.unit_id}`}
                 role="option"
                 aria-selected={selected}

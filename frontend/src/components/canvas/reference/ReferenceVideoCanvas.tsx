@@ -12,6 +12,7 @@ import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/referen
 import { useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { errMsg } from "@/utils/async";
 import { mergeReferences } from "@/utils/reference-mentions";
 import type { ReferenceResource, ReferenceVideoUnit, TaskStatus, UnitStatus } from "@/types";
@@ -103,6 +104,21 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
     }
   }, [units, selected, select]);
 
+  // 通知 drawer 点击 reference_unit 类型 target 后，选中对应 unit 再让 useScrollTarget
+  // 滚动并高亮 li。prepareTarget 返回 true 让 hook 继续重试查找 DOM——选中是同步的，
+  // 但 li 已恒在列表中，下一轮 retry 即可命中。
+  const prepareReferenceUnitTarget = useCallback(
+    (target: { id: string }) => {
+      if (!units.some((u) => u.unit_id === target.id)) return false;
+      if (selectedUnitId !== target.id) {
+        select(target.id);
+      }
+      return true;
+    },
+    [units, selectedUnitId, select],
+  );
+  useScrollTarget("reference_unit", { prepareTarget: prepareReferenceUnitTarget });
+
   // #370 optimistic UI：任务队列走 3s 轮询（useTasksSSE.POLL_INTERVAL_MS=3000），
   // 点击按钮到 `relevantTasks` 刷出队列记录之间存在最长 3 秒空窗期。POST 前把
   // unit_id 登记到本地 set，按钮立即显示 busy；`generating` 派生把"optimistic 置位
@@ -137,12 +153,19 @@ export function ReferenceVideoCanvas({ projectName, episode, episodeTitle }: Ref
             reason: tk.error_message ?? t("reference_status_failed"),
           }),
           "error",
+          {
+            target: {
+              type: "reference_unit",
+              id: tk.resource_id,
+              route: `/episodes/${episode}`,
+            },
+          },
         );
       }
       next.set(tk.task_id, tk.status);
     }
     prevTaskStatusRef.current = next;
-  }, [relevantTasks, t]);
+  }, [relevantTasks, episode, t]);
 
   // "optimistic 置位 且 队列尚无对应行" OR "队列里就在 queued/running"——
   // 前者覆盖 POST→首次 poll 的 3s 空窗，后者覆盖正常运行期。队列接力后

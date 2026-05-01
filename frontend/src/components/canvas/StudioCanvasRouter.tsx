@@ -173,6 +173,9 @@ export function StudioCanvasRouter() {
     if (!currentProjectName || !currentScripts) return;
     const resolved = resolveSegmentPrompt(currentScripts, segmentId, "image_prompt", scriptFile);
     if (!resolved) return;
+    const episodeForSegment = currentProjectData?.episodes?.find(
+      (e) => e.script_file?.replace(/^scripts\//, "") === resolved.resolvedFile,
+    )?.episode;
     try {
       await API.generateStoryboard(
         currentProjectName,
@@ -182,14 +185,23 @@ export function StudioCanvasRouter() {
       );
       useAppStore.getState().pushToast(tRef.current("storyboard_task_submitted_toast", { id: segmentId }), "success");
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("generate_storyboard_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushNotification(
+        tRef.current("generate_storyboard_failed", { message: errMsg(err) }),
+        "error",
+        episodeForSegment !== undefined
+          ? { target: { type: "segment", id: segmentId, route: `/episodes/${episodeForSegment}` } }
+          : undefined,
+      );
     }
-  }, [currentProjectName, currentScripts]);
+  }, [currentProjectName, currentProjectData, currentScripts]);
 
   const handleGenerateVideo = useCallback(async (segmentId: string, scriptFile?: string) => {
     if (!currentProjectName || !currentScripts) return;
     const resolved = resolveSegmentPrompt(currentScripts, segmentId, "video_prompt", scriptFile);
     if (!resolved) return;
+    const episodeForSegment = currentProjectData?.episodes?.find(
+      (e) => e.script_file?.replace(/^scripts\//, "") === resolved.resolvedFile,
+    )?.episode;
     try {
       await API.generateVideo(
         currentProjectName,
@@ -200,9 +212,15 @@ export function StudioCanvasRouter() {
       );
       useAppStore.getState().pushToast(tRef.current("video_task_submitted_toast", { id: segmentId }), "success");
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("generate_video_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushNotification(
+        tRef.current("generate_video_failed", { message: errMsg(err) }),
+        "error",
+        episodeForSegment !== undefined
+          ? { target: { type: "segment", id: segmentId, route: `/episodes/${episodeForSegment}` } }
+          : undefined,
+      );
     }
-  }, [currentProjectName, currentScripts]);
+  }, [currentProjectName, currentProjectData, currentScripts]);
 
   // ---- Character CRUD callbacks ----
   const handleSaveCharacter = useCallback(async (
@@ -252,7 +270,11 @@ export function StudioCanvasRouter() {
         .getState()
         .pushToast(tRef.current("character_task_submitted_toast", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("submit_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushNotification(
+        tRef.current("submit_failed", { message: errMsg(err) }),
+        "error",
+        { target: { type: "character", id: name, route: "/characters" } },
+      );
     }
   }, [currentProjectName, currentProjectData]);
 
@@ -299,7 +321,11 @@ export function StudioCanvasRouter() {
       await API.generateProjectScene(currentProjectName, name, currentProjectData?.scenes?.[name]?.description ?? "");
       useAppStore.getState().pushToast(tRef.current("scene_task_submitted_toast", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("submit_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushNotification(
+        tRef.current("submit_failed", { message: errMsg(err) }),
+        "error",
+        { target: { type: "scene", id: name, route: "/scenes" } },
+      );
     }
   }, [currentProjectName, currentProjectData]);
 
@@ -332,7 +358,11 @@ export function StudioCanvasRouter() {
       await API.generateProjectProp(currentProjectName, name, currentProjectData?.props?.[name]?.description ?? "");
       useAppStore.getState().pushToast(tRef.current("prop_task_submitted_toast", { name }), "success");
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("submit_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushNotification(
+        tRef.current("submit_failed", { message: errMsg(err) }),
+        "error",
+        { target: { type: "prop", id: name, route: "/props" } },
+      );
     }
   }, [currentProjectName, currentProjectData]);
 
@@ -354,7 +384,11 @@ export function StudioCanvasRouter() {
       const result = await API.generateGrid(currentProjectName, episode, scriptFile, sceneIds);
       useAppStore.getState().pushToast(result.message, "success");
     } catch (err) {
-      useAppStore.getState().pushNotification(tRef.current("grid_generation_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushNotification(
+        tRef.current("grid_generation_failed", { message: errMsg(err) }),
+        "error",
+        { target: { type: "grid", id: String(episode), route: `/episodes/${episode}` } },
+      );
     }
   }, [currentProjectName]);
 
