@@ -333,12 +333,17 @@ class ConfigResolver:
     async def _resolve_default_image_backend(
         self, svc: ConfigService, session: AsyncSession, capability: Literal["t2i", "i2i"] = "t2i"
     ) -> tuple[str, str]:
-        """优先读 default_image_backend_<cap>；缺失则读旧 default_image_backend；再缺失则自动解析。
+        """优先读 default_image_backend_<cap>；新 key **不存在**才回退旧 default_image_backend；都缺则自动解析。
 
-        一次 get_all_settings 把三个候选 key 都拿到，避免迁移期 / 未配置场景两次串行 DB 查询。
+        新 key 存在但值为空字符串 = 用户显式清空 = 跟随自动选择，不再回退 legacy。
+        一次 get_all_settings 把候选 key 都拿到，避免迁移期 / 未配置场景两次串行 DB 查询。
         """
         settings = await svc.get_all_settings()
-        raw = settings.get(f"default_image_backend_{capability}") or settings.get("default_image_backend") or ""
+        cap_key = f"default_image_backend_{capability}"
+        if cap_key in settings:
+            raw = settings[cap_key]
+        else:
+            raw = settings.get("default_image_backend", "")
         if "/" in raw:
             return ConfigService._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
         return await self._auto_resolve_backend(svc, session, "image")
