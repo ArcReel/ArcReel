@@ -1333,6 +1333,27 @@ class TestDiscoverAnthropic:
         # i18n 默认 zh
         assert "API Key" in resp.json()["detail"]
 
+    async def test_whitespace_only_api_key_falls_back_to_stored(self, client: TestClient, session: AsyncSession):
+        """body.api_key 仅含空白时按缺失处理，回退至已存配置而非送上游空白 key。"""
+        svc = ConfigService(session)
+        await svc.set_setting("anthropic_api_key", "sk-stored")
+        await session.commit()
+
+        with patch("server.routers.custom_providers._run_discover", new=AsyncMock()) as mock_run:
+            from server.routers.custom_providers import DiscoverResponse
+
+            mock_run.return_value = DiscoverResponse(models=[])
+
+            resp = client.post(
+                "/api/v1/custom-providers/discover-anthropic",
+                json={"api_key": "   "},
+            )
+
+        assert resp.status_code == 200
+        args = mock_run.call_args.args
+        # 上游收到的是 stored key，不是请求里的空白字符
+        assert args[2] == "sk-stored"
+
 
 class TestGetProviderCredentials:
     def test_returns_plaintext(self, client: TestClient):

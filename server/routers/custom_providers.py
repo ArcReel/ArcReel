@@ -531,7 +531,8 @@ async def discover_anthropic_models_endpoint(
     凭据缺失时 fallback 到 system settings 里已存的
     anthropic_base_url / anthropic_api_key。
     """
-    needs_key = not body.api_key
+    body_key = (body.api_key or "").strip()
+    needs_key = not body_key
     needs_url = body.base_url is None
     if needs_key and needs_url:
         stored_key, stored_url = await asyncio.gather(
@@ -542,7 +543,7 @@ async def discover_anthropic_models_endpoint(
         stored_key = await svc.get_setting("anthropic_api_key", "") if needs_key else ""
         stored_url = await svc.get_setting("anthropic_base_url", "") if needs_url else ""
 
-    api_key = body.api_key or stored_key.strip()
+    api_key = body_key or stored_key.strip()
     if not api_key:
         raise HTTPException(status_code=400, detail=_t("anthropic_discovery_no_key"))
 
