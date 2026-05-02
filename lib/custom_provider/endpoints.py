@@ -182,22 +182,18 @@ _VIDEO_PATTERN = re.compile(
     r"video|sora|kling|wan|seedance|cog|mochi|veo|pika|minimax|hailuo|jimeng-?video|runway",
     re.IGNORECASE,
 )
-_SORA_PATTERN = re.compile(r"sora", re.IGNORECASE)
 
 
 def infer_endpoint(model_id: str, discovery_format: str) -> str:
     """根据模型 id 与 discovery_format 推默认 endpoint。
 
-    1) 视频家族:
-       - sora-* 且 discovery_format=openai → "openai-video"
-       - 其他视频家族 → "newapi-video" (中转站最常见，google 直连本无视频也兜底)
+    1) 视频家族 → 一律 "openai-video"（OpenAI /v1/videos 协议为首选默认，
+       newapi-video 仅在用户手动选择时使用）
     2) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
     3) 文本（默认）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
     """
     if _VIDEO_PATTERN.search(model_id):
-        if discovery_format == "openai" and _SORA_PATTERN.search(model_id):
-            return "openai-video"
-        return "newapi-video"
+        return "openai-video"
     if _IMAGE_PATTERN.search(model_id):
         if discovery_format == "google":
             return "gemini-image"

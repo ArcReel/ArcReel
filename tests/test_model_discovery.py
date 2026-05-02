@@ -28,7 +28,7 @@ class TestInferEndpointSmoke:
     def test_video_model(self):
         from lib.custom_provider.endpoints import infer_endpoint
 
-        assert infer_endpoint("kling-v2", "openai") == "newapi-video"
+        assert infer_endpoint("kling-v2", "openai") == "openai-video"
 
     def test_google_text(self):
         from lib.custom_provider.endpoints import infer_endpoint
@@ -239,7 +239,7 @@ class TestDiscoverModelsGoogle:
         by_id = {m["model_id"]: m for m in result}
         assert by_id["gemini-3-flash"]["endpoint"] == "gemini-generate"
         assert by_id["gemini-3-flash-image-preview"]["endpoint"] == "gemini-image"
-        assert by_id["veo-3"]["endpoint"] == "newapi-video"
+        assert by_id["veo-3"]["endpoint"] == "openai-video"
 
     @patch("lib.custom_provider.discovery.genai")
     async def test_default_marking_google(self, mock_genai):
@@ -364,8 +364,8 @@ def test_discover_openai_returns_endpoints(monkeypatch):
     )
     by_id = {m["model_id"]: m for m in result}
     assert by_id["gpt-4o"]["endpoint"] == "openai-chat"
-    assert by_id["kling-v2"]["endpoint"] == "newapi-video"
+    assert by_id["kling-v2"]["endpoint"] == "openai-video"
     assert by_id["dall-e-3"]["endpoint"] == "openai-images"
     # 每种 media_type 仅一个 default
     defaults = [m for m in result if m["is_default"]]
-    assert {m["endpoint"] for m in defaults} == {"openai-chat", "newapi-video", "openai-images"}
+    assert {m["endpoint"] for m in defaults} == {"openai-chat", "openai-video", "openai-images"}
