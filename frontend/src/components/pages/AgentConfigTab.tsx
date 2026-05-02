@@ -1,7 +1,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errMsg, voidCall } from "@/utils/async";
-import { ChevronDown, Eye, EyeOff, Loader2, SlidersHorizontal, Terminal, X } from "lucide-react";
+import { ChevronDown, Download, Eye, EyeOff, Loader2, SlidersHorizontal, Terminal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
@@ -9,6 +9,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
+import type { CustomProviderInfo } from "@/types/custom-provider";
 import { TabSaveFooter } from "./TabSaveFooter";
 
 // ---------------------------------------------------------------------------
@@ -176,6 +177,9 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
   const [modelRoutingExpanded, setModelRoutingExpanded] = useState(false);
+  const [providers, setProviders] = useState<CustomProviderInfo[]>([]);
+  const [importPickerOpen, setImportPickerOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   // Load config on mount
   const load = useCallback(async () => {
@@ -192,6 +196,24 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // 加载自定义供应商列表，用于「从供应商导入」入口（仅展示已设置 api_key 的项）
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await API.listCustomProviders();
+        if (!cancelled) {
+          setProviders(res.providers.filter((p) => p.api_key_masked));
+        }
+      } catch {
+        // 静默：导入是可选功能，不打断主流程
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const isDirty = !deepEqual(draft, savedRef.current);
   useWarnUnsaved(isDirty);
@@ -245,6 +267,29 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         useAppStore.getState().pushToast(t("clear_failed", { message: errMsg(err) }), "error");
       } finally {
         setClearingField(null);
+      }
+    },
+    [t],
+  );
+
+  const handleImportProvider = useCallback(
+    async (provider: CustomProviderInfo) => {
+      setImporting(true);
+      try {
+        const cred = await API.getCustomProviderCredentials(provider.id);
+        setDraft((prev) => ({
+          ...prev,
+          anthropicKey: cred.api_key,
+          anthropicBaseUrl: cred.base_url,
+        }));
+        useAppStore
+          .getState()
+          .pushToast(t("import_provider_success", { name: provider.display_name }), "success");
+      } catch (err) {
+        useAppStore.getState().pushToast(errMsg(err), "error");
+      } finally {
+        setImporting(false);
+        setImportPickerOpen(false);
       }
     },
     [t],
@@ -308,10 +353,47 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         {/* Section 1: API Key + Base URL */}
         {/* ----------------------------------------------------------------- */}
         <div>
-          <SectionHeading
-            title={t("api_credentials")}
-            description={t("anthropic_key_required_desc")}
-          />
+          <div className="flex items-start justify-between">
+            <SectionHeading
+              title={t("api_credentials")}
+              description={t("anthropic_key_required_desc")}
+            />
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setImportPickerOpen((v) => !v)}
+                disabled={importing || saving}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:border-gray-600 hover:bg-gray-800/50 disabled:opacity-50"
+              >
+                {importing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+                {t("import_from_provider")}
+              </button>
+              {importPickerOpen && (
+                <div className="absolute right-0 top-full z-10 mt-1 w-64 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-lg">
+                  {providers.length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-gray-500">
+                      {t("import_no_providers")}
+                    </div>
+                  ) : (
+                    providers.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => void handleImportProvider(p)}
+                        className="block w-full truncate px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800"
+                      >
+                        {p.display_name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* API Key card */}
           <div className={`${cardClassName} space-y-4`}>
