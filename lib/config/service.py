@@ -139,24 +139,14 @@ class ConfigService:
         raw = await self._setting_repo.get("default_video_backend", _DEFAULT_VIDEO_BACKEND)
         return self._parse_backend(raw, _DEFAULT_VIDEO_BACKEND)
 
-    async def get_default_image_backend_t2i(self) -> tuple[str, str]:
-        """读 default_image_backend_t2i；缺失则回退到旧 default_image_backend；再缺失则用代码内置默认。"""
+    async def get_default_image_backend(self) -> tuple[str, str]:
+        """图像默认 backend 的真实解析路径在 ConfigResolver.default_image_backend_t2i / _i2i；
+        此方法保留为公共 API，仅作为 T2I 兜底（外部调用方极少；Resolver 不调用此方法）。"""
         raw = await self._setting_repo.get(
             "default_image_backend_t2i",
             await self._setting_repo.get("default_image_backend", _DEFAULT_IMAGE_BACKEND),
         )
         return self._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
-
-    async def get_default_image_backend_i2i(self) -> tuple[str, str]:
-        raw = await self._setting_repo.get(
-            "default_image_backend_i2i",
-            await self._setting_repo.get("default_image_backend", _DEFAULT_IMAGE_BACKEND),
-        )
-        return self._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
-
-    async def get_default_image_backend(self) -> tuple[str, str]:
-        """兼容 shim：旧调用方仍可调；返回 T2I 变体。下游 Task 12/13/14 会迁移到 *_t2i / *_i2i。"""
-        return await self.get_default_image_backend_t2i()
 
     async def get_default_text_backend(self) -> tuple[str, str]:
         raw = await self._setting_repo.get("default_text_backend", _DEFAULT_TEXT_BACKEND)
