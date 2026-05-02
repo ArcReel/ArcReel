@@ -1332,3 +1332,31 @@ class TestDiscoverAnthropic:
         assert resp.status_code == 400
         # i18n 默认 zh
         assert "API Key" in resp.json()["detail"]
+
+
+class TestGetProviderCredentials:
+    def test_returns_plaintext(self, client: TestClient):
+        """正常路径返回明文 base_url + api_key。"""
+        # 先创建 provider
+        create_resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "OneAPI",
+                "discovery_format": "openai",
+                "base_url": "https://oneapi.example.com",
+                "api_key": "sk-secret",
+                "models": [],
+            },
+        )
+        assert create_resp.status_code == 201
+        provider_id = create_resp.json()["id"]
+
+        resp = client.get(f"/api/v1/custom-providers/{provider_id}/credentials")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["base_url"] == "https://oneapi.example.com"
+        assert body["api_key"] == "sk-secret"
+
+    def test_returns_404_for_unknown_provider(self, client: TestClient):
+        resp = client.get("/api/v1/custom-providers/99999/credentials")
+        assert resp.status_code == 404
