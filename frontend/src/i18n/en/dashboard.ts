@@ -620,6 +620,7 @@ export default {
   'enter_api_key_placeholder': 'Enter API Key',
   'preview_url': 'Preview: ',
   'discover_models': 'Discover Models',
+  'discover_models_success': 'Found {{count}} models',
   'discover_no_models': 'No models found',
   'discovering_models': 'Discovering...',
   'import_from_provider': 'Import from provider',

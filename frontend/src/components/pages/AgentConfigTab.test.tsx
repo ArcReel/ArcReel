@@ -163,7 +163,7 @@ describe("AgentConfigTab — discover models", () => {
     });
   });
 
-  it("shows error when discovery fails", async () => {
+  it("shows error toast when discovery fails", async () => {
     vi.mocked(API.discoverAnthropicModels).mockRejectedValueOnce(new Error("boom"));
 
     render(<AgentConfigTab visible />);
@@ -172,7 +172,22 @@ describe("AgentConfigTab — discover models", () => {
     await user.click(await screen.findByRole("button", { name: /获取模型|Discover Models/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/boom/)).toBeInTheDocument();
+      const toast = useAppStore.getState().toast;
+      expect(toast?.text).toMatch(/boom/);
+      expect(toast?.tone).toBe("error");
+    });
+  });
+
+  it("shows success toast with model count on discovery", async () => {
+    render(<AgentConfigTab visible />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /获取模型|Discover Models/i }));
+
+    await waitFor(() => {
+      const toast = useAppStore.getState().toast;
+      expect(toast?.tone).toBe("success");
+      expect(toast?.text).toMatch(/2/);
     });
   });
 });

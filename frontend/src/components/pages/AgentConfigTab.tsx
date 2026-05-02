@@ -185,7 +185,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const importTriggerRef = useRef<HTMLButtonElement>(null);
   const [modelCandidates, setModelCandidates] = useState<string[]>([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
-  const [discoverMessage, setDiscoverMessage] = useState<{ kind: "error" | "hint"; text: string } | null>(null);
   const discoverAbortRef = useRef<AbortController | null>(null);
 
   // Load config on mount
@@ -294,7 +293,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     const baseUrl = draft.anthropicBaseUrl.trim() || undefined;
 
     setDiscoverLoading(true);
-    setDiscoverMessage(null);
+    const toast = useAppStore.getState().pushToast;
     try {
       const res = await API.discoverAnthropicModels(
         { base_url: baseUrl, api_key: apiKey },
@@ -303,11 +302,13 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       if (controller.signal.aborted) return;
       setModelCandidates(res.models.map((m) => m.model_id));
       if (res.models.length === 0) {
-        setDiscoverMessage({ kind: "hint", text: t("discover_no_models") });
+        toast(t("discover_no_models"), "warning");
+      } else {
+        toast(t("discover_models_success", { count: res.models.length }), "success");
       }
     } catch (err) {
       if (controller.signal.aborted) return;
-      setDiscoverMessage({ kind: "error", text: errMsg(err) });
+      toast(errMsg(err), "error");
     } finally {
       if (!controller.signal.aborted) setDiscoverLoading(false);
     }
@@ -591,14 +592,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 )}
                 {t("discover_models")}
               </button>
-              {discoverMessage && (
-                <p
-                  className={`mt-1 text-right text-xs ${discoverMessage.kind === "error" ? "text-rose-400" : "text-gray-500"}`}
-                  role={discoverMessage.kind === "error" ? "alert" : undefined}
-                >
-                  {discoverMessage.text}
-                </p>
-              )}
             </div>
           </div>
 

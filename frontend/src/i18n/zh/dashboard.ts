@@ -621,6 +621,7 @@ export default {
   'enter_api_key_placeholder': '输入 API Key',
   'preview_url': '预览：',
   'discover_models': '获取模型列表',
+  'discover_models_success': '已发现 {{count}} 个模型',
   'discover_no_models': '未发现可用模型',
   'discovering_models': '获取中…',
   'import_from_provider': '从供应商导入',
