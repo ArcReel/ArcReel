@@ -3,6 +3,7 @@
 from lib.image_backends.base import (
     ImageBackend,
     ImageCapability,
+    ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
     ReferenceImage,
@@ -12,6 +13,7 @@ from lib.image_backends.registry import create_backend, get_registered_backends,
 __all__ = [
     "ImageBackend",
     "ImageCapability",
+    "ImageCapabilityError",
     "ImageGenerationRequest",
     "ImageGenerationResult",
     "ReferenceImage",

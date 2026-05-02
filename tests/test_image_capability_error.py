@@ -1,6 +1,6 @@
 """ImageCapabilityError 携带稳定 code + 上下文 params。"""
 
-from lib.image_backends.base import ImageCapabilityError
+from lib.image_backends import ImageCapabilityError
 
 
 def test_carries_code_and_params():
