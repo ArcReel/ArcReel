@@ -420,6 +420,68 @@ class TestGenerationTasks:
             await generation_tasks.execute_prop_task("demo", "玉佩", {"prompt": ""})
 
 
+from server.services.generation_tasks import _resolve_effective_image_backend
+
+
+@pytest.mark.asyncio
+async def test_resolve_picks_t2i_from_payload_when_no_refs():
+    project = {}
+    payload = {
+        "image_provider_t2i": "openai/gen-1",
+        "image_provider_i2i": "openai/edit-1",
+    }
+    provider, model = await _resolve_effective_image_backend(project, payload, needs_i2i=False)
+    assert provider == "openai"
+    assert model == "gen-1"
+
+
+@pytest.mark.asyncio
+async def test_resolve_picks_i2i_from_payload_when_refs():
+    project = {}
+    payload = {
+        "image_provider_t2i": "openai/gen-1",
+        "image_provider_i2i": "openai/edit-1",
+    }
+    provider, model = await _resolve_effective_image_backend(project, payload, needs_i2i=True)
+    assert provider == "openai"
+    assert model == "edit-1"
+
+
+@pytest.mark.asyncio
+async def test_resolve_falls_back_to_legacy_payload_image_provider():
+    """payload 仅有旧 image_provider/image_model 时两槽都用此值。"""
+    project = {}
+    payload = {"image_provider": "openai", "image_model": "legacy"}
+    t2i = await _resolve_effective_image_backend(project, payload, needs_i2i=False)
+    i2i = await _resolve_effective_image_backend(project, payload, needs_i2i=True)
+    assert t2i == ("openai", "legacy")
+    assert i2i == ("openai", "legacy")
+
+
+@pytest.mark.asyncio
+async def test_resolve_reads_project_split_fields():
+    project = {
+        "image_provider_t2i": "openai/proj-gen",
+        "image_provider_i2i": "openai/proj-edit",
+    }
+    payload = {}
+    t2i = await _resolve_effective_image_backend(project, payload, needs_i2i=False)
+    i2i = await _resolve_effective_image_backend(project, payload, needs_i2i=True)
+    assert t2i == ("openai", "proj-gen")
+    assert i2i == ("openai", "proj-edit")
+
+
+@pytest.mark.asyncio
+async def test_resolve_falls_back_to_legacy_project_image_backend():
+    """project 仅有旧 image_backend → 两槽都用此值。"""
+    project = {"image_backend": "openai/legacy"}
+    payload = {}
+    t2i = await _resolve_effective_image_backend(project, payload, needs_i2i=False)
+    i2i = await _resolve_effective_image_backend(project, payload, needs_i2i=True)
+    assert t2i == ("openai", "legacy")
+    assert i2i == ("openai", "legacy")
+
+
 class TestGetAspectRatio:
     def test_reads_top_level_aspect_ratio(self):
         project = {"aspect_ratio": "16:9", "content_mode": "narration"}

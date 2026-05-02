@@ -76,27 +76,61 @@ def _parse_project_backend(raw: str | None) -> tuple[str | None, str | None]:
     return raw, None
 
 
-async def _resolve_effective_image_backend(project: dict, payload: dict | None) -> tuple[str, str]:
-    """payload 覆盖 > project.image_backend > resolver 全局默认。
+def _split_pair(raw: str | None) -> tuple[str, str] | None:
+    """解析 '<provider>/<model>' → (provider, model)；不合法返回 None。"""
+    if not isinstance(raw, str) or "/" not in raw:
+        return None
+    p, m = raw.split("/", 1)
+    if not p:
+        return None
+    return p, m
 
-    返回 (provider_id, model_id)。供 resolve_resolution 构 key 使用，
-    确保 payload 缺失 image_provider 时也能命中 project.model_settings。
+
+async def _resolve_effective_image_backend(
+    project: dict,
+    payload: dict | None,
+    *,
+    needs_i2i: bool = False,
+) -> tuple[str, str]:
+    """根据当前请求是否带参考图，返回 (provider_id, model_id)。
+
+    优先级：
+    1. payload 显式 image_provider_<cap>
+    2. payload 旧字段 image_provider / image_model（存量任务兼容）
+    3. project 显式 image_provider_<cap>
+    4. project 旧字段 image_backend（lazy 升级路径）
+    5. resolver 的全局默认 default_image_backend_<cap>
+
     全局默认失败（未配置供应商）时返回空串，调用方按 None 处理。
     """
+    cap_key = "image_provider_i2i" if needs_i2i else "image_provider_t2i"
+
     if payload:
+        pair = _split_pair(payload.get(cap_key))
+        if pair is not None:
+            return pair
+        # legacy payload (image_provider + image_model 分字段)
         provider = payload.get("image_provider") or ""
         if provider:
             return provider, payload.get("image_model") or ""
+
+    pair = _split_pair(project.get(cap_key))
+    if pair is not None:
+        return pair
     proj_provider, proj_model = _parse_project_backend(project.get("image_backend"))
     if proj_provider:
         return proj_provider, proj_model or ""
+
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
 
     resolver = ConfigResolver(async_session_factory)
     try:
         async with resolver.session() as r:
-            provider, model = await r.default_image_backend()
+            if needs_i2i:
+                provider, model = await r.default_image_backend_i2i()
+            else:
+                provider, model = await r.default_image_backend_t2i()
     except Exception:
         return "", ""
     return provider or "", model or ""
@@ -309,36 +343,36 @@ async def get_media_generator(
     *,
     user_id: str = DEFAULT_USER_ID,
     require_image_backend: bool = True,
+    needs_i2i: bool = False,
 ) -> MediaGenerator:
-    """创建 MediaGenerator。仅按调用场景初始化所需的 backend。"""
+    """创建 MediaGenerator。仅按调用场景初始化所需的 backend。
+
+    needs_i2i: 若调用方知晓本次任务带参考图，传 True 以选 I2I 默认 backend；否则用 T2I。
+    """
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
 
     project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
     resolver = ConfigResolver(async_session_factory)
 
-    # 初始化阶段共享单一 session
     async with resolver.session() as r:
         image_backend = None
         if require_image_backend:
-            image_provider_id, image_model = await r.default_image_backend()
-            # payload 中的 image_provider（由入队时 _snapshot_image_backend 注入）
-            if payload and payload.get("image_provider"):
-                image_provider_id = payload["image_provider"]
-                image_model = payload.get("image_model", "") or image_model
-            else:
-                # 直接从 project.json 的 image_backend（"provider/model" 格式）读取
-                project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-                proj_provider, proj_model = _parse_project_backend(project.get("image_backend"))
-                if proj_provider:
-                    # 仅当 provider 相同时才复用全局默认 model，避免跨 provider model 不匹配
-                    image_model = proj_model or (image_model if proj_provider == image_provider_id else None)
-                    image_provider_id = proj_provider
+            project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+            image_provider_id, image_model = await _resolve_effective_image_backend(
+                project, payload, needs_i2i=needs_i2i
+            )
+            if not image_provider_id:
+                # resolver 全局默认（兜底）
+                if needs_i2i:
+                    image_provider_id, image_model = await r.default_image_backend_i2i()
+                else:
+                    image_provider_id, image_model = await r.default_image_backend_t2i()
             image_backend = await _get_or_create_image_backend(
                 image_provider_id,
                 {},
                 r,
-                default_image_model=image_model,
+                default_image_model=image_model or None,
             )
 
         # 解析 video backend（保持现有逻辑）
@@ -348,7 +382,6 @@ async def get_media_generator(
             payload,
         )
 
-    # 传原始 resolver 给 MediaGenerator（后续调用在 session scope 外）
     return MediaGenerator(
         project_path,
         rate_limiter=rate_limiter,
@@ -711,15 +744,17 @@ async def execute_storyboard_task(
         return _project, _project_path, _prompt_text, _ref_images
 
     project, project_path, prompt_text, reference_images = await asyncio.to_thread(_prepare)
+    _needs_i2i = bool(reference_images)
 
     generator = await get_media_generator(
         project_name,
         payload=payload,
         user_id=user_id,
+        needs_i2i=_needs_i2i,
     )
     aspect_ratio = get_aspect_ratio(project, "storyboards")
 
-    image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload)
+    image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload, needs_i2i=_needs_i2i)
     image_size = await resolve_resolution(project, image_provider_id, image_model_id)
 
     _, version = await generator.generate_image_async(
@@ -915,11 +950,12 @@ async def execute_character_task(
         return _project, _full_prompt, _ref_images
 
     project, full_prompt, reference_images = await asyncio.to_thread(_prepare_char)
+    _needs_i2i = bool(reference_images)
 
-    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
+    generator = await get_media_generator(project_name, payload=payload, user_id=user_id, needs_i2i=_needs_i2i)
     aspect_ratio = get_aspect_ratio(project, "characters")
 
-    image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload)
+    image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload, needs_i2i=_needs_i2i)
     image_size = await resolve_resolution(project, image_provider_id, image_model_id)
 
     _, version = await generator.generate_image_async(
@@ -990,7 +1026,7 @@ async def execute_design_task(
     generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
     aspect_ratio = get_aspect_ratio(project, bucket_key)
 
-    image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload)
+    image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload, needs_i2i=False)
     image_size = await resolve_resolution(project, image_provider_id, image_model_id)
 
     _, version = await generator.generate_image_async(
@@ -1160,16 +1196,20 @@ async def execute_grid_task(
         if not prompt_text:
             raise ValueError("prompt is required for grid task")
 
+        _needs_i2i = bool(reference_images)
         generator = await get_media_generator(
             project_name,
             payload=payload,
             user_id=user_id,
+            needs_i2i=_needs_i2i,
         )
 
         project = await asyncio.to_thread(get_project_manager().load_project, project_name)
         aspect_ratio = payload.get("grid_aspect_ratio") or get_aspect_ratio(project, "storyboards")
 
-        image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload)
+        image_provider_id, image_model_id = await _resolve_effective_image_backend(
+            project, payload, needs_i2i=_needs_i2i
+        )
         image_size = await resolve_resolution(project, image_provider_id, image_model_id) or "2K"  # 宫格图保底高分辨率
 
         image_path, version = await generator.generate_image_async(
