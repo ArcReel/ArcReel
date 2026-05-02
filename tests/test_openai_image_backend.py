@@ -6,6 +6,8 @@ import base64
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
@@ -144,8 +146,6 @@ class TestOpenAIImageBackend:
 
     async def test_empty_data_raises(self, tmp_path: Path):
         """OpenAI 返回空 data 数组时，应抛出清晰的 RuntimeError 而非 IndexError。"""
-        import pytest
-
         empty_response = MagicMock(spec=["data", "usage"])
         empty_response.data = []
         empty_response.usage = None
