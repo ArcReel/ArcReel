@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lib.image_backends.base import ImageGenerationRequest
+from lib.image_backends.base import ImageCapability, ImageGenerationRequest
 from lib.image_backends.openai import OpenAIImageBackend
 
 
@@ -16,7 +16,8 @@ def _make_backend():
     backend = OpenAIImageBackend.__new__(OpenAIImageBackend)
     backend._client = MagicMock()
     backend._model = "gpt-image-1.5"
-    backend._capabilities = set()
+    # 全能力（默认 mode="both"），让 generate() 的 capability gating 放行 T2I 与 I2I
+    backend._capabilities = {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
     return backend
 
 
