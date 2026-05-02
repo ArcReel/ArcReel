@@ -14,6 +14,7 @@ without reaching into SDK internals.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -58,7 +59,7 @@ class SdkTranscriptAdapter:
             return []
         if self._store is not None and get_session_messages_from_store is not None:
             return await self._read_via_store(sdk_session_id, project_cwd)
-        return self._read_via_legacy(sdk_session_id)
+        return await self._read_via_legacy(sdk_session_id)
 
     async def _read_via_store(
         self,
@@ -126,12 +127,15 @@ class SdkTranscriptAdapter:
                 ts_map[uuid] = ts.strip()
         return ts_map
 
-    def _read_via_legacy(self, sdk_session_id: str) -> list[dict[str, Any]]:
+    async def _read_via_legacy(self, sdk_session_id: str) -> list[dict[str, Any]]:
         """Filesystem fallback for ARCREEL_SDK_SESSION_STORE=off."""
         if get_session_messages is None:
             return []
         try:
-            sdk_messages = get_session_messages(sdk_session_id)
+            # SDK reader walks the JSONL transcript synchronously; offload so
+            # SSE streaming and other coroutines aren't blocked while we wait
+            # on disk I/O for large histories.
+            sdk_messages = await asyncio.to_thread(get_session_messages, sdk_session_id)
         except Exception:
             logger.warning(
                 "Failed to read SDK session %s",
