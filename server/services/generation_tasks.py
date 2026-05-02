@@ -362,12 +362,7 @@ async def get_media_generator(
             image_provider_id, image_model = await _resolve_effective_image_backend(
                 project, payload, needs_i2i=needs_i2i
             )
-            if not image_provider_id:
-                # resolver 全局默认（兜底）
-                if needs_i2i:
-                    image_provider_id, image_model = await r.default_image_backend_i2i()
-                else:
-                    image_provider_id, image_model = await r.default_image_backend_t2i()
+            # 解析失败 → image_provider_id 为空，让 _get_or_create_image_backend 抛出清晰错误
             image_backend = await _get_or_create_image_backend(
                 image_provider_id,
                 {},
@@ -1023,7 +1018,7 @@ async def execute_design_task(
 
     project, full_prompt = await asyncio.to_thread(_prepare)
 
-    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
+    generator = await get_media_generator(project_name, payload=payload, user_id=user_id, needs_i2i=False)
     aspect_ratio = get_aspect_ratio(project, bucket_key)
 
     image_provider_id, image_model_id = await _resolve_effective_image_backend(project, payload, needs_i2i=False)
