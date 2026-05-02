@@ -112,7 +112,7 @@ class TestInferEndpoint:
         assert infer_endpoint(model_id, discovery_format) == expected
 
 
-def test_image_endpoint_registry_has_three_entries():
+def test_image_endpoint_registry_has_four_entries():
     from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE
 
     image_keys = set(ENDPOINT_KEYS_BY_MEDIA_TYPE["image"])
