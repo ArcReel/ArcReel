@@ -22,6 +22,15 @@ try:
 except ImportError:
     sdk_delete_session = None
 
+try:
+    from claude_agent_sdk import (
+        delete_session_via_store,
+        list_sessions_from_store,
+    )
+except ImportError:
+    delete_session_via_store = None  # type: ignore[assignment]
+    list_sessions_from_store = None  # type: ignore[assignment]
+
 if TYPE_CHECKING:
     from server.routers.assistant import ImageAttachment
 
@@ -52,12 +61,16 @@ class AssistantService:
 
         self.pm = ProjectManager(self.projects_root)
         self.meta_store = SessionMetaStore()
-        self.transcript_adapter = SdkTranscriptAdapter()
         self.session_manager = SessionManager(
             project_root=self.project_root,
             data_dir=self.data_dir,
             meta_store=self.meta_store,
         )
+        # Shared with SessionManager (lazy-cached there) so reads via the
+        # adapter and writes via SDK options use the same per-user namespace.
+        # None when ARCREEL_SDK_SESSION_STORE=off.
+        self._session_store = self.session_manager._build_session_store()
+        self.transcript_adapter = SdkTranscriptAdapter(store=self._session_store)
         self._startup_lock = asyncio.Lock()
         self._startup_done = False
         self._snapshot_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -94,18 +107,33 @@ class AssistantService:
     ) -> list[SessionMeta]:
         """List sessions, injecting SDK summary as title when available."""
         sessions = await self.meta_store.list(project_name=project_name, status=status, limit=limit, offset=offset)
-        if not sessions or not project_name or sdk_list_sessions is None:
+        if not sessions or not project_name:
             return sessions
 
-        # Inject SDK summary as title
-        try:
-            project_cwd = str(self.projects_root / project_name)
-            sdk_sessions = await asyncio.to_thread(sdk_list_sessions, directory=project_cwd, include_worktrees=False)
-            summary_map = {s.session_id: s.summary for s in sdk_sessions}
-        except Exception:
-            logger.warning("SDK list_sessions failed, titles will be empty", exc_info=True)
+        project_cwd = str(self.projects_root / project_name)
+        sdk_sessions: list[Any] = []
+
+        if self._session_store is not None and list_sessions_from_store is not None:
+            try:
+                sdk_sessions = await list_sessions_from_store(self._session_store, directory=project_cwd)
+            except Exception:
+                logger.warning(
+                    "SDK list_sessions_from_store failed, titles will be empty",
+                    exc_info=True,
+                )
+                return sessions
+        elif sdk_list_sessions is not None:
+            try:
+                sdk_sessions = await asyncio.to_thread(
+                    sdk_list_sessions, directory=project_cwd, include_worktrees=False
+                )
+            except Exception:
+                logger.warning("SDK list_sessions failed, titles will be empty", exc_info=True)
+                return sessions
+        else:
             return sessions
 
+        summary_map = {s.session_id: s.summary for s in sdk_sessions}
         return [SessionMeta(**{**s.model_dump(), "title": summary_map.get(s.id, s.title)}) for s in sessions]
 
     async def get_session(self, session_id: str) -> SessionMeta | None:
@@ -119,15 +147,27 @@ class AssistantService:
 
     async def delete_session(self, session_id: str) -> bool:
         """Delete session and cleanup."""
-        # Disconnect if active
         if session_id in self.session_manager.sessions:
             await self.session_manager.close_session(
                 session_id,
                 reason="session deleted",
             )
 
-        # Clean up SDK-side session files
-        if sdk_delete_session is not None:
+        if self._session_store is not None and delete_session_via_store is not None:
+            # SDK derives project_key from `directory`; without it the key is
+            # computed from server cwd and never matches inserted rows, so the
+            # delete becomes a silent no-op. Resolve project cwd from meta.
+            meta = await self.meta_store.get(session_id)
+            project_cwd = str(self.projects_root / meta.project_name) if meta else None
+            try:
+                await delete_session_via_store(self._session_store, session_id, directory=project_cwd)
+            except Exception:
+                logger.warning(
+                    "delete_session_via_store failed for %s",
+                    session_id,
+                    exc_info=True,
+                )
+        elif sdk_delete_session is not None:
             try:
                 await asyncio.to_thread(sdk_delete_session, session_id)
             except Exception:
@@ -552,6 +592,19 @@ class AssistantService:
         """Build an SSE event for FastAPI's EventSourceResponse."""
         return ServerSentEvent(event=event, data=data)
 
+    def _resolve_project_cwd_safe(self, project_name: str) -> Path | None:
+        """Resolve the project's working directory, returning None on failure.
+
+        ``SdkTranscriptAdapter`` needs ``project_cwd`` to derive the
+        per-project key when reading from the SessionStore. If the project
+        directory is missing (deleted, never materialized in tests, etc.)
+        we fall back to None — the store helper / SDK defaults handle that.
+        """
+        try:
+            return self.pm.get_project_path(project_name)
+        except (FileNotFoundError, ValueError):
+            return None
+
     async def _build_projector(
         self,
         meta: SessionMeta,
@@ -559,7 +612,8 @@ class AssistantService:
         replayed_messages: list[dict[str, Any]] | None = None,
     ) -> AssistantStreamProjector:
         """Build projector state from transcript history + in-memory buffer."""
-        history_messages = await asyncio.to_thread(self.transcript_adapter.read_raw_messages, meta.id)
+        project_cwd = self._resolve_project_cwd_safe(meta.project_name)
+        history_messages = await self.transcript_adapter.read_raw_messages(meta.id, project_cwd)
         projector = AssistantStreamProjector(initial_messages=history_messages)
 
         # UUID set for primary dedup

@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
+from lib.agent_session_store.store import DbSessionStore
+from lib.db.base import DEFAULT_USER_ID
+from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import LOCALE_LANGUAGE_MAP
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import SessionMeta, SessionStatus
@@ -477,6 +480,35 @@ class SessionManager:
         if world := overview.get("world_setting"):
             parts.append(f"- 世界观：{world}")
 
+    def _build_session_store(self) -> DbSessionStore | None:
+        """Return a cached per-user DbSessionStore, or None when env disables it.
+
+        Set ARCREEL_SDK_SESSION_STORE=off to roll back to SDK's filesystem path.
+        The result is cached on first call so every session shares one instance
+        instead of allocating a fresh store per ``_build_options`` invocation.
+        """
+        cached = getattr(self, "_cached_session_store", None)
+        if cached is not None or getattr(self, "_session_store_resolved", False):
+            return cached
+        from lib.agent_session_store import (
+            is_known_session_store_mode,
+            session_store_mode,
+        )
+
+        mode = session_store_mode()
+        store: DbSessionStore | None
+        if mode == "off":
+            store = None
+        else:
+            if not is_known_session_store_mode(mode):
+                logger.warning("Unknown ARCREEL_SDK_SESSION_STORE=%r; defaulting to db", mode)
+            factory = getattr(self, "_session_factory", None) or default_async_session_factory
+            user_id = getattr(self, "_user_id", DEFAULT_USER_ID)
+            store = DbSessionStore(factory, user_id=user_id)
+        self._cached_session_store = store
+        self._session_store_resolved = True
+        return store
+
     def _build_options(
         self,
         project_name: str,
@@ -544,6 +576,7 @@ class SessionManager:
             resume=resume_id,
             can_use_tool=can_use_tool,
             hooks=hooks,
+            session_store=self._build_session_store(),
         )
 
     @staticmethod
