@@ -10,6 +10,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
 import type { CustomProviderInfo } from "@/types/custom-provider";
+import { ModelCombobox } from "@/components/ui/ModelCombobox";
 import { TabSaveFooter } from "./TabSaveFooter";
 
 // ---------------------------------------------------------------------------
@@ -374,11 +375,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
 
   return (
     <div className={visible ? undefined : "hidden"}>
-      <datalist id="anthropic-models">
-        {modelCandidates.map((m) => (
-          <option key={m} value={m} />
-        ))}
-      </datalist>
       <div className="space-y-8 px-6 pb-0 pt-6">
         {/* Page intro */}
         <div>
@@ -637,29 +633,19 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             <p className="mt-0.5 text-xs text-gray-500">
               {t("env_anthropic_model")}
             </p>
-            <div className="relative mt-2">
-              <input
+            <div className="mt-2">
+              <ModelCombobox
                 id="agent-model"
-                list="anthropic-models"
                 value={draft.anthropicModel}
-                onChange={(e) => updateDraft("anthropicModel", e.target.value)}
+                onChange={(v) => updateDraft("anthropicModel", v)}
+                options={modelCandidates}
                 placeholder="claude-3-5-sonnet-20241022"
-                className={`${inputClassName}${draft.anthropicModel ? " pr-8" : ""}`}
-                autoComplete="off"
-                spellCheck={false}
                 name="anthropic_model"
                 disabled={saving}
+                showClearButton={!!draft.anthropicModel}
+                onClear={() => updateDraft("anthropicModel", "")}
+                clearAriaLabel={t("clear_model_input")}
               />
-              {draft.anthropicModel && (
-                <button
-                  type="button"
-                  onClick={() => updateDraft("anthropicModel", "")}
-                  className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
-                  aria-label={t("clear_model_input")}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
             </div>
 
             {/* Advanced model routing */}
@@ -717,27 +703,18 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                           </button>
                         )}
                       </div>
-                      <div className="relative mt-1.5">
-                        <input
-                          list="anthropic-models"
+                      <div className="mt-1.5">
+                        <ModelCombobox
                           value={draft[key]}
-                          onChange={(e) => updateDraft(key, e.target.value)}
+                          onChange={(v) => updateDraft(key, v)}
+                          options={modelCandidates}
                           placeholder={envVar}
-                          className={`${inputClassName}${draft[key] ? " pr-8" : ""}`}
-                          autoComplete="off"
-                          spellCheck={false}
                           disabled={saving}
+                          aria-label={t(`dashboard:${labelKey}`)}
+                          showClearButton={!!draft[key]}
+                          onClear={() => updateDraft(key, "")}
+                          clearAriaLabel={t("clear_field_input", { label: t(`dashboard:${labelKey}`) })}
                         />
-                        {draft[key] && (
-                          <button
-                            type="button"
-                            onClick={() => updateDraft(key, "")}
-                            className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
-                            aria-label={t("clear_field_input", { label: t(`dashboard:${labelKey}`) })}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
                       </div>
                     </div>
                   );

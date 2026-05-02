@@ -126,18 +126,27 @@ describe("AgentConfigTab — discover models", () => {
     });
   });
 
-  it("renders datalist options after clicking discover", async () => {
+  it("renders combobox options after clicking discover", async () => {
     render(<AgentConfigTab visible />);
 
     const user = userEvent.setup();
     const btn = await screen.findByRole("button", { name: /获取模型|Discover Models/i });
     await user.click(btn);
 
+    // Wait for discover request to complete + populate candidates
     await waitFor(() => {
-      const options = document.querySelectorAll("datalist#anthropic-models option");
-      expect(options.length).toBe(2);
-      expect(options[0].getAttribute("value")).toBe("claude-haiku-4-5");
+      expect(API.discoverAnthropicModels).toHaveBeenCalled();
     });
+
+    // Open the default-model Combobox
+    const modelInput = await screen.findByRole("combobox", { name: "默认模型" });
+    await user.click(modelInput);
+
+    const options = await screen.findAllByRole("option");
+    const labels = options.map((o) => o.textContent);
+    expect(labels).toEqual(
+      expect.arrayContaining(["claude-haiku-4-5", "claude-opus-4-7"]),
+    );
   });
 
   it("sends undefined api_key when draft is empty (lets backend fallback)", async () => {
