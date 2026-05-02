@@ -224,9 +224,18 @@ export function ModelConfigSection({
             valueI2I={value.imageBackendI2I}
             options={options.imageBackends}
             providerNames={options.providerNames}
-            onChange={({ t2i, i2i }) =>
-              onChange({ ...value, imageBackendT2I: t2i, imageBackendI2I: i2i, imageResolution: null })
-            }
+            onChange={({ t2i, i2i }) => {
+              // 分辨率绑定 T2I（canonical slot），仅在 effective T2I 变化时清空
+              const prevEffectiveT2I = value.imageBackendT2I || globalDefaults.imageT2I || "";
+              const nextEffectiveT2I = t2i || globalDefaults.imageT2I || "";
+              const next: ModelConfigValue = {
+                ...value,
+                imageBackendT2I: t2i,
+                imageBackendI2I: i2i,
+              };
+              if (prevEffectiveT2I !== nextEffectiveT2I) next.imageResolution = null;
+              onChange(next);
+            }}
             globalDefaultT2I={globalDefaults.imageT2I || undefined}
             globalDefaultI2I={globalDefaults.imageI2I || undefined}
           />

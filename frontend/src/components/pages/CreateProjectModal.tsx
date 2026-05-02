@@ -133,12 +133,12 @@ export function CreateProjectModal() {
           globalDefaults: {
             video: sysConfig.settings.default_video_backend ?? "",
             imageT2I:
-              sysConfig.settings.default_image_backend_t2i ||
-              sysConfig.settings.default_image_backend ||
+              sysConfig.settings.default_image_backend_t2i ??
+              sysConfig.settings.default_image_backend ??
               "",
             imageI2I:
-              sysConfig.settings.default_image_backend_i2i ||
-              sysConfig.settings.default_image_backend ||
+              sysConfig.settings.default_image_backend_i2i ??
+              sysConfig.settings.default_image_backend ??
               "",
             textScript: sysConfig.settings.text_backend_script ?? "",
             textOverview: sysConfig.settings.text_backend_overview ?? "",

@@ -246,6 +246,47 @@ class TestDefaultBackends:
         result = await resolver._resolve_default_image_backend(fake_svc, None, "i2i")
         assert result == ("grok", "grok-2-image")
 
+    async def test_default_image_backend_t2i_explicit_empty_does_not_fall_back(self):
+        """split key 显式置为空字符串时，不应回退到 legacy default_image_backend。
+
+        语义锁：用户主动把 default_image_backend_t2i="" 表示「不设默认 / 自动选择」，
+        必须走 _auto_resolve_backend；这里 ready_providers=[] 让 auto 路径抛错，
+        以此区分"走了 auto 路径"（期望）和"被 legacy 静默回退"（被锁住的 bug）。
+        """
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver.__new__(ConfigResolver)
+            fake_svc = _FakeConfigService(
+                settings={
+                    "default_image_backend": "grok/grok-2-image",
+                    "default_image_backend_t2i": "",
+                },
+                ready_providers=[],
+            )
+            async with factory() as session:
+                with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
+                    await resolver._resolve_default_image_backend(fake_svc, session, "t2i")
+        finally:
+            await engine.dispose()
+
+    async def test_default_image_backend_i2i_explicit_empty_does_not_fall_back(self):
+        """对称：default_image_backend_i2i="" 不应回退到 legacy。"""
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver.__new__(ConfigResolver)
+            fake_svc = _FakeConfigService(
+                settings={
+                    "default_image_backend": "grok/grok-2-image",
+                    "default_image_backend_i2i": "",
+                },
+                ready_providers=[],
+            )
+            async with factory() as session:
+                with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
+                    await resolver._resolve_default_image_backend(fake_svc, session, "i2i")
+        finally:
+            await engine.dispose()
+
 
 class TestProviderConfig:
     """验证供应商配置方法委托给 ConfigService。"""

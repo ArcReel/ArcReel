@@ -116,12 +116,12 @@ export function ProjectSettingsPage() {
       setGlobalDefaults({
         video: configRes.settings?.default_video_backend ?? "",
         imageT2I:
-          configRes.settings?.default_image_backend_t2i ||
-          configRes.settings?.default_image_backend ||
+          configRes.settings?.default_image_backend_t2i ??
+          configRes.settings?.default_image_backend ??
           "",
         imageI2I:
-          configRes.settings?.default_image_backend_i2i ||
-          configRes.settings?.default_image_backend ||
+          configRes.settings?.default_image_backend_i2i ??
+          configRes.settings?.default_image_backend ??
           "",
         textScript: configRes.settings?.text_backend_script ?? "",
         textOverview: configRes.settings?.text_backend_overview ?? "",

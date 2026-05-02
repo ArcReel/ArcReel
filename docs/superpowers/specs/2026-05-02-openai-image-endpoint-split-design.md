@@ -167,7 +167,7 @@ generator 抛 `ImageCapabilityError("image_capability_missing_i2i", provider=...
 
 ### 拆分
 
-```
+```text
 旧 setting:        "default_image_backend"     = "openai/gpt-image-1"
 新 setting:        "default_image_backend_t2i" = "openai/gpt-image-1"
                    "default_image_backend_i2i" = "openai/gpt-image-1"

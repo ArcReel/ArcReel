@@ -206,7 +206,7 @@ describe("ProjectSettingsPage – style picker", () => {
     renderAt("/app/projects/demo/settings");
 
     // Wait for config to load and a model trigger to render (T2I trigger)
-    const imageTrigger = await screen.findByRole("combobox", { name: /文生图/ });
+    const imageTrigger = await screen.findByRole("combobox", { name: /文生图|Text-to-Image|T2I/i });
     expect(imageTrigger).toHaveTextContent(/跟随全局默认/);
     expect(imageTrigger).toHaveTextContent(/nano-banana/);
   });

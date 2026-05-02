@@ -206,11 +206,29 @@ class MediaGenerator:
         if self._image_backend is None:
             raise RuntimeError("image_backend not configured")
 
-        # Capability gating：上层 resolver 应当已经选到对的 backend，
-        # 这里是兜底（防御调用方手工拼 backend 或配置漂移）。
+        # 先归一化 reference_images，PIL 等不支持的类型在此被丢弃，
+        # 因此 capability 判定要基于归一化后的结果，避免「传了无效引用图」被
+        # 误判为 I2I 后又落到 T2I 调用，造成 image_capability_missing_i2i 误报。
         from lib.image_backends.base import ImageCapability, ImageCapabilityError
 
-        needed = ImageCapability.IMAGE_TO_IMAGE if reference_images else ImageCapability.TEXT_TO_IMAGE
+        ref_images: list[ReferenceImage] = []
+        if reference_images:
+            for ref in reference_images:
+                if isinstance(ref, dict):
+                    img_val = ref.get("image", "")
+                    ref_images.append(
+                        ReferenceImage(
+                            path=str(img_val),
+                            label=str(ref.get("label", "")),
+                        )
+                    )
+                elif hasattr(ref, "__fspath__") or isinstance(ref, (str, Path)):
+                    ref_images.append(ReferenceImage(path=str(ref)))
+                # PIL Image 等不支持的类型忽略
+
+        # Capability gating：上层 resolver 应当已经选到对的 backend，
+        # 这里是兜底（防御调用方手工拼 backend 或配置漂移）。
+        needed = ImageCapability.IMAGE_TO_IMAGE if ref_images else ImageCapability.TEXT_TO_IMAGE
         if needed not in self._image_backend.capabilities:
             raise ImageCapabilityError(
                 "image_capability_missing_i2i"
@@ -234,22 +252,6 @@ class MediaGenerator:
         )
 
         try:
-            # 3. 转换参考图格式并调用 ImageBackend
-            ref_images: list[ReferenceImage] = []
-            if reference_images:
-                for ref in reference_images:
-                    if isinstance(ref, dict):
-                        img_val = ref.get("image", "")
-                        ref_images.append(
-                            ReferenceImage(
-                                path=str(img_val),
-                                label=str(ref.get("label", "")),
-                            )
-                        )
-                    elif hasattr(ref, "__fspath__") or isinstance(ref, (str, Path)):
-                        ref_images.append(ReferenceImage(path=str(ref)))
-                    # PIL Image 等不支持的类型忽略
-
             request = ImageGenerationRequest(
                 prompt=prompt,
                 output_path=output_path,
