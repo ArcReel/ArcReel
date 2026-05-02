@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { API } from "@/api";
-import type { EndpointDescriptor, MediaType } from "@/types";
+import type { EndpointDescriptor, ImageCap, MediaType } from "@/types";
 
 // ---------------------------------------------------------------------------
 // EndpointCatalog —— 自定义供应商 endpoint 元数据的 FE 端缓存。
@@ -19,6 +19,8 @@ interface EndpointCatalogState {
   endpointToMediaType: Record<string, MediaType>;
   /** key → { method, path }，给 EndpointSelect 显示路径前缀。 */
   endpointPaths: Record<string, EndpointPath>;
+  /** key → image capability 数组（仅 image 类 endpoint 有，非 image 不出现在 map 中）。 */
+  endpointToImageCapabilities: Record<string, ImageCap[]>;
   loading: boolean;
   initialized: boolean;
   /** 短路：已初始化或加载中 → 直接 return；否则触发一次 refresh。 */
@@ -30,20 +32,26 @@ interface EndpointCatalogState {
 function deriveMaps(endpoints: EndpointDescriptor[]): {
   endpointToMediaType: Record<string, MediaType>;
   endpointPaths: Record<string, EndpointPath>;
+  endpointToImageCapabilities: Record<string, ImageCap[]>;
 } {
   const endpointToMediaType: Record<string, MediaType> = {};
   const endpointPaths: Record<string, EndpointPath> = {};
+  const endpointToImageCapabilities: Record<string, ImageCap[]> = {};
   for (const e of endpoints) {
     endpointToMediaType[e.key] = e.media_type;
     endpointPaths[e.key] = { method: e.request_method, path: e.request_path_template };
+    if (e.image_capabilities) {
+      endpointToImageCapabilities[e.key] = e.image_capabilities;
+    }
   }
-  return { endpointToMediaType, endpointPaths };
+  return { endpointToMediaType, endpointPaths, endpointToImageCapabilities };
 }
 
 export const useEndpointCatalogStore = create<EndpointCatalogState>((set, get) => ({
   endpoints: [],
   endpointToMediaType: {},
   endpointPaths: {},
+  endpointToImageCapabilities: {},
   loading: false,
   initialized: false,
 
@@ -57,11 +65,12 @@ export const useEndpointCatalogStore = create<EndpointCatalogState>((set, get) =
     set({ loading: true });
     try {
       const res = await API.listEndpointCatalog();
-      const { endpointToMediaType, endpointPaths } = deriveMaps(res.endpoints);
+      const { endpointToMediaType, endpointPaths, endpointToImageCapabilities } = deriveMaps(res.endpoints);
       set({
         endpoints: res.endpoints,
         endpointToMediaType,
         endpointPaths,
+        endpointToImageCapabilities,
         loading: false,
         initialized: true,
       });

@@ -5,6 +5,8 @@ export type EndpointKey = string;
 
 export type MediaType = "text" | "image" | "video";
 
+export type ImageCap = "text_to_image" | "image_to_image";
+
 export interface EndpointDescriptor {
   key: string;
   media_type: MediaType;
@@ -12,6 +14,8 @@ export interface EndpointDescriptor {
   display_name_key: string;
   request_method: string;
   request_path_template: string;
+  /** image 类 endpoint 填能力数组，其他媒体类型为 null。 */
+  image_capabilities: ImageCap[] | null;
 }
 
 export interface CustomProviderInfo {

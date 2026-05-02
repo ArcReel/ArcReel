@@ -11,6 +11,7 @@ const FIXTURE: EndpointDescriptor[] = [
     display_name_key: "endpoint_openai_chat_display",
     request_method: "POST",
     request_path_template: "/v1/chat/completions",
+    image_capabilities: null,
   },
   {
     key: "newapi-video",
@@ -19,6 +20,34 @@ const FIXTURE: EndpointDescriptor[] = [
     display_name_key: "endpoint_newapi_video_display",
     request_method: "POST",
     request_path_template: "/v1/video/generations",
+    image_capabilities: null,
+  },
+  {
+    key: "openai-images",
+    media_type: "image",
+    family: "openai",
+    display_name_key: "endpoint_openai_images_display",
+    request_method: "POST",
+    request_path_template: "/v1/images/{generations,edits}",
+    image_capabilities: ["text_to_image", "image_to_image"],
+  },
+  {
+    key: "openai-images-generations",
+    media_type: "image",
+    family: "openai",
+    display_name_key: "endpoint_openai_images_generations_display",
+    request_method: "POST",
+    request_path_template: "/v1/images/generations",
+    image_capabilities: ["text_to_image"],
+  },
+  {
+    key: "openai-images-edits",
+    media_type: "image",
+    family: "openai",
+    display_name_key: "endpoint_openai_images_edits_display",
+    request_method: "POST",
+    request_path_template: "/v1/images/edits",
+    image_capabilities: ["image_to_image"],
   },
 ];
 
@@ -39,11 +68,26 @@ describe("endpoint-catalog-store", () => {
     expect(s.endpointToMediaType).toEqual({
       "openai-chat": "text",
       "newapi-video": "video",
+      "openai-images": "image",
+      "openai-images-generations": "image",
+      "openai-images-edits": "image",
     });
-    expect(s.endpointPaths).toEqual({
-      "openai-chat": { method: "POST", path: "/v1/chat/completions" },
-      "newapi-video": { method: "POST", path: "/v1/video/generations" },
-    });
+    expect(s.endpointPaths["openai-chat"]).toEqual({ method: "POST", path: "/v1/chat/completions" });
+    expect(s.endpointPaths["openai-images-edits"]).toEqual({ method: "POST", path: "/v1/images/edits" });
+  });
+
+  it("derives endpointToImageCapabilities from catalog", async () => {
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: FIXTURE });
+
+    await useEndpointCatalogStore.getState().fetch();
+
+    const map = useEndpointCatalogStore.getState().endpointToImageCapabilities;
+    expect(map["openai-images"]).toEqual(["text_to_image", "image_to_image"]);
+    expect(map["openai-images-generations"]).toEqual(["text_to_image"]);
+    expect(map["openai-images-edits"]).toEqual(["image_to_image"]);
+    // 非 image 类不出现在 map 中
+    expect(map["openai-chat"]).toBeUndefined();
+    expect(map["newapi-video"]).toBeUndefined();
   });
 
   it("fetch short-circuits after initialized", async () => {
