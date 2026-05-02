@@ -6,9 +6,11 @@ import asyncio
 import logging
 from contextlib import ExitStack
 from pathlib import Path
+from typing import Literal
 
 from lib.image_backends.base import (
     ImageCapability,
+    ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
     save_image_from_response_item,
@@ -62,15 +64,28 @@ def _resolve_openai_params(
 
 
 class OpenAIImageBackend:
-    """OpenAI 图片生成后端，支持 T2I 和 I2I。"""
+    """OpenAI 图片生成后端，按 mode 决定支持 T2I / I2I / 两者。"""
 
-    def __init__(self, *, api_key: str | None = None, model: str | None = None, base_url: str | None = None):
+    Mode = Literal["both", "generations_only", "edits_only"]
+
+    _MODE_TO_CAPS: dict[str, set[ImageCapability]] = {
+        "both": {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE},
+        "generations_only": {ImageCapability.TEXT_TO_IMAGE},
+        "edits_only": {ImageCapability.IMAGE_TO_IMAGE},
+    }
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        mode: Mode = "both",
+    ):
         self._client = create_openai_client(api_key=api_key, base_url=base_url)
         self._model = model or DEFAULT_MODEL
-        self._capabilities: set[ImageCapability] = {
-            ImageCapability.TEXT_TO_IMAGE,
-            ImageCapability.IMAGE_TO_IMAGE,
-        }
+        self._mode = mode
+        self._capabilities = set(self._MODE_TO_CAPS[mode])
 
     @property
     def name(self) -> str:
@@ -86,9 +101,12 @@ class OpenAIImageBackend:
 
     @with_retry_async(retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        if request.reference_images:
-            return await self._generate_edit(request)
-        return await self._generate_create(request)
+        has_refs = bool(request.reference_images)
+        if has_refs and ImageCapability.IMAGE_TO_IMAGE not in self._capabilities:
+            raise ImageCapabilityError("image_endpoint_mismatch_no_i2i", model=self._model)
+        if not has_refs and ImageCapability.TEXT_TO_IMAGE not in self._capabilities:
+            raise ImageCapabilityError("image_endpoint_mismatch_no_t2i", model=self._model)
+        return await (self._generate_edit(request) if has_refs else self._generate_create(request))
 
     async def _generate_create(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         kwargs = {
@@ -126,8 +144,13 @@ class OpenAIImageBackend:
         stack, image_files = await asyncio.to_thread(_open_refs)
         try:
             if not image_files:
-                logger.warning("所有参考图均无效，回退到 T2I")
-                return await self._generate_create(request)
+                # 旧版会回退到 T2I；新语义下若所有 ref 图都打不开，抛错而非降级
+                # （等价于用户提交了 i2i 请求但没有有效素材，应该是错误而非默默 fallback）
+                raise ImageCapabilityError(
+                    "image_endpoint_mismatch_no_i2i",
+                    model=self._model,
+                    detail="all reference images failed to open",
+                )
             response = await self._client.images.edit(
                 model=self._model,
                 image=image_files,

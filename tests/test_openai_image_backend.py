@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from lib.image_backends import ImageCapabilityError
 from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
@@ -441,3 +442,58 @@ class TestOpenAIImageBackend:
         assert result.text_input_tokens == 200
         assert result.image_output_tokens == 2200
         assert result.text_output_tokens == 0
+
+
+class TestModeCapabilities:
+    def test_default_mode_is_both(self):
+        with patch("lib.image_backends.openai.create_openai_client"):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            b = OpenAIImageBackend(api_key="x", model="m")
+            assert ImageCapability.TEXT_TO_IMAGE in b.capabilities
+            assert ImageCapability.IMAGE_TO_IMAGE in b.capabilities
+
+    def test_generations_only_mode(self):
+        with patch("lib.image_backends.openai.create_openai_client"):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            b = OpenAIImageBackend(api_key="x", model="m", mode="generations_only")
+            assert b.capabilities == {ImageCapability.TEXT_TO_IMAGE}
+
+    def test_edits_only_mode(self):
+        with patch("lib.image_backends.openai.create_openai_client"):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            b = OpenAIImageBackend(api_key="x", model="m", mode="edits_only")
+            assert b.capabilities == {ImageCapability.IMAGE_TO_IMAGE}
+
+
+class TestModeGating:
+    @pytest.mark.asyncio
+    async def test_generations_only_with_refs_raises(self, tmp_path):
+        ref = tmp_path / "r.png"
+        ref.write_bytes(b"\x89PNG")
+        with patch("lib.image_backends.openai.create_openai_client"):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            b = OpenAIImageBackend(api_key="x", model="m", mode="generations_only")
+            req = ImageGenerationRequest(
+                prompt="p",
+                output_path=tmp_path / "o.png",
+                reference_images=[ReferenceImage(path=str(ref))],
+            )
+            with pytest.raises(ImageCapabilityError) as excinfo:
+                await b.generate(req)
+            assert excinfo.value.code == "image_endpoint_mismatch_no_i2i"
+            assert excinfo.value.params == {"model": "m"}
+
+    @pytest.mark.asyncio
+    async def test_edits_only_without_refs_raises(self, tmp_path):
+        with patch("lib.image_backends.openai.create_openai_client"):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            b = OpenAIImageBackend(api_key="x", model="m", mode="edits_only")
+            req = ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png")
+            with pytest.raises(ImageCapabilityError) as excinfo:
+                await b.generate(req)
+            assert excinfo.value.code == "image_endpoint_mismatch_no_t2i"
