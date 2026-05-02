@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url
 from lib.custom_provider.backends import CustomImageBackend, CustomTextBackend, CustomVideoBackend
+from lib.image_backends.base import ImageCapability
 from lib.image_backends.gemini import GeminiImageBackend
 from lib.image_backends.openai import OpenAIImageBackend
 from lib.text_backends.gemini import GeminiTextBackend
@@ -39,6 +40,7 @@ class EndpointSpec:
     display_name_key: str  # 前端 i18n key（dashboard ns）
     request_method: str  # "POST"
     request_path_template: str  # "/v1/chat/completions"，可含 {model} 等占位
+    image_capabilities: frozenset[ImageCapability] | None  # image 类 endpoint 的能力集合，非 image 类为 None
     build_backend: Callable[[CustomProvider, str], CustomTextBackend | CustomImageBackend | CustomVideoBackend]
 
 
@@ -92,6 +94,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         display_name_key="endpoint_openai_chat_display",
         request_method="POST",
         request_path_template="/v1/chat/completions",
+        image_capabilities=None,
         build_backend=_build_openai_chat,
     ),
     "gemini-generate": EndpointSpec(
@@ -101,6 +104,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         display_name_key="endpoint_gemini_generate_display",
         request_method="POST",
         request_path_template="/v1beta/models/{model}:generateContent",
+        image_capabilities=None,
         build_backend=_build_gemini_generate,
     ),
     "openai-images": EndpointSpec(
@@ -111,6 +115,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         # /generations 与 /edits 由是否传参考图自动派发，brace 表达两条路径
         request_path_template="/v1/images/{generations,edits}",
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_images,
     ),
     "gemini-image": EndpointSpec(
@@ -120,6 +125,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         display_name_key="endpoint_gemini_image_display",
         request_method="POST",
         request_path_template="/v1beta/models/{model}:generateContent",
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_gemini_image,
     ),
     "openai-video": EndpointSpec(
@@ -129,6 +135,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         display_name_key="endpoint_openai_video_display",
         request_method="POST",
         request_path_template="/v1/videos",
+        image_capabilities=None,
         build_backend=_build_openai_video,
     ),
     "newapi-video": EndpointSpec(
@@ -138,6 +145,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         display_name_key="endpoint_newapi_video_display",
         request_method="POST",
         request_path_template="/v1/video/generations",
+        image_capabilities=None,
         build_backend=_build_newapi_video,
     ),
 }
@@ -163,6 +171,14 @@ def endpoint_to_media_type(endpoint: str) -> str:
     return get_endpoint_spec(endpoint).media_type
 
 
+def endpoint_to_image_capabilities(endpoint: str) -> frozenset[ImageCapability]:
+    """返回 image 类 endpoint 的 capability 集合。非 image 类抛 ValueError。"""
+    spec = get_endpoint_spec(endpoint)
+    if spec.image_capabilities is None:
+        raise ValueError(f"endpoint {endpoint!r} is not an image endpoint")
+    return spec.image_capabilities
+
+
 def list_endpoints_by_media_type(media_type: str) -> list[EndpointSpec]:
     return [ENDPOINT_REGISTRY[k] for k in ENDPOINT_KEYS_BY_MEDIA_TYPE.get(media_type, ())]
 
@@ -171,6 +187,10 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     """把 EndpointSpec 转成可序列化的纯数据 dict（剥掉不可 JSON 化的 build_backend 闭包）。"""
     data = asdict(spec)
     data.pop("build_backend", None)
+    if spec.image_capabilities is not None:
+        data["image_capabilities"] = sorted(c.value for c in spec.image_capabilities)
+    else:
+        data["image_capabilities"] = None
     return data
 
 

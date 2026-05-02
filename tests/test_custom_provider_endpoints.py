@@ -46,6 +46,7 @@ class TestRegistry:
             "display_name_key": "endpoint_openai_chat_display",
             "request_method": "POST",
             "request_path_template": "/v1/chat/completions",
+            "image_capabilities": None,
         }
 
     def test_media_type_groups(self):
@@ -107,3 +108,21 @@ class TestInferEndpoint:
     )
     def test_infer(self, model_id, discovery_format, expected):
         assert infer_endpoint(model_id, discovery_format) == expected
+
+
+def test_existing_image_endpoints_have_full_capabilities():
+    """EndpointSpec 新增 image_capabilities 字段；已存在的 image entry 默认填两个能力。"""
+    from lib.custom_provider.endpoints import (
+        ENDPOINT_REGISTRY,
+        endpoint_to_image_capabilities,
+    )
+    from lib.image_backends import ImageCapability
+
+    full = frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE})
+    assert ENDPOINT_REGISTRY["openai-images"].image_capabilities == full
+    assert ENDPOINT_REGISTRY["gemini-image"].image_capabilities == full
+    assert ENDPOINT_REGISTRY["openai-chat"].image_capabilities is None
+    assert endpoint_to_image_capabilities("openai-images") == full
+
+    with pytest.raises(ValueError):
+        endpoint_to_image_capabilities("openai-chat")
