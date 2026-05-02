@@ -336,3 +336,71 @@ class TestGenerateRouter:
                 json={"prompt": "x"},
             )
             assert missing_prop.status_code == 404
+
+
+# ==================== _snapshot_image_backend 单元测试 ====================
+"""_snapshot_image_backend writes T2I/I2I split payload keys from project."""
+
+from unittest.mock import patch
+
+
+def _make_pm_loader(project: dict):
+    """构造一个 mock get_project_manager 返回值。"""
+
+    class _PM:
+        def load_project(self, _name):
+            return project
+
+    return _PM()
+
+
+def test_snapshot_writes_split_keys_from_project_split_fields():
+    from server.routers.generate import _snapshot_image_backend
+
+    project = {
+        "image_provider_t2i": "openai/gen-1",
+        "image_provider_i2i": "openai/edit-1",
+    }
+    with patch("server.routers.generate.get_project_manager", return_value=_make_pm_loader(project)):
+        snap = _snapshot_image_backend("demo")
+    assert snap == {
+        "image_provider_t2i": "openai/gen-1",
+        "image_provider_i2i": "openai/edit-1",
+    }
+
+
+def test_snapshot_falls_back_to_legacy_image_backend():
+    """旧 project 只有 image_backend → 两槽都用此值。"""
+    from server.routers.generate import _snapshot_image_backend
+
+    project = {"image_backend": "openai/legacy-model"}
+    with patch("server.routers.generate.get_project_manager", return_value=_make_pm_loader(project)):
+        snap = _snapshot_image_backend("demo")
+    assert snap == {
+        "image_provider_t2i": "openai/legacy-model",
+        "image_provider_i2i": "openai/legacy-model",
+    }
+
+
+def test_snapshot_returns_empty_when_no_project_config():
+    """无项目级配置 → 返回空 dict（让 resolver 用全局默认）。"""
+    from server.routers.generate import _snapshot_image_backend
+
+    project = {}
+    with patch("server.routers.generate.get_project_manager", return_value=_make_pm_loader(project)):
+        snap = _snapshot_image_backend("demo")
+    assert snap == {}
+
+
+def test_snapshot_partial_split_fields():
+    """只设了 t2i 槽时，i2i 槽用旧 image_backend 兜底；都没有则不写 i2i。"""
+    from server.routers.generate import _snapshot_image_backend
+
+    project_only_t2i = {
+        "image_provider_t2i": "openai/gen-1",
+        "image_backend": "openai/legacy",
+    }
+    with patch("server.routers.generate.get_project_manager", return_value=_make_pm_loader(project_only_t2i)):
+        snap = _snapshot_image_backend("demo")
+    assert snap.get("image_provider_t2i") == "openai/gen-1"
+    assert snap.get("image_provider_i2i") == "openai/legacy"

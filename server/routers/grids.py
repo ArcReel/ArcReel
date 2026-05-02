@@ -153,6 +153,9 @@ async def generate_grid(
                 if chunk_layout is None:
                     continue
 
+                # 从 T2I 槽提取 provider/model 元数据（格式：provider/model）
+                _t2i_raw = backend_snapshot.get("image_provider_t2i", "")
+                _t2i_parts = _t2i_raw.split("/", 1) if "/" in _t2i_raw else [_t2i_raw, ""]
                 grid = GridGeneration.create(
                     episode=episode,
                     script_file=req.script_file,
@@ -160,8 +163,8 @@ async def generate_grid(
                     rows=chunk_layout.rows,
                     cols=chunk_layout.cols,
                     grid_size=chunk_layout.grid_size,
-                    provider=backend_snapshot.get("image_provider", ""),
-                    model=backend_snapshot.get("image_model", ""),
+                    provider=_t2i_parts[0],
+                    model=_t2i_parts[1] if len(_t2i_parts) > 1 else "",
                 )
 
                 prompt = build_grid_prompt(

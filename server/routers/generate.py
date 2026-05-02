@@ -80,21 +80,26 @@ def _normalize_provider_id(raw: str) -> str:
 def _snapshot_image_backend(project_name: str) -> dict:
     """快照图片供应商配置，返回可合并到 payload 的字典。
 
-    优先级：项目级 image_backend > 系统级 default_image_backend。
+    新拆分语义：写入 image_provider_t2i / image_provider_i2i 两键。
+    优先级（每个槽独立）：
+        project[image_provider_<cap>] > project[image_backend] (legacy fallback)
+    都缺失则不写该键，让下游 resolver 走全局默认。
     """
     project = get_project_manager().load_project(project_name)
-    project_image_backend = project.get("image_backend")  # 格式: "provider_id/model"
-    if project_image_backend and "/" in project_image_backend:
-        image_provider, image_model = project_image_backend.split("/", 1)
-    elif project_image_backend:
-        image_provider = _normalize_provider_id(project_image_backend)
-        image_model = ""
-    else:
-        return {}  # 无项目级覆盖，使用全局默认
-    return {
-        "image_provider": image_provider,
-        "image_model": image_model,
-    }
+    legacy = project.get("image_backend")
+    if not isinstance(legacy, str) or "/" not in legacy:
+        legacy = None  # 旧字段不可用作 fallback
+
+    snapshot: dict = {}
+    for cap in ("t2i", "i2i"):
+        key = f"image_provider_{cap}"
+        value = project.get(key)
+        if isinstance(value, str) and "/" in value:
+            snapshot[key] = value
+        elif legacy:
+            snapshot[key] = legacy
+
+    return snapshot
 
 
 # ==================== 分镜图生成 ====================
