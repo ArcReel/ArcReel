@@ -68,3 +68,23 @@ export interface CustomProviderModelInput {
   supported_durations?: number[] | null;
   resolution?: string | null;
 }
+
+export interface CustomProviderCredentials {
+  base_url: string;
+  api_key: string;
+}
+
+export interface AnthropicDiscoverRequest {
+  base_url?: string;
+  api_key?: string;
+}
+
+export interface AnthropicDiscoverResponse {
+  models: Array<{
+    model_id: string;
+    display_name: string;
+    endpoint: string;
+    is_default: boolean;
+    is_enabled: boolean;
+  }>;
+}

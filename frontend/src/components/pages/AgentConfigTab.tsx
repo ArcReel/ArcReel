@@ -1,7 +1,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errMsg, voidCall } from "@/utils/async";
-import { ChevronDown, Eye, EyeOff, Loader2, SlidersHorizontal, Terminal, X } from "lucide-react";
+import { ChevronDown, Download, Eye, EyeOff, Loader2, Search, SlidersHorizontal, Terminal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
@@ -9,6 +9,9 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
+import type { CustomProviderInfo } from "@/types/custom-provider";
+import { ModelCombobox } from "@/components/ui/ModelCombobox";
+import { Popover } from "@/components/ui/Popover";
 import { TabSaveFooter } from "./TabSaveFooter";
 
 // ---------------------------------------------------------------------------
@@ -176,6 +179,13 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
   const [modelRoutingExpanded, setModelRoutingExpanded] = useState(false);
+  const [providers, setProviders] = useState<CustomProviderInfo[]>([]);
+  const [importPickerOpen, setImportPickerOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importTriggerRef = useRef<HTMLButtonElement>(null);
+  const [modelCandidates, setModelCandidates] = useState<string[]>([]);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const discoverAbortRef = useRef<AbortController | null>(null);
 
   // Load config on mount
   const load = useCallback(async () => {
@@ -192,6 +202,30 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await API.listCustomProviders();
+        if (!cancelled) {
+          setProviders(res.providers.filter((p) => p.api_key_masked));
+        }
+      } catch {
+        // 静默：导入是可选功能，不打断主流程
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(
+    () => () => {
+      discoverAbortRef.current?.abort();
+    },
+    [],
+  );
 
   const isDirty = !deepEqual(draft, savedRef.current);
   useWarnUnsaved(isDirty);
@@ -245,6 +279,59 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         useAppStore.getState().pushToast(t("clear_failed", { message: errMsg(err) }), "error");
       } finally {
         setClearingField(null);
+      }
+    },
+    [t],
+  );
+
+  const handleDiscoverModels = useCallback(async () => {
+    discoverAbortRef.current?.abort();
+    const controller = new AbortController();
+    discoverAbortRef.current = controller;
+
+    const apiKey = draft.anthropicKey.trim() || undefined;
+    const baseUrl = draft.anthropicBaseUrl.trim() || undefined;
+
+    setDiscoverLoading(true);
+    const toast = useAppStore.getState().pushToast;
+    try {
+      const res = await API.discoverAnthropicModels(
+        { base_url: baseUrl, api_key: apiKey },
+        { signal: controller.signal },
+      );
+      if (controller.signal.aborted) return;
+      setModelCandidates(res.models.map((m) => m.model_id));
+      if (res.models.length === 0) {
+        toast(t("discover_no_models"), "warning");
+      } else {
+        toast(t("discover_models_success", { count: res.models.length }), "success");
+      }
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      toast(errMsg(err), "error");
+    } finally {
+      if (!controller.signal.aborted) setDiscoverLoading(false);
+    }
+  }, [draft.anthropicKey, draft.anthropicBaseUrl, t]);
+
+  const handleImportProvider = useCallback(
+    async (provider: CustomProviderInfo) => {
+      setImporting(true);
+      try {
+        const cred = await API.getCustomProviderCredentials(provider.id);
+        setDraft((prev) => ({
+          ...prev,
+          anthropicKey: cred.api_key,
+          anthropicBaseUrl: cred.base_url,
+        }));
+        useAppStore
+          .getState()
+          .pushToast(t("import_provider_success", { name: provider.display_name }), "success");
+      } catch (err) {
+        useAppStore.getState().pushToast(errMsg(err), "error");
+      } finally {
+        setImporting(false);
+        setImportPickerOpen(false);
       }
     },
     [t],
@@ -308,10 +395,52 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         {/* Section 1: API Key + Base URL */}
         {/* ----------------------------------------------------------------- */}
         <div>
-          <SectionHeading
-            title={t("api_credentials")}
-            description={t("anthropic_key_required_desc")}
-          />
+          <div className="flex items-start justify-between">
+            <SectionHeading
+              title={t("api_credentials")}
+              description={t("anthropic_key_required_desc")}
+            />
+            <>
+              <button
+                ref={importTriggerRef}
+                type="button"
+                onClick={() => setImportPickerOpen((v) => !v)}
+                disabled={importing || saving}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:border-gray-600 hover:bg-gray-800/50 disabled:opacity-50"
+              >
+                {importing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+                {t("import_from_provider")}
+              </button>
+              <Popover
+                open={importPickerOpen}
+                onClose={() => setImportPickerOpen(false)}
+                anchorRef={importTriggerRef}
+                width="w-64"
+                className="rounded-lg border border-gray-700 py-1 shadow-lg"
+              >
+                {providers.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-gray-500">
+                    {t("import_no_providers")}
+                  </div>
+                ) : (
+                  providers.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => void handleImportProvider(p)}
+                      className="block w-full truncate px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800"
+                    >
+                      {p.display_name}
+                    </button>
+                  ))
+                )}
+              </Popover>
+            </>
+          </div>
 
           {/* API Key card */}
           <div className={`${cardClassName} space-y-4`}>
@@ -447,10 +576,24 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         {/* Section 2: Model Configuration */}
         {/* ----------------------------------------------------------------- */}
         <div>
-          <SectionHeading
-            title={t("model_config")}
-            description={t("model_config_desc")}
-          />
+          <div className="mb-4 flex items-start justify-between">
+            <SectionHeading title={t("model_config")} description={t("model_config_desc")} />
+            <div>
+              <button
+                type="button"
+                onClick={() => void handleDiscoverModels()}
+                disabled={discoverLoading}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:border-gray-600 hover:bg-gray-800/50 disabled:opacity-50"
+              >
+                {discoverLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Search className="h-3.5 w-3.5" />
+                )}
+                {t("discover_models")}
+              </button>
+            </div>
+          </div>
 
           <div className={cardClassName}>
             <div className="flex items-center justify-between">
@@ -483,28 +626,18 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             <p className="mt-0.5 text-xs text-gray-500">
               {t("env_anthropic_model")}
             </p>
-            <div className="relative mt-2">
-              <input
+            <div className="mt-2">
+              <ModelCombobox
                 id="agent-model"
                 value={draft.anthropicModel}
-                onChange={(e) => updateDraft("anthropicModel", e.target.value)}
+                onChange={(v) => updateDraft("anthropicModel", v)}
+                options={modelCandidates}
                 placeholder="claude-3-5-sonnet-20241022"
-                className={`${inputClassName}${draft.anthropicModel ? " pr-8" : ""}`}
-                autoComplete="off"
-                spellCheck={false}
                 name="anthropic_model"
                 disabled={saving}
+                clearable
+                clearAriaLabel={t("clear_model_input")}
               />
-              {draft.anthropicModel && (
-                <button
-                  type="button"
-                  onClick={() => updateDraft("anthropicModel", "")}
-                  className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
-                  aria-label={t("clear_model_input")}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
             </div>
 
             {/* Advanced model routing */}
@@ -562,26 +695,17 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                           </button>
                         )}
                       </div>
-                      <div className="relative mt-1.5">
-                        <input
+                      <div className="mt-1.5">
+                        <ModelCombobox
                           value={draft[key]}
-                          onChange={(e) => updateDraft(key, e.target.value)}
+                          onChange={(v) => updateDraft(key, v)}
+                          options={modelCandidates}
                           placeholder={envVar}
-                          className={`${inputClassName}${draft[key] ? " pr-8" : ""}`}
-                          autoComplete="off"
-                          spellCheck={false}
                           disabled={saving}
+                          aria-label={t(`dashboard:${labelKey}`)}
+                          clearable
+                          clearAriaLabel={t("clear_field_input", { label: t(`dashboard:${labelKey}`) })}
                         />
-                        {draft[key] && (
-                          <button
-                            type="button"
-                            onClick={() => updateDraft(key, "")}
-                            className={`absolute right-2 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
-                            aria-label={t("clear_field_input", { label: t(`dashboard:${labelKey}`) })}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
                       </div>
                     </div>
                   );
