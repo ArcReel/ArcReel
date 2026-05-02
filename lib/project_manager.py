@@ -1019,6 +1019,20 @@ class ProjectManager:
             return False
 
     @staticmethod
+    def _lazy_upgrade_image_provider(project: dict) -> None:
+        """读取时把旧 image_provider 字段映射到 _t2i / _i2i 两字段（不写盘）。
+
+        - legacy `image_provider` 必须是 "<provider>/<model>" 字符串才生效
+        - 已有 _t2i / _i2i 不覆盖
+        - 旧 image_provider 字段保留作为 fallback
+        """
+        legacy = project.get("image_provider")
+        if not isinstance(legacy, str) or "/" not in legacy:
+            return
+        project.setdefault("image_provider_t2i", legacy)
+        project.setdefault("image_provider_i2i", legacy)
+
+    @staticmethod
     def _migrate_legacy_style(project: dict) -> bool:
         """检测旧 style 值并就地迁移。返回是否发生了变更。"""
         if "style_template_id" in project:
@@ -1066,6 +1080,7 @@ class ProjectManager:
                 project_name,
                 changed_paths=[self.PROJECT_FILE],
             )
+        self._lazy_upgrade_image_provider(project)
         return project
 
     @contextmanager
