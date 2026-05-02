@@ -158,6 +158,7 @@ class EndpointDescriptor(BaseModel):
     display_name_key: str
     request_method: str
     request_path_template: str
+    image_capabilities: list[str] | None = None  # image 类填能力字符串列表，其他为 None
 
 
 class EndpointCatalogResponse(BaseModel):

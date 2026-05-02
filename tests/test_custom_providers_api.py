@@ -197,7 +197,7 @@ class TestListProviders:
 class TestEndpointCatalog:
     """GET /endpoints 暴露 ENDPOINT_REGISTRY 作为前端单一真相源。"""
 
-    def test_lists_all_six_endpoints(self, client: TestClient):
+    def test_lists_all_endpoints(self, client: TestClient):
         resp = client.get("/api/v1/custom-providers/endpoints")
         assert resp.status_code == 200
         body = resp.json()
@@ -206,6 +206,8 @@ class TestEndpointCatalog:
             "openai-chat",
             "gemini-generate",
             "openai-images",
+            "openai-images-generations",
+            "openai-images-edits",
             "gemini-image",
             "openai-video",
             "newapi-video",
@@ -222,9 +224,21 @@ class TestEndpointCatalog:
                 "display_name_key",
                 "request_method",
                 "request_path_template",
+                "image_capabilities",
             }
             assert entry["request_method"] == "POST"
             assert entry["request_path_template"].startswith("/")
+
+    def test_endpoints_expose_image_capabilities(self, client: TestClient):
+        """每个 entry 上返回 image_capabilities：image 类填能力数组，其他为 None。"""
+        resp = client.get("/api/v1/custom-providers/endpoints")
+        assert resp.status_code == 200
+        by_key = {e["key"]: e for e in resp.json()["endpoints"]}
+        assert by_key["openai-chat"]["image_capabilities"] is None
+        assert sorted(by_key["openai-images"]["image_capabilities"]) == ["image_to_image", "text_to_image"]
+        assert by_key["openai-images-generations"]["image_capabilities"] == ["text_to_image"]
+        assert by_key["openai-images-edits"]["image_capabilities"] == ["image_to_image"]
+        assert sorted(by_key["gemini-image"]["image_capabilities"]) == ["image_to_image", "text_to_image"]
 
     def test_endpoint_route_not_shadowed_by_provider_id(self, client: TestClient):
         """回归：/endpoints 必须先于 /{provider_id} 注册，不能被解析为整型 provider_id。"""
