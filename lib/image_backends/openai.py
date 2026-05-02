@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gpt-image-2"
 _MAX_REFERENCE_IMAGES = 16
+ImageBackendMode = Literal["both", "generations_only", "edits_only"]
 
 
 def _resolve_openai_params(
@@ -66,8 +67,6 @@ def _resolve_openai_params(
 class OpenAIImageBackend:
     """OpenAI 图片生成后端，按 mode 决定支持 T2I / I2I / 两者。"""
 
-    Mode = Literal["both", "generations_only", "edits_only"]
-
     _MODE_TO_CAPS: dict[str, set[ImageCapability]] = {
         "both": {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE},
         "generations_only": {ImageCapability.TEXT_TO_IMAGE},
@@ -80,7 +79,7 @@ class OpenAIImageBackend:
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
-        mode: Mode = "both",
+        mode: ImageBackendMode = "both",
     ):
         self._client = create_openai_client(api_key=api_key, base_url=base_url)
         self._model = model or DEFAULT_MODEL

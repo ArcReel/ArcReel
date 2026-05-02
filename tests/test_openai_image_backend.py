@@ -497,3 +497,21 @@ class TestModeGating:
             with pytest.raises(ImageCapabilityError) as excinfo:
                 await b.generate(req)
             assert excinfo.value.code == "image_endpoint_mismatch_no_t2i"
+
+    @pytest.mark.asyncio
+    async def test_all_refs_failed_to_open_raises(self, tmp_path):
+        """所有 ref 图都打不开时，应抛 ImageCapabilityError 而非回退到 T2I。"""
+        with patch("lib.openai_shared.AsyncOpenAI"):
+            from lib.image_backends.openai import OpenAIImageBackend
+
+            b = OpenAIImageBackend(api_key="x", model="m")  # mode="both" 默认
+            req = ImageGenerationRequest(
+                prompt="p",
+                output_path=tmp_path / "o.png",
+                reference_images=[ReferenceImage(path="/nonexistent/ref.png")],
+            )
+            with pytest.raises(ImageCapabilityError) as excinfo:
+                await b.generate(req)
+            assert excinfo.value.code == "image_endpoint_mismatch_no_i2i"
+            assert excinfo.value.params.get("model") == "m"
+            assert excinfo.value.params.get("detail") == "all reference images failed to open"
