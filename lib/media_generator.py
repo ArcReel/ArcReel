@@ -206,6 +206,20 @@ class MediaGenerator:
         if self._image_backend is None:
             raise RuntimeError("image_backend not configured")
 
+        # Capability gating：上层 resolver 应当已经选到对的 backend，
+        # 这里是兜底（防御调用方手工拼 backend 或配置漂移）。
+        from lib.image_backends.base import ImageCapability, ImageCapabilityError
+
+        needed = ImageCapability.IMAGE_TO_IMAGE if reference_images else ImageCapability.TEXT_TO_IMAGE
+        if needed not in self._image_backend.capabilities:
+            raise ImageCapabilityError(
+                "image_capability_missing_i2i"
+                if needed == ImageCapability.IMAGE_TO_IMAGE
+                else "image_capability_missing_t2i",
+                provider=self._image_backend.name,
+                model=self._image_backend.model,
+            )
+
         # 2. 记录 API 调用开始
         call_id = await self.usage_tracker.start_call(
             project_name=self.project_name,

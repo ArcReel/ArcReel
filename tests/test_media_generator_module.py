@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.image_backends.base import ImageCapability
 from lib.media_generator import MediaGenerator
 
 
@@ -10,7 +11,7 @@ class _FakeImageBackend:
 
     name = "fake-image"
     model = "img-model"
-    capabilities = set()
+    capabilities = {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
     def __init__(self):
         self.calls = []
