@@ -279,14 +279,7 @@ def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> 
             if caps_i & caps_j:
                 conflict_ids.extend([id_i, id_j])
     if conflict_ids:
-        # dedupe + 保持原始顺序
-        seen: set[str] = set()
-        deduped: list[str] = []
-        for cid in conflict_ids:
-            if cid not in seen:
-                seen.add(cid)
-                deduped.append(cid)
-        duplicates["image"] = deduped
+        duplicates["image"] = list(dict.fromkeys(conflict_ids))
 
     if duplicates:
         parts = [f"{mt}({', '.join(ids)})" for mt, ids in duplicates.items()]
