@@ -1208,6 +1208,10 @@ async def execute_grid_task(
         image_provider_id, image_model_id = await _resolve_effective_image_backend(
             project, payload, needs_i2i=_needs_i2i
         )
+        # 回填 grid metadata：route 层创建/重建时无法预知 needs_i2i，由此处补齐
+        grid.provider = image_provider_id
+        grid.model = image_model_id
+        grid_manager.save(grid)
         image_size = await resolve_resolution(project, image_provider_id, image_model_id) or "2K"  # 宫格图保底高分辨率
 
         image_path, version = await generator.generate_image_async(
