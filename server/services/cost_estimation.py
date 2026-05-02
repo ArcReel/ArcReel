@@ -48,9 +48,12 @@ class CostEstimationService:
         # Resolve current model config（共享单一 session）
         async with self._resolver.session() as r:
             try:
-                image_provider, image_model = await r.default_image_backend()
+                image_provider, image_model = await r.default_image_backend_t2i()
             except Exception:
-                image_provider, image_model = "unknown", "unknown"
+                try:
+                    image_provider, image_model = await r.default_image_backend_i2i()
+                except Exception:
+                    image_provider, image_model = "unknown", "unknown"
 
             try:
                 video_provider, video_model = await r.default_video_backend()
@@ -81,10 +84,14 @@ class CostEstimationService:
                 if project_video_settings.get("model"):
                     video_model = project_video_settings["model"]
 
-        # 项目级图片配置覆盖
-        project_image_provider = project_data.get("image_provider")
-        if project_image_provider:
-            image_provider = project_image_provider
+        # 项目级图片配置覆盖（按 T2I 槽估算，回退 I2I，再回退旧字段）
+        project_image_pair = (
+            project_data.get("image_provider_t2i")
+            or project_data.get("image_provider_i2i")
+            or project_data.get("image_backend")
+        )
+        if isinstance(project_image_pair, str) and "/" in project_image_pair:
+            image_provider, image_model = project_image_pair.split("/", 1)
 
         _resolve_pid = registry_video_provider_id or video_provider
         _resolved_resolution = await resolve_resolution(project_data, _resolve_pid, video_model or "")
