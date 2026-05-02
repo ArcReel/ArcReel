@@ -8,7 +8,9 @@ import logging
 from google import genai
 from openai import OpenAI
 
+from lib.config.url_utils import ensure_anthropic_base_url
 from lib.custom_provider.endpoints import endpoint_to_media_type, infer_endpoint
+from lib.httpx_shared import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +30,10 @@ async def discover_models(
         return await _discover_openai(base_url, api_key)
     elif discovery_format == "google":
         return await _discover_google(base_url, api_key)
+    elif discovery_format == "anthropic":
+        return await _discover_anthropic(base_url, api_key)
     else:
-        raise ValueError(f"不支持的 discovery_format: {discovery_format!r}，支持: 'openai', 'google'")
+        raise ValueError(f"不支持的 discovery_format: {discovery_format!r}，支持: 'openai', 'google', 'anthropic'")
 
 
 async def _discover_openai(base_url: str | None, api_key: str) -> list[dict]:
@@ -66,6 +70,39 @@ async def _discover_google(base_url: str | None, api_key: str) -> list[dict]:
         return _build_result_list(entries)
 
     return await asyncio.to_thread(_sync)
+
+
+async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
+    """Anthropic Messages 协议 GET /v1/models 发现可用模型。
+
+    返回 dict 与 OpenAI/Google 路径同形态，但 endpoint 字段为空字符串
+    （anthropic 不参与 ENDPOINT_REGISTRY 派发，前端只读 model_id）。
+    """
+    normalized = ensure_anthropic_base_url(base_url) or "https://api.anthropic.com"
+    resp = await get_http_client().get(
+        f"{normalized}/v1/models",
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+        timeout=15.0,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    entries = sorted(
+        (m for m in data.get("data", []) if m.get("id")),
+        key=lambda m: m["id"],
+    )
+    return [
+        {
+            "model_id": m["id"],
+            "display_name": m.get("display_name") or m["id"],
+            "endpoint": "",
+            "is_default": False,
+            "is_enabled": True,
+        }
+        for m in entries
+    ]
 
 
 def _build_result_list(entries: list[tuple[str, str]]) -> list[dict]:
