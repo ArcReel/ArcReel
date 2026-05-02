@@ -179,6 +179,8 @@ async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsD
 class SystemConfigPatchRequest(BaseModel):
     default_video_backend: str | None = None
     default_image_backend: str | None = None
+    default_image_backend_t2i: str | None = None
+    default_image_backend_i2i: str | None = None
     default_text_backend: str | None = None
     video_generate_audio: bool | None = None
     anthropic_api_key: str | None = None
@@ -233,6 +235,8 @@ async def get_system_config(
     settings: dict[str, Any] = {
         "default_video_backend": all_s.get("default_video_backend", ""),
         "default_image_backend": all_s.get("default_image_backend", ""),
+        "default_image_backend_t2i": all_s.get("default_image_backend_t2i", ""),
+        "default_image_backend_i2i": all_s.get("default_image_backend_i2i", ""),
         "default_text_backend": all_s.get("default_text_backend", ""),
         "video_generate_audio": video_generate_audio,
         "anthropic_api_key": {
@@ -309,7 +313,13 @@ async def patch_system_config(
         patch[field_name] = getattr(req, field_name)
 
     # Validate backend references (empty string = auto-resolve)
-    for backend_key in ("default_video_backend", "default_image_backend", "default_text_backend"):
+    for backend_key in (
+        "default_video_backend",
+        "default_image_backend",
+        "default_image_backend_t2i",
+        "default_image_backend_i2i",
+        "default_text_backend",
+    ):
         if backend_key in patch:
             value = str(patch[backend_key] or "").strip()
             if value:

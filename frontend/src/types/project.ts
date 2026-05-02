@@ -110,6 +110,8 @@ export interface ProjectData {
   status?: ProjectStatus;
   video_backend?: string | null;
   image_backend?: string | null;
+  image_provider_t2i?: string | null;
+  image_provider_i2i?: string | null;
   /** Canonical values: storyboard | grid | reference_video. "single" is legacy-only. */
   generation_mode?: "storyboard" | "grid" | "reference_video" | "single";
   video_generate_audio?: boolean | null;

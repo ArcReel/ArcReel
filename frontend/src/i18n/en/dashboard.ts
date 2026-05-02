@@ -207,6 +207,8 @@ export default {
   'generate_audio': 'Generate Audio',
   'audio_support_hint': '(Supported by some providers only)',
   'default_image_model': 'Default Image Model',
+  'image_model_t2i': 'Text-to-Image (T2I)',
+  'image_model_i2i': 'Image-to-Image (I2I)',
   'no_image_providers_hint': 'No image providers available, please configure API keys in "Providers" first.',
   'text_models': 'Text Models',
   'text_models_desc': 'Configure text models by task type, leave empty for auto-selection.',

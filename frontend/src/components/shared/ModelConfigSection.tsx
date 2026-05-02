@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { DEFAULT_DURATIONS, lookupSupportedDurations, lookupResolutions } from "@/utils/provider-models";
 import { ResolutionPicker } from "./ResolutionPicker";
+import { ImageModelDualSelect } from "./ImageModelDualSelect";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import type { ProviderInfo } from "@/types/provider";
 import type { CustomProviderInfo } from "@/types/custom-provider";
@@ -19,7 +20,8 @@ const EMPTY_CUSTOM_PROVIDERS: CustomProviderInfo[] = [];
 
 export interface ModelConfigValue {
   videoBackend: string; // "" = use global default
-  imageBackend: string;
+  imageBackendT2I: string; // "" = use global default (T2I slot)
+  imageBackendI2I: string; // "" = use global default (I2I slot)
   textBackendScript: string;
   textBackendOverview: string;
   textBackendStyle: string;
@@ -44,7 +46,8 @@ export interface ModelConfigSectionProps {
   /** Global default values shown as hint text under each "use global default" option */
   globalDefaults: {
     video: string;
-    image: string;
+    imageT2I: string;
+    imageI2I: string;
     textScript: string;
     textOverview: string;
     textStyle: string;
@@ -216,24 +219,21 @@ export function ModelConfigSection({
       {showImage && (
         <div className="rounded-xl border border-gray-800 bg-gray-950/40 p-4">
           <div className="mb-3 text-sm font-medium text-gray-100">{t("model_image")}</div>
-          <ProviderModelSelect
-            value={value.imageBackend}
+          <ImageModelDualSelect
+            valueT2I={value.imageBackendT2I}
+            valueI2I={value.imageBackendI2I}
             options={options.imageBackends}
             providerNames={options.providerNames}
-            onChange={(next) => onChange({ ...value, imageBackend: next, imageResolution: null })}
-            allowDefault
-            defaultLabel={t("use_global_default")}
-            defaultHint={
-              globalDefaults.image
-                ? t("current_global_default", { value: globalDefaults.image })
-                : undefined
+            onChange={({ t2i, i2i }) =>
+              onChange({ ...value, imageBackendT2I: t2i, imageBackendI2I: i2i, imageResolution: null })
             }
-            fallbackValue={globalDefaults.image || undefined}
-            aria-label={t("model_image")}
+            globalDefaultT2I={globalDefaults.imageT2I || undefined}
+            globalDefaultI2I={globalDefaults.imageI2I || undefined}
           />
 
           {renderResolutionField(
-            value.imageBackend || globalDefaults.image || "",
+            // T2I is treated as the canonical slot for resolution computation
+            value.imageBackendT2I || globalDefaults.imageT2I || "",
             value.imageResolution,
             (v) => onChange({ ...value, imageResolution: v }),
           )}

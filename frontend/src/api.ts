@@ -169,6 +169,8 @@ export interface CreateProjectPayload {
   style_template_id?: string | null;
   video_backend?: string | null;
   image_backend?: string | null;
+  image_provider_t2i?: string | null;
+  image_provider_i2i?: string | null;
   text_backend_script?: string | null;
   text_backend_overview?: string | null;
   text_backend_style?: string | null;

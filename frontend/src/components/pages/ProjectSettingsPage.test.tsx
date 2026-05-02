@@ -29,6 +29,8 @@ const FAKE_CONFIG_WITH_DEFAULTS = {
   settings: {
     default_video_backend: "gemini/veo-3",
     default_image_backend: "gemini/nano-banana",
+    default_image_backend_t2i: "gemini/nano-banana",
+    default_image_backend_i2i: "gemini/nano-banana",
     text_backend_script: "gemini/g25",
     text_backend_overview: "gemini/g25",
     text_backend_style: "gemini/g25",
@@ -203,8 +205,8 @@ describe("ProjectSettingsPage – style picker", () => {
 
     renderAt("/app/projects/demo/settings");
 
-    // Wait for config to load and a model trigger to render
-    const imageTrigger = await screen.findByRole("combobox", { name: /图片模型/ });
+    // Wait for config to load and a model trigger to render (T2I trigger)
+    const imageTrigger = await screen.findByRole("combobox", { name: /文生图/ });
     expect(imageTrigger).toHaveTextContent(/跟随全局默认/);
     expect(imageTrigger).toHaveTextContent(/nano-banana/);
   });
@@ -322,7 +324,8 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
       project: {
         title: "Demo",
         video_backend: "gemini/veo-3",
-        image_backend: "gemini/nano-banana",
+        image_provider_t2i: "gemini/nano-banana",
+        image_provider_i2i: "gemini/nano-banana",
         model_settings: {
           "gemini/veo-3": { resolution: "1080p" },
           "gemini/nano-banana": { resolution: "720p" },
@@ -361,7 +364,8 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
       project: {
         title: "Demo",
         video_backend: "gemini/veo-3",
-        image_backend: "gemini/nano-banana",
+        image_provider_t2i: "gemini/nano-banana",
+        image_provider_i2i: "gemini/nano-banana",
         model_settings: {
           "gemini/veo-3": { resolution: "1080p" },
           "gemini/nano-banana": { resolution: "720p" },

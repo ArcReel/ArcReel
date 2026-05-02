@@ -80,6 +80,8 @@ class CreateProjectRequest(BaseModel):
     style_template_id: str | None = None
     video_backend: str | None = None
     image_backend: str | None = None
+    image_provider_t2i: str | None = None
+    image_provider_i2i: str | None = None
     text_backend_script: str | None = None
     text_backend_overview: str | None = None
     text_backend_style: str | None = None
@@ -109,6 +111,8 @@ class UpdateProjectRequest(BaseModel):
     generation_mode: str | None = None
     video_backend: str | None = None
     image_backend: str | None = None
+    image_provider_t2i: str | None = None
+    image_provider_i2i: str | None = None
     video_generate_audio: bool | None = None
     text_backend_script: str | None = None
     text_backend_overview: str | None = None
@@ -453,6 +457,8 @@ async def create_project(
             for field_name in (
                 "video_backend",
                 "image_backend",
+                "image_provider_t2i",
+                "image_provider_i2i",
                 "text_backend_script",
                 "text_backend_overview",
                 "text_backend_style",
@@ -470,6 +476,8 @@ async def create_project(
                 for field in (
                     "video_backend",
                     "image_backend",
+                    "image_provider_t2i",
+                    "image_provider_i2i",
                     "text_backend_script",
                     "text_backend_overview",
                     "text_backend_style",
@@ -607,6 +615,8 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
             for field in (
                 "video_backend",
                 "image_backend",
+                "image_provider_t2i",
+                "image_provider_i2i",
                 "text_backend_script",
                 "text_backend_overview",
                 "text_backend_style",

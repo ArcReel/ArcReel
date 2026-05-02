@@ -208,6 +208,8 @@ export default {
   'generate_audio': '生成音频',
   'audio_support_hint': '（仅部分供应商支持）',
   'default_image_model': '默认图片模型',
+  'image_model_t2i': '文生图（T2I）',
+  'image_model_i2i': '图生图（I2I）',
   'no_image_providers_hint': '暂无可用图片供应商，请先在「供应商」页面配置 API 密钥',
   'text_models': '文本模型',
   'text_models_desc': '按任务类型配置文本模型，留空表示自动选择',

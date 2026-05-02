@@ -140,6 +140,8 @@ class TestGetSystemConfig:
         expected_keys = {
             "default_video_backend",
             "default_image_backend",
+            "default_image_backend_t2i",
+            "default_image_backend_i2i",
             "default_text_backend",
             "video_generate_audio",
             "anthropic_api_key",

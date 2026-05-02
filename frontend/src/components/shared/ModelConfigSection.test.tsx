@@ -58,7 +58,8 @@ const OPTIONS = {
 
 const EMPTY_VALUE = {
   videoBackend: "",
-  imageBackend: "",
+  imageBackendT2I: "",
+  imageBackendI2I: "",
   textBackendScript: "",
   textBackendOverview: "",
   textBackendStyle: "",
@@ -78,16 +79,17 @@ describe("ModelConfigSection", () => {
         options={OPTIONS}
         globalDefaults={{
           video: "gemini/veo-3",
-          image: "gemini/nano-banana",
+          imageT2I: "gemini/nano-banana",
+          imageI2I: "gemini/nano-banana",
           textScript: "gemini/g25",
           textOverview: "gemini/g25",
           textStyle: "gemini/g25",
         }}
       />,
     );
-    // 5 combobox triggers should be rendered (1 video + 1 image + 3 text)
+    // 6 combobox triggers should be rendered (1 video + 2 image T2I/I2I + 3 text)
     const comboboxes = screen.getAllByRole("combobox");
-    expect(comboboxes).toHaveLength(5);
+    expect(comboboxes).toHaveLength(6);
 
     // Opening each dropdown should reveal "使用全局默认" as the default option
     await user.click(comboboxes[0]);
@@ -103,7 +105,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", image: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
       />,
     );
     expect(screen.getByRole("radio", { name: "4s" })).toBeInTheDocument();
@@ -117,7 +119,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", image: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
       />,
     );
     expect(screen.getByRole("radio", { name: "5s" })).toBeInTheDocument();
@@ -135,7 +137,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", image: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
       />,
     );
     // Open the video backend dropdown
@@ -162,7 +164,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", image: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
       />,
     );
     const videoTrigger = screen.getByRole("combobox", { name: /视频模型/ });
@@ -185,14 +187,14 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", image: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
         enable={{ video: false }}
       />,
     );
     // No combobox for video model should be visible
     expect(screen.queryByRole("combobox", { name: /视频模型/ })).not.toBeInTheDocument();
-    // Image and text should still be visible
-    expect(screen.getByRole("combobox", { name: /图片模型/ })).toBeInTheDocument();
+    // Image (T2I) and text should still be visible
+    expect(screen.getByRole("combobox", { name: /文生图/ })).toBeInTheDocument();
   });
 
   it("falls back to globalDefaults.video supported_durations when videoBackend is empty (bug repro)", () => {
@@ -204,7 +206,8 @@ describe("ModelConfigSection", () => {
         options={OPTIONS}
         globalDefaults={{
           video: "ark/seedance",
-          image: "",
+          imageT2I: "",
+          imageI2I: "",
           textScript: "",
           textOverview: "",
           textStyle: "",
@@ -227,7 +230,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", image: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
       />,
     );
     // DEFAULT_DURATIONS = [4, 6, 8]
@@ -243,7 +246,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", image: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
       />,
     );
     expect(screen.getByRole("radio", { name: "auto" })).toHaveAttribute("aria-checked", "true");
@@ -256,7 +259,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", image: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
       />,
     );
     expect(screen.getByRole("radio", { name: "6s" })).toHaveAttribute("aria-checked", "true");
@@ -272,7 +275,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", image: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
       />,
     );
     await user.click(screen.getByRole("radio", { name: "6s" }));

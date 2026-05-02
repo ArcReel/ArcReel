@@ -14,7 +14,8 @@ export interface WizardStep2Data {
   customProviders: CustomProviderInfo[];
   globalDefaults: {
     video: string;
-    image: string;
+    imageT2I: string;
+    imageI2I: string;
     textScript: string;
     textOverview: string;
     textStyle: string;

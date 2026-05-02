@@ -51,11 +51,12 @@ export function ProjectSettingsPage() {
   } | null>(null);
   const [globalDefaults, setGlobalDefaults] = useState<{
     video: string;
-    image: string;
+    imageT2I: string;
+    imageI2I: string;
     textScript: string;
     textOverview: string;
     textStyle: string;
-  }>({ video: "", image: "", textScript: "", textOverview: "", textStyle: "" });
+  }>({ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" });
 
   const allProviderNames = useMemo(
     () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
@@ -65,7 +66,8 @@ export function ProjectSettingsPage() {
   // Project-level overrides (from project.json)
   // "" means "follow global default"
   const [videoBackend, setVideoBackend] = useState<string>("");
-  const [imageBackend, setImageBackend] = useState<string>("");
+  const [imageBackendT2I, setImageBackendT2I] = useState<string>("");
+  const [imageBackendI2I, setImageBackendI2I] = useState<string>("");
   const [audioOverride, setAudioOverride] = useState<boolean | null>(null);
   const [textScript, setTextScript] = useState<string>("");
   const [textOverview, setTextOverview] = useState<string>("");
@@ -84,7 +86,7 @@ export function ProjectSettingsPage() {
   const [styleValue, setStyleValue] = useState<StylePickerValue | null>(null);
   const [savingStyle, setSavingStyle] = useState(false);
   const initialRef = useRef({
-    videoBackend: "", imageBackend: "", audioOverride: null as boolean | null,
+    videoBackend: "", imageBackendT2I: "", imageBackendI2I: "", audioOverride: null as boolean | null,
     textScript: "", textOverview: "", textStyle: "",
     aspectRatio: "", generationMode: "storyboard" as GenerationMode,
     defaultDuration: null as number | null,
@@ -113,7 +115,14 @@ export function ProjectSettingsPage() {
       });
       setGlobalDefaults({
         video: configRes.settings?.default_video_backend ?? "",
-        image: configRes.settings?.default_image_backend ?? "",
+        imageT2I:
+          configRes.settings?.default_image_backend_t2i ||
+          configRes.settings?.default_image_backend ||
+          "",
+        imageI2I:
+          configRes.settings?.default_image_backend_i2i ||
+          configRes.settings?.default_image_backend ||
+          "",
         textScript: configRes.settings?.text_backend_script ?? "",
         textOverview: configRes.settings?.text_backend_overview ?? "",
         textStyle: configRes.settings?.text_backend_style ?? "",
@@ -123,7 +132,9 @@ export function ProjectSettingsPage() {
 
       const project = projectRes.project as unknown as Record<string, unknown>;
       const vb = (project.video_backend as string | undefined) ?? "";
-      const ib = (project.image_backend as string | undefined) ?? "";
+      // Read T2I/I2I split fields; lazy-upgrade in project_manager populates both from legacy image_backend
+      const ibt2i = (project.image_provider_t2i as string | undefined) ?? "";
+      const ibi2i = (project.image_provider_i2i as string | undefined) ?? "";
       const rawAudio = project.video_generate_audio;
       const ao = typeof rawAudio === "boolean" ? rawAudio : null;
       const ts = (project.text_backend_script as string | undefined) ?? "";
@@ -138,7 +149,8 @@ export function ProjectSettingsPage() {
       const dd = project.default_duration != null ? (project.default_duration as number) : null;
 
       setVideoBackend(vb);
-      setImageBackend(ib);
+      setImageBackendT2I(ibt2i);
+      setImageBackendI2I(ibi2i);
       setAudioOverride(ao);
       setTextScript(ts);
       setTextOverview(to);
@@ -150,9 +162,12 @@ export function ProjectSettingsPage() {
       // model_settings 的 key 以 effective backend（override ‖ global default）读写，
       // 与 handleSave 保持一致；legacy video_model_settings 作为旧项目兼容回退。
       const defaultVideo = configRes.settings?.default_video_backend ?? "";
-      const defaultImage = configRes.settings?.default_image_backend ?? "";
+      const defaultImageT2I =
+        configRes.settings?.default_image_backend_t2i ||
+        configRes.settings?.default_image_backend ||
+        "";
       const effectiveVb = vb || defaultVideo;
-      const effectiveIb = ib || defaultImage;
+      const effectiveIb = ibt2i || defaultImageT2I; // T2I treated as canonical for resolution
       const ms = (project.model_settings ?? {}) as Record<string, { resolution: string | null }>;
       const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
       const vModelId = effectiveVb && effectiveVb.includes("/") ? effectiveVb.split("/")[1] : effectiveVb;
@@ -169,7 +184,7 @@ export function ProjectSettingsPage() {
       setStyleValue(derivedStyle);
       initialStyleRef.current = derivedStyle;
       initialRef.current = {
-        videoBackend: vb, imageBackend: ib, audioOverride: ao,
+        videoBackend: vb, imageBackendT2I: ibt2i, imageBackendI2I: ibi2i, audioOverride: ao,
         textScript: ts, textOverview: to, textStyle: tst,
         aspectRatio: ar, generationMode: gm, defaultDuration: dd,
         videoResolution: vRes, imageResolution: iRes,
@@ -207,7 +222,8 @@ export function ProjectSettingsPage() {
 
   const isDirty =
     videoBackend !== initialRef.current.videoBackend ||
-    imageBackend !== initialRef.current.imageBackend ||
+    imageBackendT2I !== initialRef.current.imageBackendT2I ||
+    imageBackendI2I !== initialRef.current.imageBackendI2I ||
     audioOverride !== initialRef.current.audioOverride ||
     textScript !== initialRef.current.textScript ||
     textOverview !== initialRef.current.textOverview ||
@@ -284,20 +300,21 @@ export function ProjectSettingsPage() {
     setSaving(true);
     try {
       // resolution 的 key 用 effective backend（override ‖ global default），
-      // 否则“跟随全局默认”路径下用户选的分辨率不会被写入。
+      // 否则"跟随全局默认"路径下用户选的分辨率不会被写入。
       const effectiveVideo = videoBackend || globalDefaults.video || "";
-      const effectiveImage = imageBackend || globalDefaults.image || "";
+      const effectiveImageT2I = imageBackendT2I || globalDefaults.imageT2I || "";
       const newModelSettings: Record<string, { resolution: string | null }> = { ...modelSettings };
       if (effectiveVideo) {
         newModelSettings[effectiveVideo] = { resolution: videoResolution };
       }
-      if (effectiveImage) {
-        newModelSettings[effectiveImage] = { resolution: imageResolution };
+      if (effectiveImageT2I) {
+        newModelSettings[effectiveImageT2I] = { resolution: imageResolution };
       }
 
       await API.updateProject(projectName, {
         video_backend: videoBackend || null,
-        image_backend: imageBackend || null,
+        image_provider_t2i: imageBackendT2I || null,
+        image_provider_i2i: imageBackendI2I || null,
         video_generate_audio: audioOverride,
         text_backend_script: textScript || null,
         text_backend_overview: textOverview || null,
@@ -309,7 +326,7 @@ export function ProjectSettingsPage() {
       } as Record<string, unknown>);
       setModelSettings(newModelSettings);
       initialRef.current = {
-        videoBackend, imageBackend, audioOverride,
+        videoBackend, imageBackendT2I, imageBackendI2I, audioOverride,
         textScript, textOverview, textStyle,
         aspectRatio, generationMode, defaultDuration,
         videoResolution, imageResolution,
@@ -320,7 +337,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, imageBackend, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.image]);
+  }, [modelSettings, videoBackend, imageBackendT2I, imageBackendI2I, audioOverride, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.imageT2I]);
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 overflow-y-auto">
@@ -384,7 +401,8 @@ export function ProjectSettingsPage() {
             <ModelConfigSection
               value={{
                 videoBackend,
-                imageBackend,
+                imageBackendT2I,
+                imageBackendI2I,
                 textBackendScript: textScript,
                 textBackendOverview: textOverview,
                 textBackendStyle: textStyle,
@@ -394,7 +412,8 @@ export function ProjectSettingsPage() {
               }}
               onChange={(next) => {
                 setVideoBackend(next.videoBackend);
-                setImageBackend(next.imageBackend);
+                setImageBackendT2I(next.imageBackendT2I);
+                setImageBackendI2I(next.imageBackendI2I);
                 setTextScript(next.textBackendScript);
                 setTextOverview(next.textBackendOverview);
                 setTextStyle(next.textBackendStyle);
@@ -412,7 +431,8 @@ export function ProjectSettingsPage() {
               }}
               globalDefaults={{
                 video: globalDefaults.video,
-                image: globalDefaults.image,
+                imageT2I: globalDefaults.imageT2I ?? "",
+                imageI2I: globalDefaults.imageI2I ?? "",
                 textScript: globalDefaults.textScript ?? "",
                 textOverview: globalDefaults.textOverview ?? "",
                 textStyle: globalDefaults.textStyle ?? "",
