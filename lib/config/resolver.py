@@ -161,10 +161,19 @@ class ConfigResolver:
         async with self._open_session() as (session, svc):
             return await self._resolve_video_capabilities_from_project(svc, session, project)
 
-    async def default_image_backend(self) -> tuple[str, str]:
-        """返回 (provider_id, model_id)。"""
+    async def default_image_backend_t2i(self) -> tuple[str, str]:
+        """返回 (provider_id, model_id)，T2I 默认。"""
         async with self._open_session() as (session, svc):
-            return await self._resolve_default_image_backend(svc, session)
+            return await self._resolve_default_image_backend(svc, session, "t2i")
+
+    async def default_image_backend_i2i(self) -> tuple[str, str]:
+        """返回 (provider_id, model_id)，I2I 默认。"""
+        async with self._open_session() as (session, svc):
+            return await self._resolve_default_image_backend(svc, session, "i2i")
+
+    async def default_image_backend(self) -> tuple[str, str]:
+        """兼容 shim：旧调用方仍可调；返回 T2I 变体。"""
+        return await self.default_image_backend_t2i()
 
     async def provider_config(self, provider_id: str) -> dict[str, str]:
         """获取单个供应商配置。"""
@@ -321,8 +330,15 @@ class ConfigResolver:
             "generation_mode": generation_mode,
         }
 
-    async def _resolve_default_image_backend(self, svc: ConfigService, session: AsyncSession) -> tuple[str, str]:
-        raw = await svc.get_setting("default_image_backend", "")
+    async def _resolve_default_image_backend(
+        self, svc: ConfigService, session: AsyncSession, capability: str = "t2i"
+    ) -> tuple[str, str]:
+        """capability ∈ {"t2i", "i2i"}。优先读 default_image_backend_<cap>；缺失则读旧 default_image_backend；再缺失则自动解析。"""
+        assert capability in ("t2i", "i2i")
+        key = f"default_image_backend_{capability}"
+        raw = await svc.get_setting(key, "")
+        if not raw:
+            raw = await svc.get_setting("default_image_backend", "")
         if raw and "/" in raw:
             return ConfigService._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
         return await self._auto_resolve_backend(svc, session, "image")

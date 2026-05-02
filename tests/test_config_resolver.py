@@ -201,6 +201,48 @@ class TestDefaultBackends:
         finally:
             await engine.dispose()
 
+    async def test_default_image_backend_t2i_reads_dedicated_setting(self):
+        """新 setting key default_image_backend_t2i 优先于旧 default_image_backend。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={
+                "default_image_backend": "grok/grok-2-image",
+                "default_image_backend_t2i": "ark/stable-diffusion-3",
+            },
+        )
+        result = await resolver._resolve_default_image_backend(fake_svc, None, "t2i")
+        assert result == ("ark", "stable-diffusion-3")
+
+    async def test_default_image_backend_t2i_falls_back_to_legacy(self):
+        """只设旧 default_image_backend，新 _t2i 未设时回退到旧值。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={"default_image_backend": "grok/grok-2-image"},
+        )
+        result = await resolver._resolve_default_image_backend(fake_svc, None, "t2i")
+        assert result == ("grok", "grok-2-image")
+
+    async def test_default_image_backend_i2i_reads_dedicated_setting(self):
+        """对称测试 i2i：新 key default_image_backend_i2i 优先于旧 default_image_backend。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={
+                "default_image_backend": "grok/grok-2-image",
+                "default_image_backend_i2i": "ark/kolors-img2img",
+            },
+        )
+        result = await resolver._resolve_default_image_backend(fake_svc, None, "i2i")
+        assert result == ("ark", "kolors-img2img")
+
+    async def test_default_image_backend_i2i_falls_back_to_legacy(self):
+        """只设旧 default_image_backend，_i2i 未设时回退到旧值。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={"default_image_backend": "grok/grok-2-image"},
+        )
+        result = await resolver._resolve_default_image_backend(fake_svc, None, "i2i")
+        assert result == ("grok", "grok-2-image")
+
 
 class TestProviderConfig:
     """验证供应商配置方法委托给 ConfigService。"""
