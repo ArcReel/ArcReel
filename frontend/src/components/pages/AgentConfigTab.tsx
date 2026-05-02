@@ -11,6 +11,7 @@ import { useConfigStatusStore } from "@/stores/config-status-store";
 import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 import { ModelCombobox } from "@/components/ui/ModelCombobox";
+import { Popover } from "@/components/ui/Popover";
 import { TabSaveFooter } from "./TabSaveFooter";
 
 // ---------------------------------------------------------------------------
@@ -181,11 +182,11 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const [providers, setProviders] = useState<CustomProviderInfo[]>([]);
   const [importPickerOpen, setImportPickerOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const importPickerRef = useRef<HTMLDivElement>(null);
+  const importTriggerRef = useRef<HTMLButtonElement>(null);
   const [modelCandidates, setModelCandidates] = useState<string[]>([]);
-  const [discoverState, setDiscoverState] = useState<"idle" | "loading" | "error">("idle");
-  const [discoverError, setDiscoverError] = useState<string | null>(null);
-  const [discoverHint, setDiscoverHint] = useState<string | null>(null);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [discoverMessage, setDiscoverMessage] = useState<{ kind: "error" | "hint"; text: string } | null>(null);
+  const discoverAbortRef = useRef<AbortController | null>(null);
 
   // Load config on mount
   const load = useCallback(async () => {
@@ -203,7 +204,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
 
   useEffect(() => { void load(); }, [load]);
 
-  // 加载自定义供应商列表，用于「从供应商导入」入口（仅展示已设置 api_key 的项）
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -221,27 +221,12 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     };
   }, []);
 
-  // 点击外部 / 按下 Esc 关闭「从供应商导入」下拉
-  useEffect(() => {
-    if (!importPickerOpen) return;
-    const handleMouseDown = (e: MouseEvent) => {
-      if (
-        importPickerRef.current &&
-        !importPickerRef.current.contains(e.target as Node)
-      ) {
-        setImportPickerOpen(false);
-      }
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setImportPickerOpen(false);
-    };
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [importPickerOpen]);
+  useEffect(
+    () => () => {
+      discoverAbortRef.current?.abort();
+    },
+    [],
+  );
 
   const isDirty = !deepEqual(draft, savedRef.current);
   useWarnUnsaved(isDirty);
@@ -301,22 +286,30 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   );
 
   const handleDiscoverModels = useCallback(async () => {
+    discoverAbortRef.current?.abort();
+    const controller = new AbortController();
+    discoverAbortRef.current = controller;
+
     const apiKey = draft.anthropicKey.trim() || undefined;
     const baseUrl = draft.anthropicBaseUrl.trim() || undefined;
 
-    setDiscoverState("loading");
-    setDiscoverError(null);
-    setDiscoverHint(null);
+    setDiscoverLoading(true);
+    setDiscoverMessage(null);
     try {
-      const res = await API.discoverAnthropicModels({ base_url: baseUrl, api_key: apiKey });
+      const res = await API.discoverAnthropicModels(
+        { base_url: baseUrl, api_key: apiKey },
+        { signal: controller.signal },
+      );
+      if (controller.signal.aborted) return;
       setModelCandidates(res.models.map((m) => m.model_id));
-      setDiscoverState("idle");
       if (res.models.length === 0) {
-        setDiscoverHint(t("discover_no_models"));
+        setDiscoverMessage({ kind: "hint", text: t("discover_no_models") });
       }
     } catch (err) {
-      setDiscoverError(errMsg(err));
-      setDiscoverState("error");
+      if (controller.signal.aborted) return;
+      setDiscoverMessage({ kind: "error", text: errMsg(err) });
+    } finally {
+      if (!controller.signal.aborted) setDiscoverLoading(false);
     }
   }, [draft.anthropicKey, draft.anthropicBaseUrl, t]);
 
@@ -406,8 +399,9 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
               title={t("api_credentials")}
               description={t("anthropic_key_required_desc")}
             />
-            <div className="relative" ref={importPickerRef}>
+            <>
               <button
+                ref={importTriggerRef}
                 type="button"
                 onClick={() => setImportPickerOpen((v) => !v)}
                 disabled={importing || saving}
@@ -420,27 +414,31 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 )}
                 {t("import_from_provider")}
               </button>
-              {importPickerOpen && (
-                <div className="absolute right-0 top-full z-10 mt-1 w-64 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-lg">
-                  {providers.length === 0 ? (
-                    <div className="px-3 py-2 text-xs text-gray-500">
-                      {t("import_no_providers")}
-                    </div>
-                  ) : (
-                    providers.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => void handleImportProvider(p)}
-                        className="block w-full truncate px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800"
-                      >
-                        {p.display_name}
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
+              <Popover
+                open={importPickerOpen}
+                onClose={() => setImportPickerOpen(false)}
+                anchorRef={importTriggerRef}
+                width="w-64"
+                className="rounded-lg border border-gray-700 py-1 shadow-lg"
+              >
+                {providers.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-gray-500">
+                    {t("import_no_providers")}
+                  </div>
+                ) : (
+                  providers.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => void handleImportProvider(p)}
+                      className="block w-full truncate px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800"
+                    >
+                      {p.display_name}
+                    </button>
+                  ))
+                )}
+              </Popover>
+            </>
           </div>
 
           {/* API Key card */}
@@ -583,21 +581,23 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
               <button
                 type="button"
                 onClick={() => void handleDiscoverModels()}
-                disabled={discoverState === "loading"}
+                disabled={discoverLoading}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:border-gray-600 hover:bg-gray-800/50 disabled:opacity-50"
               >
-                {discoverState === "loading" ? (
+                {discoverLoading ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <Search className="h-3.5 w-3.5" />
                 )}
                 {t("discover_models")}
               </button>
-              {discoverError && (
-                <p className="mt-1 text-right text-xs text-rose-400" role="alert">{discoverError}</p>
-              )}
-              {discoverHint && (
-                <p className="mt-1 text-right text-xs text-gray-500">{discoverHint}</p>
+              {discoverMessage && (
+                <p
+                  className={`mt-1 text-right text-xs ${discoverMessage.kind === "error" ? "text-rose-400" : "text-gray-500"}`}
+                  role={discoverMessage.kind === "error" ? "alert" : undefined}
+                >
+                  {discoverMessage.text}
+                </p>
               )}
             </div>
           </div>
@@ -642,8 +642,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 placeholder="claude-3-5-sonnet-20241022"
                 name="anthropic_model"
                 disabled={saving}
-                showClearButton={!!draft.anthropicModel}
-                onClear={() => updateDraft("anthropicModel", "")}
+                clearable
                 clearAriaLabel={t("clear_model_input")}
               />
             </div>
@@ -711,8 +710,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                           placeholder={envVar}
                           disabled={saving}
                           aria-label={t(`dashboard:${labelKey}`)}
-                          showClearButton={!!draft[key]}
-                          onClear={() => updateDraft(key, "")}
+                          clearable
                           clearAriaLabel={t("clear_field_input", { label: t(`dashboard:${labelKey}`) })}
                         />
                       </div>

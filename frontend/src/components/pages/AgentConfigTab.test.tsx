@@ -156,10 +156,10 @@ describe("AgentConfigTab — discover models", () => {
     await user.click(await screen.findByRole("button", { name: /获取模型|Discover Models/i }));
 
     await waitFor(() => {
-      expect(API.discoverAnthropicModels).toHaveBeenCalledWith({
-        base_url: "https://example.com",
-        api_key: undefined,
-      });
+      expect(API.discoverAnthropicModels).toHaveBeenCalledWith(
+        { base_url: "https://example.com", api_key: undefined },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
     });
   });
 

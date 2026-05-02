@@ -1565,10 +1565,12 @@ class API {
 
   static async discoverAnthropicModels(
     data: AnthropicDiscoverRequest,
+    options: { signal?: AbortSignal } = {},
   ): Promise<AnthropicDiscoverResponse> {
     return this.request("/custom-providers/discover-anthropic", {
       method: "POST",
       body: JSON.stringify(data),
+      signal: options.signal,
     });
   }
 

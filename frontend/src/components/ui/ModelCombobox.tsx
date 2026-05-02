@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Combobox,
   ComboboxButton,
@@ -23,8 +23,8 @@ export interface ModelComboboxProps {
   name?: string;
   disabled?: boolean;
   "aria-label"?: string;
-  showClearButton?: boolean;
-  onClear?: () => void;
+  /** 显示清除按钮（在 value 非空时）。aria-label 通过 clearAriaLabel 提供。 */
+  clearable?: boolean;
   clearAriaLabel?: string;
 }
 
@@ -37,19 +37,19 @@ export function ModelCombobox({
   name,
   disabled,
   "aria-label": ariaLabel,
-  showClearButton,
-  onClear,
+  clearable,
   clearAriaLabel,
 }: ModelComboboxProps) {
   const [query, setQuery] = useState("");
 
-  const filtered =
-    query === ""
-      ? options
-      : options.filter((o) => o.toLowerCase().includes(query.toLowerCase()));
+  const filtered = useMemo(() => {
+    if (query === "") return options;
+    const q = query.toLowerCase();
+    return options.filter((o) => o.toLowerCase().includes(q));
+  }, [options, query]);
 
-  // Reserve right padding for the chevron button + optional clear button.
-  const rightPadding = showClearButton ? "pr-14" : "pr-8";
+  const showClear = clearable && !!value;
+  const rightPadding = showClear ? "pr-14" : "pr-8";
 
   return (
     <Combobox
@@ -78,12 +78,12 @@ export function ModelCombobox({
           }}
         />
 
-        {showClearButton && (
+        {showClear && (
           <button
             type="button"
             onClick={() => {
               setQuery("");
-              onClear?.();
+              onChange("");
             }}
             className={`absolute right-8 top-1/2 -translate-y-1/2 ${smallBtnClassName}`}
             aria-label={clearAriaLabel}

@@ -17,8 +17,15 @@ from pydantic import AfterValidator, BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
+from lib.config.service import ConfigService
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, endpoint_spec_to_dict, endpoint_to_media_type
+from lib.db import get_async_session
+from lib.db.base import dt_to_iso
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.i18n import Translator
+from server.auth import CurrentUser
+from server.dependencies import get_config_service
 
 
 def _validate_endpoint(value: str) -> str:
@@ -32,13 +39,6 @@ def _validate_endpoint(value: str) -> str:
 # 响应路径不需校验，直接 str。
 EndpointType = Annotated[str, AfterValidator(_validate_endpoint)]
 DiscoveryFormatLiteral = Literal["openai", "google"]
-from lib.config.service import ConfigService
-from lib.db import get_async_session
-from lib.db.base import dt_to_iso
-from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.i18n import Translator
-from server.auth import CurrentUser
-from server.dependencies import get_config_service
 
 logger = logging.getLogger(__name__)
 
@@ -531,15 +531,22 @@ async def discover_anthropic_models_endpoint(
     凭据缺失时 fallback 到 system settings 里已存的
     anthropic_base_url / anthropic_api_key。
     """
-    api_key = body.api_key
-    if not api_key:
-        api_key = (await svc.get_setting("anthropic_api_key", "")).strip()
+    needs_key = not body.api_key
+    needs_url = body.base_url is None
+    if needs_key and needs_url:
+        stored_key, stored_url = await asyncio.gather(
+            svc.get_setting("anthropic_api_key", ""),
+            svc.get_setting("anthropic_base_url", ""),
+        )
+    else:
+        stored_key = await svc.get_setting("anthropic_api_key", "") if needs_key else ""
+        stored_url = await svc.get_setting("anthropic_base_url", "") if needs_url else ""
+
+    api_key = body.api_key or stored_key.strip()
     if not api_key:
         raise HTTPException(status_code=400, detail=_t("anthropic_discovery_no_key"))
 
-    base_url = body.base_url
-    if base_url is None:
-        base_url = (await svc.get_setting("anthropic_base_url", "")).strip() or None
+    base_url = body.base_url if not needs_url else (stored_url.strip() or None)
 
     return await _run_discover("anthropic", base_url, api_key, _t)
 
