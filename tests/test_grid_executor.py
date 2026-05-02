@@ -301,3 +301,95 @@ class TestTaskExecutorsRegistry:
 
         assert "grid" in _TASK_EXECUTORS
         assert _TASK_EXECUTORS["grid"] is execute_grid_task
+
+
+class TestGridMetadataT2II2ISlotSelection:
+    """Bug 2 回归：execute_grid_task 必须按 reference_images 是否非空决定写 T2I 还是 I2I 槽。"""
+
+    @pytest.fixture
+    def grid_with_empty_metadata(self, project_with_script):
+        """模拟 route 层修复后的状态：grid 创建时 provider/model 为空，由 task 层回填。"""
+        from lib.grid.models import GridGeneration
+
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=["E1S01", "E1S02", "E1S03"],
+            rows=2,
+            cols=2,
+            grid_size="2K",
+            provider="",
+            model="",
+            prompt="test grid prompt",
+        )
+        grid_path = project_with_script / "grids" / f"{grid.id}.json"
+        grid_path.write_text(json.dumps(grid.to_dict(), ensure_ascii=False, indent=2))
+        return grid
+
+    async def _run_grid_task(self, project_with_script, grid, payload):
+        """Helper：mock 掉 generator 与 project manager，运行 execute_grid_task。"""
+        from PIL import Image
+
+        from server.services.generation_tasks import execute_grid_task
+
+        fake_grid_image = Image.new("RGB", (400, 400), color=(128, 128, 128))
+        grid_image_path = project_with_script / "grids" / f"{grid.id}.png"
+        fake_grid_image.save(grid_image_path, format="PNG")
+
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 1))
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch("server.services.generation_tasks.get_media_generator", new_callable=AsyncMock) as mock_get_gen,
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.update_scene_asset.return_value = {}
+            mock_pm_fn.return_value = mock_pm
+            mock_get_gen.return_value = mock_generator
+
+            await execute_grid_task("test-project", grid.id, payload, user_id="test-user")
+
+    async def test_uses_t2i_slot_when_no_reference_images(self, project_with_script, grid_with_empty_metadata):
+        """无 character/scene/prop sheet → reference_images 为空 → 写 T2I 槽配置"""
+        grid = grid_with_empty_metadata
+        payload = {
+            "prompt": "test grid prompt",
+            "script_file": "episode_1.json",
+            "image_provider_t2i": "openai/gpt-image-t2i",
+            "image_provider_i2i": "openai/gpt-image-i2i",
+        }
+
+        await self._run_grid_task(project_with_script, grid, payload)
+
+        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
+        assert updated["provider"] == "openai"
+        assert updated["model"] == "gpt-image-t2i"
+
+    async def test_uses_i2i_slot_when_reference_images_present(self, project_with_script, grid_with_empty_metadata):
+        """有 character sheet 且 segment 引用了角色 → reference_images 非空 → 写 I2I 槽配置"""
+        # 给 project + script 注入 character sheet，让 _collect_grid_reference_images 返回非空
+        project_data = json.loads((project_with_script / "project.json").read_text())
+        project_data["characters"]["hero"] = {"character_sheet": "characters/hero.png"}
+        (project_with_script / "project.json").write_text(json.dumps(project_data))
+        (project_with_script / "characters" / "hero.png").write_bytes(b"fake-image")
+
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        script["segments"][0]["characters_in_segment"] = ["hero"]
+        (project_with_script / "scripts" / "episode_1.json").write_text(json.dumps(script))
+
+        grid = grid_with_empty_metadata
+        payload = {
+            "prompt": "test grid prompt",
+            "script_file": "episode_1.json",
+            "image_provider_t2i": "openai/gpt-image-t2i",
+            "image_provider_i2i": "openai/gpt-image-i2i",
+        }
+
+        await self._run_grid_task(project_with_script, grid, payload)
+
+        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
+        assert updated["provider"] == "openai"
+        assert updated["model"] == "gpt-image-i2i"

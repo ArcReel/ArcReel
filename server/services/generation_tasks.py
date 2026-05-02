@@ -18,6 +18,9 @@ from lib.config.registry import PROVIDER_REGISTRY
 from lib.custom_provider import is_custom_provider
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import get_shared_rate_limiter
+from lib.i18n import DEFAULT_LOCALE
+from lib.i18n import _ as i18n_translate
+from lib.image_backends.base import ImageCapabilityError
 from lib.media_generator import MediaGenerator
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager
@@ -1205,6 +1208,10 @@ async def execute_grid_task(
         image_provider_id, image_model_id = await _resolve_effective_image_backend(
             project, payload, needs_i2i=_needs_i2i
         )
+        # 回填 grid metadata：route 层创建/重建时无法预知 needs_i2i，由此处补齐
+        grid.provider = image_provider_id
+        grid.model = image_model_id
+        grid_manager.save(grid)
         image_size = await resolve_resolution(project, image_provider_id, image_model_id) or "2K"  # 宫格图保底高分辨率
 
         image_path, version = await generator.generate_image_async(
@@ -1319,7 +1326,13 @@ async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"unsupported task_type: {task_type}")
 
     with project_change_source("worker"):
-        result = await executor(project_name, resource_id, payload, user_id=user_id)
+        try:
+            result = await executor(project_name, resource_id, payload, user_id=user_id)
+        except ImageCapabilityError as err:
+            # Worker 后台无 request 上下文，按 DEFAULT_LOCALE 渲染稳定的 i18n 文案
+            # 落到 task.error_message，前端轮询时即可看到本地化提示
+            message = i18n_translate(err.code, locale=DEFAULT_LOCALE, **err.params)
+            raise RuntimeError(message) from err
         _emit_generation_success_batch(
             task_type=task_type,
             project_name=project_name,
