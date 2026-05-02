@@ -1,7 +1,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errMsg, voidCall } from "@/utils/async";
-import { ChevronDown, Download, Eye, EyeOff, Loader2, SlidersHorizontal, Terminal, X } from "lucide-react";
+import { ChevronDown, Download, Eye, EyeOff, Loader2, Search, SlidersHorizontal, Terminal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
@@ -181,6 +181,9 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const [importPickerOpen, setImportPickerOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const importPickerRef = useRef<HTMLDivElement>(null);
+  const [modelCandidates, setModelCandidates] = useState<string[]>([]);
+  const [discoverState, setDiscoverState] = useState<"idle" | "loading" | "error">("idle");
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
 
   // Load config on mount
   const load = useCallback(async () => {
@@ -295,6 +298,25 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     [t],
   );
 
+  const handleDiscoverModels = useCallback(async () => {
+    const apiKey = draft.anthropicKey.trim() || undefined;
+    const baseUrl = draft.anthropicBaseUrl.trim() || undefined;
+
+    setDiscoverState("loading");
+    setDiscoverError(null);
+    try {
+      const res = await API.discoverAnthropicModels({ base_url: baseUrl, api_key: apiKey });
+      setModelCandidates(res.models.map((m) => m.model_id));
+      setDiscoverState("idle");
+      if (res.models.length === 0) {
+        setDiscoverError(t("discover_no_models"));
+      }
+    } catch (err) {
+      setDiscoverError(errMsg(err));
+      setDiscoverState("error");
+    }
+  }, [draft.anthropicKey, draft.anthropicBaseUrl, t]);
+
   const handleImportProvider = useCallback(
     async (provider: CustomProviderInfo) => {
       setImporting(true);
@@ -350,6 +372,11 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
 
   return (
     <div className={visible ? undefined : "hidden"}>
+      <datalist id="anthropic-models">
+        {modelCandidates.map((m) => (
+          <option key={m} value={m} />
+        ))}
+      </datalist>
       <div className="space-y-8 px-6 pb-0 pt-6">
         {/* Page intro */}
         <div>
@@ -552,10 +579,27 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         {/* Section 2: Model Configuration */}
         {/* ----------------------------------------------------------------- */}
         <div>
-          <SectionHeading
-            title={t("model_config")}
-            description={t("model_config_desc")}
-          />
+          <div className="mb-4 flex items-start justify-between">
+            <SectionHeading title={t("model_config")} description={t("model_config_desc")} />
+            <div>
+              <button
+                type="button"
+                onClick={() => void handleDiscoverModels()}
+                disabled={discoverState === "loading"}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:border-gray-600 hover:bg-gray-800/50 disabled:opacity-50"
+              >
+                {discoverState === "loading" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Search className="h-3.5 w-3.5" />
+                )}
+                {t("discover_models")}
+              </button>
+              {discoverError && (
+                <p className="mt-1 text-right text-xs text-rose-400">{discoverError}</p>
+              )}
+            </div>
+          </div>
 
           <div className={cardClassName}>
             <div className="flex items-center justify-between">
@@ -591,6 +635,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             <div className="relative mt-2">
               <input
                 id="agent-model"
+                list="anthropic-models"
                 value={draft.anthropicModel}
                 onChange={(e) => updateDraft("anthropicModel", e.target.value)}
                 placeholder="claude-3-5-sonnet-20241022"
@@ -669,6 +714,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                       </div>
                       <div className="relative mt-1.5">
                         <input
+                          list="anthropic-models"
                           value={draft[key]}
                           onChange={(e) => updateDraft(key, e.target.value)}
                           placeholder={envVar}

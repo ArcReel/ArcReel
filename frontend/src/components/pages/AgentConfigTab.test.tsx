@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import { API } from "@/api";
@@ -91,5 +92,78 @@ describe("AgentConfigTab — provider import", () => {
     });
 
     expect(API.getCustomProviderCredentials).toHaveBeenCalledWith(1);
+  });
+});
+
+describe("AgentConfigTab — discover models", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
+    vi.restoreAllMocks();
+
+    const cfg = makeConfigResponse();
+    cfg.settings.anthropic_api_key = { is_set: true, masked: "sk-ant-***" };
+    cfg.settings.anthropic_base_url = "https://example.com";
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(cfg);
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "discoverAnthropicModels").mockResolvedValue({
+      models: [
+        {
+          model_id: "claude-haiku-4-5",
+          display_name: "Haiku 4.5",
+          endpoint: "",
+          is_default: false,
+          is_enabled: true,
+        },
+        {
+          model_id: "claude-opus-4-7",
+          display_name: "Opus 4.7",
+          endpoint: "",
+          is_default: false,
+          is_enabled: true,
+        },
+      ],
+    });
+  });
+
+  it("renders datalist options after clicking discover", async () => {
+    render(<AgentConfigTab visible />);
+
+    const user = userEvent.setup();
+    const btn = await screen.findByRole("button", { name: /获取模型|Discover Models/i });
+    await user.click(btn);
+
+    await waitFor(() => {
+      const options = document.querySelectorAll("datalist#anthropic-models option");
+      expect(options.length).toBe(2);
+      expect(options[0].getAttribute("value")).toBe("claude-haiku-4-5");
+    });
+  });
+
+  it("sends undefined api_key when draft is empty (lets backend fallback)", async () => {
+    render(<AgentConfigTab visible />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /获取模型|Discover Models/i }));
+
+    await waitFor(() => {
+      expect(API.discoverAnthropicModels).toHaveBeenCalledWith({
+        base_url: "https://example.com",
+        api_key: undefined,
+      });
+    });
+  });
+
+  it("shows error when discovery fails", async () => {
+    vi.mocked(API.discoverAnthropicModels).mockRejectedValueOnce(new Error("boom"));
+
+    render(<AgentConfigTab visible />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /获取模型|Discover Models/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/boom/)).toBeInTheDocument();
+    });
   });
 });
