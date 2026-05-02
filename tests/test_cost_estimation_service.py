@@ -271,8 +271,10 @@ class TestCostEstimationService:
         assert result["models"]["image"]["provider"] == "openai"
         assert result["models"]["image"]["model"] == "gpt-image-1"
 
-    async def test_cost_estimation_falls_back_to_i2i_when_t2i_absent(self, db_factory):
-        """project 无 image_provider_t2i 时，回退 image_provider_i2i 用于估算。"""
+    async def test_cost_estimation_no_image_provider_falls_back_to_resolver(self, db_factory):
+        """project 没有 image_provider_t2i 时，cost_estimation 不再自行 fallback I2I 或 legacy
+        （legacy 由 ProjectManager.load_project 的 lazy upgrade 处理；I2I 和 T2I 是正交能力槽，
+        互替会算到错误价目）。无 T2I 字段则使用 resolver 默认值。"""
         resolver = ConfigResolver(db_factory)
         tracker = UsageTracker(session_factory=db_factory)
         service = CostEstimationService(resolver, tracker)
@@ -280,29 +282,14 @@ class TestCostEstimationService:
         project_data = {
             "title": "Test",
             "content_mode": "narration",
+            # 仅有 i2i 与 legacy 字段：cost_estimation 应忽略，落到 resolver 默认值
             "image_provider_i2i": "openai/gpt-image-1-edit",
-            "episodes": [],
-        }
-
-        result = await service.compute(project_data, {}, project_name="test_i2i_fallback")
-
-        assert result["models"]["image"]["provider"] == "openai"
-        assert result["models"]["image"]["model"] == "gpt-image-1-edit"
-
-    async def test_cost_estimation_falls_back_to_legacy_image_backend(self, db_factory):
-        """project 无 t2i/i2i 字段时，回退旧 image_backend 字段。"""
-        resolver = ConfigResolver(db_factory)
-        tracker = UsageTracker(session_factory=db_factory)
-        service = CostEstimationService(resolver, tracker)
-
-        project_data = {
-            "title": "Test",
-            "content_mode": "narration",
             "image_backend": "gemini/gemini-2.0-flash-preview-image-generation",
             "episodes": [],
         }
 
-        result = await service.compute(project_data, {}, project_name="test_legacy")
+        result = await service.compute(project_data, {}, project_name="test_no_t2i")
 
-        assert result["models"]["image"]["provider"] == "gemini"
-        assert result["models"]["image"]["model"] == "gemini-2.0-flash-preview-image-generation"
+        # 既非 i2i 槽（gpt-image-1-edit）也非 legacy 字段（gemini-2.0-...）
+        assert result["models"]["image"]["model"] != "gpt-image-1-edit"
+        assert result["models"]["image"]["model"] != "gemini-2.0-flash-preview-image-generation"

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -331,15 +331,15 @@ class ConfigResolver:
         }
 
     async def _resolve_default_image_backend(
-        self, svc: ConfigService, session: AsyncSession, capability: str = "t2i"
+        self, svc: ConfigService, session: AsyncSession, capability: Literal["t2i", "i2i"] = "t2i"
     ) -> tuple[str, str]:
-        """capability ∈ {"t2i", "i2i"}。优先读 default_image_backend_<cap>；缺失则读旧 default_image_backend；再缺失则自动解析。"""
-        assert capability in ("t2i", "i2i")
-        key = f"default_image_backend_{capability}"
-        raw = await svc.get_setting(key, "")
-        if not raw:
-            raw = await svc.get_setting("default_image_backend", "")
-        if raw and "/" in raw:
+        """优先读 default_image_backend_<cap>；缺失则读旧 default_image_backend；再缺失则自动解析。
+
+        一次 get_all_settings 把三个候选 key 都拿到，避免迁移期 / 未配置场景两次串行 DB 查询。
+        """
+        settings = await svc.get_all_settings()
+        raw = settings.get(f"default_image_backend_{capability}") or settings.get("default_image_backend") or ""
+        if "/" in raw:
             return ConfigService._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
         return await self._auto_resolve_backend(svc, session, "image")
 

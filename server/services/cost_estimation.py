@@ -45,15 +45,13 @@ class CostEstimationService:
     ) -> dict[str, Any]:
         episodes_meta = project_data.get("episodes", [])
 
-        # Resolve current model config（共享单一 session）
+        # Resolve current model config（共享单一 session）。估价以 T2I 为准（T2I/I2I 是正交能力槽，
+        # T2I 缺失不应回落 I2I —— 那会拿错误能力的价目算费用）。
         async with self._resolver.session() as r:
             try:
                 image_provider, image_model = await r.default_image_backend_t2i()
             except Exception:
-                try:
-                    image_provider, image_model = await r.default_image_backend_i2i()
-                except Exception:
-                    image_provider, image_model = "unknown", "unknown"
+                image_provider, image_model = "unknown", "unknown"
 
             try:
                 video_provider, video_model = await r.default_video_backend()
@@ -84,12 +82,9 @@ class CostEstimationService:
                 if project_video_settings.get("model"):
                     video_model = project_video_settings["model"]
 
-        # 项目级图片配置覆盖（按 T2I 槽估算，回退 I2I，再回退旧字段）
-        project_image_pair = (
-            project_data.get("image_provider_t2i")
-            or project_data.get("image_provider_i2i")
-            or project_data.get("image_backend")
-        )
+        # 项目级图片配置覆盖：按 T2I 槽估算（ProjectManager.load_project 已将旧 image_backend
+        # 字段 lazy 升级到 image_provider_t2i/i2i，所以这里只读新 T2I 槽）
+        project_image_pair = project_data.get("image_provider_t2i")
         if isinstance(project_image_pair, str) and "/" in project_image_pair:
             image_provider, image_model = project_image_pair.split("/", 1)
 

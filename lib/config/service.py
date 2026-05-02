@@ -142,10 +142,10 @@ class ConfigService:
     async def get_default_image_backend(self) -> tuple[str, str]:
         """图像默认 backend 的真实解析路径在 ConfigResolver.default_image_backend_t2i / _i2i；
         此方法保留为公共 API，仅作为 T2I 兜底（外部调用方极少；Resolver 不调用此方法）。"""
-        raw = await self._setting_repo.get(
-            "default_image_backend_t2i",
-            await self._setting_repo.get("default_image_backend", _DEFAULT_IMAGE_BACKEND),
-        )
+        # 短路：default_image_backend_t2i 命中时不再查 legacy key（默认参数会被无条件求值）
+        raw = await self._setting_repo.get("default_image_backend_t2i", "")
+        if not raw:
+            raw = await self._setting_repo.get("default_image_backend", _DEFAULT_IMAGE_BACKEND)
         return self._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
 
     async def get_default_text_backend(self) -> tuple[str, str]:

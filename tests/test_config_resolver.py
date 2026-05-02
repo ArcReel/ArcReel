@@ -46,6 +46,9 @@ class _FakeConfigService:
     async def get_setting(self, key: str, default: str = "") -> str:
         return self._settings.get(key, default)
 
+    async def get_all_settings(self) -> dict[str, str]:
+        return dict(self._settings)
+
     async def get_default_video_backend(self) -> tuple[str, str]:
         return ("gemini-aistudio", "veo-3.1-fast-generate-preview")
 

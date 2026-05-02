@@ -53,6 +53,8 @@ _CONNECTION_TEST_TIMEOUT = 15  # 秒
 _BACKEND_SETTING_KEYS = (
     "default_video_backend",
     "default_image_backend",
+    "default_image_backend_t2i",
+    "default_image_backend_i2i",
     "default_text_backend",
     "text_backend_script",
     "text_backend_overview",
@@ -270,14 +272,12 @@ def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> 
         if len(ids) > 1:
             duplicates[mt] = ids
 
-    # image：找出任意两条 caps 有交集的模型（同一 capability 槽不能并存两个默认）
-    conflict_ids: list[str] = []
-    for i in range(len(image_defaults)):
-        for j in range(i + 1, len(image_defaults)):
-            id_i, caps_i = image_defaults[i]
-            id_j, caps_j = image_defaults[j]
-            if caps_i & caps_j:
-                conflict_ids.extend([id_i, id_j])
+    # image：按 capability 反向索引，任一槽位有 >1 个默认即视为冲突（O(n) 替代 O(n²) 两两 caps 求交）
+    cap_to_ids: dict[ImageCapability, list[str]] = {}
+    for mid, caps in image_defaults:
+        for c in caps:
+            cap_to_ids.setdefault(c, []).append(mid)
+    conflict_ids = [mid for ids in cap_to_ids.values() if len(ids) > 1 for mid in ids]
     if conflict_ids:
         duplicates["image"] = list(dict.fromkeys(conflict_ids))
 

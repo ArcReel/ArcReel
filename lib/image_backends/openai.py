@@ -83,7 +83,6 @@ class OpenAIImageBackend:
     ):
         self._client = create_openai_client(api_key=api_key, base_url=base_url)
         self._model = model or DEFAULT_MODEL
-        self._mode = mode
         self._capabilities = set(self._MODE_TO_CAPS[mode])
 
     @property

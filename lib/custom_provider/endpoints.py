@@ -40,8 +40,8 @@ class EndpointSpec:
     display_name_key: str  # 前端 i18n key（dashboard ns）
     request_method: str  # "POST"
     request_path_template: str  # "/v1/chat/completions"，可含 {model} 等占位
-    image_capabilities: frozenset[ImageCapability] | None  # image 类 endpoint 的能力集合，非 image 类为 None
     build_backend: Callable[[CustomProvider, str], CustomTextBackend | CustomImageBackend | CustomVideoBackend]
+    image_capabilities: frozenset[ImageCapability] | None = None  # image 类才填，非 image 类省略
 
 
 # ── 各 endpoint 的 build_backend 闭包 ──────────────────────────────
@@ -116,7 +116,6 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         display_name_key="endpoint_openai_chat_display",
         request_method="POST",
         request_path_template="/v1/chat/completions",
-        image_capabilities=None,
         build_backend=_build_openai_chat,
     ),
     "gemini-generate": EndpointSpec(
@@ -126,7 +125,6 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         display_name_key="endpoint_gemini_generate_display",
         request_method="POST",
         request_path_template="/v1beta/models/{model}:generateContent",
-        image_capabilities=None,
         build_backend=_build_gemini_generate,
     ),
     "openai-images": EndpointSpec(
@@ -177,7 +175,6 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         display_name_key="endpoint_openai_video_display",
         request_method="POST",
         request_path_template="/v1/videos",
-        image_capabilities=None,
         build_backend=_build_openai_video,
     ),
     "newapi-video": EndpointSpec(
@@ -187,7 +184,6 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         display_name_key="endpoint_newapi_video_display",
         request_method="POST",
         request_path_template="/v1/video/generations",
-        image_capabilities=None,
         build_backend=_build_newapi_video,
     ),
 }
