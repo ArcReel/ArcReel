@@ -67,6 +67,30 @@ class TestEndpointDispatch:
         create_custom_backend(provider=provider, model_id="kling-v2", endpoint="newapi-video")
         mock_cls.assert_called_once_with(api_key="sk-test", base_url="https://api.example.com/v1", model="kling-v2")
 
+    @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
+    def test_openai_images_generations(self, mock_cls):
+        provider = _make_provider()
+        result = create_custom_backend(provider=provider, model_id="dall-e-3", endpoint="openai-images-generations")
+        assert isinstance(result, CustomImageBackend)
+        mock_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://api.example.com/v1",
+            model="dall-e-3",
+            mode="generations_only",
+        )
+
+    @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
+    def test_openai_images_edits(self, mock_cls):
+        provider = _make_provider()
+        result = create_custom_backend(provider=provider, model_id="dall-e-3", endpoint="openai-images-edits")
+        assert isinstance(result, CustomImageBackend)
+        mock_cls.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://api.example.com/v1",
+            model="dall-e-3",
+            mode="edits_only",
+        )
+
 
 class TestUrlNormalization:
     @patch("lib.custom_provider.endpoints.OpenAITextBackend")

@@ -668,6 +668,8 @@ export default {
   'endpoint_openai_chat_display': 'OpenAI Chat Completions',
   'endpoint_gemini_generate_display': 'Google Gemini',
   'endpoint_openai_images_display': 'OpenAI Images API',
+  'endpoint_openai_images_generations_display': 'OpenAI Images（仅文生图）',
+  'endpoint_openai_images_edits_display': 'OpenAI Images（仅图生图）',
   'endpoint_gemini_image_display': 'Google Gemini Image',
   'endpoint_openai_video_display': 'OpenAI Video (Sora)',
   'endpoint_newapi_video_display': 'NewAPI Unified Video',

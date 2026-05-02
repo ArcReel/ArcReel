@@ -20,6 +20,8 @@ class TestRegistry:
             "openai-chat",
             "gemini-generate",
             "openai-images",
+            "openai-images-generations",
+            "openai-images-edits",
             "gemini-image",
             "openai-video",
             "newapi-video",
@@ -54,7 +56,7 @@ class TestRegistry:
         image_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "image"}
         video_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "video"}
         assert text_keys == {"openai-chat", "gemini-generate"}
-        assert image_keys == {"openai-images", "gemini-image"}
+        assert image_keys == {"openai-images", "openai-images-generations", "openai-images-edits", "gemini-image"}
         assert video_keys == {"openai-video", "newapi-video"}
 
 
@@ -108,6 +110,21 @@ class TestInferEndpoint:
     )
     def test_infer(self, model_id, discovery_format, expected):
         assert infer_endpoint(model_id, discovery_format) == expected
+
+
+def test_image_endpoint_registry_has_three_entries():
+    from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE
+
+    image_keys = set(ENDPOINT_KEYS_BY_MEDIA_TYPE["image"])
+    assert image_keys == {"openai-images", "openai-images-generations", "openai-images-edits", "gemini-image"}
+
+
+def test_split_endpoints_have_single_capability():
+    from lib.custom_provider.endpoints import endpoint_to_image_capabilities
+    from lib.image_backends import ImageCapability
+
+    assert endpoint_to_image_capabilities("openai-images-generations") == frozenset({ImageCapability.TEXT_TO_IMAGE})
+    assert endpoint_to_image_capabilities("openai-images-edits") == frozenset({ImageCapability.IMAGE_TO_IMAGE})
 
 
 def test_existing_image_endpoints_have_full_capabilities():

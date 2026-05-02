@@ -65,6 +65,28 @@ def _build_openai_images(provider, model_id: str) -> CustomImageBackend:
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_openai_images_generations(provider, model_id: str) -> CustomImageBackend:
+    base_url = ensure_openai_base_url(provider.base_url)
+    delegate = OpenAIImageBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        mode="generations_only",
+    )
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_openai_images_edits(provider, model_id: str) -> CustomImageBackend:
+    base_url = ensure_openai_base_url(provider.base_url)
+    delegate = OpenAIImageBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        mode="edits_only",
+    )
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 def _build_gemini_image(provider, model_id: str) -> CustomImageBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
     delegate = GeminiImageBackend(api_key=provider.api_key, base_url=base_url, image_model=model_id)
@@ -117,6 +139,26 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/images/{generations,edits}",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_images,
+    ),
+    "openai-images-generations": EndpointSpec(
+        key="openai-images-generations",
+        media_type="image",
+        family="openai",
+        display_name_key="endpoint_openai_images_generations_display",
+        request_method="POST",
+        request_path_template="/v1/images/generations",
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE}),
+        build_backend=_build_openai_images_generations,
+    ),
+    "openai-images-edits": EndpointSpec(
+        key="openai-images-edits",
+        media_type="image",
+        family="openai",
+        display_name_key="endpoint_openai_images_edits_display",
+        request_method="POST",
+        request_path_template="/v1/images/edits",
+        image_capabilities=frozenset({ImageCapability.IMAGE_TO_IMAGE}),
+        build_backend=_build_openai_images_edits,
     ),
     "gemini-image": EndpointSpec(
         key="gemini-image",
