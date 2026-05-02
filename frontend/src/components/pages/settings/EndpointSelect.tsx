@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, useCallback } from "react"
 import { ChevronDown, Type, Image as ImageIcon, Film } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Popover } from "@/components/ui/Popover";
-import type { EndpointKey, MediaType } from "@/types";
+import type { EndpointKey, ImageCap, MediaType } from "@/types";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 
 // ---------------------------------------------------------------------------
@@ -19,6 +19,7 @@ interface EndpointOption {
   mediaType: MediaType;
   method: string;
   path: string;
+  imageCaps: ImageCap[] | null;
 }
 
 const MEDIA_META: Record<MediaType, { Icon: typeof Type; labelKey: string }> = {
@@ -68,6 +69,7 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
             mediaType: e.media_type,
             method: e.request_method,
             path: e.request_path_template,
+            imageCaps: e.image_capabilities,
           });
         }
       }
@@ -276,6 +278,15 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
                           <div className="mt-0.5 flex items-baseline gap-1.5 font-mono text-[11px] leading-none">
                             <span className="text-gray-500">{opt.method}</span>
                             <span className="truncate text-emerald-400/80">{opt.path}</span>
+                            {opt.imageCaps && (
+                              <span className="ml-auto shrink-0 font-sans text-[10px] tracking-wide text-amber-300/80">
+                                {opt.imageCaps.length === 2
+                                  ? t("image_capability_both")
+                                  : opt.imageCaps[0] === "text_to_image"
+                                    ? t("image_capability_t2i")
+                                    : t("image_capability_i2i")}
+                              </span>
+                            )}
                           </div>
                         </button>
                       </li>
