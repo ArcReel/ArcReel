@@ -180,6 +180,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const [providers, setProviders] = useState<CustomProviderInfo[]>([]);
   const [importPickerOpen, setImportPickerOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const importPickerRef = useRef<HTMLDivElement>(null);
 
   // Load config on mount
   const load = useCallback(async () => {
@@ -214,6 +215,28 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       cancelled = true;
     };
   }, []);
+
+  // 点击外部 / 按下 Esc 关闭「从供应商导入」下拉
+  useEffect(() => {
+    if (!importPickerOpen) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      if (
+        importPickerRef.current &&
+        !importPickerRef.current.contains(e.target as Node)
+      ) {
+        setImportPickerOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setImportPickerOpen(false);
+    };
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [importPickerOpen]);
 
   const isDirty = !deepEqual(draft, savedRef.current);
   useWarnUnsaved(isDirty);
@@ -358,7 +381,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
               title={t("api_credentials")}
               description={t("anthropic_key_required_desc")}
             />
-            <div className="relative">
+            <div className="relative" ref={importPickerRef}>
               <button
                 type="button"
                 onClick={() => setImportPickerOpen((v) => !v)}

@@ -84,14 +84,10 @@ describe("AgentConfigTab — provider import", () => {
 
     // Assert the API Key + Base URL inputs received the credential values
     await waitFor(() => {
-      const keyInput = document.querySelector(
-        'input[name="anthropic_api_key"]',
-      ) as HTMLInputElement | null;
-      const baseUrlInput = document.querySelector(
-        'input[name="anthropic_base_url"]',
-      ) as HTMLInputElement | null;
-      expect(keyInput?.value).toBe("sk-secret");
-      expect(baseUrlInput?.value).toBe("https://oneapi.example.com");
+      const keyInput = screen.getByLabelText("Anthropic API 密钥") as HTMLInputElement;
+      const baseUrlInput = screen.getByLabelText("API 代理地址") as HTMLInputElement;
+      expect(keyInput.value).toBe("sk-secret");
+      expect(baseUrlInput.value).toBe("https://oneapi.example.com");
     });
 
     expect(API.getCustomProviderCredentials).toHaveBeenCalledWith(1);
