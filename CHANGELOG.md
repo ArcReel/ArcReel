@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.12.0](https://github.com/ArcReel/ArcReel/compare/v0.11.1...v0.12.0) (2026-05-02)
+
+
+### ✨ 新功能
+
+* **agent-config:** 智能体配置支持模型发现与复用自定义供应商 ([#455](https://github.com/ArcReel/ArcReel/issues/455)) ([ce14ea5](https://github.com/ArcReel/ArcReel/commit/ce14ea51307fd1b6ca47107cb744cf14c936dac3))
+* **cost:** OpenAI 图片改为 token-based 计费 ([#448](https://github.com/ArcReel/ArcReel/issues/448)) ([5939dcf](https://github.com/ArcReel/ArcReel/commit/5939dcf80f9b7e7e889eac30e2a26218e2efac55))
+* **providers:** OpenAI 新增 GPT-5.5 与 GPT Image 2 ([#446](https://github.com/ArcReel/ArcReel/issues/446)) ([86211fe](https://github.com/ArcReel/ArcReel/commit/86211fe2d4399042324c4c51571baff77f27335a))
+* **session-store:** 会话记录改为 DB 存储 ([#451](https://github.com/ArcReel/ArcReel/issues/451)) ([f9407f0](https://github.com/ArcReel/ArcReel/commit/f9407f07978245ec80c09023c51ff966aa5744a9))
+
+
+### 🐛 Bug 修复
+
+* **image-backends:** 处理 OpenAI/Ark 空 response.data 避免 IndexError ([#452](https://github.com/ArcReel/ArcReel/issues/452)) ([05702e2](https://github.com/ArcReel/ArcReel/commit/05702e288d920bb89d5199964a9f0e44038aff07))
+
+
+### ♻️ 重构
+
+* **custom-provider:** 收敛 endpoint 元数据为运行时 catalog API ([#450](https://github.com/ArcReel/ArcReel/issues/450)) ([2858e52](https://github.com/ArcReel/ArcReel/commit/2858e52d5be5c58e5aee3a397a73bedf892c41e9)), closes [#414](https://github.com/ArcReel/ArcReel/issues/414)
+* **custom-provider:** 视频模型默认 endpoint 改为 openai-video ([#453](https://github.com/ArcReel/ArcReel/issues/453)) ([225c0b1](https://github.com/ArcReel/ArcReel/commit/225c0b170f457e795079833e8ccc3cdd6430896a))
+* **images:** OpenAI 图像生成端点支持按文生图（T2I） / 图生图（I2I）分别配置 ([#454](https://github.com/ArcReel/ArcReel/issues/454)) ([66be8c6](https://github.com/ArcReel/ArcReel/commit/66be8c61c4f4b405b5a286809a00745cacfa06ba))
+
+
+### 📚 文档
+
+* 限定 uvicorn --reload-dir 避免扫描 node_modules ([d4aa6a2](https://github.com/ArcReel/ArcReel/commit/d4aa6a2554a185a074a55cc7e6971d14c9d8c964))
+
 ## [0.11.1](https://github.com/ArcReel/ArcReel/compare/v0.11.0...v0.11.1) (2026-04-28)
 
 
