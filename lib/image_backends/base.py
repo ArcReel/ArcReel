@@ -116,3 +116,16 @@ class ImageBackend(Protocol):
     @property
     def capabilities(self) -> set[ImageCapability]: ...
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult: ...
+
+
+class ImageCapabilityError(RuntimeError):
+    """图像后端能力不匹配（endpoint mismatch / generator gating 共用）。
+
+    不携带本地化字符串，只带稳定 code + 上下文 params；
+    路由层捕获后用 _t(code, **params) 渲染。
+    """
+
+    def __init__(self, code: str, **params) -> None:
+        self.code = code
+        self.params = params
+        super().__init__(code)
