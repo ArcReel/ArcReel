@@ -674,6 +674,12 @@ export default {
   'endpoint_openai_video_display': 'OpenAI Video (Sora)',
   'endpoint_newapi_video_display': 'NewAPI Unified Video',
   'endpoint_catalog_loading': '加载端点目录…',
+  // Image Capability
+  'image_capability_t2i': '文生图',
+  'image_capability_i2i': '图生图',
+  'image_capability_both': '文生图·图生图',
+  'image_model_t2i_label': '文生图模型',
+  'image_model_i2i_label': '图生图模型',
   'api_key_not_set': '未设置',
   'model_disabled': '已禁用',
   'confirm_delete_provider': '确认删除',

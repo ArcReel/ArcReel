@@ -673,6 +673,12 @@ export default {
   'endpoint_openai_video_display': 'OpenAI Video (Sora)',
   'endpoint_newapi_video_display': 'NewAPI Unified Video',
   'endpoint_catalog_loading': 'Loading endpoint catalog…',
+  // Image Capability
+  'image_capability_t2i': 'T2I',
+  'image_capability_i2i': 'I2I',
+  'image_capability_both': 'T2I · I2I',
+  'image_model_t2i_label': 'Text-to-Image Model',
+  'image_model_i2i_label': 'Image-to-Image Model',
   'api_key_not_set': 'Not set',
   'model_disabled': 'Disabled',
   'confirm_delete_provider': 'Confirm Delete',

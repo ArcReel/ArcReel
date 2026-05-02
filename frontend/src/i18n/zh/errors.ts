@@ -13,4 +13,9 @@ export default {
   'source_corrupt_file': '源文件「{{filename}}」无法解析：{{reason}}',
   'source_too_large': '源文件「{{filename}}」过大（{{size_mb}} MB > {{limit_mb}} MB）',
   'source_conflict': '源文件「{{existing}}」已存在',
+  // Image Capability
+  'image_endpoint_mismatch_no_i2i': '模型 {{model}} 仅支持文生图（不支持 /v1/images/edits）',
+  'image_endpoint_mismatch_no_t2i': '模型 {{model}} 仅支持图生图（必须传参考图）',
+  'image_capability_missing_i2i': '{{provider}}/{{model}} 不支持图生图；请配置一个支持图生图的默认模型',
+  'image_capability_missing_t2i': '{{provider}}/{{model}} 不支持文生图；请配置一个支持文生图的默认模型',
 } satisfies Record<keyof typeof enErrors, string>;
