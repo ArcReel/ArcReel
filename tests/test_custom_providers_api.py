@@ -1276,3 +1276,59 @@ async def test_default_conflict_grouped_by_endpoint_media(client):
     }
     resp = client.post("/api/v1/custom-providers", json=payload)
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Anthropic discovery (智能体配置专用)
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverAnthropic:
+    def test_explicit_credentials(self, client: TestClient):
+        """显式传入 base_url + api_key，调用 _run_discover('anthropic', ...)。"""
+        mock_models = [
+            {"model_id": "claude-x", "display_name": "X", "endpoint": "", "is_default": False, "is_enabled": True}
+        ]
+        with patch("server.routers.custom_providers._run_discover", new=AsyncMock()) as mock_run:
+            from server.routers.custom_providers import DiscoverResponse
+
+            mock_run.return_value = DiscoverResponse(models=mock_models)
+
+            resp = client.post(
+                "/api/v1/custom-providers/discover-anthropic",
+                json={"base_url": "https://example.com", "api_key": "sk-ant"},
+            )
+
+        assert resp.status_code == 200
+        assert [m["model_id"] for m in resp.json()["models"]] == ["claude-x"]
+        # 调用参数：discovery_format=anthropic，凭据透传
+        args = mock_run.call_args.args
+        assert args[0] == "anthropic"
+        assert args[1] == "https://example.com"
+        assert args[2] == "sk-ant"
+
+    async def test_falls_back_to_stored_api_key(self, client: TestClient, session: AsyncSession):
+        """请求未带 api_key 时，从 anthropic_api_key 设置 fallback。"""
+        svc = ConfigService(session)
+        await svc.set_setting("anthropic_api_key", "sk-stored")
+        await svc.set_setting("anthropic_base_url", "https://stored.example")
+        await session.commit()
+
+        with patch("server.routers.custom_providers._run_discover", new=AsyncMock()) as mock_run:
+            from server.routers.custom_providers import DiscoverResponse
+
+            mock_run.return_value = DiscoverResponse(models=[])
+
+            resp = client.post("/api/v1/custom-providers/discover-anthropic", json={})
+
+        assert resp.status_code == 200
+        args = mock_run.call_args.args
+        assert args[1] == "https://stored.example"
+        assert args[2] == "sk-stored"
+
+    def test_returns_400_when_no_key_anywhere(self, client: TestClient):
+        """请求未带 api_key 且 DB 也没有 → 400。"""
+        resp = client.post("/api/v1/custom-providers/discover-anthropic", json={})
+        assert resp.status_code == 400
+        # i18n 默认 zh
+        assert "API Key" in resp.json()["detail"]

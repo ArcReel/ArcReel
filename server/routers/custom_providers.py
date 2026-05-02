@@ -32,11 +32,13 @@ def _validate_endpoint(value: str) -> str:
 # 响应路径不需校验，直接 str。
 EndpointType = Annotated[str, AfterValidator(_validate_endpoint)]
 DiscoveryFormatLiteral = Literal["openai", "google"]
+from lib.config.service import ConfigService
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
 from server.auth import CurrentUser
+from server.dependencies import get_config_service
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +149,11 @@ class ConnectionTestResponse(BaseModel):
 
 class DiscoverResponse(BaseModel):
     models: list[dict]
+
+
+class DiscoverAnthropicRequest(BaseModel):
+    base_url: str | None = None
+    api_key: str | None = None
 
 
 class EndpointDescriptor(BaseModel):
@@ -483,6 +490,31 @@ async def discover_models_endpoint(
 ):
     """模型发现：根据 discovery_format + base_url + api_key 查询可用模型。"""
     return await _run_discover(body.discovery_format, body.base_url, body.api_key, _t)
+
+
+@router.post("/discover-anthropic", response_model=DiscoverResponse)
+async def discover_anthropic_models_endpoint(
+    body: DiscoverAnthropicRequest,
+    _user: CurrentUser,
+    _t: Translator,
+    svc: Annotated[ConfigService, Depends(get_config_service)],
+):
+    """Anthropic 协议模型发现：智能体配置专用。
+
+    凭据缺失时 fallback 到 system settings 里已存的
+    anthropic_base_url / anthropic_api_key。
+    """
+    api_key = body.api_key
+    if not api_key:
+        api_key = (await svc.get_setting("anthropic_api_key", "")).strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail=_t("anthropic_discovery_no_key"))
+
+    base_url = body.base_url
+    if base_url is None:
+        base_url = (await svc.get_setting("anthropic_base_url", "")).strip() or None
+
+    return await _run_discover("anthropic", base_url, api_key, _t)
 
 
 @router.post("/{provider_id}/discover")
