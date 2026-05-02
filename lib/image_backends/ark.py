@@ -74,7 +74,11 @@ class ArkImageBackend:
             **kwargs,
         )
 
-        await save_image_from_response_item(response.data[0], request.output_path)
+        data = getattr(response, "data", None) or []
+        if not data:
+            # 空 data 通常是内容安全过滤命中或上游网关异常，给出清晰错误便于排查
+            raise RuntimeError(f"Ark 图片生成响应 data 为空 (model={self._model})，可能触发内容安全过滤或上游服务异常")
+        await save_image_from_response_item(data[0], request.output_path)
 
         return ImageGenerationResult(
             image_path=request.output_path,

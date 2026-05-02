@@ -207,6 +207,22 @@ class TestArkImageBackendGenerate:
 
         assert output.exists()
 
+    async def test_empty_data_raises(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+        """Ark 返回空 data 数组时，应抛出清晰的 RuntimeError 而非 IndexError。"""
+        monkeypatch.delenv("ARK_API_KEY", raising=False)
+        client = MagicMock()
+        client.images.generate.return_value = _FakeImagesResponse(data=[])
+
+        with patch("lib.image_backends.ark.create_ark_client", return_value=client):
+            from lib.image_backends.ark import ArkImageBackend
+
+            backend = ArkImageBackend(api_key="test-key")
+            output = tmp_path / "out.png"
+            request = ImageGenerationRequest(prompt="a cat", output_path=output)
+
+            with pytest.raises(RuntimeError, match="data 为空"):
+                await backend.generate(request)
+
     async def test_t2i_url_fallback(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         """网关只返回 url 时，应走 httpx 下载分支。"""
         monkeypatch.delenv("ARK_API_KEY", raising=False)
