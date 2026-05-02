@@ -113,6 +113,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
   // Endpoint catalog（后端单一真相源）：mediaType 推断、price/default 互斥分组都从这里读。
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
+  const endpointToImageCapabilities = useEndpointCatalogStore((s) => s.endpointToImageCapabilities);
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
   useEffect(() => {
     void fetchEndpointCatalog();
@@ -467,7 +468,11 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       {/* Default toggle */}
                       <button
                         type="button"
-                        onClick={() => setModels((prev) => toggleDefaultReducer(prev, m.key, endpointToMediaType))}
+                        onClick={() =>
+                          setModels((prev) =>
+                            toggleDefaultReducer(prev, m.key, endpointToMediaType, endpointToImageCapabilities),
+                          )
+                        }
                         className={`rounded-lg px-2 py-1 text-xs transition-colors ${
                           m.is_default
                             ? "bg-indigo-600 text-white"
