@@ -1020,13 +1020,16 @@ class ProjectManager:
 
     @staticmethod
     def _lazy_upgrade_image_provider(project: dict) -> None:
-        """读取时把旧 image_provider 字段映射到 _t2i / _i2i 两字段（不写盘）。
+        """读取时把旧 image_backend 字段映射到 image_provider_t2i / _i2i 两字段（不写盘）。
 
-        - legacy `image_provider` 必须是 "<provider>/<model>" 字符串才生效
+        历史 project.json 用 `image_backend: "<provider>/<model>"` 单字段；本次改造引入
+        `image_provider_t2i` / `image_provider_i2i` 两字段。lazy 升级保留旧字段作为 fallback。
+
+        - 仅当 `image_backend` 是 "<provider>/<model>" 字符串时才生效
         - 已有 _t2i / _i2i 不覆盖
-        - 旧 image_provider 字段保留作为 fallback
+        - 旧 image_backend 字段保留
         """
-        legacy = project.get("image_provider")
+        legacy = project.get("image_backend")
         if not isinstance(legacy, str) or "/" not in legacy:
             return
         project.setdefault("image_provider_t2i", legacy)
