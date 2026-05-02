@@ -114,6 +114,7 @@ def test_existing_image_endpoints_have_full_capabilities():
     """EndpointSpec 新增 image_capabilities 字段；已存在的 image entry 默认填两个能力。"""
     from lib.custom_provider.endpoints import (
         ENDPOINT_REGISTRY,
+        endpoint_spec_to_dict,
         endpoint_to_image_capabilities,
     )
     from lib.image_backends import ImageCapability
@@ -126,3 +127,7 @@ def test_existing_image_endpoints_have_full_capabilities():
 
     with pytest.raises(ValueError):
         endpoint_to_image_capabilities("openai-chat")
+
+    # Verify endpoint_spec_to_dict serializes capabilities to sorted list[str]
+    serialized = endpoint_spec_to_dict(ENDPOINT_REGISTRY["openai-images"])
+    assert serialized["image_capabilities"] == ["image_to_image", "text_to_image"]
