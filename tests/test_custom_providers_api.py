@@ -1290,3 +1290,77 @@ async def test_default_conflict_grouped_by_endpoint_media(client):
     }
     resp = client.post("/api/v1/custom-providers", json=payload)
     assert resp.status_code == 422
+
+
+def test_check_unique_defaults_allows_split_image_endpoints():
+    """同 provider 内 -generations 与 -edits 两条都设默认 → 允许（capability 不交叠）。"""
+    from server.routers.custom_providers import ModelInput, _check_unique_defaults
+
+    models = [
+        ModelInput(model_id="m1", display_name="m1", endpoint="openai-images-generations", is_default=True),
+        ModelInput(model_id="m2", display_name="m2", endpoint="openai-images-edits", is_default=True),
+    ]
+
+    def t(key, **params):
+        return f"{key}:{params}"
+
+    # 不应抛
+    _check_unique_defaults(models, t)
+
+
+def test_check_unique_defaults_rejects_two_generations_defaults():
+    """同 provider 内两条 -generations 都设默认 → 422。"""
+    import pytest as pytest_module
+    from fastapi import HTTPException
+
+    from server.routers.custom_providers import ModelInput, _check_unique_defaults
+
+    models = [
+        ModelInput(model_id="m1", display_name="m1", endpoint="openai-images-generations", is_default=True),
+        ModelInput(model_id="m2", display_name="m2", endpoint="openai-images-generations", is_default=True),
+    ]
+
+    def t(key, **params):
+        return f"{key}:{params}"
+
+    with pytest_module.raises(HTTPException) as excinfo:
+        _check_unique_defaults(models, t)
+    assert excinfo.value.status_code == 422
+
+
+def test_check_unique_defaults_rejects_wildcard_with_split():
+    """通配 + -generations 同时默认 → 不允许（通配占 T2I 槽与 -generations 冲突）。"""
+    import pytest as pytest_module
+    from fastapi import HTTPException
+
+    from server.routers.custom_providers import ModelInput, _check_unique_defaults
+
+    models = [
+        ModelInput(model_id="m1", display_name="m1", endpoint="openai-images", is_default=True),
+        ModelInput(model_id="m2", display_name="m2", endpoint="openai-images-generations", is_default=True),
+    ]
+
+    def t(key, **params):
+        return f"{key}:{params}"
+
+    with pytest_module.raises(HTTPException):
+        _check_unique_defaults(models, t)
+
+
+def test_check_unique_defaults_text_still_media_type_exclusive():
+    """text/video 维持旧规则：同一 media_type 只能有一个默认。"""
+    import pytest as pytest_module
+    from fastapi import HTTPException
+
+    from server.routers.custom_providers import ModelInput, _check_unique_defaults
+
+    models = [
+        ModelInput(model_id="m1", display_name="m1", endpoint="openai-chat", is_default=True),
+        ModelInput(model_id="m2", display_name="m2", endpoint="gemini-generate", is_default=True),
+    ]
+
+    def t(key, **params):
+        return f"{key}:{params}"
+
+    with pytest_module.raises(HTTPException):
+        _check_unique_defaults(models, t)

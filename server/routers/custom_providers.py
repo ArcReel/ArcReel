@@ -18,7 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
 from lib.custom_provider import make_provider_id
-from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, endpoint_spec_to_dict, endpoint_to_media_type
+from lib.custom_provider.endpoints import (
+    ENDPOINT_REGISTRY,
+    endpoint_spec_to_dict,
+    endpoint_to_image_capabilities,
+    endpoint_to_media_type,
+)
+from lib.image_backends.base import ImageCapability
 
 
 def _validate_endpoint(value: str) -> str:
@@ -236,16 +242,52 @@ def _check_duplicate_model_ids(models: list[ModelInput], _t: Callable[..., str])
 
 
 def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> None:
-    """校验每个推算出的 media_type 最多只有一个 is_default=True 的模型。"""
-    defaults_by_type: dict[str, list[str]] = {}
+    """校验默认模型互斥。
+
+    - text / video endpoint：同一 media_type 至多 1 个 is_default=True（保留旧规则）。
+    - image endpoint：image capability 集合两两不相交（即同一 capability 至多 1 个默认）。
+    """
+    text_video_defaults: dict[str, list[str]] = {}
+    image_defaults: list[tuple[str, frozenset[ImageCapability]]] = []
     for m in models:
-        if m.is_default:
-            try:
-                media_type = endpoint_to_media_type(m.endpoint)
-            except ValueError:
-                continue  # endpoint 已在 ModelInput validator 校验，此处跳过未知值
-            defaults_by_type.setdefault(media_type, []).append(m.model_id)
-    duplicates = {mt: ids for mt, ids in defaults_by_type.items() if len(ids) > 1}
+        if not m.is_default:
+            continue
+        try:
+            mt = endpoint_to_media_type(m.endpoint)
+        except ValueError:
+            continue  # endpoint 已在 ModelInput validator 校验，此处跳过未知值
+        if mt != "image":
+            text_video_defaults.setdefault(mt, []).append(m.model_id)
+            continue
+        try:
+            caps = endpoint_to_image_capabilities(m.endpoint)
+        except ValueError:
+            continue
+        image_defaults.append((m.model_id, caps))
+
+    duplicates: dict[str, list[str]] = {}
+    for mt, ids in text_video_defaults.items():
+        if len(ids) > 1:
+            duplicates[mt] = ids
+
+    # image：找出任意两条 caps 有交集的模型（同一 capability 槽不能并存两个默认）
+    conflict_ids: list[str] = []
+    for i in range(len(image_defaults)):
+        for j in range(i + 1, len(image_defaults)):
+            id_i, caps_i = image_defaults[i]
+            id_j, caps_j = image_defaults[j]
+            if caps_i & caps_j:
+                conflict_ids.extend([id_i, id_j])
+    if conflict_ids:
+        # dedupe + 保持原始顺序
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for cid in conflict_ids:
+            if cid not in seen:
+                seen.add(cid)
+                deduped.append(cid)
+        duplicates["image"] = deduped
+
     if duplicates:
         parts = [f"{mt}({', '.join(ids)})" for mt, ids in duplicates.items()]
         raise HTTPException(
