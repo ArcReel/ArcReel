@@ -622,7 +622,6 @@ export default {
   'preview_url': '预览：',
   'discover_models': '获取模型列表',
   'discover_no_models': '未发现可用模型',
-  'discover_needs_key': '请先填入 API Key 再获取模型',
   'discovering_models': '获取中…',
   'import_from_provider': '从供应商导入',
   'import_no_providers': '暂无可导入的自定义供应商',

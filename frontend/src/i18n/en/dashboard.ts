@@ -621,7 +621,6 @@ export default {
   'preview_url': 'Preview: ',
   'discover_models': 'Discover Models',
   'discover_no_models': 'No models found',
-  'discover_needs_key': 'Please fill in API Key before discovering models',
   'discovering_models': 'Discovering...',
   'import_from_provider': 'Import from provider',
   'import_no_providers': 'No custom providers to import',

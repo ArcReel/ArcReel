@@ -184,6 +184,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const [modelCandidates, setModelCandidates] = useState<string[]>([]);
   const [discoverState, setDiscoverState] = useState<"idle" | "loading" | "error">("idle");
   const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const [discoverHint, setDiscoverHint] = useState<string | null>(null);
 
   // Load config on mount
   const load = useCallback(async () => {
@@ -304,12 +305,13 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
 
     setDiscoverState("loading");
     setDiscoverError(null);
+    setDiscoverHint(null);
     try {
       const res = await API.discoverAnthropicModels({ base_url: baseUrl, api_key: apiKey });
       setModelCandidates(res.models.map((m) => m.model_id));
       setDiscoverState("idle");
       if (res.models.length === 0) {
-        setDiscoverError(t("discover_no_models"));
+        setDiscoverHint(t("discover_no_models"));
       }
     } catch (err) {
       setDiscoverError(errMsg(err));
@@ -596,7 +598,10 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 {t("discover_models")}
               </button>
               {discoverError && (
-                <p className="mt-1 text-right text-xs text-rose-400">{discoverError}</p>
+                <p className="mt-1 text-right text-xs text-rose-400" role="alert">{discoverError}</p>
+              )}
+              {discoverHint && (
+                <p className="mt-1 text-right text-xs text-gray-500">{discoverHint}</p>
               )}
             </div>
           </div>
