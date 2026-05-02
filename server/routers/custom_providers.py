@@ -17,6 +17,7 @@ from pydantic import AfterValidator, BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import mask_secret
+from lib.config.service import ConfigService
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
@@ -24,7 +25,13 @@ from lib.custom_provider.endpoints import (
     endpoint_to_image_capabilities,
     endpoint_to_media_type,
 )
+from lib.db import get_async_session
+from lib.db.base import dt_to_iso
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.i18n import Translator
 from lib.image_backends.base import ImageCapability
+from server.auth import CurrentUser
+from server.dependencies import get_config_service
 
 
 def _validate_endpoint(value: str) -> str:
@@ -38,11 +45,6 @@ def _validate_endpoint(value: str) -> str:
 # 响应路径不需校验，直接 str。
 EndpointType = Annotated[str, AfterValidator(_validate_endpoint)]
 DiscoveryFormatLiteral = Literal["openai", "google"]
-from lib.db import get_async_session
-from lib.db.base import dt_to_iso
-from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.i18n import Translator
-from server.auth import CurrentUser
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +157,16 @@ class ConnectionTestResponse(BaseModel):
 
 class DiscoverResponse(BaseModel):
     models: list[dict]
+
+
+class DiscoverAnthropicRequest(BaseModel):
+    base_url: str | None = None
+    api_key: str | None = None
+
+
+class CredentialsResponse(BaseModel):
+    base_url: str
+    api_key: str
 
 
 class EndpointDescriptor(BaseModel):
@@ -368,6 +380,28 @@ async def get_provider(
     return _provider_to_response(provider, models)
 
 
+@router.get("/{provider_id}/credentials", response_model=CredentialsResponse)
+async def get_provider_credentials(
+    provider_id: int,
+    _user: CurrentUser,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """返回明文 base_url + api_key，供智能体配置导入复用。
+
+    仅 CurrentUser 鉴权,与现有 PATCH 接口对齐;日志不打印 body。
+    多用户场景需重新评估细粒度授权。
+    """
+    repo = CustomProviderRepository(session)
+    provider = await repo.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
+    return CredentialsResponse(
+        base_url=provider.base_url or "",
+        api_key=provider.api_key or "",
+    )
+
+
 @router.patch("/{provider_id}")
 async def update_provider(
     provider_id: int,
@@ -519,6 +553,39 @@ async def discover_models_endpoint(
 ):
     """模型发现：根据 discovery_format + base_url + api_key 查询可用模型。"""
     return await _run_discover(body.discovery_format, body.base_url, body.api_key, _t)
+
+
+@router.post("/discover-anthropic", response_model=DiscoverResponse)
+async def discover_anthropic_models_endpoint(
+    body: DiscoverAnthropicRequest,
+    _user: CurrentUser,
+    _t: Translator,
+    svc: Annotated[ConfigService, Depends(get_config_service)],
+):
+    """Anthropic 协议模型发现：智能体配置专用。
+
+    凭据缺失时 fallback 到 system settings 里已存的
+    anthropic_base_url / anthropic_api_key。
+    """
+    body_key = (body.api_key or "").strip()
+    needs_key = not body_key
+    needs_url = body.base_url is None
+    if needs_key and needs_url:
+        stored_key, stored_url = await asyncio.gather(
+            svc.get_setting("anthropic_api_key", ""),
+            svc.get_setting("anthropic_base_url", ""),
+        )
+    else:
+        stored_key = await svc.get_setting("anthropic_api_key", "") if needs_key else ""
+        stored_url = await svc.get_setting("anthropic_base_url", "") if needs_url else ""
+
+    api_key = body_key or stored_key.strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail=_t("anthropic_discovery_no_key"))
+
+    base_url = body.base_url if not needs_url else (stored_url.strip() or None)
+
+    return await _run_discover("anthropic", base_url, api_key, _t)
 
 
 @router.post("/{provider_id}/discover")

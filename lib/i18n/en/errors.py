@@ -83,6 +83,7 @@ MESSAGES = {
     "provider_not_found": "Provider does not exist",
     "at_least_one_field_required": "At least one field must be provided for update",
     "discovery_failed": "Model discovery failed: {err_msg}",
+    "anthropic_discovery_no_key": "API Key not configured, cannot discover models",
     "unknown_endpoint": "Unknown endpoint: {endpoint}",
     "unknown_discovery_format": "Unsupported discovery_format: {discovery_format}",
     "endpoint_required": "Enabled models must specify endpoint",

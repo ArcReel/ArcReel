@@ -37,6 +37,9 @@ import type {
   CustomProviderModelInput,
   DiscoveredModel,
   EndpointDescriptor,
+  CustomProviderCredentials,
+  AnthropicDiscoverRequest,
+  AnthropicDiscoverResponse,
   CostEstimateResponse,
   ReferenceVideoUnit,
   ReferenceResource,
@@ -1556,6 +1559,21 @@ class API {
 
   static async testCustomConnectionById(id: number): Promise<{ success: boolean; message: string }> {
     return this.request(`/custom-providers/${id}/test`, { method: "POST" });
+  }
+
+  static async getCustomProviderCredentials(id: number): Promise<CustomProviderCredentials> {
+    return this.request(`/custom-providers/${id}/credentials`);
+  }
+
+  static async discoverAnthropicModels(
+    data: AnthropicDiscoverRequest,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<AnthropicDiscoverResponse> {
+    return this.request("/custom-providers/discover-anthropic", {
+      method: "POST",
+      body: JSON.stringify(data),
+      signal: options.signal,
+    });
   }
 
   // ==================== 用量统计（按 provider 分组）API ====================

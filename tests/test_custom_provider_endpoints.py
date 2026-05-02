@@ -96,15 +96,15 @@ class TestInferEndpoint:
             ("imagen-4", "openai", "openai-images"),
             ("flux-pro", "openai", "openai-images"),
             ("sora-2", "openai", "openai-video"),
-            ("kling-v2", "openai", "newapi-video"),
-            ("veo-3", "openai", "newapi-video"),
-            ("veo-3", "google", "newapi-video"),  # google 直连无视频端点 → 兜底 newapi
-            ("seedance-1.0", "openai", "newapi-video"),
-            ("hailuo-02", "openai", "newapi-video"),
+            ("kling-v2", "openai", "openai-video"),
+            ("veo-3", "openai", "openai-video"),
+            ("veo-3", "google", "openai-video"),  # 视频家族一律默认 openai-video
+            ("seedance-1.0", "openai", "openai-video"),
+            ("hailuo-02", "openai", "openai-video"),
             ("seedream-3.0", "openai", "openai-images"),
             ("jimeng-3.0", "openai", "openai-images"),
-            ("jimeng-video-3.0", "openai", "newapi-video"),
-            ("jimengvideo-3.0", "openai", "newapi-video"),
+            ("jimeng-video-3.0", "openai", "openai-video"),
+            ("jimengvideo-3.0", "openai", "openai-video"),
             ("SORA-2", "openai", "openai-video"),
         ],
     )

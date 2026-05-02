@@ -28,7 +28,7 @@ class TestInferEndpointSmoke:
     def test_video_model(self):
         from lib.custom_provider.endpoints import infer_endpoint
 
-        assert infer_endpoint("kling-v2", "openai") == "newapi-video"
+        assert infer_endpoint("kling-v2", "openai") == "openai-video"
 
     def test_google_text(self):
         from lib.custom_provider.endpoints import infer_endpoint
@@ -239,7 +239,7 @@ class TestDiscoverModelsGoogle:
         by_id = {m["model_id"]: m for m in result}
         assert by_id["gemini-3-flash"]["endpoint"] == "gemini-generate"
         assert by_id["gemini-3-flash-image-preview"]["endpoint"] == "gemini-image"
-        assert by_id["veo-3"]["endpoint"] == "newapi-video"
+        assert by_id["veo-3"]["endpoint"] == "openai-video"
 
     @patch("lib.custom_provider.discovery.genai")
     async def test_default_marking_google(self, mock_genai):
@@ -335,10 +335,97 @@ class TestUnknownFormat:
 
         with pytest.raises(ValueError, match="discovery_format"):
             await discover_models(
-                discovery_format="anthropic",
+                discovery_format="bogus",
                 base_url="https://api.example.com",
                 api_key="sk-test",
             )
+
+
+# ---------------------------------------------------------------------------
+# discover_models — Anthropic format
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverModelsAnthropic:
+    @patch("lib.custom_provider.discovery.get_http_client")
+    async def test_basic_discovery(self, mock_get_client):
+        """Anthropic 协议返回的模型按 id 排序，仅保留 model_id。"""
+        from unittest.mock import AsyncMock
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": [
+                {"id": "claude-opus-4-7", "display_name": "Opus 4.7"},
+                {"id": "claude-haiku-4-5", "display_name": "Haiku 4.5"},
+            ]
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_get_client.return_value = mock_client
+
+        from lib.custom_provider.discovery import discover_models
+
+        result = await discover_models(
+            discovery_format="anthropic",
+            base_url="https://example.com/v1",  # 故意带 /v1，验证规范化
+            api_key="sk-ant-test",
+        )
+
+        ids = [m["model_id"] for m in result]
+        assert ids == ["claude-haiku-4-5", "claude-opus-4-7"]
+        # URL 规范化：/v1 应被剥掉，请求 path 为 /v1/models
+        called_url = mock_client.get.call_args.args[0]
+        assert called_url == "https://example.com/v1/models"
+        # headers 携带 anthropic 鉴权
+        headers = mock_client.get.call_args.kwargs["headers"]
+        assert headers["x-api-key"] == "sk-ant-test"
+        assert headers["anthropic-version"] == "2023-06-01"
+
+    @patch("lib.custom_provider.discovery.get_http_client")
+    async def test_default_base_url_when_none(self, mock_get_client):
+        """base_url 缺省时使用官方 https://api.anthropic.com。"""
+        from unittest.mock import AsyncMock
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": []}
+        mock_response.raise_for_status = MagicMock()
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_get_client.return_value = mock_client
+
+        from lib.custom_provider.discovery import discover_models
+
+        await discover_models(discovery_format="anthropic", base_url=None, api_key="key")
+
+        called_url = mock_client.get.call_args.args[0]
+        assert called_url == "https://api.anthropic.com/v1/models"
+
+    @patch("lib.custom_provider.discovery.get_http_client")
+    async def test_skips_entries_without_id(self, mock_get_client):
+        """data 中 id 缺失的条目被跳过。"""
+        from unittest.mock import AsyncMock
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": [{"id": "claude-x"}, {"display_name": "no id"}],
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_get_client.return_value = mock_client
+
+        from lib.custom_provider.discovery import discover_models
+
+        result = await discover_models(discovery_format="anthropic", base_url=None, api_key="k")
+        assert [m["model_id"] for m in result] == ["claude-x"]
+
+    async def test_unknown_format_raises(self):
+        """anthropic 仍是已知 format；未知 format 抛 ValueError 含 anthropic。"""
+        from lib.custom_provider.discovery import discover_models
+
+        with pytest.raises(ValueError, match="anthropic"):
+            await discover_models(discovery_format="bogus", base_url=None, api_key="k")
 
 
 # ---------------------------------------------------------------------------
@@ -364,8 +451,8 @@ def test_discover_openai_returns_endpoints(monkeypatch):
     )
     by_id = {m["model_id"]: m for m in result}
     assert by_id["gpt-4o"]["endpoint"] == "openai-chat"
-    assert by_id["kling-v2"]["endpoint"] == "newapi-video"
+    assert by_id["kling-v2"]["endpoint"] == "openai-video"
     assert by_id["dall-e-3"]["endpoint"] == "openai-images"
     # 每种 media_type 仅一个 default
     defaults = [m for m in result if m["is_default"]]
-    assert {m["endpoint"] for m in defaults} == {"openai-chat", "newapi-video", "openai-images"}
+    assert {m["endpoint"] for m in defaults} == {"openai-chat", "openai-video", "openai-images"}

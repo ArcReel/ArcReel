@@ -83,6 +83,7 @@ MESSAGES = {
     "provider_not_found": "供应商不存在",
     "at_least_one_field_required": "至少需要提供一个更新字段",
     "discovery_failed": "模型发现失败: {err_msg}",
+    "anthropic_discovery_no_key": "未配置 API Key，无法发现模型",
     "unknown_endpoint": "未知 endpoint: {endpoint}",
     "unknown_discovery_format": "不支持的 discovery_format: {discovery_format}",
     "endpoint_required": "已启用的模型必须填写 endpoint",
