@@ -82,11 +82,24 @@ class ModelInput(BaseModel):
     resolution: str | None = None
 
     def to_db_dict(self) -> dict:
-        """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。"""
+        """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。
+
+        视频类 endpoint 且 supported_durations 缺省时，由 duration_presets 启发式填补。
+        非视频类 endpoint 保持 None。
+        """
+        from lib.custom_provider.duration_presets import infer_supported_durations
+        from lib.custom_provider.endpoints import endpoint_to_media_type
+
         d = self.model_dump()
-        d["supported_durations"] = (
-            json.dumps(self.supported_durations) if self.supported_durations is not None else None
-        )
+        durations = self.supported_durations
+        if durations is None:
+            try:
+                if endpoint_to_media_type(self.endpoint) == "video":
+                    durations = infer_supported_durations(self.model_id)
+            except ValueError:
+                # 未知 endpoint 由后续校验报错；这里保持 None
+                pass
+        d["supported_durations"] = json.dumps(durations) if durations is not None else None
         return d
 
 
