@@ -144,7 +144,7 @@ ConfigService（`service.py`）→ Repository（持久化 + 密钥脱敏）→ R
 
 ### 任务队列
 
-所有生成任务（分镜/视频/角色/参考视频）统一通过 GenerationQueue 入队，由 GenerationWorker 异步处理（image / video 两条独立并发通道）。
+所有生成任务（分镜/视频/角色/场景/道具/参考视频）统一通过 GenerationQueue 入队，由 GenerationWorker 异步处理（image / video 两条独立并发通道）。
 `generation_queue_client.py` 的 `enqueue_and_wait()` 封装入队 + 等待完成。
 
 ### Pydantic 数据模型
