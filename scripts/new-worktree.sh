@@ -53,15 +53,9 @@ else
   echo "  - .env 不存在，已跳过"
 fi
 
-# projects/ — 符号链接共享数据
-if [ -d "$ROOT/projects" ]; then
-  rm -rf "$TARGET/projects"
-  ln -s "$ROOT/projects" "$TARGET/projects"
-  git -C "$TARGET" ls-files projects/ | xargs -r git -C "$TARGET" update-index --skip-worktree
-  echo "  ✓ projects/ → $ROOT/projects (符号链接)"
-else
-  echo "  - projects/ 不存在，已跳过"
-fi
+# projects/ — 不再链接，避免 alembic migration 跨 worktree 污染共享 DB
+# 各 worktree 首次运行时各自生成 projects/.arcreel.db，互不影响
+echo "  - projects/ 不链接（DB 隔离）；如需共享数据请手动复制具体子目录"
 
 # .vscode/
 if [ -d "$ROOT/.vscode" ]; then

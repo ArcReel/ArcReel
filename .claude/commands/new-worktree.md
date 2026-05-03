@@ -1,6 +1,6 @@
 ---
 name: "New Worktree"
-description: 创建隔离的 git worktree，并自动同步本地配置文件（settings.local.json、.env、.vscode/）和链接 projects/ 目录
+description: 创建隔离的 git worktree，并自动同步本地配置文件（settings.local.json、.env、.vscode/）。projects/ 不再链接，确保 alembic migration 与 DB 隔离
 category: Workflow
 tags: [git, worktree, setup]
 ---
@@ -29,8 +29,10 @@ bash scripts/new-worktree.sh <branch-name> [base-ref]
 脚本会自动完成：
 - 创建 worktree 到 `.worktrees/<branch-name>`
 - 同步 .claude/settings.local.json、.env、.vscode/
-- 链接 projects/ 目录（符号链接，共享数据）
+- **不链接 projects/**：各 worktree 首次运行时各自创建独立的 `projects/.arcreel.db`，避免 alembic migration 互相污染
 - 安装 Python 和前端依赖
+
+> 如需在新 worktree 中复用主仓库的具体项目数据，手动 `cp -r` 或 `ln -s` 单个 `projects/<project-id>/` 子目录即可（不要整体链接 projects/，否则 DB 会被共享）。
 
 ### 3. 验证基线（可选）
 
@@ -50,7 +52,7 @@ Worktree 已就绪：<完整路径>
 已同步文件：
   ✓ .claude/settings.local.json
   ✓ .env
-  ✓ projects/ (符号链接，共享数据)
+  - projects/ 不链接（DB 隔离）
   ✓ .vscode/
 
 测试基线：通过（N 个测试，0 个失败）
