@@ -184,6 +184,10 @@ export function ProviderModelSelect({
           setActiveIndex(Math.max(0, flatOptions.length - 1));
           break;
         case "Enter": {
+          // Ignore Enter while an IME composition is in progress (e.g. selecting
+          // a Chinese/Japanese candidate). Otherwise the candidate confirmation
+          // would be hijacked into selecting a model.
+          if (e.nativeEvent.isComposing) return;
           e.preventDefault();
           const opt = flatOptions[activeIndex];
           if (opt) selectOption(opt.fullValue);
@@ -256,7 +260,12 @@ export function ProviderModelSelect({
         aria-controls={LISTBOX_ID}
         aria-activedescendant={activeDescendantId}
         aria-label={ariaLabel}
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          // Closing via the trigger should also clear any active query so the
+          // next open starts fresh — matches Escape / outside-click / select.
+          if (open) setQuery("");
+          setOpen(!open);
+        }}
         onKeyDown={handleTriggerKeyDown}
         className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-800/80 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
       >
@@ -284,6 +293,7 @@ export function ProviderModelSelect({
                 placeholder={t("search_model_placeholder")}
                 aria-label={t("search_model_aria")}
                 aria-controls={LISTBOX_ID}
+                aria-activedescendant={activeDescendantId}
                 autoComplete="off"
                 spellCheck={false}
                 className="w-full rounded-md border border-gray-700 bg-gray-950/80 py-1.5 pl-8 pr-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"

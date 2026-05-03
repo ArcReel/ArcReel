@@ -229,6 +229,51 @@ describe("ProviderModelSelect – search", () => {
     expect(screen.getByPlaceholderText(/搜索模型或供应商/)).toBeInTheDocument();
   });
 
+  it("clears query when closing via trigger click", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderModelSelect
+        value=""
+        options={MANY_OPTIONS}
+        providerNames={MANY_PROVIDER_NAMES}
+        onChange={() => {}}
+      />,
+    );
+    const trigger = screen.getByRole("combobox");
+    await user.click(trigger);
+    await user.type(screen.getByPlaceholderText(/搜索模型或供应商/), "sora");
+    // Close by clicking the trigger again
+    await user.click(trigger);
+    // Reopen — search input should be empty
+    await user.click(trigger);
+    expect(screen.getByPlaceholderText(/搜索模型或供应商/)).toHaveValue("");
+  });
+
+  it("ignores Enter while IME composition is active", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <ProviderModelSelect
+        value=""
+        options={MANY_OPTIONS}
+        providerNames={MANY_PROVIDER_NAMES}
+        onChange={onChange}
+      />,
+    );
+    await user.click(screen.getByRole("combobox"));
+    const input = screen.getByPlaceholderText(/搜索模型或供应商/);
+    // Simulate IME composition: keydown with isComposing=true should not trigger select
+    input.focus();
+    const keydownEvent = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(keydownEvent, "isComposing", { value: true });
+    input.dispatchEvent(keydownEvent);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("clears query when an option is selected", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
