@@ -164,9 +164,10 @@ class TestOpenAIVideoBackend:
         # 失败应该在轮询阶段抛出，不会进入下载
         mock_client.videos.download_content.assert_not_called()
 
-    async def test_duration_mapping(self, tmp_path: Path):
+    async def test_duration_passthrough(self, tmp_path: Path):
+        """所有 duration 值应原值透传到 SDK，不再被 _map_duration 篡改。"""
         mock_client = AsyncMock()
-        _stub_client_completed(mock_client, seconds="4")
+        _stub_client_completed(mock_client, seconds="6")
 
         with (
             patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
@@ -176,7 +177,7 @@ class TestOpenAIVideoBackend:
 
             backend = OpenAIVideoBackend(api_key="test-key")
 
-            for seconds, expected in [(3, "4"), (4, "4"), (5, "8"), (8, "8"), (10, "12"), (15, "12")]:
+            for seconds in [3, 4, 5, 6, 7, 8, 10, 12, 15, 20]:
                 output_path = tmp_path / f"output_{seconds}.mp4"
                 request = VideoGenerationRequest(
                     prompt="test",
@@ -185,7 +186,7 @@ class TestOpenAIVideoBackend:
                 )
                 await backend.generate(request)
                 call_kwargs = mock_client.videos.create.call_args[1]
-                assert call_kwargs["seconds"] == expected, f"duration={seconds}"
+                assert call_kwargs["seconds"] == str(seconds), f"duration={seconds}"
 
     async def test_video_seconds_none_fallback(self, tmp_path: Path):
         """当 API 返回 video.seconds=None 时，应回退到请求的 duration。"""
@@ -203,12 +204,12 @@ class TestOpenAIVideoBackend:
             request = VideoGenerationRequest(
                 prompt="test",
                 output_path=output_path,
-                duration_seconds=5,
+                duration_seconds=6,
             )
             result = await backend.generate(request)
 
-        # 请求 5 秒 → _map_duration → "8"，回退应返回 8
-        assert result.duration_seconds == 8
+        # 请求 6 秒 → 透传 → 回退应保留请求值 6
+        assert result.duration_seconds == 6
 
     async def test_size_mapping(self, tmp_path: Path):
         mock_client = AsyncMock()
