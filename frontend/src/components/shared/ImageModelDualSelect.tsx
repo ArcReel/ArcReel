@@ -175,11 +175,7 @@ export function ImageModelDualSelect({
           onChange={handlePrimaryChange}
           allowDefault
           defaultLabel={fallbackLabel}
-          defaultHint={
-            globalDefaultT2I
-              ? t("current_global_default", { value: globalDefaultT2I })
-              : defaultHint
-          }
+          defaultHint={t2iHint}
           fallbackValue={globalDefaultT2I || undefined}
           aria-label={labelPrimary ?? t("model_image")}
         />
