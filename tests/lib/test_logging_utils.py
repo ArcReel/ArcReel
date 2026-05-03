@@ -140,6 +140,18 @@ def test_formatter_returns_fallback_when_repr_explodes():
     assert out == "<unserializable>"
 
 
+def test_sensitive_key_with_numeric_value_masked():
+    out = format_kwargs_for_log({"password": 123456, "pin_token": 9999})
+    parsed = json.loads(out)
+    assert parsed["password"] == "••••"
+    assert parsed["pin_token"] == "••••"
+
+
+def test_sensitive_key_with_bool_value_masked():
+    out = format_kwargs_for_log({"api_key": True})
+    assert json.loads(out)["api_key"] == "••••"
+
+
 def test_pydantic_class_not_called_as_instance():
     class Req(BaseModel):
         prompt: str

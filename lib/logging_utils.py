@@ -52,10 +52,12 @@ def _to_safe(obj: Any, key_hint: str | None = None) -> Any:
     # 敏感 key 命中时整体脱敏：避免 {"api_key": {"value": "secret"}} 这类嵌套结构
     # 在递归到 "value" 子键时，因为 key_hint 不再敏感而泄漏 secret。
     if key_hint and _SENSITIVE_KEY_RE.search(key_hint):
+        # None 透传以便区分"未配置"和"已配置但脱敏"；其他任何类型（含 int/bool/float）
+        # 都整体替换为 ••••，避免 {"password": 123456} 这类用数字当 secret 的场景泄漏。
+        if obj is None:
+            return None
         if isinstance(obj, str):
             return _mask_secret(obj)
-        if obj is None or isinstance(obj, bool | int | float):
-            return obj
         return "••••"
 
     if obj is None or isinstance(obj, bool | int | float):
