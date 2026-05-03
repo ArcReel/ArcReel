@@ -16,6 +16,7 @@ import { priceLabel, urlPreviewFor, toggleDefaultReducer, type DiscoveryFormat }
 import { EndpointSelect } from "./EndpointSelect";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS } from "@/utils/provider-models";
+import { compactRangeFormat, parseDurationInput } from "@/utils/duration_format";
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -38,6 +39,7 @@ interface ModelRow {
   price_output: string;
   currency: string;
   resolution: string; // 空串 = null
+  supported_durations_text: string; // 用户原始文本，提交前 parse；空串 = 让后端按 preset 兜底
 }
 
 function newModelRow(partial?: Partial<ModelRow>): ModelRow {
@@ -53,6 +55,7 @@ function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     price_output: "",
     currency: "USD",
     resolution: "",
+    supported_durations_text: "",
     ...partial,
   };
 }
@@ -79,10 +82,16 @@ function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
     price_output: m.price_output != null ? String(m.price_output) : "",
     currency: m.currency ?? "",
     resolution: m.resolution ?? "",
+    supported_durations_text: m.supported_durations ? compactRangeFormat(m.supported_durations) : "",
   });
 }
 
 function rowToInput(r: ModelRow): CustomProviderModelInput {
+  const trimmed = r.supported_durations_text.trim();
+  let supported_durations: number[] | null = null;
+  if (trimmed) {
+    supported_durations = parseDurationInput(trimmed);
+  }
   return {
     model_id: r.model_id,
     display_name: r.display_name || r.model_id,
@@ -94,7 +103,62 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
     ...(r.price_output ? { price_output: parseFloat(r.price_output) } : {}),
     ...(r.currency ? { currency: r.currency } : {}),
     ...(r.resolution ? { resolution: r.resolution } : { resolution: null }),
+    ...(supported_durations ? { supported_durations } : { supported_durations: null }),
   };
+}
+
+// ---------------------------------------------------------------------------
+// DurationsInputRow — 视频模型行内的 supported_durations 输入
+// ---------------------------------------------------------------------------
+
+function DurationsInputRow({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const { t } = useTranslation("dashboard");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleChange = (next: string) => {
+    onChange(next);
+    if (!next.trim()) {
+      setError(null);
+      return;
+    }
+    try {
+      parseDurationInput(next);
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <div className="mt-2 flex flex-col gap-1 pl-6">
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-gray-400 whitespace-nowrap">
+          {t("supported_durations_label")}
+        </label>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => handleChange(e.target.value)}
+          placeholder={t("supported_durations_placeholder")}
+          aria-label={t("supported_durations_label")}
+          className="min-w-0 flex-1 rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-100 placeholder-gray-600 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
+        />
+      </div>
+      {error ? (
+        <p className="text-xs text-red-400">
+          {t("supported_durations_invalid", { message: error })}
+        </p>
+      ) : (
+        <p className="text-xs text-gray-500">{t("supported_durations_help")}</p>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -544,6 +608,14 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                           aria-label={t("resolution_label")}
                         />
                       </div>
+                    )}
+
+                    {/* Supported durations row（仅 video endpoint） */}
+                    {media === "video" && (
+                      <DurationsInputRow
+                        value={m.supported_durations_text}
+                        onChange={(v) => updateModel(m.key, { supported_durations_text: v })}
+                      />
                     )}
                   </div>
                 );
