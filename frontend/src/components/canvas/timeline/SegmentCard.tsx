@@ -3,7 +3,6 @@ import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { ImageIcon, Film, Clock, Edit3 } from "lucide-react";
 import { API } from "@/api";
-import { DEFAULT_DURATIONS } from "@/utils/provider-models";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AvatarStack } from "@/components/ui/AvatarStack";
 import { ClueStack } from "@/components/ui/ClueStack";
@@ -189,7 +188,7 @@ function DurationSelector({
   seconds,
   segmentId,
   onUpdatePrompt,
-  durationOptions = DEFAULT_DURATIONS as number[],
+  durationOptions = [],
 }: {
   seconds: number;
   segmentId: string;
