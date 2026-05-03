@@ -7,6 +7,7 @@ import logging
 from xai_sdk import chat as xai_chat
 
 from lib.grok_shared import create_grok_client, grok_should_retry
+from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GROK
 from lib.retry import with_retry_async
 from lib.text_backends.base import (
@@ -71,6 +72,21 @@ class GrokTextBackend:
                     user_parts.append(xai_chat.image(image_url=img_input.url))
 
         chat.append(xai_chat.user(request.prompt, *user_parts))
+
+        logger.info(
+            "调用 %s 文本 SDK payload=%s",
+            self.name,
+            format_kwargs_for_log(
+                {
+                    "model": self._model,
+                    "max_tokens": chat_kwargs.get("max_tokens"),
+                    "system_prompt": request.system_prompt,
+                    "prompt": request.prompt,
+                    "image_count": len(request.images) if request.images else 0,
+                    "structured_output": bool(request.response_schema),
+                }
+            ),
+        )
 
         # Structured output or plain
         if request.response_schema:

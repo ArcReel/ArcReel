@@ -11,6 +11,7 @@ from pathlib import Path
 
 import httpx
 
+from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_NEWAPI
 from lib.retry import (
     BASE_RETRYABLE_ERRORS,
@@ -143,6 +144,7 @@ class NewAPIVideoBackend:
             )
 
         logger.info("NewAPI 视频生成开始: model=%s, duration=%s", self._model, request.duration_seconds)
+        logger.info("调用 %s 视频 SDK payload=%s", self.name, format_kwargs_for_log(payload))
 
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             task_id = await self._create_task(client, payload)

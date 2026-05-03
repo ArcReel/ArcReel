@@ -9,6 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from lib.grok_shared import create_grok_client, grok_should_retry
+from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GROK
 from lib.retry import with_retry_async
 from lib.video_backends.base import (
@@ -108,4 +109,5 @@ class GrokVideoBackend:
                 generate_kwargs["reference_image_urls"] = list(ref_urls)
 
         logger.info("Grok 视频生成开始: model=%s, duration=%ds", self._model, request.duration_seconds)
+        logger.info("调用 %s 视频 SDK kwargs=%s", self.name, format_kwargs_for_log(generate_kwargs))
         return await self._client.video.generate(**generate_kwargs)

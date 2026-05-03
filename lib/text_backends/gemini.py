@@ -14,6 +14,7 @@ except ImportError:
 
 from ..config.url_utils import normalize_base_url
 from ..gemini_shared import VERTEX_SCOPES, with_retry_async
+from ..logging_utils import format_kwargs_for_log
 from ..providers import PROVIDER_GEMINI
 from .base import (
     TextCapability,
@@ -145,6 +146,11 @@ class GeminiTextBackend:
         )
         contents = self._build_contents(request)
 
+        logger.info(
+            "调用 %s 文本 SDK payload=%s",
+            self.name,
+            format_kwargs_for_log({"model": self._model, "contents": contents, "config": config or None}),
+        )
         response = await self._client.aio.models.generate_content(
             model=self._model,
             contents=contents,

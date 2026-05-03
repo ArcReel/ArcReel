@@ -17,6 +17,7 @@ from lib.image_backends.base import (
     ImageGenerationResult,
     ReferenceImage,
 )
+from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GEMINI
 from lib.system_config import resolve_vertex_credentials_path
 
@@ -122,6 +123,13 @@ class GeminiImageBackend:
         )
 
         # 4. 调用异步 API
+        logger.info(
+            "调用 %s 图片 SDK payload=%s",
+            self.name,
+            format_kwargs_for_log(
+                {"model": self._image_model, "contents": contents, "image_config": image_config_kwargs}
+            ),
+        )
         response = await self._client.aio.models.generate_content(
             model=self._image_model, contents=contents, config=config
         )

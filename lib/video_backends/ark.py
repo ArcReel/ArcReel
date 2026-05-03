@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 
 from lib.ark_shared import create_ark_client
+from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_ARK
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
@@ -150,6 +151,7 @@ class ArkVideoBackend:
             create_params["seed"] = request.seed
 
         # 3. Create task (sync SDK call, run in executor)
+        logger.info("调用 %s 视频 SDK kwargs=%s", self.name, format_kwargs_for_log(create_params))
         create_result = await asyncio.to_thread(
             self._client.content_generation.tasks.create,
             **create_params,

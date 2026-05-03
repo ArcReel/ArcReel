@@ -13,6 +13,7 @@ from PIL import Image
 
 from lib.config.url_utils import normalize_base_url
 from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter
+from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GEMINI
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.system_config import resolve_vertex_credentials_path
@@ -171,6 +172,19 @@ class GeminiVideoBackend:
         source = self._types.GenerateVideosSource(prompt=request.prompt, image=image_param)
 
         # 5. 调用 API
+        logger.info(
+            "调用 %s 视频 SDK payload=%s",
+            self.name,
+            format_kwargs_for_log(
+                {
+                    "model": self._video_model,
+                    "prompt": request.prompt,
+                    "config": config_params,
+                    "has_start_image": request.start_image is not None,
+                    "reference_image_count": len(request.reference_images) if request.reference_images else 0,
+                }
+            ),
+        )
         operation = await self._client.aio.models.generate_videos(model=self._video_model, source=source, config=config)
         op_name = getattr(operation, "name", "unknown")
         logger.info("视频生成已提交, operation=%s", op_name)

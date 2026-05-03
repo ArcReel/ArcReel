@@ -13,6 +13,7 @@ from lib.image_backends.base import (
     download_image_to_path,
     image_to_base64_data_uri,
 )
+from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GROK
 from lib.retry import with_retry_async
 
@@ -96,6 +97,7 @@ class GrokImageBackend:
                 logger.info("Grok I2I 模式: %d 张参考图", len(data_uris))
 
         logger.info("Grok 图片生成开始: model=%s", self._model)
+        logger.info("调用 %s 图片 SDK kwargs=%s", self.name, format_kwargs_for_log(generate_kwargs))
         response = await self._client.image.sample(**generate_kwargs)
 
         # 审核检查

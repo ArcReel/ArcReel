@@ -14,6 +14,7 @@ from lib.image_backends.base import (
     image_to_base64_data_uri,
     save_image_from_response_item,
 )
+from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_ARK
 from lib.retry import with_retry_async
 
@@ -68,6 +69,7 @@ class ArkImageBackend:
         if request.seed is not None:
             kwargs["seed"] = request.seed
 
+        logger.info("调用 %s 图片 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
         # 同步 SDK 通过 to_thread 包装
         response = await asyncio.to_thread(
             self._client.images.generate,

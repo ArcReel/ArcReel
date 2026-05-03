@@ -6,6 +6,7 @@ import logging
 
 from openai import AsyncOpenAI, BadRequestError
 
+from lib.logging_utils import format_kwargs_for_log
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
 from lib.retry import with_retry_async
@@ -80,6 +81,7 @@ class OpenAITextBackend:
                 },
             }
 
+        logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
         try:
             response = await self._client.chat.completions.create(**kwargs)
         except Exception as exc:

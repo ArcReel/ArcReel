@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 from lib.ark_shared import ARK_BASE_URL, create_ark_client, resolve_ark_api_key
+from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_ARK
 from lib.retry import with_retry_async
 from lib.text_backends.base import (
@@ -68,6 +69,7 @@ class ArkTextBackend:
         kwargs: dict = {"model": self._model, "messages": messages}
         if request.max_output_tokens is not None:
             kwargs["max_tokens"] = request.max_output_tokens
+        logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
         response = await asyncio.to_thread(
             self._client.chat.completions.create,
             **kwargs,
@@ -91,6 +93,7 @@ class ArkTextBackend:
             }
             if request.max_output_tokens is not None:
                 kwargs["max_tokens"] = request.max_output_tokens
+            logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
             try:
                 response = await asyncio.to_thread(self._client.chat.completions.create, **kwargs)
                 return self._parse_chat_response(response)

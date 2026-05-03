@@ -15,6 +15,7 @@ from lib.image_backends.base import (
     ImageGenerationResult,
     save_image_from_response_item,
 )
+from lib.logging_utils import format_kwargs_for_log
 from lib.openai_shared import (
     OPENAI_IMAGE_QUALITY_MAP as _QUALITY_MAP,
 )
@@ -113,6 +114,7 @@ class OpenAIImageBackend:
             "n": 1,
         }
         kwargs.update(_resolve_openai_params(request.image_size, request.aspect_ratio))
+        logger.info("调用 %s 图片 SDK (T2I) kwargs=%s", self.name, format_kwargs_for_log(kwargs))
         response = await self._client.images.generate(**kwargs)
         return await self._save_and_return(response, request)
 
@@ -149,6 +151,17 @@ class OpenAIImageBackend:
                     model=self._model,
                     detail="all reference images failed to open",
                 )
+            logger.info(
+                "调用 %s 图片 SDK (I2I) kwargs=%s",
+                self.name,
+                format_kwargs_for_log(
+                    {
+                        "model": self._model,
+                        "image_count": len(image_files),
+                        "prompt": request.prompt,
+                    }
+                ),
+            )
             response = await self._client.images.edit(
                 model=self._model,
                 image=image_files,

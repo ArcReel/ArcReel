@@ -1,0 +1,108 @@
+"""日志安全格式化工具。
+
+提供 ``format_kwargs_for_log``：把任意 dict / Pydantic 对象 / 列表
+序列化为单行字符串，专门用于 logger.info 调用前对参数做"截断 + 摘要"，
+避免长 prompt、参考图 base64、bytes 等大字段把日志撑爆。
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, is_dataclass
+from typing import Any
+
+_STR_TRUNCATE_AT = 500
+_STR_TRUNCATE_PREFIX = 200
+_LIST_TRUNCATE_AT = 10
+_LIST_HEAD = 5
+_LIST_TAIL = 2
+
+_SENSITIVE_KEY_RE = re.compile(r"(api[_-]?key|secret|token|password|authorization)", re.IGNORECASE)
+
+
+def _mask_secret(value: str) -> str:
+    raw = value.strip()
+    if len(raw) <= 8:
+        return "••••"
+    return f"{raw[:4]}…{raw[-4:]}"
+
+
+def _truncate_str(value: str) -> str:
+    if len(value) <= _STR_TRUNCATE_AT:
+        return value
+    return f"{value[:_STR_TRUNCATE_PREFIX]}... <truncated, total {len(value)} chars>"
+
+
+def _summarize_image_like(obj: Any) -> str | None:
+    mime = getattr(obj, "mime_type", None)
+    if mime is not None:
+        data = getattr(obj, "data", None)
+        size = len(data) if isinstance(data, bytes | bytearray) else None
+        return f"<image:mime={mime},bytes={size}>" if size is not None else f"<image:mime={mime}>"
+    if hasattr(obj, "size") and hasattr(obj, "mode") and hasattr(obj, "format"):
+        return f"<image:format={obj.format},size={obj.size},mode={obj.mode}>"
+    if hasattr(obj, "read") and callable(obj.read):
+        return f"<file-like:{type(obj).__name__}>"
+    return None
+
+
+def _to_safe(obj: Any, key_hint: str | None = None) -> Any:
+    if key_hint and isinstance(obj, str) and _SENSITIVE_KEY_RE.search(key_hint):
+        return _mask_secret(obj)
+
+    if obj is None or isinstance(obj, bool | int | float):
+        return obj
+
+    if isinstance(obj, str):
+        return _truncate_str(obj)
+
+    if isinstance(obj, bytes | bytearray):
+        return f"<bytes:{len(obj)}>"
+
+    image_summary = _summarize_image_like(obj)
+    if image_summary is not None:
+        return image_summary
+
+    if isinstance(obj, Mapping):
+        return {str(k): _to_safe(v, key_hint=str(k)) for k, v in obj.items()}
+
+    model_dump = getattr(obj, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return _to_safe(model_dump())
+        except Exception:
+            pass
+
+    if is_dataclass(obj) and not isinstance(obj, type):
+        try:
+            return _to_safe(asdict(obj))
+        except Exception:
+            pass
+
+    if isinstance(obj, Sequence) and not isinstance(obj, str | bytes | bytearray):
+        items = list(obj)
+        if len(items) > _LIST_TRUNCATE_AT:
+            head = [_to_safe(x) for x in items[:_LIST_HEAD]]
+            tail = [_to_safe(x) for x in items[-_LIST_TAIL:]]
+            return [*head, f"...省略 {len(items) - _LIST_HEAD - _LIST_TAIL} 项...", *tail]
+        return [_to_safe(x) for x in items]
+
+    return _truncate_str(repr(obj))
+
+
+def format_kwargs_for_log(payload: Any) -> str:
+    """把任意对象转成单行、安全可读的字符串，供 logger 输出。
+
+    - 长字符串截断到 500 字
+    - bytes/bytearray 替换为 ``<bytes:N>``
+    - 嵌套 dict/list 递归处理
+    - 敏感 key（api_key/secret/token/password/authorization）的 string 值脱敏
+    - Pydantic / dataclass 自动转 dict
+    """
+    safe = _to_safe(payload)
+    try:
+        return json.dumps(safe, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return repr(safe)

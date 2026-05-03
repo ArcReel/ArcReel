@@ -6,6 +6,7 @@ import asyncio
 import logging
 from pathlib import Path
 
+from lib.logging_utils import format_kwargs_for_log
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
@@ -102,6 +103,7 @@ class OpenAIVideoBackend:
             kwargs["input_reference"] = refs[0] if len(refs) == 1 else refs
 
         logger.info("OpenAI 视频生成开始: model=%s, seconds=%s", self._model, kwargs["seconds"])
+        logger.info("调用 %s 视频 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
 
         video = await self._create_video(**kwargs)
         final = await self._poll_until_complete(video.id, request.duration_seconds)
