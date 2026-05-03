@@ -87,9 +87,10 @@ describe("ModelConfigSection", () => {
         }}
       />,
     );
-    // 6 combobox triggers should be rendered (1 video + 2 image T2I/I2I + 3 text)
+    // 5 combobox triggers — 单下拉模式下 image 只渲染 1 个（spec: 默认渲染单下拉，
+    // 仅当所选模型 caps 单一时才露出第二个槽位）：1 video + 1 image + 3 text
     const comboboxes = screen.getAllByRole("combobox");
-    expect(comboboxes).toHaveLength(6);
+    expect(comboboxes).toHaveLength(5);
 
     // Opening each dropdown should reveal "使用全局默认" as the default option
     await user.click(comboboxes[0]);
@@ -193,8 +194,8 @@ describe("ModelConfigSection", () => {
     );
     // No combobox for video model should be visible
     expect(screen.queryByRole("combobox", { name: /视频模型/ })).not.toBeInTheDocument();
-    // Image (T2I) and text should still be visible
-    expect(screen.getByRole("combobox", { name: /文生图/ })).toBeInTheDocument();
+    // 单下拉模式下 image card 主下拉 label 是「图片模型」（不是「文生图」/「图生图」）
+    expect(screen.getByRole("combobox", { name: /^图片模型$/ })).toBeInTheDocument();
   });
 
   it("falls back to globalDefaults.video supported_durations when videoBackend is empty (bug repro)", () => {

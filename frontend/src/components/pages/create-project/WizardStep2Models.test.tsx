@@ -84,8 +84,9 @@ describe("WizardStep2Models", () => {
       />,
     );
     expect(screen.queryByText(/loading|加载中/i)).not.toBeInTheDocument();
-    // 1 video + 2 image (T2I + I2I) + 3 text = 6 selectors
-    expect(screen.getAllByRole("combobox")).toHaveLength(6);
+    // 5 selectors — image 默认单下拉（仅当模型 caps 单一时才露出第 2 个）：
+    // 1 video + 1 image + 3 text
+    expect(screen.getAllByRole("combobox")).toHaveLength(5);
   });
 
   it("calls onBack when previous button is clicked", () => {

@@ -4,12 +4,14 @@ import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { API } from "@/api";
 import type { SystemConfigSettings, SystemConfigOptions, SystemConfigPatch } from "@/types/system";
+import type { CustomProviderInfo } from "@/types/custom-provider";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { ImageModelDualSelect } from "@/components/shared/ImageModelDualSelect";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { errMsg } from "@/utils/async";
+import { getCustomProviderModels } from "@/utils/provider-models";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -26,6 +28,7 @@ export function MediaModelSection() {
 
   const [settings, setSettings] = useState<SystemConfigSettings | null>(null);
   const [options, setOptions] = useState<SystemConfigOptions | null>(null);
+  const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [draft, setDraft] = useState<SystemConfigPatch>({});
   const [saving, setSaving] = useState(false);
 
@@ -38,9 +41,13 @@ export function MediaModelSection() {
   );
 
   const fetchConfig = useCallback(async () => {
-    const res = await API.getSystemConfig();
+    const [res, custom] = await Promise.all([
+      API.getSystemConfig(),
+      getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
+    ]);
     setSettings(res.settings);
     setOptions(res.options);
+    setCustomProviders(custom);
     setDraft({});
   }, []);
 
@@ -135,6 +142,7 @@ export function MediaModelSection() {
             valueI2I={currentImageI2I}
             options={imageBackends}
             providerNames={allProviderNames}
+            customProviders={customProviders}
             onChange={({ t2i, i2i }) =>
               setDraft((prev) => ({
                 ...prev,
@@ -142,6 +150,7 @@ export function MediaModelSection() {
                 default_image_backend_i2i: i2i,
               }))
             }
+            labelPrimary={t("default_image_model")}
             labelT2I={t("image_model_t2i")}
             labelI2I={t("image_model_i2i")}
             defaultLabel={t("auto_select")}

@@ -224,6 +224,7 @@ export function ModelConfigSection({
             valueI2I={value.imageBackendI2I}
             options={options.imageBackends}
             providerNames={options.providerNames}
+            customProviders={customProviders}
             onChange={({ t2i, i2i }) => {
               // 分辨率绑定 T2I（canonical slot），仅在 effective T2I 变化时清空
               const prevEffectiveT2I = value.imageBackendT2I || globalDefaults.imageT2I || "";
