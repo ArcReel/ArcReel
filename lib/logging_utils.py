@@ -49,8 +49,14 @@ def _summarize_image_like(obj: Any) -> str | None:
 
 
 def _to_safe(obj: Any, key_hint: str | None = None) -> Any:
-    if key_hint and isinstance(obj, str) and _SENSITIVE_KEY_RE.search(key_hint):
-        return _mask_secret(obj)
+    # 敏感 key 命中时整体脱敏：避免 {"api_key": {"value": "secret"}} 这类嵌套结构
+    # 在递归到 "value" 子键时，因为 key_hint 不再敏感而泄漏 secret。
+    if key_hint and _SENSITIVE_KEY_RE.search(key_hint):
+        if isinstance(obj, str):
+            return _mask_secret(obj)
+        if obj is None or isinstance(obj, bool | int | float):
+            return obj
+        return "••••"
 
     if obj is None or isinstance(obj, bool | int | float):
         return obj
@@ -69,7 +75,7 @@ def _to_safe(obj: Any, key_hint: str | None = None) -> Any:
         return {str(k): _to_safe(v, key_hint=str(k)) for k, v in obj.items()}
 
     model_dump = getattr(obj, "model_dump", None)
-    if callable(model_dump):
+    if callable(model_dump) and not isinstance(obj, type):
         try:
             return _to_safe(model_dump())
         except Exception:
@@ -98,11 +104,17 @@ def format_kwargs_for_log(payload: Any) -> str:
     - 长字符串截断到 500 字
     - bytes/bytearray 替换为 ``<bytes:N>``
     - 嵌套 dict/list 递归处理
-    - 敏感 key（api_key/secret/token/password/authorization）的 string 值脱敏
+    - 敏感 key（api_key/secret/token/password/authorization）整体脱敏
     - Pydantic / dataclass 自动转 dict
+
+    "失败不影响主流程"：日志辅助逻辑任何异常都吞掉，最差也只返回 ``<unserializable>``，
+    保证生成调用链不会因为日志格式化崩溃。
     """
-    safe = _to_safe(payload)
     try:
+        safe = _to_safe(payload)
         return json.dumps(safe, ensure_ascii=False, default=str)
-    except (TypeError, ValueError):
-        return repr(safe)
+    except Exception:
+        try:
+            return _truncate_str(repr(payload))
+        except Exception:
+            return "<unserializable>"

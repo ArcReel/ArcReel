@@ -100,3 +100,50 @@ def test_unserializable_object_falls_back_to_repr():
 
     out = format_kwargs_for_log({"x": Weird()})
     assert json.loads(out) == {"x": "Weird()"}
+
+
+def test_sensitive_key_with_nested_dict_value_fully_masked():
+    out = format_kwargs_for_log({"api_key": {"value": "supersecret123", "scope": "all"}})
+    assert json.loads(out) == {"api_key": "••••"}
+
+
+def test_sensitive_key_with_list_value_fully_masked():
+    out = format_kwargs_for_log({"tokens": ["a-token-1", "a-token-2"]})
+    assert json.loads(out) == {"tokens": "••••"}
+
+
+def test_sensitive_key_with_none_passthrough():
+    out = format_kwargs_for_log({"api_key": None})
+    assert json.loads(out) == {"api_key": None}
+
+
+def test_formatter_swallows_internal_errors():
+    class Boom:
+        def model_dump(self):
+            raise RuntimeError("boom")
+
+        def __repr__(self) -> str:
+            return "Boom()"
+
+    out = format_kwargs_for_log({"x": Boom()})
+    parsed = json.loads(out)
+    assert parsed == {"x": "Boom()"}
+
+
+def test_formatter_returns_fallback_when_repr_explodes():
+    class Disaster:
+        def __repr__(self) -> str:
+            raise RuntimeError("repr exploded")
+
+    out = format_kwargs_for_log(Disaster())
+    assert out == "<unserializable>"
+
+
+def test_pydantic_class_not_called_as_instance():
+    class Req(BaseModel):
+        prompt: str
+
+    out = format_kwargs_for_log({"cls": Req})
+    parsed = json.loads(out)
+    assert isinstance(parsed["cls"], str)
+    assert "Req" in parsed["cls"]
