@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Check, Search } from "lucide-react";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
@@ -43,8 +43,6 @@ function groupByProvider(options: string[]): Record<string, string[]> {
   return groups;
 }
 
-const LISTBOX_ID = "provider-model-listbox";
-
 export function ProviderModelSelect({
   value,
   options,
@@ -62,6 +60,12 @@ export function ProviderModelSelect({
 }: ProviderModelSelectProps) {
   const { t } = useTranslation("dashboard");
   const resolvedPlaceholder = placeholder ?? t("select_model_placeholder");
+  // Per-instance ARIA id prefix — without this, multiple ProviderModelSelect
+  // instances on the same page (e.g. ImageModelDualSelect's T2I/I2I dual slots)
+  // would all share the same listbox/option ids, breaking aria-controls and
+  // aria-activedescendant relationships for screen readers.
+  const reactId = useId();
+  const listboxId = `provider-model-listbox-${reactId}`;
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [query, setQuery] = useState("");
@@ -78,8 +82,12 @@ export function ProviderModelSelect({
   // breaking keyboard ArrowUp/ArrowDown navigation.
   const grouped = useMemo(() => groupByProvider(options), [options]);
 
-  // Apply search filter to grouped options.
+  // Apply search filter to grouped options. When the search input is hidden
+  // (searchable=false or option count below threshold), any stale `query`
+  // value must NOT continue filtering the list — otherwise users would see
+  // an "invisibly filtered" list with no visible search box to clear.
   const filteredGrouped = useMemo(() => {
+    if (!showSearch) return grouped;
     const q = query.trim().toLowerCase();
     if (!q) return grouped;
     const out: Record<string, string[]> = {};
@@ -93,9 +101,9 @@ export function ProviderModelSelect({
       if (matched.length > 0) out[providerId] = matched;
     }
     return out;
-  }, [grouped, query, providerNames]);
+  }, [grouped, query, providerNames, showSearch]);
 
-  const hasQuery = query.trim().length > 0;
+  const hasQuery = showSearch && query.trim().length > 0;
   const showDefault = !!allowDefault && !hasQuery;
 
   // Build a flat list of selectable options for keyboard navigation
@@ -142,6 +150,12 @@ export function ProviderModelSelect({
       return () => cancelAnimationFrame(id);
     }
   }, [open, showSearch]);
+
+  // Clear stale query whenever the search input is hidden, so a later
+  // showSearch flip back to true cannot resurface a forgotten query.
+  useEffect(() => {
+    if (!showSearch) setQuery("");
+  }, [showSearch]);
 
   // Scroll active item into view
   useEffect(() => {
@@ -243,7 +257,7 @@ export function ProviderModelSelect({
       : resolvedPlaceholder;
 
   const activeDescendantId =
-    open && flatOptions.length > 0 ? `${LISTBOX_ID}-option-${activeIndex}` : undefined;
+    open && flatOptions.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined;
 
   // Track flat index across grouped rendering
   let flatIdx = showDefault ? 1 : 0;
@@ -257,7 +271,7 @@ export function ProviderModelSelect({
         role="combobox"
         aria-expanded={open}
         aria-haspopup="listbox"
-        aria-controls={LISTBOX_ID}
+        aria-controls={listboxId}
         aria-activedescendant={activeDescendantId}
         aria-label={ariaLabel}
         onClick={() => {
@@ -292,7 +306,7 @@ export function ProviderModelSelect({
                 onKeyDown={handleListKeyDown}
                 placeholder={t("search_model_placeholder")}
                 aria-label={t("search_model_aria")}
-                aria-controls={LISTBOX_ID}
+                aria-controls={listboxId}
                 aria-activedescendant={activeDescendantId}
                 autoComplete="off"
                 spellCheck={false}
@@ -302,7 +316,7 @@ export function ProviderModelSelect({
           )}
 
           <div
-            id={LISTBOX_ID}
+            id={listboxId}
             role="listbox"
             aria-label={t("select_model_aria")}
             className="max-h-60 overflow-y-auto"
@@ -313,7 +327,7 @@ export function ProviderModelSelect({
                   if (el) itemRefs.current.set(0, el);
                   else itemRefs.current.delete(0);
                 }}
-                id={`${LISTBOX_ID}-option-0`}
+                id={`${listboxId}-option-0`}
                 role="option"
                 aria-selected={value === ""}
                 type="button"
@@ -353,7 +367,7 @@ export function ProviderModelSelect({
                         if (el) itemRefs.current.set(currentFlatIdx, el);
                         else itemRefs.current.delete(currentFlatIdx);
                       }}
-                      id={`${LISTBOX_ID}-option-${currentFlatIdx}`}
+                      id={`${listboxId}-option-${currentFlatIdx}`}
                       role="option"
                       aria-selected={isSelected}
                       type="button"

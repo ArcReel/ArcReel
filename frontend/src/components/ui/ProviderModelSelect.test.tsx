@@ -274,6 +274,70 @@ describe("ProviderModelSelect – search", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it("uses unique ARIA ids for sibling instances on the same page", async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <ProviderModelSelect
+          value=""
+          options={MANY_OPTIONS}
+          providerNames={MANY_PROVIDER_NAMES}
+          onChange={() => {}}
+          aria-label="first"
+        />
+        <ProviderModelSelect
+          value=""
+          options={MANY_OPTIONS}
+          providerNames={MANY_PROVIDER_NAMES}
+          onChange={() => {}}
+          aria-label="second"
+        />
+      </div>,
+    );
+    const [first, second] = screen.getAllByRole("combobox");
+    expect(first.getAttribute("aria-controls")).toBeTruthy();
+    expect(first.getAttribute("aria-controls")).not.toBe(second.getAttribute("aria-controls"));
+
+    // Open both and verify their listbox ids differ
+    await user.click(first);
+    const firstListbox = document.getElementById(first.getAttribute("aria-controls")!);
+    expect(firstListbox).not.toBeNull();
+    await user.click(second);
+    const secondListbox = document.getElementById(second.getAttribute("aria-controls")!);
+    expect(secondListbox).not.toBeNull();
+    expect(firstListbox).not.toBe(secondListbox);
+  });
+
+  it("does not apply stale query filtering when search input is hidden", async () => {
+    const user = userEvent.setup();
+    // Start with searchable enabled so user can type a query
+    const { rerender } = render(
+      <ProviderModelSelect
+        value=""
+        options={MANY_OPTIONS}
+        providerNames={MANY_PROVIDER_NAMES}
+        onChange={() => {}}
+      />,
+    );
+    await user.click(screen.getByRole("combobox"));
+    await user.type(screen.getByPlaceholderText(/搜索模型或供应商/), "veo");
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+
+    // Re-render with searchable disabled — search box hides; list must not
+    // remain filtered by the now-invisible query.
+    rerender(
+      <ProviderModelSelect
+        value=""
+        options={MANY_OPTIONS}
+        providerNames={MANY_PROVIDER_NAMES}
+        onChange={() => {}}
+        searchable={false}
+      />,
+    );
+    expect(screen.queryByPlaceholderText(/搜索模型或供应商/)).toBeNull();
+    expect(screen.getAllByRole("option")).toHaveLength(MANY_OPTIONS.length);
+  });
+
   it("clears query when an option is selected", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
