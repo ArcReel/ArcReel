@@ -841,6 +841,9 @@ export default {
   // ProviderModelSelect
   'select_model_placeholder': 'Select model...',
   'select_model_aria': 'Select model',
+  'search_model_placeholder': 'Search models or providers...',
+  'search_model_aria': 'Search models or providers',
+  'no_models_match': 'No matching models',
 
   // ImagePromptEditor / VideoPromptEditor / DialogueListEditor
   'composition_params': 'Composition',

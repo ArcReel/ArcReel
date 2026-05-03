@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Check } from "lucide-react";
+import { ChevronDown, Check, Search } from "lucide-react";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
 
 interface ProviderModelSelectProps {
@@ -19,6 +19,10 @@ interface ProviderModelSelectProps {
   fallbackValue?: string;
   /** Accessible label for the trigger button */
   "aria-label"?: string;
+  /** Enable in-dropdown search input. Defaults to true. */
+  searchable?: boolean;
+  /** Minimum option count to actually render the search input. Defaults to 6. */
+  searchThreshold?: number;
 }
 
 interface FlatOption {
@@ -53,14 +57,20 @@ export function ProviderModelSelect({
   defaultHint,
   fallbackValue,
   "aria-label": ariaLabel,
+  searchable = true,
+  searchThreshold = 6,
 }: ProviderModelSelectProps) {
   const { t } = useTranslation("dashboard");
   const resolvedPlaceholder = placeholder ?? t("select_model_placeholder");
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
+
+  const showSearch = searchable && options.length >= searchThreshold;
 
   // Memoize grouped so flatOptions below has a stable reference when options
   // hasn't changed; otherwise every render creates a new `grouped` object,
@@ -68,13 +78,33 @@ export function ProviderModelSelect({
   // breaking keyboard ArrowUp/ArrowDown navigation.
   const grouped = useMemo(() => groupByProvider(options), [options]);
 
+  // Apply search filter to grouped options.
+  const filteredGrouped = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return grouped;
+    const out: Record<string, string[]> = {};
+    for (const [providerId, models] of Object.entries(grouped)) {
+      const providerLabel = (providerNames[providerId] || providerId).toLowerCase();
+      if (providerLabel.includes(q)) {
+        out[providerId] = models;
+        continue;
+      }
+      const matched = models.filter((m) => m.toLowerCase().includes(q));
+      if (matched.length > 0) out[providerId] = matched;
+    }
+    return out;
+  }, [grouped, query, providerNames]);
+
+  const hasQuery = query.trim().length > 0;
+  const showDefault = !!allowDefault && !hasQuery;
+
   // Build a flat list of selectable options for keyboard navigation
   const flatOptions = useMemo(() => {
     const list: FlatOption[] = [];
-    if (allowDefault) {
+    if (showDefault) {
       list.push({ type: "default", fullValue: "" });
     }
-    for (const [providerId, models] of Object.entries(grouped)) {
+    for (const [providerId, models] of Object.entries(filteredGrouped)) {
       for (const model of models) {
         list.push({
           type: "option",
@@ -83,13 +113,14 @@ export function ProviderModelSelect({
       }
     }
     return list;
-  }, [allowDefault, grouped]);
+  }, [showDefault, filteredGrouped]);
 
   // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
+        setQuery("");
       }
     };
     document.addEventListener("mousedown", handler);
@@ -104,6 +135,14 @@ export function ProviderModelSelect({
     }
   }, [open, flatOptions, value]);
 
+  // Auto-focus search input when opening (if visible)
+  useEffect(() => {
+    if (open && showSearch) {
+      const id = requestAnimationFrame(() => inputRef.current?.focus());
+      return () => cancelAnimationFrame(id);
+    }
+  }, [open, showSearch]);
+
   // Scroll active item into view
   useEffect(() => {
     if (open) {
@@ -115,12 +154,53 @@ export function ProviderModelSelect({
     (optValue: string) => {
       onChange(optValue);
       setOpen(false);
+      setQuery("");
       triggerRef.current?.focus();
     },
     [onChange],
   );
 
-  const handleKeyDown = useCallback(
+  const handleListKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault();
+          if (flatOptions.length > 0) {
+            setActiveIndex((prev) => (prev + 1) % flatOptions.length);
+          }
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          if (flatOptions.length > 0) {
+            setActiveIndex((prev) => (prev - 1 + flatOptions.length) % flatOptions.length);
+          }
+          break;
+        case "Home":
+          e.preventDefault();
+          setActiveIndex(0);
+          break;
+        case "End":
+          e.preventDefault();
+          setActiveIndex(Math.max(0, flatOptions.length - 1));
+          break;
+        case "Enter": {
+          e.preventDefault();
+          const opt = flatOptions[activeIndex];
+          if (opt) selectOption(opt.fullValue);
+          break;
+        }
+        case "Escape":
+          e.preventDefault();
+          setOpen(false);
+          setQuery("");
+          triggerRef.current?.focus();
+          break;
+      }
+    },
+    [flatOptions, activeIndex, selectOption],
+  );
+
+  const handleTriggerKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (!open) {
         if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") {
@@ -130,39 +210,17 @@ export function ProviderModelSelect({
         }
         return;
       }
-
-      switch (e.key) {
-        case "ArrowDown":
-          e.preventDefault();
-          setActiveIndex((prev) => (prev + 1) % flatOptions.length);
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          setActiveIndex((prev) => (prev - 1 + flatOptions.length) % flatOptions.length);
-          break;
-        case "Home":
-          e.preventDefault();
-          setActiveIndex(0);
-          break;
-        case "End":
-          e.preventDefault();
-          setActiveIndex(flatOptions.length - 1);
-          break;
-        case "Enter":
-        case " ": {
-          e.preventDefault();
-          const opt = flatOptions[activeIndex];
-          if (opt) selectOption(opt.fullValue);
-          break;
-        }
-        case "Escape":
-          e.preventDefault();
-          setOpen(false);
-          triggerRef.current?.focus();
-          break;
+      // When search is hidden, the trigger button retains focus and handles
+      // navigation directly. With search visible, focus moves to the input.
+      if (e.key === " ") {
+        e.preventDefault();
+        const opt = flatOptions[activeIndex];
+        if (opt) selectOption(opt.fullValue);
+        return;
       }
+      handleListKeyDown(e);
     },
-    [open, flatOptions, activeIndex, selectOption],
+    [open, flatOptions, activeIndex, selectOption, handleListKeyDown],
   );
 
   const slashIdx = value ? value.indexOf("/") : -1;
@@ -184,7 +242,7 @@ export function ProviderModelSelect({
     open && flatOptions.length > 0 ? `${LISTBOX_ID}-option-${activeIndex}` : undefined;
 
   // Track flat index across grouped rendering
-  let flatIdx = allowDefault ? 1 : 0;
+  let flatIdx = showDefault ? 1 : 0;
 
   return (
     <div ref={containerRef} className={`relative ${className || ""}`}>
@@ -199,7 +257,7 @@ export function ProviderModelSelect({
         aria-activedescendant={activeDescendantId}
         aria-label={ariaLabel}
         onClick={() => setOpen(!open)}
-        onKeyDown={handleKeyDown}
+        onKeyDown={handleTriggerKeyDown}
         className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-700 bg-gray-900/80 px-3 py-2 text-sm text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-800/80 focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
       >
         <span className={`truncate ${showFallback ? "text-gray-400" : ""}`}>{displayText}</span>
@@ -210,81 +268,111 @@ export function ProviderModelSelect({
 
       {/* Dropdown panel */}
       {open && (
-        <div
-          id={LISTBOX_ID}
-          role="listbox"
-          aria-label={t("select_model_aria")}
-          className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl"
-        >
-          {allowDefault && (
-            <button
-              ref={(el) => {
-                if (el) itemRefs.current.set(0, el);
-                else itemRefs.current.delete(0);
-              }}
-              id={`${LISTBOX_ID}-option-0`}
-              role="option"
-              aria-selected={value === ""}
-              type="button"
-              onClick={() => selectOption("")}
-              onMouseEnter={() => setActiveIndex(0)}
-              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                activeIndex === 0 ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800/50"
-              }`}
-            >
-              <span>{defaultLabel ?? t("follow_global_default")}</span>
-              {defaultHint && (
-                <span className="ml-auto text-xs text-gray-500">{defaultHint}</span>
-              )}
-            </button>
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
+          {showSearch && (
+            <div className="relative border-b border-gray-800 p-2">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setActiveIndex(0);
+                }}
+                onKeyDown={handleListKeyDown}
+                placeholder={t("search_model_placeholder")}
+                aria-label={t("search_model_aria")}
+                aria-controls={LISTBOX_ID}
+                autoComplete="off"
+                spellCheck={false}
+                className="w-full rounded-md border border-gray-700 bg-gray-950/80 py-1.5 pl-8 pr-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60"
+              />
+            </div>
           )}
 
-          {Object.entries(grouped).map(([providerId, models]) => (
-            <div key={providerId} role="presentation">
-              {/* Group header */}
-              <div
-                role="presentation"
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-gray-500 bg-gray-950/50"
+          <div
+            id={LISTBOX_ID}
+            role="listbox"
+            aria-label={t("select_model_aria")}
+            className="max-h-60 overflow-y-auto"
+          >
+            {showDefault && (
+              <button
+                ref={(el) => {
+                  if (el) itemRefs.current.set(0, el);
+                  else itemRefs.current.delete(0);
+                }}
+                id={`${LISTBOX_ID}-option-0`}
+                role="option"
+                aria-selected={value === ""}
+                type="button"
+                onClick={() => selectOption("")}
+                onMouseEnter={() => setActiveIndex(0)}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                  activeIndex === 0 ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800/50"
+                }`}
               >
-                <ProviderIcon providerId={providerId} className="h-3.5 w-3.5" />
-                {providerNames[providerId] || providerId}
+                <span>{defaultLabel ?? t("follow_global_default")}</span>
+                {defaultHint && (
+                  <span className="ml-auto text-xs text-gray-500">{defaultHint}</span>
+                )}
+              </button>
+            )}
+
+            {Object.entries(filteredGrouped).map(([providerId, models]) => (
+              <div key={providerId} role="presentation">
+                {/* Group header */}
+                <div
+                  role="presentation"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-gray-500 bg-gray-950/50"
+                >
+                  <ProviderIcon providerId={providerId} className="h-3.5 w-3.5" />
+                  {providerNames[providerId] || providerId}
+                </div>
+                {/* Model options */}
+                {models.map((model) => {
+                  const currentFlatIdx = flatIdx++;
+                  const fullValue = `${providerId}/${model}`;
+                  const isSelected = fullValue === value;
+                  const isActive = currentFlatIdx === activeIndex;
+                  return (
+                    <button
+                      key={fullValue}
+                      ref={(el) => {
+                        if (el) itemRefs.current.set(currentFlatIdx, el);
+                        else itemRefs.current.delete(currentFlatIdx);
+                      }}
+                      id={`${LISTBOX_ID}-option-${currentFlatIdx}`}
+                      role="option"
+                      aria-selected={isSelected}
+                      type="button"
+                      onClick={() => selectOption(fullValue)}
+                      onMouseEnter={() => setActiveIndex(currentFlatIdx)}
+                      className={`flex w-full items-center gap-1.5 px-3 py-2 pl-6 text-left text-sm transition-colors ${
+                        isActive
+                          ? "bg-gray-800 text-white"
+                          : "text-gray-300 hover:bg-gray-800/50"
+                      }`}
+                    >
+                      {isSelected ? (
+                        <Check className="h-3.5 w-3.5 shrink-0" />
+                      ) : (
+                        <span className="h-3.5 w-3.5 shrink-0" />
+                      )}
+                      <span className="truncate">{model}</span>
+                    </button>
+                  );
+                })}
               </div>
-              {/* Model options */}
-              {models.map((model) => {
-                const currentFlatIdx = flatIdx++;
-                const fullValue = `${providerId}/${model}`;
-                const isSelected = fullValue === value;
-                const isActive = currentFlatIdx === activeIndex;
-                return (
-                  <button
-                    key={fullValue}
-                    ref={(el) => {
-                      if (el) itemRefs.current.set(currentFlatIdx, el);
-                      else itemRefs.current.delete(currentFlatIdx);
-                    }}
-                    id={`${LISTBOX_ID}-option-${currentFlatIdx}`}
-                    role="option"
-                    aria-selected={isSelected}
-                    type="button"
-                    onClick={() => selectOption(fullValue)}
-                    onMouseEnter={() => setActiveIndex(currentFlatIdx)}
-                    className={`flex w-full items-center gap-1.5 px-3 py-2 pl-6 text-left text-sm transition-colors ${
-                      isActive
-                        ? "bg-gray-800 text-white"
-                        : "text-gray-300 hover:bg-gray-800/50"
-                    }`}
-                  >
-                    {isSelected ? (
-                      <Check className="h-3.5 w-3.5 shrink-0" />
-                    ) : (
-                      <span className="h-3.5 w-3.5 shrink-0" />
-                    )}
-                    <span className="truncate">{model}</span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+            ))}
+
+            {flatOptions.length === 0 && (
+              <div role="status" className="px-3 py-3 text-center text-sm text-gray-500">
+                {t("no_models_match")}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

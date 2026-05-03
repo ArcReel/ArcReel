@@ -842,6 +842,9 @@ export default {
   // ProviderModelSelect
   'select_model_placeholder': '选择模型…',
   'select_model_aria': '选择模型',
+  'search_model_placeholder': '搜索模型或供应商…',
+  'search_model_aria': '搜索模型或供应商',
+  'no_models_match': '未找到匹配模型',
 
   // ImagePromptEditor / VideoPromptEditor / DialogueListEditor
   'composition_params': '构图参数',
