@@ -92,7 +92,8 @@ def _to_safe(obj: Any, key_hint: str | None = None) -> Any:
         if len(items) > _LIST_TRUNCATE_AT:
             head = [_to_safe(x) for x in items[:_LIST_HEAD]]
             tail = [_to_safe(x) for x in items[-_LIST_TAIL:]]
-            return [*head, f"...省略 {len(items) - _LIST_HEAD - _LIST_TAIL} 项...", *tail]
+            omitted = len(items) - _LIST_HEAD - _LIST_TAIL
+            return [*head, f"<omitted:{omitted}>", *tail]
         return [_to_safe(x) for x in items]
 
     return _truncate_str(repr(obj))

@@ -56,7 +56,8 @@ def test_long_list_truncated():
     parsed = json.loads(out)
     msgs = parsed["messages"]
     assert msgs[:5] == [0, 1, 2, 3, 4]
-    assert "省略 13 项" in msgs[5]
+    assert isinstance(msgs[5], str)
+    assert msgs[5] == "<omitted:13>"
     assert msgs[-2:] == [18, 19]
 
 
