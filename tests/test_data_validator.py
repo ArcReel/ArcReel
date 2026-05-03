@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from lib.data_validator import DataValidator, validate_episode, validate_project
 
 
@@ -151,10 +153,39 @@ class TestDataValidator:
         assert not result.valid
         assert any("episode (整数)" in error for error in result.errors)
         assert any("segment_id 格式错误" in error for error in result.errors)
-        assert any("duration_seconds 值无效" in error for error in result.errors)
+        # 5 是正整数 → 合法，不应再报 duration_seconds 错误
+        assert not any("duration_seconds 值无效" in error for error in result.errors)
         assert any("不存在于 project.json 的角色" in error for error in result.errors)
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
         assert any("不存在于 project.json 的道具" in error for error in result.errors)
+
+    @pytest.mark.parametrize("bad_duration", [0, -1, "5", 4.5, True])
+    def test_validate_episode_rejects_non_positive_integer_duration(self, tmp_path, bad_duration):
+        """非正整数的 duration_seconds 仍应报错（0 / 负数 / 字符串 / 浮点 / bool）。"""
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload("narration"))
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "x",
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": bad_duration,
+                        "novel_text": "x",
+                        "image_prompt": "x",
+                        "video_prompt": "x",
+                    }
+                ],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert not result.valid, f"bad={bad_duration}"
+        assert any("duration_seconds 值无效" in e for e in result.errors), f"bad={bad_duration}; errors={result.errors}"
 
     def test_validate_episode_drama_mode(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
