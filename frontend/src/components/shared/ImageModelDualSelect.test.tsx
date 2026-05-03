@@ -211,6 +211,20 @@ describe("ImageModelDualSelect — 渐进式 UI", () => {
     });
   });
 
+  it("两槽值相等但所选模型仅单能力 → 进入双下拉模式（覆盖迁移残留 / 异常初始状态）", () => {
+    render(
+      <ImageModelDualSelect
+        valueT2I="custom-1/t2i-only"
+        valueI2I="custom-1/t2i-only"
+        options={OPTIONS}
+        providerNames={PROVIDER_NAMES}
+        customProviders={CUSTOM_PROVIDERS}
+        onChange={() => {}}
+      />,
+    );
+    expect(screen.getAllByRole("combobox")).toHaveLength(2);
+  });
+
   it("两槽值不一致时进入双下拉模式（2 个 combobox）", () => {
     render(
       <ImageModelDualSelect

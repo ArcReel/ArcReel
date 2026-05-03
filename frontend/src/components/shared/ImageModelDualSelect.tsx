@@ -114,8 +114,17 @@ export function ImageModelDualSelect({
     [customProviders, endpointToCaps],
   );
 
-  // 双下拉模式：两槽值不一致（含一空一非空）。单下拉模式：两槽值相等。
-  const isDualMode = valueT2I !== valueI2I;
+  // 双下拉模式条件：
+  // (1) 两槽值不一致（一空一非空 / 两不同模型）—— 用户已处于配置双槽状态；
+  // (2) 两槽值相等且非空，但所选模型仅单能力 —— 异常初始状态（迁移残留或外部数据错配）
+  //     需露出另一槽位让用户补全。catalog 异步就绪时本 useMemo 依赖 capsLookup，
+  //     会自动重算 → 单能力会从 BOTH fallback 转为真实 caps，UI 自动展开为双下拉。
+  const isDualMode = useMemo(() => {
+    if (valueT2I !== valueI2I) return true;
+    if (!valueT2I) return false;
+    const caps = capsOf(valueT2I, capsLookup);
+    return !caps.t2i || !caps.i2i;
+  }, [valueT2I, valueI2I, capsLookup]);
 
   const t2iOptions = useMemo(
     () => options.filter((o) => capsOf(o, capsLookup).t2i),
