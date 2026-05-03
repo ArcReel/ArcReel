@@ -23,6 +23,11 @@ def test_bytes_summarized():
     assert json.loads(out) == {"image": "<bytes:4>"}
 
 
+def test_bytearray_summarized():
+    out = format_kwargs_for_log({"image": bytearray(b"\x00\x01\x02\x03\x04")})
+    assert json.loads(out) == {"image": "<bytes:5>"}
+
+
 def test_nested_dict_recursion():
     payload = {"outer": {"inner": {"prompt": "x" * 1000}}}
     out = format_kwargs_for_log(payload)
@@ -131,12 +136,28 @@ def test_formatter_swallows_internal_errors():
     assert parsed == {"x": "Boom()"}
 
 
-def test_formatter_returns_fallback_when_repr_explodes():
+def test_fallback_returns_fixed_placeholder_not_raw_repr():
+    """_to_safe 抛错时必须返回固定占位符，不能回退到 repr(payload)，
+    否则会把未脱敏的原始对象内容（含敏感字段字面量）重新带回日志。"""
+
     class Disaster:
         def __repr__(self) -> str:
             raise RuntimeError("repr exploded")
 
     out = format_kwargs_for_log(Disaster())
+    assert out == "<unserializable>"
+
+
+def test_fallback_does_not_leak_sensitive_via_repr(monkeypatch):
+    """即使 _to_safe 抛错，也不应通过 repr 路径把 api_key 等字面量泄漏到日志。"""
+    from lib import logging_utils
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated _to_safe failure")
+
+    monkeypatch.setattr(logging_utils, "_to_safe", boom)
+    out = logging_utils.format_kwargs_for_log({"api_key": "sk-real-secret-1234"})
+    assert "sk-real-secret-1234" not in out
     assert out == "<unserializable>"
 
 

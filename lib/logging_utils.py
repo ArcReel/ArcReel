@@ -117,7 +117,6 @@ def format_kwargs_for_log(payload: Any) -> str:
         safe = _to_safe(payload)
         return json.dumps(safe, ensure_ascii=False, default=str)
     except Exception:
-        try:
-            return _truncate_str(repr(payload))
-        except Exception:
-            return "<unserializable>"
+        # 不能回退到 repr(payload)：原始对象未经脱敏，可能把敏感字段
+        # 字面量重新带回日志，绕过前面所有的脱敏逻辑。固定占位符更安全。
+        return "<unserializable>"
