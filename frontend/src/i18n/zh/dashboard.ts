@@ -661,6 +661,7 @@ export default {
   'supported_durations_summary': '支持秒数：{{value}}',
   'duration_incompatible_warning': '当前秒数 {{value}} 不在模型支持范围 [{{supported}}] 内',
   'duration_seconds_value_text': '{{value}} 秒',
+  'duration_no_options': '当前模型未配置可用时长，无法修改',
   'add_model_manually': '手动添加模型',
   'discover_or_add_hint': '点击「获取模型列表」自动发现，或',
   'test_connection': '测试连接',

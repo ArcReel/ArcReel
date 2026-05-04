@@ -222,18 +222,26 @@ function DurationSelector({
   }
 
   const useSlider = isContinuousIntegerRange(durationOptions) && durationOptions.length >= 5;
+  // 当上层未提供任何可选时长（比如 model 没配 supported_durations），按钮不应弹出空 popover
+  const noOptions = durationOptions.length === 0;
 
   return (
     <>
       <button
         ref={ref}
-        onClick={() => setOpen((o) => !o)}
-        className={`inline-flex cursor-pointer items-center gap-0.5 rounded px-1.5 py-0.5 text-xs hover:bg-gray-600 focus-ring ${
+        type="button"
+        onClick={() => !noOptions && setOpen((o) => !o)}
+        disabled={noOptions}
+        aria-disabled={noOptions || undefined}
+        title={noOptions ? t("duration_no_options") : undefined}
+        className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs focus-ring ${
+          noOptions ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-gray-600"
+        } ${
           isIncompatible ? "bg-amber-900/40 text-amber-200" : "bg-gray-700 text-gray-300"
         }`}
       >
         <Clock aria-hidden="true" className="h-3 w-3" />
-        {seconds}s
+        {t("duration_seconds_value_text", { value: seconds })}
         {isIncompatible && (
           <span aria-label={incompatibleLabel} title={incompatibleLabel} className="ml-0.5">
             ⚠
@@ -264,7 +272,9 @@ function DurationSelector({
               }}
               className="w-40"
             />
-            <span className="min-w-[2rem] text-right text-xs text-gray-200">{seconds}s</span>
+            <span className="min-w-[2rem] text-right text-xs text-gray-200">
+              {t("duration_seconds_value_text", { value: seconds })}
+            </span>
           </div>
         ) : (
           <div className="flex gap-1" role="radiogroup" aria-label={t("duration_selector_aria")}>
@@ -281,7 +291,7 @@ function DurationSelector({
                   d === seconds ? "bg-indigo-600 text-white" : "text-gray-300 hover:bg-gray-700"
                 }`}
               >
-                {d}s
+                {t("duration_seconds_value_text", { value: d })}
               </button>
             ))}
           </div>

@@ -660,6 +660,7 @@ export default {
   'supported_durations_summary': 'Supported durations: {{value}}',
   'duration_incompatible_warning': 'Selected {{value}}s not in model-supported [{{supported}}]',
   'duration_seconds_value_text': '{{value}}s',
+  'duration_no_options': 'Current model has no configured durations — cannot change',
   'add_model_manually': 'Add model manually',
   'discover_or_add_hint': 'Click "Discover Models" to auto-discover, or',
   'test_connection': 'Test Connection',

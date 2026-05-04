@@ -317,6 +317,7 @@ function DurationButtonGroup({
   ariaLabel: string;
   autoLabel: string;
 }) {
+  const { t } = useTranslation("dashboard");
   return (
     <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={ariaLabel}>
       <button
@@ -340,7 +341,7 @@ function DurationButtonGroup({
           type="button"
           role="radio"
           aria-checked={value === d}
-          aria-label={`${d}s`}
+          aria-label={t("duration_seconds_value_text", { value: d })}
           tabIndex={value === d ? 0 : -1}
           onClick={() => onChange(d)}
           className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
@@ -349,7 +350,7 @@ function DurationButtonGroup({
               : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
           }`}
         >
-          {d}s
+          {t("duration_seconds_value_text", { value: d })}
         </button>
       ))}
     </div>

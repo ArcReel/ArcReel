@@ -109,10 +109,10 @@ describe("ModelConfigSection", () => {
         globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
       />,
     );
-    expect(screen.getByRole("radio", { name: "4s" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "6s" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "8s" })).toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: "5s" })).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "4 秒" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "6 秒" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "8 秒" })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "5 秒" })).not.toBeInTheDocument();
 
     rerender(
       <ModelConfigSection
@@ -123,10 +123,10 @@ describe("ModelConfigSection", () => {
         globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
       />,
     );
-    expect(screen.getByRole("radio", { name: "5s" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "8s" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "10s" })).toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: "4s" })).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "5 秒" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "8 秒" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "10 秒" })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
   });
 
   it("resets defaultDuration to null when video backend change drops current duration", async () => {
@@ -216,12 +216,12 @@ describe("ModelConfigSection", () => {
       />,
     );
     // Should reflect ark/seedance's supported_durations [5, 8, 10]
-    expect(screen.getByRole("radio", { name: "5s" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "8s" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "10s" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "5 秒" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "8 秒" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "10 秒" })).toBeInTheDocument();
     // Should NOT show DEFAULT_DURATIONS buttons that ark/seedance doesn't support
-    expect(screen.queryByRole("radio", { name: "4s" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: "6s" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "6 秒" })).not.toBeInTheDocument();
   });
 
   it("hides duration picker when videoBackend is empty and no global default", () => {
@@ -235,9 +235,9 @@ describe("ModelConfigSection", () => {
       />,
     );
     // 不再 fallback 到 [4,6,8] —— 整个时长卡片不渲染
-    expect(screen.queryByRole("radio", { name: "4s" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: "6s" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: "8s" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "6 秒" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "8 秒" })).not.toBeInTheDocument();
   });
 
   it("renders slider when supported_durations is continuous integer range ≥ 5", () => {
@@ -275,7 +275,7 @@ describe("ModelConfigSection", () => {
     );
     // 连续区间 → slider，不再有按钮组（除 auto + slider 自身的 radio）
     expect(screen.getByRole("slider")).toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: "3s" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "3 秒" })).not.toBeInTheDocument();
   });
 
   it("hides duration picker when effective backend has no supported_durations", () => {
@@ -315,8 +315,8 @@ describe("ModelConfigSection", () => {
         globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
       />,
     );
-    expect(screen.getByRole("radio", { name: "6s" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("radio", { name: "4s" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("radio", { name: "6 秒" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "4 秒" })).toHaveAttribute("aria-checked", "false");
   });
 
   it("calls onChange with updated defaultDuration when duration button clicked", async () => {
@@ -331,7 +331,7 @@ describe("ModelConfigSection", () => {
         globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
       />,
     );
-    await user.click(screen.getByRole("radio", { name: "6s" }));
+    await user.click(screen.getByRole("radio", { name: "6 秒" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultDuration: 6 }));
   });
 });

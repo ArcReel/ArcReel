@@ -29,62 +29,51 @@ describe("parseDurationInput", () => {
     expect(parseDurationInput("   ")).toBeNull();
   });
 
-  it("仅含分隔符的输入抛错（empty_after_split）", () => {
+  // 用工具函数：先 .toThrow 强断言确实抛错，再捕获验证 code/params
+  const expectErr = (input: string, code: string) => {
+    expect(() => parseDurationInput(input)).toThrow(DurationParseError);
+    let caught: DurationParseError | null = null;
+    try {
+      parseDurationInput(input);
+    } catch (e) {
+      caught = e as DurationParseError;
+    }
+    expect(caught).toBeInstanceOf(DurationParseError);
+    expect(caught!.code).toBe(code);
+  };
+
+  it("仅含分隔符的输入抛 empty_after_split", () => {
     // 防止 "," / ", ," 等被静默解析为 []
-    const cases = [",", ", ,", " , , ", ",,,"];
-    for (const c of cases) {
-      expect(() => parseDurationInput(c)).toThrow(DurationParseError);
-      try {
-        parseDurationInput(c);
-      } catch (e) {
-        expect((e as DurationParseError).code).toBe("empty_after_split");
-      }
+    for (const c of [",", ", ,", " , , ", ",,,"]) {
+      expectErr(c, "empty_after_split");
     }
   });
 
   it("非法片段抛带 code 的 DurationParseError", () => {
-    const expectCode = (input: string, code: string) => {
-      try {
-        parseDurationInput(input);
-        throw new Error(`${input} 未抛错`);
-      } catch (e) {
-        expect(e).toBeInstanceOf(DurationParseError);
-        expect((e as DurationParseError).code).toBe(code);
-      }
-    };
-    expectCode("abc", "unparseable");
-    expectCode("4, abc", "unparseable");
-    expectCode("10-3", "range_inverted");
-    expectCode("0-5", "non_positive");
-    expectCode("-3", "unparseable");
-    expectCode("4--6", "unparseable");
+    expectErr("abc", "unparseable");
+    expectErr("4, abc", "unparseable");
+    expectErr("10-3", "range_inverted");
+    expectErr("0-5", "non_positive");
+    expectErr("-3", "unparseable");
+    expectErr("4--6", "unparseable");
   });
 
   it("拒绝过大区间", () => {
-    try {
-      parseDurationInput("1-100");
-    } catch (e) {
-      expect((e as DurationParseError).code).toBe("range_too_large");
-    }
+    expectErr("1-100", "range_too_large");
   });
 
   it("拒绝超出单值上限 60 秒", () => {
-    try {
-      parseDurationInput("99999");
-    } catch (e) {
-      expect((e as DurationParseError).code).toBe("exceeds_max");
-    }
-    try {
-      parseDurationInput("4, 100");
-    } catch (e) {
-      expect((e as DurationParseError).code).toBe("exceeds_max");
-    }
+    expectErr("99999", "exceeds_max");
+    expectErr("4, 100", "exceeds_max");
     // 99 - 4 = 95 > MAX_RANGE_SPAN(30)，range_too_large 优先
+    expect(() => parseDurationInput("4-99")).toThrow(DurationParseError);
+    let caught: DurationParseError | null = null;
     try {
       parseDurationInput("4-99");
     } catch (e) {
-      expect(["range_too_large", "exceeds_max"]).toContain((e as DurationParseError).code);
+      caught = e as DurationParseError;
     }
+    expect(["range_too_large", "exceeds_max"]).toContain(caught!.code);
   });
 
   it("60 作为单值仍合法", () => {

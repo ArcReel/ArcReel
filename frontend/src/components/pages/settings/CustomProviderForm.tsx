@@ -93,17 +93,10 @@ function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
 
 function rowToInput(r: ModelRow): CustomProviderModelInput {
   const trimmed = r.supported_durations_text.trim();
-  let supported_durations: number[] | null = null;
-  if (trimmed) {
-    // 解析失败时不让 throw 冒泡到提交链路：UI 已用红色提示阻止用户保存非法格式；
-    // 万一用户绕过 UI 警告强行点击保存，这里把无效输入降级为 null（让后端按 preset 兜底）
-    // 而不是炸掉整个表单提交。校验前端在 validateModels() 里再次拦截。
-    try {
-      supported_durations = parseDurationInput(trimmed);
-    } catch {
-      supported_durations = null;
-    }
-  }
+  // 失败时直接抛 DurationParseError；handleSave 在调用前应已通过 validateModelDurations 拦截，
+  // 故此处只负责诚实地把字符串转成 list[int] 而不静默降级（避免无效输入被改成 null
+  // 后被后端 preset 自动推断覆盖，造成静默数据偏移）
+  const supported_durations = trimmed ? parseDurationInput(trimmed) : null;
   return {
     model_id: r.model_id,
     display_name: r.display_name || r.model_id,
@@ -328,6 +321,20 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       showError(t("enabled_model_needs_id"));
       return;
     }
+    // 在拼装 payload 前显式校验所有行的 supported_durations 格式：失败则阻断保存，
+    // 让用户回去修正标红字段；不再让 rowToInput 静默把非法降级为 null
+    let payloadModels: CustomProviderModelInput[];
+    try {
+      payloadModels = models.map(rowToInput);
+    } catch (e) {
+      if (e instanceof DurationParseError) {
+        const msg = t(DURATION_ERROR_KEY[e.code], e.params);
+        showError(t("supported_durations_invalid", { message: msg }));
+      } else {
+        showError(t("save_failed", { message: errMsg(e) }));
+      }
+      return;
+    }
     setSaving(true);
     try {
       if (isEdit && existing) {
@@ -336,7 +343,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           display_name: displayName,
           base_url: baseUrl,
           ...(apiKey ? { api_key: apiKey } : {}),
-          models: models.map(rowToInput),
+          models: payloadModels,
         });
       } else {
         await API.createCustomProvider({
@@ -344,7 +351,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           discovery_format: discoveryFormat,
           base_url: baseUrl,
           api_key: apiKey,
-          models: models.map(rowToInput),
+          models: payloadModels,
         });
       }
       onSaved();
