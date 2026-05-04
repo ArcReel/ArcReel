@@ -40,6 +40,21 @@ describe("parseDurationInput", () => {
   it("拒绝过大区间", () => {
     expect(() => parseDurationInput("1-100")).toThrow(/区间过大/);
   });
+
+  it("拒绝超出单值上限 60 秒", () => {
+    expect(() => parseDurationInput("99999")).toThrow(/不能超过/);
+    expect(() => parseDurationInput("4, 100")).toThrow(/不能超过/);
+    // 99 - 4 = 95 > MAX_RANGE_SPAN(30)，区间过大优先；hi 越界亦可
+    expect(() => parseDurationInput("4-99")).toThrow(/不能超过|过大/);
+  });
+
+  it("60 作为单值仍合法", () => {
+    expect(parseDurationInput("60")).toEqual([60]);
+  });
+
+  it("1-30 作为区间仍合法", () => {
+    expect(parseDurationInput("1-30")).toHaveLength(30);
+  });
 });
 
 describe("isContinuousIntegerRange", () => {

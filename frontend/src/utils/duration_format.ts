@@ -6,6 +6,7 @@
  */
 
 const MAX_RANGE_SPAN = 30;
+const MAX_SINGLE_VALUE = 60;
 
 /**
  * 解析用户输入的逗号分隔时长文本，支持区间简写。
@@ -29,6 +30,9 @@ export function parseDurationInput(text: string): number[] | null {
     if (/^\d+$/.test(seg)) {
       const n = parseInt(seg, 10);
       if (n <= 0) throw new Error(`非法片段 '${seg}'：必须是正整数`);
+      if (n > MAX_SINGLE_VALUE) {
+        throw new Error(`非法片段 '${seg}'：单值不能超过 ${MAX_SINGLE_VALUE} 秒`);
+      }
       result.add(n);
       continue;
     }
@@ -40,6 +44,9 @@ export function parseDurationInput(text: string): number[] | null {
       if (hi < lo) throw new Error(`非法片段 '${seg}'：区间右端必须 ≥ 左端`);
       if (hi - lo > MAX_RANGE_SPAN) {
         throw new Error(`非法片段 '${seg}'：区间过大（>${MAX_RANGE_SPAN}）`);
+      }
+      if (hi > MAX_SINGLE_VALUE) {
+        throw new Error(`非法片段 '${seg}'：单值不能超过 ${MAX_SINGLE_VALUE} 秒`);
       }
       for (let i = lo; i <= hi; i++) result.add(i);
       continue;
